@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Workflows - ignore everything except the example
+workflows/*
+!workflows/workflow_fixed_node.json
+
+# Temp files
+/tmp/
+*.tmp
