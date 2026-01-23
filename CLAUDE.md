@@ -47,6 +47,22 @@ In the tables below, `WF` = workflow file path.
 | `fetch WF NODE [-s\|--source] [-f\|--full]` | Fetch node source from GitHub |
 | `fetch WF NODE -S TERM` | Search node source for term |
 
+### ComfyUI Integration
+| Command | Purpose |
+|---------|---------|
+| `submit WF` | Submit workflow to ComfyUI for execution (auto-converts format) |
+| `logs [-n LINES]` | Read ComfyUI logs (last 50 lines by default) |
+
+**Setup** - if `submit`/`logs` don't work:
+
+1. **Find ComfyUI**: `mdfind -name "main.py" | grep -i comfy` (macOS), `find ~ -type d -name "ComfyUI"` (Linux), or `Get-ChildItem -Path ~ -Recurse -Directory -Filter "ComfyUI"` (Windows)
+
+2. **Create .env**: `COMFY_PATH=/path/to/ComfyUI` (add `COMFY_URL=...` if non-default port)
+
+3. **Enable logging**: User must run from ComfyUI dir: `cd /path/to/ComfyUI && python main.py 2>&1 | tee comfyui.log` (use `Tee-Object` on Windows)
+
+**If submit fails**: Check `logs` for traceback, use `trace`/`verify` to investigate.
+
 ## Batch Scripts
 
 **Use batch scripts for multi-step edits.** Use `--dry-run` to preview.

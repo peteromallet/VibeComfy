@@ -1,43 +1,24 @@
 #!/usr/bin/env python3
 """
-ComfyUI Workflow CLI Tool
-
-Commands:
-  Analysis:
-    info       - Show workflow summary
-    analyze    - Analyze workflow structure (entry/exit points, pipelines)
-    query      - Find nodes by type or ID
-    trace      - Trace connections to/from a node
-    graph      - Show the workflow as a text graph
-    path       - Find path between two nodes
-    subgraph   - Show all nodes between two points
-    upstream   - Show all nodes upstream of a target
-    downstream - Show all nodes downstream of a source
-    values     - Show detailed widget values for a node
-    orphans    - Find nodes with unconnected inputs
-    dangling   - Find nodes with unconnected outputs
-    verify     - Verify workflow integrity
-    diff       - Compare two workflow files
-
-  Editing:
-    delete   - Remove nodes and their links
-    copy     - Duplicate a node as template
-    wire     - Connect/disconnect nodes
-    set      - Set widget values on a node
-    create   - Create a new node
-    inline   - Replace GetNode/SetNode with direct connections
-    batch    - Execute operations from a script
-
-  Layout/Visualization:
-    layout    - Arrange nodes
-    visualize - Generate SVG visualization
-
-  Utilities:
-    fetch    - Fetch node source from GitHub
+ComfyUI Workflow CLI Tool - see CLAUDE.md for full command reference.
 """
 
 import argparse
 import sys
+import os
+import json
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+# Load .env if it exists
+_env_path = Path(__file__).parent / '.env'
+if _env_path.exists():
+    for line in _env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith('#') and '=' in line:
+            key, val = line.split('=', 1)
+            os.environ.setdefault(key.strip(), val.strip())
 
 from cli_tools import workflow as wf_mod
 from cli_tools import analysis
@@ -629,6 +610,158 @@ def cmd_create(args):
 
 
 # ============================================================================
+# ComfyUI Integration
+# ============================================================================
+
+def fetch_object_info():
+    """Fetch node schemas from ComfyUI's /object_info endpoint."""
+    comfy_url = os.environ.get('COMFY_URL', 'http://127.0.0.1:8188')
+    url = f"{comfy_url.rstrip('/')}/object_info"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return json.loads(resp.read().decode('utf-8'))
+    except:
+        return None
+
+
+def convert_to_api_format(workflow, object_info=None):
+    """Convert UI workflow format to API format.
+
+    Args:
+        workflow: UI format workflow (with 'nodes' array)
+        object_info: Optional node schema from /object_info. If not provided,
+                     will attempt to fetch from ComfyUI.
+    """
+    # If already API format (no 'nodes' array), return as-is
+    if 'nodes' not in workflow:
+        return workflow
+
+    # Try to get object_info for proper widget name mapping
+    if object_info is None:
+        object_info = fetch_object_info()
+
+    # Build link map: link_id -> (src_node, src_slot)
+    link_map = {}
+    for link in workflow.get('links', []):
+        link_id, src_node, src_slot, dst_node, dst_slot, dtype = link
+        link_map[link_id] = (str(src_node), src_slot)
+
+    api_workflow = {}
+    for node in workflow['nodes']:
+        node_id = str(node['id'])
+        node_type = node['type']
+        inputs = {}
+
+        # Map connected inputs
+        for inp in node.get('inputs', []):
+            link_id = inp.get('link')
+            if link_id and link_id in link_map:
+                src_node, src_slot = link_map[link_id]
+                inputs[inp['name']] = [src_node, src_slot]
+
+        # Map widget values to inputs
+        widget_values = node.get('widgets_values', [])
+        if isinstance(widget_values, list) and widget_values:
+            # Get widget names from object_info if available
+            widget_names = []
+            if object_info and node_type in object_info:
+                node_info = object_info[node_type]
+                required = node_info.get('input', {}).get('required', {})
+                optional = node_info.get('input', {}).get('optional', {})
+                # Widget inputs are those that aren't connection types
+                for name, spec in {**required, **optional}.items():
+                    if isinstance(spec, list) and len(spec) > 0:
+                        dtype = spec[0]
+                        # Skip connection types
+                        if dtype not in ['MODEL', 'CLIP', 'VAE', 'CONDITIONING',
+                                        'LATENT', 'IMAGE', 'MASK', 'CONTROL_NET', '*']:
+                            widget_names.append(name)
+
+            # Map values to names (or fall back to position-based)
+            for i, val in enumerate(widget_values):
+                if val is not None:
+                    if i < len(widget_names):
+                        name = widget_names[i]
+                        if name not in inputs:  # Don't override connections
+                            inputs[name] = val
+                    # Skip values we can't map - they may be UI-only state
+        elif isinstance(widget_values, dict):
+            for k, v in widget_values.items():
+                if k not in inputs:
+                    inputs[k] = v
+
+        api_workflow[node_id] = {
+            'class_type': node['type'],
+            'inputs': inputs
+        }
+
+    return api_workflow
+
+
+def cmd_submit(args):
+    """Submit a workflow to ComfyUI for execution."""
+    # Load the workflow
+    with open(args.workflow, 'r') as f:
+        workflow = json.load(f)
+
+    # Convert to API format if needed
+    if 'nodes' in workflow:
+        object_info = fetch_object_info()
+        workflow = convert_to_api_format(workflow, object_info)
+
+    # Wrap in prompt format
+    prompt = {'prompt': workflow}
+
+    comfy_url = os.environ.get('COMFY_URL', 'http://127.0.0.1:8188')
+    url = f"{comfy_url.rstrip('/')}/prompt"
+
+    data = json.dumps(prompt).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+
+    try:
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read().decode('utf-8'))
+            print(f"Queued: prompt_id={result.get('prompt_id')}, number={result.get('number')}")
+    except urllib.error.URLError as e:
+        print(f"Error connecting to ComfyUI at {comfy_url}: {e}")
+        print("Is ComfyUI running?")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8')
+        print(f"Error from ComfyUI: {e.code}")
+        try:
+            err = json.loads(error_body)
+            if 'node_errors' in err:
+                for node_id, errors in err['node_errors'].items():
+                    print(f"  Node {node_id}: {errors}")
+        except:
+            print(error_body)
+
+
+def cmd_logs(args):
+    """Read ComfyUI logs."""
+    comfy_path = os.environ.get('COMFY_PATH')
+    if not comfy_path:
+        print("Error: COMFY_PATH not set in .env")
+        print("Add COMFY_PATH=/path/to/ComfyUI to your .env file")
+        return
+
+    log_path = Path(comfy_path) / 'comfyui.log'
+    if not log_path.exists():
+        print(f"No log file found at {log_path}")
+        print(f"\nTo create logs, launch ComfyUI with:")
+        print(f"  cd {comfy_path}")
+        print(f"  python main.py 2>&1 | tee comfyui.log")
+        return
+
+    # Read last N lines or tail
+    lines = args.lines or 50
+    with open(log_path, 'r') as f:
+        all_lines = f.readlines()
+        for line in all_lines[-lines:]:
+            print(line, end='')
+
+
+# ============================================================================
 # Argument parsing
 # ============================================================================
 
@@ -705,6 +838,10 @@ def main():
     p.add_argument('--source', '-s', action='store_true'); p.add_argument('--search', '-S')
     p.add_argument('--full', '-f', action='store_true')
 
+    # ComfyUI integration
+    p = subs.add_parser('submit'); p.add_argument('workflow')
+    p = subs.add_parser('logs'); p.add_argument('--lines', '-n', type=int, default=50)
+
     args = parser.parse_args()
 
     commands = {
@@ -715,6 +852,7 @@ def main():
         'delete': cmd_delete, 'copy': cmd_copy, 'wire': cmd_wire, 'set': cmd_set,
         'inline': cmd_inline, 'batch': cmd_batch, 'create': cmd_create,
         'layout': cmd_layout, 'visualize': cmd_visualize, 'fetch': cmd_fetch,
+        'submit': cmd_submit, 'logs': cmd_logs,
     }
 
     if args.command in commands:

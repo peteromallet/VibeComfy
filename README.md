@@ -2,15 +2,31 @@
 
 CLI tools for understanding and editing ComfyUI workflow JSON files - built for use with [Claude Code](https://claude.ai/claude-code).
 
+## Setup
+
+1. Copy `.env.example` to `.env` and set your ComfyUI path:
+   ```bash
+   cp .env.example .env
+   # Edit .env and set COMFY_PATH=/path/to/your/ComfyUI
+   ```
+
+2. Launch ComfyUI with logging enabled:
+   ```bash
+   cd /path/to/ComfyUI
+   python main.py 2>&1 | tee comfyui.log
+   ```
+
 ## Usage
 
 1. Drop a workflow JSON into the `workflows/` folder
-2. Launch Claude Code from the VibeComfy directory with permissions disabled:
+2. Launch Claude Code from the VibeComfy directory:
    ```bash
    cd VibeComfy
    claude --dangerously-skip-permissions
    ```
 3. Tell it what you want to do - understand a workflow, adjust it, etc.
+
+Claude can submit workflows to ComfyUI and read the logs to help debug issues.
 
 The CLAUDE.md file contains instructions that Claude Code reads automatically. These can be used for other agents too. Its instructions encourage it to suggest changes based on issues it experiences, contributions are much appreciated!
 
