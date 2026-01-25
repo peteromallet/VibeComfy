@@ -282,10 +282,16 @@ class ComfyKnowledge:
         return results[:limit]
 
     def stats(self):
+        if not self.nodes:
+            return {
+                "status": "empty",
+                "message": "Node cache is empty. Run: python -m cli_tools.registry.scraper",
+            }
         packs = set(n.get("pack", n.get("pack_id")) for n in self.nodes.values())
         with_desc = sum(1 for n in self.nodes.values() if n.get("description"))
         authors = set(n.get("author") for n in self.nodes.values() if n.get("author"))
         return {
+            "status": "ok",
             "total_nodes": len(self.nodes),
             "total_packs": len(packs),
             "with_descriptions": with_desc,

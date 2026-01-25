@@ -3,7 +3,7 @@
     "comfy-knowledge": {
       "command": "python",
       "args": ["-m", "cli_tools.registry.mcp_server"],
-      "serverInstructions": "ComfyUI node registry with 8400+ nodes. Use for: searching nodes by keyword (comfy_search), getting node specifications (comfy_spec), finding nodes by author/category/pack, analyzing workflow structure (comfy_read, comfy_trace), and tracing node connections (comfy_upstream, comfy_downstream)."
+      "serverInstructions": "ComfyUI node registry (8400+ nodes) and workflow analysis. Workflow: 1) comfy_search to find nodes, 2) comfy_spec to inspect inputs/outputs, 3) comfy_read to understand workflows, 4) comfy_trace to find slot names for wiring. Use comfy_upstream/downstream to trace dataflow."
     }
   }
 }
