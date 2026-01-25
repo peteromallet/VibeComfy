@@ -835,3 +835,77 @@ def format_values(vals) -> str:
             return str(vals)
         return f"{{...}} ({len(keys)} keys)"
     return str(vals)
+
+
+def trace_node(wf: Dict, node_id: int) -> Dict:
+    """Trace a node's inputs and outputs with slot names.
+
+    Returns:
+        {
+            'node_id': int,
+            'node_type': str,
+            'title': str or None,
+            'inputs': [
+                {'slot': int, 'name': str, 'type': str,
+                 'source_node': int or None, 'source_type': str or None, 'source_slot': int or None}
+            ],
+            'outputs': [
+                {'slot': int, 'name': str, 'type': str,
+                 'targets': [{'node': int, 'type': str, 'slot': int}]}
+            ]
+        }
+    """
+    nodes_dict = wf_module.get_nodes_dict(wf)
+    links_dict = wf_module.get_links_dict(wf)
+
+    node = nodes_dict.get(node_id)
+    if not node:
+        return {'error': f'Node {node_id} not found'}
+
+    result = {
+        'node_id': node_id,
+        'node_type': node['type'],
+        'title': node.get('title'),
+        'inputs': [],
+        'outputs': [],
+    }
+
+    # Process inputs
+    for i, inp in enumerate(node.get('inputs', [])):
+        link_id = inp.get('link')
+        input_info = {
+            'slot': i,
+            'name': inp.get('name', f'input_{i}'),
+            'type': inp.get('type', '?'),
+            'source_node': None,
+            'source_type': None,
+            'source_slot': None,
+        }
+        if link_id and link_id in links_dict:
+            link = links_dict[link_id]
+            src_node = nodes_dict.get(link[1], {})
+            input_info['source_node'] = link[1]
+            input_info['source_type'] = src_node.get('type', '?')
+            input_info['source_slot'] = link[2]
+        result['inputs'].append(input_info)
+
+    # Process outputs
+    for i, out in enumerate(node.get('outputs', [])):
+        output_info = {
+            'slot': i,
+            'name': out.get('name', f'output_{i}'),
+            'type': out.get('type', '?'),
+            'targets': [],
+        }
+        for link_id in (out.get('links') or []):
+            if link_id in links_dict:
+                link = links_dict[link_id]
+                dst_node = nodes_dict.get(link[3], {})
+                output_info['targets'].append({
+                    'node': link[3],
+                    'type': dst_node.get('type', '?'),
+                    'slot': link[4],
+                })
+        result['outputs'].append(output_info)
+
+    return result

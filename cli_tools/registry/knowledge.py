@@ -3,52 +3,13 @@
 
 import json
 from pathlib import Path
+from typing import Dict, List, Optional
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
 CACHE_FILE = DATA_DIR / "node_cache.json"
 
 
 class ComfyKnowledge:
-    # Task aliases map common use-cases to search terms
-    TASK_ALIASES = {
-        # Audio
-        "beat detection": ["onset", "bpm", "beat", "drum detector", "audio"],
-        "audio reactive": ["audio reactive", "amplitude", "rms", "sound reactive"],
-        "fft": ["frequency", "spectral", "spectrum", "fft"],
-        # Video generation models
-        "ltx": ["ltx", "ltx2", "ltx-2", "lightricks", "ltxvideo", "ltxv", "stg", "gemma", "tiled sampler", "looping"],
-        "wan": ["wan", "wan2", "wan2.1", "wan2.2", "wanvideo", "vace"],
-        "i2v": ["i2v", "image2video", "image to video", "img2vid", "svd", "stable video"],
-        "v2v": ["v2v", "video2video", "video to video", "vid2vid"],
-        "t2v": ["t2v", "text2video", "text to video", "txt2vid"],
-        "animatediff": ["animatediff", "animate", "motion", "lcm", "hotshotxl"],
-        # Image generation
-        "controlnet": ["controlnet", "canny", "depth", "pose", "lineart", "openpose"],
-        "upscale": ["upscale", "esrgan", "realesrgan", "4x", "super resolution"],
-        "interpolation": ["interpolation", "rife", "film", "frame", "tween"],
-        "inpaint": ["inpaint", "outpaint", "mask", "fill"],
-        "video": ["video", "animate", "animatediff", "frames", "sequence"],
-        "lora": ["lora", "loha", "lycoris", "adapter"],
-        "flux": ["flux", "bfl", "schnell", "dev", "guidance"],
-        "sdxl": ["sdxl", "xl", "1024"],
-        "sd15": ["sd15", "sd1.5", "1.5", "512"],
-        # Processing
-        "face": ["face", "insightface", "faceid", "portrait", "headshot", "reactor"],
-        "segmentation": ["segment", "sam", "sam2", "clipseg", "mask", "cutout"],
-        "style transfer": ["style", "ipadapter", "ip-adapter", "reference"],
-        "text to image": ["txt2img", "text2img", "ksampler", "sampler"],
-        "image to image": ["img2img", "image2image", "denoise"],
-        "depth": ["depth", "midas", "zoe", "marigold", "depthanything"],
-        "pose": ["pose", "openpose", "dwpose", "skeleton"],
-        "workflow": ["workflow", "pattern", "pipeline", "recipe"],
-        # Effects
-        "glitch": ["glitch", "distort", "corrupt", "databend"],
-        "dither": ["dither", "halftone", "retro", "pixel"],
-        # Klein/Deforum
-        "klein": ["klein", "deforum", "flux2", "temporal", "v2v"],
-        "deforum": ["deforum", "klein", "motion", "temporal", "warp", "optical flow"],
-    }
-
     def __init__(self, cache_path=None):
         self.cache_path = Path(cache_path) if cache_path else CACHE_FILE
         self.nodes = {}
@@ -61,15 +22,10 @@ class ComfyKnowledge:
 
     def search_nodes(self, query, limit=10):
         """Search nodes with multi-word support, task aliases, and weighted scoring."""
+        from cli_tools.search import expand_query
+
         query_lower = query.lower()
-
-        # Expand query with task aliases
-        expanded_terms = set(query_lower.split())
-        for task, aliases in self.TASK_ALIASES.items():
-            if task in query_lower or any(a in query_lower for a in aliases):
-                expanded_terms.update(aliases)
-
-        words = list(expanded_terms)
+        words = expand_query(query)
         results = []
 
         for name, node in self.nodes.items():
@@ -146,28 +102,30 @@ class ComfyKnowledge:
         return "\n".join(lines)
 
     def simplify_workflow(self, workflow):
-        """Convert workflow JSON to readable format with pattern detection."""
+        """Convert workflow JSON to readable format with pattern detection.
+
+        Combines agent-friendly pattern detection with existing analysis functions.
+        """
+        from cli_tools.analysis import analyze_workflow, get_workflow_info
+
         nodes = workflow.get("nodes", [])
         links = workflow.get("links", [])
 
         if not nodes:
             return "Empty workflow"
 
-        # Build node lookup
-        node_map = {n.get("id"): n for n in nodes}
+        # Get existing analysis
+        info = get_workflow_info(workflow)
+        analysis = analyze_workflow(workflow)
+
+        # Get types for pattern detection
         types = [n.get("type", "unknown") for n in nodes]
 
-        # Detect pattern
+        # Detect pattern (agent-friendly labels)
         pattern = self._detect_pattern(types)
 
         # Extract key parameters
         params = self._extract_params(nodes)
-
-        # Build connection graph
-        graph = self._build_graph(nodes, links)
-
-        # Find flow paths
-        flow = self._trace_flow(graph, node_map)
 
         # Format output
         lines = []
@@ -180,21 +138,39 @@ class ComfyKnowledge:
                 lines.append(f"  {k}: {v}")
             lines.append("")
 
-        lines.append("## Flow")
-        for path in flow:
-            lines.append(f"  {path}")
-        lines.append("")
+        # Variables (SetNode/GetNode) from existing analysis
+        if analysis.get('variables'):
+            lines.append(f"## Variables ({len(analysis['variables'])})")
+            for var in analysis['variables'][:5]:
+                lines.append(f"  ${var['name']} <- Node {var['source_id']} ({var['source_type']})")
+            lines.append("")
 
-        lines.append(f"## Stats: {len(nodes)} nodes, {len(links)} connections")
+        # Loops from existing analysis
+        if analysis.get('loops'):
+            lines.append(f"## Loops ({len(analysis['loops'])})")
+            for loop in analysis['loops']:
+                iters = loop.get('iterations', '?')
+                lines.append(f"  {loop['name']}: {iters} iterations")
+            lines.append("")
+
+        # Flow paths from existing analysis
+        if analysis.get('pipelines'):
+            lines.append("## Flow")
+            for pipeline in analysis['pipelines'][:5]:
+                path_nodes = [str(nid) for nid, _ in pipeline['path'][:8]]
+                if len(pipeline['path']) > 8:
+                    path_nodes.append('...')
+                lines.append(f"  [{pipeline['category']}] {' -> '.join(path_nodes)}")
+            lines.append("")
+
+        lines.append(f"## Stats: {info['node_count']} nodes, {info['link_count']} connections, {len(info['type_counts'])} unique types")
 
         return "\n".join(lines)
 
     def _detect_pattern(self, types):
-        """Identify workflow pattern from node types."""
+        """Identify workflow pattern from node types (agent-friendly labels)."""
         types_lower = [t.lower() for t in types]
-        types_str = " ".join(types_lower)
 
-        # Pattern detection rules
         patterns = []
 
         # Model type
@@ -247,7 +223,7 @@ class ComfyKnowledge:
         """Extract key generation parameters from nodes."""
         params = {}
 
-        # Known parameter mappings: node_type -> (widget_index, param_name)
+        # Known parameter mappings: node_type -> [(widget_index, param_name), ...]
         param_map = {
             "KSampler": [(0, "seed"), (2, "steps"), (3, "cfg"), (4, "sampler"), (5, "scheduler")],
             "KSamplerAdvanced": [(2, "steps"), (3, "cfg"), (4, "sampler"), (5, "scheduler")],
@@ -273,106 +249,6 @@ class ComfyKnowledge:
                             params[name] = val
 
         return params
-
-    def _build_graph(self, nodes, links):
-        """Build adjacency graph from links."""
-        # links format: [link_id, from_node, from_slot, to_node, to_slot, type]
-        graph = {"out": {}, "in": {}}  # out[node_id] = [(target, type)], in[node_id] = [(source, type)]
-
-        for link in links:
-            if len(link) >= 6:
-                _, from_node, _, to_node, _, link_type = link[:6]
-                if from_node not in graph["out"]:
-                    graph["out"][from_node] = []
-                if to_node not in graph["in"]:
-                    graph["in"][to_node] = []
-                graph["out"][from_node].append((to_node, link_type))
-                graph["in"][to_node].append((from_node, link_type))
-
-        return graph
-
-    def _trace_flow(self, graph, node_map):
-        """Trace main flow paths through the graph."""
-        # Find entry points (nodes with no inputs)
-        all_nodes = set(node_map.keys())
-        nodes_with_inputs = set(graph["in"].keys())
-        entry_points = all_nodes - nodes_with_inputs
-
-        # Find exit points (nodes with no outputs or are output types)
-        nodes_with_outputs = set(graph["out"].keys())
-        output_types = {"SaveImage", "PreviewImage", "VHS_VideoCombine", "SaveVideo"}
-        exit_points = set()
-        for nid, node in node_map.items():
-            if node.get("type") in output_types:
-                exit_points.add(nid)
-        if not exit_points:
-            exit_points = all_nodes - nodes_with_outputs
-
-        # Trace paths from entries to exits
-        paths = []
-        visited_global = set()
-
-        for entry in sorted(entry_points):
-            if entry in visited_global:
-                continue
-            path = self._trace_single_path(entry, graph, node_map, exit_points, visited_global)
-            if path:
-                paths.append(path)
-
-        # Format paths
-        formatted = []
-        for path in paths[:5]:  # Limit to 5 main paths
-            node_names = []
-            for nid in path:
-                node = node_map.get(nid, {})
-                ntype = node.get("type", "?")
-                # Shorten common prefixes
-                ntype = ntype.replace("CheckpointLoaderSimple", "Checkpoint")
-                ntype = ntype.replace("CLIPTextEncode", "CLIP")
-                ntype = ntype.replace("EmptyLatentImage", "EmptyLatent")
-                node_names.append(ntype)
-            formatted.append(" -> ".join(node_names))
-
-        return formatted if formatted else ["No clear flow detected"]
-
-    def _trace_single_path(self, start, graph, node_map, exits, visited):
-        """Trace a single path through the graph using DFS."""
-        path = [start]
-        visited.add(start)
-        current = start
-
-        while current not in exits:
-            outputs = graph["out"].get(current, [])
-            if not outputs:
-                break
-
-            # Prefer MODEL/LATENT/IMAGE connections
-            next_node = None
-            priority_types = ["MODEL", "LATENT", "IMAGE", "CONDITIONING"]
-
-            for ptype in priority_types:
-                for target, ltype in outputs:
-                    if ltype == ptype and target not in visited:
-                        next_node = target
-                        break
-                if next_node:
-                    break
-
-            # Fallback to any unvisited
-            if not next_node:
-                for target, _ in outputs:
-                    if target not in visited:
-                        next_node = target
-                        break
-
-            if not next_node:
-                break
-
-            path.append(next_node)
-            visited.add(next_node)
-            current = next_node
-
-        return path if len(path) > 1 else None
 
     def list_categories(self):
         """List all unique categories with counts."""

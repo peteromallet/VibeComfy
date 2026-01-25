@@ -44,10 +44,11 @@ claude mcp list
 # Should show: comfy-knowledge - ✓ Connected
 ```
 
-## MCP Tools (7 total)
+## MCP Tools (10 total)
 
 All tools use `comfy_` prefix for easy discovery.
 
+### Node Discovery
 | Tool | Description |
 |------|-------------|
 | `comfy_search` | Search 8,400+ nodes by keyword with smart aliases |
@@ -55,8 +56,17 @@ All tools use `comfy_` prefix for easy discovery.
 | `comfy_author` | Find all nodes by author (kijai, Lightricks, filliptm) |
 | `comfy_categories` | List all node categories with counts |
 | `comfy_packs` | List all node packs with counts |
-| `comfy_read` | Convert workflow JSON to human-readable format |
 | `comfy_stats` | Cache statistics (total nodes, packs, authors) |
+
+### Workflow Analysis
+| Tool | Description |
+|------|-------------|
+| `comfy_read` | Convert workflow to readable format (pattern, params, variables, loops, flow) |
+| `comfy_trace` | Trace a node's inputs/outputs with slot names |
+| `comfy_upstream` | Find all nodes feeding into a target node |
+| `comfy_downstream` | Find all nodes fed by a source node |
+
+**Note:** Workflow tools accept either a JSON string or a file path.
 
 ---
 
@@ -68,7 +78,9 @@ Converts complex JSON into readable format with:
 - **Pattern detection**: txt2img, img2img, i2v, v2v, Flux, WAN, LTX, AnimateDiff
 - **Modifier detection**: +ControlNet, +LoRA, +IPAdapter, +Upscale, +Inpaint
 - **Key parameters**: model, steps, cfg, sampler, scheduler, size
-- **Flow visualization**: NodeA -> NodeB -> NodeC
+- **Variables**: SetNode/GetNode pairs with their sources
+- **Loops**: ForLoop/WhileLoop with iteration counts
+- **Flow pipelines**: Categorized paths (VACE, Latent, Image, Video)
 
 ### Example
 
@@ -85,11 +97,19 @@ Converts complex JSON into readable format with:
   sampler: euler
   scheduler: normal
 
-## Flow
-  Checkpoint -> KSampler -> VAEDecode -> SaveImage
-  LoadImage -> ControlNetApply -> KSampler
+## Variables (12)
+  $model <- Node 608 (WanVideoModelLoader)
+  $vae <- Node 609 (WanVAELoader)
+  ...
 
-## Stats: 121 nodes, 104 connections
+## Loops (1)
+  ForLoop_1: 5 iterations
+
+## Flow
+  [VACE] 1140 -> 1183 -> 577 -> 595 -> 1220
+  [Latent] 608 -> 577 -> 595
+
+## Stats: 121 nodes, 104 connections, 42 unique types
 ```
 
 ---
@@ -153,6 +173,24 @@ Beyond the api.comfy.org registry, the cache includes curated nodes and workflow
 | Documentation | 10 | Official ComfyUI docs |
 
 **Total: 8,456 searchable items**
+
+---
+
+## Integration with CLI
+
+The MCP tools use the same analysis engine as the CLI (`cli_tools/analysis.py`):
+
+| MCP Tool | CLI Equivalent |
+|----------|---------------|
+| `comfy_read` | `python we_vibin.py analyze workflow.json` |
+| `comfy_trace` | `python we_vibin.py trace workflow.json NODE` |
+| `comfy_upstream` | `python we_vibin.py upstream workflow.json NODE` |
+| `comfy_downstream` | `python we_vibin.py downstream workflow.json NODE` |
+
+The CLI `query` command also uses the same task aliases as `comfy_search`:
+```bash
+python we_vibin.py query workflow.json -t ltx  # Expands to ltx, ltx2, lightricks, etc.
+```
 
 ---
 

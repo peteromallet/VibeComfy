@@ -1,8 +1,11 @@
-"""Node type descriptions."""
+"""Node type descriptions.
+
+Prefers node_cache.json when available, falls back to hardcoded descriptions.
+"""
 
 import re
 
-# Human-readable descriptions for common node types
+# Human-readable descriptions for common node types (fallback)
 NODE_DESCRIPTIONS = {
     # Loaders
     'vhs_loadvideo': 'Load video file',
@@ -49,7 +52,25 @@ NODE_DESCRIPTIONS = {
 
 
 def get_node_description(node_type: str) -> str:
-    """Get a human-readable description for a node type."""
+    """Get a human-readable description for a node type.
+
+    Checks node_cache.json first for richer descriptions, falls back to hardcoded.
+    """
+    # Try cache first (has 8400+ descriptions)
+    try:
+        from cli_tools.registry.knowledge import ComfyKnowledge
+        kb = ComfyKnowledge()
+        spec = kb.get_node_spec(node_type)
+        if spec and spec.get('description'):
+            desc = spec['description']
+            # Truncate if too long
+            if len(desc) > 100:
+                desc = desc[:97] + '...'
+            return desc
+    except Exception:
+        pass  # Cache not available, fall back to hardcoded
+
+    # Fall back to hardcoded descriptions
     normalized = re.sub(r'[^a-z0-9]', '', node_type.lower())
 
     for key, desc in NODE_DESCRIPTIONS.items():

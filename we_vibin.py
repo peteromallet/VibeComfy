@@ -89,7 +89,10 @@ def cmd_query(args):
         print("Error: -t/--type required (use 'trace' to inspect a specific node)")
         return
 
-    results = [n for n in wf['nodes'] if args.type.lower() in n['type'].lower()]
+    # Simple substring matching for workflow queries
+    # (alias expansion is used by MCP search over 8400+ nodes, not here)
+    search_term = args.type.lower()
+    results = [n for n in wf['nodes'] if search_term in n['type'].lower()]
 
     if not results:
         print("No nodes found")
@@ -101,34 +104,27 @@ def cmd_query(args):
 
 def cmd_trace(args):
     wf = wf_mod.load(args.workflow)
-    nodes_dict = wf_mod.get_nodes_dict(wf)
-    links_dict = wf_mod.get_links_dict(wf)
+    result = analysis.trace_node(wf, args.node_id)
 
-    node = nodes_dict.get(args.node_id)
-    if not node:
-        print(f"Node {args.node_id} not found")
+    if 'error' in result:
+        print(result['error'])
         return
 
-    print(f"[Node {args.node_id}] {node['type']}")
+    print(f"[Node {result['node_id']}] {result['node_type']}")
     print("\n  INPUTS (what feeds into this node):")
-    for i, inp in enumerate(node.get('inputs', [])):
-        link_id = inp.get('link')
-        if link_id and link_id in links_dict:
-            link = links_dict[link_id]
-            src_node = nodes_dict.get(link[1], {})
-            print(f"    [{i}] {inp.get('name', '?')} <- [Node {link[1]}] {src_node.get('type', '?')} (slot {link[2]})")
+    for inp in result['inputs']:
+        if inp['source_node']:
+            print(f"    [{inp['slot']}] {inp['name']} <- [Node {inp['source_node']}] {inp['source_type']} (slot {inp['source_slot']})")
         else:
-            print(f"    [{i}] {inp.get('name', '?')} <- (unconnected)")
+            print(f"    [{inp['slot']}] {inp['name']} <- (unconnected)")
 
     print("\n  OUTPUTS (what this node feeds into):")
-    for i, out in enumerate(node.get('outputs', [])):
-        for link_id in (out.get('links') or []):
-            if link_id in links_dict:
-                link = links_dict[link_id]
-                dst_node = nodes_dict.get(link[3], {})
-                print(f"    [{i}] {out.get('name', '?')} -> [Node {link[3]}] {dst_node.get('type', '?')} (slot {link[4]})")
-        if not out.get('links'):
-            print(f"    [{i}] {out.get('name', '?')} -> (unconnected)")
+    for out in result['outputs']:
+        if out['targets']:
+            for t in out['targets']:
+                print(f"    [{out['slot']}] {out['name']} -> [Node {t['node']}] {t['type']} (slot {t['slot']})")
+        else:
+            print(f"    [{out['slot']}] {out['name']} -> (unconnected)")
 
 
 def cmd_graph(args):
