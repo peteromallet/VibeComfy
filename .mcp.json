@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "comfy-knowledge": {
+      "command": "python",
+      "args": ["-m", "cli_tools.registry.mcp_server"],
+      "serverInstructions": "ComfyUI node registry with 8400+ nodes. Use for: searching nodes by keyword (comfy_search), getting node specifications (comfy_spec), finding nodes by author/category/pack, analyzing workflow structure (comfy_read, comfy_trace), and tracing node connections (comfy_upstream, comfy_downstream)."
+    }
+  }
+}

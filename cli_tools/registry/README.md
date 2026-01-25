@@ -187,27 +187,31 @@ The MCP tools use the same analysis engine as the CLI (`cli_tools/analysis.py`):
 | `comfy_upstream` | `python we_vibin.py upstream workflow.json NODE` |
 | `comfy_downstream` | `python we_vibin.py downstream workflow.json NODE` |
 
-The CLI `query` command also uses the same task aliases as `comfy_search`:
+The CLI `query` command uses simple substring matching for precision:
 ```bash
-python we_vibin.py query workflow.json -t ltx  # Expands to ltx, ltx2, lightricks, etc.
+python we_vibin.py query workflow.json -t KSampler  # Exact type matching
 ```
+
+Use `comfy_search` via MCP for smart alias expansion.
 
 ---
 
 ## Skill Integration
 
-The `comfy-nodes` skill (`.claude/skills/comfy-nodes/`) works with this MCP:
+Four skills work with this MCP server:
 
-| Component | Provides |
-|-----------|----------|
-| **Skill** | Node templates, Python→Node conversion, workflow patterns |
-| **MCP** | Live registry search, node specs, workflow reading |
+| Skill | Purpose | Uses MCP for |
+|-------|---------|--------------|
+| `comfy-registry` | Node discovery | comfy_search, comfy_spec, comfy_author |
+| `comfy-analyze` | Workflow understanding | comfy_read, comfy_trace, comfy_upstream |
+| `comfy-edit` | Workflow editing | CLI tools + patterns |
+| `comfy-nodes` | Custom node development | Finding similar nodes for reference |
 
 Together they enable:
-- "Create a node for image blending" → skill templates + MCP finds similar nodes
-- "Build txt2img with LoRA" → skill workflow pattern + MCP finds specific nodes
-- "Convert my Python to ComfyUI node" → skill guides structure, MCP finds examples
-- "What does this workflow do?" → MCP reads JSON into understandable format
+- "Find nodes for upscaling" → `comfy-registry` + MCP search
+- "What does this workflow do?" → `comfy-analyze` + MCP read
+- "Add ControlNet to this workflow" → `comfy-edit` + patterns + CLI
+- "Convert my Python to a node" → `comfy-nodes` + MCP finds examples
 
 ---
 
