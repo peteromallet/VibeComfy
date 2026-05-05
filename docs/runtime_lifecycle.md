@@ -18,10 +18,10 @@ Validated local checks:
 
 ```bash
 vibecomfy runtime smoke --mode managed
-vibecomfy run tests/smoke_fixtures/smoke_empty_image_red.json --runtime embedded --backend graphbuilder
+vibecomfy run smoke/empty_image_red --ready --runtime embedded --backend graphbuilder
 ```
 
-The managed smoke started Comfy, read 1,202 node definitions from `/object_info`, and terminated. The embedded smoke workflows wrote PNG files under `output/`.
+The managed smoke started Comfy, read node definitions from `/object_info`, and terminated. The embedded smoke runs the Python ready template `ready_templates/smoke/empty_image_red.py` and writes a PNG under `output/`.
 
 ## Warm Sessions
 

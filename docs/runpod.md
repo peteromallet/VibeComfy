@@ -34,9 +34,11 @@ What the script does:
 - Runs tests.
 - Indexes official templates, external examples, custom-node examples, and runtime nodes.
 - Starts managed runtime smoke.
-- Executes five embedded `EmptyImage -> SaveImage` workflows through `VibeWorkflow.compile("graphbuilder")`.
+- Executes the Python ready template `ready_templates/smoke/empty_image_red.py` through `VibeWorkflow.compile("graphbuilder")`.
 - Verifies generated PNG files exist.
 - Terminates the launched pod in `finally`.
+
+The cheap smoke exists only to prove launch, upload, runtime startup, Python ready-template execution, artifact download, and termination. Production validation should execute model-backed Python ready templates from `ready_templates/`, not raw JSON fixtures.
 
 The script has local signal handling, explicit `finally` termination, and a max-runtime watchdog. RunPod's current pod docs expose explicit stop/delete calls and a local scheduled stop pattern; network-volume pods should be terminated rather than stopped, so these scripts terminate the launched pod id.
 

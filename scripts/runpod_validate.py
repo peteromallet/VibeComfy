@@ -1,35 +1,49 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
-from scripts.runpod_runner import REMOTE_ROOT, run_pod
+from scripts.runpod_runner import DEFAULT_UPLOAD_EXCLUDES, REMOTE_ROOT, run_pod_detached
 
-EXCLUDE_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "vendor/direct_templates", "out/runs", "output"}
+EXCLUDE_DIRS = set(DEFAULT_UPLOAD_EXCLUDES)
 
 REMOTE_SCRIPT = f"""
-set -e
+set -euo pipefail
 cd {REMOTE_ROOT}
+mkdir -p out/corpus_matrix output
 python3 -m pip install -e '.[dev]'
 python3 -m pip install 'comfyui@git+https://github.com/peteromallet/ComfyUI.git@fix/latentupscale-model-mmap-residency' 'comfy-script[default]'
-python3 -m pytest -q tests
-python3 -m vibecomfy.cli sources sync --official vendor/direct_templates --external examples
-python3 -m vibecomfy.cli workflows list --limit 10
-python3 -m vibecomfy.cli inspect image_flux2_klein_text_to_image
-python3 -m vibecomfy.cli convert image_flux2_klein_text_to_image --out out/scratchpads/image_flux2_klein_text_to_image.py
-python3 -m vibecomfy.cli validate out/scratchpads/image_flux2_klein_text_to_image.py
 python3 -m vibecomfy.cli runtime doctor
 python3 -m vibecomfy.cli runtime smoke --mode managed
-python3 -m vibecomfy.cli run tests/smoke_fixtures/smoke_empty_image_red.json --runtime embedded --backend graphbuilder
-python3 -m vibecomfy.cli run tests/smoke_fixtures/smoke_empty_image_green.json --runtime embedded --backend graphbuilder
-python3 -m vibecomfy.cli run tests/smoke_fixtures/smoke_empty_image_blue.json --runtime embedded --backend graphbuilder
-python3 -m vibecomfy.cli run tests/smoke_fixtures/smoke_empty_image_white.json --runtime embedded --backend graphbuilder
-python3 -m vibecomfy.cli run tests/smoke_fixtures/smoke_empty_image_black.json --runtime embedded --backend graphbuilder
-ls -lh output/vibecomfy_smoke_*_*.png
+printf 'id\tstatus\tseconds\tmedia_files\tbytes\n' > out/corpus_matrix/results.tsv
+run_smoke() {{
+  id="$1"
+  template="$2"
+  start=$(date +%s)
+  before=$(find output -type f 2>/dev/null | sort || true)
+  python3 -m vibecomfy.cli run "$template" --ready --runtime embedded --backend graphbuilder
+  seconds=$(( $(date +%s) - start ))
+  after=$(find output -type f 2>/dev/null | sort || true)
+  media_files=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | awk '/\\.(png|webp|mp4|webm|mp3|glb)$/ {{c++}} END {{print c+0}}')
+  bytes=$(find output -type f \\( -name '*.png' -o -name '*.webp' -o -name '*.mp4' -o -name '*.webm' -o -name '*.mp3' -o -name '*.glb' \\) -exec stat -c '%s' {{}} + 2>/dev/null | awk '{{s+=$1}} END {{print s+0}}')
+  printf '%s\tok\t%s\t%s\t%s\n' "$id" "$seconds" "$media_files" "$bytes" >> out/corpus_matrix/results.tsv
+}}
+run_smoke ready_template_empty_image_red smoke/empty_image_red
+echo "=== RESULTS ==="
+cat out/corpus_matrix/results.tsv
+ls -lh output/vibecomfy_ready_smoke_*_*.png
 """
 
 
 async def main() -> int:
-    return await run_pod(REMOTE_SCRIPT, name_prefix="vibecomfy", exclude=EXCLUDE_DIRS, timeout=900)
+    return await run_pod_detached(
+        REMOTE_SCRIPT,
+        name_prefix="vibecomfy",
+        exclude=EXCLUDE_DIRS,
+        upload_mode="tarball",
+        timeout=900,
+        poll_interval=int(os.getenv("VIBECOMFY_RUNPOD_POLL_INTERVAL_SECONDS", "30")),
+    )
 
 
 if __name__ == "__main__":
