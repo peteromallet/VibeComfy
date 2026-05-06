@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import os
 
 from scripts.runpod_runner import DEFAULT_UPLOAD_EXCLUDES, REMOTE_ROOT, run_pod_detached
@@ -36,6 +37,7 @@ ls -lh output/vibecomfy_ready_smoke_*_*.png
 
 
 async def main() -> int:
+    argparse.ArgumentParser(description="Run the VibeComfy baseline live smoke on a RunPod pod.").parse_args()
     return await run_pod_detached(
         REMOTE_SCRIPT,
         name_prefix="vibecomfy",

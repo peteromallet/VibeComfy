@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import os
 import shlex
 from pathlib import Path
@@ -647,7 +648,11 @@ $PY -m vibecomfy.cli sources sync --official workflow_corpus/official --external
 if [ "{scope}" = "ltx_official" ] || [ "{scope}" = "ltx_official_public" ] || [ "{scope}" = "ltx_lightricks" ] || [ "{scope}" = "ltx_iclora" ] || [ "{scope}" = "ltx_iclora_public" ]; then
   echo "skipping_remote_ready_materialization_for_lean_ltx_scope={scope}" >> out/corpus_matrix/live.log
 else
-  $PY scripts/materialize_ready_templates.py
+  if [ -f scripts/materialize_ready_templates.py ]; then
+    $PY scripts/materialize_ready_templates.py
+  else
+    echo "ready_template_materializer_absent=using_checked_in_ready_templates" >> out/corpus_matrix/live.log
+  fi
   validate_ready_set out/corpus_matrix/ready_workflows.tsv
 fi
 run_workflow_set out/corpus_matrix/ltx_workflows.tsv
@@ -780,7 +785,11 @@ for repo, filename, targets, min_size in downloads:
 PY
 {_registry_staging_fallback("wan_wrapper")}
 $PY -m vibecomfy.cli sources sync --official workflow_corpus/official --external workflow_corpus/custom_nodes --custom-nodes custom_nodes
-$PY scripts/materialize_ready_templates.py
+if [ -f scripts/materialize_ready_templates.py ]; then
+  $PY scripts/materialize_ready_templates.py
+else
+  echo "ready_template_materializer_absent=using_checked_in_ready_templates" >> out/corpus_matrix/live.log
+fi
 validate_ready_set out/corpus_matrix/ready_workflows.tsv
 run_workflow_set out/corpus_matrix/wan_wrapper_workflows.tsv
 fi
@@ -816,6 +825,14 @@ def _load_hf_token() -> str:
 
 
 async def main() -> int:
+    parser = argparse.ArgumentParser(description="Run the VibeComfy corpus matrix on a live RunPod pod.")
+    parser.add_argument(
+        "--scope",
+        default=os.environ.get("VIBECOMFY_MATRIX_SCOPE", "all"),
+        help="Matrix scope. Also exported as VIBECOMFY_MATRIX_SCOPE for the remote script.",
+    )
+    args = parser.parse_args()
+    os.environ["VIBECOMFY_MATRIX_SCOPE"] = args.scope
     return await run_pod_detached(
         _remote_script(),
         name_prefix="vibecomfy-corpus",
