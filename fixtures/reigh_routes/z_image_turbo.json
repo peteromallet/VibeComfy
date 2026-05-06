@@ -1,0 +1,23 @@
+{
+  "route_key": "z_image_turbo",
+  "task_type": "z_image_turbo",
+  "support_state": "vibecomfy_supported",
+  "selected_template_id": "image/z_image",
+  "params": {
+    "prompt": "A compact red cube on a clean white tabletop, product-photo lighting.",
+    "resolution": "1024x1024",
+    "seed": 1732,
+    "steps": 4,
+    "num_inference_steps": 4,
+    "route_contract": {
+      "route_key": "z_image_turbo",
+      "task_type": "z_image_turbo",
+      "selected_backend": "vibecomfy",
+      "selector_namespace": "production",
+      "worker_contract_version": 1,
+      "selected_profile": "default",
+      "support_state": "vibecomfy_supported",
+      "selected_template_id": "image/z_image"
+    }
+  }
+}
