@@ -222,3 +222,57 @@ async def test_run_pod_cancellation_returns_130_and_terminates(monkeypatch: pyte
 
     assert code == 130
     assert terminated == [True]
+
+
+async def test_run_pod_detached_stops_after_repeated_poll_ssh_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    terminated: list[bool] = []
+
+    class FakePod:
+        id = "pod-detached"
+
+        async def wait_ready(self, *, timeout: int) -> None:
+            assert timeout == 300
+
+        async def _ensure_ssh_details(self) -> dict[str, str]:
+            return {"ip": "127.0.0.1", "port": "2222"}
+
+        async def exec_ssh(self, command: str, *, timeout: int):
+            if "nvidia-smi" in command:
+                return 0, "GPU 0\n", ""
+            if "nohup bash -lc" in command:
+                return 0, "123\n", ""
+            raise TimeoutError("ssh banner timeout")
+
+    class FakeGuard:
+        def __init__(self, **_kwargs) -> None:
+            self.pod = FakePod()
+
+        async def launch(self):
+            return self.pod
+
+        async def terminate(self) -> None:
+            terminated.append(True)
+
+    monkeypatch.setattr(runpod_runner, "PodGuard", FakeGuard)
+    monkeypatch.setattr(runpod_runner, "install_signal_handlers", lambda _loop: asyncio.Event())
+    async def fake_upload_tarball(*_args, **_kwargs) -> dict[str, str]:
+        return {"mode": "tarball"}
+
+    monkeypatch.setattr(runpod_runner, "_upload_tarball", fake_upload_tarball)
+    async def fake_upload_remote_script(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(runpod_runner, "_upload_remote_script", fake_upload_remote_script)
+
+    code = await runpod_runner.run_pod_detached(
+        "echo unreachable",
+        name_prefix="test",
+        exclude=runpod_runner.DEFAULT_UPLOAD_EXCLUDES,
+        upload_mode="tarball",
+        timeout=60,
+        poll_interval=0,
+        max_poll_ssh_failures=2,
+    )
+
+    assert code == 255
+    assert terminated == [True]

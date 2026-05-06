@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from vibecomfy.commands.fetch import _cmd_fetch
 from vibecomfy.commands.nodes import _cmd_nodes_ensure, _cmd_nodes_install, _cmd_nodes_install_plan, _cmd_nodes_list, _cmd_nodes_restore
 import vibecomfy.node_packs_install as node_packs_install
 import vibecomfy.commands.validate as validate_cmd
+import vibecomfy.commands.runpod as runpod_cmd
 from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.commands.workflows import _cmd_workflows_list
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -80,6 +82,20 @@ def test_build_parser_registers_all_known_commands() -> None:
     parser = build_parser()
 
     assert _top_level_commands(parser) == [spec.name for spec in COMMANDS]
+
+
+def test_runpod_corpus_matrix_forwards_scope(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[list[str]] = []
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "runpod_corpus_matrix.py").write_text("print('unreachable')\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runpod_cmd.subprocess, "call", lambda argv: calls.append(argv) or 0)
+
+    args = argparse.Namespace(scope="ltx_runexx_creation")
+
+    assert runpod_cmd._cmd_runpod_corpus_matrix(args) == 0
+    assert calls == [[sys.executable, "scripts/runpod_corpus_matrix.py", "--scope", "ltx_runexx_creation"]]
 
 
 def test_validate_no_schema_skips_schema_provider(

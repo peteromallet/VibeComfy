@@ -56,6 +56,17 @@ def runpod_lifecycle_root() -> Path:
 RUNPOD_LIFECYCLE = runpod_lifecycle_root()
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"invalid_int_env={name} value={raw!r} using_default={default}", flush=True)
+        return default
+
+
 def _format_bytes(value: int) -> str:
     if value >= 1024 * MiB:
         return f"{value / (1024 * MiB):.1f}GiB"
@@ -313,6 +324,7 @@ async def run_pod_detached(
     upload_mode: Literal["sftp_walk", "tarball"] = "sftp_walk",
     timeout: int,
     poll_interval: int = 60,
+    max_poll_ssh_failures: int | None = None,
 ) -> int:
     guard = PodGuard(name_prefix=name_prefix, default_max_runtime_seconds=max(timeout * 2, 7200))
     install_signal_handlers(asyncio.get_running_loop())
@@ -321,6 +333,9 @@ async def run_pod_detached(
     upload_info: dict[str, Any] = {"mode": upload_mode}
     remote_command: str | None = None
     terminated = False
+    if max_poll_ssh_failures is None:
+        max_poll_ssh_failures = _env_int("VIBECOMFY_RUNPOD_MAX_POLL_SSH_FAILURES", 5)
+    max_poll_ssh_failures = max(0, max_poll_ssh_failures)
     try:
         _log_phase("launching", f"name_prefix={name_prefix} upload_mode={upload_mode} timeout={timeout}")
         pod = await guard.launch()
@@ -375,6 +390,7 @@ async def run_pod_detached(
         _log_phase("polling", f"interval_seconds={poll_interval} timeout={timeout}")
         start = time.monotonic()
         last_snapshot = ""
+        poll_ssh_failures = 0
         while True:
             if time.monotonic() - start > timeout:
                 print(f"detached_timeout={timeout}", flush=True)
@@ -396,9 +412,18 @@ cat out/corpus_matrix/exit_code 2>/dev/null || true
             try:
                 code, stdout, stderr = await pod.exec_ssh(status_command, timeout=60)
             except Exception as exc:
-                print(f"poll_ssh_failed={exc}", flush=True)
+                poll_ssh_failures += 1
+                print(
+                    f"poll_ssh_failed={poll_ssh_failures}/{max_poll_ssh_failures}: {exc}",
+                    flush=True,
+                )
+                if max_poll_ssh_failures and poll_ssh_failures >= max_poll_ssh_failures:
+                    result_code = 255
+                    print("detached_poll_ssh_failure_limit_reached=true", flush=True)
+                    return result_code
                 await asyncio.sleep(poll_interval)
                 continue
+            poll_ssh_failures = 0
             snapshot = stdout.strip()
             if snapshot and snapshot != last_snapshot:
                 print(snapshot, flush=True)

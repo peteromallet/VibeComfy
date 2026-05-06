@@ -75,7 +75,10 @@ def _cmd_runpod_corpus_matrix(args: argparse.Namespace) -> int:
     if not script.exists():
         print("scripts/runpod_corpus_matrix.py not found; run from the VibeComfy repo root", file=sys.stderr)
         return 1
-    return subprocess.call([sys.executable, str(script)])
+    argv = [sys.executable, str(script)]
+    if args.scope:
+        argv.extend(["--scope", args.scope])
+    return subprocess.call(argv)
 
 
 def register(subparsers) -> None:
@@ -101,4 +104,5 @@ def register(subparsers) -> None:
     runpod_gpu_types.set_defaults(func=_cmd_runpod_gpu_types)
 
     runpod_corpus = runpod_sub.add_parser("corpus-matrix")
+    runpod_corpus.add_argument("--scope")
     runpod_corpus.set_defaults(func=_cmd_runpod_corpus_matrix)
