@@ -29,6 +29,7 @@ SNAPSHOT_IDS = (
 
 PROFILE_SMOKE_TEMPLATE_IDS = (
     "video/wanvideo_wrapper_22_5b_i2v",
+    "video/wanvideo_wrapper_22_14b_vace_cocktail",
     "video/wan_t2v",
 )
 
@@ -44,6 +45,7 @@ def test_ready_template_ids_include_curated_workflows() -> None:
     assert "image/z_image" in ids
     assert "image/flux2_klein_9b_t2i" in ids
     assert "video/wan_t2v" in ids
+    assert "video/wanvideo_wrapper_22_14b_vace_cocktail" in ids
     assert all(not template_id.rsplit("/", 1)[-1].startswith("_") for template_id in ids)
 
 
@@ -163,8 +165,15 @@ def test_representative_video_ready_templates_compile_under_memory_profiles(
     assert _topology_counter(api) == _topology_counter(baseline_api)
 
 
-def test_wan22_vace_cocktail_dry_run_has_expected_three_phase_topology() -> None:
-    workflow = workflow_from_ready("video/wanvideo_wrapper_22_14b_vace_cocktail_dry_run")
+@pytest.mark.parametrize(
+    "template_id",
+    (
+        "video/wanvideo_wrapper_22_14b_vace_cocktail",
+        "video/wanvideo_wrapper_22_14b_vace_cocktail_dry_run",
+    ),
+)
+def test_wan22_vace_cocktail_templates_have_expected_three_phase_topology(template_id: str) -> None:
+    workflow = workflow_from_ready(template_id)
     api = workflow.compile("api")
 
     loaders = _nodes_by_type(api, "WanVideoModelLoader")

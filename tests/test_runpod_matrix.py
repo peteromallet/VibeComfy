@@ -165,6 +165,50 @@ def test_corpus_matrix_plan_can_select_sprint35_wan_vace_dry_run(tmp_path: Path)
     )
 
 
+def test_corpus_matrix_plan_can_select_sprint4_wan_vace_cocktail(tmp_path: Path) -> None:
+    manifest = tmp_path / "workflow_corpus" / "manifests" / "coverage.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "workflows": [
+                    {
+                        "id": "wanvideo_wrapper_22_14b_vace_cocktail",
+                        "path": "ready_templates/video/wanvideo_wrapper_22_14b_vace_cocktail.py",
+                        "media": "video",
+                        "task": "vace_video_control",
+                        "coverage_tier": "supplemental",
+                        "ready_template": True,
+                    },
+                    {
+                        "id": "wanvideo_wrapper_22_14b_vace_cocktail_dry_run",
+                        "path": "ready_templates/video/wanvideo_wrapper_22_14b_vace_cocktail_dry_run.py",
+                        "media": "video",
+                        "task": "vace_video_control",
+                        "coverage_tier": "supplemental",
+                        "ready_template": True,
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    ready = tmp_path / "ready_templates" / "video" / "wanvideo_wrapper_22_14b_vace_cocktail.py"
+    ready.parent.mkdir(parents=True)
+    ready.write_text("# ready\n", encoding="utf-8")
+
+    plan = build_corpus_matrix_plan(tmp_path, scope="sprint4_wan_vace_cocktail")
+
+    assert format_rows(plan.wan_wrapper_rows) == (
+        "wanvideo_wrapper_22_14b_vace_cocktail\t"
+        "ready_templates/video/wanvideo_wrapper_22_14b_vace_cocktail.py\tvideo"
+    )
+    assert format_ready_rows(plan.ready_rows, tmp_path) == (
+        "wanvideo_wrapper_22_14b_vace_cocktail\t"
+        "ready_templates/video/wanvideo_wrapper_22_14b_vace_cocktail.py\tvideo"
+    )
+
+
 def test_corpus_matrix_plan_has_z_flux_scope(tmp_path: Path) -> None:
     manifest = tmp_path / "workflow_corpus" / "manifests" / "coverage.json"
     manifest.parent.mkdir(parents=True)

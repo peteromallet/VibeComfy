@@ -56,6 +56,7 @@ def build_corpus_matrix_plan(root: Path, *, scope: str = "all", manifest: str = 
         "wan_wrapper_5b",
         "wan_creation_types",
         "wan_infinitetalk",
+        "sprint4_wan_vace_cocktail",
         "sprint35_wan_vace_dry_run",
     }
     run_ltx = scope in {
@@ -131,6 +132,7 @@ def _include_supplemental_for_scope(item: dict, scope: str) -> bool:
         "wan_wrapper_5b",
         "wan_creation_types",
         "wan_infinitetalk",
+        "sprint4_wan_vace_cocktail",
         "sprint35_wan_vace_dry_run",
     }:
         return workflow_id.startswith("wanvideo_wrapper")
@@ -243,6 +245,8 @@ def _matches_wan_wrapper_scope(row: MatrixRow, scope: str) -> bool:
         return row.id == "wanvideo_wrapper_21_14b_v2v_infinitetalk"
     if scope == "wan_wrapper_5b":
         return row.id == "wanvideo_wrapper_22_5b_i2v"
+    if scope == "sprint4_wan_vace_cocktail":
+        return row.id == "wanvideo_wrapper_22_14b_vace_cocktail"
     if scope == "sprint35_wan_vace_dry_run":
         return row.id == "wanvideo_wrapper_22_14b_vace_cocktail_dry_run"
     return True

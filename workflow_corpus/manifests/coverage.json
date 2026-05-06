@@ -116,6 +116,18 @@
       "approach": "Sprint 3.5 Wan 2.2 VACE cocktail dry-run HIGH/HIGH/LOW template"
     },
     {
+      "id": "wanvideo_wrapper_22_14b_vace_cocktail",
+      "path": "ready_templates/video/wanvideo_wrapper_22_14b_vace_cocktail.py",
+      "source": "manual/Sprint-4-Wan-2.2-VACE",
+      "model_family": "wan-2.2-14b-vace",
+      "task": "vace_video_control",
+      "media": "video",
+      "coverage_tier": "supplemental",
+      "ready_template": true,
+      "fixture_manifest": "../reigh-worker/scripts/dual_run_compare/fixtures/sprint35/manifest.json",
+      "approach": "Sprint 4 Wan 2.2 VACE cocktail production-candidate HIGH/HIGH/LOW template"
+    },
+    {
       "id": "wanvideo_wrapper_22_5b_i2v_controlnet",
       "path": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan22_5b_i2v_controlnet.json",
       "source": "kijai/ComfyUI-WanVideoWrapper",
