@@ -163,6 +163,34 @@ def test_representative_video_ready_templates_compile_under_memory_profiles(
     assert _topology_counter(api) == _topology_counter(baseline_api)
 
 
+def test_wan22_vace_cocktail_dry_run_has_expected_three_phase_topology() -> None:
+    workflow = workflow_from_ready("video/wanvideo_wrapper_22_14b_vace_cocktail_dry_run")
+    api = workflow.compile("api")
+
+    loaders = _nodes_by_type(api, "WanVideoModelLoader")
+    samplers = _nodes_by_type(api, "WanVideoSampler")
+    decoders = _nodes_by_type(api, "WanVideoDecode")
+
+    assert list(loaders) == ["20", "21"]
+    assert list(samplers) == ["50", "51", "52"]
+    assert list(decoders) == ["60"]
+    assert loaders["20"]["inputs"]["model"].endswith("A14B_HIGH_mbf16.safetensors")
+    assert loaders["21"]["inputs"]["model"].endswith("A14B_LOW_mbf16.safetensors")
+    assert [samplers[node_id]["inputs"]["steps"] for node_id in ("50", "51", "52")] == [2, 2, 2]
+    assert [samplers[node_id]["inputs"]["cfg"] for node_id in ("50", "51", "52")] == [3.0, 1.0, 1.0]
+    assert all("scheduler" in samplers[node_id]["inputs"] for node_id in ("50", "51", "52"))
+    assert {"filename_prefix", "format", "loop_count", "pingpong"}.issubset(decoders["60"]["inputs"] | api["70"]["inputs"])
+    assert samplers["50"]["inputs"]["model"] == ["20", 0]
+    assert samplers["51"]["inputs"]["model"] == ["20", 0]
+    assert samplers["51"]["inputs"]["samples"] == ["50", 0]
+    assert samplers["52"]["inputs"]["model"] == ["21", 0]
+    assert samplers["52"]["inputs"]["samples"] == ["51", 0]
+    assert decoders["60"]["inputs"]["samples"] == ["52", 0]
+    assert workflow.metadata["phase_model_topology"] == ["HIGH", "HIGH", "LOW"]
+    assert workflow.metadata["phase_step_allocation"] == [2, 2, 2]
+    assert workflow.metadata["fixture_manifest_path"].endswith("fixtures/sprint35/manifest.json")
+
+
 @pytest.mark.parametrize("template_id", SNAPSHOT_IDS)
 def test_snapshotted_ready_template_graph_matches_pre_refactor_api(template_id: str) -> None:
     workflow = workflow_from_ready(template_id)
@@ -179,6 +207,10 @@ def test_snapshotted_ready_template_graph_matches_pre_refactor_api(template_id: 
     assert _class_type_counter(actual) == _class_type_counter(expected)
     assert _widget_value_counter(actual) == _widget_value_counter(expected)
     assert _topology_counter(actual) == _topology_counter(expected)
+
+
+def _nodes_by_type(api: dict, class_type: str) -> dict[str, dict]:
+    return {node_id: node for node_id, node in sorted(api.items(), key=lambda item: int(item[0])) if node.get("class_type") == class_type}
 
 
 def _class_type_counter(api: dict) -> Counter[str]:
