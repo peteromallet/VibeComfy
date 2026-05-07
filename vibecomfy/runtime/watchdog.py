@@ -496,6 +496,14 @@ class Watchdog:
                 f"{len(st.cached_node_ids)} cached",
             )
 
+        # completed: the caller stopped the watchdog after a successful run
+        # even though the event stream never delivered executing:null. This is
+        # common for embedded runs whose local server shuts down immediately
+        # after returning outputs; do not let a final /system_stats miss turn
+        # a successful run into a false crash report.
+        if st.stop_reason == "completed":
+            return "completed", "stop reason was 'completed' but no execution termination event was seen"
+
         # crashed: poll loop ran but /system_stats stopped responding.
         # Only declare crashed if we did at least one sample. If the server was
         # never reachable, fall through to missing_event_stream below.
@@ -551,11 +559,7 @@ class Watchdog:
                 f"current node active {int(node_active_s)}s; last event {int(seconds_since_event)}s ago",
             )
 
-        # Fallback: "in_progress" — nothing alarming yet. We use "completed"
-        # only when the prompt actually signalled completion, so this default
-        # gives operators a clear "no diagnosis yet" answer.
-        if st.stop_reason == "completed":
-            return "completed", "stop reason was 'completed' but no execution termination event was seen"
+        # Fallback: "in_progress" — nothing alarming yet.
         return "in_progress", "no diagnosis condition matched at dump time"
 
     # -- diagnosis helpers ----------------------------------------------------
