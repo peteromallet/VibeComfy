@@ -227,6 +227,18 @@ def test_diagnose_crashed_when_system_stats_stops_responding() -> None:
     assert report.diagnosis == "crashed"
 
 
+def test_diagnose_completed_stop_reason_overrides_shutdown_stats_miss() -> None:
+    wd = _make_watchdog()
+    wd._stats_responsive = False
+    wd._vram_samples.append(VramSample(timestamp=time.monotonic(), vram_free_bytes=None, vram_total_bytes=None))
+    wd._state.stop_reason = "completed"
+
+    report = wd.dump()
+
+    assert report.diagnosis == "completed"
+    assert "stop reason was 'completed'" in report.diagnosis_reason
+
+
 # -----------------------------------------------------------------------------
 # Header line + report writing
 # -----------------------------------------------------------------------------
