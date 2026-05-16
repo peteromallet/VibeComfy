@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from typing import Any
-
-from vibecomfy.schema import SchemaProvider
+from typing import TYPE_CHECKING, Any
 
 from .workflow import VibeWorkflow
+
+if TYPE_CHECKING:
+    # Deferred so importing this module (and hence `vibecomfy.registry.library`,
+    # which is on the `vibecomfy` __init__ chain) does not transitively pull
+    # in `vibecomfy.runtime.*` via `vibecomfy.schema.provider`.
+    from vibecomfy.schema import SchemaProvider  # noqa: F401
 
 
 def load_scratchpad(path: str | Path) -> VibeWorkflow:

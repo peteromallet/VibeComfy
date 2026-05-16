@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from vibecomfy.runtime import RunResult
 from vibecomfy.workflow import VibeWorkflow
+
+if TYPE_CHECKING:
+    # Importing `vibecomfy.runtime` eagerly pulls in `vibecomfy.runtime.client`,
+    # `vibecomfy.runtime.server`, and (transitively) `vibecomfy.comfy_command`,
+    # which breaks the cheap-import contract for `vibecomfy.testing`. The
+    # symbol is only used as a return-type annotation thanks to
+    # `from __future__ import annotations`, so a TYPE_CHECKING-guarded import
+    # is sufficient and stays out of `sys.modules` at runtime.
+    from vibecomfy.runtime import RunResult
 
 
 ArtifactKind = Literal["image", "video", "audio", "latent", "mask"]

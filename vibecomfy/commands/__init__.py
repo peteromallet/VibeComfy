@@ -30,6 +30,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("logs", "vibecomfy.commands.logs"),
     CommandSpec("runpod", "vibecomfy.commands.runpod"),
     CommandSpec("watchdog", "vibecomfy.commands.watchdog"),
+    CommandSpec("test", "vibecomfy.commands.test"),
 )
 
 

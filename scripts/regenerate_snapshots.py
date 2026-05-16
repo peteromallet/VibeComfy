@@ -5,80 +5,33 @@ template via ``vibecomfy.load_workflow_any``, compiles to the ComfyUI API dict,
 and rederives the three sidecar artifacts to match the canonicalisation already
 present on disk. Use ``--check`` in CI to verify nothing has drifted; use
 ``--write`` (default) locally after a deliberate snapshot-bearing change.
+
+The canonicalisation helpers and the stem-to-ready-id registry live in
+``vibecomfy.testing.snapshot`` and ``vibecomfy.testing.snapshot_registry`` so
+this script and the ``vibecomfy test`` CLI share exactly one source of truth.
 """
 from __future__ import annotations
 
 import argparse
 import difflib
 import fnmatch
-import json
 import os
 import sys
 import tempfile
-from collections import Counter
 from pathlib import Path
 from typing import Iterable
+
+from vibecomfy.testing.snapshot import (
+    STEM_TO_READY_ID,
+    _canonical_api_text,
+    _canonical_class_types_text,
+    _canonical_widget_values_text,
+    _is_link,  # noqa: F401 — re-exported for backwards compat with importers of this script
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT_DIR = REPO_ROOT / "tests" / "snapshots"
-
-# REQUIRED mapping from snapshot stem -> ready-template id.
-# Stems live flat under tests/snapshots/, but the ready ids carry the
-# ``image/``, ``edit/``, ``video/`` kind prefix. Inferring the kind from the
-# stem alone breaks for edit-family templates, so keep this map explicit and
-# fail-loud on any unmapped stem encountered.
-STEM_TO_READY_ID: dict[str, str] = {
-    "z_image": "image/z_image",
-    "flux2_klein_4b_t2i": "image/flux2_klein_4b_t2i",
-    "flux2_klein_9b_gguf_t2i": "image/flux2_klein_9b_gguf_t2i",
-    "flux2_klein_4b_image_edit_distilled": "edit/flux2_klein_4b_image_edit_distilled",
-    "qwen_image_edit": "edit/qwen_image_edit",
-    "wan_t2v": "video/wan_t2v",
-    "wan_i2v": "video/wan_i2v",
-    "ltx2_3_t2v": "video/ltx2_3_t2v",
-    "ltx2_3_i2v": "video/ltx2_3_i2v",
-}
-
-
-def _is_link(value: object) -> bool:
-    """Return True when an API-dict input looks like a node link.
-
-    Links are ``[node_id_str, slot_int]`` pairs; everything else is a widget
-    value that participates in the widget-values histogram.
-    """
-    return (
-        isinstance(value, list)
-        and len(value) == 2
-        and isinstance(value[0], str)
-        and isinstance(value[1], int)
-    )
-
-
-def _canonical_api_text(api: dict) -> str:
-    # Preserve insertion order from compile("api"); committed snapshots are not
-    # alphabetised (keys "1".."10" appear in numeric insert order, not lexical).
-    return json.dumps(api, indent=2, ensure_ascii=False)
-
-
-def _canonical_class_types_text(api: dict) -> str:
-    rows = sorted(str(node.get("class_type", "Unknown")) for node in api.values() if isinstance(node, dict))
-    return json.dumps(rows, indent=2)
-
-
-def _canonical_widget_values_text(api: dict) -> str:
-    histogram: Counter[tuple[str, str, str]] = Counter()
-    for node in api.values():
-        if not isinstance(node, dict):
-            continue
-        class_type = str(node.get("class_type", "Unknown"))
-        inputs = node.get("inputs") or {}
-        for field, value in inputs.items():
-            if _is_link(value):
-                continue
-            histogram[(class_type, str(field), repr(value))] += 1
-    rows = [[class_type, field, value_repr, count] for (class_type, field, value_repr), count in sorted(histogram.items())]
-    return json.dumps(rows, indent=2, ensure_ascii=False)
 
 
 def _atomic_write(target: Path, payload: str) -> None:

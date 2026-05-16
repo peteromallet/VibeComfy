@@ -6,9 +6,12 @@ from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
 from vibecomfy.registry.ready import ready_template_ids, workflow_from_ready
-from vibecomfy.schema import get_schema_provider
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.workflow import VibeWorkflow
+
+# `get_schema_provider` lives behind `vibecomfy.schema.provider`, which
+# top-imports the runtime client. Importing it eagerly defeats the
+# cheap-import promise for `vibecomfy.testing`. Resolve lazily on first call.
 
 
 def load_workflow_any(path_or_id: str) -> VibeWorkflow:
@@ -28,6 +31,8 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
     if suffix == ".py":
         return load_scratchpad(path)
     if suffix == ".json":
+        from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
+
         schema_provider = get_schema_provider("auto")
         raw = load_workflow_json(path)
         api = normalize_to_api(raw, schema_provider=schema_provider)

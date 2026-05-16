@@ -17,7 +17,30 @@ from .extras import ensure_plugins_loaded
 from .ops import image, video
 from .registry.library import workflow_from_file, workflow_from_id
 from .registry.ready import ready_template_ids, workflow_from_ready
-from .runtime.run import run, run_sync
+
+# Runtime exports are loaded lazily via PEP 562 module __getattr__ to keep
+# `import vibecomfy.testing` cheap: the dry-run runtime in
+# `vibecomfy.testing.dry_run` must not transitively load
+# `vibecomfy.runtime.client`, `vibecomfy.runtime.server`, or
+# `vibecomfy.comfy_command` (verified by T5's import-cost subprocess test).
+_RUNTIME_EXPORTS = {"run", "run_embedded", "run_embedded_sync", "run_sync"}
+
+
+def __getattr__(name):  # noqa: D401 — PEP 562 hook
+    if name in _RUNTIME_EXPORTS:
+        from .runtime.run import run, run_embedded, run_embedded_sync, run_sync
+
+        globals().update(
+            {
+                "run": run,
+                "run_embedded": run_embedded,
+                "run_embedded_sync": run_embedded_sync,
+                "run_sync": run_sync,
+            }
+        )
+        return globals()[name]
+    raise AttributeError(f"module 'vibecomfy' has no attribute {name!r}")
+
 
 __all__ = [
     "Artifact",

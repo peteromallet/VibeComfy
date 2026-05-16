@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from vibecomfy.ingest.loader import load_workflow_json
 from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
-from vibecomfy.schema import SchemaProvider
 from vibecomfy.workflow import VibeWorkflow
+
+if TYPE_CHECKING:
+    # Deferred so `import vibecomfy.testing` does not transitively load
+    # `vibecomfy.runtime.client`/`server`/`comfy_command` through
+    # `vibecomfy.schema.provider`. `SchemaProvider` is only used as a type
+    # annotation here.
+    from vibecomfy.schema import SchemaProvider  # noqa: F401
 from .ready import workflow_from_ready
 from vibecomfy.scratchpad_loader import load_scratchpad
 

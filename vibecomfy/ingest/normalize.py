@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from vibecomfy.metadata import (
     OUTPUT_NODE_NAMES,
@@ -9,8 +9,29 @@ from vibecomfy.metadata import (
     _register_common_inputs,
 )
 from vibecomfy.porting.widget_aliases import widget_names_from_schema
-from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
+
+if TYPE_CHECKING:
+    # `vibecomfy.schema.provider` top-imports the runtime; importing it
+    # eagerly here breaks the cheap-import contract for `vibecomfy.testing`.
+    # `SchemaProvider` is annotation-only, and the runtime callables
+    # (`OutputSpec`, `schema_for`) are imported lazily inside the helpers
+    # below.
+    from vibecomfy.schema import OutputSpec, SchemaProvider  # noqa: F401
+
+
+def _schema_for(provider, class_type):
+    """Lazy proxy for `vibecomfy.schema.schema_for`."""
+    from vibecomfy.schema import schema_for as _impl  # noqa: PLC0415
+
+    return _impl(provider, class_type)
+
+
+def _output_spec_cls():
+    """Lazy accessor for the `OutputSpec` class."""
+    from vibecomfy.schema import OutputSpec as _OutputSpec  # noqa: PLC0415
+
+    return _OutputSpec
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
@@ -172,7 +193,7 @@ def _is_link(value: Any) -> bool:
 
 
 def _schema_input_names(schema_provider: SchemaProvider | None, class_type: str) -> list[str]:
-    schema = schema_for(schema_provider, class_type)
+    schema = _schema_for(schema_provider, class_type)
     return [name for name in widget_names_from_schema(class_type, schema) if name is not None]
 
 
@@ -183,8 +204,9 @@ def _schema_output_names(schema_provider: SchemaProvider | None, class_type: str
     fall back to numeric ``.out(n)``).  Never drop the whole list just because
     one entry is missing.
     """
-    schema = schema_for(schema_provider, class_type)
+    schema = _schema_for(schema_provider, class_type)
     outputs = getattr(schema, "outputs", None) or []
+    OutputSpec = _output_spec_cls()
     names: list[str] = []
     for output in outputs:
         name = output.name if isinstance(output, OutputSpec) else getattr(output, "name", None)
@@ -193,8 +215,9 @@ def _schema_output_names(schema_provider: SchemaProvider | None, class_type: str
 
 
 def _schema_output_types(schema_provider: SchemaProvider | None, class_type: str) -> list[str]:
-    schema = schema_for(schema_provider, class_type)
+    schema = _schema_for(schema_provider, class_type)
     outputs = getattr(schema, "outputs", None) or []
+    OutputSpec = _output_spec_cls()
     types: list[str] = []
     for output in outputs:
         typ = output.type if isinstance(output, OutputSpec) else getattr(output, "type", None)
@@ -206,7 +229,7 @@ def _schema_input_aliases(schema_provider: SchemaProvider | None, class_type: st
     """Build input aliases from schema, excluding link-only types so widget positions do not shift."""
     from vibecomfy.porting.widget_aliases import LINK_ONLY_TYPES
 
-    schema = schema_for(schema_provider, class_type)
+    schema = _schema_for(schema_provider, class_type)
     if schema is None:
         return []
     inputs = getattr(schema, "inputs", None)
@@ -222,7 +245,7 @@ def _schema_input_aliases(schema_provider: SchemaProvider | None, class_type: st
 
 
 def _schema_source_provenance(schema_provider: SchemaProvider | None, class_type: str) -> dict[str, Any] | None:
-    schema = schema_for(schema_provider, class_type)
+    schema = _schema_for(schema_provider, class_type)
     if schema is None:
         return None
     return {
