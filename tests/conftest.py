@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+pytest_plugins = ("pytester",)
+
+
 import importlib.util
 import warnings
 

@@ -68,3 +68,10 @@ The CLI and runtime-session test surfaces grew into god-files mirroring their go
 ## Follow-up — `object_info` snapshot kind (parked)
 
 Real output-spec extraction — i.e. teaching the local schema provider to know not just inputs but also outputs per node class — is the natural next step for richer schema validation. It does not belong in the three existing per-template snapshot kinds (`.api.json`, `.class_types.json`, `.widget_values.json`). Track it as a new fourth snapshot kind sourced from a ComfyUI `/object_info` dump and gate the regenerator behind a `--with-object-info` flag when it lands. Not in scope this sprint; deliberately parked so the existing three-channel snapshot contract stays focused.
+
+## Where snapshots live
+
+- `tests/snapshots/<stem>.{api,class_types,widget_values}.json` — the curated 9-template registry, driven by `STEM_TO_READY_ID` in `scripts/regenerate_snapshots.py`.
+- Sibling `<recipe>.snapshot.json` — frozen compile output for user recipes (one file per recipe, next to the recipe).
+- Both routes use the same canonicalizer (`vibecomfy.testing.snapshot.canonicalize_api`). One source of truth; users and the in-repo regenerator share the contract.
+- For the user-facing walkthrough, see [`docs/testing-user-code.md`](testing-user-code.md).

@@ -125,3 +125,8 @@ VibeComfy is a thin Python authoring layer. The real work belongs to:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Testing
+
+- [Internal testing contract](docs/testing.md)
+- [Testing your VibeComfy recipes](docs/testing-user-code.md) — assertions, dry-run runtime, snapshot CLI, pytest plugin

@@ -430,3 +430,4 @@ op → Artifact → preview_workflow → VibeWorkflow → compile("api") → run
 ```
 
 Stay in Python; only drop to API JSON when handing the graph to ComfyUI.
+- For testing user recipes built on VibeComfy: see [docs/testing-user-code.md](docs/testing-user-code.md).
