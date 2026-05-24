@@ -575,10 +575,23 @@ def _first_line_template_marker(target: Path) -> str | None:
     return marker if marker in RECOGNIZED_TEMPLATE_MARKERS else None
 
 
-def _check_manual_refusal(target: Path) -> None:
-    """Refuse to overwrite manual or broken-regen templates."""
+def _check_manual_refusal(
+    target: Path,
+    *,
+    protected_markers: frozenset[str] | None = None,
+) -> None:
+    """Refuse to overwrite protected templates.
+
+    By default refuses both `# vibecomfy: manual` and
+    `# vibecomfy: broken-regen` (the standard ``port convert`` behavior).  Pass
+    a narrower ``protected_markers`` set (e.g. just ``{"manual"}``) for callers
+    like ``port reemit`` whose whole purpose is to refresh broken-regen
+    templates against the current emitter.
+    """
+    if protected_markers is None:
+        protected_markers = PROTECTED_TEMPLATE_MARKERS
     marker = _first_line_template_marker(target)
-    if marker in PROTECTED_TEMPLATE_MARKERS:
+    if marker in protected_markers:
         raise ManualTemplateRefusal(
             f"Target {target} is marked '# vibecomfy: {marker}'. "
             f"Remove the marker or use a different output path."
@@ -611,6 +624,7 @@ def port_convert_and_write(
     *,
     dry_run: bool = False,
     diff: bool = False,
+    protected_markers: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """Write emitted text via temp-file atomic replace after all gates pass.
 
@@ -629,7 +643,7 @@ def port_convert_and_write(
         ConversionWriteError: If validation or parity fails.
     """
     # Gate 1: manual-template refusal
-    _check_manual_refusal(target)
+    _check_manual_refusal(target, protected_markers=protected_markers)
 
     # Read original content for diff
     original_content = target.read_text(encoding="utf-8") if target.exists() else ""

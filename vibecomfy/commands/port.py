@@ -15,6 +15,11 @@ from vibecomfy.porting.convert import (
     port_convert_and_write,
     port_convert_workflow,
 )
+from vibecomfy.porting.reemit import (
+    LEGACY_WIDGET_N_PATTERN,
+    discover_family_p_paths,
+    has_legacy_widget_constants,
+)
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.manual_repair import repair_manual_template
 from vibecomfy.porting.readability_inventory import build_readability_inventory
@@ -385,6 +390,296 @@ def _emit_strict_ready_load_failure(
     else:
         print(_render_check(report))
     return 1
+
+
+_REEMIT_PROTECTED_MARKERS = frozenset({"manual"})
+
+
+def _cmd_port_reemit(args: argparse.Namespace) -> int:
+    """Re-emit existing template(s) through the current emitter.
+
+    Unlike ``port convert``, this consumes the template's checked-in Python
+    (via the same loader path) and writes back through the same emitter, so
+    Family P templates without a source JSON can still pick up emitter
+    improvements (widget alias resolution, named widgets, blank-line
+    formatting, etc.).
+    """
+    all_family_p = bool(getattr(args, "all_family_p", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+    diff_mode = bool(getattr(args, "diff", False))
+
+    if all_family_p and args.out:
+        print("--all-family-p with --out is not supported. Drop --out to write in place, or use --dry-run.", file=sys.stderr)
+        return 2
+    if all_family_p and args.workflow:
+        print("--all-family-p takes no workflow argument.", file=sys.stderr)
+        return 2
+    if not all_family_p and not args.workflow:
+        print("port reemit requires either a workflow ref or --all-family-p.", file=sys.stderr)
+        return 2
+
+    if all_family_p:
+        targets = discover_family_p_paths()
+        if not targets:
+            payload = {
+                "status": "ok",
+                "all_family_p": True,
+                "targets": [],
+                "results": [],
+                "message": "No Family P or legacy WIDGET_N templates found.",
+            }
+            if args.json:
+                print(json.dumps(payload, indent=2, sort_keys=True))
+            else:
+                print(payload["message"])
+            return 0
+    else:
+        targets = [args.workflow]
+
+    results: list[dict[str, Any]] = []
+    overall_status = "ok"
+    for target_ref in targets:
+        single = _reemit_single(
+            target_ref,
+            args=args,
+            dry_run=dry_run,
+            diff_mode=diff_mode,
+            all_mode=all_family_p,
+        )
+        results.append(single)
+        if single.get("status") == "error":
+            overall_status = "error"
+
+    if all_family_p:
+        payload = {
+            "status": overall_status,
+            "all_family_p": True,
+            "targets": [str(t) for t in targets],
+            "results": results,
+        }
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            for entry in results:
+                _render_reemit_summary_line(entry)
+        return 0 if overall_status == "ok" else 1
+
+    single = results[0]
+    if args.json:
+        print(json.dumps(single, indent=2, sort_keys=True))
+    else:
+        _render_reemit_text(single)
+    return 0 if single.get("status") == "ok" else 1
+
+
+def _reemit_single(
+    target_ref: str | Path,
+    *,
+    args: argparse.Namespace,
+    dry_run: bool,
+    diff_mode: bool,
+    all_mode: bool,
+) -> dict[str, Any]:
+    schema_provider = _build_conversion_provider(args)
+    try:
+        loaded = load_port_source(str(target_ref), schema_provider=schema_provider)
+    except Exception as exc:
+        return {
+            "status": "error",
+            "target": str(target_ref),
+            "message": f"load failed: {type(exc).__name__}: {exc}",
+        }
+
+    workflow = loaded.workflow
+    source_path = Path(loaded.source_path) if loaded.source_path else None
+    if source_path is None:
+        return {
+            "status": "error",
+            "target": str(target_ref),
+            "message": "loaded source has no on-disk path; pass --out explicitly.",
+        }
+
+    # Determine the destination.  Without --out we write back to the original
+    # template path (the whole point of reemit).
+    out_arg = getattr(args, "out", None)
+    if all_mode:
+        out = source_path
+    else:
+        out = Path(out_arg) if out_arg else source_path
+
+    # Refuse to overwrite # vibecomfy: manual templates (but allow
+    # broken-regen, which is the marker we explicitly target).
+    try:
+        from vibecomfy.porting.convert import _check_manual_refusal as _refuse
+        if not dry_run:
+            _refuse(out, protected_markers=_REEMIT_PROTECTED_MARKERS)
+    except ManualTemplateRefusal as exc:
+        return {
+            "status": "refused",
+            "target": str(target_ref),
+            "out": str(out),
+            "message": str(exc),
+        }
+
+    # Determine ready id from metadata (where convert can pick the right
+    # emitter shape) — falling back to None for scratchpads.
+    ready_id = workflow.metadata.get("ready_template") if isinstance(workflow.metadata, dict) else None
+    if isinstance(ready_id, str) and ready_id.strip():
+        ready_id = ready_id.strip()
+    else:
+        ready_id = None
+
+    try:
+        result = port_convert_workflow(
+            workflow,
+            ready_id=ready_id,
+            source_path=str(source_path),
+            provenance=dict(loaded.workflow.source.provenance) if loaded.workflow.source else None,
+            source_hash=loaded.source_hash,
+            schema_provider=schema_provider,
+            raw_workflow=loaded.raw_workflow,
+        )
+    except Exception as exc:
+        return {
+            "status": "error",
+            "target": str(target_ref),
+            "out": str(out),
+            "message": f"reemit failed: {type(exc).__name__}: {exc}",
+        }
+
+    # `port reemit` is a refresh, not a promotion.  Pre-existing strict-ready
+    # violations (unnamed outputs, hidden widget filenames, opaque subgraphs),
+    # parity mismatches (subgraph materialization without a source JSON), and
+    # schema-validation failures inherited from the legacy template must not
+    # block the emitter upgrade.  We still require that the emitted module
+    # imports, builds, and compiles cleanly — that is the contract reemit
+    # guarantees.  Diagnostics remain on `result.validation` for reporting.
+    pre_reemit_diagnostics: dict[str, Any] = {}
+    if result.validation is not None:
+        v = result.validation
+        pre_reemit_diagnostics = {
+            "schema_ok": v.schema_ok,
+            "parity_ok": v.parity_ok,
+            "strict_ready_ok": v.strict_ready_ok,
+            "model_value_change": v.model_value_change,
+            "model_value_dropped": v.model_value_dropped,
+            "validation_error": v.error,
+        }
+        v.strict_ready_ok = None
+        v.parity_ok = None
+        v.model_value_change = False
+        v.model_value_dropped = False
+        v.ok = v.import_ok and v.build_ok and v.compile_ok
+        if v.ok:
+            v.error = None
+
+    original_text = out.read_text(encoding="utf-8") if out.exists() else ""
+    original_widget_n = len(LEGACY_WIDGET_N_PATTERN.findall(original_text))
+    emitted_widget_n = len(LEGACY_WIDGET_N_PATTERN.findall(result.text))
+    original_loc = len(original_text.splitlines()) if original_text else 0
+    emitted_loc = len(result.text.splitlines())
+
+    summary = {
+        "ready_id": ready_id,
+        "source_path": str(source_path),
+        "out": str(out),
+        "mode": result.mode,
+        "loc": {
+            "original": original_loc,
+            "emitted": emitted_loc,
+            "delta": emitted_loc - original_loc,
+        },
+        "widget_n": {
+            "original": original_widget_n,
+            "emitted": emitted_widget_n,
+        },
+        "parity_ok": pre_reemit_diagnostics.get("parity_ok"),
+        "schema_ok": pre_reemit_diagnostics.get("schema_ok"),
+        "strict_ready_ok": pre_reemit_diagnostics.get("strict_ready_ok"),
+        "validation_ok": (
+            result.validation.ok if result.validation is not None else None
+        ),
+        "pre_reemit_diagnostics": pre_reemit_diagnostics,
+    }
+
+    try:
+        write_result = port_convert_and_write(
+            result,
+            out,
+            dry_run=dry_run,
+            diff=diff_mode,
+            protected_markers=_REEMIT_PROTECTED_MARKERS,
+        )
+    except ManualTemplateRefusal as exc:
+        return {
+            "status": "refused",
+            "target": str(target_ref),
+            "out": str(out),
+            "message": str(exc),
+            "summary": summary,
+        }
+    except ConversionWriteError as exc:
+        return {
+            "status": "error",
+            "target": str(target_ref),
+            "out": str(out),
+            "message": str(exc),
+            "summary": summary,
+        }
+
+    payload: dict[str, Any] = {
+        "status": "ok",
+        "target": str(target_ref),
+        "out": str(out),
+        "summary": summary,
+        "write": write_result,
+    }
+    if diff_mode and isinstance(write_result, dict) and isinstance(write_result.get("diff"), dict):
+        payload["unified_diff"] = write_result["diff"].get("unified_diff")
+    return payload
+
+
+def _render_reemit_summary_line(entry: dict[str, Any]) -> None:
+    target = entry.get("target", "?")
+    status = entry.get("status", "?")
+    summary = entry.get("summary") or {}
+    loc = summary.get("loc") or {}
+    widget_n = summary.get("widget_n") or {}
+    parts = [f"{target}: {status}"]
+    if "original" in loc and "emitted" in loc:
+        parts.append(f"LOC {loc['original']}->{loc['emitted']} ({loc.get('delta', 0):+d})")
+    if "original" in widget_n and "emitted" in widget_n:
+        parts.append(f"WIDGET_N {widget_n['original']}->{widget_n['emitted']}")
+    parity = summary.get("parity_ok")
+    if parity is not None:
+        parts.append(f"parity={'ok' if parity else 'broken'}")
+    if entry.get("message"):
+        parts.append(entry["message"])
+    print(" | ".join(parts))
+
+
+def _render_reemit_text(entry: dict[str, Any]) -> None:
+    if entry.get("status") != "ok":
+        print(f"port reemit {entry.get('status', 'error')}: {entry.get('target')}", file=sys.stderr)
+        if entry.get("message"):
+            print(entry["message"], file=sys.stderr)
+        return
+    write = entry.get("write") or {}
+    summary = entry.get("summary") or {}
+    loc = summary.get("loc") or {}
+    widget_n = summary.get("widget_n") or {}
+    if write.get("dry_run"):
+        print(f"port reemit (dry-run): {entry.get('out')}")
+    else:
+        print(f"port reemit wrote: {entry.get('out')}")
+    print(
+        f"LOC {loc.get('original', 0)} -> {loc.get('emitted', 0)} "
+        f"({loc.get('delta', 0):+d}); WIDGET_N {widget_n.get('original', 0)} -> {widget_n.get('emitted', 0)}; "
+        f"parity={summary.get('parity_ok')}"
+    )
+    diff_text = entry.get("unified_diff")
+    if diff_text:
+        print(diff_text)
 
 
 def _cmd_port_widgets(args: argparse.Namespace) -> int:
@@ -1239,6 +1534,47 @@ def register(subparsers) -> None:
     )
     convert.set_defaults(func=_cmd_port_convert)
 
+    reemit = port_subparsers.add_parser(
+        "reemit",
+        help="Re-emit an existing template through the current emitter (Family P resolution path).",
+        description=(
+            "Run the current emitter against an already-checked-in template "
+            "(by ready id or path) so that emitter improvements (widget alias "
+            "resolution, named widgets, blank-line formatting) land in "
+            "templates whose source JSON is missing. Without --out the new "
+            "text replaces the template in place. Refuses to overwrite "
+            "templates marked '# vibecomfy: manual'."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    reemit.add_argument(
+        "workflow",
+        nargs="?",
+        help="Ready id or path (e.g. video/ltx2_3_runexx_talking_avatar_qwen_tts).",
+    )
+    reemit.add_argument("--out", help="Destination path (default: rewrite the template in place).")
+    reemit.add_argument("--dry-run", action="store_true", help="Emit payload + evidence without writing.")
+    reemit.add_argument("--diff", action="store_true", help="Include a unified diff against the current file.")
+    reemit.add_argument("--json", action="store_true", help="Emit a structured JSON result.")
+    reemit.add_argument(
+        "--all-family-p",
+        action="store_true",
+        help=(
+            "Sweep every Family P template documented in "
+            "docs/template_provenance_gaps.md plus any ready template still "
+            "emitting the legacy WIDGET_N constant pattern. Writes in place."
+        ),
+    )
+    reemit.add_argument(
+        "--runtime-object-info",
+        action="store_true",
+        help="Opt in to live /object_info schema evidence from a running ComfyUI server.",
+    )
+    reemit.add_argument("--object-info-cache")
+    reemit.add_argument("--no-object-info-cache", action="store_true")
+    reemit.add_argument("--server-url")
+    reemit.set_defaults(func=_cmd_port_reemit)
+
     widgets = port_subparsers.add_parser(
         "widgets",
         help="Suggest widget-only schema entries for unresolved positional aliases.",
@@ -1331,6 +1667,7 @@ __all__ = [
     "register",
     "_cmd_port_check",
     "_cmd_port_convert",
+    "_cmd_port_reemit",
     "_cmd_port_inventory",
     "_cmd_port_repair",
     "_cmd_port_widgets",
