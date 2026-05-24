@@ -6151,37 +6151,19 @@
         "ComfyUI-VideoHelperSuite",
         "rgthree-comfy"
       ],
-      "model_count": 10,
+      "model_count": 0,
       "public_inputs": [
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "1",
             "field": "noise_seed"
           },
-          "node_id": "",
+          "node_id": "1",
           "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
+          "value": 790774741312584,
+          "type": "INT",
+          "default": 790774741312584,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6192,14 +6174,32 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "",
+            "node_id": "862",
             "field": "text"
           },
-          "node_id": "",
+          "node_id": "862",
           "field": "text",
-          "value": null,
+          "value": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "type": "STRING",
+          "default": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "218",
+            "field": "model_name"
+          },
+          "node_id": "218",
+          "field": "model_name",
+          "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
-          "default": null,
+          "default": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6210,32 +6210,14 @@
         {
           "name": "steps",
           "target": {
-            "node_id": "",
+            "node_id": "881",
             "field": "steps"
           },
-          "node_id": "",
+          "node_id": "881",
           "field": "steps",
-          "value": 15,
+          "value": 1,
           "type": null,
-          "default": 15,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "use_lora",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": false,
-          "type": null,
-          "default": false,
+          "default": 1,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6247,11 +6229,22 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "578",
+          "node_id": "910",
+          "output_type": "PreviewImage",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_lipsync_custom_audio",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "928",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_lipsync_custom_audio",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6261,29 +6254,34 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "578",
+          "node_id": "910",
+          "output_type": "PreviewImage",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_lipsync_custom_audio",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "928",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_lipsync_custom_audio",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 5,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -6296,7 +6294,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_V2V_Just_Talk_custom_audio_lipsync.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_runexx_motion_transfer_dwpose",
@@ -6313,37 +6348,57 @@
         "comfyui_controlnet_aux",
         "rgthree-comfy"
       ],
-      "model_count": 10,
+      "model_count": 0,
       "public_inputs": [
         {
-          "name": "seed",
+          "name": "image",
           "target": {
-            "node_id": "",
-            "field": "noise_seed"
+            "node_id": "1",
+            "field": "image"
           },
-          "node_id": "",
-          "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "node_id": "1",
+          "field": "image",
+          "value": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
+          "type": "IMAGE",
+          "default": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
+          "required": true,
           "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "model",
+          "name": "input_image",
           "target": {
-            "node_id": "",
-            "field": "ckpt_name"
+            "node_id": "1",
+            "field": "image"
           },
-          "node_id": "",
-          "field": "ckpt_name",
-          "value": null,
-          "type": null,
-          "default": null,
+          "node_id": "1",
+          "field": "image",
+          "value": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
+          "type": "IMAGE",
+          "default": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "3",
+            "field": "noise_seed"
+          },
+          "node_id": "3",
+          "field": "noise_seed",
+          "value": 42,
+          "type": "INT",
+          "default": 42,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6354,68 +6409,32 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "",
+            "node_id": "5304",
             "field": "text"
           },
-          "node_id": "",
+          "node_id": "5304",
           "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "value": "low contrast, washed out, text, subtitles, logo, still image, still video, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "type": "STRING",
+          "default": "low contrast, washed out, text, subtitles, logo, still image, still video, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "text",
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "use_lora",
+          "name": "model",
           "target": {
-            "node_id": "",
-            "field": "value"
+            "node_id": "10",
+            "field": "ckpt_name"
           },
-          "node_id": "",
-          "field": "value",
-          "value": false,
+          "node_id": "10",
+          "field": "ckpt_name",
+          "value": "LTX23_audio_vae_bf16.safetensors",
           "type": null,
-          "default": false,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
-          "type": null,
-          "default": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
-          "type": null,
-          "default": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
+          "default": "LTX23_audio_vae_bf16.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6427,11 +6446,22 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "5120",
+          "node_id": "5332",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_motion_transfer_dwpose",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5360",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_motion_transfer_dwpose",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6441,29 +6471,34 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "5120",
+          "node_id": "5332",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_motion_transfer_dwpose",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5360",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_motion_transfer_dwpose",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 6,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -6476,7 +6511,51 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Motion_Transfer_DWPose.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "comfyui_controlnet_aux",
+          "source": "git",
+          "version": "unknown",
+          "commit": "e8b689a513c3e6b63edc44066560ca5919c0576e",
+          "url": "https://github.com/Fannovel16/comfyui_controlnet_aux.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_runexx_music_video_low_ram",
@@ -6492,55 +6571,93 @@
         "ComfyUI-VideoHelperSuite",
         "rgthree-comfy"
       ],
-      "model_count": 9,
+      "model_count": 0,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "image",
           "target": {
-            "node_id": "",
-            "field": "model_name"
+            "node_id": "1",
+            "field": "image"
           },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "node_id": "1",
+          "field": "image",
+          "value": "download (8).png",
+          "type": "IMAGE",
+          "default": "download (8).png",
+          "required": true,
           "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "seed",
+          "name": "input_image",
           "target": {
-            "node_id": "",
-            "field": "noise_seed"
+            "node_id": "1",
+            "field": "image"
           },
-          "node_id": "",
-          "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "node_id": "1",
+          "field": "image",
+          "value": "download (8).png",
+          "type": "IMAGE",
+          "default": "download (8).png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
         {
           "name": "prompt",
           "target": {
-            "node_id": "",
-            "field": "text"
+            "node_id": "1602",
+            "field": "value"
           },
-          "node_id": "",
-          "field": "text",
-          "value": null,
+          "node_id": "1602",
+          "field": "value",
+          "value": "Make this image come alive with fluid motion. Cinematic music video shot of a red haired woman. \n\nShe sings with expressive motion and gesticulation. \nThe song she is singing is a sweet slow melancolic melody. Her lips moves in perfect lip-sync to the attached audio.  \n\nShe is walking through a mystical dreamy forrest, tracking camera as she walks towards the viewer. \nThe camera pulls away slowly keeping same distance to the woman. \n\nCinematic, volumetric lights, shadow play. \n\nIMPORTANT: The woman is singing, and her lips are moving with lip-sync to the lyrics of the song.",
+          "type": "STRING",
+          "default": "Make this image come alive with fluid motion. Cinematic music video shot of a red haired woman. \n\nShe sings with expressive motion and gesticulation. \nThe song she is singing is a sweet slow melancolic melody. Her lips moves in perfect lip-sync to the attached audio.  \n\nShe is walking through a mystical dreamy forrest, tracking camera as she walks towards the viewer. \nThe camera pulls away slowly keeping same distance to the woman. \n\nCinematic, volumetric lights, shadow play. \n\nIMPORTANT: The woman is singing, and her lips are moving with lip-sync to the lyrics of the song.",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "2117",
+            "field": "noise_seed"
+          },
+          "node_id": "2117",
+          "field": "noise_seed",
+          "value": 420,
+          "type": "INT",
+          "default": 420,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "4",
+            "field": "model_name"
+          },
+          "node_id": "4",
+          "field": "model_name",
+          "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
-          "default": null,
+          "default": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6551,68 +6668,14 @@
         {
           "name": "steps",
           "target": {
-            "node_id": "",
+            "node_id": "5258",
             "field": "steps"
           },
-          "node_id": "",
+          "node_id": "5258",
           "field": "steps",
-          "value": 4,
+          "value": 1,
           "type": null,
-          "default": 4,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "use_lora",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": false,
-          "type": null,
-          "default": false,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "download (8).png",
-          "type": null,
-          "default": "download (8).png",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "download (8).png",
-          "type": null,
-          "default": "download (8).png",
+          "default": 1,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6624,11 +6687,66 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "4709",
+          "node_id": "5269",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5304",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5338",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5372",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5406",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5409",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6638,29 +6756,78 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "4709",
+          "node_id": "5269",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5304",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5338",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5372",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5406",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "5409",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_music_video_low_ram",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 5,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -6673,7 +6840,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Music_Video_Creator_Low_RAM.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_runexx_talking_avatar_qwen_tts",
@@ -6695,14 +6899,70 @@
         {
           "name": "image",
           "target": {
-            "node_id": "414",
+            "node_id": "1",
             "field": "image"
           },
-          "node_id": "414",
+          "node_id": "1",
           "field": "image",
           "value": "17745317855d08.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "17745317855d08.png",
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "1",
+            "field": "image"
+          },
+          "node_id": "1",
+          "field": "image",
+          "value": "17745317855d08.png",
+          "type": "IMAGE",
+          "default": "17745317855d08.png",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "1589",
+            "field": "value"
+          },
+          "node_id": "1589",
+          "field": "value",
+          "value": "A video from a TV broadcast with a male and a female news achor. They both stay in frame all the time.\n\nThe dialog from the male and female is as follows:\n\nSpaker_1 is the woman, and Speaker_2 is the man.\n\n[speaker_1][confused]: This is awkward! I guess the prompter ran out of ideas, and put us in this odd situation.\n[speaker_2][embarrassed] : But hey,  just because we are here, in a new video, doesn't mean our voices change. \n[speaker_1][excited]: Aber ich m\u00f6chte mit dir schlafen.\n[speaker_2][happy]: I still have no idea what she said! Might be for the best [laughing]\n\nThe dialog with perfect lip-sync to the audio\n\n\nThey both smile at the end.\n\n\n",
+          "type": "STRING",
+          "default": "A video from a TV broadcast with a male and a female news achor. They both stay in frame all the time.\n\nThe dialog from the male and female is as follows:\n\nSpaker_1 is the woman, and Speaker_2 is the man.\n\n[speaker_1][confused]: This is awkward! I guess the prompter ran out of ideas, and put us in this odd situation.\n[speaker_2][embarrassed] : But hey,  just because we are here, in a new video, doesn't mean our voices change. \n[speaker_1][excited]: Aber ich m\u00f6chte mit dir schlafen.\n[speaker_2][happy]: I still have no idea what she said! Might be for the best [laughing]\n\nThe dialog with perfect lip-sync to the audio\n\n\nThey both smile at the end.\n\n\n",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "1590",
+            "field": "noise_seed"
+          },
+          "node_id": "1590",
+          "field": "noise_seed",
+          "value": 420,
+          "type": "INT",
+          "default": 420,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6713,10 +6973,10 @@
         {
           "name": "model",
           "target": {
-            "node_id": "416",
+            "node_id": "3",
             "field": "model_name"
           },
-          "node_id": "416",
+          "node_id": "3",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
@@ -6729,66 +6989,12 @@
           "source": "InputSpec"
         },
         {
-          "name": "seed",
-          "target": {
-            "node_id": "1832",
-            "field": "noise_seed"
-          },
-          "node_id": "1832",
-          "field": "noise_seed",
-          "value": 420,
-          "type": null,
-          "default": 420,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "use_lora",
-          "target": {
-            "node_id": "1862",
-            "field": "value"
-          },
-          "node_id": "1862",
-          "field": "value",
-          "value": false,
-          "type": null,
-          "default": false,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "1945",
-            "field": "text"
-          },
-          "node_id": "1945",
-          "field": "text",
-          "value": "text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
-          "type": null,
-          "default": "text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
           "name": "steps",
           "target": {
-            "node_id": "1958",
+            "node_id": "1976",
             "field": "steps"
           },
-          "node_id": "1958",
+          "node_id": "1976",
           "field": "steps",
           "value": 1,
           "type": null,
@@ -6804,7 +7010,7 @@
       "public_outputs": [
         {
           "name": null,
-          "node_id": "1978",
+          "node_id": "1986",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": null,
           "mime_type": null,
@@ -6815,7 +7021,7 @@
         },
         {
           "name": null,
-          "node_id": "1973",
+          "node_id": "1970",
           "output_type": "",
           "artifact_kind": "audio",
           "mime_type": null,
@@ -6829,7 +7035,7 @@
       "artifact_expectations": [
         {
           "name": null,
-          "node_id": "1978",
+          "node_id": "1986",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": null,
           "mime_type": null,
@@ -6840,7 +7046,7 @@
         },
         {
           "name": null,
-          "node_id": "1973",
+          "node_id": "1970",
           "output_type": "",
           "artifact_kind": "audio",
           "mime_type": null,
@@ -6869,7 +7075,51 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-QwenTTS",
+          "source": "git",
+          "version": "unknown",
+          "commit": "d8122a8ba835b65fd65c113d2b273b1ad1579293",
+          "url": "https://github.com/1038lab/ComfyUI-QwenTTS.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_runexx_video_to_video_extend",
@@ -6885,37 +7135,19 @@
         "ComfyUI-VideoHelperSuite",
         "rgthree-comfy"
       ],
-      "model_count": 9,
+      "model_count": 0,
       "public_inputs": [
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "1",
             "field": "noise_seed"
           },
-          "node_id": "",
+          "node_id": "1",
           "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
+          "value": 42,
+          "type": "INT",
+          "default": 42,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6926,14 +7158,32 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "",
+            "node_id": "596",
             "field": "text"
           },
-          "node_id": "",
+          "node_id": "596",
           "field": "text",
-          "value": null,
+          "value": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "type": "STRING",
+          "default": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "219",
+            "field": "model_name"
+          },
+          "node_id": "219",
+          "field": "model_name",
+          "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
-          "default": null,
+          "default": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6944,32 +7194,14 @@
         {
           "name": "steps",
           "target": {
-            "node_id": "",
+            "node_id": "619",
             "field": "steps"
           },
-          "node_id": "",
+          "node_id": "619",
           "field": "steps",
-          "value": 8,
+          "value": 1,
           "type": null,
-          "default": 8,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "use_lora",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": true,
-          "type": null,
-          "default": true,
+          "default": 1,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6981,11 +7213,22 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "578",
+          "node_id": "656",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_video_to_video_extend",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "657",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_video_to_video_extend",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6995,29 +7238,34 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "578",
+          "node_id": "656",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_video_to_video_extend",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "657",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/ltx2_3_runexx_video_to_video_extend",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 5,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -7030,7 +7278,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_V2V_Extend_Any_Video.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_t2v",
