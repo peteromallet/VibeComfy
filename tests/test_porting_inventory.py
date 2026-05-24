@@ -1,7 +1,7 @@
 """Tests for the repo-only readability inventory scanner.
 
 Covers: repo-only enumeration, deterministic JSON shape, marker parsing
-(`# vibecomfy: manual`, `# vibecomfy: generated`), provenance joins with
+(`# vibecomfy: manual`, `# vibecomfy: generated`, `# vibecomfy: broken-regen`), provenance joins with
 coverage.json/template_index.json, missing-source flags, exclusion of
 temp/plugin/user-global ready roots, and inventory counts for positional
 outputs/widget_N/UUID class types/local helpers/missing outputs/categories.
@@ -91,6 +91,11 @@ def test_enumerate_repo_templates_never_calls_ready_template_ids() -> None:
 def test_classify_marker_detects_manual() -> None:
     source = "# vibecomfy: manual\nfrom vibecomfy.workflow import VibeWorkflow\n"
     assert _classify_marker(source) == "manual"
+
+
+def test_classify_marker_detects_broken_regen() -> None:
+    source = "# vibecomfy: broken-regen\nfrom vibecomfy.workflow import VibeWorkflow\n"
+    assert _classify_marker(source) == "broken-regen"
 
 
 def test_classify_marker_detects_generated() -> None:
@@ -254,7 +259,7 @@ def test_inventory_entries_have_required_fields() -> None:
         assert "ready_id" in entry_dict
         assert "path" in entry_dict
         assert "marker" in entry_dict
-        assert entry_dict["marker"] in ("generated", "manual", "reference", "authored", "unknown")
+        assert entry_dict["marker"] in ("generated", "manual", "broken-regen", "reference", "authored", "unknown")
         assert isinstance(entry_dict["counts"]["positional_outs"], int)
         assert isinstance(entry_dict["counts"]["widget_n_fields"], int)
         assert isinstance(entry_dict["counts"]["uuid_class_types"], int)

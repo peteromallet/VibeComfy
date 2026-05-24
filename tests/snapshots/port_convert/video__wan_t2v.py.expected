@@ -1,0 +1,80 @@
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
+from __future__ import annotations
+
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CreateVideo, EmptyHunyuanLatentVideo, KSampler, ModelSamplingSD3, SaveVideo, UNETLoader, VAEDecode, VAELoader
+
+
+CLIP_NAME = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
+DEFAULT_FPS = 16
+DEFAULT_FRAMES = 33
+DEFAULT_PROMPT = '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'
+DEFAULT_PROMPT_2 = 'a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera'
+DEFAULT_SEED = 82628696717253
+GUIDE_STRENGTH = 6
+UNET_NAME = 'wan2.1_t2v_1.3B_fp16.safetensors'
+VAE_NAME = 'wan_2.1_vae.safetensors'
+
+
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
+
+READY_METADATA = ReadyMetadata.build(
+    capability='unknown',
+    requirements={'models': ['umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'uni_pc', 'wan2.1_t2v_1.3B_fp16.safetensors', 'wan_2.1_vae.safetensors']},
+    provenance={'source_path': 'workflow_corpus/official/video/wan_t2v.json', 'source_id': 'wan_t2v', 'source_type': 'api', 'source_workflow_path': 'workflow_corpus/official/video/wan_t2v.json', 'output_mode': 'ready_template', 'ready_id': 'video/wan_t2v'},
+)
+
+def build() -> VibeWorkflow:
+    """Build the workflow (auto-generated)."""
+    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+
+        emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
+            width=public('width', default=832, type='INT'),
+            height=public('height', default=480, type='INT'),
+            length=public('frames', default=DEFAULT_FRAMES, type='INT'),
+        )
+
+        # Conditioning
+        positive = CLIPTextEncode(
+            text=public('prompt', default=DEFAULT_PROMPT_2, type='STRING', required=True, media_semantics='text'),
+            clip=cliploader,
+        )
+
+        negative = CLIPTextEncode(
+            text=public('negative_prompt', default=DEFAULT_PROMPT, type='STRING', aliases=('negative',), media_semantics='text'),
+            clip=cliploader,
+        )
+
+        modelsamplingsd3 = ModelSamplingSD3(shift=8, model=unetloader)
+
+        ksampler = KSampler(
+            seed=public('seed', default=DEFAULT_SEED, type='INT'),
+            steps=30,
+            cfg=GUIDE_STRENGTH,
+            sampler_name='uni_pc',
+            unused_widget_1='randomize',
+            latent_image=emptyhunyuanlatentvideo,
+            model=modelsamplingsd3,
+            negative=negative,
+            positive=positive,
+        )
+
+        # Decode
+        vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
+
+        createvideo = CreateVideo(
+            fps=public('fps', default=DEFAULT_FPS, type='FLOAT'),
+            images=vaedecode,
+        )
+
+        # Outputs
+        savevideo = SaveVideo(video=createvideo)
+
+        return wf.finalize({}, filename_prefix='video/ComfyUI', spec=OUTPUT_SPEC)
+

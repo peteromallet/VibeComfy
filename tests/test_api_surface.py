@@ -13,8 +13,8 @@ PUBLIC_EXPORT_SNAPSHOTS = {
         "router", "run", "run_sync",
     ],
     "vibecomfy.workflow": [
-        "OPAQUE_COMPONENT_CLASS_RE", "ValidationIssue", "ValidationReport", "VibeEdge",
-        "VibeInput", "VibeNode", "VibeOutput", "VibeWorkflow", "WorkflowRequirements",
+        "OPAQUE_COMPONENT_CLASS_RE", "SymbolicRefProtocol", "ValidationIssue", "ValidationReport",
+        "VibeEdge", "VibeInput", "VibeNode", "VibeOutput", "VibeWorkflow", "WorkflowRequirements",
         "WorkflowSource",
     ],
     "vibecomfy.handles": ["Handle"],
@@ -34,7 +34,7 @@ PUBLIC_EXPORT_SNAPSHOTS = {
     ],
     "vibecomfy.artifacts": ["Artifact", "ArtifactKind", "Image", "Video", "Audio", "Latent", "Mask"],
     "vibecomfy.templates": [
-        "InputSpec", "ModelAsset", "ReadyMetadata", "_at", "_current_workflow_or_raise",
+        "InputSpec", "ModelAsset", "OutputSpec", "ReadyMetadata", "_current_workflow_or_raise",
         "_derive_output_kind", "finalize", "finalize_ready", "new_workflow", "node",
         "template_input", "template_output",
     ],

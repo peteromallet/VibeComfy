@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from vibecomfy.errors import SchemaValidationError
 from vibecomfy.ingest.index import index_workflows
 from vibecomfy.ingest.normalize import convert_to_vibe_format, detect_workflow_shape, normalize_to_api
 from vibecomfy.registry.library import load_workflow_reference, workflow_from_id
@@ -43,7 +44,7 @@ def test_api_workflow_converts_to_vibe_workflow() -> None:
     assert api["2"]["inputs"]["steps"] == 8
     assert api["2"]["inputs"]["positive"] == ["1", 0]
     assert workflow.export_to_json(format="api") == api
-    with pytest.raises(ValueError, match="Unsupported workflow JSON export format"):
+    with pytest.raises(SchemaValidationError, match="Unsupported workflow JSON export format"):
         workflow.export_to_json(format="ui")
 
 
@@ -166,10 +167,10 @@ def test_register_input_rejects_bad_target() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={"filename_prefix": "old"})
 
-    with pytest.raises(ValueError, match="does not exist"):
+    with pytest.raises(SchemaValidationError, match="does not exist"):
         workflow.register_input("missing", "404", "filename_prefix", "old")
 
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(SchemaValidationError, match="not found"):
         workflow.register_input("bad_field", "1", "missing", "old")
 
 
@@ -179,11 +180,11 @@ def test_register_input_rejects_alias_collisions() -> None:
     workflow.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "two"})
     workflow.register_input("first", "1", "filename_prefix", "one", aliases=["prefix"])
 
-    with pytest.raises(ValueError, match="existing alias"):
+    with pytest.raises(SchemaValidationError, match="existing alias"):
         workflow.register_input("second", "2", "filename_prefix", "two", aliases=["prefix"])
-    with pytest.raises(ValueError, match="existing primary input"):
+    with pytest.raises(SchemaValidationError, match="existing primary input"):
         workflow.register_input("second", "2", "filename_prefix", "two", aliases=["first"])
-    with pytest.raises(ValueError, match="existing alias"):
+    with pytest.raises(SchemaValidationError, match="existing alias"):
         workflow.register_input("prefix", "2", "filename_prefix", "two")
 
 

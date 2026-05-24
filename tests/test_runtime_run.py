@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.commands.run import _cmd_run
+from vibecomfy.errors import SchemaValidationError
 import vibecomfy.runtime.session as session_module
 from vibecomfy.runtime.session import SessionConfig
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -38,7 +39,7 @@ def test_run_starts_server_before_building(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(runtime_run_module, "comfy_server", fail_if_entered)
     monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
 
-    with pytest.raises(ValueError, match="Workflow build failed: Unknown compile backend"):
+    with pytest.raises(SchemaValidationError, match="Unknown compile backend"):
         asyncio.run(runtime_run_module.run(_workflow(), backend="missing"))
 
     assert entered_server is True
@@ -60,7 +61,7 @@ def test_run_embedded_starts_before_building(tmp_path, monkeypatch: pytest.Monke
     monkeypatch.setitem(sys.modules, "comfy.client.embedded_comfy_client", embedded)
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ValueError, match="Workflow build failed: Unknown compile backend"):
+    with pytest.raises(SchemaValidationError, match="Unknown compile backend"):
         asyncio.run(runtime_run_module.run_embedded(_workflow(), backend="missing"))
 
     assert not (tmp_path / "out/runs").exists()

@@ -1,0 +1,164 @@
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
+from __future__ import annotations
+
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, PrimitiveStringMultiline, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
+
+
+WIDGET_0 = ''
+WIDGET__NAME = 'flux-2-klein-base-4b.safetensors'
+WIDGET__NAME_2 = 'qwen_3_4b.safetensors'
+WIDGET__NAME_3 = 'flux2-vae.safetensors'
+WIDGET__NAME_4 = 'flux-2-klein-4b.safetensors'
+
+
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+
+READY_METADATA = ReadyMetadata.build(
+    capability='unknown',
+    provenance={'source_path': 'workflow_corpus/official/image/flux2_klein_4b_t2i.json', 'source_id': 'flux2_klein_4b_t2i', 'source_type': 'api', 'source_workflow_path': 'workflow_corpus/official/image/flux2_klein_4b_t2i.json', 'output_mode': 'ready_template', 'ready_id': 'image/flux2_klein_4b_t2i'},
+)
+
+# === Subgraph functions ===
+
+def text_to_image_flux2_klein_4b(
+    *,
+    value: int,
+    value_1: int,
+    unet_name: str,
+    clip_name: str,
+    vae_name: str,
+    prompt: str,
+):
+    """Text to Image (Flux.2 Klein 4B).
+
+    Materialized from subgraph 7b34ab90-36f9-45ba-a665-71d418f0df18 in workflow_corpus/official/image/flux2_klein_4b_t2i.json.
+    # vibecomfy source hash: sha256:4f6fda27ff63175e29ec1d087b2e157d70f8a682fb4adfd4b97226bbda7bdb01
+    Inner nodes: KSamplerSelect, Flux2Scheduler, CFGGuider, SamplerCustomAdvanced, VAEDecode, EmptyFlux2LatentImage, CLIPTextEncodex2, PrimitiveIntx2, RandomNoise, UNETLoader, CLIPLoader, VAELoader.
+    """
+
+    ksamplerselect = KSamplerSelect(sampler_name='euler')
+    primitiveint = raw_call('PrimitiveInt', '68', control_after_generate='fixed', value=value)
+    primitiveint_2 = raw_call('PrimitiveInt', '69', control_after_generate='fixed', value=value_1)
+    unetloader = UNETLoader(unet_name=unet_name)
+    cliploader = CLIPLoader(type_='flux2', clip_name=clip_name)
+    vaeloader = VAELoader(vae_name=vae_name)
+    randomnoise = RandomNoise(control_after_generate='randomize')
+    flux2scheduler = Flux2Scheduler(width=primitiveint, height=primitiveint_2)
+
+    emptyflux2latentimage = EmptyFlux2LatentImage(
+        width=primitiveint,
+        height=primitiveint_2,
+    )
+
+    negative = CLIPTextEncode(text='', clip=cliploader)
+    positive = CLIPTextEncode(text=prompt, clip=cliploader)
+
+    cfgguider = CFGGuider(
+        cfg=5,
+        model=unetloader,
+        negative=negative,
+        positive=positive,
+    )
+
+    output, denoised_output = SamplerCustomAdvanced(
+        guider=cfgguider,
+        latent_image=emptyflux2latentimage,
+        noise=randomnoise,
+        sampler=ksamplerselect,
+        sigmas=flux2scheduler,
+    )
+
+    vaedecode = VAEDecode(samples=output, vae=vaeloader)
+
+    return vaedecode
+
+
+def text_to_image_flux2_klein_4b_distilled(
+    *,
+    value: int,
+    value_1: int,
+    unet_name: str,
+    clip_name: str,
+    vae_name: str,
+    prompt: str,
+):
+    """Text to Image (Flux.2 Klein 4B Distilled).
+
+    Materialized from subgraph a67caa28-5f85-4917-8396-36004960dd30 in workflow_corpus/official/image/flux2_klein_4b_t2i.json.
+    # vibecomfy source hash: sha256:97819775f269a73243eadfdb0cb3a1763e929729ceae95bbb2e1dbd751082a72
+    Inner nodes: KSamplerSelect, SamplerCustomAdvanced, VAEDecode, EmptyFlux2LatentImage, PrimitiveIntx2, RandomNoise, UNETLoader, CLIPLoader, VAELoader, CFGGuider, ConditioningZeroOut, CLIPTextEncode, Flux2Scheduler.
+    """
+
+    ksamplerselect = KSamplerSelect(sampler_name='euler')
+    primitiveint = raw_call('PrimitiveInt', '68', control_after_generate='fixed', value=value)
+    primitiveint_2 = raw_call('PrimitiveInt', '69', control_after_generate='fixed', value=value_1)
+    unetloader = UNETLoader(unet_name=unet_name)
+    cliploader = CLIPLoader(type_='flux2', clip_name=clip_name)
+    vaeloader = VAELoader(vae_name=vae_name)
+
+    randomnoise = RandomNoise(
+        noise_seed=432262096973490,
+        control_after_generate='randomize',
+    )
+
+    flux2scheduler = Flux2Scheduler(steps=4, width=primitiveint, height=primitiveint_2)
+
+    emptyflux2latentimage = EmptyFlux2LatentImage(
+        width=primitiveint,
+        height=primitiveint_2,
+    )
+
+    positive = CLIPTextEncode(text=prompt, clip=cliploader)
+    conditioningzeroout = ConditioningZeroOut(conditioning=positive)
+
+    cfgguider = CFGGuider(
+        cfg=1,
+        model=unetloader,
+        negative=conditioningzeroout,
+        positive=positive,
+    )
+
+    output, denoised_output = SamplerCustomAdvanced(
+        guider=cfgguider,
+        latent_image=emptyflux2latentimage,
+        noise=randomnoise,
+        sampler=ksamplerselect,
+        sigmas=flux2scheduler,
+    )
+
+    vaedecode = VAEDecode(samples=output, vae=vaeloader)
+
+    return vaedecode
+
+def build() -> VibeWorkflow:
+    """Build the workflow (auto-generated)."""
+    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+
+        primitivestringmultiline = PrimitiveStringMultiline(
+            value=public('prompt', default='A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere\n', type='STRING', required=True, media_semantics='text'),
+        )
+
+        edited = text_to_image_flux2_klein_4b(
+            value=1024,
+            value_1=1024,
+            unet_name='flux-2-klein-base-4b.safetensors',
+            clip_name='qwen_3_4b.safetensors',
+            vae_name='flux2-vae.safetensors',
+            prompt=primitivestringmultiline,
+        )
+        edited_2 = text_to_image_flux2_klein_4b_distilled(
+            value=1024,
+            value_1=1024,
+            unet_name='flux-2-klein-4b.safetensors',
+            clip_name='qwen_3_4b.safetensors',
+            vae_name='flux2-vae.safetensors',
+            prompt=primitivestringmultiline,
+        )
+        saveimage = SaveImage(filename_prefix='Flux2-Klein', images=edited)
+        saveimage_2 = SaveImage(filename_prefix='Flux2-Klein', images=edited_2)
+
+        return wf.finalize({}, output_node=saveimage, filename_prefix='Flux2-Klein', spec=OUTPUT_SPEC)
+

@@ -1,0 +1,80 @@
+{
+  "id": "fixture-family-f-set-get-broadcast",
+  "revision": 0,
+  "last_node_id": 4,
+  "last_link_id": 2,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [0, 0],
+      "size": [270, 106],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {"name": "image", "type": "STRING", "widget": {"name": "image"}, "link": null}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "LoadImage"},
+      "widgets_values": ["reference.png"]
+    },
+    {
+      "id": 2,
+      "type": "SetNode",
+      "pos": [320, 0],
+      "size": [270, 106],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {"name": "IMAGE", "type": "IMAGE", "link": 1},
+        {"name": "widget_0", "type": "STRING", "widget": {"name": "widget_0"}, "link": null}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "SetNode"},
+      "widgets_values": ["reference_image"]
+    },
+    {
+      "id": 3,
+      "type": "GetNode",
+      "pos": [640, 0],
+      "size": [270, 106],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {"name": "widget_0", "type": "STRING", "widget": {"name": "widget_0"}, "link": null}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [2], "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "GetNode"},
+      "widgets_values": ["reference_image"]
+    },
+    {
+      "id": 4,
+      "type": "SaveImage",
+      "pos": [960, 0],
+      "size": [270, 106],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 2}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "SaveImage"},
+      "widgets_values": ["family_f/out"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "IMAGE"],
+    [2, 3, 0, 4, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {}
+}

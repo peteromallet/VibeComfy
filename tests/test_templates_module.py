@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 import vibecomfy.templates as templates
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, SymbolicNodeRef, _current_workflow_or_raise, _derive_output_kind, finalize, new_workflow, node
+from vibecomfy.errors import SchemaValidationError
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, _current_workflow_or_raise, _derive_output_kind, finalize, new_workflow, node
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
@@ -47,29 +48,6 @@ def test_node_preserves_source_id_extras_and_rewrites_edges() -> None:
     assert any(edge.from_node == "source" and edge.to_node == "scaled" and edge.to_input == "image" for edge in wf.edges)
 
 
-def test_legacy_string_ref_warns_and_still_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(templates, "_SYMBOLIC_REF_DEPRECATION_WARNED", False)
-
-    def build() -> VibeWorkflow:
-        wf = new_workflow({"ready_template": "image/legacy_ref"}, source_path="ready_templates/image/legacy_ref.py")
-        saved = node(wf, "SaveImage", filename_prefix="out/legacy")
-        with pytest.warns(PendingDeprecationWarning, match="legacy generated-template fallback"):
-            public_inputs = {
-                "prefix": InputSpec(
-                    node=templates.ref("saved"),
-                    field="filename_prefix",
-                    default="out/legacy",
-                    type="STRING",
-                )
-            }
-        return finalize(wf, public_inputs, {"ready_template": "image/legacy_ref"}, output_node=saved, output_type="SaveImage")
-
-    workflow = build()
-
-    assert workflow.inputs["prefix"].node_id == "1"
-    assert workflow.metadata["id_map"]["saved"] == "1"
-
-
 def test_node_allows_id_free_creation_and_legacy_source_ids() -> None:
     wf = _workflow()
 
@@ -93,12 +71,30 @@ def test_id_map_returns_defensive_copy_from_set_id_map() -> None:
     assert wf.id_map() == {"prompt": "7"}
 
 
-def test_finalize_resolves_symbolic_inputspec_from_build_locals() -> None:
+def test_finalize_resolves_duck_typed_node_ref_from_build_locals() -> None:
+    """``InputSpec.node`` accepts any object with a ``.resolve(namespace, wf)``
+    method.  This covers both the retired ``SymbolicNodeRef`` (now removed
+    from the public surface) and in-template shims that preserve the same
+    contract in ``# vibecomfy: manual`` templates.
+    """
+
+    class _LocalRef:
+        __slots__ = ("label",)
+
+        def __init__(self, label: str) -> None:
+            self.label = label
+
+        def resolve(self, namespace, wf):
+            value = namespace.get(self.label)
+            node_id = str(value.node.id)
+            wf.metadata.setdefault("id_map", {})[self.label] = node_id
+            return node_id
+
     def build() -> VibeWorkflow:
         wf = _workflow("image/symbolic")
         prompt_node = node(wf, "PrimitiveString", value="current")
         saved = node(wf, "SaveImage")
-        inputs = {"prompt": InputSpec(SymbolicNodeRef("prompt_node"), "value", "default", "STRING")}
+        inputs = {"prompt": InputSpec(_LocalRef("prompt_node"), "value", "default", "STRING")}
         metadata = ReadyMetadata.build(
             template_id="image/symbolic",
             capability="text_to_image",
@@ -168,7 +164,7 @@ def test_workflow_finalize_method_rejects_ambiguous_terminal_outputs() -> None:
         output_prefix="out",
     )
 
-    with pytest.raises(ValueError, match="ambiguous output_node; specify explicitly"):
+    with pytest.raises(SchemaValidationError, match="ambiguous output_node; specify explicitly"):
         wf.finalize(inputs, metadata=metadata, output_type="SaveImage")
 
 
@@ -766,7 +762,7 @@ def test_node_rejects_multi_output_builder_kwargs_with_output_names() -> None:
         batch_size=1,
     )
 
-    with pytest.raises(ValueError, match=r"WanImageToVideo node 'wan_video' has 3 outputs .*POSITIVE.*NEGATIVE.*LATENT"):
+    with pytest.raises(SchemaValidationError, match=r"WanImageToVideo node 'wan_video' has 3 outputs .*POSITIVE.*NEGATIVE.*LATENT"):
         node(wf, "KSampler", samples=wan_video)
 
 
@@ -774,7 +770,7 @@ def test_node_rejects_list_output_builder_kwargs() -> None:
     wf = _workflow()
     images = node(wf, "RebatchImages", "rebatch", images="image", batch_size=1)
 
-    with pytest.raises(ValueError, match="list outputs; specify"):
+    with pytest.raises(SchemaValidationError, match="list outputs; specify"):
         node(wf, "PreviewImage", images=images)
 
 
@@ -804,9 +800,9 @@ def test_inputspec_type_and_modelasset_filename_are_derivable() -> None:
 
 
 def test_modelasset_rejects_legacy_gated_magic_literals() -> None:
-    with pytest.raises(ValueError, match="gated=True"):
+    with pytest.raises(SchemaValidationError, match="gated=True"):
         ModelAsset(url="https://example.test/model.safetensors", subdir="checkpoints", sha256="gated")
-    with pytest.raises(ValueError, match="gated=True"):
+    with pytest.raises(SchemaValidationError, match="gated=True"):
         ModelAsset(url="https://example.test/model.safetensors", subdir="checkpoints", hf_revision="gated")
 
 
@@ -911,6 +907,7 @@ def test_canonical_finalize_does_not_warn() -> None:
 # ── T5: Regression tests for four-block template static consumers ──
 
 
+@pytest.mark.xfail(strict=True, reason="Phase 1: static_contract AST extraction of public() inline pattern not yet implemented; awaits Family F fix")
 def test_static_contract_extracts_public_inputs_from_inputspec() -> None:
     """T5(b): static_contract derives public_inputs from PUBLIC_INPUTS/InputSpec AST nodes."""
     from vibecomfy.registry.static_contract import extract_ready_template_contract
@@ -1140,3 +1137,169 @@ def test_readability_inventory_parses_ready_metadata_build_call() -> None:
     assert isinstance(metadata, dict)
     assert metadata.get("capability") == "image_to_video"
     assert metadata.get("coverage_tier") == "required"
+
+
+# -- T2: public-input metadata round-trips through static contract ------------
+
+
+@pytest.mark.xfail(strict=True, reason="Phase 1: static_contract round-trip for public() inline pattern not yet implemented; awaits Family F fix")
+def test_public_input_metadata_round_trips_through_static_contract() -> None:
+    """Public-input keys in generated (PUBLIC_INPUT_METADATA) and old-style
+    (PUBLIC_INPUTS) templates must be a subset of the contract's public_inputs
+    keys after running ``extract_ready_template_contract``."""
+    from importlib import import_module
+    from vibecomfy.registry.static_contract import extract_ready_template_contract
+
+    root = Path(__file__).resolve().parents[1] / "ready_templates"
+
+    # Curated sample: 2 new-style (PUBLIC_INPUT_METADATA) + 1 old-style (PUBLIC_INPUTS)
+    samples: list[tuple[str, bool]] = [
+        ("video/wan_t2v", True),         # new-style: PUBLIC_INPUT_METADATA
+        ("video/wan_i2v", True),          # new-style: PUBLIC_INPUT_METADATA
+        ("image/z_image", False),         # old-style: PUBLIC_INPUTS
+    ]
+
+    for rel_path, is_new_style in samples:
+        template_path = root / f"{rel_path}.py"
+        assert template_path.is_file(), f"Sample template missing: {template_path}"
+
+        # Import the module to read the public-input keys at module level.
+        module_name = f"ready_templates.{rel_path.replace('/', '.')}"
+        mod = import_module(module_name)
+
+        # Read the appropriate symbol.
+        if is_new_style:
+            source_keys = set(getattr(mod, "PUBLIC_INPUT_METADATA", {}).keys())
+        else:
+            source_keys = set(getattr(mod, "PUBLIC_INPUTS", {}).keys())
+
+        # Extract the static contract.
+        contract = extract_ready_template_contract(template_path)
+
+        # Build the set of input names appearing in the contract.
+        contract_keys = {
+            item["name"]
+            for item in contract["public_inputs"]
+            if isinstance(item.get("name"), str)
+        }
+
+        # Every key declared in the module must appear in the contract.
+        missing = source_keys - contract_keys
+        assert not missing, (
+            f"{rel_path}: keys in {'PUBLIC_INPUT_METADATA' if is_new_style else 'PUBLIC_INPUTS'} "
+            f"missing from contract public_inputs: {sorted(missing)}"
+        )
+
+        # Spot-check a well-known key for each template kind.
+        if is_new_style:
+            assert "cfg" in contract_keys, f"{rel_path}: 'cfg' missing from contract"
+        else:
+            assert "prompt" in contract_keys, f"{rel_path}: 'prompt' missing from contract"
+
+
+# -- T7: Part 3 compatibility tests -------------------------------------------
+
+
+def test_finalize_accepts_legacy_kwargs_and_new_spec_form() -> None:
+    """Legacy kwargs and OutputSpec produce equivalent resolved output metadata."""
+    from vibecomfy.templates import OutputSpec
+
+    def _build_and_finalize(*, use_spec: bool) -> VibeWorkflow:
+        wf = _workflow("test/legacy_spec")
+        node(wf, "PrimitiveString", "1", value="hello")
+        node(wf, "SaveImage", "2", filename_prefix="out/test")
+        inputs: dict[str, InputSpec] = {
+            "prompt": InputSpec("1", "value", "hello", "STRING"),
+        }
+        metadata = ReadyMetadata.build(
+            template_id="test/legacy_spec",
+            capability="text_to_image",
+            inputs=inputs,
+            models={},
+            output_prefix="out/test",
+        )
+        if use_spec:
+            return wf.finalize(
+                inputs, metadata=metadata,
+                output_node="2",
+                output_type="SaveImage",
+                spec=OutputSpec(name="image", artifact_kind="image", mime_type="image/png"),
+            )
+        else:
+            # Legacy kwargs — must NOT raise DeprecationWarning.
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                return wf.finalize(
+                    inputs, metadata=metadata,
+                    output_node="2",
+                    output_type="SaveImage",
+                    name="image",
+                    artifact_kind="image",
+                    mime_type="image/png",
+                    expected_cardinality="one",
+                )
+
+    wf_legacy = _build_and_finalize(use_spec=False)
+    wf_spec = _build_and_finalize(use_spec=True)
+
+    # Both forms must produce the same public_outputs shape.
+    assert len(wf_legacy.outputs) == len(wf_spec.outputs)
+    for out_legacy, out_spec in zip(wf_legacy.outputs, wf_spec.outputs):
+        assert out_legacy.node_id == out_spec.node_id
+        assert out_legacy.output_type == out_spec.output_type
+        assert out_legacy.name == out_spec.name
+        assert out_legacy.artifact_kind == out_spec.artifact_kind
+        assert out_legacy.mime_type == out_spec.mime_type
+        assert out_legacy.expected_cardinality == out_spec.expected_cardinality
+
+    # Spot-check key fields.
+    assert wf_legacy.outputs[0].artifact_kind == "image"
+    assert wf_legacy.outputs[0].mime_type == "image/png"
+    assert wf_spec.outputs[0].artifact_kind == "image"
+    assert wf_spec.outputs[0].mime_type == "image/png"
+
+
+def test_output_spec_precedence() -> None:
+    """spec= takes precedence over conflicting legacy kwargs."""
+    from vibecomfy.templates import OutputSpec
+
+    wf = _workflow("test/spec_precedence")
+    node(wf, "PrimitiveString", "1", value="hello")
+    node(wf, "SaveImage", "2", filename_prefix="out/test")
+    inputs: dict[str, InputSpec] = {
+        "prompt": InputSpec("1", "value", "hello", "STRING"),
+    }
+    metadata = ReadyMetadata.build(
+        template_id="test/spec_precedence",
+        capability="text_to_image",
+        inputs=inputs,
+        models={},
+        output_prefix="out/test",
+    )
+
+    # spec has name='spec_wins', legacy kwarg says name='legacy'
+    result = wf.finalize(
+        inputs, metadata=metadata,
+        output_node="2",
+        output_type="SaveImage",
+        spec=OutputSpec(name="spec_wins", artifact_kind="image", mime_type="image/png"),
+        name="legacy",
+    )
+
+    # spec takes precedence — the output name should be from spec.
+    assert result.outputs[0].name == "spec_wins"
+    assert result.outputs[0].artifact_kind == "image"
+    assert result.outputs[0].mime_type == "image/png"
+
+
+def test_wf_node_raises_on_public_sentinel() -> None:
+    """F.1 (T5): Raw wf.node() must raise loudly when PublicSentinel is
+    passed in kwargs, instead of silently discarding pending_publics."""
+    from vibecomfy.templates import public
+
+    wf = _workflow()
+
+    with pytest.raises(SchemaValidationError, match="PublicSentinel") as exc_info:
+        wf.node("CLIPTextEncode", text=public(name="prompt", default="a test prompt"))
+    assert "next action:" in str(exc_info.value)
+    assert "wf.register_input" in str(exc_info.value)

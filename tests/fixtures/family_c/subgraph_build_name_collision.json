@@ -1,0 +1,100 @@
+{
+  "id": "fixture-family-c-subgraph-build-name-collision",
+  "revision": 0,
+  "last_node_id": 13,
+  "last_link_id": 202,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      "pos": [0, 0],
+      "size": [270, 106],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0}
+      ],
+      "properties": {"Node name for S&R": "build"},
+      "widgets_values": []
+    },
+    {
+      "id": 2,
+      "type": "SaveImage",
+      "pos": [320, 0],
+      "size": [270, 106],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 1}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "SaveImage"},
+      "widgets_values": ["family_c/out"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "definitions": {
+    "subgraphs": [
+      {
+        "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "version": 1,
+        "revision": 0,
+        "config": {},
+        "name": "build",
+        "inputs": [],
+        "outputs": [
+          {"name": "IMAGE", "type": "IMAGE", "linkIds": [202]}
+        ],
+        "widgets": [],
+        "nodes": [
+          {
+            "id": 10,
+            "type": "LoadImage",
+            "pos": [0, 0],
+            "size": [270, 106],
+            "flags": {},
+            "order": 0,
+            "mode": 0,
+            "inputs": [
+              {"name": "image", "type": "STRING", "widget": {"name": "image"}, "link": null}
+            ],
+            "outputs": [
+              {"name": "IMAGE", "type": "IMAGE", "links": [201], "slot_index": 0}
+            ],
+            "properties": {"Node name for S&R": "LoadImage"},
+            "widgets_values": ["family_c.png"]
+          },
+          {
+            "id": 11,
+            "type": "PreviewImage",
+            "pos": [320, 0],
+            "size": [270, 106],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "inputs": [
+              {"name": "images", "type": "IMAGE", "link": 201}
+            ],
+            "outputs": [
+              {"name": "IMAGE", "type": "IMAGE", "links": [202], "slot_index": 0}
+            ],
+            "properties": {"Node name for S&R": "PreviewImage"},
+            "widgets_values": []
+          }
+        ],
+        "links": [
+          {"id": 201, "origin_id": 10, "origin_slot": 0, "target_id": 11, "target_slot": 0, "type": "IMAGE"},
+          {"id": 202, "origin_id": 11, "origin_slot": 0, "target_id": -20, "target_slot": 0, "type": "IMAGE"}
+        ]
+      }
+    ]
+  }
+}

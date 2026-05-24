@@ -17,6 +17,7 @@ from unittest import mock
 
 import pytest
 
+from vibecomfy.errors import SchemaValidationError
 from tools.narrate_template import (
     _add_output_slot_comments,
     _add_widget_todo_comments,
@@ -347,17 +348,17 @@ class TestBindInputConversion:
         )
 
     def test_bind_input_validates_node_exists(self, mock_wf):
-        """bind_input must raise ValueError when node_id doesn't exist."""
+        """bind_input must raise SchemaValidationError when node_id doesn't exist."""
         from vibecomfy.registry.ready_template import bind_input
 
-        with pytest.raises(ValueError, match="does not exist"):
+        with pytest.raises(SchemaValidationError, match="does not exist"):
             bind_input(mock_wf, "bad", "999", "widget_0")
 
     def test_bind_input_validates_field_exists(self, mock_wf):
-        """bind_input must raise ValueError when field isn't in node inputs/widgets."""
+        """bind_input must raise SchemaValidationError when field isn't in node inputs/widgets."""
         from vibecomfy.registry.ready_template import bind_input
 
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(SchemaValidationError, match="not found"):
             bind_input(mock_wf, "bad", "200", "nonexistent_field")
 
     def test_bind_input_preserves_descriptor_kwargs(self, mock_wf):

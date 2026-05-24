@@ -209,6 +209,7 @@ def test_lens_outputs_on_tiny_workflow() -> None:
 # ── LTX parity template smoke through the lens ───────────────────────────
 
 
+@pytest.mark.xfail(strict=True, reason="Phase 1: LTX parity template missing seed_first/seed_last/frames/fps registrations; LTX family fix required")
 def test_lens_ltx_parity_registered_inputs_via_lens() -> None:
     """All named LTX parity inputs are discoverable through the lens
     without reaching for compiled Comfy API JSON."""

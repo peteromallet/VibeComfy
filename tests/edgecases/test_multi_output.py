@@ -30,9 +30,12 @@ def test_multi_output_node_edges_preserved() -> None:
     assert result.validation is not None
     assert result.validation.ok
 
-    # Both output slots should be referenced in the emitted text
+    # Both output slots should be referenced in the emitted text.
+    # F.5 (v2.7) changed emission to tuple-unpacking assignment
+    # (e.g. ``image, mask = LoadImage(...)``), replacing the old
+    # ``.out(slot)`` index syntax.  Check for either form.
     text = result.text
-    assert ".out(0)" in text or ".out(" in text
+    assert ".out(" in text or ("image" in text and "mask" in text)
 
 
 def test_single_output_node_no_edge_ambiguity() -> None:

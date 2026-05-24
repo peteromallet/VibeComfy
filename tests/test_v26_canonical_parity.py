@@ -53,6 +53,7 @@ def test_canonical_parity_update_rewrites_baseline(tmp_path: Path) -> None:
 def test_canonical_parity_excludes_manual_templates(tmp_path: Path) -> None:
     ready_root = _write_ready_template(tmp_path, literal=1)
     _write_ready_template(tmp_path, template_id="image/manual", literal=1, marker="# vibecomfy: manual")
+    _write_ready_template(tmp_path, template_id="image/broken", literal=1, marker="# vibecomfy: broken-regen")
 
     payload = parity.build_baseline(ready_root)
 

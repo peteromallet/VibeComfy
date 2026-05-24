@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from vibecomfy.errors import SchemaValidationError
 from vibecomfy.handles import Handle
 from vibecomfy.registry.ready_template import (
     bind_input,
@@ -380,14 +381,14 @@ def test_bind_output_updates_expected_cardinality() -> None:
 def test_bind_input_raises_value_error_on_missing_node() -> None:
     wf = ready_workflow("test", source_path="/tmp/test.py")
 
-    with pytest.raises(ValueError, match="does not exist"):
+    with pytest.raises(SchemaValidationError, match="does not exist"):
         bind_input(wf, "prompt", "999", "text")
 
 
 def test_bind_input_error_message_includes_node_id_and_workflow_id() -> None:
     wf = ready_workflow("my_wf", source_path="/tmp/test.py")
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(SchemaValidationError) as exc_info:
         bind_input(wf, "my_input", "nonexistent_node", "field")
     msg = str(exc_info.value)
     assert "nonexistent_node" in msg
@@ -402,7 +403,7 @@ def test_bind_input_raises_value_error_on_missing_field() -> None:
     wf = ready_workflow("test", source_path="/tmp/test.py")
     ready_node(wf, "LoadImage", source_id="10")
 
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(SchemaValidationError, match="not found"):
         bind_input(wf, "bad_field", "10", "nonexistent_field")
 
 
@@ -410,7 +411,7 @@ def test_bind_input_error_message_includes_field_and_class_type() -> None:
     wf = ready_workflow("test", source_path="/tmp/test.py")
     ready_node(wf, "LoadImage", source_id="42")
 
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(SchemaValidationError) as exc_info:
         bind_input(wf, "inp", "42", "not_a_real_field")
     msg = str(exc_info.value)
     assert "not_a_real_field" in msg
@@ -453,7 +454,7 @@ def test_bind_input_rejects_alias_collision_with_existing_alias() -> None:
     ready_node(wf, "SaveImage", source_id="2", filename_prefix="two")
     bind_input(wf, "first", "1", "filename_prefix", aliases=["prefix"])
 
-    with pytest.raises(ValueError, match="existing alias"):
+    with pytest.raises(SchemaValidationError, match="existing alias"):
         bind_input(wf, "second", "2", "filename_prefix", aliases=["prefix"])
 
 
@@ -463,7 +464,7 @@ def test_bind_input_rejects_alias_collision_with_primary_name() -> None:
     ready_node(wf, "SaveImage", source_id="2", filename_prefix="two")
     bind_input(wf, "first", "1", "filename_prefix")
 
-    with pytest.raises(ValueError, match="existing primary input"):
+    with pytest.raises(SchemaValidationError, match="existing primary input"):
         bind_input(wf, "second", "2", "filename_prefix", aliases=["first"])
 
 
@@ -473,7 +474,7 @@ def test_bind_input_rejects_primary_collision_with_existing_alias() -> None:
     ready_node(wf, "SaveImage", source_id="2", filename_prefix="two")
     bind_input(wf, "first", "1", "filename_prefix", aliases=["prefix"])
 
-    with pytest.raises(ValueError, match="existing alias"):
+    with pytest.raises(SchemaValidationError, match="existing alias"):
         bind_input(wf, "prefix", "2", "filename_prefix")
 
 
