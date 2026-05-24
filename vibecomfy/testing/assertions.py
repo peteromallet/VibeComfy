@@ -12,10 +12,12 @@ without `pytest`.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from vibecomfy.handles import Handle
-from vibecomfy.workflow import VibeWorkflow
+
+if TYPE_CHECKING:
+    from vibecomfy.workflow import VibeWorkflow
 
 from vibecomfy.testing._helpers import (
     FAILURE_HINT_USE_ASSERT_EDGE,
@@ -145,6 +147,8 @@ def assert_input_value(
     >>> wf = make_workflow_factory()(class_types=["KSampler"], widgets={"1": {"cfg": 7.0}})
     >>> assert_input_value(wf, "1", "cfg", 7.0)
     """
+    from vibecomfy.workflow import VibeWorkflow  # lazy: avoid testing↔workflow import cycle
+
     wf_id = resolve_wf_id(wf_or_api)
     if isinstance(wf_or_api, VibeWorkflow):
         node = wf_or_api.nodes.get(str(node_id))

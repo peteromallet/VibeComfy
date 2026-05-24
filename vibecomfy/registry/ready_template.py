@@ -4,10 +4,12 @@ import warnings
 from pathlib import Path
 from typing import Any, Mapping
 
+from vibecomfy.errors import SchemaValidationError
+
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.handles import Handle
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
-from vibecomfy.workflow import VibeOutput, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeOutput, VibeWorkflow, WorkflowSource, _NodeBuilder
 
 
 def build_api_ready_workflow(
@@ -59,7 +61,10 @@ def apply_ready_template_policy(
     workflow.metadata["ready_template_path"] = source_path
     workflow.metadata["python_policy_applied"] = True
     if not workflow.nodes:
-        raise ValueError("ready template produced no nodes")
+        raise SchemaValidationError(
+            "ready template produced no nodes",
+            next_action="Ensure the template's build() function calls node() at least once.",
+        )
     if requirements:
         _merge_requirements(workflow, requirements)
     return workflow
@@ -233,7 +238,7 @@ def ready_node(
     outputs: tuple[str, ...] | None = None,
     extras: Mapping[str, Any] | None = None,
     **kwargs: Any,
-) -> Any:
+) -> _NodeBuilder:
     """Create a node, preserving a source-side *source_id* when provided.
 
     Semantically equivalent to the old ``_node()`` helper but lives in the
@@ -316,7 +321,7 @@ def bind_input(
     """Register a public input binding **after** ``finalize_ready_template()``.
 
     Validates that *node_id* exists in ``wf.nodes`` and that *field* is a
-    known input/widget key on that node.  Raises ``ValueError`` with a
+    known input/widget key on that node.  Raises ``SchemaValidationError`` with a
     descriptive message when either check fails.
     """
     warnings.warn(
@@ -326,20 +331,23 @@ def bind_input(
         stacklevel=2,
     )
     if node_id not in wf.nodes:
-        raise ValueError(
+        raise SchemaValidationError(
             f"bind_input({name!r}): target node {node_id!r} does not exist "
-            f"in workflow {wf.id!r}"
+            f"in workflow {wf.id!r}",
+            next_action="Create the target node before registering this input, or correct the node_id.",
         )
     node = wf.nodes[node_id]
     if field not in node.inputs and field not in node.widgets:
-        raise ValueError(
+        raise SchemaValidationError(
             f"bind_input({name!r}): field {field!r} not found in "
-            f"node {node_id!r} ({node.class_type}) inputs or widgets"
+            f"node {node_id!r} ({node.class_type}) inputs or widgets",
+            next_action="Check the node's class definition for valid input/widget field names.",
         )
     if media_semantics is not None and media is not None and media_semantics != media:
-        raise ValueError(
+        raise SchemaValidationError(
             f"bind_input({name!r}): media_semantics and legacy media "
-            "must match when both are provided"
+            "must match when both are provided",
+            next_action="Use either `media_semantics=...` (preferred) or `media=...` (legacy), not both with different values.",
         )
     value = node.inputs.get(field, node.widgets.get(field))
     return wf.register_input(

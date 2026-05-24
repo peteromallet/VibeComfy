@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
+from vibecomfy.errors import ConversionParityError, SchemaValidationError
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
 from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
 from vibecomfy.porting.object_info import class_defaults, class_has_list_output, class_output_count
@@ -256,6 +257,8 @@ _SECTION_ORDER: tuple[str, ...] = (
     "Outputs",
 )
 
+_SUPPRESSED_SECTION_COMMENTS: frozenset[str] = frozenset({"Loaders", "Sampling"})
+
 _SECTION_NODE_THRESHOLD: int = 8
 
 # --- constant hoisting patterns ---------------------------------------------
@@ -357,6 +360,34 @@ def _classify_node_role(node: Any) -> str | None:
     return _ROLE_CLASSIFICATION.get(node.class_type)
 
 
+def _constant_name_base_for_category(category: str, field: str) -> str:
+    """Return the unsuffixed constant name for a hoisted field."""
+    if category != "model":
+        return {
+            "prompt": "DEFAULT_PROMPT",
+            "negative_prompt": "DEFAULT_NEGATIVE",
+            "seed": "DEFAULT_SEED",
+            "output_prefix": "OUTPUT_PREFIX",
+            "size": "DEFAULT_SIZE",
+            "fps": "DEFAULT_FPS",
+            "frames": "DEFAULT_FRAMES",
+            "guide": "GUIDE_STRENGTH",
+        }.get(category, "CONSTANT")
+
+    normalized = re.sub(r"\d+$", "", field)
+    if normalized == "lora":
+        normalized = "lora_name"
+    elif normalized == "text_encoder":
+        normalized = "text_encoder_name"
+    elif not normalized.endswith("_name"):
+        normalized = f"{normalized}_name"
+
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", normalized.upper())
+    if not sanitized or sanitized[0].isdigit():
+        sanitized = f"MODEL_{sanitized}"
+    return sanitized
+
+
 def _build_section_groups(
     workflow_nodes: dict[str, Any],
     edges_in: dict[str, list[Any]],
@@ -444,25 +475,12 @@ def _hoist_constants(
     constant_defs: dict[str, tuple[Any, str]] = {}  # name -> (value, category)
     constant_map: dict[tuple[str, str], str] = {}  # (nid, field) -> name
 
-    # Pre-defined name patterns by category
-    _CATEGORY_NAMES: dict[str, str] = {
-        "prompt": "DEFAULT_PROMPT",
-        "negative_prompt": "DEFAULT_NEGATIVE",
-        "seed": "DEFAULT_SEED",
-        "model": "MODEL_NAME",
-        "output_prefix": "OUTPUT_PREFIX",
-        "size": "DEFAULT_SIZE",
-        "fps": "DEFAULT_FPS",
-        "frames": "DEFAULT_FRAMES",
-        "guide": "GUIDE_STRENGTH",
-    }
-
     # Value dedup: same category + same value string -> same constant name
-    value_to_name: dict[tuple[str, str], str] = {}  # (category, str(value)) -> name
+    value_to_name: dict[tuple[str, str, str], str] = {}  # (base, category, str(value)) -> name
 
     for nid, field, value, category in candidates:
-        value_key = (category, str(value))
-        count = value_counts[value_key]
+        count_key = (category, str(value))
+        count = value_counts[count_key]
 
         # Always hoist categories that represent public defaults
         always_hoist = category in ("model", "prompt", "negative_prompt", "seed",
@@ -472,10 +490,11 @@ def _hoist_constants(
         if not should_hoist:
             continue
 
+        base = _constant_name_base_for_category(category, field)
+        value_key = (base, category, str(value))
         if value_key in value_to_name:
             name = value_to_name[value_key]
         else:
-            base = _CATEGORY_NAMES.get(category, "CONSTANT")
             category_counters[base] = category_counters.get(base, 0) + 1
             cnt = category_counters[base]
             name = base if cnt == 1 else f"{base}_{cnt}"
@@ -508,13 +527,13 @@ def _hoist_constants(
     for (field, value), count in all_values.items():
         if count >= 2:
             # This is a repeated preset
-            value_key = ("preset", str(value))
-            if value_key in value_to_name:
-                continue  # already named
-            # Deterministic name: field name ALL_CAPS_ style
             sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", field.upper())
             if not sanitized or sanitized[0].isdigit():
                 sanitized = f"P_{sanitized}"
+            value_key = (sanitized, "preset", str(value))
+            if value_key in value_to_name:
+                continue  # already named
+            # Deterministic name: field name ALL_CAPS_ style
             category_counters[sanitized] = category_counters.get(sanitized, 0) + 1
             cnt = category_counters[sanitized]
             name = sanitized if cnt == 1 else f"{sanitized}_{cnt}"
@@ -643,39 +662,103 @@ def _public_input_specs(
     return specs
 
 
-def _format_public_inputs_block(specs: list[_PublicInputSpec], *, metadata: bool = False) -> list[str]:
-    if not specs:
-        return []
-    lines = ["PUBLIC_INPUT_METADATA = {" if metadata else "    return {"]
-    for spec in specs:
-        node_ref = spec.metadata_node_ref if metadata else spec.node_ref
-        args = [
-            f"node={node_ref}",
-            f"field={spec.field!r}",
-            f"default={spec.default_expr}",
-        ]
-        if spec.type is not None:
-            args.append(f"type={spec.type!r}")
-        if spec.required:
-            args.append("required=True")
-        if spec.aliases:
-            args.append(f"aliases={spec.aliases!r}")
-        if spec.media_semantics is not None:
-            args.append(f"media_semantics={spec.media_semantics!r}")
-        lines.append(f"    {spec.name!r}: InputSpec({', '.join(args)}),")
-    lines.append("}" if metadata else "    }")
-    return lines
+def _build_public_lookup(public_inputs: list[_PublicInputSpec]) -> dict[tuple[str, str], list[_PublicInputSpec]]:
+    """Build lookup from (node_id, field) → list of _PublicInputSpec.
+
+    Multiple specs can target the same (node_id, field) when aliases are
+    registered or when inference picks up the same binding.
+    """
+    import ast as _ast
+
+    lookup: dict[tuple[str, str], list[_PublicInputSpec]] = {}
+    for spec in public_inputs:
+        # metadata_node_ref is always repr(str(node_id)) e.g. "'42'"
+        try:
+            nid = _ast.literal_eval(spec.metadata_node_ref)
+        except Exception:
+            continue
+        lookup.setdefault((str(nid), spec.field), []).append(spec)
+    return lookup
 
 
-def _format_public_inputs_factory(specs: list[_PublicInputSpec]) -> list[str]:
+def _format_public_call(specs: list[_PublicInputSpec], default_expr: str) -> str:
+    """Format a public(...) call wrapping a default value expression.
+
+    When multiple specs map to the same (node_id, field), the first spec's
+    name is primary and all other names become aliases.  Exact duplicates
+    (same name, default) are collapsed with an inline comment.
+    """
     if not specs:
-        return []
-    lines = ["def PUBLIC_INPUTS(**nodes):"]
+        return default_expr
+
+    # Deduplicate by (name, default_expr)
+    seen: dict[tuple[str, str], _PublicInputSpec] = {}
     for spec in specs:
-        if spec.node_ref.isidentifier():
-            lines.append(f"    {spec.node_ref} = nodes[{spec.node_ref!r}]")
-    lines.extend(_format_public_inputs_block(specs))
-    return lines
+        key = (spec.name, spec.default_expr)
+        if key not in seen:
+            seen[key] = spec
+
+    primary_spec = specs[0]  # first registered
+    primary_name = primary_spec.name
+
+    # Collect all alias names (other spec names + their aliases)
+    all_aliases: list[str] = []
+    for spec in specs:
+        if spec.name != primary_name:
+            all_aliases.append(spec.name)
+        all_aliases.extend(spec.aliases)
+
+    # Deduplicate aliases preserving order
+    deduped_aliases: list[str] = []
+    seen_aliases: set[str] = {primary_name}
+    for alias in all_aliases:
+        if alias not in seen_aliases:
+            seen_aliases.add(alias)
+            deduped_aliases.append(alias)
+
+    args = [f"default={default_expr}"]
+    if primary_spec.type is not None:
+        args.append(f"type={primary_spec.type!r}")
+    if primary_spec.required:
+        args.append("required=True")
+    if deduped_aliases:
+        args.append(f"aliases={tuple(deduped_aliases)!r}")
+    if primary_spec.media_semantics is not None:
+        args.append(f"media_semantics={primary_spec.media_semantics!r}")
+
+    if len(seen) < len(specs):
+        # Collapsed duplicates — add inline comment
+        return f"public({primary_name!r}, {', '.join(args)})  # {len(specs) - len(seen)} duplicate(s) collapsed"
+    return f"public({primary_name!r}, {', '.join(args)})"
+
+
+def _check_unemitted_public_specs(
+    public_lookup: dict[tuple[str, str], list],
+    emitted_keys: set[tuple[str, str]],
+    diagnostics: list,
+) -> None:
+    """Add diagnostics for public-input specs whose (node_id, field) was never emitted.
+
+    This catches the silent-drop risk: a public input registered against a field
+    that ends up connected via edge (so _node_kwargs never sees it as static).
+    """
+    for lookup_key in sorted(public_lookup):
+        if lookup_key not in emitted_keys:
+            nid, field = lookup_key
+            spec_names = ", ".join(s.name for s in public_lookup[lookup_key])
+            diagnostics.append(
+                EmissionDiagnostic(
+                    code="public_input_not_emitted",
+                    message=(
+                        f"Public input(s) [{spec_names}] targeting node {nid!r} field {field!r} "
+                        f"were never emitted as literal kwargs. The field may be connected via "
+                        f"an edge (Handle ref) instead of a static value."
+                    ),
+                    severity="warning",
+                    node_id=nid,
+                    detail={"field": field, "public_names": [s.name for s in public_lookup[lookup_key]]},
+                )
+            )
 
 
 def _model_assets_for_emit(
@@ -796,6 +879,7 @@ def _metadata_extras_for_emit(metadata: Mapping[str, Any]) -> dict[str, Any]:
         "coverage_tier",
         "custom_node_packs",
         "_has_public_inputs_for_emit",
+        "_has_output_spec_for_emit",
     }
     extras = {
         str(key): value
@@ -894,7 +978,6 @@ def _format_ready_metadata_build(
     requirements: Mapping[str, Any],
     *,
     has_models: bool,
-    has_public_inputs: bool,
     custom_node_packs: Mapping[str, Any] | None = None,
 ) -> list[str]:
     template_id = str(metadata.get("ready_template") or metadata.get("workflow_template") or "ready_template")
@@ -904,8 +987,6 @@ def _format_ready_metadata_build(
         "READY_METADATA = ReadyMetadata.build(",
         f"    capability={capability!r},",
     ]
-    if has_public_inputs:
-        lines.append("    inputs=PUBLIC_INPUT_METADATA,")
     if has_models:
         lines.append("    models=MODELS,")
     if output_prefix != template_id:
@@ -988,8 +1069,7 @@ def emit_ready_template_python(
     )
     model_assets = _model_assets_for_emit(metadata, requirements)
     custom_node_packs = _custom_node_packs_for_emit(workflow_nodes, metadata, requirements)
-    has_public_inputs = bool(public_inputs)
-    metadata["_has_public_inputs_for_emit"] = has_public_inputs
+    public_lookup = _build_public_lookup(public_inputs) if public_inputs else {}
 
     out_lines: list[str] = []
     out_lines.append(GENERATED_HEADER.rstrip("\n"))
@@ -997,7 +1077,7 @@ def emit_ready_template_python(
     out_lines.append("from __future__ import annotations")
     out_lines.append("")
     out_lines.append(
-        "from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call, ref"
+        "from vibecomfy.templates import InputSpec, ModelAsset, OutputSpec, ReadyMetadata, finalize, new_workflow, node as raw_call, public"
     )
     for module_name, names in sorted(wrapper_imports.items()):
         out_lines.append(f"from vibecomfy.nodes.{module_name} import {', '.join(names)}")
@@ -1014,22 +1094,18 @@ def emit_ready_template_python(
         out_lines.append("")
         out_lines.extend(model_lines)
         out_lines.append("")
-    public_input_metadata_lines = _format_public_inputs_block(public_inputs, metadata=True)
-    if public_input_metadata_lines:
+    output_spec_lines = _format_output_spec_block(workflow_nodes, edges_in)
+    has_output_spec = bool(output_spec_lines)
+    metadata["_has_output_spec_for_emit"] = has_output_spec
+    if output_spec_lines:
         out_lines.append("")
-        out_lines.extend(public_input_metadata_lines)
-        out_lines.append("")
-    public_input_factory_lines = _format_public_inputs_factory(public_inputs)
-    if public_input_factory_lines:
-        out_lines.append("")
-        out_lines.extend(public_input_factory_lines)
+        out_lines.extend(output_spec_lines)
         out_lines.append("")
     out_lines.extend(
         _format_ready_metadata_build(
             metadata,
             requirements,
             has_models=bool(model_assets),
-            has_public_inputs=has_public_inputs,
             custom_node_packs=custom_node_packs,
         )
     )
@@ -1047,6 +1123,7 @@ def emit_ready_template_python(
             source_provenance=None,
             registered_inputs=registered_inputs,
             public_inputs=public_inputs,
+            public_lookup=public_lookup,
             tail_lines=_ready_template_tail_lines(
                 has_ltx_tail,
                 workflow_nodes,
@@ -1074,7 +1151,10 @@ def emit_ready_template_python(
     try:
         ast.parse(combined)
     except SyntaxError as exc:
-        raise RuntimeError(f"Generated ready-template code failed syntax check: {exc}") from exc
+        raise ConversionParityError(
+            f"Generated ready-template code failed syntax check: {exc}",
+            next_action="Check the generated code for syntax errors; the AST parse failure details are in the exception message.",
+        ) from exc
     return combined
 
 
@@ -1087,9 +1167,26 @@ def emit_scratchpad_python(
     registered_inputs: dict[str, tuple[str, str]] | None = None,
     apply_overrides: dict[str, Any] | None = None,
     diagnostics: list[EmissionDiagnostic] | None = None,
+    raw_workflow: dict[str, Any] | None = None,
 ) -> str:
     workflow_id = workflow_id or getattr(workflow, "id", "scratchpad")
     prepared = _prepare_workflow_for_emit(workflow, apply_overrides=apply_overrides)
+
+    # Subgraph definitions — empty when raw_workflow is None (documented limitation)
+    subgraph_definitions = _subgraph_definitions_from_raw(raw_workflow, source_path=source_path)
+    prepared["subgraph_definitions"] = subgraph_definitions
+    _apply_subgraph_names_to_prepared(prepared)
+
+    workflow_nodes = prepared["nodes"]
+    edges_in = prepared["edges_in"]
+    var_names = prepared["var_names"]
+
+    # Hoist constants and build section groups (shared typed-wrapper path)
+    constant_lines, constant_map = _hoist_constants(workflow_nodes, edges_in, var_names)
+    constant_lines, constant_map = _drop_output_prefix_constants(constant_lines, constant_map)
+    section_groups = _build_section_groups(workflow_nodes, edges_in)
+    wrapper_imports = _wrapper_imports_for_nodes(_all_nodes_for_imports(workflow_nodes, subgraph_definitions))
+
     source_path_expr = repr(source_path) if source_path is not None else "__file__"
 
     out_lines: list[str] = []
@@ -1097,25 +1194,62 @@ def emit_scratchpad_python(
     out_lines.append('"""Auto-generated VibeComfy scratchpad."""')
     out_lines.append("from __future__ import annotations")
     out_lines.append("")
-    out_lines.append("from vibecomfy.workflow import VibeWorkflow, WorkflowSource")
+    templates_imports = ["new_workflow", "node as raw_call", "ref"]
+    if registered_inputs:
+        templates_imports.insert(0, "bind_input")
+    out_lines.append(f"from vibecomfy.templates import {', '.join(templates_imports)}")
+    for module_name, names in sorted(wrapper_imports.items()):
+        out_lines.append(f"from vibecomfy.nodes.{module_name} import {', '.join(names)}")
     out_lines.append("")
-    out_lines.append("")
+
+    # -- constants section ----------------------------------------------------
+    if constant_lines:
+        out_lines.append("")
+        out_lines.extend(constant_lines)
+        out_lines.append("")
+
+    # Build inline metadata dict for workflow_id_expr (provenance embedded, not separate kwarg)
+    _metadata_dict: dict[str, Any] = {"workflow_template": workflow_id}
+    if provenance:
+        _metadata_dict["provenance"] = provenance
+    workflow_id_expr = _format_value(_metadata_dict)
+
+    # Subgraph functions
+    subgraph_lines = _emit_subgraph_functions(prepared, diagnostics=diagnostics, constant_map=constant_map)
+    if subgraph_lines:
+        out_lines.extend(subgraph_lines)
+        out_lines.append("")
+
     out_lines.extend(
         _emit_build_function(
             prepared,
-            workflow_id_expr=repr(workflow_id),
+            workflow_id_expr=workflow_id_expr,
             source_path_expr=source_path_expr,
             source_type="scratchpad",
-            source_provenance=provenance or {},
+            source_provenance=None,
             registered_inputs=registered_inputs,
             public_inputs=None,
-            tail_lines=["    wf.finalize_metadata()"],
+            tail_lines=["    return wf.finalize_metadata()"],
             diagnostics=diagnostics,
+            use_shared_helpers=True,
+            constant_map=constant_map,
+            section_groups=section_groups,
         )
     )
-    out_lines.append("")
-    out_lines.append(_NODE_HELPER_SOURCE)
-    return "\n".join(out_lines) + "\n"
+
+    combined = "\n".join(out_lines) + "\n"
+    combined = _strip_unused_template_imports(combined)
+
+    # Validate syntax with ast.parse
+    try:
+        ast.parse(combined)
+    except SyntaxError as exc:
+        raise ConversionParityError(
+            f"Generated scratchpad code failed syntax check: {exc}",
+            next_action="Check the generated code for syntax errors; the AST parse failure details are in the exception message.",
+        ) from exc
+
+    return combined
 
 
 def _prepare_workflow_for_emit(workflow: Any, *, apply_overrides: dict[str, Any] | None) -> dict[str, Any]:
@@ -1693,6 +1827,7 @@ def _emit_build_function(
     source_provenance: dict[str, Any] | None,
     registered_inputs: dict[str, tuple[str, str]] | None,
     public_inputs: list[_PublicInputSpec] | None,
+    public_lookup: dict[tuple[str, str], list[_PublicInputSpec]] | None = None,
     tail_lines: list[str],
     diagnostics: list[EmissionDiagnostic] | None = None,
     use_shared_helpers: bool = False,
@@ -1713,22 +1848,15 @@ def _emit_build_function(
         constant_map = {}
     if section_groups is None:
         section_groups = {}
-    var_to_nid = {var: nid for nid, var in var_names.items()}
-    for output_nid, slot_vars in output_var_names.items():
-        for output_var in slot_vars.values():
-            var_to_nid[str(output_var)] = str(output_nid)
+    if public_lookup is None:
+        public_lookup = {}
+    # Build preserve-fields from public_lookup (which uses (node_id, field) keys)
     public_preserve_fields: dict[str, set[str]] = {}
-    for spec in public_inputs or []:
-        node_ref = spec.node_ref
-        if not node_ref.startswith("ref("):
-            continue
-        try:
-            ref_name = ast.literal_eval(node_ref[4:-1])
-        except Exception:
-            continue
-        nid = var_to_nid.get(str(ref_name))
-        if nid is not None:
-            public_preserve_fields.setdefault(nid, set()).add(spec.field)
+    for (nid, field) in public_lookup:
+        public_preserve_fields.setdefault(nid, set()).add(field)
+
+    # Track which public-input (node_id, field) keys get wrapped by _node_kwargs
+    emitted_public_keys: set[tuple[str, str]] = set()
 
     # Build a set of node IDs covered by section groups for fast lookup
     section_nids: set[str] = set()
@@ -1760,7 +1888,10 @@ def _emit_build_function(
         body_indent = "    "
         continuation_indent = "        "
     elif use_shared_helpers:
-        out_lines.append(f"    with new_workflow({workflow_id_expr}, source_path={source_path_expr}) as wf:")
+        if source_type != "ready_template":
+            out_lines.append(f"    with new_workflow({workflow_id_expr}, source_path={source_path_expr}, source_type={source_type!r}) as wf:")
+        else:
+            out_lines.append(f"    with new_workflow({workflow_id_expr}, source_path={source_path_expr}) as wf:")
         body_indent = "        "
         continuation_indent = "            "
     else:
@@ -1802,7 +1933,11 @@ def _emit_build_function(
 
         # Emit section comment if entering a new section group
         section = section_order_map.get(nid)
-        if section is not None and section not in emitted_sections:
+        if (
+            section is not None
+            and section not in _SUPPRESSED_SECTION_COMMENTS
+            and section not in emitted_sections
+        ):
             if out_lines and out_lines[-1] != "":
                 out_lines.append("")
             out_lines.append(f"{body_indent}# {section}")
@@ -1821,6 +1956,8 @@ def _emit_build_function(
             output_var_names=output_var_names,
             diagnostics=diagnostics,
             constant_map=constant_map,
+            public_lookup=public_lookup,
+            emitted_public_keys=emitted_public_keys,
             use_ui_widget_aliases=use_shared_helpers,
             strip_schema_defaults=use_shared_helpers,
             omit_single_output_metadata=use_shared_helpers,
@@ -1951,11 +2088,70 @@ def _emit_build_function(
         if is_subgraph_function:
             out_lines.append(f"{body_indent}return {_subgraph_return_expr(return_refs, workflow_nodes, var_names, output_var_names, diagnostics)}")
         else:
+            # -- registered_inputs for scratchpad (SD2: gated behind public_inputs is None) --
+            # Must emit BEFORE tail_lines so bind_input calls precede the return statement.
+            if registered_inputs and public_inputs is None:
+                out_lines.append("")
+                for input_name, (old_id, field) in registered_inputs.items():
+                    resolved_field = field
+                    if field.startswith("widget_") and old_id in workflow_nodes:
+                        cls = workflow_nodes[old_id].class_type
+                        node = workflow_nodes[old_id]
+                        aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+                        resolved = resolve_widget_key_with_provenance(cls, field, input_aliases=aliases)
+                        if resolved.name is not None:
+                            resolved_field = resolved.name
+                    descriptor_kwargs: list[str] = []
+                    if old_id in workflow_nodes:
+                        node = workflow_nodes[old_id]
+                        if resolved_field in node.inputs:
+                            descriptor_kwargs.append(f"default={_format_value(node.inputs[resolved_field])}")
+                        elif resolved_field in node.widgets:
+                            descriptor_kwargs.append(f"default={_format_value(node.widgets[resolved_field])}")
+                    suffix = ", " + ", ".join(descriptor_kwargs) if descriptor_kwargs else ""
+                    out_lines.append(f"{body_indent}bind_input(wf, {input_name!r}, {_node_binding_expr(old_id, var_names)}, {resolved_field!r}{suffix})")
+            # -- _FILENAME_KWARGS public inputs for ready templates --
+            # Model-name fields (unet_name, vae_name, etc.) cannot use public()
+            # wrapping because coerce_node_kwargs rejects PublicSentinel on those
+            # fields.  Emit explicit bind_input calls instead.
+            if public_inputs:
+                import ast as _ast
+
+                from vibecomfy.templates import _FILENAME_KWARGS
+
+                filename_specs: list[tuple[str, str, str, str]] = []  # (name, node_id, field, default_expr)
+                seen_fk: set[tuple[str, str, str]] = set()  # (name, node_id, field)
+                for spec in public_inputs:
+                    if spec.field not in _FILENAME_KWARGS:
+                        continue
+                    try:
+                        nid = str(_ast.literal_eval(spec.metadata_node_ref))
+                    except Exception:
+                        continue
+                    key = (spec.name, nid, spec.field)
+                    if key in seen_fk:
+                        continue
+                    seen_fk.add(key)
+                    filename_specs.append((spec.name, nid, spec.field, spec.default_expr))
+                if filename_specs:
+                    out_lines.append("")
+                    for name, nid, field, default_expr in filename_specs:
+                        var = var_names.get(nid)
+                        node_binding = var if var is not None else repr(nid)
+                        out_lines.append(
+                            f"{body_indent}wf.register_input({name!r}, {nid!r}, {field!r}, {default_expr})"
+                        )
             tail_lines = _with_id_map_tail_line(tail_lines, var_names)
             out_lines.extend("    " + line if line else line for line in tail_lines)
+        # -- diagnostic: public input specs never emitted as literal kwargs -----
+        if diagnostics is not None and public_lookup:
+            _check_unemitted_public_specs(public_lookup, emitted_public_keys, diagnostics)
         return out_lines
     out_lines.append("")
     out_lines.extend(tail_lines)
+    # -- diagnostic: public input specs never emitted as literal kwargs ---------
+    if diagnostics is not None and public_lookup:
+        _check_unemitted_public_specs(public_lookup, emitted_public_keys, diagnostics)
     if registered_inputs:
         for input_name, (old_id, field) in registered_inputs.items():
             resolved_field = field
@@ -2068,7 +2264,10 @@ def _subgraph_topological_order(subgraphs: dict[str, _SubgraphDef]) -> list[str]
             return
         if subgraph_id in temporary:
             cycle = " -> ".join([*stack, subgraph_id])
-            raise RuntimeError(f"Circular subgraph reference detected: {cycle}")
+            raise SchemaValidationError(
+                f"Circular subgraph reference detected: {cycle}",
+                next_action="Break the circular reference in your subgraph dependency chain.",
+            )
         temporary.add(subgraph_id)
         for dep in sorted(deps.get(subgraph_id, ())):
             visit(dep, [*stack, subgraph_id])
@@ -2320,6 +2519,28 @@ _OUTPUT_CLASSES: dict[str, tuple[str, str]] = {
 }
 
 
+def _format_output_spec_block(
+    workflow_nodes: dict[str, Any],
+    edges_in: dict[str, list[Any]],
+) -> list[str]:
+    """Emit ``OUTPUT_SPEC = OutputSpec(...)`` when a resolvable terminal output node exists."""
+    output_node_ids = _terminal_output_node_ids(workflow_nodes, edges_in)
+    if not output_node_ids:
+        return []
+    selected_id = output_node_ids[0]
+    if selected_id is None:
+        return []
+    node = workflow_nodes[selected_id]
+    output_contract = _OUTPUT_CLASSES.get(str(node.class_type))
+    if output_contract is None:
+        return []
+    artifact_kind, mime_type = output_contract
+    name = artifact_kind
+    return [
+        f"OUTPUT_SPEC = OutputSpec(name={name!r}, artifact_kind={artifact_kind!r}, mime_type={mime_type!r}, expected_cardinality='one')",
+    ]
+
+
 def _ready_template_tail_lines(
     has_ltx_tail: bool,
     workflow_nodes: dict[str, Any],
@@ -2329,7 +2550,9 @@ def _ready_template_tail_lines(
     metadata: Mapping[str, Any],
 ) -> list[str]:
     finalize_args = _finalize_args(workflow_nodes, edges_in, var_names, output_var_names, metadata)
-    input_expr = "PUBLIC_INPUTS(**locals())" if metadata.get("_has_public_inputs_for_emit") else "{}"
+    input_expr = "{}"
+    if metadata.get("_has_output_spec_for_emit"):
+        finalize_args = finalize_args + ", spec=OUTPUT_SPEC"
     call = f"    return wf.finalize({input_expr}{finalize_args})"
     if has_ltx_tail:
         return [
@@ -2356,14 +2579,6 @@ def _finalize_args(
         args.append(f"output_node={output_var or var_names.get(selected_id, repr(selected_id))}")
     if selected_id is not None:
         node = workflow_nodes[selected_id]
-        output_contract = _OUTPUT_CLASSES.get(str(node.class_type))
-        if output_contract is not None:
-            artifact_kind, mime_type = output_contract
-            args.append(f"output_type={node.class_type!r}")
-            args.append(f"name={artifact_kind!r}")
-            args.append(f"artifact_kind={artifact_kind!r}")
-            args.append(f"mime_type={mime_type!r}")
-            args.append("expected_cardinality='one'")
         prefix_raw = node.inputs.get("filename_prefix", node.widgets.get("filename_prefix"))
         if prefix_raw is not None and prefix_raw != metadata.get("output_prefix"):
             args.append(f"filename_prefix={_format_value(prefix_raw)}")
@@ -2456,13 +2671,15 @@ def _check_template_formatting(
     lines = combined.split("\n")
 
     # Check 1: missing section comments for large workflows
-    if len(workflow_nodes) >= _SECTION_NODE_THRESHOLD and section_groups:
+    visible_sections = [sec for sec in _SECTION_ORDER if sec not in _SUPPRESSED_SECTION_COMMENTS]
+    has_visible_section_groups = any(section_groups.get(sec) for sec in visible_sections)
+    if len(workflow_nodes) >= _SECTION_NODE_THRESHOLD and has_visible_section_groups:
         has_section_comment = any(
             line.strip().startswith("# ") and any(
                 line.strip().endswith(f"# {sec}")
                 or line.strip() == f"# {sec}"
                 or line.strip().startswith(f"# {sec}")
-                for sec in _SECTION_ORDER
+                for sec in visible_sections
             )
             for line in lines
         )
@@ -2733,6 +2950,8 @@ def _node_kwargs(
     output_var_names: dict[str, dict[int, str]] | None = None,
     diagnostics: list[EmissionDiagnostic] | None = None,
     constant_map: dict[tuple[str, str], str] | None = None,
+    public_lookup: dict[tuple[str, str], list] | None = None,
+    emitted_public_keys: set | None = None,
     use_ui_widget_aliases: bool = False,
     strip_schema_defaults: bool = False,
     omit_single_output_metadata: bool = False,
@@ -2755,6 +2974,12 @@ def _node_kwargs(
 
     if constant_map is None:
         constant_map = {}
+    if public_lookup is None:
+        public_lookup = {}
+    if emitted_public_keys is not None:
+        emitted_public_keys_local = emitted_public_keys
+    else:
+        emitted_public_keys_local = set()
     if preserve_fields is None:
         preserve_fields = set()
     if external_refs is None:
@@ -2826,6 +3051,25 @@ def _node_kwargs(
                 return const_name
         return _format_value(value)
 
+    def _wrap_public(key: str, base_expr: str) -> str:
+        """Wrap a static value with public() if it targets a public input.
+
+        Fields in ``_FILENAME_KWARGS`` (unet_name, vae_name, clip_name, etc.)
+        are NOT wrapped — their public inputs are registered via explicit
+        ``wf.register_input()`` calls emitted by ``_emit_build_function``.
+        """
+        # Lazy import to avoid circular dependency at module level.
+        from vibecomfy.templates import _FILENAME_KWARGS
+
+        if key in _FILENAME_KWARGS:
+            return base_expr
+        lookup_key = (str(getattr(node, "id", "")), key)
+        specs = public_lookup.get(lookup_key)
+        if specs:
+            emitted_public_keys_local.add(lookup_key)
+            return _format_public_call(specs, base_expr)
+        return base_expr
+
     out: list[tuple[str, str]] = []
     extras: list[tuple[str, str]] = []
     output_names = _node_output_names(node)
@@ -2836,8 +3080,9 @@ def _node_kwargs(
             continue
         if key not in preserve_fields and strip_schema_defaults and _is_schema_default(cls, key, static_inputs[key], node_metadata):
             continue
+        val_expr = _format_static_value(key, static_inputs[key])
         if not _is_python_ident(key) and not (emit_reserved_keyword_args and key in RESERVED_WRAPPER_INPUT_NAMES):
-            extras.append((key, _format_static_value(key, static_inputs[key])))
+            extras.append((key, _wrap_public(key, val_expr)))
             continue
         if diagnostics is not None and schema and key not in schema_set and emit_reserved_keyword_args:
             diagnostics.append(
@@ -2853,7 +3098,7 @@ def _node_kwargs(
                     detail={"input": key, "schema_inputs": sorted(schema_set)},
                 )
             )
-        out.append((key, _format_static_value(key, static_inputs[key])))
+        out.append((key, _wrap_public(key, val_expr)))
 
     all_incoming_keys = set(incoming) | set(incoming_exprs)
     if schema:

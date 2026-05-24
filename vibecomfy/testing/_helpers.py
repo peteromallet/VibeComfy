@@ -6,10 +6,12 @@ assertion surface stays focused on the *contract* and not on parsing.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from vibecomfy.handles import Handle
-from vibecomfy.workflow import VibeWorkflow
+
+if TYPE_CHECKING:
+    from vibecomfy.workflow import VibeWorkflow
 
 __all__ = [
     "FAILURE_HINT_USE_ASSERT_EDGE",
@@ -29,6 +31,8 @@ def resolve_wf_id(wf_or_api: Any) -> str:
     API dict, look at a top-level `"metadata"` mapping (compile output may carry
     one) and fall back to `"<unknown>"`.
     """
+    from vibecomfy.workflow import VibeWorkflow  # lazy: avoid testing↔workflow import cycle
+
     if isinstance(wf_or_api, VibeWorkflow):
         wid = getattr(wf_or_api, "id", None)
         if wid:

@@ -173,6 +173,7 @@ def port_convert_workflow(
             provenance=complete_provenance,
             registered_inputs=registered_inputs,
             diagnostics=emission_diagnostics,
+            raw_workflow=raw_workflow,
         )
         mode: PortConvertMode = "scratchpad"
     else:
@@ -531,8 +532,14 @@ def _ready_requirements(workflow: VibeWorkflow) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+RECOGNIZED_TEMPLATE_MARKERS: frozenset[str] = frozenset(
+    {"generated", "manual", "broken-regen"}
+)
+PROTECTED_TEMPLATE_MARKERS: frozenset[str] = frozenset({"manual", "broken-regen"})
+
+
 class ManualTemplateRefusal(ValueError):
-    """Raised when a target file has `# vibecomfy: manual` marker."""
+    """Raised when a target file has a protected first-line template marker."""
 
 
 class ConversionWriteError(RuntimeError):
@@ -556,14 +563,24 @@ class ConversionWriteError(RuntimeError):
         super().__init__(message)
 
 
-def _check_manual_refusal(target: Path) -> None:
-    """Refuse to overwrite a template marked `# vibecomfy: manual`."""
+def _first_line_template_marker(target: Path) -> str | None:
+    """Return the recognized first-line marker for a template file."""
     if not target.exists():
-        return
+        return None
     first_line = target.read_text(encoding="utf-8").splitlines()[0].strip() if target.exists() else ""
-    if "# vibecomfy: manual" in first_line:
+    prefix = "# vibecomfy: "
+    if not first_line.startswith(prefix):
+        return None
+    marker = first_line[len(prefix):].split(maxsplit=1)[0]
+    return marker if marker in RECOGNIZED_TEMPLATE_MARKERS else None
+
+
+def _check_manual_refusal(target: Path) -> None:
+    """Refuse to overwrite manual or broken-regen templates."""
+    marker = _first_line_template_marker(target)
+    if marker in PROTECTED_TEMPLATE_MARKERS:
         raise ManualTemplateRefusal(
-            f"Target {target} is marked '# vibecomfy: manual'. "
+            f"Target {target} is marked '# vibecomfy: {marker}'. "
             f"Remove the marker or use a different output path."
         )
 
@@ -608,7 +625,7 @@ def port_convert_and_write(
         A dict with `written`, `dry_run`, `diff`, and `validation` keys.
 
     Raises:
-        ManualTemplateRefusal: If target has `# vibecomfy: manual` marker.
+        ManualTemplateRefusal: If target has a protected first-line marker.
         ConversionWriteError: If validation or parity fails.
     """
     # Gate 1: manual-template refusal

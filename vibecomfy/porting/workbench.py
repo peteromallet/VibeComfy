@@ -233,12 +233,66 @@ def analyze_source(
             "error_count": sum(1 for issue in strict_diagnostics if issue.severity == "error"),
         }
 
+    _demote_materializable_subgraph_diagnostics(report, loaded.raw_workflow, resolved_mode)
+
     if report.asset_candidates:
         report.recommendations.append(f"Review model assets before RunPod validation; use `vibecomfy fetch {source} --dry-run` for URL-backed assets.")
     if any(issue.severity == "error" for issue in report.diagnostics):
         report.recommendations.append("Resolve error diagnostics before spending RunPod GPU time.")
 
     return report
+
+
+_MATERIALIZABLE_DEMOTE_CODES: frozenset[str] = frozenset({"unresolved_runtime_class", "unknown_class_type"})
+
+
+def _materializable_subgraph_uuids(raw_workflow: dict[str, Any] | None) -> frozenset[str]:
+    """Extract UUIDs that have materializable subgraph definitions in *raw_workflow*."""
+    if not isinstance(raw_workflow, dict):
+        return frozenset()
+    definitions = raw_workflow.get("definitions")
+    if not isinstance(definitions, dict):
+        return frozenset()
+    subgraphs = definitions.get("subgraphs")
+    if isinstance(subgraphs, dict):
+        items = list(subgraphs.values())
+    elif isinstance(subgraphs, list):
+        items = subgraphs
+    else:
+        return frozenset()
+    return frozenset(
+        str(item["id"])
+        for item in items
+        if isinstance(item, dict) and item.get("id")
+    )
+
+
+def _demote_materializable_subgraph_diagnostics(
+    report: PortReport,
+    raw_workflow: dict[str, Any] | None,
+    resolved_mode: PortAnalysisMode,
+) -> None:
+    """Demote ``unresolved_runtime_class`` and ``unknown_class_type`` errors to
+    warnings for UUID classes that have a materializable subgraph definition,
+    but ONLY in scratchpad mode (not strict_ready/app_active).
+
+    Genuinely-missing classes (no materializable definition, real custom-node
+    packs absent) stay as hard errors.
+    """
+    if resolved_mode in {"strict_ready", "app_active"}:
+        return
+    materializable_uuids = _materializable_subgraph_uuids(raw_workflow)
+    if not materializable_uuids:
+        return
+    for issue in report.diagnostics:
+        if issue.code not in _MATERIALIZABLE_DEMOTE_CODES:
+            continue
+        if issue.severity != "error":
+            continue
+        class_type = issue.class_type
+        if not class_type or class_type not in materializable_uuids:
+            continue
+        issue.severity = "warning"
 
 
 def _metadata_environment_diagnostics(metadata: dict[str, Any]) -> list[PortIssue]:

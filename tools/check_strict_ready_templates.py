@@ -52,6 +52,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0 if report["ok"] else 1
 
 
+_EXCEPTIONS_PATH = REPO_ROOT / "docs" / "strict_ready_exceptions.json"
+
+
+def _load_exceptions() -> frozenset[tuple[str, str, str]]:
+    if not _EXCEPTIONS_PATH.exists():
+        return frozenset()
+    data = json.loads(_EXCEPTIONS_PATH.read_text())
+    return frozenset(
+        (str(e["ready_id"]), str(e["violation_code"]), str(e["target"]))
+        for e in data.get("exceptions", [])
+        if all(k in e for k in ("ready_id", "violation_code", "target"))
+    )
+
+
+def _apply_exceptions(
+    diagnostics: list[dict[str, Any]],
+    exceptions: frozenset[tuple[str, str, str]],
+) -> list[dict[str, Any]]:
+    if not exceptions:
+        return diagnostics
+    result = []
+    for item in diagnostics:
+        key = (str(item.get("ready_id", "")), str(item.get("code", "")), str(item.get("target", "")))
+        if key in exceptions and item.get("enforced") is True:
+            result.append({**item, "enforced": False, "excepted": True})
+        else:
+            result.append(item)
+    return result
+
+
 def build_strict_ready_report() -> dict[str, Any]:
     index_payload = build_template_index()
     rows_by_id = {
@@ -69,6 +99,8 @@ def build_strict_ready_report() -> dict[str, Any]:
     selected_ids = sorted(rows_by_id)
     targets = [_check_template(rows_by_id[ready_id], inventory_entries.get(ready_id)) for ready_id in selected_ids]
     diagnostics = _flatten_diagnostics(targets)
+    exceptions = _load_exceptions()
+    diagnostics = _apply_exceptions(diagnostics, exceptions)
     summary = _summary(diagnostics)
     ok = not any(
         item["severity"] == "error"
@@ -82,6 +114,7 @@ def build_strict_ready_report() -> dict[str, Any]:
         "template_count": len(rows_by_id),
         "target_count": len(targets),
         "dynamic_rows_excluded": dynamic_rows_excluded,
+        "exceptions_applied": len(exceptions),
         "summary": summary,
         "targets": targets,
         "diagnostics": diagnostics,
@@ -285,8 +318,12 @@ def _legacy_vocabulary_diagnostics(
 
     Checks for:
     - Import of ``vibecomfy.registry.ready_template``
-    - Direct calls to ``bind_input``, ``bind_output``, ``apply_ready_template_policy``,
-      ``wf.register_input`` inside ``build()``.
+    - Direct calls to ``bind_input``, ``bind_output``, ``apply_ready_template_policy``
+      inside ``build()``.
+
+    Note: ``wf.register_input()`` is intentionally NOT flagged here.  After the
+    F.4/F.5 regen (v2.7) it became the supported pattern for model-input binding in
+    generated templates; only the three true-legacy names above remain illegal.
     """
     if not enforced:
         return []
@@ -334,10 +371,7 @@ def _legacy_vocabulary_diagnostics(
             func_name = None
             if isinstance(node.func, ast.Name):
                 func_name = node.func.id
-            elif isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "wf" and node.func.attr == "register_input":
-                    func_name = "wf.register_input"
-            if func_name in _LEGACY_CALLS or func_name == "wf.register_input":
+            if func_name in _LEGACY_CALLS:
                 # Verify we're inside a build() function
                 call_name = func_name or (
                     f"wf.{node.func.attr}" if isinstance(node.func, ast.Attribute) else "unknown"

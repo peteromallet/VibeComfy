@@ -30,7 +30,17 @@ SNAPSHOT_ROOT = REPO_ROOT / "tests" / "snapshots"
 VENDOR_COMFY = REPO_ROOT / "vendor" / "ComfyUI"
 
 # Shared safety gates from the porting package (Sprint 1).
-from vibecomfy.porting.convert import _check_manual_refusal, ManualTemplateRefusal  # noqa: E402
+from vibecomfy.porting.convert import (  # noqa: E402
+    PROTECTED_TEMPLATE_MARKERS,
+    RECOGNIZED_TEMPLATE_MARKERS,
+    _first_line_template_marker,
+    _check_manual_refusal,
+    ManualTemplateRefusal,
+)
+
+
+RECOGNIZED_MARKERS = RECOGNIZED_TEMPLATE_MARKERS
+PROTECTED_MARKERS = PROTECTED_TEMPLATE_MARKERS
 
 
 # --- bootstrap: make vendor/ComfyUI importable so normalize_to_api works -----
@@ -94,15 +104,20 @@ def _classify_shape(path: Path) -> tuple[str, str]:
     """Return (shape, note). Shapes: legacy | authored | manual | converted | unknown."""
     text = _read_module_source(path)
     first_line = text.splitlines()[0] if text.splitlines() else ""
+    marker = _first_line_template_marker(path)
     # Inspect symbol presence.
     has_api = re.search(r"^API_WORKFLOW\s*=", text, re.MULTILINE)
     has_nodes = re.search(r"^NODES\s*=", text, re.MULTILINE)
     if has_api:
-        note = "manual marker ignored for legacy API_WORKFLOW" if "vibecomfy: manual" in first_line else ""
+        note = (
+            f"{marker} marker ignored for legacy API_WORKFLOW"
+            if marker in PROTECTED_TEMPLATE_MARKERS
+            else ""
+        )
         return ("legacy", note)
-    if "vibecomfy: manual" in first_line:
-        return ("manual", "manual marker on first line")
-    if "vibecomfy: generated" in first_line:
+    if marker in PROTECTED_TEMPLATE_MARKERS:
+        return ("manual", f"{marker} marker on first line")
+    if marker == "generated":
         return ("authored", "previously generated; eligible for v2.5 re-port")
     if has_nodes:
         return ("authored", "")
@@ -169,14 +184,19 @@ def _convert_template(path: Path, *, include_manual: bool = False) -> tuple[Row,
     try:
         _check_manual_refusal(path)
     except ManualTemplateRefusal:
-        if not include_manual:
+        marker = _first_line_template_marker(path)
+        if not include_manual or marker == "broken-regen":
             row.shape = "manual-refused"
             row.parse = "skip"
             row.build = "skip"
             row.validate = "skip"
             row.roundtrip = "skip"
             row.snapshot = "skip"
-            row.note = "manual template refused by shared gate"
+            row.note = (
+                "manual template refused by shared gate"
+                if marker == "manual"
+                else "protected template refused by shared gate"
+            )
             return (row, None, None)
         manual_included = True
         row.note = "manual template included by explicit v2.6 override"
@@ -345,7 +365,9 @@ def _write_emitted(path: Path, text: str, *, dry_run: bool, include_manual: bool
         raise RuntimeError(f"refusing to write outside READY_ROOT: {resolved}")
 
     # Shared manual-refusal gate — refuse before any write work.
-    if not include_manual:
+    if include_manual and _first_line_template_marker(path) == "manual":
+        pass
+    else:
         _check_manual_refusal(path)
 
     # Atomic write: temp file in target directory, validate, then replace.

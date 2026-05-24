@@ -59,3 +59,25 @@ VAE_EMITTER_CLASSES: frozenset[str] = frozenset(
         "VAEEncodeTiled",
     }
 )
+
+
+@dataclass(frozen=True)
+class PreviewPlan:
+    """Result of `preview_plan_for_type` — whether and how a Comfy output type can be previewed."""
+    comfy_type: str
+    previewable: bool
+    injection: PreviewInjection | None = None
+
+
+def preview_plan_for_type(comfy_type: str, *, has_vae: bool = False) -> PreviewPlan:
+    """Plan a preview-node injection for a single Comfy output type.
+
+    IMAGE / MASK / AUDIO / VIDEO fall straight out of PREVIEW_MAP. LATENT becomes
+    previewable only when a VAE handle is available upstream. Everything else is
+    non-previewable.
+    """
+    if comfy_type in PREVIEW_MAP:
+        return PreviewPlan(comfy_type=comfy_type, previewable=True, injection=PREVIEW_MAP[comfy_type])
+    if comfy_type == "LATENT" and has_vae:
+        return PreviewPlan(comfy_type=comfy_type, previewable=True, injection=PREVIEW_MAP["IMAGE"])
+    return PreviewPlan(comfy_type=comfy_type, previewable=False)

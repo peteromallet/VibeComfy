@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from vibecomfy.errors import SchemaValidationError
 from vibecomfy.handles import Handle
 from vibecomfy.registry.ready_template import apply_ready_template_policy, bind_input, bind_output, ready_node, ready_workflow
-from vibecomfy.workflow import VibeInput, VibeWorkflow
+from vibecomfy.workflow import SymbolicRefProtocol, VibeInput, VibeWorkflow, _NodeBuilder
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
 from vibecomfy.workflow_context import _current_workflow_or_raise
 
@@ -29,7 +30,6 @@ _OUTPUT_KIND_HEURISTIC: dict[str, str] = {
 }
 
 _MODEL_DISAGREEMENT_WARNED = False
-_SYMBOLIC_REF_DEPRECATION_WARNED = False
 _FILENAME_KWARGS = frozenset({
     "unet_name",
     "vae_name",
@@ -65,22 +65,27 @@ def _derive_output_kind(class_type: str | None) -> str | None:
     return None
 
 
-def new_workflow(metadata: Mapping[str, Any], *, source_path: str | None = None) -> VibeWorkflow:
+def new_workflow(metadata: Mapping[str, Any], *, source_path: str | None = None, source_type: str = "ready_template") -> VibeWorkflow:
     """Create a ready-template workflow and apply module metadata.
 
     Convenience wrapper for template authoring; for runtime use see
     ``vibecomfy.registry.ready_template``. Generated templates should pass
     ``source_path=__file__`` because the fallback here is this helper module.
+
+    Set *source_type* to something other than ``"ready_template"`` (e.g.
+    ``"scratchpad"``) to skip stamping ``metadata["ready_template"]``.
     """
     raw_workflow_id = str(metadata.get("ready_template") or metadata.get("workflow_template") or "ready_template")
     workflow_id = _category_qualified_template_id(raw_workflow_id, source_path)
     metadata = dict(metadata)
-    metadata["ready_template"] = workflow_id
+    if source_type == "ready_template":
+        metadata["ready_template"] = workflow_id
     metadata["workflow_template"] = workflow_id.rsplit("/", 1)[-1]
     provenance = metadata.get("provenance")
     wf = ready_workflow(
         workflow_id,
         source_path=source_path or __file__,
+        source_type=source_type,
         provenance=provenance if isinstance(provenance, Mapping) else None,
     )
     wf.metadata.update(metadata)
@@ -92,7 +97,7 @@ def node(
     _id: str | None = None,
     _extras: Mapping[str, Any] | None = None,
     **kwargs: Any,
-) -> Any:
+) -> _NodeBuilder:
     """Create a ready-template node.
 
     v2.6.4 Fix 5: ``wf`` is now optional — reads from the ContextVar set by
@@ -126,10 +131,23 @@ def node(
     explicit_outputs = kwargs.pop("_outputs", None)
     pass_raw = bool(kwargs.pop("pass_raw", False))
     outputs = tuple(explicit_outputs) if explicit_outputs is not None else _normalized_output_names(class_type)
-    kwargs = coerce_node_kwargs(wf, class_type, kwargs, pass_raw=pass_raw)
+    kwargs, pending_publics = coerce_node_kwargs(wf, class_type, kwargs, pass_raw=pass_raw)
     if pass_raw:
         kwargs["pass_raw"] = True
-    return ready_node(wf, class_type, source_id=str(_id) if _id is not None else None, outputs=outputs or None, extras=_extras, **kwargs)
+    builder = ready_node(wf, class_type, source_id=str(_id) if _id is not None else None, outputs=outputs or None, extras=_extras, **kwargs)
+    for field, sentinel in pending_publics.items():
+        wf.register_input(
+            sentinel.name,
+            builder.node.id,
+            field,
+            sentinel.value,
+            type=sentinel.type,
+            default=sentinel.default,
+            required=sentinel.required,
+            aliases=sentinel.aliases,
+            media_semantics=sentinel.media_semantics,
+        )
+    return builder
 
 
 def coerce_node_kwargs(
@@ -138,20 +156,33 @@ def coerce_node_kwargs(
     kwargs: Mapping[str, Any],
     *,
     pass_raw: bool = False,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, PublicSentinel]]:
     """Normalize v2.5 natural-form values before a node is created.
 
     This is deliberately shared by ready-template ``node(...)`` and raw
     ``wf.node(...)`` so generated wrappers remain thin and behavior is uniform.
+
+    Returns ``(coerced_kwargs, pending_publics)`` where *pending_publics*
+    maps kwarg names to :class:`PublicSentinel` instances that should be
+    registered after the node id is known.  Callers on the raw path (e.g.
+    ``wf.node()``) may discard the second element.
     """
     if pass_raw:
-        return dict(kwargs)
+        return dict(kwargs), {}
     coerced: dict[str, Any] = {}
+    pending_publics: dict[str, PublicSentinel] = {}
     for key, value in kwargs.items():
         if _is_node_builder(value):
             value = _auto_resolve_node_builder(value)
         if isinstance(value, ModelAsset) and key in _FILENAME_KWARGS:
             value = value.filename
+        elif isinstance(value, PublicSentinel):
+            if key in _FILENAME_KWARGS:
+                raise TypeError(
+                    f"expected str for {key}, got PublicSentinel; did you mean PublicSentinel.value?"
+                )
+            pending_publics[key] = value
+            value = value.value
         elif isinstance(value, InputSpec):
             if key in _FILENAME_KWARGS:
                 raise TypeError(
@@ -161,7 +192,7 @@ def coerce_node_kwargs(
         if key in _FILENAME_KWARGS and not isinstance(value, str):
             raise TypeError(f"expected str for {key}, got {type(value).__name__}")
         coerced[key] = value
-    return coerced
+    return coerced, pending_publics
 
 
 def _is_node_builder(value: Any) -> bool:
@@ -175,23 +206,27 @@ def _auto_resolve_node_builder(value: Any) -> Handle:
     try:
         from vibecomfy.porting.object_info import class_has_list_output, class_output_count, output_names
     except ImportError as exc:
-        raise ValueError(
-            f"{class_type} node {node.id!r} requires explicit .out(...) because object_info schema is unavailable"
+        raise SchemaValidationError(
+            f"{class_type} node {node.id!r} requires explicit .out(...) because object_info schema is unavailable",
+            next_action="Provide explicit .out('NAME') on the node builder, or ensure object_info schema is available.",
         ) from exc
 
     names = [str(name).strip().replace(" ", "_").upper() for name in output_names(class_type)]
     count = class_output_count(class_type)
     if class_has_list_output(class_type):
-        raise ValueError(
-            f"{class_type} node {node.id!r} has list outputs; specify .out('NAME') explicitly"
+        raise SchemaValidationError(
+            f"{class_type} node {node.id!r} has list outputs; specify .out('NAME') explicitly",
+            next_action="Specify .out('NAME') explicitly on the node builder.",
         )
     if count == 1 and not class_has_list_output(class_type):
         return value.out(0)
     if count > 1:
         detail = ", ".join(names) if names else f"{count} outputs"
-        raise ValueError(
+        raise SchemaValidationError(
             f"{class_type} node {node.id!r} has {count} outputs ({detail}); "
-            "specify .out('NAME') explicitly"
+            "specify .out('NAME') explicitly",
+            next_action="Specify .out('NAME') explicitly; available output names: "
+            + (", ".join(names) if names else "N/A"),
         )
     # Legacy and community nodes often lack object_info output schema in local
     # indexes. Generated templates historically treated those as single-output
@@ -228,9 +263,30 @@ def _normalized_output_names(class_type: str) -> tuple[str, ...]:
     return tuple(name.strip().replace(" ", "_").upper() for name in output_names(class_type) if name)
 
 
+# ``SymbolicNodeRef`` and ``ref('label')`` are the legacy module-level
+# public-input binding pattern.  As of v2.7 they are deprecated from the
+# public surface; new generated templates use inline ``public('name',
+# default=...)`` decorators at the kwarg site instead.  A handful of
+# manual ready templates that still need a build()-locals-resolved
+# reference inline their own ``SymbolicNodeRef`` shim and pass it via
+# ``InputSpec.node`` — ``resolve_node_id`` recognises any object exposing
+# a ``.resolve(namespace, wf) -> str`` method (see ``InputSpec``).
+# Both symbols are kept as importable back-compat paths (with a
+# PendingDeprecationWarning) so that existing documentation and manual
+# templates that import ``ref`` directly continue to work.
+
+_SYMBOLIC_REF_DEPRECATION_WARNED: bool = False
+
+
 @dataclass(frozen=True)
 class SymbolicNodeRef:
-    """Module-level public-input binding resolved from build() locals."""
+    """Module-level public-input binding resolved from build() locals.
+
+    .. deprecated::
+        Use inline ``public('name', default=...)`` at the kwarg site in
+        generated templates, or wire ``InputSpec.node`` to the node object
+        returned by ``node()`` in manual templates.
+    """
 
     label: str
 
@@ -247,6 +303,12 @@ class SymbolicNodeRef:
 
 
 def ref(label: str) -> SymbolicNodeRef:
+    """Return a :class:`SymbolicNodeRef` for *label*.
+
+    .. deprecated::
+        Use inline ``public('name', default=...)`` or bind ``InputSpec.node``
+        to the node object returned by ``node()`` instead.
+    """
     global _SYMBOLIC_REF_DEPRECATION_WARNED
     if not _SYMBOLIC_REF_DEPRECATION_WARNED:
         warnings.warn(
@@ -273,8 +335,67 @@ def _node_id_from_binding(value: Any) -> str | None:
 
 
 @dataclass(frozen=True)
+class PublicSentinel:
+    """Inline sentinel that declares a public input at a node kwarg site.
+
+    Wrap a value in ``public(name, ...)`` to simultaneously pass it through
+    to the node while recording a public-input registration that fires once
+    the node id is known.  This replaces the separate ``InputSpec`` dict
+    pattern for the common case where the input target is unambiguous.
+    """
+
+    value: Any
+    name: str
+    default: Any
+    type: str | None = None
+    required: bool = False
+    aliases: tuple[str, ...] = ()
+    media_semantics: str | None = None
+
+
+def public(
+    name: str,
+    default: Any = None,
+    *,
+    type: str | None = None,
+    required: bool = False,
+    aliases: tuple[str, ...] = (),
+    media_semantics: str | None = None,
+) -> PublicSentinel:
+    """Declare a public input bound to the containing node kwarg.
+
+    ``default`` serves as both the value passed through to the node and the
+    public input's registered default.
+    """
+    return PublicSentinel(
+        value=default,
+        name=name,
+        default=default,
+        type=type,
+        required=required,
+        aliases=aliases,
+        media_semantics=media_semantics,
+    )
+
+
+@dataclass(frozen=True)
+class OutputSpec:
+    """Immutable specification for a ready-template output artifact.
+
+    Encodes the artifact's name, kind, MIME type, and expected cardinality
+    so that both the runtime ``finalize`` path and the static contract
+    extractor can treat output metadata uniformly.
+    """
+
+    name: str
+    artifact_kind: str
+    mime_type: str
+    expected_cardinality: str = "one"
+
+
+@dataclass(frozen=True)
 class InputSpec:
-    node: str | SymbolicNodeRef | Any
+    node: Any
     field: str
     default: Any
     type: str | None = None
@@ -287,18 +408,20 @@ class InputSpec:
         node_id = self.resolve_node_id(wf, namespace=namespace)
         node = wf.nodes.get(node_id)
         if node is None:
-            raise ValueError(
+            raise SchemaValidationError(
                 f"InputSpec.register({name!r}): target node {node_id!r} does not exist "
-                f"in workflow {wf.id!r}"
+                f"in workflow {wf.id!r}",
+                next_action="Create the target node before registering this InputSpec, or correct the node_id.",
             )
         if self.field in node.inputs:
             value = node.inputs[self.field]
         elif self.field in node.widgets:
             value = node.widgets[self.field]
         else:
-            raise ValueError(
+            raise SchemaValidationError(
                 f"InputSpec.register({name!r}): field {self.field!r} not found in "
-                f"node {node_id!r} ({node.class_type}) inputs or widgets"
+                f"node {node_id!r} ({node.class_type}) inputs or widgets",
+                next_action="Check the node's class definition for valid input/widget field names.",
             )
         input_type = self.type or _derive_input_type(node.class_type, self.field)
         wf.register_input(
@@ -328,8 +451,19 @@ class InputSpec:
             )
 
     def resolve_node_id(self, wf: VibeWorkflow, namespace: Mapping[str, Any] | None = None) -> str:
-        if isinstance(self.node, SymbolicNodeRef):
+        # Duck-typed protocol: any object exposing ``.resolve(namespace, wf)
+        # -> str`` and a ``.label`` attribute is treated as a node ref.
+        # Manual templates that inline their own ``SymbolicNodeRef`` shim
+        # rely on this to keep the legacy ``ref('label')`` pattern working
+        # after the public ``vibecomfy.templates.ref`` symbol was retired.
+        if isinstance(self.node, SymbolicRefProtocol):
             return self.node.resolve(namespace or {}, wf)
+        # Fallback duck-typing for objects that satisfy the contract but
+        # aren't explicitly registered as SymbolicRefProtocol (e.g. during
+        # migration or from external tooling).
+        resolve = getattr(self.node, "resolve", None)
+        if callable(resolve) and hasattr(self.node, "label"):
+            return resolve(namespace or {}, wf)
         node_id = _node_id_from_binding(self.node)
         if node_id is None:
             node_id = str(self.node)
@@ -370,10 +504,16 @@ class ModelAsset:
         if url is None or subdir is None:
             raise TypeError("ModelAsset requires url=... and subdir=...")
         if sha256 == "gated" or hf_revision == "gated":
-            raise ValueError("Use ModelAsset(..., gated=True) instead of sha256='gated' or hf_revision='gated'.")
+            raise SchemaValidationError(
+                "Use ModelAsset(..., gated=True) instead of sha256='gated' or hf_revision='gated'.",
+                next_action="Pass `gated=True` to ModelAsset(...) instead of using the string 'gated' for sha256 or hf_revision.",
+            )
         derived_filename = filename or Path(urlsplit(url).path).name
         if not derived_filename:
-            raise ValueError("ModelAsset filename could not be derived from url")
+            raise SchemaValidationError(
+                "ModelAsset filename could not be derived from url",
+                next_action="Provide an explicit `filename=...` to ModelAsset(...).",
+            )
         object.__setattr__(self, "filename", derived_filename)
         object.__setattr__(self, "url", url)
         object.__setattr__(self, "subdir", subdir)
@@ -466,10 +606,11 @@ def finalize(
     *,
     output_node: Any = None,
     output_kind: str | None = None,
+    spec: OutputSpec | None = None,
     **bind_kwargs: Any,
 ) -> VibeWorkflow:
     """Backward-compatible free-function shim for ``VibeWorkflow.finalize``."""
-    return wf.finalize(inputs, metadata=metadata, output_node=output_node, output_kind=output_kind, **bind_kwargs)
+    return wf.finalize(inputs, metadata=metadata, output_node=output_node, output_kind=output_kind, spec=spec, **bind_kwargs)
 
 
 def _finalize_impl(
@@ -479,6 +620,7 @@ def _finalize_impl(
     *,
     output_node: Any = None,
     output_kind: str | None = None,
+    spec: OutputSpec | None = None,
     **bind_kwargs: Any,
 ) -> VibeWorkflow:
     """Finalize ready-template metadata, public inputs, and output binding.
@@ -488,6 +630,15 @@ def _finalize_impl(
     ``output_node`` is omitted, a single terminal Save/Create/Preview node is
     selected; multiple candidates require an explicit output binding.
     """
+    # Unpack OutputSpec when provided; spec fields take precedence over
+    # conflicting legacy kwargs (no DeprecationWarning for legacy).
+    if spec is not None:
+        # spec wins over any conflicting legacy kwarg for these four fields.
+        bind_kwargs["name"] = spec.name if spec.name is not None else bind_kwargs.get("name")
+        bind_kwargs["artifact_kind"] = spec.artifact_kind if spec.artifact_kind is not None else bind_kwargs.get("artifact_kind")
+        bind_kwargs["mime_type"] = spec.mime_type if spec.mime_type is not None else bind_kwargs.get("mime_type")
+        bind_kwargs["expected_cardinality"] = spec.expected_cardinality if spec.expected_cardinality is not None else bind_kwargs.get("expected_cardinality")
+
     source_path = bind_kwargs.pop("source_path", None)
     requirements = bind_kwargs.pop("requirements", None)
     if source_path is None:
@@ -527,15 +678,32 @@ def _finalize_impl(
 
     requirements = _requirements_with_models(requirements, metadata.get("model_assets", []))
 
-    wf.finalize_metadata()
+    if inputs:
+        # Legacy path: finalize_metadata clears inputs, then the loop below
+        # re-registers everything from the explicit InputSpec dict.
+        wf.finalize_metadata()
+    else:
+        # public() sentinels already registered inputs during build().
+        # Skip input clear — only refresh outputs and requirements.
+        from vibecomfy.metadata import OUTPUT_NODE_NAMES, _infer_requirements, _register_common_inputs
+        from vibecomfy.workflow import VibeOutput
+
+        wf.outputs.clear()
+        for node_id, node in wf.nodes.items():
+            _register_common_inputs(wf, node_id, node)
+            if node.class_type in OUTPUT_NODE_NAMES:
+                wf.outputs.append(VibeOutput(node_id=node_id, output_type=node.class_type))
+        wf.outputs.sort(key=lambda o: (int(o.node_id) if o.node_id.isdigit() else (1 << 30), o.node_id))
+        wf.requirements = _infer_requirements(wf)
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
         apply_ready_template_policy(wf, metadata, source_path=str(source_path), requirements=requirements)
 
-    for name, spec in inputs.items():
-        spec.register(wf, name, namespace=caller_locals)
+    if inputs:
+        for name, spec in inputs.items():
+            spec.register(wf, name, namespace=caller_locals)
 
-    _assert_public_input_invariant(wf, inputs, namespace=caller_locals)
+        _assert_public_input_invariant(wf, inputs, namespace=caller_locals)
 
     if output_node_id is not None:
         artifact_kind = bind_kwargs.pop("artifact_kind", None) or derived_output_kind
@@ -553,8 +721,17 @@ def _finalize_impl(
 def _resolve_output_node(wf: VibeWorkflow, output_node: Any, namespace: Mapping[str, Any]) -> str:
     if output_node is None:
         return _autodetect_output_node(wf)
-    if isinstance(output_node, SymbolicNodeRef):
+    # Duck-typed protocol matching the retired ``SymbolicNodeRef`` contract:
+    # any object exposing ``.resolve(namespace, wf) -> str`` is treated as a
+    # symbolic node reference.
+    if isinstance(output_node, SymbolicRefProtocol):
         return output_node.resolve(namespace, wf)
+    # Fallback duck-typing for objects that satisfy the contract but
+    # aren't explicitly registered as SymbolicRefProtocol (e.g. during
+    # migration or from external tooling).
+    resolve = getattr(output_node, "resolve", None)
+    if callable(resolve) and hasattr(output_node, "label"):
+        return resolve(namespace, wf)
     node_id = _node_id_from_binding(output_node)
     if node_id is not None:
         return node_id
@@ -572,9 +749,15 @@ def _autodetect_output_node(wf: VibeWorkflow) -> str:
     if len(candidates) == 1:
         return candidates[0]
     if not candidates:
-        raise ValueError("output_node could not be auto-detected; specify explicitly")
+        raise SchemaValidationError(
+            "output_node could not be auto-detected; specify explicitly",
+            next_action="Pass `output_node=...` explicitly to outputspec(...).",
+        )
     detail = ", ".join(f"{node_id}:{wf.nodes[node_id].class_type}" for node_id in candidates)
-    raise ValueError(f"ambiguous output_node; specify explicitly ({detail})")
+    raise SchemaValidationError(
+        f"ambiguous output_node; specify explicitly ({detail})",
+        next_action="Pass `output_node=...` explicitly to outputspec(...).",
+    )
 
 
 def _is_terminal_output_class(class_type: str) -> bool:
@@ -868,8 +1051,8 @@ def _assert_public_input_invariant(
 __all__ = [
     "InputSpec",
     "ModelAsset",
+    "OutputSpec",
     "ReadyMetadata",
-    "_at",
     "_current_workflow_or_raise",
     "_derive_output_kind",
     "finalize",

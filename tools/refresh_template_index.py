@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from vibecomfy.registry.ready import repo_ready_template_ids
-from vibecomfy.registry.static_contract import extract_ready_template_contract
+from vibecomfy.registry.static_contract import extract_ready_template_contract, extract_ready_template_contract_runtime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -54,7 +54,7 @@ def build_template_index(*, generated_at: str | None = None) -> dict[str, Any]:
     for template_id in repo_ready_template_ids():
         path = _ready_template_path(template_id)
         metadata, requirements = _ready_template_metadata(REPO_ROOT / path)
-        static_contract = extract_ready_template_contract(REPO_ROOT / path)
+        static_contract = extract_ready_template_contract_runtime(REPO_ROOT / path)
         coverage_row = coverage.get(template_id, {})
         coverage_tier = metadata.get("coverage_tier") or coverage_row.get("coverage_tier", "")
         row = {
@@ -126,6 +126,7 @@ _KNOWN_TOP_LEVEL_NAMES = frozenset({
     "PUBLIC_INPUTS",
     "MODELS",
     "OUTPUT_PREFIX",
+    "OUTPUT_SPEC",
     "PRIVATE_KNOBS",
 })
 

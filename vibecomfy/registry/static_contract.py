@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
+from vibecomfy.errors import ContextVarBindingError
 
 from vibecomfy.metadata import (
     MODEL_KEYS,
@@ -20,6 +24,7 @@ from vibecomfy.metadata import (
 
 
 _UNSUPPORTED = object()
+_DYNAMIC_VALUE = {"dynamic": True}
 _FILENAME_KWARGS = frozenset({
     "unet_name",
     "vae_name",
@@ -63,7 +68,7 @@ def extract_ready_template_contract(path: str | Path) -> dict[str, Any]:
     public_inputs: list[dict[str, Any]] = []
     public_outputs: list[dict[str, Any]] = []
 
-    # ── Derive public_inputs from PUBLIC_INPUTS/InputSpec when present ──
+    # ── Derive public_inputs from PUBLIC_INPUTS ──
     public_inputs_dict = assignments.get("PUBLIC_INPUTS")
     if isinstance(public_inputs_dict, dict):
         for name, spec in public_inputs_dict.items():
@@ -150,6 +155,279 @@ def extract_ready_template_contract(path: str | Path) -> dict[str, Any]:
     return summary
 
 
+def extract_ready_template_contract_runtime(path: str | Path) -> dict[str, Any]:
+    """Extract public contract metadata by actually running ``build()``.
+
+    For templates marked ``# vibecomfy: manual`` or ``# vibecomfy: broken-regen``
+    this delegates directly to the AST-based :func:`extract_ready_template_contract`.  For all other
+    templates it imports the module fresh, calls ``build()``, and reads
+    ``wf.inputs`` and ``wf.outputs`` / ``OUTPUT_SPEC`` from the resulting
+    workflow object.
+
+    The returned descriptor dict is byte-identical to the AST path, including
+    alias-row fan-out and hardcoded ``source='InputSpec'`` / ``status='static'``
+    provenance fields.
+
+    Fallback policy (in order):
+    1. Manual or broken-regen marker → AST path.
+    2. ``ImportError`` / ``AttributeError`` / ``ContextVarBindingError`` → AST path.
+    3. Runtime registers zero public inputs while AST finds some → AST path.
+    4. Catastrophic failure (both paths fail) → diagnostic row with ``public_inputs=[]``.
+    """
+    source_path = Path(path)
+    try:
+        source = source_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return _failed_import_contract(str(path), exc)
+
+    marker = _template_marker(source)
+
+    # Manual and broken-regen templates always use the AST extractor.
+    if marker in {"manual", "broken-regen"}:
+        return extract_ready_template_contract(path)
+
+    # Legacy templates that have not adopted the public() mechanism yet must
+    # fall back to AST so that --check is byte-identical to the checked-in
+    # template_index.json (Phase 1 gate).  Once templates are rewritten to use
+    # public() (Phase 2 emitter rewrite) this branch will skip them and the
+    # runtime path will take over.
+    if "public(" not in source:
+        return extract_ready_template_contract(path)
+
+    # Try the runtime path.
+    runtime_ok = False
+    runtime_inputs: list[dict[str, Any]] = []
+    runtime_outputs: list[dict[str, Any]] = []
+    runtime_diagnostics: list[dict[str, Any]] = []
+    runtime_wf: Any = None
+    runtime_module: Any = None
+
+    try:
+        runtime_module = _import_template_module(source_path)
+        runtime_wf = runtime_module.build()
+        runtime_inputs = _runtime_public_inputs(runtime_wf)
+        runtime_outputs = _runtime_public_outputs(runtime_wf, runtime_module)
+        runtime_ok = True
+    except (ImportError, AttributeError, ContextVarBindingError) as exc:
+        runtime_diagnostics.append({
+            "code": "runtime_executor_import_error",
+            "severity": "warning",
+            "message": f"{type(exc).__name__}: {exc}",
+            "source": "runtime_executor",
+        })
+    except Exception as exc:
+        runtime_diagnostics.append({
+            "code": "runtime_executor_error",
+            "severity": "warning",
+            "message": f"{type(exc).__name__}: {exc}",
+            "source": "runtime_executor",
+        })
+
+    # Fallback: if runtime registered zero public inputs but the AST would
+    # find some (legacy templates), fall back to AST.
+    if runtime_ok and not runtime_inputs:
+        try:
+            ast_contract = extract_ready_template_contract(path)
+        except Exception:
+            ast_contract = None
+        if ast_contract is not None and ast_contract.get("public_inputs"):
+            return ast_contract
+
+    # If runtime succeeded, build the full contract from runtime data.
+    if runtime_ok and runtime_module is not None:
+        metadata = getattr(runtime_module, "READY_METADATA", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+        requirements = getattr(runtime_module, "READY_REQUIREMENTS", None)
+        if not isinstance(requirements, dict):
+            requirements = {}
+
+        models_dict = getattr(runtime_module, "MODELS", None)
+        models_from_mod = len(models_dict) if isinstance(models_dict, dict) else 0
+        meta_models = _list_items(metadata.get("model_assets", []))
+        model_count = max(len(meta_models), models_from_mod)
+        model_assets = meta_models if meta_models else (
+            [item for item in models_dict.values() if isinstance(item, dict)]
+            if isinstance(models_dict, dict) else []
+        )
+
+        reqs_normalized, _warnings = normalize_custom_node_requirements(requirements)
+        meta_reqs = _dict_or_empty(metadata.get("requirements"))
+        meta_reqs_normalized, _meta_warnings = normalize_custom_node_requirements(meta_reqs)
+        merged_custom_nodes = _list_items(reqs_normalized.get("custom_nodes")) + _list_items(meta_reqs_normalized.get("custom_nodes"))
+        merged_custom_node_refs = _list_items(reqs_normalized.get("custom_node_refs")) + _list_items(meta_reqs_normalized.get("custom_node_refs"))
+
+        summary: dict[str, Any] = {
+            "public_inputs": runtime_inputs,
+            "public_outputs": runtime_outputs,
+            "diagnostics": runtime_diagnostics,
+            "marker": marker,
+            "readiness_class": _readiness_class(metadata, marker),
+            "artifact_expectations": runtime_outputs,
+            "model_count": model_count,
+            "custom_nodes": sorted(set(item for item in merged_custom_nodes if isinstance(item, str))),
+            "model_assets": model_assets,
+            "hardware": metadata.get("hardware") if isinstance(metadata.get("hardware"), dict) else {},
+            "python_env": metadata.get("python_env") if isinstance(metadata.get("python_env"), dict) else {},
+            "app_active": _is_app_active(metadata),
+            "blocked": _has_marker(metadata, "blocked"),
+            "reference": _has_marker(metadata, "reference"),
+            "supplemental": _has_marker(metadata, "supplemental"),
+        }
+        if merged_custom_node_refs:
+            summary["custom_node_refs"] = merged_custom_node_refs
+        return summary
+
+    # Both paths failed — return a diagnostic-preserving contract that never
+    # drops the row.
+    try:
+        ast_contract = extract_ready_template_contract(path)
+    except Exception:
+        ast_contract = None
+
+    if ast_contract is not None:
+        # Merge runtime diagnostics into the AST contract's diagnostics.
+        existing_diags = list(ast_contract.get("diagnostics", []))
+        ast_contract["diagnostics"] = existing_diags + runtime_diagnostics
+        return ast_contract
+
+    return _failed_import_contract(str(path), None, extra_diagnostics=runtime_diagnostics)
+
+
+def _failed_import_contract(
+    template_path: str,
+    exc: BaseException | None = None,
+    *,
+    extra_diagnostics: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build a minimal contract that preserves ``id``/``path`` identity."""
+    diags: list[dict[str, Any]] = list(extra_diagnostics or [])
+    if exc is not None:
+        diags.append({
+            "code": "runtime_executor_failed",
+            "severity": "error",
+            "message": f"{type(exc).__name__}: {exc}",
+            "source": "runtime_executor",
+        })
+    path_obj = Path(template_path)
+    template_id = _template_id_from_path(path_obj)
+    return {
+        "public_inputs": [],
+        "public_outputs": [],
+        "diagnostics": diags,
+        "marker": "unknown",
+        "readiness_class": "unknown",
+        "artifact_expectations": [],
+        "model_count": 0,
+        "custom_nodes": [],
+        "model_assets": [],
+        "hardware": {},
+        "python_env": {},
+        "app_active": False,
+        "blocked": False,
+        "reference": False,
+        "supplemental": False,
+    }
+
+
+def _import_template_module(source_path: Path) -> Any:
+    """Import a ready-template module from its filesystem path.
+
+    Uses ``importlib`` so the module is loaded fresh every call.  The
+    module is added to ``sys.modules`` under a synthetic name derived from
+    the path to avoid collisions.
+    """
+    module_name = f"_vibecomfy_runtime_contract_{source_path.stem}_{hash(str(source_path)) & 0xFFFFFFFF:08x}"
+    spec = importlib.util.spec_from_file_location(module_name, str(source_path))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not create module spec for {source_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(module_name, None)
+        raise
+    return module
+
+
+def _runtime_public_inputs(wf: Any) -> list[dict[str, Any]]:
+    """Map every :class:`VibeInput` in *wf.inputs* to a public-input descriptor.
+
+    Hardcodes ``source='InputSpec'`` and ``status='static'`` (SD2), and
+    replicates the AST alias-row fan-out (SD3): for each canonical name with
+    ``aliases=(a1, a2, ...)``, emit one row for the canonical name (with
+    populated aliases) plus one row per alias (with ``aliases=[]``).
+    """
+    descriptors: list[dict[str, Any]] = []
+    for name, vibe_input in wf.inputs.items():
+        # Canonical row.
+        descriptor: dict[str, Any] = {
+            "name": str(name),
+            "target": {"node_id": str(vibe_input.node_id), "field": str(vibe_input.field)},
+            "node_id": str(vibe_input.node_id),
+            "field": str(vibe_input.field),
+            "value": vibe_input.value,
+            "type": vibe_input.type,
+            "default": vibe_input.default,
+            "required": vibe_input.required,
+            "range": vibe_input.range,
+            "aliases": list(vibe_input.aliases) if vibe_input.aliases else [],
+            "media_semantics": vibe_input.media_semantics,
+            "status": "static",
+            "source": "InputSpec",
+        }
+        if descriptor["default"] is None and descriptor["value"] is not None:
+            descriptor["default"] = descriptor["value"]
+        descriptors.append(descriptor)
+
+        # Alias fan-out (SD3).
+        for alias in vibe_input.aliases:
+            alias_descriptor = dict(descriptor)
+            alias_descriptor["name"] = str(alias)
+            alias_descriptor["aliases"] = []
+            descriptors.append(alias_descriptor)
+
+    return descriptors
+
+
+def _runtime_public_outputs(wf: Any, module: Any) -> list[dict[str, Any]]:
+    """Derive public-output descriptors from *wf.outputs* and *module.OUTPUT_SPEC*.
+
+    Mirrors the AST path's ``_extract_finalize_outputs`` shape so byte-identity
+    is preserved.
+    """
+    descriptors: list[dict[str, Any]] = []
+    output_spec = getattr(module, "OUTPUT_SPEC", None)
+    output_spec_name = getattr(output_spec, "name", None)
+    output_spec_mime = getattr(output_spec, "mime_type", None)
+    output_spec_kind = getattr(output_spec, "artifact_kind", None)
+    output_spec_cardinality = getattr(output_spec, "expected_cardinality", None)
+
+    # Derive filename_prefix from READY_METADATA.output_prefix as the AST path
+    # reads it from the finalize() call.
+    metadata = getattr(module, "READY_METADATA", None)
+    filename_prefix = None
+    if isinstance(metadata, dict):
+        filename_prefix = metadata.get("output_prefix")
+
+    for output in wf.outputs:
+        descriptor: dict[str, Any] = {
+            "name": output_spec_name or output.name,
+            "node_id": str(output.node_id),
+            "output_type": output.output_type,
+            "artifact_kind": output_spec_kind or output.artifact_kind,
+            "mime_type": output_spec_mime or output.mime_type,
+            "filename_prefix": filename_prefix or output.filename_prefix,
+            "expected_cardinality": output_spec_cardinality or output.expected_cardinality,
+            "status": "static",
+            "source": "finalize",
+        }
+        descriptors.append(descriptor)
+
+    return descriptors
+
+
 def _extract_finalize_outputs(
     tree: ast.Module,
     assignments: dict[str, Any],
@@ -158,26 +436,39 @@ def _extract_finalize_outputs(
 ) -> None:
     """Derive public outputs from ``finalize(..., output_node=..., ...)`` calls."""
     node_assignments = _node_assignment_ids(tree)
+    id_class_type = _node_id_class_type_map(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         call_name = _call_name(node.func)
         if call_name != "finalize" and not call_name.endswith(".finalize"):
             continue
-        output_type = _keyword_literal(node, "output_type", diagnostics, "finalize")
+        # Resolve output_type from AST node-id → class-type map first,
+        # then fall back to the string-literal keyword (manual templates).
+        output_type_kw = _keyword_literal(node, "output_type", diagnostics, "finalize")
         output_node = _keyword_literal(node, "output_node", diagnostics, "finalize")
         if output_node is None:
             output_node = _keyword_node_ref(node, "output_node", node_assignments)
         if output_node is None:
-            output_node = _terminal_output_id_for_type(tree, str(output_type)) if output_type else _single_terminal_output_id(tree)
+            output_node = _terminal_output_id_for_type(tree, str(output_type_kw)) if output_type_kw else _single_terminal_output_id(tree)
         if not isinstance(output_node, str):
             continue
+        output_type = id_class_type.get(output_node) or output_type_kw
         output_kind = _keyword_literal(node, "output_kind", diagnostics, "finalize")
-        name = _keyword_literal(node, "name", diagnostics, "finalize")
-        mime_type = _keyword_literal(node, "mime_type", diagnostics, "finalize")
-        artifact_kind = _keyword_literal(node, "artifact_kind", diagnostics, "finalize")
+        # Prefer OUTPUT_SPEC dict when available (generated templates), falling
+        # back to inline finalize() kwargs for manual templates.
+        output_spec = assignments.get("OUTPUT_SPEC")
+        if isinstance(output_spec, dict):
+            name = output_spec.get("name") or _keyword_literal(node, "name", diagnostics, "finalize")
+            mime_type = output_spec.get("mime_type") or _keyword_literal(node, "mime_type", diagnostics, "finalize")
+            artifact_kind = output_spec.get("artifact_kind") or _keyword_literal(node, "artifact_kind", diagnostics, "finalize")
+            expected_cardinality = output_spec.get("expected_cardinality") or _keyword_literal(node, "expected_cardinality", diagnostics, "finalize")
+        else:
+            name = _keyword_literal(node, "name", diagnostics, "finalize")
+            mime_type = _keyword_literal(node, "mime_type", diagnostics, "finalize")
+            artifact_kind = _keyword_literal(node, "artifact_kind", diagnostics, "finalize")
+            expected_cardinality = _keyword_literal(node, "expected_cardinality", diagnostics, "finalize")
         filename_prefix = _keyword_literal(node, "filename_prefix", diagnostics, "finalize")
-        expected_cardinality = _keyword_literal(node, "expected_cardinality", diagnostics, "finalize")
 
         descriptor: dict[str, Any] = {
             "name": name,
@@ -237,6 +528,21 @@ def _node_runtime_ids(tree: ast.Module) -> dict[int, str]:
     return runtime_ids
 
 
+def _node_id_class_type_map(tree: ast.Module) -> dict[str, str]:
+    """Invert ``_node_runtime_ids`` and ``_node_call_class_type`` to map
+    node_id → class_type for every ComfyUI node call in *tree*."""
+    runtime_ids = _node_runtime_ids(tree)
+    mapping: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        class_type = _node_call_class_type(node)
+        node_id = runtime_ids.get(id(node))
+        if class_type is not None and node_id is not None:
+            mapping[node_id] = class_type
+    return mapping
+
+
 def _node_call_source_id(node: ast.Call) -> str | None:
     call_name = _call_name(node.func)
     if call_name == "raw_call" and len(node.args) >= 2:
@@ -272,7 +578,35 @@ def _single_terminal_output_id(tree: ast.Module) -> str | None:
         class_type = _node_call_class_type(node)
         if class_type and _is_static_terminal_output_class(class_type):
             candidates.append(node_id)
-    return candidates[0] if len(candidates) == 1 else None
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) <= 1:
+        return None
+    # When multiple terminal output candidates exist (e.g. CreateVideo +
+    # SaveVideo in the same template), prefer the one whose class_type is
+    # an actual sink (Save*/VHS_*) over intermediate terminal classes
+    # (Create*/Preview*).  This mirrors the emitter's edge-aware
+    # _terminal_output_node_ids which excludes nodes that feed into other
+    # terminal nodes.
+    sink_candidates = [c for c in candidates if _is_sink_output_class(_node_class_type_for_id(tree, c) or "")]
+    return (sink_candidates[0] if len(sink_candidates) == 1 else candidates[-1]) if sink_candidates else candidates[-1]
+
+
+def _node_class_type_for_id(tree: ast.Module, target_id: str) -> str | None:
+    """Return the class_type for the AST Call node whose runtime id matches *target_id*."""
+    runtime_ids = _node_runtime_ids(tree)
+    # Invert the mapping: runtime_ids maps id(call) -> node_id; we need node_id -> call -> class_type.
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if runtime_ids.get(id(node)) == target_id or _node_call_source_id(node) == target_id:
+            return _node_call_class_type(node)
+    return None
+
+
+def _is_sink_output_class(class_type: str) -> bool:
+    """Return True for terminal output nodes that are sinks, not intermediate producers."""
+    return class_type.lower().startswith("save") or class_type.lower().startswith("vhs_")
 
 
 def _terminal_output_id_for_type(tree: ast.Module, output_type: str) -> str | None:
@@ -348,8 +682,10 @@ _KNOWN_TOP_LEVEL_NAMES = frozenset({
     "READY_METADATA",
     "READY_REQUIREMENTS",
     "PUBLIC_INPUTS",
+    "PUBLIC_INPUT_METADATA",
     "MODELS",
     "OUTPUT_PREFIX",
+    "OUTPUT_SPEC",
     "PRIVATE_KNOBS",
 })
 
@@ -398,7 +734,7 @@ def _extract_input_call(
         "target": {"node_id": node_id, "field": field},
         "node_id": node_id,
         "field": field,
-        "value": None if value is _UNSUPPORTED else value,
+        "value": _DYNAMIC_VALUE if value is _UNSUPPORTED else value,
         "type": _keyword_literal(node, "type", diagnostics, call_name),
         "default": _keyword_literal(node, "default", diagnostics, call_name),
         "required": _keyword_literal(node, "required", diagnostics, call_name),
@@ -410,8 +746,11 @@ def _extract_input_call(
     }
     if descriptor["media_semantics"] is None:
         descriptor["media_semantics"] = _keyword_literal(node, "media", diagnostics, call_name)
-    if descriptor["default"] is None and value is not _UNSUPPORTED:
-        descriptor["default"] = value
+    if descriptor["default"] is None:
+        if value is not _UNSUPPORTED:
+            descriptor["default"] = value
+        else:
+            descriptor["default"] = _DYNAMIC_VALUE
     return descriptor
 
 
@@ -429,7 +768,7 @@ def _extract_output_call(
         "name": _keyword_literal(node, "name", diagnostics, call_name),
         "node_id": node_id,
         "output_type": _keyword_literal(node, "output_type", diagnostics, call_name)
-        or (output_type if output_type is not _UNSUPPORTED else None),
+        or (output_type if output_type is not _UNSUPPORTED else _DYNAMIC_VALUE),
         "artifact_kind": _keyword_literal(node, "artifact_kind", diagnostics, call_name),
         "mime_type": _keyword_literal(node, "mime_type", diagnostics, call_name),
         "filename_prefix": _keyword_literal(node, "filename_prefix", diagnostics, call_name),
@@ -439,8 +778,11 @@ def _extract_output_call(
     }
     if call_name == "VibeOutput":
         positional_name = _literal_arg_or_keyword(node, offset + 2, "name", diagnostics, call_name, required=False)
-        if descriptor["name"] is None and positional_name is not _UNSUPPORTED:
-            descriptor["name"] = positional_name
+        if descriptor["name"] is None:
+            if positional_name is not _UNSUPPORTED:
+                descriptor["name"] = positional_name
+            else:
+                descriptor["name"] = _DYNAMIC_VALUE
     return descriptor
 
 
@@ -679,6 +1021,8 @@ def _evaluate_call(node: ast.Call, assignments: dict[str, Any]) -> Any:
         return _eval_ready_metadata_build(node, assignments)
     if func_name in ("InputSpec",):
         return _eval_input_spec_call(node, assignments)
+    if func_name in ("OutputSpec",):
+        return _eval_output_spec_call(node, assignments)
     if func_name in ("ModelAsset",):
         return _eval_model_asset_call(node, assignments)
     return _UNSUPPORTED
@@ -725,6 +1069,18 @@ def _eval_input_spec_call(node: ast.Call, assignments: dict[str, Any]) -> dict[s
         value = _literal_value(kw.value, assignments)
         if value is not _UNSUPPORTED:
             result[kw.arg] = list(value) if kw.arg == "aliases" and isinstance(value, tuple) else value
+    return result
+
+
+def _eval_output_spec_call(node: ast.Call, assignments: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate ``OutputSpec(name=..., artifact_kind=..., ...)`` into a dict."""
+    result: dict[str, Any] = {}
+    for kw in node.keywords:
+        if kw.arg is None:
+            continue
+        value = _literal_value(kw.value, assignments)
+        if value is not _UNSUPPORTED:
+            result[kw.arg] = value
     return result
 
 
@@ -917,6 +1273,8 @@ def _list_items(value: Any) -> list[Any]:
 
 def _template_marker(source: str) -> str:
     header = "\n".join(source.splitlines()[:5])
+    if "# vibecomfy: broken-regen" in header:
+        return "broken-regen"
     if "# vibecomfy: manual" in header:
         return "manual"
     if "# vibecomfy: generated" in header:

@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from vibecomfy.errors import ContextVarBindingError, SchemaValidationError
 from vibecomfy.handles import Handle
 from vibecomfy.porting import helpers as porting_helpers
 from vibecomfy.porting.widget_aliases import apply_positional_widget_aliases
@@ -87,6 +88,24 @@ class VibeOutput:
     expected_cardinality: str | int | None = None
 
 
+@runtime_checkable
+class SymbolicRefProtocol(Protocol):
+    """Structural protocol for duck-typed node references.
+
+    Any object that carries a ``label`` attribute and a ``resolve(namespace,
+    wf)`` callable satisfies this protocol.  The 23 broken-regen manual
+    templates each inline a ``SymbolicNodeRef`` shim that meets this contract,
+    and the two consumption sites in ``vibecomfy/templates.py``
+    (``InputSpec.resolve_node_id`` and ``_resolve_output_node``) assert
+    ``isinstance(..., SymbolicRefProtocol)`` so that a desynced shim fails
+    loudly instead of silently degrading.
+    """
+
+    label: str
+
+    def resolve(self, namespace: dict[str, Any], wf: VibeWorkflow) -> str: ...
+
+
 @dataclass(slots=True)
 class ValidationIssue:
     code: str
@@ -118,9 +137,10 @@ class VibeWorkflow:
         from vibecomfy.workflow_context import bind_workflow
 
         if getattr(self, "_workflow_context_token", None) is not None:
-            raise RuntimeError(
+            raise ContextVarBindingError(
                 "Nested workflow contexts not supported. The outer `with new_workflow(...)` "
-                "block is still active."
+                "block is still active.",
+                next_action="Close the outer `with new_workflow(...)` block before opening a new one.",
             )
         self._workflow_context_token = bind_workflow(self)
         return self
@@ -165,6 +185,7 @@ class VibeWorkflow:
         metadata: dict[str, Any] | None = None,
         output_node: Any = None,
         output_kind: str | None = None,
+        spec: Any = None,  # OutputSpec | None (lazy to avoid circular import)
         **bind_kwargs: Any,
     ) -> "VibeWorkflow":
         """Finalize ready-template public inputs and output binding.
@@ -181,6 +202,7 @@ class VibeWorkflow:
             dict(self.metadata if metadata is None else metadata),
             output_node=output_node,
             output_kind=output_kind,
+            spec=spec,
             **bind_kwargs,
         )
 
@@ -200,9 +222,10 @@ class VibeWorkflow:
         media: str | None = None,
     ) -> "VibeWorkflow":
         if media_semantics is not None and media is not None and media_semantics != media:
-            raise ValueError(
+            raise SchemaValidationError(
                 f"register_input({name!r}): media_semantics and legacy media "
-                "must match when both are provided"
+                "must match when both are provided",
+                next_action="Use either `media_semantics=...` (preferred) or `media=...` (legacy), not both with different values.",
             )
         resolved_media_semantics = media_semantics if media_semantics is not None else media
         alias_tuple = _normalize_input_aliases(aliases)
@@ -241,14 +264,23 @@ class VibeWorkflow:
             return self.inputs[name]
         matches = [item for item in self.inputs.values() if name in item.aliases]
         if len(matches) > 1:
-            raise ValueError(f"Input alias {name!r} is ambiguous in workflow {self.id!r}")
+            raise SchemaValidationError(
+                f"Input alias {name!r} is ambiguous in workflow {self.id!r}",
+                next_action="Use the primary input name instead of the alias, or disambiguate the alias.",
+            )
         return matches[0] if matches else None
 
     def _validate_input_aliases(self, name: str, aliases: tuple[str, ...]) -> None:
         if len(set(aliases)) != len(aliases):
-            raise ValueError(f"register_input({name!r}): duplicate aliases are not allowed")
+            raise SchemaValidationError(
+                f"register_input({name!r}): duplicate aliases are not allowed",
+                next_action="Remove duplicate entries from the aliases tuple.",
+            )
         if name in aliases:
-            raise ValueError(f"register_input({name!r}): alias cannot equal its primary input name")
+            raise SchemaValidationError(
+                f"register_input({name!r}): alias cannot equal its primary input name",
+                next_action="Remove the primary name from the aliases tuple.",
+            )
         existing_primary_names = {existing_name for existing_name in self.inputs if existing_name != name}
         if name in {
             alias
@@ -256,11 +288,17 @@ class VibeWorkflow:
             if existing_name != name
             for alias in item.aliases
         }:
-            raise ValueError(f"register_input({name!r}): primary input name conflicts with an existing alias")
+            raise SchemaValidationError(
+                f"register_input({name!r}): primary input name conflicts with an existing alias",
+                next_action="Choose a different primary input name or remove the conflicting alias.",
+            )
         primary_conflicts = existing_primary_names.intersection(aliases)
         if primary_conflicts:
             conflict = sorted(primary_conflicts)[0]
-            raise ValueError(f"register_input({name!r}): alias {conflict!r} conflicts with an existing primary input")
+            raise SchemaValidationError(
+                f"register_input({name!r}): alias {conflict!r} conflicts with an existing primary input",
+                next_action="Choose a different alias name.",
+            )
         existing_aliases = {
             alias
             for existing_name, item in self.inputs.items()
@@ -270,26 +308,34 @@ class VibeWorkflow:
         alias_conflicts = existing_aliases.intersection(aliases)
         if alias_conflicts:
             conflict = sorted(alias_conflicts)[0]
-            raise ValueError(f"register_input({name!r}): alias {conflict!r} conflicts with an existing alias")
+            raise SchemaValidationError(
+                f"register_input({name!r}): alias {conflict!r} conflicts with an existing alias",
+                next_action="Choose a different alias name.",
+            )
 
     def _validate_input_target(self, name: str, node_id: str, field: str) -> None:
         node_key = str(node_id)
         if node_key not in self.nodes:
-            raise ValueError(
+            raise SchemaValidationError(
                 f"register_input({name!r}): target node {node_key!r} does not exist "
-                f"in workflow {self.id!r}"
+                f"in workflow {self.id!r}",
+                next_action="Create the target node before registering this input, or correct the node_id.",
             )
         node = self.nodes[node_key]
         if field not in node.inputs and field not in node.widgets:
-            raise ValueError(
+            raise SchemaValidationError(
                 f"register_input({name!r}): field {field!r} not found in "
-                f"node {node_key!r} ({node.class_type}) inputs or widgets"
+                f"node {node_key!r} ({node.class_type}) inputs or widgets",
+                next_action="Check the node's class definition for valid input/widget field names.",
             )
 
     def add_node(self, class_type: str, _id: str | None = None, **inputs: Any) -> VibeNode:
         node_id = str(_id) if _id is not None else self._next_node_id()
         if node_id in self.nodes:
-            raise ValueError(f"Node id {node_id!r} already exists in workflow {self.id!r}")
+            raise SchemaValidationError(
+                f"Node id {node_id!r} already exists in workflow {self.id!r}",
+                next_action="Use a unique node id or omit `_id` for auto-assignment.",
+            )
         node = VibeNode(id=node_id, class_type=class_type, inputs=dict(inputs))
         self.nodes[node_id] = node
         return node
@@ -299,7 +345,18 @@ class VibeWorkflow:
         explicit_id = kwargs.pop("_id", None)
         from vibecomfy.templates import coerce_node_kwargs
 
-        kwargs = coerce_node_kwargs(self, class_type, kwargs, pass_raw=pass_raw)
+        kwargs, _pending = coerce_node_kwargs(self, class_type, kwargs, pass_raw=pass_raw)
+        if _pending:
+            field_names = sorted(_pending.keys())
+            raise SchemaValidationError(
+                f"wf.node({class_type!r}): received PublicSentinel in kwargs {field_names}. "
+                "PublicSentinel / public() is only supported in ready-template node(), not raw wf.node(). "
+                "Use wf.register_input() explicitly after the node is created.",
+                next_action=(
+                    "Replace public(name=..., default=...) with the default value in the wf.node() call, "
+                    "then call wf.register_input(name, node_id, field, default, ...) after wf.node() returns."
+                ),
+            )
         node = self.add_node(class_type, _id=explicit_id)
         for key, value in kwargs.items():
             if isinstance(value, Handle):
@@ -461,7 +518,10 @@ class VibeWorkflow:
         if backend == "graphbuilder":
             return self._compile_graphbuilder()
         if backend != "api":
-            raise ValueError(f"Unknown compile backend: {backend}")
+            raise SchemaValidationError(
+                f"Unknown compile backend: {backend}",
+                next_action="Use `backend='api'` or `backend='graphbuilder'`.",
+            )
         broadcast_sources = porting_helpers.collect_broadcast_sources(self.nodes, self.edges)
         api: dict[str, Any] = {}
         for node_id, node in self.nodes.items():
@@ -482,7 +542,10 @@ class VibeWorkflow:
 
     def export_to_json(self, *, format: str = "api") -> dict[str, Any]:
         if format != "api":
-            raise ValueError(f"Unsupported workflow JSON export format: {format!r}")
+            raise SchemaValidationError(
+                f"Unsupported workflow JSON export format: {format!r}",
+                next_action="Use `format='api'` (the only supported export format).",
+            )
         return self.compile("api")
 
     def id_map(self) -> dict[str, str]:
@@ -606,7 +669,10 @@ class VibeWorkflow:
         try:
             from comfy_execution.graph_utils import GraphBuilder
         except ImportError as exc:
-            raise RuntimeError("GraphBuilder backend requires the installed HiddenSwitch ComfyUI runtime.") from exc
+            raise SchemaValidationError(
+                "GraphBuilder backend requires the installed HiddenSwitch ComfyUI runtime.",
+                next_action="Install the HiddenSwitch ComfyUI runtime, or use `backend='api'`.",
+            ) from exc
 
         broadcast_sources = porting_helpers.collect_broadcast_sources(self.nodes, self.edges)
         edge_inputs: dict[str, dict[str, Any]] = {}
@@ -855,6 +921,7 @@ def _drop_unused_positional_aliases(inputs: dict[str, Any]) -> None:
 
 __all__ = [
     "OPAQUE_COMPONENT_CLASS_RE",
+    "SymbolicRefProtocol",
     "ValidationIssue",
     "ValidationReport",
     "VibeEdge",

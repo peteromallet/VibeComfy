@@ -290,10 +290,12 @@ def _detect_missing_output_contract(source: str) -> bool:
 def _classify_marker(source: str) -> str:
     """Classify the template's marker.
 
-    Returns one of: "generated", "manual", "reference", "authored", "unknown".
+    Returns one of: "generated", "manual", "broken-regen", "reference", "authored", "unknown".
     """
     first_line = source.splitlines()[0].strip() if source.splitlines() else ""
 
+    if "# vibecomfy: broken-regen" in first_line:
+        return "broken-regen"
     if "# vibecomfy: manual" in first_line:
         return "manual"
     if "# vibecomfy: generated" in first_line:
@@ -306,9 +308,13 @@ def _classify_marker(source: str) -> str:
     has_nodes = bool(re.search(r"^NODES\s*=", source, re.MULTILINE))
 
     if has_api:
+        if "vibecomfy: broken-regen" in first_line:
+            return "broken-regen"
         if "vibecomfy: manual" in first_line:
             return "manual"
         return "reference"  # legacy API_WORKFLOW — reference template
+    if "vibecomfy: broken-regen" in first_line:
+        return "broken-regen"
     if "vibecomfy: manual" in first_line:
         return "manual"
     if "vibecomfy: generated" in first_line:
@@ -429,7 +435,7 @@ def build_readability_inventory() -> ReadabilityInventory:
         # Missing source provenance: no source_workflow and not manual/reference
         missing_source = (
             source_workflow is None
-            and marker not in ("manual", "reference")
+            and marker not in ("manual", "broken-regen", "reference")
         )
 
         entry = TemplateInventoryEntry(

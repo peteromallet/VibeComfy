@@ -226,10 +226,12 @@ RULES: list[EmitterRule] = [
     EmitterRule(
         id="R-PROV-04",
         category="PROVENANCE",
-        description="Manual marker prevents automatic overwrite",
+        description="Protected markers prevent automatic overwrite",
         behavior=(
-            "Templates beginning with '# vibecomfy: manual' are refused "
-            "by port_convert_and_write() to protect hand-edited templates."
+            "Templates beginning with '# vibecomfy: manual' or "
+            "'# vibecomfy: broken-regen' are refused by "
+            "port_convert_and_write() to protect hand-edited templates and "
+            "known broken-regeneration shims."
         ),
     ),
 

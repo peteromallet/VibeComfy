@@ -72,8 +72,8 @@ def build_baseline(ready_root: Path = READY_ROOT) -> dict[str, Any]:
     return {
         "version": BASELINE_VERSION,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "generated_from": "repo-only buildable non-manual ready_templates canonical compile output",
-        "include_rule": "find ready_templates -type f -name '*.py' ! -name '_*' ! -name '__init__.py', exclude '# vibecomfy: manual', and include templates whose build() compiles to API",
+        "generated_from": "repo-only buildable non-protected ready_templates canonical compile output",
+        "include_rule": "find ready_templates -type f -name '*.py' ! -name '_*' ! -name '__init__.py', exclude protected markers, and include templates whose build() compiles to API",
         "template_count": len(records),
         "skipped_count": len(skipped),
         "skipped": skipped,
@@ -187,7 +187,7 @@ def _is_manual_template(path: Path) -> bool:
         first_line = path.read_text(encoding="utf-8").splitlines()[0]
     except (OSError, IndexError):
         return False
-    return first_line.strip() == "# vibecomfy: manual"
+    return first_line.strip() in {"# vibecomfy: manual", "# vibecomfy: broken-regen"}
 
 
 def _compile_ready_template(path: Path, template_id: str) -> dict[str, Any]:
