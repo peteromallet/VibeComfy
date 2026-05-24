@@ -7,6 +7,10 @@ from typing import Any, Mapping, Sequence
 UI_ONLY_CLASS_TYPES: frozenset[str] = frozenset({"Note", "MarkdownNote"})
 BROADCAST_HELPER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode"})
 HELPER_CLASS_TYPES: frozenset[str] = UI_ONLY_CLASS_TYPES | BROADCAST_HELPER_CLASS_TYPES
+# Resolver-only helpers: resolved by the emission-time pre-pass (emitter.py).
+# Intentionally separate from BROADCAST_HELPER_CLASS_TYPES so compile-time callers
+# (workflow.py) remain byte-identical after this extension (SD3).
+RESOLVER_HELPER_CLASS_TYPES: frozenset[str] = frozenset({"Reroute"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +219,7 @@ __all__ = [
     "BROADCAST_HELPER_CLASS_TYPES",
     "HELPER_CLASS_TYPES",
     "HelperDiagnostic",
+    "RESOLVER_HELPER_CLASS_TYPES",
     "UI_ONLY_CLASS_TYPES",
     "broadcast_name",
     "collect_broadcast_sources",

@@ -11,7 +11,69 @@ from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 #: Known-lying custom-node schemas that may suppress only ``unknown_input`` and
 #: ``value_*`` validation issues. Every entry must be cross-referenced from
 #: ``docs/hiddenswitch_incompatibilities.md`` with its contract/root-cause note.
-SCHEMA_VALIDATION_SKIP_CLASSES: dict[str, str] = {}
+#: Stub schemas suppress ``unknown_class_type`` gating without triggering ``unknown_input``
+#: cascade errors on every workflow input. When a real runpod snapshot is available for
+#: the pack, remove the stub file and the entry here.
+SCHEMA_VALIDATION_SKIP_CLASSES: dict[str, str] = {
+    # ComfyUI-Florence2 — stub schema; real schema from runpod snapshot pending
+    "DownloadAndLoadFlorence2Model": "stub schema - see docs/node_pack_reconciliation.md",
+    "Florence2Run": "stub schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-GIMM-VFI — stub schema; real schema from runpod snapshot pending
+    "DownloadAndLoadGIMMVFIModel": "stub schema - see docs/node_pack_reconciliation.md",
+    "GIMMVFI_interpolate": "stub schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-MelBandRoformer — stub schema; real schema from runpod snapshot pending
+    "MelBandRoFormerModelLoader": "stub schema - see docs/node_pack_reconciliation.md",
+    "MelBandRoFormerSampler": "stub schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-Custom-Scripts — stub schema; real schema from runpod snapshot pending
+    "ShowText|pysssss": "stub schema - see docs/node_pack_reconciliation.md",
+    "MathExpression|pysssss": "stub schema - see docs/node_pack_reconciliation.md",
+    # comfyui_controlnet_aux — stub schema; real schema from runpod snapshot pending
+    "DWPreprocessor": "stub schema - see docs/node_pack_reconciliation.md",
+    "CannyEdgePreprocessor": "stub schema - see docs/node_pack_reconciliation.md",
+    "DepthAnythingPreprocessor": "stub schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-DepthAnythingV2 — stub entries added; real schema from runpod snapshot pending
+    "VideoDepthAnythingProcess": "stub schema - see docs/node_pack_reconciliation.md",
+    "LoadVideoDepthAnythingModel": "stub schema - see docs/node_pack_reconciliation.md",
+    "VideoDepthAnythingOutput": "stub schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-KJNodes — ImageConcatMulti has dynamic image_N inputs (inputcount drives them)
+    "ImageConcatMulti": "dynamic inputs (image_N count driven by inputcount widget) - see docs/node_pack_reconciliation.md",
+    # ComfyUI-WanVideoWrapper — WanVideoModelLoader schema snapshot predates vace_model input
+    "WanVideoModelLoader": "snapshot predates vace_model input - see docs/node_pack_reconciliation.md",
+    # ComfyUI-WanVideoWrapper — VACE model enum only captures one HiddenSwitch-local file
+    "WanVideoVACEModelSelect": "model enum reflects HiddenSwitch local files only - see docs/node_pack_reconciliation.md",
+    # ComfyUI-KJNodes — ImagePadKJ pad_mode accepts RGB strings not in static enum
+    "ImagePadKJ": "pad_mode accepts RGB strings not in static enum - see docs/node_pack_reconciliation.md",
+    # ComfyUI-WanVideoWrapper — WanVideoSampler widget schema incomplete for newer versions
+    "WanVideoSampler": "widget schema incomplete for newer WanVideoWrapper versions - see docs/node_pack_reconciliation.md",
+    # ComfyUI-WanVideoWrapper — WanVideoImageToVideoMultiTalk schema snapshot predates colormatch/motion_frame range changes
+    "WanVideoImageToVideoMultiTalk": "snapshot predates colormatch/motion_frame range updates - see docs/node_pack_reconciliation.md",
+    # ComfyUI-WanVideoWrapper — WanVideoEncode tile_stride_y range differs from snapshot
+    "WanVideoEncode": "tile_stride_y range differs from runpod snapshot - see docs/node_pack_reconciliation.md",
+    # ComfyUI-WanVideoWrapper — MultiTalkModelLoader model enum reflects HiddenSwitch local files only
+    "MultiTalkModelLoader": "model enum reflects HiddenSwitch local files only - see docs/node_pack_reconciliation.md",
+    # ComfyUI-VideoHelperSuite — VHS_VideoCombine and VHS_LoadVideo gained new inputs
+    # (crf, pix_fmt, save_metadata, trim_to_audio, choose video to upload) not in runpod snapshot
+    "VHS_VideoCombine": "snapshot predates crf/pix_fmt/save_metadata/trim_to_audio inputs - see docs/node_pack_reconciliation.md",
+    "VHS_LoadVideo": "snapshot predates choose-video-to-upload input - see docs/node_pack_reconciliation.md",
+    # rgthree-comfy — snapshot predates Fast Groups Bypasser / easy node visibility
+    "Fast Groups Bypasser (rgthree)": "snapshot missing Fast Groups Bypasser node - see docs/node_pack_reconciliation.md",
+    # ComfyUI-Easy-Use — easy showAnything has no schema snapshot yet
+    "easy showAnything": "no schema snapshot available - stub schema pending - see docs/node_pack_reconciliation.md",
+    # ComfyUI-WanVideoWrapper — WanVideoLoraSelectMulti lora_N enum reflects HiddenSwitch local files only
+    "WanVideoLoraSelectMulti": "lora_N enum reflects HiddenSwitch local files only - see docs/node_pack_reconciliation.md",
+    # ComfyUI-KJNodes — ResizeImageMaskNode resize_type.multiple input not in snapshot schema
+    "ResizeImageMaskNode": "resize_type.multiple not in snapshot schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-LTXVideo — LTXFloatToInt rounding input not in snapshot schema
+    "LTXFloatToInt": "rounding input not in snapshot schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-LTXVideo — LTXVAddGuideMulti uses num_guides.* dynamic sub-keys not in snapshot
+    "LTXVAddGuideMulti": "num_guides.* dynamic sub-keys not in snapshot schema - see docs/node_pack_reconciliation.md",
+    # ComfyUI-VideoHelperSuite — VHS_LoadAudioUpload audiopreview is UI-only
+    "VHS_LoadAudioUpload": "audiopreview is UI-only; not a runtime widget - see docs/node_pack_reconciliation.md",
+    # rgthree-comfy — Power Lora Loader has dynamic lora slot inputs not in snapshot schema
+    "Power Lora Loader (rgthree)": "dynamic lora slot inputs not in snapshot schema - see docs/node_pack_reconciliation.md",
+    # Unknown pack — ComfyMathExpression values.a/b dynamic sub-keys not in any known snapshot
+    "ComfyMathExpression": "values.a/b dynamic sub-keys not in any known snapshot - see docs/node_pack_reconciliation.md",
+}
 
 
 def validate_against_schema(workflow: VibeWorkflow, provider: SchemaProvider) -> list[ValidationIssue]:

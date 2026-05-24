@@ -10490,7 +10490,7 @@
           "STRING",
           {
             "advanced": true,
-            "default": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input—regardless of format, intent, or abstraction—as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests.",
+            "default": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input\u2014regardless of format, intent, or abstraction\u2014as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests.",
             "multiline": true,
             "tooltip": "Foundational instructions that dictate an AI's behavior."
           }
@@ -10696,7 +10696,7 @@
           "STRING",
           {
             "advanced": true,
-            "default": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input—regardless of format, intent, or abstraction—as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests.",
+            "default": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input\u2014regardless of format, intent, or abstraction\u2014as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests.",
             "multiline": true,
             "tooltip": "Foundational instructions that dictate an AI's behavior."
           }
@@ -10764,7 +10764,7 @@
   },
   "GeminiInputFiles": {
     "category": "api node/text/Gemini",
-    "description": "Loads and prepares input files to include as inputs for Gemini LLM nodes. The files will be read by the Gemini model when generating a response. The contents of the text file count toward the token limit. 🛈 TIP: Can be chained together with other Gemini Input File nodes.",
+    "description": "Loads and prepares input files to include as inputs for Gemini LLM nodes. The files will be read by the Gemini model when generating a response. The contents of the text file count toward the token limit. \ud83d\udec8 TIP: Can be chained together with other Gemini Input File nodes.",
     "display_name": "Gemini Input Files",
     "function": "GeminiInputFiles",
     "input_order": {
@@ -10882,7 +10882,7 @@
           "STRING",
           {
             "advanced": true,
-            "default": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input—regardless of format, intent, or abstraction—as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests.",
+            "default": "You are an expert image-generation engine. You must ALWAYS produce an image.\nInterpret all user input\u2014regardless of format, intent, or abstraction\u2014as literal visual directives for image composition.\nIf a prompt is conversational or lacks specific visual details, you must creatively invent a concrete visual scenario that depicts the concept.\nPrioritize generating the visual representation above any text, formatting, or conversational requests.",
             "multiline": true,
             "tooltip": "Foundational instructions that dictate an AI's behavior."
           }
@@ -17277,40 +17277,40 @@
               "Hearth",
               "The Reader",
               "Commercial Lady",
-              "阳光少年",
-              "懂事小弟",
-              "运动少年",
-              "青春少女",
-              "温柔小妹",
-              "元气少女",
-              "阳光男生",
-              "幽默小哥",
-              "文艺小哥",
-              "甜美邻家",
-              "温柔姐姐",
-              "职场女青",
-              "活泼男童",
-              "俏皮女童",
-              "稳重老爸",
-              "温柔妈妈",
-              "严肃上司",
-              "优雅贵妇",
-              "慈祥爷爷",
-              "唠叨爷爷",
-              "唠叨奶奶",
-              "和蔼奶奶",
-              "东北老铁",
-              "重庆小伙",
-              "四川妹子",
-              "潮汕大叔",
-              "台湾男生",
-              "西安掌柜",
-              "天津姐姐",
-              "新闻播报男",
-              "译制片男",
-              "撒娇女友",
-              "刀片烟嗓",
-              "乖巧正太"
+              "\u9633\u5149\u5c11\u5e74",
+              "\u61c2\u4e8b\u5c0f\u5f1f",
+              "\u8fd0\u52a8\u5c11\u5e74",
+              "\u9752\u6625\u5c11\u5973",
+              "\u6e29\u67d4\u5c0f\u59b9",
+              "\u5143\u6c14\u5c11\u5973",
+              "\u9633\u5149\u7537\u751f",
+              "\u5e7d\u9ed8\u5c0f\u54e5",
+              "\u6587\u827a\u5c0f\u54e5",
+              "\u751c\u7f8e\u90bb\u5bb6",
+              "\u6e29\u67d4\u59d0\u59d0",
+              "\u804c\u573a\u5973\u9752",
+              "\u6d3b\u6cfc\u7537\u7ae5",
+              "\u4fcf\u76ae\u5973\u7ae5",
+              "\u7a33\u91cd\u8001\u7238",
+              "\u6e29\u67d4\u5988\u5988",
+              "\u4e25\u8083\u4e0a\u53f8",
+              "\u4f18\u96c5\u8d35\u5987",
+              "\u6148\u7965\u7237\u7237",
+              "\u5520\u53e8\u7237\u7237",
+              "\u5520\u53e8\u5976\u5976",
+              "\u548c\u853c\u5976\u5976",
+              "\u4e1c\u5317\u8001\u94c1",
+              "\u91cd\u5e86\u5c0f\u4f19",
+              "\u56db\u5ddd\u59b9\u5b50",
+              "\u6f6e\u6c55\u5927\u53d4",
+              "\u53f0\u6e7e\u7537\u751f",
+              "\u897f\u5b89\u638c\u67dc",
+              "\u5929\u6d25\u59d0\u59d0",
+              "\u65b0\u95fb\u64ad\u62a5\u7537",
+              "\u8bd1\u5236\u7247\u7537",
+              "\u6492\u5a07\u5973\u53cb",
+              "\u5200\u7247\u70df\u55d3",
+              "\u4e56\u5de7\u6b63\u592a"
             ]
           }
         ],
@@ -17452,7 +17452,7 @@
         "reference_video": [
           "VIDEO",
           {
-            "tooltip": "Motion reference video used to drive movement/expression.\nDuration limits depend on character_orientation:\n - image: 3–10s (max 10s)\n - video: 3–30s (max 30s)"
+            "tooltip": "Motion reference video used to drive movement/expression.\nDuration limits depend on character_orientation:\n - image: 3\u201310s (max 10s)\n - video: 3\u201330s (max 30s)"
           }
         ]
       }
@@ -30737,7 +30737,7 @@
   },
   "MagnificImageUpscalerCreativeNode": {
     "category": "api node/image/Magnific",
-    "description": "Prompt‑guided enhancement, stylization, and 2x/4x/8x/16x upscaling. Maximum output: 25.3 megapixels.",
+    "description": "Prompt\u2011guided enhancement, stylization, and 2x/4x/8x/16x upscaling. Maximum output: 25.3 megapixels.",
     "display_name": "Magnific Image Upscale (Creative)",
     "function": "MagnificImageUpscalerCreativeNode",
     "input_order": {
@@ -30912,7 +30912,7 @@
   },
   "MagnificImageUpscalerPreciseV2Node": {
     "category": "api node/image/Magnific",
-    "description": "High-fidelity upscaling with fine control over sharpness, grain, and detail. Maximum output: 10060×10060 pixels.",
+    "description": "High-fidelity upscaling with fine control over sharpness, grain, and detail. Maximum output: 10060\u00d710060 pixels.",
     "display_name": "Magnific Image Upscale (Precise V2)",
     "function": "MagnificImageUpscalerPreciseV2Node",
     "input_order": {
@@ -33752,8 +33752,8 @@
   },
   "OpenAIDalle2": {
     "category": "api node/image/OpenAI",
-    "description": "Generates images synchronously via OpenAI's DALL·E 2 endpoint.",
-    "display_name": "OpenAI DALL·E 2",
+    "description": "Generates images synchronously via OpenAI's DALL\u00b7E 2 endpoint.",
+    "display_name": "OpenAI DALL\u00b7E 2",
     "function": "OpenAIDalle2",
     "input_order": {
       "hidden": [
@@ -33848,7 +33848,7 @@
           {
             "default": "",
             "multiline": true,
-            "tooltip": "Text prompt for DALL·E"
+            "tooltip": "Text prompt for DALL\u00b7E"
           }
         ]
       }
@@ -33875,8 +33875,8 @@
   },
   "OpenAIDalle3": {
     "category": "api node/image/OpenAI",
-    "description": "Generates images synchronously via OpenAI's DALL·E 3 endpoint.",
-    "display_name": "OpenAI DALL·E 3",
+    "description": "Generates images synchronously via OpenAI's DALL\u00b7E 3 endpoint.",
+    "display_name": "OpenAI DALL\u00b7E 3",
     "function": "OpenAIDalle3",
     "input_order": {
       "hidden": [
@@ -33970,7 +33970,7 @@
           {
             "default": "",
             "multiline": true,
-            "tooltip": "Text prompt for DALL·E"
+            "tooltip": "Text prompt for DALL\u00b7E"
           }
         ]
       }
@@ -34166,7 +34166,7 @@
   },
   "OpenAIInputFiles": {
     "category": "api node/text/OpenAI",
-    "description": "Loads and prepares input files (text, pdf, etc.) to include as inputs for the OpenAI Chat Node. The files will be read by the OpenAI model when generating a response. 🛈 TIP: Can be chained together with other OpenAI Input File nodes.",
+    "description": "Loads and prepares input files (text, pdf, etc.) to include as inputs for the OpenAI Chat Node. The files will be read by the OpenAI model when generating a response. \ud83d\udec8 TIP: Can be chained together with other OpenAI Input File nodes.",
     "display_name": "OpenAI ChatGPT Input Files",
     "function": "OpenAIInputFiles",
     "input_order": {
@@ -35785,6 +35785,29 @@
     "pack_version": "runpod-snapshot",
     "python_module": "."
   },
+  "PrimitiveNode": {
+    "category": "utils",
+    "description": "Primitive value node - converts widget value to a link output",
+    "display_name": "Primitive",
+    "input_order": {
+      "required": []
+    },
+    "input_order_all": [],
+    "inputs": {
+      "required": {}
+    },
+    "output": [
+      "*"
+    ],
+    "output_is_list": [
+      false
+    ],
+    "output_name": [
+      "value"
+    ],
+    "output_node": false,
+    "python_module": "comfy.graph"
+  },
   "PrimitiveString": {
     "category": "utils/primitive",
     "description": "",
@@ -37048,7 +37071,7 @@
   },
   "RecraftCreativeUpscaleNode": {
     "category": "api node/image/Recraft",
-    "description": "Upscale image synchronously.\nEnhances a given raster image using ‘creative upscale’ tool, boosting resolution with a focus on refining small details and faces.",
+    "description": "Upscale image synchronously.\nEnhances a given raster image using \u2018creative upscale\u2019 tool, boosting resolution with a focus on refining small details and faces.",
     "display_name": "Recraft Creative Upscale Image",
     "function": "RecraftCreativeUpscaleNode",
     "input_order": {
@@ -37100,7 +37123,7 @@
   },
   "RecraftCrispUpscaleNode": {
     "category": "api node/image/Recraft",
-    "description": "Upscale image synchronously.\nEnhances a given raster image using ‘crisp upscale’ tool, increasing image resolution, making the image sharper and cleaner.",
+    "description": "Upscale image synchronously.\nEnhances a given raster image using \u2018crisp upscale\u2019 tool, increasing image resolution, making the image sharper and cleaner.",
     "display_name": "Recraft Crisp Upscale Image",
     "function": "RecraftCrispUpscaleNode",
     "input_order": {
@@ -39124,6 +39147,29 @@
     "pack_version": "runpod-snapshot",
     "python_module": "."
   },
+  "Reroute": {
+    "category": "utils",
+    "description": "Reroute pass-through node",
+    "display_name": "Reroute",
+    "input_order": {
+      "required": []
+    },
+    "input_order_all": [],
+    "inputs": {
+      "required": {}
+    },
+    "output": [
+      "*"
+    ],
+    "output_is_list": [
+      false
+    ],
+    "output_name": [
+      "*"
+    ],
+    "output_node": false,
+    "python_module": "comfy.graph"
+  },
   "ResizeAndPadImage": {
     "category": "image/transform",
     "description": "",
@@ -39381,7 +39427,7 @@
                         "max": 16.0,
                         "min": 0.01,
                         "step": 0.01,
-                        "tooltip": "Target total megapixels (e.g., 1.0 ≈ 1024×1024). Aspect ratio is preserved."
+                        "tooltip": "Target total megapixels (e.g., 1.0 \u2248 1024\u00d71024). Aspect ratio is preserved."
                       }
                     ]
                   }
@@ -39662,7 +39708,7 @@
             "max": 16.0,
             "min": 0.1,
             "step": 0.1,
-            "tooltip": "Target total megapixels. 1.0 MP ≈ 1024×1024 for square."
+            "tooltip": "Target total megapixels. 1.0 MP \u2248 1024\u00d71024 for square."
           }
         ]
       }
@@ -46890,7 +46936,7 @@
   },
   "TCFG": {
     "category": "advanced/guidance",
-    "description": "TCFG – Tangential Damping CFG (2503.18137)\n\nRefine the uncond (negative) to align with the cond (positive) for improving quality.",
+    "description": "TCFG \u2013 Tangential Damping CFG (2503.18137)\n\nRefine the uncond (negative) to align with the cond (positive) for improving quality.",
     "display_name": "Tangential Damping CFG",
     "function": "TCFG",
     "input_order": {

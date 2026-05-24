@@ -1,0 +1,84 @@
+{
+  "DownloadAndLoadGIMMVFIModel": {
+    "category": "video",
+    "description": "Download and load GIMM-VFI model",
+    "display_name": "Download And Load GIMM-VFI Model",
+    "input_order": {
+      "required": [
+        "model"
+      ]
+    },
+    "input_order_all": [
+      "model"
+    ],
+    "inputs": {
+      "required": {
+        "model": [
+          [
+            "GIMMVFI_flow_S.pkl",
+            "GIMMVFI_flow_M.pkl",
+            "GIMMVFI_noflow_S.pkl",
+            "GIMMVFI_noflow_M.pkl"
+          ]
+        ]
+      }
+    },
+    "output": [
+      "GIMMVFI"
+    ],
+    "output_name": [
+      "model"
+    ],
+    "output_node": false
+  },
+  "GIMMVFI_interpolate": {
+    "category": "video",
+    "description": "Interpolate frames with GIMM-VFI",
+    "display_name": "GIMM-VFI Interpolate",
+    "input_order": {
+      "required": [
+        "model",
+        "images"
+      ]
+    },
+    "input_order_all": [
+      "model",
+      "images",
+      "multiplier",
+      "scale"
+    ],
+    "inputs": {
+      "required": {
+        "model": [
+          "GIMMVFI"
+        ],
+        "images": [
+          "IMAGE"
+        ]
+      },
+      "optional": {
+        "multiplier": [
+          "INT",
+          {
+            "default": 2,
+            "min": 2,
+            "max": 16
+          }
+        ],
+        "scale": [
+          "FLOAT",
+          {
+            "default": 1.0
+          }
+        ]
+      }
+    },
+    "output": [
+      "IMAGE"
+    ],
+    "output_name": [
+      "images"
+    ],
+    "output_node": false
+  }
+}

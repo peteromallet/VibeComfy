@@ -1,0 +1,82 @@
+{
+  "MelBandRoFormerModelLoader": {
+    "category": "audio",
+    "description": "Load MelBandRoFormer audio separation model",
+    "display_name": "MelBandRoFormer Model Loader",
+    "input_order": {
+      "required": [
+        "model"
+      ]
+    },
+    "input_order_all": [
+      "model"
+    ],
+    "inputs": {
+      "required": {
+        "model": [
+          [
+            "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+            "MelBandRoformer.ckpt"
+          ]
+        ]
+      }
+    },
+    "output": [
+      "MELBAND_ROFORMER_MODEL"
+    ],
+    "output_name": [
+      "model"
+    ],
+    "output_node": false
+  },
+  "MelBandRoFormerSampler": {
+    "category": "audio",
+    "description": "Separate audio using MelBandRoFormer",
+    "display_name": "MelBandRoFormer Sampler",
+    "input_order": {
+      "required": [
+        "audio",
+        "model"
+      ]
+    },
+    "input_order_all": [
+      "audio",
+      "model",
+      "overlap",
+      "chunk_size"
+    ],
+    "inputs": {
+      "required": {
+        "audio": [
+          "AUDIO"
+        ],
+        "model": [
+          "MELBAND_ROFORMER_MODEL"
+        ]
+      },
+      "optional": {
+        "overlap": [
+          "FLOAT",
+          {
+            "default": 0.1
+          }
+        ],
+        "chunk_size": [
+          "INT",
+          {
+            "default": 485100
+          }
+        ]
+      }
+    },
+    "output": [
+      "AUDIO",
+      "AUDIO"
+    ],
+    "output_name": [
+      "audio",
+      "instrumental"
+    ],
+    "output_node": false
+  }
+}

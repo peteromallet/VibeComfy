@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from vibecomfy.blocks.save import image as save_image
-from vibecomfy.blocks.subgraph import opaque, ref
+from vibecomfy.blocks.subgraph import NodeRef, opaque
 from vibecomfy.cli_loader import load_workflow_any
 from vibecomfy.runtime import run_embedded_sync
 
@@ -12,7 +12,7 @@ def build():
     upscaled = opaque(
         workflow,
         class_type="vibecomfy.placeholder.upscale",
-        links={"image": ref(first.node_id)},
+        links={"image": NodeRef(first.node_id)},
         outputs=("image",),
     )
     save_image(workflow, images=upscaled.image, filename_prefix="dual_pass/upscaled")

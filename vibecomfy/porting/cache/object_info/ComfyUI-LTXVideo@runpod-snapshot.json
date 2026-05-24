@@ -2,7 +2,7 @@
   "APGGuider": {
     "category": "lightricks/LTXV",
     "description": "\n    The APG Guider implements Adaptive Projected Guidance (APG).\n    Reference: https://arxiv.org/abs/2410.02416.\n    ",
-    "display_name": "🅛🅣🅧 APG Guider",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 APG Guider",
     "function": "APGGuider",
     "input_order": {
       "required": [
@@ -97,7 +97,7 @@
   "DynamicConditioning": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 Dynamic Conditioning",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Dynamic Conditioning",
     "function": "DynamicConditioning",
     "input_order": {
       "required": [
@@ -153,7 +153,7 @@
   "GemmaAPITextEncode": {
     "category": "api node/text/Lightricks",
     "description": "",
-    "display_name": "🅛🅣🅧 Gemma API Text Encode",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Gemma API Text Encode",
     "function": "GemmaAPITextEncode",
     "input_order": {
       "required": [
@@ -182,6 +182,8 @@
         ],
         "ckpt_name": [
           [
+            "ltx-2.3-22b-dev.safetensors",
+            "ltx-2.3-22b-distilled.safetensors",
             "ltx-2.3-22b-distilled-fp8.safetensors",
             "ltx-2.3-22b-dev-fp8.safetensors",
             "LTX23_audio_vae_bf16.safetensors"
@@ -228,7 +230,7 @@
   "GuiderParameters": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 Guider Parameters",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Guider Parameters",
     "function": "GuiderParameters",
     "input_order": {
       "optional": [
@@ -361,7 +363,7 @@
   "ImageToCPU": {
     "category": "utility",
     "description": "",
-    "display_name": "🅛🅣🅧 Image to CPU",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Image to CPU",
     "function": "ImageToCPU",
     "input_order": {
       "required": [
@@ -396,7 +398,7 @@
   "LTXAddVideoICLoRAGuide": {
     "category": "Lightricks/IC-LoRA",
     "description": "Adds one or more conditioning frames starting at the specified frame index. Supports both single images and multi-frame videos. The latent_downscale_factor resizes input to a fraction of the target size (1 = original, 2 = half, 3 = third, etc.) for IC-LoRA on small grids.",
-    "display_name": "🅛🅣🅧 Add Video IC-LoRA Guide",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Add Video IC-LoRA Guide",
     "function": "LTXAddVideoICLoRAGuide",
     "input_order": {
       "required": [
@@ -560,7 +562,7 @@
   "LTXAddVideoICLoRAGuideAdvanced": {
     "category": "Lightricks/IC-LoRA",
     "description": "Adds IC-LoRA guide conditioning with per-guide attention strength control. Same as LTXAddVideoICLoRAGuide, but allows controlling how strongly this guide influences generation via self-attention, optionally with a spatial mask.",
-    "display_name": "🅛🅣🅧 Add Video IC-LoRA Guide Advanced",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Add Video IC-LoRA Guide Advanced",
     "function": "LTXAddVideoICLoRAGuideAdvanced",
     "input_order": {
       "optional": [
@@ -929,7 +931,7 @@
   "LTXFloatToInt": {
     "category": "math/conversion",
     "description": "",
-    "display_name": "🅛🅣🅧 Float To Int",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Float To Int",
     "function": "LTXFloatToInt",
     "input_order": {
       "required": [
@@ -1149,7 +1151,7 @@
   "LTXICLoRALoaderModelOnly": {
     "category": "Lightricks/IC-LoRA",
     "description": "Loads a LoRA model and extracts the latent_downscale_factor from the safetensors metadata.",
-    "display_name": "🅛🅣🅧 IC-LoRA Loader Model Only",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 IC-LoRA Loader Model Only",
     "function": "LTXICLoRALoaderModelOnly",
     "input_order": {
       "required": [
@@ -1396,7 +1398,7 @@
   "LTXQ8Patch": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXQ8Patch",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXQ8Patch",
     "function": "LTXQ8Patch",
     "input_order": {
       "required": [
@@ -1731,7 +1733,7 @@
   "LTXVAdainLatent": {
     "category": "Lightricks/latents",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Adain Latent",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Adain Latent",
     "function": "LTXVAdainLatent",
     "input_order": {
       "optional": [
@@ -1798,7 +1800,7 @@
   "LTXVAddGuideAdvanced": {
     "category": "conditioning/video_models",
     "description": "Adds a conditioning frame or a video at a specific frame index. This node is used to add a keyframe or a video segment which should appear in the generated video at a specified index. It resizes the image to the correct size and applies preprocessing to it.",
-    "display_name": "🅛🅣🅧 LTXV Add Guide Advanced",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Add Guide Advanced",
     "function": "LTXVAddGuideAdvanced",
     "input_order": {
       "required": [
@@ -1946,7 +1948,7 @@
   "LTXVAddGuideAdvancedAttention": {
     "category": "conditioning/video_models",
     "description": "Adds a conditioning frame/video at a specific frame index with per-guide attention strength control. Same preprocessing as LTXVAddGuideAdvanced, plus attention_strength and optional spatial attention_mask.",
-    "display_name": "🅛🅣🅧 LTXV Add Guide Advanced Attention",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Add Guide Advanced Attention",
     "function": "LTXVAddGuideAdvancedAttention",
     "input_order": {
       "optional": [
@@ -2120,7 +2122,7 @@
   "LTXVAddLatentGuide": {
     "category": "ltxtricks",
     "description": "Adds a keyframe or a video segment at a specific frame index.",
-    "display_name": "🅛🅣🅧 LTXV Add Latent Guide",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Add Latent Guide",
     "function": "LTXVAddLatentGuide",
     "input_order": {
       "required": [
@@ -2213,7 +2215,7 @@
   "LTXVAddLatents": {
     "category": "latent/video",
     "description": "Concatenates two video latents along the frames dimension. latents1 and latents2 must have the same dimensions except for the frames dimension.",
-    "display_name": "🅛🅣🅧 LTXV Add Latents",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Add Latents",
     "function": "LTXVAddLatents",
     "input_order": {
       "required": [
@@ -2254,7 +2256,7 @@
   "LTXVApplySTG": {
     "category": "lightricks/LTXV",
     "description": "Defines the blocks to apply the STG to.",
-    "display_name": "🅛🅣🅧 LTXV Apply STG",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Apply STG",
     "function": "LTXVApplySTG",
     "input_order": {
       "required": [
@@ -2302,7 +2304,7 @@
   "LTXVBaseSampler": {
     "category": "sampling",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Base Sampler",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Base Sampler",
     "function": "LTXVBaseSampler",
     "input_order": {
       "optional": [
@@ -2502,7 +2504,7 @@
   "LTXVDilateLatent": {
     "category": "latent/video",
     "description": "Dilates a latent by a grid size.",
-    "display_name": "🅛🅣🅧 LTXV Dilate Latent",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Dilate Latent",
     "function": "LTXVDilateLatent",
     "input_order": {
       "required": [
@@ -2561,7 +2563,7 @@
   "LTXVDilateVideoMask": {
     "category": "Lightricks/mask_operations",
     "description": "Dilates a video mask spatially and/or temporally using separable max-pooling and thresholds the result.",
-    "display_name": "🅛🅣🅧 LTXV Dilate Video Mask",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Dilate Video Mask",
     "function": "LTXVDilateVideoMask",
     "input_order": {
       "optional": [
@@ -2636,7 +2638,7 @@
   "LTXVDrawTracks": {
     "category": "Lightricks/motion_tracking",
     "description": "GPU-accelerated sparse track renderer. Rasterises circles at high resolution and downscales with bilinear interpolation.",
-    "display_name": "🅛🅣🅧 LTX Draw Sparse Tracks",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTX Draw Sparse Tracks",
     "function": "LTXVDrawTracks",
     "input_order": {
       "required": [
@@ -2701,7 +2703,7 @@
   "LTXVExtendSampler": {
     "category": "sampling",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Extend Sampler",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Extend Sampler",
     "function": "LTXVExtendSampler",
     "input_order": {
       "optional": [
@@ -2881,7 +2883,7 @@
   "LTXVGemmaCLIPModelLoader": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 Gemma 3 Model Loader",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Gemma 3 Model Loader",
     "function": "LTXVGemmaCLIPModelLoader",
     "input_order": {
       "required": [
@@ -2949,7 +2951,7 @@
   "LTXVGemmaEnhancePrompt": {
     "category": "lightricks/LTXV",
     "description": "Enhance text prompts using Gemma 3 VLLM for improved video generation.",
-    "display_name": "🅛🅣🅧 Gemma 3 Prompt Enhancer",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Gemma 3 Prompt Enhancer",
     "function": "LTXVGemmaEnhancePrompt",
     "input_order": {
       "optional": [
@@ -3016,7 +3018,7 @@
         "system_prompt": [
           "STRING",
           {
-            "default": "You are a Creative Assistant. Given a user's raw input prompt describing a scene or concept, expand it into a detailed video generation prompt with specific visuals and integrated audio to guide a text-to-video model.\n\n#### Guidelines\n- Strictly follow all aspects of the user's raw input: include every element requested (style, visuals, motions, actions, camera movement, audio).\n    - If the input is vague, invent concrete details: lighting, textures, materials, scene settings, etc.\n        - For characters: describe gender, clothing, hair, expressions. DO NOT invent unrequested characters.\n- Use active language: present-progressive verbs (\"is walking,\" \"speaking\"). If no action specified, describe natural movements.\n- Maintain chronological flow: use temporal connectors (\"as,\" \"then,\" \"while\").\n- Audio layer: Describe complete soundscape (background audio, ambient sounds, SFX, speech/music when requested). Integrate sounds chronologically alongside actions. Be specific (e.g., \"soft footsteps on tile\"), not vague (e.g., \"ambient sound is present\").\n- Speech (only when requested):\n    - For ANY speech-related input (talking, conversation, singing, etc.), ALWAYS include exact words in quotes with voice characteristics (e.g., \"The man says in an excited voice: 'You won't believe what I just saw!'\").\n    - Specify language if not English and accent if relevant.\n- Style: Include visual style at the beginning: \"Style: <style>, <rest of prompt>.\" Default to cinematic-realistic if unspecified. Omit if unclear.\n- Visual and audio only: NO non-visual/auditory senses (smell, taste, touch).\n- Restrained language: Avoid dramatic/exaggerated terms. Use mild, natural phrasing.\n    - Colors: Use plain terms (\"red dress\"), not intensified (\"vibrant blue,\" \"bright red\").\n    - Lighting: Use neutral descriptions (\"soft overhead light\"), not harsh (\"blinding light\").\n    - Facial features: Use delicate modifiers for subtle features (i.e., \"subtle freckles\").\n\n#### Important notes:\n- Analyze the user's raw input carefully. In cases of FPV or POV, exclude the description of the subject whose POV is requested.\n- Camera motion: DO NOT invent camera motion unless requested by the user.\n- Speech: DO NOT modify user-provided character dialogue unless it's a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Format: DO NOT use phrases like \"The scene opens with...\". Start directly with Style (optional) and chronological scene description.\n- Format: DO NOT start your response with special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- If the user's raw input prompt is highly detailed, chronological and in the requested format: DO NOT make major edits or introduce new elements. Add/enhance audio descriptions if missing.\n\n#### Output Format (Strict):\n- Single continuous paragraph in natural language (English).\n- NO titles, headings, prefaces, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\nYour output quality is CRITICAL. Generate visually rich, dynamic prompts with integrated audio for high-quality video generation.\n\n#### Example\nInput: \"A woman at a coffee shop talking on the phone\"\nOutput:\nStyle: realistic with cinematic lighting. In a medium close-up, a woman in her early 30s with shoulder-length brown hair sits at a small wooden table by the window. She wears a cream-colored turtleneck sweater, holding a white ceramic coffee cup in one hand and a smartphone to her ear with the other. Ambient cafe sounds fill the space—espresso machine hiss, quiet conversations, gentle clinking of cups. The woman listens intently, nodding slightly, then takes a sip of her coffee and sets it down with a soft clink. Her face brightens into a warm smile as she speaks in a clear, friendly voice, 'That sounds perfect! I'd love to meet up this weekend. How about Saturday afternoon?' She laughs softly—a genuine chuckle—and shifts in her chair. Behind her, other patrons move subtly in and out of focus. 'Great, I'll see you then,' she concludes cheerfully, lowering the phone.",
+            "default": "You are a Creative Assistant. Given a user's raw input prompt describing a scene or concept, expand it into a detailed video generation prompt with specific visuals and integrated audio to guide a text-to-video model.\n\n#### Guidelines\n- Strictly follow all aspects of the user's raw input: include every element requested (style, visuals, motions, actions, camera movement, audio).\n    - If the input is vague, invent concrete details: lighting, textures, materials, scene settings, etc.\n        - For characters: describe gender, clothing, hair, expressions. DO NOT invent unrequested characters.\n- Use active language: present-progressive verbs (\"is walking,\" \"speaking\"). If no action specified, describe natural movements.\n- Maintain chronological flow: use temporal connectors (\"as,\" \"then,\" \"while\").\n- Audio layer: Describe complete soundscape (background audio, ambient sounds, SFX, speech/music when requested). Integrate sounds chronologically alongside actions. Be specific (e.g., \"soft footsteps on tile\"), not vague (e.g., \"ambient sound is present\").\n- Speech (only when requested):\n    - For ANY speech-related input (talking, conversation, singing, etc.), ALWAYS include exact words in quotes with voice characteristics (e.g., \"The man says in an excited voice: 'You won't believe what I just saw!'\").\n    - Specify language if not English and accent if relevant.\n- Style: Include visual style at the beginning: \"Style: <style>, <rest of prompt>.\" Default to cinematic-realistic if unspecified. Omit if unclear.\n- Visual and audio only: NO non-visual/auditory senses (smell, taste, touch).\n- Restrained language: Avoid dramatic/exaggerated terms. Use mild, natural phrasing.\n    - Colors: Use plain terms (\"red dress\"), not intensified (\"vibrant blue,\" \"bright red\").\n    - Lighting: Use neutral descriptions (\"soft overhead light\"), not harsh (\"blinding light\").\n    - Facial features: Use delicate modifiers for subtle features (i.e., \"subtle freckles\").\n\n#### Important notes:\n- Analyze the user's raw input carefully. In cases of FPV or POV, exclude the description of the subject whose POV is requested.\n- Camera motion: DO NOT invent camera motion unless requested by the user.\n- Speech: DO NOT modify user-provided character dialogue unless it's a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Format: DO NOT use phrases like \"The scene opens with...\". Start directly with Style (optional) and chronological scene description.\n- Format: DO NOT start your response with special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- If the user's raw input prompt is highly detailed, chronological and in the requested format: DO NOT make major edits or introduce new elements. Add/enhance audio descriptions if missing.\n\n#### Output Format (Strict):\n- Single continuous paragraph in natural language (English).\n- NO titles, headings, prefaces, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\nYour output quality is CRITICAL. Generate visually rich, dynamic prompts with integrated audio for high-quality video generation.\n\n#### Example\nInput: \"A woman at a coffee shop talking on the phone\"\nOutput:\nStyle: realistic with cinematic lighting. In a medium close-up, a woman in her early 30s with shoulder-length brown hair sits at a small wooden table by the window. She wears a cream-colored turtleneck sweater, holding a white ceramic coffee cup in one hand and a smartphone to her ear with the other. Ambient cafe sounds fill the space\u2014espresso machine hiss, quiet conversations, gentle clinking of cups. The woman listens intently, nodding slightly, then takes a sip of her coffee and sets it down with a soft clink. Her face brightens into a warm smile as she speaks in a clear, friendly voice, 'That sounds perfect! I'd love to meet up this weekend. How about Saturday afternoon?' She laughs softly\u2014a genuine chuckle\u2014and shifts in her chair. Behind her, other patrons move subtly in and out of focus. 'Great, I'll see you then,' she concludes cheerfully, lowering the phone.",
             "multiline": true
           }
         ]
@@ -3046,7 +3048,7 @@
   "LTXVHDRDecodePostprocess": {
     "category": "Lightricks/HDR",
     "description": "Decompresses VAE-decoded output from HDR IC-LoRA (LogC3) and applies Reinhard tonemapping. Place after VAE Decode. 'tonemapped' is the SDR preview; 'hdr_linear' is raw linear HDR for downstream use. Enable 'save_exr' to write an EXR image sequence.if save_exr is enabled, make sure to set OPENCV_IO_ENABLE_OPENEXR=1 environment in the command line",
-    "display_name": "🅛🅣🅧 LTXVHDR Decode Postprocess",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXVHDR Decode Postprocess",
     "function": "LTXVHDRDecodePostprocess",
     "input_order": {
       "optional": [
@@ -3143,7 +3145,7 @@
   "LTXVImgToVideoAdvanced": {
     "category": "conditioning/video_models",
     "description": "Adds a conditioning frame or a video at index 0. This node is used to add a keyframe or a video segment which should appear in the generated video at index 0. It resizes the image to the correct size and applies preprocessing to it.",
-    "display_name": "🅛🅣🅧 LTXV Img To Video Advanced",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Img To Video Advanced",
     "function": "LTXVImgToVideoAdvanced",
     "input_order": {
       "required": [
@@ -3319,7 +3321,7 @@
   "LTXVImgToVideoConditionOnly": {
     "category": "conditioning/video_models",
     "description": "Applies image conditioning to the first frames of an existing latent. Creates a noise mask to control conditioning strength.",
-    "display_name": "🅛🅣🅧 LTXV Img To Video Condition Only",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Img To Video Condition Only",
     "function": "LTXVImgToVideoConditionOnly",
     "input_order": {
       "optional": [
@@ -3391,7 +3393,7 @@
   "LTXVInContextSampler": {
     "category": "sampling",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV In Context Sampler",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV In Context Sampler",
     "function": "LTXVInContextSampler",
     "input_order": {
       "optional": [
@@ -3510,7 +3512,7 @@
   "LTXVInpaintPreprocess": {
     "category": "Lightricks/image_processing",
     "description": "Composites images with a green background where mask is active, for inpainting conditioning.",
-    "display_name": "🅛🅣🅧 LTXV Inpaint Preprocess",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Inpaint Preprocess",
     "function": "LTXVInpaintPreprocess",
     "input_order": {
       "required": [
@@ -3557,7 +3559,7 @@
   "LTXVLaplacianPyramidBlend": {
     "category": "Lightricks/utility",
     "description": "Blend two images seamlessly using Laplacian pyramid blending.",
-    "display_name": "🅛🅣🅧 LTX Laplacian Pyramid Blend",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTX Laplacian Pyramid Blend",
     "function": "LTXVLaplacianPyramidBlend",
     "input_order": {
       "required": [
@@ -3635,7 +3637,7 @@
   "LTXVLinearOverlapLatentTransition": {
     "category": "Lightricks/latent",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Linear Overlap Latent Transition",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Linear Overlap Latent Transition",
     "function": "LTXVLinearOverlapLatentTransition",
     "input_order": {
       "optional": [
@@ -3700,7 +3702,7 @@
   "LTXVLoadConditioning": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Load Conditioning",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Load Conditioning",
     "function": "LTXVLoadConditioning",
     "input_order": {
       "required": [
@@ -3754,7 +3756,7 @@
   "LTXVLoopingSampler": {
     "category": "sampling",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Looping Sampler",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Looping Sampler",
     "function": "LTXVLoopingSampler",
     "input_order": {
       "optional": [
@@ -4043,7 +4045,7 @@
   "LTXVMultiPromptProvider": {
     "category": "prompt",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Multi Prompt Provider",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Multi Prompt Provider",
     "function": "LTXVMultiPromptProvider",
     "input_order": {
       "required": [
@@ -4092,7 +4094,7 @@
   "LTXVNormalizingSampler": {
     "category": "utility",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Normalizing Sampler",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Normalizing Sampler",
     "function": "LTXVNormalizingSampler",
     "input_order": {
       "required": [
@@ -4176,7 +4178,7 @@
   "LTXVPatcherVAE": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Patcher VAE",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Patcher VAE",
     "function": "LTXVPatcherVAE",
     "input_order": {
       "required": [
@@ -4211,7 +4213,7 @@
   "LTXVPerStepAdainPatcher": {
     "category": "Lightricks/latents",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Per Step Adain Patcher",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Per Step Adain Patcher",
     "function": "LTXVPerStepAdainPatcher",
     "input_order": {
       "optional": [
@@ -4275,7 +4277,7 @@
   "LTXVPerStepStatNormPatcher": {
     "category": "Lightricks/latents",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Per Step Stat Norm Patcher",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Per Step Stat Norm Patcher",
     "function": "LTXVPerStepStatNormPatcher",
     "input_order": {
       "required": [
@@ -4369,7 +4371,7 @@
   "LTXVPreprocessMasks": {
     "category": "Lightricks/mask_operations",
     "description": "Preprocess masks to be used for masking latents in the LTXVideo model.",
-    "display_name": "🅛🅣🅧 LTXV Preprocess Masks",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Preprocess Masks",
     "function": "LTXVPreprocessMasks",
     "input_order": {
       "required": [
@@ -4493,7 +4495,7 @@
   "LTXVPromptEnhancer": {
     "category": "lightricks/LTXV",
     "description": "Enhances text prompts for image generation using LLMs. Optionally incorporates reference images to create more contextually relevant descriptions.",
-    "display_name": "🅛🅣🅧 LTXV Prompt Enhancer",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Prompt Enhancer",
     "function": "LTXVPromptEnhancer",
     "input_order": {
       "optional": [
@@ -4555,7 +4557,7 @@
   "LTXVPromptEnhancerLoader": {
     "category": "lightricks/LTXV",
     "description": "Downloads and initializes LLM and image captioning models from Hugging Face to enhance text prompts for image generation.",
-    "display_name": "🅛🅣🅧 LTXV Prompt Enhancer Loader",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Prompt Enhancer Loader",
     "function": "LTXVPromptEnhancerLoader",
     "input_order": {
       "required": [
@@ -4608,7 +4610,7 @@
   "LTXVQ8LoraModelLoader": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXVQ8Lora Model Loader",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXVQ8Lora Model Loader",
     "function": "LTXVQ8LoraModelLoader",
     "input_order": {
       "required": [
@@ -4666,7 +4668,7 @@
   "LTXVSaveConditioning": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Save Conditioning",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Save Conditioning",
     "function": "LTXVSaveConditioning",
     "input_order": {
       "hidden": [
@@ -4731,7 +4733,7 @@
   "LTXVSelectLatents": {
     "category": "latent/video",
     "description": "Selects a range of frames from the video latent. start_index and end_index define a closed interval (inclusive of both endpoints).",
-    "display_name": "🅛🅣🅧 LTXV Select Latents",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Select Latents",
     "function": "LTXVSelectLatents",
     "input_order": {
       "required": [
@@ -4790,7 +4792,7 @@
   "LTXVSetAudioRefTokens": {
     "category": "Lightricks/IC-LoRA",
     "description": "Provides speaker identity context for audio generation by attaching reference audio tokens to the conditioning. The tokens are prepended with negative temporal positions so the model treats them as context rather than generation targets.",
-    "display_name": "🅛🅣🅧 Set Audio Ref Tokens",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Set Audio Ref Tokens",
     "function": "LTXVSetAudioRefTokens",
     "input_order": {
       "required": [
@@ -4856,7 +4858,7 @@
   "LTXVSetAudioVideoMaskByTime": {
     "category": "utility",
     "description": "Sets the audio and video mask by time.",
-    "display_name": "🅛🅣🅧 LTXV Set Audio Video Mask By Time",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Set Audio Video Mask By Time",
     "function": "LTXVSetAudioVideoMaskByTime",
     "input_order": {
       "optional": [
@@ -5040,7 +5042,7 @@
   "LTXVSetVideoLatentNoiseMasks": {
     "category": "latent/video",
     "description": "Applies multiple masks to a video latent. masks can be 2D, 3D, or 4D tensors. If there are fewer masks than frames, the last mask will be reused.",
-    "display_name": "🅛🅣🅧 LTXV Set Video Latent Noise Masks",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Set Video Latent Noise Masks",
     "function": "LTXVSetVideoLatentNoiseMasks",
     "input_order": {
       "required": [
@@ -5081,7 +5083,7 @@
   "LTXVSparseTrackEditor": {
     "category": "Lightricks/motion_tracking",
     "description": "Interactive spline editor for drawing sparse motion tracks on a reference image.",
-    "display_name": "🅛🅣🅧 LTX Sparse Track Editor",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTX Sparse Track Editor",
     "function": "LTXVSparseTrackEditor",
     "input_order": {
       "hidden": [
@@ -5165,7 +5167,7 @@
   "LTXVSpatioTemporalTiledVAEDecode": {
     "category": "latent",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Spatio Temporal Tiled VAE Decode",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Spatio Temporal Tiled VAE Decode",
     "function": "LTXVSpatioTemporalTiledVAEDecode",
     "input_order": {
       "required": [
@@ -5297,7 +5299,7 @@
   "LTXVStatNormLatent": {
     "category": "Lightricks/latents",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Stat Norm Latent",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Stat Norm Latent",
     "function": "LTXVStatNormLatent",
     "input_order": {
       "required": [
@@ -5394,7 +5396,7 @@
   "LTXVTiledSampler": {
     "category": "sampling",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Tiled Sampler",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Tiled Sampler",
     "function": "LTXVTiledSampler",
     "input_order": {
       "optional": [
@@ -5564,7 +5566,7 @@
   "LTXVTiledVAEDecode": {
     "category": "latent",
     "description": "",
-    "display_name": "🅛🅣🅧 LTXV Tiled VAE Decode",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 LTXV Tiled VAE Decode",
     "function": "LTXVTiledVAEDecode",
     "input_order": {
       "optional": [
@@ -5676,7 +5678,7 @@
   "LinearOverlapLatentTransition": {
     "category": "Lightricks/latent",
     "description": "",
-    "display_name": "🅛🅣🅧 Linear transition with overlap",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Linear transition with overlap",
     "function": "LinearOverlapLatentTransition",
     "input_order": {
       "optional": [
@@ -5741,7 +5743,7 @@
   "LowVRAMAudioVAELoader": {
     "category": "LTXV/loaders",
     "description": "Loads an LTXV Audio VAE checkpoint with dependency support. Connect 'dependencies' to a previous loader's output to ensure sequential loading and reduce peak VRAM usage.",
-    "display_name": "🅛🅣🅧 Low VRAM Audio VAE Loader",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Low VRAM Audio VAE Loader",
     "function": "LowVRAMAudioVAELoader",
     "input_order": {
       "optional": [
@@ -5796,7 +5798,7 @@
   "LowVRAMCheckpointLoader": {
     "category": "LTXV/loaders",
     "description": "Loads a diffusion model checkpoint with dependency support. Connect 'dependencies' to a previous loader's output to ensure sequential loading and reduce peak VRAM usage.",
-    "display_name": "🅛🅣🅧 Low VRAM Checkpoint Loader",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Low VRAM Checkpoint Loader",
     "function": "LowVRAMCheckpointLoader",
     "input_order": {
       "optional": [
@@ -5920,7 +5922,7 @@
   "LowVRAMLatentUpscaleModelLoader": {
     "category": "loaders",
     "description": "",
-    "display_name": "🅛🅣🅧 Low VRAM Latent Upscale Model Loader",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Low VRAM Latent Upscale Model Loader",
     "function": "LowVRAMLatentUpscaleModelLoader",
     "input_order": {
       "required": [
@@ -5997,7 +5999,7 @@
   "MultiPromptProvider": {
     "category": "prompt",
     "description": "",
-    "display_name": "🅛🅣🅧 Multi Prompt Provider",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Multi Prompt Provider",
     "function": "MultiPromptProvider",
     "input_order": {
       "required": [
@@ -6046,7 +6048,7 @@
   "MultimodalGuider": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 Multimodal Guider",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Multimodal Guider",
     "function": "MultimodalGuider",
     "input_order": {
       "required": [
@@ -6109,7 +6111,7 @@
   "STGAdvancedPresets": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 STG Advanced Presets",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 STG Advanced Presets",
     "function": "STGAdvancedPresets",
     "input_order": {
       "required": [
@@ -6155,7 +6157,7 @@
   "STGGuider": {
     "category": "lightricks/LTXV",
     "description": "Implements Spatiotemporal Skip Guidance (STG), a training-free method enhancing transformer-based video diffusion models by selectively skipping layers during sampling. This approach improves video quality without sacrificing diversity or motion fidelity.Reference: https://arxiv.org/abs/2411.18664.",
-    "display_name": "🅛🅣🅧 STG Guider",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 STG Guider",
     "function": "STGGuider",
     "input_order": {
       "required": [
@@ -6238,8 +6240,8 @@
   },
   "STGGuiderAdvanced": {
     "category": "lightricks/LTXV",
-    "description": "\n    The Advanced STG Guider implements sophisticated techniques for controlling the denoising process:\n\n    It creates a dynamic mapping from scheduler-defined sigma values to CFG and STG (Spatio-Temporal Skip Guidance [1]) parameters.\n    This approach establishes distinct sigma value ranges that operate independently of step numbers, allowing precise control over:\n    • CFG scale\n    • STG scale and rescale factors\n    • STG attention layer skipping patterns\n\n    The guider also supports:\n    • CFG-Zero* [2] rescaling, which dynamically adjusts negative predictions based on the dot product between positive and negative signals\n    • Threshold-based noise prediction zeroing for steps with sigma values exceeding a specified threshold\n\n    For example if the sigma ranges are defined as [1.0, 0.9, 0.85, 0.6] and the CFG values are defined as [4, 3, 2, 1] and STG scale values\n    are defined as [2, 2, 2, 1] and STG rescale values are defined as [1, 1, 1, 1] and STG layers indices are defined as [[14, 17], [14, 16], [14], [14]], then the guider will:\n    - use CFG=4, STG scale=2, STG rescale=1 and STG layers indices = [14, 17] for sigma in the range (0.9, 1.0]\n    - use CFG=3, STG scale=2, STG rescale=1 and STG layers indices = [14, 16] for sigma in the range (0.85, 0.9]\n    - use CFG=2, STG scale=2, STG rescale=1 and STG layers indices = [14] for sigma in the range (0.8, 0.85]\n    - use CFG=1, STG scale=1, STG rescale=1 and STG layers indices = [14] for sigma in the range (0.6, 0.8]\n\n    The guider will use the same parameters for the same sigma values, regardless of the step number.\n\n    References:\n    [1] https://arxiv.org/abs/2411.18664\n    [2] https://arxiv.org/abs/2503.18886\n\n    ",
-    "display_name": "🅛🅣🅧 STG Guider Advanced",
+    "description": "\n    The Advanced STG Guider implements sophisticated techniques for controlling the denoising process:\n\n    It creates a dynamic mapping from scheduler-defined sigma values to CFG and STG (Spatio-Temporal Skip Guidance [1]) parameters.\n    This approach establishes distinct sigma value ranges that operate independently of step numbers, allowing precise control over:\n    \u2022 CFG scale\n    \u2022 STG scale and rescale factors\n    \u2022 STG attention layer skipping patterns\n\n    The guider also supports:\n    \u2022 CFG-Zero* [2] rescaling, which dynamically adjusts negative predictions based on the dot product between positive and negative signals\n    \u2022 Threshold-based noise prediction zeroing for steps with sigma values exceeding a specified threshold\n\n    For example if the sigma ranges are defined as [1.0, 0.9, 0.85, 0.6] and the CFG values are defined as [4, 3, 2, 1] and STG scale values\n    are defined as [2, 2, 2, 1] and STG rescale values are defined as [1, 1, 1, 1] and STG layers indices are defined as [[14, 17], [14, 16], [14], [14]], then the guider will:\n    - use CFG=4, STG scale=2, STG rescale=1 and STG layers indices = [14, 17] for sigma in the range (0.9, 1.0]\n    - use CFG=3, STG scale=2, STG rescale=1 and STG layers indices = [14, 16] for sigma in the range (0.85, 0.9]\n    - use CFG=2, STG scale=2, STG rescale=1 and STG layers indices = [14] for sigma in the range (0.8, 0.85]\n    - use CFG=1, STG scale=1, STG rescale=1 and STG layers indices = [14] for sigma in the range (0.6, 0.8]\n\n    The guider will use the same parameters for the same sigma values, regardless of the step number.\n\n    References:\n    [1] https://arxiv.org/abs/2411.18664\n    [2] https://arxiv.org/abs/2503.18886\n\n    ",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 STG Guider Advanced",
     "function": "STGGuiderAdvanced",
     "input_order": {
       "optional": [
@@ -6418,7 +6420,7 @@
   "STGGuiderNode": {
     "category": "lightricks/LTXV",
     "description": "Implements Spatiotemporal Skip Guidance (STG), a training-free method enhancing transformer-based video diffusion models by selectively skipping layers during sampling. This approach improves video quality without sacrificing diversity or motion fidelity.Reference: https://arxiv.org/abs/2411.18664.",
-    "display_name": "🅛🅣🅧 STG Guider Node",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 STG Guider Node",
     "function": "STGGuiderNode",
     "input_order": {
       "required": [
@@ -6502,7 +6504,7 @@
   "Set VAE Decoder Noise": {
     "category": "lightricks/LTXV",
     "description": "",
-    "display_name": "🅛🅣🅧 Set VAE Decoder Noise",
+    "display_name": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Set VAE Decoder Noise",
     "function": "Set VAE Decoder Noise",
     "input_order": {
       "required": [

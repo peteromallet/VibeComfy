@@ -30,6 +30,7 @@ READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED = "generated_template_not_f
 READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG = "generated_variable_name_too_long"
 READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND = "subgraph_input_unbound"
 READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS = "schema_unknown_kwarg_hidden_by_extras"
+READABILITY_WARNING_OPAQUE_COMPONENT_RAW_CALL = "opaque_component_raw_call"
 
 READABILITY_WARNING_CODES: frozenset[str] = frozenset(
     {
@@ -43,10 +44,17 @@ READABILITY_WARNING_CODES: frozenset[str] = frozenset(
         READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
         READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND,
         READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
+        READABILITY_WARNING_OPAQUE_COMPONENT_RAW_CALL,
     }
 )
 
 EmissionSeverity = Literal["error", "warning", "info"]
+
+# Regex for opaque UUID-class components (Family I policy: materialize-as-inline,
+# fallback to raw_call + strict_ready exception if no subgraph definition).
+_OPAQUE_COMPONENT_CLASS_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 @dataclass(slots=True)
@@ -1325,6 +1333,10 @@ def _all_nodes_for_imports(workflow_nodes: dict[str, Any], subgraphs: dict[str, 
     return nodes
 
 
+# Slugs that would shadow build() or other top-level names in the emitted template.
+_SUBGRAPH_RESERVED_SLUGS: frozenset[str] = frozenset({"build"})
+
+
 def slugify_subgraph_name(name: str, fallback_uuid: str) -> str:
     if not name:
         return f"subgraph_{fallback_uuid[:8].lower()}"
@@ -1336,6 +1348,8 @@ def slugify_subgraph_name(name: str, fallback_uuid: str) -> str:
         slug = f"subgraph_{slug}" if slug else f"subgraph_{fallback_uuid[:8].lower()}"
     if keyword.iskeyword(slug):
         slug = f"{slug}_"
+    if slug in _SUBGRAPH_RESERVED_SLUGS:
+        slug = f"_subgraph_{slug}"
     return slug
 
 
@@ -1530,7 +1544,16 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
                 edges_in.setdefault(str(node_id), []).append(edge)
 
     return_refs: list[tuple[str, int]] = []
-    links = [link for link in raw.get("links") or () if isinstance(link, Mapping)]
+    # Family D fix: normalize raw links to Mapping form regardless of whether they
+    # are stored as dicts or as ComfyUI array format [id, origin_id, origin_slot, target_id, target_slot, type].
+    def _normalize_raw_link(link: Any) -> "Mapping[str, Any] | None":
+        if isinstance(link, Mapping):
+            return link
+        if isinstance(link, (list, tuple)) and len(link) >= 5:
+            return {"id": link[0], "origin_id": link[1], "origin_slot": link[2], "target_id": link[3], "target_slot": link[4]}
+        return None
+
+    links = [m for link in (raw.get("links") or ()) for m in [_normalize_raw_link(link)] if m is not None]
     for index, _output in enumerate(outputs):
         target = next((link for link in links if str(link.get("target_id")) == "-20" and int(link.get("target_slot", -1)) == index), None)
         if target is not None:
@@ -1664,7 +1687,13 @@ def _apply_subgraph_names_to_prepared(prepared: dict[str, Any]) -> None:
             output_var_names[str(node_id)] = slot_vars
             var_names[str(node_id)] = _unique_var(subgraph.slug, used)
         else:
-            var_names[str(node_id)] = _unique_var(_subgraph_result_base(subgraph.slug), used)
+            result_base = _subgraph_result_base(subgraph.slug)
+            # Avoid Python UnboundLocalError: if result var would have the same name as
+            # the subgraph function (slug), assignment `x = x(...)` in build() marks x as
+            # local before the RHS call, crashing at runtime.
+            if result_base == subgraph.slug:
+                result_base = f"{subgraph.slug}_result"
+            var_names[str(node_id)] = _unique_var(result_base, used)
 
 
 def _subgraph_result_base(slug: str) -> str:
@@ -1863,6 +1892,12 @@ def _emit_build_function(
     for nids in section_groups.values():
         section_nids.update(nids)
 
+    # Pre-emission resolver: remove SetNode/GetNode/Reroute helpers and rewrite their consumer
+    # edges before topo_order is built so resolved helper nodes never reach the topo loop.
+    # FALLBACK_CLASS_TYPES stays intact as a raw_call safety net for unresolved instances.
+    if use_shared_helpers:
+        _resolve_helper_nodes_for_emission(workflow_nodes, edges_in)
+
     # Build ordered list of (section_name, nid) for topological-sorted nodes
     topo_order = _topological_node_order(workflow_nodes, edges_in)
     section_order_map: dict[str, str] = {}  # nid -> section_name
@@ -2045,6 +2080,36 @@ def _emit_build_function(
                     )
                 )
 
+            # -- readability diagnostic: opaque component raw_call ----------
+            # Family I policy (SD1): opaque UUID-class components are
+            # materialized as inline Python functions when a subgraph
+            # definition is available; otherwise they fall back to raw_call
+            # and must be documented as strict-ready exceptions.
+            if (
+                diagnostics is not None
+                and not use_wrapper
+                and _OPAQUE_COMPONENT_CLASS_RE.match(str(node.class_type))
+            ):
+                diagnostics.append(
+                    EmissionDiagnostic(
+                        code=READABILITY_WARNING_OPAQUE_COMPONENT_RAW_CALL,
+                        message=(
+                            f"Node {nid} with opaque UUID component class "
+                            f"{node.class_type!r} emitted as raw_call; no "
+                            f"subgraph definition or typed wrapper available. "
+                            f"This component cannot be materialized as an "
+                            f"inline Python function."
+                        ),
+                        severity="warning",
+                        node_id=str(nid),
+                        class_type=node.class_type,
+                        detail={
+                            "category": "opaque_component",
+                            "resolution": "raw_call_fallback",
+                        },
+                    )
+                )
+
             prefer_single_line_raw_call = not use_wrapper and len(all_args) <= 2 and len(single_line) <= 120
             if not prefer_single_line_raw_call and (len(all_args) > 3 or len(single_line) > 88):
                 # v2.6.4 Fix 8 (refines Fix 2): multi-line statements are
@@ -2109,7 +2174,7 @@ def _emit_build_function(
                         elif resolved_field in node.widgets:
                             descriptor_kwargs.append(f"default={_format_value(node.widgets[resolved_field])}")
                     suffix = ", " + ", ".join(descriptor_kwargs) if descriptor_kwargs else ""
-                    out_lines.append(f"{body_indent}bind_input(wf, {input_name!r}, {_node_binding_expr(old_id, var_names)}, {resolved_field!r}{suffix})")
+                    out_lines.append(f"{body_indent}bind_input(wf, {input_name!r}, {_node_binding_expr(old_id, var_names, output_var_names)}, {resolved_field!r}{suffix})")
             # -- _FILENAME_KWARGS public inputs for ready templates --
             # Model-name fields (unet_name, vae_name, etc.) cannot use public()
             # wrapping because coerce_node_kwargs rejects PublicSentinel on those
@@ -2136,10 +2201,12 @@ def _emit_build_function(
                 if filename_specs:
                     out_lines.append("")
                     for name, nid, field, default_expr in filename_specs:
-                        var = var_names.get(nid)
-                        node_binding = var if var is not None else repr(nid)
+                        # Family A fix: use the variable binding expr so the emitted code
+                        # references the actual built node (e.g. unetloader.node.id), not the
+                        # raw source JSON id which may not exist in the built workflow.
+                        node_id_expr = _node_binding_expr(nid, var_names, output_var_names)
                         out_lines.append(
-                            f"{body_indent}wf.register_input({name!r}, {nid!r}, {field!r}, {default_expr})"
+                            f"{body_indent}wf.register_input({name!r}, {node_id_expr}, {field!r}, {default_expr})"
                         )
             tail_lines = _with_id_map_tail_line(tail_lines, var_names)
             out_lines.extend("    " + line if line else line for line in tail_lines)
@@ -2171,7 +2238,7 @@ def _emit_build_function(
                     descriptor_kwargs.append(f"default={_format_value(node.widgets[resolved_field])}")
             if use_shared_helpers:
                 suffix = ", " + ", ".join(descriptor_kwargs) if descriptor_kwargs else ""
-                out_lines.append(f"    bind_input(wf, {input_name!r}, {_node_binding_expr(old_id, var_names)}, {resolved_field!r}{suffix})")
+                out_lines.append(f"    bind_input(wf, {input_name!r}, {_node_binding_expr(old_id, var_names, output_var_names)}, {resolved_field!r}{suffix})")
             else:
                 suffix = ", " + ", ".join(descriptor_kwargs) if descriptor_kwargs else ""
                 out_lines.append(
@@ -2333,6 +2400,103 @@ def _subgraph_docstring(subgraph: _SubgraphDef) -> list[str]:
     return lines
 
 
+def _resolve_helper_nodes_for_emission(
+    workflow_nodes: dict[str, Any],
+    edges_in: dict[str, list[Any]],
+) -> None:
+    """Pre-emission resolver: rewrite GetNode consumer edges to their broadcast source and
+    remove SetNode/GetNode/resolved-Reroute before topo_order is built.
+
+    SetNode/GetNode/Reroute remain in FALLBACK_CLASS_TYPES as a raw_call safety net for
+    unresolved instances the resolver cannot reach. This pass is distinct from the
+    compile-time broadcast resolution in workflow.py (SD3); both call collect_broadcast_sources
+    but operate on different representations and must stay separate.
+    """
+    from vibecomfy.porting.helpers import (
+        RESOLVER_HELPER_CLASS_TYPES,
+        broadcast_name as _broadcast_name,
+        collect_broadcast_sources,
+    )
+    from vibecomfy.workflow import VibeEdge as _Edge
+
+    flat_edges = [edge for edges in edges_in.values() for edge in edges]
+
+    # --- SetNode/GetNode broadcast resolution ---
+    broadcast_sources = collect_broadcast_sources(workflow_nodes, flat_edges)
+    resolved_getnode_sources: dict[str, tuple[str, str]] = {}  # getnode_id -> (src_node, src_slot)
+    removed_ids: set[str] = set()
+
+    # Build SetNode → input-source map before marking for removal.
+    # SetNode is a passthrough: other nodes may connect directly to SetNode's OUTPUT
+    # (not only via GetNode broadcast), so we redirect those direct output edges too.
+    resolved_setnode_output_sources: dict[str, tuple[str, str]] = {}
+    for node_id, node in workflow_nodes.items():
+        if str(getattr(node, "class_type", "")) != "SetNode":
+            continue
+        name = _broadcast_name(node)
+        if name is not None and name in broadcast_sources:
+            source = broadcast_sources[name]
+            resolved_setnode_output_sources[node_id] = (str(source[0]), str(source[1]))
+
+    for node_id, node in list(workflow_nodes.items()):
+        cls = str(getattr(node, "class_type", ""))
+        if cls == "SetNode":
+            removed_ids.add(node_id)
+        elif cls == "GetNode":
+            name = _broadcast_name(node)
+            if name is not None and name in broadcast_sources:
+                source = broadcast_sources[name]
+                resolved_getnode_sources[node_id] = (str(source[0]), str(source[1]))
+                removed_ids.add(node_id)
+
+    # Rewrite consumer edges: edges from a resolved GetNode or from a SetNode's direct
+    # output both redirect to the broadcast source (SetNode's input).
+    _all_setnode_rewrites = {**resolved_setnode_output_sources}
+    if _all_setnode_rewrites or resolved_getnode_sources:
+        for consumer_id in list(edges_in.keys()):
+            new_edges = []
+            for edge in edges_in[consumer_id]:
+                from_node = str(edge.from_node)
+                if from_node in resolved_getnode_sources:
+                    src_node, src_slot = resolved_getnode_sources[from_node]
+                    new_edges.append(_Edge(src_node, src_slot, edge.to_node, edge.to_input))
+                elif from_node in _all_setnode_rewrites:
+                    src_node, src_slot = _all_setnode_rewrites[from_node]
+                    new_edges.append(_Edge(src_node, src_slot, edge.to_node, edge.to_input))
+                else:
+                    new_edges.append(edge)
+            edges_in[consumer_id] = new_edges
+
+    # --- Reroute resolution (additive; governed by RESOLVER_HELPER_CLASS_TYPES) ---
+    # New set intentionally separate from BROADCAST_HELPER_CLASS_TYPES so consumers of
+    # HELPER_CLASS_TYPES / is_broadcast_helper remain byte-identical (SD3).
+    resolved_reroute_sources: dict[str, tuple[str, str]] = {}  # reroute_id -> (src_node, src_slot)
+    for node_id, node in list(workflow_nodes.items()):
+        if str(getattr(node, "class_type", "")) not in RESOLVER_HELPER_CLASS_TYPES:
+            continue
+        for edge in edges_in.get(node_id, []):
+            resolved_reroute_sources[node_id] = (str(edge.from_node), str(edge.from_output))
+            break  # Reroute has exactly one input
+
+    if resolved_reroute_sources:
+        for consumer_id in list(edges_in.keys()):
+            new_edges = []
+            for edge in edges_in[consumer_id]:
+                from_node = str(edge.from_node)
+                if from_node in resolved_reroute_sources:
+                    src_node, src_slot = resolved_reroute_sources[from_node]
+                    new_edges.append(_Edge(src_node, src_slot, edge.to_node, edge.to_input))
+                else:
+                    new_edges.append(edge)
+            edges_in[consumer_id] = new_edges
+        removed_ids.update(resolved_reroute_sources.keys())
+
+    # Remove resolved nodes from workflow_nodes and their inbound edge lists
+    for node_id in removed_ids:
+        workflow_nodes.pop(node_id, None)
+        edges_in.pop(node_id, None)
+
+
 def _emit_subgraph_call_statement(
     node: Any,
     subgraph: _SubgraphDef,
@@ -2447,6 +2611,21 @@ def _subgraph_instance_widget_values(node: Any) -> dict[str, Any]:
     ui = getattr(node, "metadata", {}).get("_ui")
     if not isinstance(ui, Mapping):
         return values
+
+    # proxyWidgets provides the authoritative named mapping for subgraph instances.
+    # Honor the outer node's proxyWidgets ordering instead of walking inner widgets positionally.
+    props = ui.get("properties")
+    proxy_widgets = props.get("proxyWidgets") if isinstance(props, Mapping) else None
+    if isinstance(proxy_widgets, list):
+        widgets_values_raw = ui.get("widgets_values")
+        if isinstance(widgets_values_raw, list):
+            for i, entry in enumerate(proxy_widgets):
+                if isinstance(entry, (list, tuple)) and len(entry) >= 2 and i < len(widgets_values_raw):
+                    input_name = str(entry[1])
+                    if input_name:
+                        values[input_name] = widgets_values_raw[i]
+            return values
+
     input_items = [item for item in ui.get("inputs") or () if isinstance(item, Mapping)]
     widgets_values = ui.get("widgets_values")
     if isinstance(widgets_values, Mapping):
@@ -2611,10 +2790,23 @@ def _is_output_class(class_type: str) -> bool:
     return lowered.startswith(("save", "preview", "create")) or "save" in lowered or "preview" in lowered
 
 
-def _node_binding_expr(node_id: str, var_names: dict[str, str]) -> str:
+def _node_binding_expr(
+    node_id: str,
+    var_names: dict[str, str],
+    output_var_names: dict[str, dict[int, str]] | None = None,
+) -> str:
+    # For tuple-unpacked multi-output nodes the base var_names entry (e.g.
+    # 'lowvramcheckpointloader') is never assigned — only the unpacked output
+    # variables (e.g. 'model', 'clip', 'vae') exist as Handle objects.
+    # Handle.node_id gives the node ID; use the first output var.
+    # For non-unpacked nodes the assignment target is a _NodeBuilder; use .node.id.
+    if output_var_names:
+        slot_vars = output_var_names.get(str(node_id))
+        if slot_vars:
+            first_var = next(iter(slot_vars.values()), None)
+            if first_var is not None:
+                return f"{first_var}.node_id"  # Handle attribute, not _NodeBuilder.node.id
     var = var_names.get(str(node_id))
-    if var is not None and _wrapper_module_for_class(var.split("_", 1)[0]) is not None:
-        return f"{var}.node.id"
     if var is not None:
         return f"{var}.node.id"
     return repr(str(node_id))

@@ -233,6 +233,7 @@ models:
     aliases:
       - comfy_gemma_3_12B_it.safetensors
       - gemma_3_12B_it_fp8_scaled.safetensors
+      - gemma_3_12B_it_fp8_e4m3fn.safetensors
       - gemma_3_12B_it_fp4_mixed.safetensors
     tags: [phase:ltx]
 
@@ -261,6 +262,8 @@ models:
     aliases:
       - LTX23_video_vae_bf16_KJ.safetensors
       - LTX23_video_vae_bf16.safetensors
+      - LTX2_video_vae_2_bf16.safetensors
+      - ltx-2.3-22b-dev_video_vae.safetensors
     tags: [phase:ltx, ltx_lean_excluded]
 
   - id: ltx_2_3_audio_vae
@@ -312,6 +315,8 @@ models:
     targets:
       - node_pack: kijai_ltx
         path: diffusion_models/ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors
+    aliases:
+      - 'LTXVideo\v2\ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors'
     tags: [phase:ltx, ltx_lean_excluded]
 
   - id: ltx_2_3_distilled_lora_384_1_1
@@ -640,4 +645,121 @@ models:
         path: diffusion_models/MelBandRoformer/MelBandRoformer_fp16.safetensors
       - node_pack: wan_wrapper
         path: 'diffusion_models/MelBandRoformer\MelBandRoformer_fp16.safetensors'
+    aliases:
+      - MelBandRoFormer/MelBandRoformer_fp16.safetensors
+      - 'MelBandRoFormer\MelBandRoformer_fp16.safetensors'
+      - MelBandRoformer/MelBandRoformer_fp16.safetensors
+      - 'MelBandRoformer\MelBandRoformer_fp16.safetensors'
     tags: [phase:wan_wrapper]
+
+  - id: melband_roformer_fp32
+    source:
+      kind: huggingface
+      repo: Kijai/MelBandRoFormer_comfy
+      filename: MelBandRoformer_fp32.safetensors
+    min_size: 400_000_000
+    targets:
+      - node_pack: wan_wrapper
+        path: diffusion_models/MelBandRoFormer/MelBandRoformer_fp32.safetensors
+      - node_pack: wan_wrapper
+        path: diffusion_models/MelBandRoformer/MelBandRoformer_fp32.safetensors
+    aliases:
+      - MelBandRoformer_fp32.safetensors
+    tags: [phase:wan_wrapper]
+
+  - id: wan21_1_3b_recammaster
+    source:
+      kind: huggingface
+      repo: Kijai/WanVideo_comfy
+      filename: Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors
+    canonical_name: 'WanVideo\Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors'
+    min_size: 1_000_000_000
+    targets:
+      - node_pack: wan_wrapper
+        path: diffusion_models/WanVideo/Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors
+    aliases:
+      - 'WanVideo\Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors'
+      - WanVideo/Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors
+    tags: [phase:wan_wrapper]
+
+  - id: wan21_vace_module_1_3b
+    source:
+      kind: huggingface
+      repo: Kijai/WanVideo_comfy
+      filename: Wan2_1-VACE_module_1_3B_bf16.safetensors
+    canonical_name: 'WanVideo\Wan2_1-VACE_module_1_3B_bf16.safetensors'
+    min_size: 1_000_000_000
+    targets:
+      - node_pack: wan_wrapper
+        path: diffusion_models/WanVideo/Wan2_1-VACE_module_1_3B_bf16.safetensors
+    aliases:
+      - 'WanVideo\Wan2_1-VACE_module_1_3B_bf16.safetensors'
+      - WanVideo/Wan2_1-VACE_module_1_3B_bf16.safetensors
+    tags: [phase:wan_wrapper]
+
+  - id: wan22_s2v_14b_fp8_kj
+    source:
+      kind: huggingface
+      repo: Kijai/WanVideo_comfy
+      filename: S2V/Wan2_2-S2V-14B_fp8_e4m3fn_scaled_KJ.safetensors
+    canonical_name: 'WanVideo\S2V\Wan2_2-S2V-14B_fp8_e4m3fn_scaled_KJ.safetensors'
+    min_size: 5_000_000_000
+    targets:
+      - node_pack: wan_wrapper
+        path: diffusion_models/WanVideo/S2V/Wan2_2-S2V-14B_fp8_e4m3fn_scaled_KJ.safetensors
+    aliases:
+      - 'WanVideo\S2V\Wan2_2-S2V-14B_fp8_e4m3fn_scaled_KJ.safetensors'
+      - WanVideo/S2V/Wan2_2-S2V-14B_fp8_e4m3fn_scaled_KJ.safetensors
+    tags: [phase:wan_wrapper]
+
+  - id: gimmvfi_r_arb_lpips_fp32
+    source:
+      kind: huggingface
+      repo: Kijai/GIMM-VFI_comfy
+      filename: gimmvfi_r_arb_lpips_fp32.safetensors
+    min_size: 100_000_000
+    targets:
+      - node_pack: wan_wrapper
+        path: diffusion_models/GIMMVFI/gimmvfi_r_arb_lpips_fp32.safetensors
+    aliases:
+      - gimmvfi_r_arb_lpips_fp32.safetensors
+    tags: [phase:wan_wrapper]
+
+  - id: ltx_2_3_distilled_lora_dynamic_fro09
+    source:
+      kind: huggingface
+      repo: Lightricks/LTX-2.3
+      filename: ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
+    min_size: 100_000_000
+    targets:
+      - node_pack: ltx
+        path: loras/ltxv/ltx2/ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
+    aliases:
+      - ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors
+    tags: [phase:ltx]
+
+  - id: ltx_2_19b_distilled
+    source:
+      kind: huggingface
+      repo: Lightricks/LTX-2.19b
+      filename: ltx-2-19b-distilled.safetensors
+    min_size: 10_000_000_000
+    targets:
+      - node_pack: ltx
+        path: checkpoints/ltx-2-19b-distilled.safetensors
+    aliases:
+      - ltx-2-19b-distilled.safetensors
+    tags: [phase:ltx]
+
+  - id: ltx_2_19b_embeddings_connector
+    source:
+      kind: huggingface
+      repo: Lightricks/LTX-2.19b
+      filename: ltx-2-19b-embeddings_connector_dev_bf16.safetensors
+    min_size: 100_000_000
+    targets:
+      - node_pack: ltx
+        path: text_encoders/ltx-2-19b-embeddings_connector_dev_bf16.safetensors
+    aliases:
+      - ltx-2-19b-embeddings_connector_dev_bf16.safetensors
+    tags: [phase:ltx]

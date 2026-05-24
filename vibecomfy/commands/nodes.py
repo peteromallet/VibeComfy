@@ -14,10 +14,11 @@ from vibecomfy.analysis.corpus import build_corpus_snapshot
 from vibecomfy.analysis.node_coverage import build_workflow_coverage
 from vibecomfy.commands._output import emit
 from vibecomfy.commands._index_files import IndexReadError, print_index_error, read_index_json
+from vibecomfy.node_packs import KNOWN_NODE_PACKS, resolve_node_packs, unresolved_class_types
 from vibecomfy.porting.workbench import load_port_source
 from vibecomfy.registry import load_workflow_reference
 from vibecomfy.registry.pack_resolver import PackResolverError, resolve_pack
-from vibecomfy.schema import SchemaIndexError, get_authoring_schema_provider, get_schema_provider, schemas_for, socket_types_compatible
+from vibecomfy.schema import SchemaIndexError, get_authoring_schema_provider, get_schema_provider, schema_for, schemas_for, socket_types_compatible
 import vibecomfy.node_packs_install as node_packs_install
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile, write_lockfile
 
@@ -629,6 +630,520 @@ def _parse_class_defs(source: str) -> dict[str, dict[str, Any]]:
     return classes
 
 
+def _build_nodes_audit_payload(args: argparse.Namespace) -> dict[str, object]:
+    """Build the audit payload dict without printing — shared by audit + reconcile."""
+    from vibecomfy.commands.port import build_port_check_payload
+
+    port_args = argparse.Namespace(
+        workflow=args.workflow,
+        json=True,
+        head_check_models=getattr(args, "head_check_models", False),
+        strict_ready_template=getattr(args, "strict_ready_template", False),
+        runtime_object_info=False,
+        object_info_cache=getattr(args, "object_info_cache", None),
+        no_object_info_cache=False,
+        server_url=None,
+    )
+    try:
+        payload, report = build_port_check_payload(port_args)
+    except Exception as exc:
+        return {
+            "audit_version": "1.0.0",
+            "workflow": args.workflow,
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    schema_provider = get_schema_provider("auto")
+    try:
+        workflow = load_workflow_reference(
+            args.workflow, schema_provider=schema_provider, allow_scratchpad=True
+        )
+        _packs, _unresolved = node_packs_install.missing_packs_for_workflow(workflow)
+    except (FileNotFoundError, ValueError):
+        _packs, _unresolved = [], []
+
+    _installed_pack_classes: set[str] = set()
+    for pack in _packs:
+        _installed_pack_classes |= set(pack.classes)
+    _all_known_classes: set[str] = set()
+    for pack in KNOWN_NODE_PACKS:
+        _all_known_classes |= set(pack.classes)
+
+    error_diagnostics = [d for d in payload.get("diagnostics", []) if d.get("severity") == "error"]
+    classified: list[dict[str, object]] = []
+    seen_keys: set[tuple[str, str]] = set()
+
+    for diag in error_diagnostics:
+        class_type = str(diag.get("class_type") or "")
+        code = str(diag.get("code", ""))
+        node_id = str(diag.get("node_id") or "")
+        message = str(diag.get("message", ""))
+
+        dedup_key = (class_type, code)
+        if dedup_key in seen_keys and class_type:
+            continue
+        if class_type:
+            seen_keys.add(dedup_key)
+
+        bucket, rationale, pack_name = _classify_diagnostic(
+            class_type=class_type,
+            code=code,
+            node_id=node_id,
+            message=message,
+            installed_pack_classes=_installed_pack_classes,
+            all_known_classes=_all_known_classes,
+            schema_provider=schema_provider,
+            payload=payload,
+        )
+        classified.append(
+            {
+                "class_type": class_type or None,
+                "node_id": node_id or None,
+                "code": code,
+                "classification": bucket,
+                "rationale": rationale,
+                "pack": pack_name,
+            }
+        )
+
+    custom_analysis = payload.get("metadata", {}).get("custom_node_analysis", {})
+    missing_classes = set(custom_analysis.get("missing_runtime_class_types", []))
+    for class_type in sorted(missing_classes):
+        dedup_key = (class_type, "unresolved_runtime_class")
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+        bucket, rationale, pack_name = _classify_diagnostic(
+            class_type=class_type,
+            code="unresolved_runtime_class",
+            node_id="",
+            message=f"unknown class: {class_type}",
+            installed_pack_classes=_installed_pack_classes,
+            all_known_classes=_all_known_classes,
+            schema_provider=schema_provider,
+            payload=payload,
+        )
+        classified.append(
+            {
+                "class_type": class_type,
+                "node_id": None,
+                "code": "unresolved_runtime_class",
+                "classification": bucket,
+                "rationale": rationale,
+                "pack": pack_name,
+            }
+        )
+
+    return {
+        "audit_version": "1.0.0",
+        "workflow": args.workflow,
+        "source_hash": payload.get("source_hash"),
+        "total_classified": len(classified),
+        "classifications": classified,
+        "summary": {
+            "pack-not-installed": sum(
+                1 for c in classified if c["classification"] == "pack-not-installed"
+            ),
+            "pack-installed-but-stale-schema": sum(
+                1 for c in classified if c["classification"] == "pack-installed-but-stale-schema"
+            ),
+            "widget-alias-missing": sum(
+                1 for c in classified if c["classification"] == "widget-alias-missing"
+            ),
+            "model-registry-gap": sum(
+                1 for c in classified if c["classification"] == "model-registry-gap"
+            ),
+            "community-node-unknown": sum(
+                1 for c in classified if c["classification"] == "community-node-unknown"
+            ),
+        },
+    }
+
+
+def _cmd_nodes_audit(args: argparse.Namespace) -> int:
+    """Audit unresolved nodes in a workflow and classify each into a resolution bucket.
+
+    Runs the existing port-check pipeline and classifies every error-level
+    diagnostic into exactly one of five categories, reusing install-plan pack
+    resolution and schema-index lookups — no new discovery mechanism.
+    """
+    audit_payload = _build_nodes_audit_payload(args)
+    if audit_payload.get("status") == "error":
+        if args.json:
+            print(json.dumps(audit_payload, indent=2, sort_keys=True))
+        else:
+            print(f"nodes audit failed: {audit_payload.get('error')}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(audit_payload, indent=2, sort_keys=True))
+    else:
+        _print_audit_text(audit_payload)
+    return 1 if audit_payload.get("classifications", []) else 0
+
+
+def _classify_diagnostic(
+    *,
+    class_type: str,
+    code: str,
+    node_id: str,
+    message: str,
+    installed_pack_classes: set[str],
+    all_known_classes: set[str],
+    schema_provider: object,
+    payload: dict[str, object],
+) -> tuple[str, str, str | None]:
+    """Classify a single diagnostic into one of five buckets.
+
+    Returns (bucket, rationale, pack_name_or_none).
+    """
+    # --- widget-alias-missing --------------------------------------------
+    if code in ("widget_alias_unresolved", "compiled_widget_input_missing", "unknown_input"):
+        return (
+            "widget-alias-missing",
+            f"Widget alias or input resolution gap for {class_type or node_id}: {message}",
+            None,
+        )
+
+    # --- model-registry-gap ----------------------------------------------
+    if code in ("value_not_in_enum",):
+        return (
+            "model-registry-gap",
+            f"Model enum gap for {class_type or node_id}: {message}",
+            None,
+        )
+
+    # Model-related diagnostics (asset analysis)
+    if "model" in code.lower() or "model" in message.lower():
+        for asset_code in (
+            "missing_model_url",
+            "unreachable_model_url",
+            "model_asset_unknown",
+            "ltx_audio_vae_wrong_loader",
+        ):
+            if code == asset_code or asset_code in code:
+                return (
+                    "model-registry-gap",
+                    f"Model asset gap for {class_type or node_id}: {message}",
+                    None,
+                )
+
+    # --- class-type resolution -------------------------------------------
+    if code in ("unresolved_runtime_class", "unknown_class_type", "opaque_component_class_type",
+                 "opaque_component_node_class", "unmaterialized_node_class") or (
+        not class_type and code in ("api_compile_failed",)
+    ):
+        if not class_type:
+            return (
+                "community-node-unknown",
+                f"No class type for diagnostic {code}: {message}",
+                None,
+            )
+
+        # 1. Check if class is in any known pack
+        matching_packs = resolve_node_packs({class_type})
+        if matching_packs:
+            pack_name = matching_packs[0].name
+            if class_type in installed_pack_classes:
+                return (
+                    "pack-installed-but-stale-schema",
+                    f"Class {class_type!r} is in pack {pack_name!r} (installed) but schema is missing or stale.",
+                    pack_name,
+                )
+            return (
+                "pack-not-installed",
+                f"Class {class_type!r} is in pack {pack_name!r} but the pack is not installed.",
+                pack_name,
+            )
+
+        # 2. Check if class has a schema entry
+        try:
+            schema = schema_for(schema_provider, class_type)
+        except Exception:
+            schema = None
+        if schema is not None:
+            # Has schema — check for widget / model sub-issues
+            widget_diags = [
+                d for d in payload.get("diagnostics", [])
+                if d.get("class_type") == class_type
+                and d.get("code") in ("widget_alias_unresolved", "compiled_widget_input_missing", "unknown_input")
+            ]
+            model_diags = [
+                d for d in payload.get("diagnostics", [])
+                if d.get("class_type") == class_type
+                and d.get("code") in ("value_not_in_enum",)
+            ]
+            if widget_diags:
+                return (
+                    "widget-alias-missing",
+                    f"Class {class_type!r} has schema but widget aliases are unresolved.",
+                    None,
+                )
+            if model_diags:
+                return (
+                    "model-registry-gap",
+                    f"Class {class_type!r} has schema but model enum values are missing.",
+                    None,
+                )
+            return (
+                "pack-installed-but-stale-schema",
+                f"Class {class_type!r} has a schema entry but is still flagged as unresolved — schema may be stale.",
+                None,
+            )
+
+        # 3. Completely unknown
+        return (
+            "community-node-unknown",
+            f"Class {class_type!r} is not found in any known pack or schema registry.",
+            None,
+        )
+
+    # --- environment / template-shape diagnostics (not node resolution) ---
+    if code.startswith("strict_ready_") or code in (
+        "headless_preview_override_not_supported",
+        "optional_acceleration_requires_unavailable_package",
+        "metadata_environment_warning",
+    ):
+        return (
+            "community-node-unknown",
+            f"Environment or template shape issue: {message}",
+            None,
+        )
+
+    # --- fallback for unrecognised codes ---------------------------------
+    if class_type:
+        return (
+            "community-node-unknown",
+            f"Unclassified diagnostic {code!r} for {class_type!r}: {message}",
+            None,
+        )
+    return (
+        "community-node-unknown",
+        f"Unclassified diagnostic {code!r}: {message}",
+        None,
+    )
+
+
+def _print_audit_text(audit_payload: dict[str, object]) -> None:
+    """Text renderer for ``nodes audit`` output."""
+    summary = audit_payload.get("summary", {})
+    classifications = audit_payload.get("classifications", [])
+    if isinstance(classifications, list):
+        print(f"nodes audit: {audit_payload.get('workflow')}")
+        print(f"  source_hash: {audit_payload.get('source_hash')}")
+        print(f"  total classified: {audit_payload.get('total_classified')}")
+        print()
+        for bucket in (
+            "pack-not-installed",
+            "pack-installed-but-stale-schema",
+            "widget-alias-missing",
+            "model-registry-gap",
+            "community-node-unknown",
+        ):
+            count = summary.get(bucket, 0) if isinstance(summary, dict) else 0
+            print(f"  {bucket}: {count}")
+        print()
+        for item in classifications:
+            if isinstance(item, dict):
+                print(
+                    f"  [{item.get('classification')}] {item.get('class_type') or item.get('node_id')}"
+                )
+                print(f"    {item.get('rationale')}")
+
+
+def _cmd_nodes_reconcile(args: argparse.Namespace) -> int:
+    """Propose remediations for each audit classification row — no mutation.
+
+    Runs the audit pipeline, then maps every classification to a durable
+    remediation action whose detail strings reference only verified-existing
+    CLI commands or concrete file-edit locations.
+    """
+    from vibecomfy.node_packs import _STATIC_NODE_PACKS as static_packs
+
+    audit_payload = _build_nodes_audit_payload(args)
+    if audit_payload.get("status") == "error":
+        reconcile_payload: dict[str, object] = {
+            "reconcile_version": "1.0.0",
+            "workflow": args.workflow,
+            "status": "error",
+            "error": audit_payload.get("error"),
+        }
+        if args.json:
+            print(json.dumps(reconcile_payload, indent=2, sort_keys=True))
+        else:
+            print(f"nodes reconcile failed: {audit_payload.get('error')}", file=sys.stderr)
+        return 1
+
+    static_pack_names = {pack.name for pack in static_packs}
+
+    classifications = audit_payload.get("classifications", [])
+    if not isinstance(classifications, list):
+        classifications = []
+
+    remediations: list[dict[str, object]] = []
+
+    for row in classifications:
+        if not isinstance(row, dict):
+            continue
+        bucket = str(row.get("classification", ""))
+        class_type = str(row.get("class_type") or "")
+        code = str(row.get("code", ""))
+        rationale = str(row.get("rationale", ""))
+        pack_name = str(row.get("pack") or "")
+        message = rationale  # fallback detail source
+
+        remediation = _build_remediation(
+            bucket=bucket,
+            class_type=class_type,
+            code=code,
+            message=message,
+            pack_name=pack_name,
+            static_pack_names=static_pack_names,
+            workflow_path=args.workflow,
+        )
+        remediation["classification"] = bucket
+        remediation["class_type"] = class_type or None
+        remediation["code"] = code
+        remediations.append(remediation)
+
+    reconcile_payload = {
+        "reconcile_version": "1.0.0",
+        "workflow": args.workflow,
+        "source_hash": audit_payload.get("source_hash"),
+        "total_remediations": len(remediations),
+        "remediations": remediations,
+        "summary": {
+            "declare-pack": sum(1 for r in remediations if r.get("action") == "declare-pack"),
+            "install-pack": sum(1 for r in remediations if r.get("action") == "install-pack"),
+            "refresh-schema": sum(1 for r in remediations if r.get("action") == "refresh-schema"),
+            "register-widget-alias": sum(1 for r in remediations if r.get("action") == "register-widget-alias"),
+            "register-model": sum(1 for r in remediations if r.get("action") == "register-model"),
+            "defer-as-out-of-scope": sum(1 for r in remediations if r.get("action") == "defer-as-out-of-scope"),
+        },
+    }
+
+    if args.json:
+        print(json.dumps(reconcile_payload, indent=2, sort_keys=True))
+    else:
+        _print_reconcile_text(reconcile_payload)
+
+    return 0
+
+
+def _build_remediation(
+    *,
+    bucket: str,
+    class_type: str,
+    code: str,
+    message: str,
+    pack_name: str,
+    static_pack_names: set[str],
+    workflow_path: str,
+) -> dict[str, object]:
+    """Map an audit classification bucket to a structured remediation action.
+
+    Every ``detail`` string references only verified-existing CLI commands
+    (``vibecomfy nodes install``, ``vibecomfy nodes refresh-template``) or
+    concrete file-edit locations (``vibecomfy/node_packs.py``,
+    ``vibecomfy/registry/models.yaml``, the ``widget_aliases`` module).
+    No phantom subcommands are ever emitted.
+    """
+    if bucket == "pack-not-installed":
+        if pack_name and pack_name in static_pack_names:
+            return {
+                "action": "install-pack",
+                "detail": f"vibecomfy nodes install {pack_name}",
+                "pack": pack_name,
+            }
+        elif pack_name:
+            return {
+                "action": "declare-pack",
+                "detail": f"add CustomNodePack entry in vibecomfy/node_packs.py for {pack_name}",
+                "pack": pack_name,
+            }
+        else:
+            return {
+                "action": "declare-pack",
+                "detail": "add CustomNodePack entry in vibecomfy/node_packs.py",
+                "pack": None,
+            }
+
+    if bucket == "pack-installed-but-stale-schema":
+        return {
+            "action": "refresh-schema",
+            "detail": f"vibecomfy nodes refresh-template {workflow_path}",
+            "pack": pack_name or None,
+        }
+
+    if bucket == "widget-alias-missing":
+        # Extract widget_N info from the message if possible
+        widget_ref = _extract_widget_ref(class_type, message)
+        return {
+            "action": "register-widget-alias",
+            "detail": f"add {widget_ref} mapping in the widget_aliases module",
+            "pack": None,
+        }
+
+    if bucket == "model-registry-gap":
+        return {
+            "action": "register-model",
+            "detail": "add enum entry in vibecomfy/registry/models.yaml",
+            "pack": None,
+        }
+
+    # community-node-unknown or anything else
+    return {
+        "action": "defer-as-out-of-scope",
+        "detail": "community-node-unknown; document exception",
+        "pack": None,
+    }
+
+
+def _extract_widget_ref(class_type: str, message: str) -> str:
+    """Extract a human-readable ``<class>.<widget_N>`` reference from a rationale message."""
+    import re as _re
+
+    # Try to find widget_N or unknown_input references
+    widget_match = _re.search(r"widget_\d+", message)
+    if widget_match:
+        widget_id = widget_match.group(0)
+        if class_type:
+            return f"{class_type}.{widget_id}->field"
+        return f"{widget_id}->field"
+
+    if class_type:
+        return f"{class_type}.<unknown_widget>->field"
+    return "<unknown_class>.<unknown_widget>->field"
+
+
+def _print_reconcile_text(payload: dict[str, object]) -> None:
+    """Text renderer for ``nodes reconcile`` output."""
+    summary = payload.get("summary", {})
+    remediations = payload.get("remediations", [])
+    if isinstance(remediations, list):
+        print(f"nodes reconcile: {payload.get('workflow')}")
+        print(f"  source_hash: {payload.get('source_hash')}")
+        print(f"  total remediations: {payload.get('total_remediations')}")
+        print()
+        for action in (
+            "declare-pack",
+            "install-pack",
+            "refresh-schema",
+            "register-widget-alias",
+            "register-model",
+            "defer-as-out-of-scope",
+        ):
+            count = summary.get(action, 0) if isinstance(summary, dict) else 0
+            print(f"  {action}: {count}")
+        print()
+        for item in remediations:
+            if isinstance(item, dict):
+                print(
+                    f"  [{item.get('action')}] {item.get('class_type') or '(no class)'}"
+                )
+                print(f"    {item.get('detail')}")
+
+
 def register(subparsers) -> None:
     nodes = subparsers.add_parser("nodes")
     nodes_sub = nodes.add_subparsers(dest="subcmd", required=True)
@@ -697,3 +1212,19 @@ def register(subparsers) -> None:
     nodes_drift.add_argument("--to", dest="to_ref", help="Target git ref (default: HEAD)")
     nodes_drift.add_argument("--json", action="store_true")
     nodes_drift.set_defaults(func=_cmd_nodes_drift)
+
+    nodes_audit = nodes_sub.add_parser("audit", help="Audit unresolved nodes in a workflow and classify into resolution buckets.")
+    nodes_audit.add_argument("--workflow", required=True, help="Path to workflow JSON, scratchpad .py, or ready-template id (e.g. image/z_image).")
+    nodes_audit.add_argument("--json", action="store_true")
+    nodes_audit.add_argument("--object-info-cache")
+    nodes_audit.add_argument("--strict-ready-template", action="store_true", default=False)
+    nodes_audit.add_argument("--head-check-models", action="store_true", default=False)
+    nodes_audit.set_defaults(func=_cmd_nodes_audit)
+
+    nodes_reconcile = nodes_sub.add_parser("reconcile", help="Propose remediations for each audit classification row — no mutation.")
+    nodes_reconcile.add_argument("--workflow", required=True, help="Path to workflow JSON, scratchpad .py, or ready-template id (e.g. image/z_image).")
+    nodes_reconcile.add_argument("--json", action="store_true")
+    nodes_reconcile.add_argument("--object-info-cache")
+    nodes_reconcile.add_argument("--strict-ready-template", action="store_true", default=False)
+    nodes_reconcile.add_argument("--head-check-models", action="store_true", default=False)
+    nodes_reconcile.set_defaults(func=_cmd_nodes_reconcile)

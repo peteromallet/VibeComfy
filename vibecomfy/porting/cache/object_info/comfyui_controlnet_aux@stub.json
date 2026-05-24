@@ -1,0 +1,192 @@
+{
+  "DWPreprocessor": {
+    "category": "ControlNet Preprocessors/Faces and Pose Estimators",
+    "description": "DW Pose Estimation",
+    "display_name": "DWPose Estimator",
+    "input_order": {
+      "required": [
+        "image"
+      ]
+    },
+    "input_order_all": [
+      "image",
+      "detect_hand",
+      "detect_body",
+      "detect_face",
+      "resolution",
+      "bbox_detector",
+      "pose_estimator",
+      "scale_stick_for_xinsr_cn"
+    ],
+    "inputs": {
+      "required": {
+        "image": [
+          "IMAGE"
+        ]
+      },
+      "optional": {
+        "detect_hand": [
+          [
+            "enable",
+            "disable"
+          ]
+        ],
+        "detect_body": [
+          [
+            "enable",
+            "disable"
+          ]
+        ],
+        "detect_face": [
+          [
+            "enable",
+            "disable"
+          ]
+        ],
+        "resolution": [
+          "INT",
+          {
+            "default": 512,
+            "min": 64,
+            "max": 2048,
+            "step": 64
+          }
+        ],
+        "bbox_detector": [
+          [
+            "yolox_l.onnx",
+            "yolo_nas_l_fp16.onnx",
+            "yolo_nas_m_fp16.onnx",
+            "yolo_nas_s_fp16.onnx"
+          ]
+        ],
+        "pose_estimator": [
+          [
+            "dw-ll_ucoco_384_bs5.torchscript.pt",
+            "dw-ll_ucoco_384.onnx",
+            "dw-ll_ucoco.onnx"
+          ]
+        ],
+        "scale_stick_for_xinsr_cn": [
+          [
+            "disable",
+            "enable"
+          ]
+        ]
+      }
+    },
+    "output": [
+      "IMAGE",
+      "POSE_KEYPOINT"
+    ],
+    "output_name": [
+      "IMAGE",
+      "pose_keypoint"
+    ],
+    "output_node": false
+  },
+  "CannyEdgePreprocessor": {
+    "category": "ControlNet Preprocessors/Line Extractors",
+    "description": "Canny edge detector",
+    "display_name": "Canny Edge Preprocessor",
+    "input_order": {
+      "required": [
+        "image"
+      ]
+    },
+    "input_order_all": [
+      "image",
+      "low_threshold",
+      "high_threshold",
+      "resolution"
+    ],
+    "inputs": {
+      "required": {
+        "image": [
+          "IMAGE"
+        ]
+      },
+      "optional": {
+        "low_threshold": [
+          "INT",
+          {
+            "default": 100,
+            "min": 0,
+            "max": 255
+          }
+        ],
+        "high_threshold": [
+          "INT",
+          {
+            "default": 200,
+            "min": 0,
+            "max": 255
+          }
+        ],
+        "resolution": [
+          "INT",
+          {
+            "default": 512,
+            "min": 64,
+            "max": 2048,
+            "step": 64
+          }
+        ]
+      }
+    },
+    "output": [
+      "IMAGE"
+    ],
+    "output_name": [
+      "IMAGE"
+    ],
+    "output_node": false
+  },
+  "DepthAnythingPreprocessor": {
+    "category": "ControlNet Preprocessors/Normal and Depth Estimators",
+    "description": "Depth Anything preprocessor",
+    "display_name": "Depth Anything Preprocessor",
+    "input_order": {
+      "required": [
+        "image"
+      ]
+    },
+    "input_order_all": [
+      "image",
+      "ckpt_name",
+      "resolution"
+    ],
+    "inputs": {
+      "required": {
+        "image": [
+          "IMAGE"
+        ]
+      },
+      "optional": {
+        "ckpt_name": [
+          [
+            "depth_anything_vitl14.pth",
+            "depth_anything_vitb14.pth",
+            "depth_anything_vits14.pth"
+          ]
+        ],
+        "resolution": [
+          "INT",
+          {
+            "default": 512,
+            "min": 64,
+            "max": 2048,
+            "step": 64
+          }
+        ]
+      }
+    },
+    "output": [
+      "IMAGE"
+    ],
+    "output_name": [
+      "IMAGE"
+    ],
+    "output_node": false
+  }
+}

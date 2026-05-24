@@ -73,6 +73,7 @@ COMPILE_WIDGET_ALIAS_CLASS_TYPES: frozenset[str] = frozenset(
         "DrawViTPose",
         "VAELoaderKJ",
         "UnetLoaderGGUF",
+        "TextEncodeAceStepAudio1.5",
         "VHS_VideoCombine",
     }
 )

@@ -1,0 +1,122 @@
+{
+  "DownloadAndLoadFlorence2Model": {
+    "category": "florence2",
+    "description": "Download and load Florence-2 model",
+    "display_name": "DownloadAndLoadFlorence2Model",
+    "input_order": {
+      "required": [
+        "model"
+      ]
+    },
+    "input_order_all": [
+      "model",
+      "precision",
+      "attention"
+    ],
+    "inputs": {
+      "required": {
+        "model": [
+          [
+            "microsoft/Florence-2-base",
+            "microsoft/Florence-2-large",
+            "microsoft/Florence-2-base-ft",
+            "microsoft/Florence-2-large-ft"
+          ]
+        ]
+      },
+      "optional": {
+        "precision": [
+          [
+            "fp16",
+            "bf16",
+            "fp32"
+          ]
+        ],
+        "attention": [
+          [
+            "sdpa",
+            "flash_attention_2",
+            "eager"
+          ]
+        ]
+      }
+    },
+    "output": [
+      "FL2MODEL"
+    ],
+    "output_name": [
+      "model"
+    ],
+    "output_node": false
+  },
+  "Florence2Run": {
+    "category": "florence2",
+    "description": "Run Florence-2 model",
+    "display_name": "Florence2Run",
+    "input_order": {
+      "required": [
+        "image",
+        "florence2_model",
+        "text_input",
+        "task"
+      ]
+    },
+    "input_order_all": [
+      "image",
+      "florence2_model",
+      "text_input",
+      "task",
+      "fill_mask"
+    ],
+    "inputs": {
+      "required": {
+        "image": [
+          "IMAGE"
+        ],
+        "florence2_model": [
+          "FL2MODEL"
+        ],
+        "text_input": [
+          "STRING",
+          {
+            "default": ""
+          }
+        ],
+        "task": [
+          [
+            "caption",
+            "detailed_caption",
+            "more_detailed_caption",
+            "caption_to_phrase_grounding",
+            "referring_expression_segmentation",
+            "region_to_segmentation",
+            "open_vocabulary_detection",
+            "dense_region_caption",
+            "region_proposal",
+            "ocr",
+            "ocr_with_region"
+          ]
+        ]
+      },
+      "optional": {
+        "fill_mask": [
+          "BOOLEAN",
+          {
+            "default": true
+          }
+        ]
+      }
+    },
+    "output": [
+      "IMAGE",
+      "MASK",
+      "STRING"
+    ],
+    "output_name": [
+      "image",
+      "mask",
+      "caption"
+    ],
+    "output_node": false
+  }
+}
