@@ -5,15 +5,21 @@ protected repo templates. A protected template is one where `app_active` is
 `true` or `coverage_tier` is `required`.
 
 As of May 24, 2026, the strict-ready gate reports 15 protected-template
-violations tracked as exact temporary exceptions below. All entries are
-categorized as `blocked` because they belong to required/app-active templates
-and must be removed before those templates can be considered clean strict-ready
-examples. The Phase 0 sprint added exception-loading support to the gate tool
-(`check_strict_ready_templates.py`) so documented exceptions suppress enforced
-errors without hiding them from the diagnostic output. The 4 new entries (added
-2026-05-24) are `legacy_vocabulary_call` violations for `wf.register_input`
-calls emitted by the Phase 0 emitter; they will be resolved by the Phase 1
-emitter migration to `public()` inline registration.
+violations tracked as exact temporary exceptions below. All protected-template
+entries are categorized as `blocked` because they belong to required/app-active
+templates and must be removed before those templates can be considered clean
+strict-ready examples. The Phase 0 sprint added exception-loading support to
+the gate tool (`check_strict_ready_templates.py`) so documented exceptions
+suppress enforced errors without hiding them from the diagnostic output. The 4
+Phase 0 entries (added 2026-05-24) are `legacy_vocabulary_call` violations for
+`wf.register_input` calls emitted by the Phase 0 emitter; they will be resolved
+by the Phase 1 emitter migration to `public()` inline registration.
+
+One additional `scratchpad-only` entry (added 2026-05-24 for Family I / T8)
+documents the opaque UUID component in the porting test fixture
+(`tests/fixtures/porting/opaque_component.json`). It is not a protected
+template and is documented here as a policy artifact per SD1: the component
+cannot be materialized without a subgraph definition.
 
 ## Entry Rules
 
@@ -60,6 +66,7 @@ contracts agree before adding any exception.
 | `sre-20260524-ltx23-first-last-iclora-control-legacy-register-input-379` | `video/ltx2_3_first_last_frame_travel_iclora_control` | `legacy_vocabulary_call` | `ready_templates/video/ltx2_3_first_last_frame_travel_iclora_control.py:379` | `workflow-porting` | `phase-1-emitter-register-input-migration` | 2026-07-31 | `blocked` |
 | `sre-20260524-ltx23-first-last-iclora-control-legacy-register-input-380` | `video/ltx2_3_first_last_frame_travel_iclora_control` | `legacy_vocabulary_call` | `ready_templates/video/ltx2_3_first_last_frame_travel_iclora_control.py:380` | `workflow-porting` | `phase-1-emitter-register-input-migration` | 2026-07-31 | `blocked` |
 | `sre-20260524-wan-i2v-legacy-register-input-106` | `video/wan_i2v` | `legacy_vocabulary_call` | `ready_templates/video/wan_i2v.py:106` | `workflow-porting` | `phase-1-emitter-register-input-migration` | 2026-07-31 | `blocked` |
+| `sre-20260524-opaque-component-fixture-a1b2c3d4` | `test/family_i_opaque` | `opaque_component_node_class` | `node:2` | `workflow-porting` | `phase-1-family-i-opaque-materialization` | 2026-08-31 | `scratchpad-only` |
 
 Removal conditions are stored on each JSON entry. In summary:
 
@@ -72,6 +79,10 @@ Removal conditions are stored on each JSON entry. In summary:
 - `phase-1-emitter-register-input-migration`: update the emitter to emit
   `public()` inline calls for model-picker inputs and regenerate all affected
   templates so `wf.register_input` is no longer emitted by the Phase 1 emitter.
+- `phase-1-family-i-opaque-materialization`: provide subgraph definitions for
+  UUID-class opaque components so the emitter can materialize them as inline
+  Python functions per the Family I (SD1) policy, or replace them with
+  first-class replacement nodes.
 
 Generated-template style warnings are not strict-ready exceptions and are not
 listed here. They remain reported by the strict-ready gate as non-enforced

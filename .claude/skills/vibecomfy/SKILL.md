@@ -503,7 +503,7 @@ All VibeComfyError subclasses are caught by the CLI runner's `(OSError, RuntimeE
 ### Bidirectional roundtrip limitations
 
 JSON → Python → JSON roundtripping has known limitations:
-- **Helper/UI nodes** (`Note`, `MarkdownNote`, `SetNode`, `GetNode`, `Reroute`) currently survive in generated Python when the emitter cannot resolve them away; full helper stripping is a Family F Phase 1 TODO. They still do not survive JSON → Python → JSON roundtrip as first-class helper/UI nodes.
+- **Helper/UI nodes** (`Note`, `MarkdownNote`, `SetNode`, `GetNode`, `Reroute`) are handled by the emission-time resolver before Python is generated: resolvable `SetNode`/`GetNode` broadcast pairs are rewritten to direct edges, resolvable `Reroute` nodes are bypassed, and `Note`/`MarkdownNote` annotations are dropped. Resolved helpers do not appear as Python variables in generated templates. If a helper topology cannot be resolved, `SetNode`/`GetNode`/`Reroute` stay available through the fallback raw-call path as a safety net; diagnose these cases individually before promoting or regenerating a template.
 - **Unresolved widget_N keys** on community nodes without `object_info` produce positional output that may not roundtrip exactly.
 - **Subgraph UUIDs** are replaced by Python function names; re-importing the emitted Python may produce different UUIDs but structurally equivalent graphs.
 - **Broadcast edges** (one output → multiple inputs) are preserved but the ordering of parallel edges may differ from the source JSON.
@@ -514,7 +514,7 @@ JSON → Python → JSON roundtripping has known limitations:
 - Audio and image-edit verbs are not yet wired in the verb-native API. Use `load_workflow_any("audio/ace_step_1_5_t2a_song")` or `load_workflow_any("edit/qwen_image_edit")` and edit the `VibeWorkflow` directly.
 - `image.t2i(model="flux2_klein_9b_gguf")` not exposed via verb-native API yet — same workaround.
 - Named outputs `.out("IMAGE")` raise `NotImplementedError` until MP-6 schema integration. Use integer slots: `.out(0)`.
-- `MarkdownNote` nodes are stripped during refactor (UI annotations only).
+- `MarkdownNote` and `Note` nodes are stripped at emission time (UI annotations only); they do not appear as Python variables in generated templates.
 
 ## Decision shortcut
 

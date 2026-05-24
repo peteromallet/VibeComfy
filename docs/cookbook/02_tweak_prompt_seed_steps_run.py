@@ -20,7 +20,7 @@ from vibecomfy.workflow import VibeWorkflow
 # Normally you'd load this from a ready_template file.  Here we build one
 # inline so the tutorial is self-contained.  Public inputs are declared
 # inline at the kwarg site with ``public(name, default=...)`` — the
-# preferred form since v2.7 (replaces the legacy ``ref('label')`` pattern).
+# preferred form since v2.7.
 
 METADATA = ReadyMetadata.build(
     capability="image",

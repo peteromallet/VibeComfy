@@ -206,6 +206,18 @@
       "allowed_until": "2026-07-31",
       "removal_condition": "Update the emitter to emit public() inline calls for model-picker inputs and regenerate this template.",
       "final_category": "blocked"
+    },
+    {
+      "id": "sre-20260524-opaque-component-fixture-a1b2c3d4",
+      "ready_id": "test/family_i_opaque",
+      "violation_code": "opaque_component_node_class",
+      "target": "node:2",
+      "owner": "workflow-porting",
+      "ticket": "phase-1-family-i-opaque-materialization",
+      "reason": "The opaque_component.json fixture UUID a1b2c3d4-e5f6-7890-abcd-ef1234567890 has no subgraph definition and cannot be materialized as an inline Python function per the Family I (SD1) policy. It falls back to raw_call. Materialization requires a subgraph definition from the ComfyUI workflow export.",
+      "allowed_until": "2026-08-31",
+      "removal_condition": "Either (a) provide a subgraph definition for this UUID component in the source workflow so the emitter can materialize it as an inline function, or (b) replace the opaque component with a known first-class replacement node.",
+      "final_category": "scratchpad-only"
     }
   ]
 }
