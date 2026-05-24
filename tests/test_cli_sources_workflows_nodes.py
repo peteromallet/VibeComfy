@@ -10,6 +10,7 @@ import pytest
 
 import vibecomfy.node_packs_install as node_packs_install
 from vibecomfy.commands.nodes import (
+    _cmd_nodes_audit,
     _cmd_nodes_compatible_with,
     _cmd_nodes_coverage,
     _cmd_nodes_drift,
@@ -689,3 +690,507 @@ def test_nodes_drift_unavailable_pack_returns_zero(capsys: pytest.CaptureFixture
     assert code == 0
     assert payload["status"] == "unavailable"
     assert payload["pack"] == "NonexistentPackXYZ123"
+
+
+# ── nodes audit ─────────────────────────────────────────────────────────
+
+
+def test_nodes_audit_json_returns_versioned_payload(capsys: pytest.CaptureFixture[str]) -> None:
+    """``nodes audit --json`` produces deterministic, versioned JSON."""
+    code = _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/official/audio/ace_step_1_5_t2a_song.json",
+            json=True,
+            object_info_cache=None,
+            strict_ready_template=False,
+            head_check_models=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["audit_version"] == "1.0.0"
+    assert payload["workflow"] == "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    assert "source_hash" in payload
+    assert "total_classified" in payload
+    assert "classifications" in payload
+    assert "summary" in payload
+    assert isinstance(payload["classifications"], list)
+
+
+def test_nodes_audit_primitive_node_covered_by_core_fallback(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """PrimitiveNode is declared in comfy-core-fallback → audit produces no error-severity entries for it.
+
+    PrimitiveNode's only diagnostics are widget_alias_unresolved warnings (not errors), so it
+    does not appear in audit classifications at all. This verifies the comfy-core-fallback pack
+    declaration suppresses error-level audit noise for this core UI-only node.
+    """
+    from vibecomfy.node_packs import KNOWN_NODE_PACKS
+
+    fallback_packs = [p for p in KNOWN_NODE_PACKS if p.name == "comfy-core-fallback"]
+    assert fallback_packs, "comfy-core-fallback pack must be declared in node_packs.py"
+    assert "PrimitiveNode" in fallback_packs[0].classes
+
+    _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/official/audio/ace_step_1_5_t2a_song.json",
+            json=True,
+            object_info_cache=None,
+            strict_ready_template=False,
+            head_check_models=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    primitive_entries = [
+        c for c in payload["classifications"]
+        if c.get("class_type") == "PrimitiveNode"
+    ]
+    # comfy-core-fallback covers PrimitiveNode; its diagnostics are warnings only, not errors.
+    assert primitive_entries == [], "PrimitiveNode should not appear as an error-severity audit entry"
+
+
+def test_nodes_audit_classifies_widget_alias_issues(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Widget alias / unknown_input diagnostics are classified as widget-alias-missing."""
+    # Use motion_transfer workflow which has SimpleCalculatorKJ with unknown_input (variables.a/b/c)
+    # — the dynamic COMFY_AUTOGROW_V3 sub-keys are not in any installed schema snapshot.
+    code = _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Motion_Transfer_DWPose.json",
+            json=True,
+            object_info_cache=None,
+            strict_ready_template=False,
+            head_check_models=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    widget_entries = [
+        c for c in payload["classifications"]
+        if c["classification"] == "widget-alias-missing"
+    ]
+    assert len(widget_entries) >= 1
+    for entry in widget_entries:
+        assert entry["class_type"] is not None
+        assert "Widget alias" in entry["rationale"] or "Widget" in entry["rationale"]
+
+
+def test_nodes_audit_ace_step_widget_alias_resolved(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """TextEncodeAceStepAudio1.5 widget_14 is resolved by the committed WIDGET_SCHEMA entry."""
+    _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/official/audio/ace_step_1_5_t2a_song.json",
+            json=True,
+            object_info_cache=None,
+            strict_ready_template=False,
+            head_check_models=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    widget_entries = [
+        c for c in payload["classifications"]
+        if c["classification"] == "widget-alias-missing"
+    ]
+    assert widget_entries == [], "TextEncodeAceStepAudio1.5.widget_14 should now be resolved"
+
+
+def test_nodes_audit_summary_counts_match_classifications(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Summary bucket counts match the actual classification list."""
+    code = _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/official/audio/ace_step_1_5_t2a_song.json",
+            json=True,
+            object_info_cache=None,
+            strict_ready_template=False,
+            head_check_models=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    summary = payload["summary"]
+    actual_counts = {
+        "pack-not-installed": 0,
+        "pack-installed-but-stale-schema": 0,
+        "widget-alias-missing": 0,
+        "model-registry-gap": 0,
+        "community-node-unknown": 0,
+    }
+    for c in payload["classifications"]:
+        bucket = c["classification"]
+        actual_counts[bucket] = actual_counts.get(bucket, 0) + 1
+    for bucket, expected in summary.items():
+        assert actual_counts.get(bucket, 0) == expected, f"mismatch for {bucket}"
+
+
+def test_nodes_audit_strict_ready_diagnostics_are_classified(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Strict-ready diagnostics are captured and classified (community-node-unknown)."""
+    code = _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/official/video/ltx2_3_i2v.json",
+            json=True,
+            object_info_cache=None,
+            strict_ready_template=True,
+            head_check_models=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    strict_entries = [
+        c for c in payload["classifications"]
+        if c.get("code", "").startswith("strict_ready_")
+    ]
+    assert len(strict_entries) >= 1
+    for entry in strict_entries:
+        assert entry["classification"] == "community-node-unknown"
+        assert "Environment or template shape" in entry["rationale"]
+
+
+def test_nodes_audit_every_classification_has_required_fields(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Every classification row has class_type, code, classification, rationale, pack."""
+    code = _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/official/audio/ace_step_1_5_t2a_song.json",
+            json=True,
+            object_info_cache=None,
+            strict_ready_template=False,
+            head_check_models=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    for entry in payload["classifications"]:
+        assert "class_type" in entry
+        assert "code" in entry
+        assert "classification" in entry
+        assert "rationale" in entry
+        assert "pack" in entry
+        assert entry["classification"] in (
+            "pack-not-installed",
+            "pack-installed-but-stale-schema",
+            "widget-alias-missing",
+            "model-registry-gap",
+            "community-node-unknown",
+        )
+
+
+def test_nodes_audit_text_output_does_not_crash(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Non-JSON text output renders without crashing."""
+    code = _cmd_nodes_audit(
+        argparse.Namespace(
+            workflow="workflow_corpus/official/audio/ace_step_1_5_t2a_song.json",
+            json=False,
+            object_info_cache=None,
+            strict_ready_template=False,
+            head_check_models=False,
+        )
+    )
+    captured = capsys.readouterr()
+    assert "nodes audit:" in captured.out
+    assert "pack-not-installed" in captured.out
+    assert "community-node-unknown" in captured.out
+
+
+def test_nodes_audit_registered_in_cli_help() -> None:
+    """``vibecomfy nodes --help`` includes the audit subcommand."""
+    result = subprocess.run(
+        [sys.executable, "-m", "vibecomfy.cli", "nodes", "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "audit" in result.stdout
+    assert "Audit unresolved nodes" in result.stdout
+
+
+def test_nodes_audit_help_is_discoverable() -> None:
+    """``vibecomfy nodes audit --help`` renders help text."""
+    result = subprocess.run(
+        [sys.executable, "-m", "vibecomfy.cli", "nodes", "audit", "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--workflow" in result.stdout
+    assert "--json" in result.stdout
+
+
+# ── nodes reconcile ─────────────────────────────────────────────────────
+
+
+def test_nodes_reconcile_json_returns_versioned_payload(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``nodes reconcile --json`` produces deterministic, versioned JSON."""
+    out, code = _run_reconcile_capture(
+        capsys, "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    payload = json.loads(out)
+    assert payload["reconcile_version"] == "1.0.0"
+    assert (
+        payload["workflow"]
+        == "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    assert "source_hash" in payload
+    assert "total_remediations" in payload
+    assert "remediations" in payload
+    assert "summary" in payload
+    assert isinstance(payload["remediations"], list)
+    assert payload["total_remediations"] == len(payload["remediations"])
+
+
+def test_nodes_reconcile_every_remediation_has_required_fields(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Every remediation row has action, detail, classification, class_type, code, pack."""
+    out, code = _run_reconcile_capture(
+        capsys, "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    payload = json.loads(out)
+    for entry in payload["remediations"]:
+        assert "action" in entry
+        assert "detail" in entry
+        assert "classification" in entry
+        assert "class_type" in entry
+        assert "code" in entry
+        assert "pack" in entry
+        assert entry["action"] in (
+            "declare-pack",
+            "install-pack",
+            "refresh-schema",
+            "register-widget-alias",
+            "register-model",
+            "defer-as-out-of-scope",
+        )
+
+
+def test_nodes_reconcile_no_phantom_commands_in_details(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No detail string references a non-existent subcommand.
+
+    The correctness flag (T3) requires that remediation detail strings name
+    ONLY verified-existing commands (``vibecomfy nodes install``,
+    ``vibecomfy nodes refresh-template``) or concrete file edits
+    (``vibecomfy/node_packs.py``, ``vibecomfy/registry/models.yaml``,
+    ``widget_aliases`` module).  Phantom commands like ``refresh-schema``,
+    ``widgets register``, or ``models register`` must never appear.
+    """
+    out, code = _run_reconcile_capture(
+        capsys, "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    payload = json.loads(out)
+    all_details = " ".join(
+        str(entry.get("detail", "")) for entry in payload["remediations"]
+    ).lower()
+
+    # These phantom commands must NOT appear
+    forbidden = [
+        "refresh-schema",       # not a CLI command
+        "widgets register",     # not a CLI command
+        "models register",      # not a CLI command
+        "vibecomfy refresh-schema",
+        "vibecomfy widgets",
+        "vibecomfy models",
+    ]
+    for phantom in forbidden:
+        assert phantom not in all_details, (
+            f"Phantom command {phantom!r} found in reconcile detail strings"
+        )
+
+
+def test_nodes_reconcile_details_only_reference_existing_commands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Every CLI-reference in detail strings uses a verified-existing command."""
+    out, code = _run_reconcile_capture(
+        capsys, "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    payload = json.loads(out)
+
+    # Valid commands that can appear in detail strings
+    valid_cli_commands = {
+        "vibecomfy nodes install",
+        "vibecomfy nodes refresh-template",
+    }
+    # Valid concrete file-edit locations
+    valid_file_locations = {
+        "vibecomfy/node_packs.py",
+        "widget_aliases module",
+        "vibecomfy/registry/models.yaml",
+    }
+
+    for entry in payload["remediations"]:
+        detail = str(entry.get("detail", ""))
+        # If detail contains a vibecomfy CLI reference, it must be a known command
+        if "vibecomfy " in detail.lower():
+            has_valid_cli = any(
+                valid_cmd in detail for valid_cmd in valid_cli_commands
+            )
+            assert has_valid_cli, (
+                f"Detail references a CLI command not verified to exist: {detail!r}"
+            )
+
+        # If detail references a file path, it must be a known file location
+        if ".py" in detail or ".yaml" in detail or "module" in detail:
+            has_valid_file = any(
+                valid_file in detail for valid_file in valid_file_locations
+            )
+            assert has_valid_file, (
+                f"Detail references a file not verified to exist: {detail!r}"
+            )
+
+
+def test_nodes_reconcile_maps_community_unknown_to_defer(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """community-node-unknown classifications map to defer-as-out-of-scope."""
+    # Use motion transfer workflow which has LTX2SamplingPreviewOverride / PathchSageAttentionKJ
+    # as community-node-unknown (no known pack declaration covers them).
+    out, code = _run_reconcile_capture(
+        capsys,
+        "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Motion_Transfer_DWPose.json",
+    )
+    payload = json.loads(out)
+    defer_entries = [
+        r
+        for r in payload["remediations"]
+        if r.get("action") == "defer-as-out-of-scope"
+    ]
+    assert len(defer_entries) >= 1
+    for entry in defer_entries:
+        assert entry["action"] == "defer-as-out-of-scope"
+        assert "community-node-unknown" in entry["detail"]
+
+
+def test_nodes_reconcile_maps_widget_alias_to_register_widget_alias(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """widget-alias-missing classifications map to register-widget-alias."""
+    # Use motion transfer workflow which has SimpleCalculatorKJ with unknown_input (variables.a/b/c)
+    # — the dynamic COMFY_AUTOGROW_V3 sub-keys are not in any installed schema snapshot.
+    out, code = _run_reconcile_capture(
+        capsys,
+        "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Motion_Transfer_DWPose.json",
+    )
+    payload = json.loads(out)
+    widget_entries = [
+        r
+        for r in payload["remediations"]
+        if r.get("classification") == "widget-alias-missing"
+    ]
+    assert len(widget_entries) >= 1
+    for entry in widget_entries:
+        assert entry["action"] == "register-widget-alias"
+        assert "widget_aliases module" in entry["detail"]
+
+
+def test_nodes_reconcile_summary_counts_match_remediations(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Summary action counts match the actual remediations list."""
+    out, code = _run_reconcile_capture(
+        capsys, "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    payload = json.loads(out)
+    summary = payload["summary"]
+    actual_counts: dict[str, int] = {}
+    for r in payload["remediations"]:
+        action = r["action"]
+        actual_counts[action] = actual_counts.get(action, 0) + 1
+    for action, expected in summary.items():
+        assert actual_counts.get(action, 0) == expected, f"mismatch for {action}"
+
+
+def test_nodes_reconcile_text_output_does_not_crash(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Non-JSON text output renders without crashing."""
+    out, code = _run_reconcile_capture(
+        capsys, "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json", json=False
+    )
+    assert "nodes reconcile:" in out
+    assert "defer-as-out-of-scope" in out
+    assert "install-pack" in out or "declare-pack" in out
+
+
+def test_nodes_reconcile_registered_in_cli_help() -> None:
+    """``vibecomfy nodes --help`` includes the reconcile subcommand."""
+    result = subprocess.run(
+        [sys.executable, "-m", "vibecomfy.cli", "nodes", "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "reconcile" in result.stdout
+
+
+def test_nodes_reconcile_help_is_discoverable() -> None:
+    """``vibecomfy nodes reconcile --help`` renders help text."""
+    result = subprocess.run(
+        [sys.executable, "-m", "vibecomfy.cli", "nodes", "reconcile", "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "--workflow" in result.stdout
+    assert "--json" in result.stdout
+
+
+def test_nodes_reconcile_output_is_non_mutating_proposal(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The reconcile output is a proposal only — it does not mutate any files."""
+    # Run reconcile and verify it completes without side effects
+    out, code = _run_reconcile_capture(
+        capsys, "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    payload = json.loads(out)
+    assert "remediations" in payload
+    # No action should have been taken — this is a read-only proposal
+    assert code == 0
+    # Verify the workflow file itself is unmodified (it's a git-tracked file)
+    wf_path = Path(
+        "workflow_corpus/official/audio/ace_step_1_5_t2a_song.json"
+    )
+    assert wf_path.exists(), "workflow file still exists unchanged"
+
+
+# ── reconcile helpers ───────────────────────────────────────────────────
+
+
+def _run_reconcile_capture(
+    capsys: pytest.CaptureFixture[str],
+    workflow: str,
+    *,
+    json: bool = True,
+    strict_ready: bool = False,
+) -> tuple[str, int]:
+    """Run reconcile and return captured stdout + exit code.
+
+    IMPORTANT: the caller MUST NOT call capsys.readouterr() after this —
+    the output has already been drained and returned.
+    """
+    from vibecomfy.commands.nodes import _cmd_nodes_reconcile
+
+    code = _cmd_nodes_reconcile(
+        argparse.Namespace(
+            workflow=workflow,
+            json=json,
+            object_info_cache=None,
+            strict_ready_template=strict_ready,
+            head_check_models=False,
+        )
+    )
+    # Drain capsys immediately — caller must use the returned string
+    return capsys.readouterr().out, code

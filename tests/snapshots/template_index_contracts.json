@@ -1313,10 +1313,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "173",
+            "node_id": "157",
             "field": "width"
           },
-          "node_id": "173",
+          "node_id": "157",
           "field": "width",
           "value": 832,
           "type": null,
@@ -1331,10 +1331,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "173",
+            "node_id": "157",
             "field": "height"
           },
-          "node_id": "173",
+          "node_id": "157",
           "field": "height",
           "value": 480,
           "type": null,
@@ -1349,10 +1349,10 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "174",
+            "node_id": "166",
             "field": "seed"
           },
-          "node_id": "174",
+          "node_id": "166",
           "field": "seed",
           "value": 42,
           "type": null,
@@ -1368,7 +1368,7 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "180",
+          "node_id": "163",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -1379,7 +1379,7 @@
         },
         {
           "name": "video",
-          "node_id": "182",
+          "node_id": "165",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -1390,7 +1390,7 @@
         },
         {
           "name": "video",
-          "node_id": "184",
+          "node_id": "170",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -1403,7 +1403,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "180",
+          "node_id": "163",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -1414,7 +1414,7 @@
         },
         {
           "name": "video",
-          "node_id": "182",
+          "node_id": "165",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -1425,7 +1425,7 @@
         },
         {
           "name": "video",
-          "node_id": "184",
+          "node_id": "170",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",

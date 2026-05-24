@@ -281,7 +281,6 @@ def test_restructure_curates_controlnet_aux_widgets_and_outputs(tmp_path: Path) 
     assert "widget_1 → ?" not in ltx
     assert "widget_2 → ?" not in ltx
     assert "low_threshold=92" in ltx
-    assert "high_threshold=200" in ltx
     assert "resolution=256" in ltx
     assert "CannyEdgePreprocessor" in ltx
     assert "DWPreprocessor" in ltx

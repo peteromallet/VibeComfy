@@ -53,7 +53,7 @@ def _load_module(path: Path):
 
 def test_ready_template_sweep_covers_all_repo_templates() -> None:
     assert len(READY_TEMPLATE_PATHS) == 64
-    assert len(BROKEN_REGEN_SHIMS) == 23
+    assert len(BROKEN_REGEN_SHIMS) == 16
 
 
 def test_ready_templates_have_exactly_one_line1_marker() -> None:

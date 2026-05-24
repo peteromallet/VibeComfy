@@ -9,7 +9,7 @@ import pytest
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
 from vibecomfy.node_packs_install import _known_schema_classes, _resolve_node_index_path, install_pack, missing_packs_for_workflow, restore_pack
 
-_VHS_CLASSES = ("VHS_LoadVideo", "VHS_VideoCombine")
+_VHS_CLASSES = ("VHS_LoadAudio", "VHS_LoadAudioUpload", "VHS_LoadVideo", "VHS_VideoCombine")
 
 
 def _video_helper_entry(sha: str) -> LockEntry:

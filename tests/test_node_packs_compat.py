@@ -39,7 +39,10 @@ def test_resolve_node_packs_uses_rich_lock_class_sets(monkeypatch) -> None:
     assert node_packs.unresolved_class_types({"RichNodeA", "MissingNode"}) == ["MissingNode"]
 
 
-def test_rich_lock_overrides_static_seed_pack_by_name(monkeypatch) -> None:
+def test_rich_lock_unions_with_static_pack_by_name(monkeypatch) -> None:
+    # Static classes are curated and always accurate; lockfile augments with runtime state
+    # and additional discovered classes. When both exist, the class set is the union so that
+    # T4-style static augmentations are not silently dropped by a stale lockfile snapshot.
     import vibecomfy.node_packs as node_packs
 
     def fake_read_lockfile(path: Path = Path("custom_nodes.lock")) -> list[LockEntry]:
@@ -54,8 +57,10 @@ def test_rich_lock_overrides_static_seed_pack_by_name(monkeypatch) -> None:
 
     monkeypatch.setattr(node_packs, "read_lockfile", fake_read_lockfile)
 
+    # lockfile-only class is resolved
     assert [pack.name for pack in node_packs.resolve_node_packs({"OnlyLockedKJNode"})] == ["ComfyUI-KJNodes"]
-    assert node_packs.resolve_node_packs({"ImageResizeKJv2"}) == []
+    # static class is still resolved (union, not override)
+    assert [pack.name for pack in node_packs.resolve_node_packs({"ImageResizeKJv2"})] == ["ComfyUI-KJNodes"]
 
 
 def test_static_seed_packs_remain_bootstrap_fallback(monkeypatch) -> None:

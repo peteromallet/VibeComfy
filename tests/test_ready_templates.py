@@ -292,9 +292,9 @@ def test_ready_templates_are_pure_python_builders() -> None:
 def test_ltx_raw_video_guide_uses_live_resize_schema_inputs() -> None:
     workflow = workflow_from_ready("video/ltx2_3_runexx_first_last_raw_video_guide")
 
-    inputs = workflow.compile()["6101"]["inputs"]
-    assert inputs["width"] == ["2080", 0]
-    assert inputs["height"] == ["2079", 0]
+    inputs = workflow.compile()["6116"]["inputs"]
+    assert inputs["width"] == ["2079", 0]
+    assert inputs["height"] == ["2078", 0]
     assert inputs["upscale_method"] == "lanczos"
     assert inputs["keep_proportion"] == "stretch"
     assert inputs.get("crop_position", "center") == "center"
@@ -480,24 +480,24 @@ def test_ltx_runexx_first_last_frame_omits_dead_gguf_branch_and_validates_calcul
     assert "ComfyUI-GGUF" not in workflow.requirements.custom_nodes
     assert "189" not in api
     assert "191" not in api
-    assert api["92"]["inputs"]["variables"] == "a"
-    assert api["2077"]["inputs"]["variables"] == "a,b"
-    assert api["2077"]["inputs"]["expression"] == "a"
-    assert api["216"]["inputs"]["sigmas"] == "0.909375, 0.725, 0.421875, 0.0"
-    assert api["210"]["inputs"]["num_images.strength_1"] == ["2110", 0]
-    assert api["210"]["inputs"]["num_images.strength_2"] == ["2108", 0]
-    assert api["2291"]["class_type"] == "LTX2MemoryEfficientSageAttentionPatch"
-    assert api["229"]["inputs"]["triton_kernels"] is False
-    assert api["2291"]["inputs"].get("triton_kernels", True) is True
-    assert api["2107"]["inputs"]["model"] == ["2291", 0]
-    assert api["1846"]["class_type"] == "VRAM_Debug"
-    assert api["1846"]["inputs"]["any_input"] == ["25", 0]
-    assert api["1846"]["inputs"]["unload_all_models"] is True
-    assert api["2105"]["inputs"]["latent"] == ["1846", 0]
-    assert workflow.inputs["start_image"].node_id == "45"
-    assert workflow.inputs["end_image"].node_id == "47"
-    assert workflow.inputs["frames"].node_id == "2078"
-    assert workflow.inputs["fps"].node_id == "2076"
+    assert api["2114"]["inputs"]["variables"] == "a"
+    assert api["2116"]["inputs"]["variables"] == "a,b"
+    assert api["2116"]["inputs"]["expression"] == "a"
+    assert api["15"]["inputs"]["sigmas"] == "0.909375, 0.725, 0.421875, 0.0"
+    assert api["2130"]["inputs"]["num_images.strength_1"] == ["2110", 0]
+    assert api["2130"]["inputs"]["num_images.strength_2"] == ["2108", 0]
+    assert api["2131"]["class_type"] == "LTX2MemoryEfficientSageAttentionPatch"
+    assert api["2129"]["inputs"]["triton_kernels"] is False
+    assert api["2131"]["inputs"].get("triton_kernels", True) is True
+    assert api["2107"]["inputs"]["model"] == ["2131", 0]
+    assert api["2140"]["class_type"] == "VRAM_Debug"
+    assert api["2140"]["inputs"]["any_input"] == ["2139", 0]
+    assert api["2140"]["inputs"]["unload_all_models"] is True
+    assert api["2141"]["inputs"]["latent"] == ["2140", 0]
+    assert workflow.inputs["start_image"].node_id == "6"
+    assert workflow.inputs["end_image"].node_id == "7"
+    assert workflow.inputs["length"].node_id == "2077"
+    assert workflow.inputs["output_fps"].node_id == "2076"
 
 
 def test_ready_template_loads_vibe_workflow() -> None:
@@ -817,76 +817,76 @@ def test_ltx_first_last_raw_video_guide_exposes_worker_patch_points() -> None:
     assert workflow.validate().ok
     assert "rgthree-comfy" in workflow.requirements.custom_nodes
     assert workflow.metadata["source_role"] == "materialized_ready_python_template"
-    assert workflow.inputs["start_image"].node_id == "45"
-    assert workflow.inputs["end_image"].node_id == "47"
-    assert workflow.inputs["control_video"].node_id == "5001"
-    assert workflow.inputs["prompt"].node_id == "2103"
-    assert workflow.inputs["negative"].node_id == "11"
-    assert workflow.inputs["seed"].node_id == "14"
-    assert workflow.inputs["frames"].node_id == "2078"
-    assert workflow.inputs["width"].node_id == "2080"
-    assert workflow.inputs["height"].node_id == "2079"
+    assert workflow.inputs["start_image"].node_id == "6"
+    assert workflow.inputs["end_image"].node_id == "7"
+    assert workflow.inputs["control_video"].node_id == "2111"
+    assert workflow.inputs["prompt"].node_id == "2083"
+    assert workflow.inputs["negative"].node_id == "6103"
+    assert workflow.inputs["seed"].node_id == "4"
+    assert workflow.inputs["frames"].node_id == "2077"
+    assert workflow.inputs["width"].node_id == "2079"
+    assert workflow.inputs["height"].node_id == "2078"
     assert workflow.inputs["fps"].node_id == "2076"
     assert workflow.inputs["strength"].node_id == "6102"
     assert workflow.inputs["first_frame_strength"].node_id == "2110"
     assert workflow.inputs["last_frame_strength"].node_id == "2108"
 
-    assert api["45"]["class_type"] == "LoadImage"
-    assert api["47"]["class_type"] == "LoadImage"
-    assert api["5001"]["class_type"] == "LoadVideo"
-    assert api["5000"]["class_type"] == "GetVideoComponents"
-    assert api["6101"]["class_type"] == "ImageResizeKJv2"
-    assert api["6101"]["inputs"]["image"] == ["5000", 0]
-    assert api["6101"]["inputs"]["width"] == ["2080", 0]
-    assert api["6101"]["inputs"]["height"] == ["2079", 0]
-    assert api["6101"]["inputs"]["upscale_method"] == "lanczos"
-    assert api["6101"]["inputs"]["keep_proportion"] == "stretch"
-    assert api["6101"]["inputs"].get("crop_position", "center") == "center"
-    assert not any(key.startswith("resize_type") for key in api["6101"]["inputs"])
+    assert api["6"]["class_type"] == "LoadImage"
+    assert api["7"]["class_type"] == "LoadImage"
+    assert api["2111"]["class_type"] == "LoadVideo"
+    assert api["6109"]["class_type"] == "GetVideoComponents"
+    assert api["6116"]["class_type"] == "ImageResizeKJv2"
+    assert api["6116"]["inputs"]["image"] == ["6109", 0]
+    assert api["6116"]["inputs"]["width"] == ["2079", 0]
+    assert api["6116"]["inputs"]["height"] == ["2078", 0]
+    assert api["6116"]["inputs"]["upscale_method"] == "lanczos"
+    assert api["6116"]["inputs"]["keep_proportion"] == "stretch"
+    assert api["6116"]["inputs"].get("crop_position", "center") == "center"
+    assert not any(key.startswith("resize_type") for key in api["6116"]["inputs"])
     assert api["6102"]["class_type"] == "PrimitiveFloat"
-    assert api["2152"]["class_type"] == "LTXVAddGuide"
-    assert api["2152"]["inputs"].get("frame_idx", 0) == 0
-    assert api["175"]["class_type"] == "LTXVAudioVAELoader"
-    assert api["175"]["inputs"]["ckpt_name"] == "LTX23_audio_vae_bf16.safetensors"
-    assert api["215"]["inputs"]["sigmas"].startswith("1.0, 0.99375")
-    assert api["216"]["inputs"]["sigmas"] == "0.909375, 0.725, 0.421875, 0.0"
-    assert api["92"]["inputs"]["expression"] == "a"
-    assert api["2077"]["inputs"]["expression"] == "a"
+    assert api["6135"]["class_type"] == "LTXVAddGuide"
+    assert api["6135"]["inputs"].get("frame_idx", 0) == 0
+    assert api["8"]["class_type"] == "LTXVAudioVAELoader"
+    assert api["8"]["inputs"]["ckpt_name"] == "LTX23_audio_vae_bf16.safetensors"
+    assert api["14"]["inputs"]["sigmas"].startswith("1.0, 0.99375")
+    assert api["15"]["inputs"]["sigmas"] == "0.909375, 0.725, 0.421875, 0.0"
+    assert api["6106"]["inputs"]["expression"] == "a"
+    assert api["6108"]["inputs"]["expression"] == "a"
     assert api["9"]["inputs"].get("batch_size", 1) == 1
-    assert api["26"]["inputs"]["upscale_method"] == "lanczos"
-    assert api["26"]["inputs"]["scale_by"] == 0.5
-    assert api["226"]["inputs"]["sage_attention"] == "auto"
+    assert api["6112"]["inputs"]["upscale_method"] == "lanczos"
+    assert api["6112"]["inputs"]["scale_by"] == 0.5
+    assert api["6114"]["inputs"]["sage_attention"] == "auto"
     assert any(
         package.get("name") == "sageattention"
         for package in workflow.metadata["runtime_packages"]
     )
-    assert api["226"]["inputs"].get("allow_compile", False) is False
-    assert api["228"]["inputs"].get("chunks", 2) == 2
-    assert api["228"]["inputs"].get("dim_threshold", 4096) == 4096
-    assert api["228"]["inputs"]["model"] == ["226", 0]
-    assert api["229"]["inputs"].get("triton_kernels", False) is False
-    assert api["2291"]["class_type"] == "LTX2MemoryEfficientSageAttentionPatch"
-    assert api["2291"]["inputs"].get("triton_kernels", True) is True
-    assert api["2291"]["inputs"]["model"] == ["229", 0]
-    assert api["2107"]["inputs"]["model"] == ["2291", 0]
+    assert api["6114"]["inputs"].get("allow_compile", False) is False
+    assert api["6120"]["inputs"].get("chunks", 2) == 2
+    assert api["6120"]["inputs"].get("dim_threshold", 4096) == 4096
+    assert api["6120"]["inputs"]["model"] == ["6114", 0]
+    assert api["6123"]["inputs"].get("triton_kernels", False) is False
+    assert api["6125"]["class_type"] == "LTX2MemoryEfficientSageAttentionPatch"
+    assert api["6125"]["inputs"].get("triton_kernels", True) is True
+    assert api["6125"]["inputs"]["model"] == ["6123", 0]
+    assert api["2107"]["inputs"]["model"] == ["6125", 0]
     assert api["2292"]["class_type"] == "VibeComfyStripConditioningKeys"
     assert api["2292"]["inputs"].get("keys", "guide_attention_entries") == "guide_attention_entries"
-    assert api["2292"]["inputs"]["positive"] == ["2152", 0]
-    assert api["2292"]["inputs"]["negative"] == ["2152", 1]
-    assert api["8"]["inputs"]["positive"] == ["2292", 0]
-    assert api["8"]["inputs"]["negative"] == ["2292", 1]
-    assert api["2156"]["inputs"]["positive"] == ["2292", 0]
-    assert api["2156"]["inputs"]["negative"] == ["2292", 1]
-    assert api["197"]["inputs"].get("nag_scale", 11) == 11
-    assert api["43"]["inputs"]["filename_prefix"] == "reigh_vibecomfy_ltx_raw_guide"
-    assert api["43"]["inputs"].get("save_output", True) is True
+    assert api["2292"]["inputs"]["positive"] == ["6135", 0]
+    assert api["2292"]["inputs"]["negative"] == ["6135", 1]
+    assert api["6137"]["inputs"]["positive"] == ["2292", 0]
+    assert api["6137"]["inputs"]["negative"] == ["2292", 1]
+    assert api["6141"]["inputs"]["positive"] == ["2292", 0]
+    assert api["6141"]["inputs"]["negative"] == ["2292", 1]
+    assert api["6128"]["inputs"].get("nag_scale", 11) == 11
+    assert api["6143"]["inputs"]["filename_prefix"] == "reigh_vibecomfy_ltx_raw_guide"
+    assert api["6143"]["inputs"].get("save_output", True) is True
     assert {asset["name"] for asset in workflow.metadata["model_assets"]} >= {
         "ltx-2.3_text_projection_bf16.safetensors",
         "taeltx2_3.safetensors",
         "LTX/v2/ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors",
     }
-    assert api["2152"]["inputs"]["image"] == ["6101", 0]
-    assert api["2152"]["inputs"]["strength"] == ["6102", 0]
+    assert api["6135"]["inputs"]["image"] == ["6116", 0]
+    assert api["6135"]["inputs"]["strength"] == ["6102", 0]
     assert "LTXICLoRALoaderModelOnly" not in {node["class_type"] for node in api.values()}
     assert "LTXAddVideoICLoRAGuide" not in {node["class_type"] for node in api.values()}
     assert _opaque_component_nodes(api) == []
