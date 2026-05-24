@@ -10,7 +10,7 @@ All GPU/network work is guarded behind ``if __name__ == '__main__'``.
 
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node, ref
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node, public
 from vibecomfy.workflow import VibeWorkflow
 
 # ---------------------------------------------------------------------------
@@ -18,16 +18,13 @@ from vibecomfy.workflow import VibeWorkflow
 # ---------------------------------------------------------------------------
 
 # Normally you'd load this from a ready_template file.  Here we build one
-# inline so the tutorial is self-contained.
+# inline so the tutorial is self-contained.  Public inputs are declared
+# inline at the kwarg site with ``public(name, default=...)`` — the
+# preferred form since v2.7 (replaces the legacy ``ref('label')`` pattern).
 
 METADATA = ReadyMetadata.build(
     capability="image",
     template_id="cookbook/tweak_demo",
-    inputs={
-        "prompt": InputSpec(node=ref("positive"), field="text", default="a cat on a cloud"),
-        "seed": InputSpec(node=ref("ksampler"), field="seed", default=42),
-        "steps": InputSpec(node=ref("ksampler"), field="steps", default=20),
-    },
     models={},
     output_prefix="image/CookbookTweak",
 )
@@ -36,21 +33,29 @@ METADATA = ReadyMetadata.build(
 def build() -> VibeWorkflow:
     with new_workflow(METADATA, source_path=__file__) as wf:
         ckpt = node("CheckpointLoaderSimple", ckpt_name="v1-5-pruned-emaonly.safetensors")
-        positive = node("CLIPTextEncode", text="a cat on a cloud", clip=ckpt.out(1))
+        positive = node(
+            "CLIPTextEncode",
+            text=public("prompt", default="a cat on a cloud"),
+            clip=ckpt.out(1),
+        )
         negative = node("CLIPTextEncode", text="blurry", clip=ckpt.out(1))
         latent = node("EmptyLatentImage", width=512, height=512, batch_size=1)
-        ksampler = node("KSampler",
-            seed=42, steps=20, cfg=7.0,
-            sampler_name="euler", scheduler="normal", denoise=1.0,
-            model=ckpt.out(0), positive=positive.out(0),
-            negative=negative.out(0), latent_image=latent.out(0),
+        ksampler = node(
+            "KSampler",
+            seed=public("seed", default=42),
+            steps=public("steps", default=20),
+            cfg=7.0,
+            sampler_name="euler",
+            scheduler="normal",
+            denoise=1.0,
+            model=ckpt.out(0),
+            positive=positive.out(0),
+            negative=negative.out(0),
+            latent_image=latent.out(0),
         )
         decoded = node("VAEDecode", samples=ksampler.out(0), vae=ckpt.out(2))
         node("SaveImage", filename_prefix="CookbookTweak", images=decoded.out(0))
-        return wf.finalize(
-            {"prompt": METADATA.get("prompt"), "seed": METADATA.get("seed"), "steps": METADATA.get("steps")},
-            output_type="SaveImage",
-        )
+        return wf.finalize({}, output_type="SaveImage")
 
 
 # ---------------------------------------------------------------------------

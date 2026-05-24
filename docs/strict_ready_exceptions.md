@@ -4,12 +4,16 @@ This inventory is the only place for temporary strict-ready exceptions on
 protected repo templates. A protected template is one where `app_active` is
 `true` or `coverage_tier` is `required`.
 
-As of May 16, 2026, the strict-ready gate reports 11 protected-template
-violations that are tracked as exact temporary exceptions below. All entries
-are categorized as `blocked` because they belong to required/app-active
-templates and must be removed before those templates can be considered clean
-strict-ready examples. The Sprint 8 static-vs-built comparison still has 0
-public contract drift offenders after fixing extractor/template gaps.
+As of May 24, 2026, the strict-ready gate reports 15 protected-template
+violations tracked as exact temporary exceptions below. All entries are
+categorized as `blocked` because they belong to required/app-active templates
+and must be removed before those templates can be considered clean strict-ready
+examples. The Phase 0 sprint added exception-loading support to the gate tool
+(`check_strict_ready_templates.py`) so documented exceptions suppress enforced
+errors without hiding them from the diagnostic output. The 4 new entries (added
+2026-05-24) are `legacy_vocabulary_call` violations for `wf.register_input`
+calls emitted by the Phase 0 emitter; they will be resolved by the Phase 1
+emitter migration to `public()` inline registration.
 
 ## Entry Rules
 
@@ -52,6 +56,10 @@ contracts agree before adding any exception.
 | `sre-20260516-ltx23-two-stage-hidden-model-4980-widget3` | `video/ltx2_3_lightricks_two_stage` | `hidden_model_filename` | `node:4980.widget_3` | `workflow-porting` | `01KRNDP7S3BW6DMNKAWPNVVYMB` | 2026-06-30 | `blocked` |
 | `sre-20260516-ltx23-two-stage-hidden-model-4981-widget3` | `video/ltx2_3_lightricks_two_stage` | `hidden_model_filename` | `node:4981.widget_3` | `workflow-porting` | `01KRNDP7S3BW6DMNKAWPNVVYMB` | 2026-06-30 | `blocked` |
 | `sre-20260516-ltx23-two-stage-widget-4988-widget1` | `video/ltx2_3_lightricks_two_stage` | `strict_ready_unresolved_widgets` | `node:4988.widget_1` | `workflow-porting` | `01KRKQGP81Z5XR0FAK19T5CAC8` | 2026-06-30 | `blocked` |
+| `sre-20260524-qwen-image-2512-legacy-register-input-112` | `image/qwen_image_2512` | `legacy_vocabulary_call` | `ready_templates/image/qwen_image_2512.py:112` | `workflow-porting` | `phase-1-emitter-register-input-migration` | 2026-07-31 | `blocked` |
+| `sre-20260524-ltx23-first-last-iclora-control-legacy-register-input-379` | `video/ltx2_3_first_last_frame_travel_iclora_control` | `legacy_vocabulary_call` | `ready_templates/video/ltx2_3_first_last_frame_travel_iclora_control.py:379` | `workflow-porting` | `phase-1-emitter-register-input-migration` | 2026-07-31 | `blocked` |
+| `sre-20260524-ltx23-first-last-iclora-control-legacy-register-input-380` | `video/ltx2_3_first_last_frame_travel_iclora_control` | `legacy_vocabulary_call` | `ready_templates/video/ltx2_3_first_last_frame_travel_iclora_control.py:380` | `workflow-porting` | `phase-1-emitter-register-input-migration` | 2026-07-31 | `blocked` |
+| `sre-20260524-wan-i2v-legacy-register-input-106` | `video/wan_i2v` | `legacy_vocabulary_call` | `ready_templates/video/wan_i2v.py:106` | `workflow-porting` | `phase-1-emitter-register-input-migration` | 2026-07-31 | `blocked` |
 
 Removal conditions are stored on each JSON entry. In summary:
 
@@ -61,6 +69,9 @@ Removal conditions are stored on each JSON entry. In summary:
 - `01KRKQGP81Z5XR0FAK19T5CAC8`: rewrite the remaining schema-backed
   `PrimitiveInt` positional widgets with named inputs or add committed widget
   schema alias evidence.
+- `phase-1-emitter-register-input-migration`: update the emitter to emit
+  `public()` inline calls for model-picker inputs and regenerate all affected
+  templates so `wf.register_input` is no longer emitted by the Phase 1 emitter.
 
 Generated-template style warnings are not strict-ready exceptions and are not
 listed here. They remain reported by the strict-ready gate as non-enforced

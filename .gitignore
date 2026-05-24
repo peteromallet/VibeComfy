@@ -30,3 +30,4 @@ custom_nodes/
 docs/megaplan_briefs/
 docs/subagent_prompts/
 this.env
+.hypothesis/

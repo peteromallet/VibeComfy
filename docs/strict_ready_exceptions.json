@@ -158,6 +158,54 @@
       "allowed_until": "2026-06-30",
       "removal_condition": "Rewrite the PrimitiveInt binding with a named input or add committed schema alias evidence so strict-ready no longer emits strict_ready_unresolved_widgets for node:4988.widget_1.",
       "final_category": "blocked"
+    },
+    {
+      "id": "sre-20260524-qwen-image-2512-legacy-register-input-112",
+      "ready_id": "image/qwen_image_2512",
+      "violation_code": "legacy_vocabulary_call",
+      "target": "ready_templates/image/qwen_image_2512.py:112",
+      "owner": "workflow-porting",
+      "ticket": "phase-1-emitter-register-input-migration",
+      "reason": "The Phase 0 emitter still emits wf.register_input() for model-picker inputs in generated templates. Updating the emitter to emit public() inline calls is a Phase 1 emitter family fix; changing the template manually would diverge from the emitter's output and rot on next regen.",
+      "allowed_until": "2026-07-31",
+      "removal_condition": "Update the emitter to emit public() inline calls for model-picker inputs and regenerate this template so wf.register_input is no longer emitted.",
+      "final_category": "blocked"
+    },
+    {
+      "id": "sre-20260524-ltx23-first-last-iclora-control-legacy-register-input-379",
+      "ready_id": "video/ltx2_3_first_last_frame_travel_iclora_control",
+      "violation_code": "legacy_vocabulary_call",
+      "target": "ready_templates/video/ltx2_3_first_last_frame_travel_iclora_control.py:379",
+      "owner": "workflow-porting",
+      "ticket": "phase-1-emitter-register-input-migration",
+      "reason": "The Phase 0 emitter still emits wf.register_input() for model-picker inputs in generated templates. Updating the emitter to emit public() inline calls is a Phase 1 emitter family fix.",
+      "allowed_until": "2026-07-31",
+      "removal_condition": "Update the emitter to emit public() inline calls for model-picker inputs and regenerate this template.",
+      "final_category": "blocked"
+    },
+    {
+      "id": "sre-20260524-ltx23-first-last-iclora-control-legacy-register-input-380",
+      "ready_id": "video/ltx2_3_first_last_frame_travel_iclora_control",
+      "violation_code": "legacy_vocabulary_call",
+      "target": "ready_templates/video/ltx2_3_first_last_frame_travel_iclora_control.py:380",
+      "owner": "workflow-porting",
+      "ticket": "phase-1-emitter-register-input-migration",
+      "reason": "The Phase 0 emitter still emits wf.register_input() for model-picker inputs in generated templates. Updating the emitter to emit public() inline calls is a Phase 1 emitter family fix.",
+      "allowed_until": "2026-07-31",
+      "removal_condition": "Update the emitter to emit public() inline calls for model-picker inputs and regenerate this template.",
+      "final_category": "blocked"
+    },
+    {
+      "id": "sre-20260524-wan-i2v-legacy-register-input-106",
+      "ready_id": "video/wan_i2v",
+      "violation_code": "legacy_vocabulary_call",
+      "target": "ready_templates/video/wan_i2v.py:106",
+      "owner": "workflow-porting",
+      "ticket": "phase-1-emitter-register-input-migration",
+      "reason": "The Phase 0 emitter still emits wf.register_input() for model-picker inputs in generated templates. Updating the emitter to emit public() inline calls is a Phase 1 emitter family fix.",
+      "allowed_until": "2026-07-31",
+      "removal_condition": "Update the emitter to emit public() inline calls for model-picker inputs and regenerate this template.",
+      "final_category": "blocked"
     }
   ]
 }
