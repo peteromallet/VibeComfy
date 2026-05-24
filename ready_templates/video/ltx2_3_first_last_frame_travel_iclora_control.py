@@ -219,7 +219,6 @@ def build() -> VibeWorkflow:
 
         cannyedgepreprocessor = raw_call('CannyEdgePreprocessor', '4991',
             low_threshold=92,
-            high_threshold=200,
             resolution=256,
             image=image_image_3,
         )
@@ -376,7 +375,7 @@ def build() -> VibeWorkflow:
         )
 
 
-        wf.register_input('model', '7', 'ckpt_name', CKPT_NAME)
-        wf.register_input('ic_lora_filename', '6025', 'lora_name', LORA_NAME_2)
+        wf.register_input('model', ltxvaudiovaeloader.node.id, 'ckpt_name', CKPT_NAME)
+        wf.register_input('ic_lora_filename', model.node_id, 'lora_name', LORA_NAME_2)
         return wf.finalize({}, filename_prefix='reigh_vibecomfy_ltx_control_first_last', spec=OUTPUT_SPEC)
 

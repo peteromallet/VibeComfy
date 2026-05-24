@@ -25,17 +25,6 @@ MODEL_NAME_2 = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_3 = 'sam2_hiera_base_plus.safetensors'
 MODEL_NAME_4 = 'WanVideo\\2_2\\Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors'
 POSE_ESTIMATOR_NAME = 'dw-ll_ucoco_384_bs5.torchscript.pt'
-WIDGET_0 = 'background_image'
-WIDGET_0_10 = 'frame_count'
-WIDGET_0_11 = 'VAE'
-WIDGET_0_2 = 'reference_image'
-WIDGET_0_3 = 'face_images'
-WIDGET_0_4 = 'pose_images'
-WIDGET_0_5 = 'mask'
-WIDGET_0_6 = 'input_video'
-WIDGET_0_7 = 'input_audio'
-WIDGET_0_8 = 'width'
-WIDGET_0_9 = 'height'
 
 
 OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
@@ -88,25 +77,9 @@ def build() -> VibeWorkflow:
             context_overlap=32,
         )
 
-        getnode = raw_call('GetNode', '131', widget_0=WIDGET_0)
-        getnode_2 = raw_call('GetNode', '133', widget_0=WIDGET_0_2)
-        getnode_3 = raw_call('GetNode', '134', widget_0=WIDGET_0_2)
-        getnode_4 = raw_call('GetNode', '137', widget_0=WIDGET_0_3)
-        getnode_5 = raw_call('GetNode', '138', widget_0=WIDGET_0_3)
-        getnode_6 = raw_call('GetNode', '140', widget_0=WIDGET_0_4)
-        getnode_7 = raw_call('GetNode', '141', widget_0=WIDGET_0_4)
-        getnode_8 = raw_call('GetNode', '143', widget_0=WIDGET_0_5)
-        getnode_9 = raw_call('GetNode', '145', widget_0=WIDGET_0_6)
-        getnode_10 = raw_call('GetNode', '146', widget_0=WIDGET_0_6)
         reroute = raw_call('Reroute', '147')
-        getnode_11 = raw_call('GetNode', '149', widget_0=WIDGET_0_7)
         intconstant = INTConstant(value=832)
         intconstant_2 = INTConstant(value=480)
-        getnode_12 = raw_call('GetNode', '155', widget_0=WIDGET_0_8)
-        getnode_13 = raw_call('GetNode', '156', widget_0=WIDGET_0_9)
-        getnode_14 = raw_call('GetNode', '158', widget_0=WIDGET_0_10)
-        getnode_15 = raw_call('GetNode', '162', widget_0=WIDGET_0_11)
-        getnode_16 = raw_call('GetNode', '163', widget_0=WIDGET_0_11)
 
         wanvideoloraselectmulti = WanVideoLoraSelectMulti(
             lora_0=LORA__NAME,
@@ -114,10 +87,6 @@ def build() -> VibeWorkflow:
             strength_1=1.2,
             merge_loras=False,
         )
-
-        setnode_8 = raw_call('SetNode', '153', widget_0=WIDGET_0_8, INT=intconstant)
-        setnode_9 = raw_call('SetNode', '154', widget_0=WIDGET_0_9, INT=intconstant_2)
-        setnode_11 = raw_call('SetNode', '161', widget_0=WIDGET_0_11, WANVAE=wanvideovaeloader)
 
         wanvideomodelloader = WanVideoModelLoader(
             model=MODEL_NAME_4,
@@ -144,22 +113,6 @@ def build() -> VibeWorkflow:
             image=image,
         )
 
-        wanvideoclipvisionencode = WanVideoClipVisionEncode(
-            clip_vision=clipvisionloader,
-            image_1=getnode_2.out(0),
-        )
-
-        imageconcatmulti = ImageConcatMulti(
-            inputcount=4,
-            direction='down',
-            match_image_size=True,
-            unused_3=None,
-            image_1=getnode_3.out(0),
-            image_2=getnode_4.out(0),
-            image_3=getnode_6.out(0),
-            image_4=getnode_9.out(0),
-        )
-
         pixelperfectresolution = PixelPerfectResolution(
             resize_mode=512,
             widget_1=512,
@@ -167,24 +120,6 @@ def build() -> VibeWorkflow:
             image_gen_height=intconstant_2,
             image_gen_width=intconstant,
             original_image=reroute.out(0),
-        )
-
-        wanvideoanimateembeds = raw_call('WanVideoAnimateEmbeds', '62',
-            force_offload=False,
-            unused_8=False,
-            widget_0=832,
-            widget_1=480,
-            widget_2=501,
-            width=getnode_12.out(0),
-            height=getnode_13.out(0),
-            num_frames=getnode_14.out(0),
-            bg_images=getnode.out(0),
-            clip_embeds=wanvideoclipvisionencode,
-            face_images=getnode_5.out(0),
-            mask=getnode_8.out(0),
-            pose_images=getnode_7.out(0),
-            ref_images=getnode_2.out(0),
-            vae=getnode_16.out(0),
         )
 
         dwpreprocessor = raw_call('DWPreprocessor', '73',
@@ -199,26 +134,14 @@ def build() -> VibeWorkflow:
             image=reroute.out(0),
         )
 
-        setnode = raw_call('SetNode', '128', widget_0=WIDGET_0_2, IMAGE=image_image)
-        setnode_6 = raw_call('SetNode', '144', widget_0=WIDGET_0_6, IMAGE=image_load)
-        setnode_7 = raw_call('SetNode', '148', widget_0=WIDGET_0_7, AUDIO=audio)
-        setnode_10 = raw_call('SetNode', '157', widget_0=WIDGET_0_10, INT=frame_count)
+        wanvideoclipvisionencode = WanVideoClipVisionEncode(
+            clip_vision=clipvisionloader,
+            image_1=image_image,
+        )
 
         wanvideosetloras = WanVideoSetLoRAs(
             lora=wanvideoloraselectmulti,
             model=wanvideomodelloader,
-        )
-
-        facemaskfromposekeypoints = raw_call('FaceMaskFromPoseKeypoints', '120',
-            widget_0=0,
-            pose_kps=dwpreprocessor.out(1),
-        )
-
-        setnode_4 = raw_call('SetNode', '139', widget_0=WIDGET_0_4, IMAGE=dwpreprocessor)
-
-        wanvideosetblockswap = WanVideoSetBlockSwap(
-            block_swap_args=wanvideoblockswap,
-            model=wanvideosetloras,
         )
 
         positive_coords, negative_coords, bbox, bbox_mask, cropped_image = PointsEditor(
@@ -232,7 +155,23 @@ def build() -> VibeWorkflow:
             height=public('height', default=480),
             widget_10=None,
             widget_9='',
-            bg_image=setnode_6.out(0),
+            bg_image=image_load,
+        )
+
+        facemaskfromposekeypoints = raw_call('FaceMaskFromPoseKeypoints', '120',
+            widget_0=0,
+            pose_kps=dwpreprocessor.out(1),
+        )
+
+        wanvideosetblockswap = WanVideoSetBlockSwap(
+            block_swap_args=wanvideoblockswap,
+            model=wanvideosetloras,
+        )
+
+        sam2segmentation = Sam2Segmentation(
+            coordinates_positive=positive_coords,
+            image=image_load,
+            sam2_model=downloadandloadsam2model,
         )
 
         imagecropbymaskandresize = raw_call('ImageCropByMaskAndResize', '96',
@@ -244,6 +183,48 @@ def build() -> VibeWorkflow:
             image=reroute.out(0),
             mask=facemaskfromposekeypoints,
         )
+
+        growmask = GrowMask(expand=10, mask=sam2segmentation)
+
+        imageconcatmulti = ImageConcatMulti(
+            inputcount=4,
+            direction='down',
+            match_image_size=True,
+            unused_3=None,
+            image_1=image_image,
+            image_2=imagecropbymaskandresize.out('IMAGES'),
+            image_3=dwpreprocessor,
+            image_4=image_load,
+        )
+
+        blockifymask = BlockifyMask(masks=growmask)
+
+        # Outputs
+        vhs_videocombine = VHS_VideoCombine(
+            images=imagecropbymaskandresize.out('IMAGES'),
+        )
+
+        drawmaskonimage = DrawMaskOnImage(image=image_load, mask=blockifymask)
+
+        wanvideoanimateembeds = raw_call('WanVideoAnimateEmbeds', '62',
+            force_offload=False,
+            unused_8=False,
+            widget_0=832,
+            widget_1=480,
+            widget_2=501,
+            width=intconstant,
+            height=intconstant_2,
+            num_frames=frame_count,
+            bg_images=drawmaskonimage,
+            clip_embeds=wanvideoclipvisionencode,
+            face_images=imagecropbymaskandresize.out('IMAGES'),
+            mask=blockifymask,
+            pose_images=dwpreprocessor,
+            ref_images=image_image,
+            vae=wanvideovaeloader,
+        )
+
+        vhs_videocombine_2 = VHS_VideoCombine(images=drawmaskonimage)
 
         samples, denoised_samples = WanVideoSampler(
             steps=1,
@@ -257,31 +238,15 @@ def build() -> VibeWorkflow:
             text_embeds=text_embeds,
         )
 
-        sam2segmentation = Sam2Segmentation(
-            coordinates_positive=positive_coords,
-            image=setnode_6.out(0),
-            sam2_model=downloadandloadsam2model.out(0),
-        )
-
-        setnode_3 = raw_call('SetNode', '135', widget_0=WIDGET_0_3, IMAGE=imagecropbymaskandresize.out('IMAGES'))
-
         wanvideodecode = WanVideoDecode(
             normalization='default',
             samples=samples,
-            vae=getnode_15.out(0),
+            vae=wanvideovaeloader,
         )
-
-        growmask = GrowMask(expand=10, mask=sam2segmentation.out(0))
 
         image_get, width_get, height_get, count = GetImageSizeAndCount(
             image=wanvideodecode,
         )
-
-        blockifymask = BlockifyMask(masks=growmask)
-
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(images=setnode_3.out(0))
-        setnode_5 = raw_call('SetNode', '142', widget_0=WIDGET_0_5, MASK=blockifymask)
 
         imageconcatmulti_2 = ImageConcatMulti(
             direction='left',
@@ -291,18 +256,7 @@ def build() -> VibeWorkflow:
             image_2=imageconcatmulti,
         )
 
-        vhs_videocombine_2 = VHS_VideoCombine(
-            audio=getnode_11.out(0),
-            images=imageconcatmulti_2,
-        )
-
-        drawmaskonimage = DrawMaskOnImage(
-            image=getnode_10.out(0),
-            mask=setnode_5.out(0),
-        )
-
-        setnode_2 = raw_call('SetNode', '130', widget_0=WIDGET_0, IMAGE=drawmaskonimage)
-        vhs_videocombine_3 = VHS_VideoCombine(images=setnode_2.out(0))
+        vhs_videocombine_3 = VHS_VideoCombine(audio=audio, images=imageconcatmulti_2)
 
         return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
 

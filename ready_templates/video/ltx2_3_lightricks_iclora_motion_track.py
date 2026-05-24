@@ -255,6 +255,6 @@ def build() -> VibeWorkflow:
         savevideo_2 = SaveVideo(filename_prefix='output', video=createvideo_2)
 
 
-        wf.register_input('model', '2', 'ckpt_name', CKPT_NAME)
+        wf.register_input('model', model.node_id, 'ckpt_name', CKPT_NAME)
         return wf.finalize({}, output_node=savevideo, filename_prefix='output', spec=OUTPUT_SPEC)
 

@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CLIPVisionLoader, EmptyImage, LoadImage
 from vibecomfy.nodes.kjnodes import AddLabel, GetImageSizeAndCount, ImageConcatMulti, ImageResizeKJv2
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
@@ -26,8 +26,6 @@ MODEL_NAME_2 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
 MODEL_NAME_3 = 'open-clip-xlm-roberta-large-vit-huge-14_visual_fp16.safetensors'
 MODEL_NAME_4 = 'WanVideo\\Wan2_1-FLF2V-14B-720P_fp8_e4m3fn.safetensors'
 UPSCALE_METHOD = 'lanczos'
-WIDGET_0 = 'start_image'
-WIDGET_0_2 = 'end_image'
 WIDGET_4 = 'white'
 WIDGET_5 = 'black'
 WIDGET_6 = 'FreeMono.ttf'
@@ -66,8 +64,6 @@ def build() -> VibeWorkflow:
         image, mask = LoadImage(image=public('image', default='pasted/image (853).png'))
         clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME_2)
         image_load, mask_load = LoadImage(image='pasted/image (852).png')
-        getnode = raw_call('GetNode', '93', widget_0=WIDGET_0)
-        getnode_2 = raw_call('GetNode', '94', widget_0=WIDGET_0_2)
         wanvideoloraselect = WanVideoLoraSelect(lora=LORA_NAME, strength=1.2)
 
         wanvideomodelloader = WanVideoModelLoader(
@@ -87,32 +83,6 @@ def build() -> VibeWorkflow:
 
         cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
 
-        addlabel = AddLabel(
-            widget_0=10,
-            widget_1=2,
-            widget_2=48,
-            widget_3=32,
-            widget_4=WIDGET_4,
-            widget_5=WIDGET_5,
-            widget_6=WIDGET_6,
-            widget_7='start_frame',
-            widget_8=WIDGET_8,
-            image=getnode.out(0),
-        )
-
-        addlabel_2 = AddLabel(
-            widget_0=10,
-            widget_1=2,
-            widget_2=48,
-            widget_3=32,
-            widget_4=WIDGET_4,
-            widget_5=WIDGET_5,
-            widget_6=WIDGET_6,
-            widget_7='end_frame',
-            widget_8=WIDGET_8,
-            image=getnode_2.out(0),
-        )
-
         image_image, width, height, mask_image = ImageResizeKJv2(
             width=public('width', default=256),
             height=public('height', default=256),
@@ -123,7 +93,18 @@ def build() -> VibeWorkflow:
             image=image_load,
         )
 
-        setnode = raw_call('SetNode', '91', widget_0=WIDGET_0, IMAGE=image_image)
+        addlabel = AddLabel(
+            widget_0=10,
+            widget_1=2,
+            widget_2=48,
+            widget_3=32,
+            widget_4=WIDGET_4,
+            widget_5=WIDGET_5,
+            widget_6=WIDGET_6,
+            widget_7='start_frame',
+            widget_8=WIDGET_8,
+            image=image_image,
+        )
 
         wanvideotextencode = WanVideoTextEncode(
             positive_prompt=DEFAULT_PROMPT,
@@ -137,14 +118,6 @@ def build() -> VibeWorkflow:
             positive=cliptextencode,
         )
 
-        imageconcatmulti = ImageConcatMulti(
-            direction='down',
-            match_image_size=True,
-            unused_3=None,
-            image_1=addlabel,
-            image_2=addlabel_2,
-        )
-
         image_image_2, width_image, height_image, mask_image_2 = ImageResizeKJv2(
             upscale_method=UPSCALE_METHOD,
             keep_proportion=KEEP_PROPORTION,
@@ -155,13 +128,32 @@ def build() -> VibeWorkflow:
             image=image,
         )
 
-        setnode_2 = raw_call('SetNode', '92', widget_0=WIDGET_0_2, IMAGE=image_image_2)
+        addlabel_2 = AddLabel(
+            widget_0=10,
+            widget_1=2,
+            widget_2=48,
+            widget_3=32,
+            widget_4=WIDGET_4,
+            widget_5=WIDGET_5,
+            widget_6=WIDGET_6,
+            widget_7='end_frame',
+            widget_8=WIDGET_8,
+            image=image_image_2,
+        )
 
         wanvideoclipvisionencode = WanVideoClipVisionEncode(
             combine_embeds='concat',
             clip_vision=clipvisionloader,
-            image_1=setnode.out(0),
-            image_2=setnode_2.out(0),
+            image_1=image_image,
+            image_2=image_image_2,
+        )
+
+        imageconcatmulti = ImageConcatMulti(
+            direction='down',
+            match_image_size=True,
+            unused_3=None,
+            image_1=addlabel,
+            image_2=addlabel_2,
         )
 
         wanvideoimagetovideoencode = WanVideoImageToVideoEncode(
@@ -171,8 +163,8 @@ def build() -> VibeWorkflow:
             width=width_image,
             height=height_image,
             clip_embeds=wanvideoclipvisionencode,
-            end_image=setnode_2.out(0),
-            start_image=setnode.out(0),
+            end_image=image_image_2,
+            start_image=image_image,
             vae=wanvideovaeloader,
         )
 

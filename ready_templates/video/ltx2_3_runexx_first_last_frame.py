@@ -1,147 +1,51 @@
-# vibecomfy: broken-regen
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call
-from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, DualCLIPLoader, EmptyLTXVLatentVideo, GetImageSize, ImageScaleBy, KSamplerSelect, LTXVAddGuide, LTXVAudioVAEDecode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVCropGuides, LTXVEmptyLatentAudio, LTXVLatentUpsampler, LTXVPreprocess, LTXVScheduler, LTXVSeparateAVLatent, LatentUpscaleModelLoader, LoadImage, LoraLoaderModelOnly, ManualSigmas, PrimitiveStringMultiline, RandomNoise, ResizeImagesByLongerEdge, SamplerCustomAdvanced, UNETLoader, VAEDecodeTiled, VAELoader
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, ComfySwitchNode, DualCLIPLoader, EmptyLTXVLatentVideo, GetImageSize, ImageScaleBy, KSamplerSelect, LTXVAddGuide, LTXVAudioVAEDecode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVCropGuides, LTXVEmptyLatentAudio, LTXVLatentUpsampler, LTXVPreprocess, LTXVScheduler, LTXVSeparateAVLatent, LatentUpscaleModelLoader, LoadImage, LoraLoaderModelOnly, ManualSigmas, PrimitiveStringMultiline, RandomNoise, ResizeImageMaskNode, ResizeImagesByLongerEdge, SamplerCustomAdvanced, StringConcatenate, TextGenerateLTX2Prompt, UNETLoader, VAEDecodeTiled, VAELoader
 from vibecomfy.nodes.kjnodes import INTConstant, ImageResizeKJv2, LTX2AttentionTunerPatch, LTX2MemoryEfficientSageAttentionPatch, LTX2_NAG, LTXVChunkFeedForward, LTXVImgToVideoInplaceKJ, PathchSageAttentionKJ, SimpleCalculatorKJ, VRAM_Debug
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
 
-# --- legacy SymbolicNodeRef shim (this template is marked manual; the
-# public ``vibecomfy.templates.ref`` symbol is retired) -------------------
-class SymbolicNodeRef:
-    """Local copy of the retired ``vibecomfy.templates.SymbolicNodeRef``."""
 
-    __slots__ = ("label",)
-
-    def __init__(self, label):
-        self.label = label
-
-    def __repr__(self):
-        return f"SymbolicNodeRef({self.label!r})"
-
-    def __eq__(self, other):
-        return isinstance(other, SymbolicNodeRef) and self.label == other.label
-
-    def __hash__(self):
-        return hash(("SymbolicNodeRef", self.label))
-
-    def resolve(self, namespace, wf):
-        value = namespace.get(self.label)
-        node_id = None
-        if hasattr(value, "node_id"):
-            node_id = str(value.node_id)
-        elif hasattr(value, "node") and value.node is not None and hasattr(value.node, "id"):
-            node_id = str(value.node.id)
-        elif hasattr(value, "id"):
-            node_id = str(value.id)
-        elif isinstance(value, str):
-            node_id = value
-        if node_id is None or node_id not in wf.nodes:
-            raise ValueError(
-                f"SymbolicNodeRef({self.label!r}) could not be resolved to a node "
-                f"in workflow {wf.id!r}"
-            )
-        wf.metadata.setdefault("id_map", {})[self.label] = node_id
-        return node_id
-
-
-def ref(label):
-    """Local copy of the retired ``vibecomfy.templates.ref``."""
-
-    return SymbolicNodeRef(label)
-# --- end legacy shim -----------------------------------------------------
-
-
+CKPT_NAME = 'LTX23_audio_vae_bf16.safetensors'
+CLIP_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
+CLIP_NAME_2 = 'ltx-2.3_text_projection_bf16.safetensors'
 CONTROL_AFTER_GENERATE = 'fixed'
 DEFAULT_PROMPT = "wf.nodes['11'].inputs.get('text', '')"
 DEFAULT_SEED = 43
 DEFAULT_SEED_2 = 42
 DEVICE = 'cpu'
 EXPRESSION = 'a'
-GUIDE_STRENGTH = 2.5
-GUIDE_STRENGTH_2 = 0.6
+GUIDE_STRENGTH = 0.6
+GUIDE_STRENGTH_2 = 2.5
 KEEP_PROPORTION = 'crop'
-MODEL_NAME = 'LTX23_audio_vae_bf16.safetensors'
-MODEL_NAME_2 = 'taeltx2_3.safetensors'
-MODEL_NAME_3 = 'LTX23_video_vae_bf16.safetensors'
-MODEL_NAME_4 = 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'
-MODEL_NAME_5 = 'ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors'
-MODEL_NAME_6 = 'gemma_3_12B_it_fp4_mixed.safetensors'
-MODEL_NAME_7 = 'ltx-2.3_text_projection_bf16.safetensors'
-MODEL_NAME_8 = 'LTX\\v2\\ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors'
+LORA_NAME = 'LTX\\v2\\ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors'
+MODEL_NAME = 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'
 SIGMAS = '0.909375, 0.725, 0.421875, 0.0'
+UNET_NAME = 'ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors'
 UPSCALE_METHOD = 'nearest-exact'
-WIDGET_0 = 'width'
-WIDGET_0_10 = 'upscale_model'
-WIDGET_0_11 = 'vae_tiny'
-WIDGET_0_12 = 'negative'
-WIDGET_0_13 = 'model_nag'
-WIDGET_0_14 = 'final_video'
-WIDGET_0_15 = 'final_audio'
-WIDGET_0_16 = 'positive'
-WIDGET_0_17 = 'height_downscaled'
-WIDGET_0_18 = 'width_downscaled'
-WIDGET_0_19 = 'lastframe_resized'
-WIDGET_0_2 = 'height'
-WIDGET_0_20 = 'enhance_prompt'
-WIDGET_0_21 = 'lastframe'
-WIDGET_0_22 = 'firstframe_strength'
-WIDGET_0_23 = 'lastframe_strength'
-WIDGET_0_24 = 'negative_guider'
-WIDGET_0_25 = 'positive_guider'
-WIDGET_0_3 = 'fps'
-WIDGET_0_4 = 'vae'
-WIDGET_0_5 = 'vae_audio'
-WIDGET_0_6 = 'model'
-WIDGET_0_7 = 'clip'
-WIDGET_0_8 = 'frames'
-WIDGET_0_9 = 'firstframe'
+VAE_NAME = 'taeltx2_3.safetensors'
+VAE_NAME_2 = 'LTX23_video_vae_bf16.safetensors'
 
 
 MODELS = {
-    'gemma_3_12b_it_fp4_mixed': ModelAsset(url='https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors', sha256='aaca463d11e6d8d2a4bdb0d6299214c15ef78a3f73e0ef8113d5a9d0219b3f6d', hf_revision='bd5f9c87fcb0360ae7112f9784562670894d9492', size_bytes=9447702218, subdir='text_encoders'),
-    'ltx_2_3_text_projection_bf16': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/text_encoders/ltx-2.3_text_projection_bf16.safetensors', hf_revision='main', subdir='text_encoders'),
-    'ltx23_video_vae_bf16': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_video_vae_bf16.safetensors', hf_revision='main', subdir='vae'),
-    'ltx23_audio_vae_bf16': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_audio_vae_bf16.safetensors', hf_revision='main', subdir='checkpoints'),
-    'taeltx2_3': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/taeltx2_3.safetensors', hf_revision='main', subdir='vae'),
-    'ltx_2_3_22b_distilled_1_1_transformer_only_fp8_scaled': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors', hf_revision='main', subdir='diffusion_models'),
-    'ltx_v2_ltx_2_3_22b_distilled_1_1_lora_dynamic_fro09_avg_rank_111_bf16': ModelAsset(filename='LTX\\v2\\ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors', url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/loras/ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors', hf_revision='main', subdir='loras'),
-    'ltx_2_3_spatial_upscaler_x2_1_1': ModelAsset(url='https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors', sha256='5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed', hf_revision='76730e634e70a28f4e8d51f5e29c08e40e2d8e74', size_bytes=995743560, subdir='latent_upscale_models'),
+    'text_encoder': ModelAsset(url='https://huggingface.co/Comfy-Org/ltx-2/resolve/main/split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors', sha256='aaca463d11e6d8d2a4bdb0d6299214c15ef78a3f73e0ef8113d5a9d0219b3f6d', hf_revision='bd5f9c87fcb0360ae7112f9784562670894d9492', size_bytes=9447702218, subdir='text_encoders'),
+    'text_encoder_2': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/text_encoders/ltx-2.3_text_projection_bf16.safetensors', hf_revision='main', subdir='text_encoders'),
+    'vae': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_video_vae_bf16.safetensors', hf_revision='main', subdir='vae'),
+    'checkpoint': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/LTX23_audio_vae_bf16.safetensors', hf_revision='main', subdir='checkpoints'),
+    'vae_2': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/vae/taeltx2_3.safetensors', hf_revision='main', subdir='vae'),
+    'diffusion_model': ModelAsset(url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors', hf_revision='main', subdir='diffusion_models'),
+    'lora': ModelAsset(filename='LTX\\v2\\ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors', url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/loras/ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors', hf_revision='main', subdir='loras'),
+    'upscale_model': ModelAsset(url='https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors', sha256='5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed', hf_revision='76730e634e70a28f4e8d51f5e29c08e40e2d8e74', size_bytes=995743560, subdir='latent_upscale_models'),
 }
 
-PUBLIC_INPUTS = {
-    'seed': InputSpec(node=ref('randomnoise_2'), field='noise_seed', default=DEFAULT_SEED_2),
-    'model': InputSpec(node=ref('ltxvaudiovaeloader'), field='ckpt_name', default=MODEL_NAME),
-    'prompt': InputSpec(node=ref('primitivestringmultiline'), field='value', default="wf.nodes['2103'].inputs.get('value', '')"),
-    'start_image': InputSpec(node=ref('loadimage'), field='image', default='image (6).png'),
-    'end_image': InputSpec(node=ref('loadimage_2'), field='image', default='0 (13).webp'),
-    'first_image': InputSpec(node=ref('loadimage'), field='image', default='image (6).png'),
-    'last_image': InputSpec(node=ref('loadimage_2'), field='image', default='0 (13).webp'),
-    'negative_prompt': InputSpec(node=ref('cliptextencode'), field='text', default=DEFAULT_PROMPT),
-    'seed_first': InputSpec(node=ref('randomnoise_2'), field='noise_seed', default=DEFAULT_SEED_2),
-    'seed_last': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'width': InputSpec(node=ref('intconstant_3'), field='value', default=1280),
-    'height': InputSpec(node=ref('intconstant_2'), field='value', default=720),
-    'output_fps': InputSpec(node=ref('primitivefloat'), field='value', default=24),
-    'fps': InputSpec(node=ref('primitivefloat'), field='value', default=24),
-    'fps_int': InputSpec(node=ref('primitivefloat'), field='value', default=24),
-    'first_frame_strength': InputSpec(node=ref('primitivefloat_3'), field='value', default=1.0),
-    'last_frame_strength': InputSpec(node=ref('primitivefloat_2'), field='value', default=1.0),
-    'first_strength': InputSpec(node=ref('primitivefloat_3'), field='value', default=1.0),
-    'last_strength': InputSpec(node=ref('primitivefloat_2'), field='value', default=1.0),
-    'use_lora': InputSpec(node=ref('primitiveboolean'), field='value', default=True),
-    'length': InputSpec(node=ref('intconstant'), field='value', default=81),
-    'frames': InputSpec(node=ref('intconstant'), field='value', default=81),
-    'image': InputSpec(node=ref('loadimage'), field='image', default='image (6).png'),
-    'input_image': InputSpec(node=ref('loadimage'), field='image', default='image (6).png'),
-}
+
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='first_last_frame_video',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     requirements={'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-LTXVideo', 'ComfyUI-VideoHelperSuite', 'rgthree-comfy']},
     custom_node_packs={'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageSize', 'INTConstant', 'ImageResizeKJv2', 'LTXVAddGuide', 'PathchSageAttentionKJ', 'ResizeImagesByLongerEdge', 'SimpleCalculatorKJ'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTX2AttentionTunerPatch', 'LTX2_NAG', 'LTXVAudioVAEDecode', 'LTXVAudioVAELoader', 'LTXVChunkFeedForward', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVCropGuides', 'LTXVEmptyLatentAudio', 'LTXVImgToVideoInplaceKJ', 'LTXVPreprocess', 'LTXVScheduler', 'LTXVSeparateAVLatent', 'LatentUpscaleModelLoader'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'rgthree-comfy': {'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git', 'class_schema_sha256': '2b52072e02c59cb05ce83e5c45e1c7fd5b1273fee9b62eaaa0e66a81a4c07872', 'classes_used': ['GetNode', 'Power Lora Loader (rgthree)', 'SetNode'], 'pip_packages': [], 'status': 'pinned'}},
@@ -153,662 +57,405 @@ READY_METADATA = ReadyMetadata.build(
     provenance={'source_workflow': 'workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_FLF2V_First_Last_Frame.json'},
 )
 
+# === Subgraph functions ===
+
+def prompt_enhancer(
+    *,
+    clip,
+    image,
+    enabled,
+    prompt,
+):
+    """PROMPT ENHANCER - single-image variant.
+
+    Materialized from subgraph 8fa4f93a-67ee-463f-ba43-249580c0bfb1 in workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_FLF2V_First_Last_Frame.json.
+    # vibecomfy source hash: sha256:895a04220ee78e03e0223c4df31671bd6ca26b9f5e0ee4842eb06c21ad21e75a
+    Inner nodes: Reroutex2, StringConcatenate, ComfySwitchNode, easy showAnything, TextGenerateLTX2Prompt, PrimitiveStringMultiline.
+    """
+
+    primitivestringmultiline = PrimitiveStringMultiline(
+        value='You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.   \n\nMAIN GOAL: \nCREATE AN INTERESTING PROMPT WHERE THE START FRAME IS THE IMAGE TO THE LEFT, AND END FRAME IS THE IMAGE TO THE RIGHT\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user\'s scene).\n- Describe only changes from the image: Don\'t reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs ("is walking," "speaking"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors ("as," "then," "while").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions—NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., "soft footsteps on tile") not vague (e.g., "ambient sound").\n- Speech (only when requested): Provide exact words in quotes with character\'s visual/voice characteristics (e.g., "The tall man speaks in a low, gravelly voice"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., "The man is talking" input -> the output should include exact spoken words, like: "The man is talking in an excited voice saying: \'You won\'t believe what I just saw!\' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.")\n- Style: Include visual style at beginning: "Style: <style>, <rest of prompt>." If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user\'s provided character dialogue in the prompt, unless it\'s a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like "The scene opens with..." / "The video starts...". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, "I think we\'re right on time!" In the background, a café barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, "Two cappuccinos ready!" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________',
+    )
+
+    reroute = raw_call('Reroute', '598', _outputs=('',))
+    reroute_2 = raw_call('Reroute', '1997', _outputs=('',))
+
+    stringconcatenate = StringConcatenate(
+        widget_0='',
+        widget_1='',
+        string_a=primitivestringmultiline,
+        string_b=reroute_2.out(0),
+    )
+
+    textgenerateltx2prompt = TextGenerateLTX2Prompt(
+        widget_0='',
+        widget_1=256,
+        widget_2='off',
+        widget_3=False,
+        widget_4=True,
+        clip=clip,
+        image=image,
+        prompt=stringconcatenate,
+    )
+
+    easy_showanything = raw_call('easy showAnything', '486',
+        _outputs=('output',),
+        widget_0="Style: cinematic - A thick, swirling fog obscures the cobblestone streets and canal buildings of 1700s Amsterdam, illuminated by the warm glow of streetlights. The camera smoothly cranes down from a high angle, revealing a vampire's gloved hand gripping a walking cane, the sound of footsteps echoing softly on the wet cobblestones. The scene is moody and unsettling, with a palpable sense of unease hanging in the air.",
+        anything=textgenerateltx2prompt,
+    )
+
+    comfyswitchnode = ComfySwitchNode(
+        widget_0=False,
+        on_false=reroute_2.out(0),
+        on_true=textgenerateltx2prompt,
+        switch=reroute.out(0),
+    )
+
+    return comfyswitchnode
+
+
+def frames_split_view():
+    """Frames split view.
+
+    Materialized from subgraph 19e3f7e8-881c-4a61-a360-1c463734043a in workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_FLF2V_First_Last_Frame.json.
+    # vibecomfy source hash: sha256:15880df52a4893175f1cb307bfae4788f299a66697d6e3cef64c835bbf983c8c
+    Inner nodes: GetNodex2, ResizeImageMaskNodex2, ImagePadForOutpaintx2, ImageStitch.
+    """
+
+    getnode = raw_call('GetNode', '2086', _outputs=('IMAGE',), widget_0='lastframe')
+    getnode_2 = raw_call('GetNode', '2087', _outputs=('IMAGE',), widget_0='firstframe')
+
+    resizeimagemasknode = ResizeImageMaskNode(
+        resize_type='scale by multiplier',
+        unused_widget_1=0.2,
+        input=getnode.out('IMAGE'),
+    )
+
+    resizeimagemasknode_2 = ResizeImageMaskNode(
+        resize_type='scale by multiplier',
+        unused_widget_1=0.2,
+        input=getnode_2.out('IMAGE'),
+    )
+
+    imagepadforoutpaint = raw_call('ImagePadForOutpaint', '2098',
+        _outputs=('IMAGE', 'MASK'),
+        widget_0=16,
+        widget_1=16,
+        widget_2=16,
+        widget_3=16,
+        widget_4=0,
+        image=resizeimagemasknode,
+    )
+
+    imagepadforoutpaint_2 = raw_call('ImagePadForOutpaint', '2100',
+        _outputs=('IMAGE', 'MASK'),
+        widget_0=16,
+        widget_1=16,
+        widget_2=16,
+        widget_3=16,
+        widget_4=0,
+        image=resizeimagemasknode_2,
+    )
+
+    imagestitch = raw_call('ImageStitch', '2085',
+        widget_0='right',
+        widget_1=True,
+        widget_2=0,
+        widget_3='white',
+        image1=imagepadforoutpaint_2.out('IMAGE'),
+        image2=imagepadforoutpaint.out('IMAGE'),
+    )
+
+    return imagestitch
+
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        # Sampling
-        ksamplerselect = KSamplerSelect(_id='1', sampler_name='euler_ancestral_cfg_pp')
-        wf.metadata.setdefault('id_map', {})['ksamplerselect'] = ksamplerselect.node.id
-        ksamplerselect_2 = KSamplerSelect(_id='4', sampler_name='euler_cfg_pp')
-        wf.metadata.setdefault('id_map', {})['ksamplerselect_2'] = ksamplerselect_2.node.id
-        manualsigmas = ManualSigmas(_id='5', sigmas=SIGMAS)
-        wf.metadata.setdefault('id_map', {})['manualsigmas'] = manualsigmas.node.id
+        ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
+        ksamplerselect_2 = KSamplerSelect(sampler_name='euler_cfg_pp')
+        manualsigmas = ManualSigmas(sigmas=SIGMAS)
+
         randomnoise = RandomNoise(
-            _id='14',
-            noise_seed=DEFAULT_SEED,
+            noise_seed=public('seed_last', default=DEFAULT_SEED),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
-        wf.metadata.setdefault('id_map', {})['randomnoise'] = randomnoise.node.id
 
         randomnoise_2 = RandomNoise(
-            _id='15',
-            noise_seed=DEFAULT_SEED_2,
+            noise_seed=public('seed', default=DEFAULT_SEED_2),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
-        wf.metadata.setdefault('id_map', {})['randomnoise_2'] = randomnoise_2.node.id
 
         # Inputs
-        loadimage = LoadImage(
-            _id='45',
-            image='image (6).png',
-            _outputs=('IMAGE', 'MASK'),
+        image, mask = LoadImage(
+            image=public('start_image', default='image (6).png', aliases=('image', 'input_image')),
         )
-        wf.metadata.setdefault('id_map', {})['loadimage'] = loadimage.node.id
 
-        loadimage_2 = LoadImage(
-            _id='47',
-            image='0 (13).webp',
-            _outputs=('IMAGE', 'MASK'),
+        image_load, mask_load = LoadImage(
+            image=public('end_image', default='0 (13).webp'),
         )
-        wf.metadata.setdefault('id_map', {})['loadimage_2'] = loadimage_2.node.id
 
-        getnode = raw_call(wf, 'GetNode', '70', widget_0=WIDGET_0)
-        wf.metadata.setdefault('id_map', {})['getnode'] = getnode.node.id
-        getnode_2 = raw_call(wf, 'GetNode', '71', widget_0=WIDGET_0_2)
-        wf.metadata.setdefault('id_map', {})['getnode_2'] = getnode_2.node.id
-        getnode_3 = raw_call(wf, 'GetNode', '91', widget_0=WIDGET_0_3)
-        wf.metadata.setdefault('id_map', {})['getnode_3'] = getnode_3.node.id
-        getnode_4 = raw_call(wf, 'GetNode', '93', widget_0=WIDGET_0_3)
-        wf.metadata.setdefault('id_map', {})['getnode_4'] = getnode_4.node.id
-        getnode_5 = raw_call(wf, 'GetNode', '111', widget_0=WIDGET_0_4)
-        wf.metadata.setdefault('id_map', {})['getnode_5'] = getnode_5.node.id
-        getnode_6 = raw_call(wf, 'GetNode', '117', widget_0=WIDGET_0_5)
-        wf.metadata.setdefault('id_map', {})['getnode_6'] = getnode_6.node.id
-        getnode_7 = raw_call(wf, 'GetNode', '120', widget_0=WIDGET_0_4)
-        wf.metadata.setdefault('id_map', {})['getnode_7'] = getnode_7.node.id
-        getnode_8 = raw_call(wf, 'GetNode', '122', widget_0=WIDGET_0_6)
-        wf.metadata.setdefault('id_map', {})['getnode_8'] = getnode_8.node.id
-        getnode_9 = raw_call(wf, 'GetNode', '124', widget_0=WIDGET_0_7)
-        wf.metadata.setdefault('id_map', {})['getnode_9'] = getnode_9.node.id
-        getnode_10 = raw_call(wf, 'GetNode', '127', widget_0=WIDGET_0_8)
-        wf.metadata.setdefault('id_map', {})['getnode_10'] = getnode_10.node.id
-        getnode_11 = raw_call(wf, 'GetNode', '128', widget_0=WIDGET_0)
-        wf.metadata.setdefault('id_map', {})['getnode_11'] = getnode_11.node.id
-        getnode_12 = raw_call(wf, 'GetNode', '129', widget_0=WIDGET_0_2)
-        wf.metadata.setdefault('id_map', {})['getnode_12'] = getnode_12.node.id
-        getnode_13 = raw_call(wf, 'GetNode', '132', widget_0=WIDGET_0_9)
-        wf.metadata.setdefault('id_map', {})['getnode_13'] = getnode_13.node.id
-        getnode_14 = raw_call(wf, 'GetNode', '133', widget_0=WIDGET_0_10)
-        wf.metadata.setdefault('id_map', {})['getnode_14'] = getnode_14.node.id
-        getnode_15 = raw_call(wf, 'GetNode', '137', widget_0=WIDGET_0_3)
-        wf.metadata.setdefault('id_map', {})['getnode_15'] = getnode_15.node.id
-        getnode_16 = raw_call(wf, 'GetNode', '147', widget_0=WIDGET_0_4)
-        wf.metadata.setdefault('id_map', {})['getnode_16'] = getnode_16.node.id
-        getnode_17 = raw_call(wf, 'GetNode', '148', widget_0=WIDGET_0_5)
-        wf.metadata.setdefault('id_map', {})['getnode_17'] = getnode_17.node.id
-        ltxvaudiovaeloader = LTXVAudioVAELoader(_id='175', ckpt_name=MODEL_NAME)
-        wf.metadata.setdefault('id_map', {})['ltxvaudiovaeloader'] = ltxvaudiovaeloader.node.id
-        # Loaders
-        vaeloader = VAELoader(_id='180', vae_name=MODEL_NAME_2)
-        wf.metadata.setdefault('id_map', {})['vaeloader'] = vaeloader.node.id
-        vaeloader_2 = VAELoader(_id='181', vae_name=MODEL_NAME_3)
-        wf.metadata.setdefault('id_map', {})['vaeloader_2'] = vaeloader_2.node.id
-        latentupscalemodelloader = LatentUpscaleModelLoader(
-            _id='182',
-            model_name=MODEL_NAME_4,
-        )
-        wf.metadata.setdefault('id_map', {})['latentupscalemodelloader'] = latentupscalemodelloader.node.id
+        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+        vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
+        latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
 
-        unetloader = UNETLoader(_id='187', unet_name=MODEL_NAME_5)
-        wf.metadata.setdefault('id_map', {})['unetloader'] = unetloader.node.id
         dualcliploader = DualCLIPLoader(
-            _id='190',
-            clip_name1=MODEL_NAME_6,
-            clip_name2=MODEL_NAME_7,
+            clip_name1=CLIP_NAME,
+            clip_name2=CLIP_NAME_2,
             type_='ltxv',
             device='default',
         )
-        wf.metadata.setdefault('id_map', {})['dualcliploader'] = dualcliploader.node.id
 
-        getnode_18 = raw_call(wf, 'GetNode', '193', widget_0=WIDGET_0_11)
-        wf.metadata.setdefault('id_map', {})['getnode_18'] = getnode_18.node.id
-        getnode_19 = raw_call(wf, 'GetNode', '196', widget_0=WIDGET_0_12)
-        wf.metadata.setdefault('id_map', {})['getnode_19'] = getnode_19.node.id
-        getnode_20 = raw_call(wf, 'GetNode', '200', widget_0=WIDGET_0_13)
-        wf.metadata.setdefault('id_map', {})['getnode_20'] = getnode_20.node.id
-        getnode_21 = raw_call(wf, 'GetNode', '201', widget_0=WIDGET_0_13)
-        wf.metadata.setdefault('id_map', {})['getnode_21'] = getnode_21.node.id
-        getnode_22 = raw_call(wf, 'GetNode', '203', widget_0=WIDGET_0_14)
-        wf.metadata.setdefault('id_map', {})['getnode_22'] = getnode_22.node.id
-        getnode_23 = raw_call(wf, 'GetNode', '204', widget_0=WIDGET_0_15)
-        wf.metadata.setdefault('id_map', {})['getnode_23'] = getnode_23.node.id
-        getnode_24 = raw_call(wf, 'GetNode', '205', widget_0=WIDGET_0_16)
-        wf.metadata.setdefault('id_map', {})['getnode_24'] = getnode_24.node.id
-        getnode_25 = raw_call(wf, 'GetNode', '206', widget_0=WIDGET_0_12)
-        wf.metadata.setdefault('id_map', {})['getnode_25'] = getnode_25.node.id
-        getnode_26 = raw_call(wf, 'GetNode', '207', widget_0=WIDGET_0_12)
-        wf.metadata.setdefault('id_map', {})['getnode_26'] = getnode_26.node.id
-        getnode_27 = raw_call(wf, 'GetNode', '208', widget_0=WIDGET_0_16)
-        wf.metadata.setdefault('id_map', {})['getnode_27'] = getnode_27.node.id
         manualsigmas_2 = ManualSigmas(
-            _id='215',
             sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
         )
-        wf.metadata.setdefault('id_map', {})['manualsigmas_2'] = manualsigmas_2.node.id
 
-        manualsigmas_3 = ManualSigmas(_id='216', sigmas=SIGMAS)
-        wf.metadata.setdefault('id_map', {})['manualsigmas_3'] = manualsigmas_3.node.id
-        getnode_28 = raw_call(wf, 'GetNode', '219', widget_0=WIDGET_0_17)
-        wf.metadata.setdefault('id_map', {})['getnode_28'] = getnode_28.node.id
-        getnode_29 = raw_call(wf, 'GetNode', '220', widget_0=WIDGET_0_18)
-        wf.metadata.setdefault('id_map', {})['getnode_29'] = getnode_29.node.id
-        getnode_30 = raw_call(wf, 'GetNode', '224', widget_0=WIDGET_0_19)
-        wf.metadata.setdefault('id_map', {})['getnode_30'] = getnode_30.node.id
-        getnode_31 = raw_call(wf, 'GetNode', '225', widget_0=WIDGET_0_9)
-        wf.metadata.setdefault('id_map', {})['getnode_31'] = getnode_31.node.id
-        getnode_32 = raw_call(wf, 'GetNode', '2067', widget_0=WIDGET_0_7)
-        wf.metadata.setdefault('id_map', {})['getnode_32'] = getnode_32.node.id
-        getnode_33 = raw_call(wf, 'GetNode', '2068', widget_0=WIDGET_0_20)
-        wf.metadata.setdefault('id_map', {})['getnode_33'] = getnode_33.node.id
-        # Inputs
-        primitivefloat = raw_call(wf, 'PrimitiveFloat', '2076', value=24)
-        wf.metadata.setdefault('id_map', {})['primitivefloat'] = primitivefloat.node.id
-        intconstant = INTConstant(_id='2078', value=81)
-        wf.metadata.setdefault('id_map', {})['intconstant'] = intconstant.node.id
-        intconstant_2 = INTConstant(_id='2079', value=720)
-        wf.metadata.setdefault('id_map', {})['intconstant_2'] = intconstant_2.node.id
-        intconstant_3 = INTConstant(_id='2080', value=1280)
-        wf.metadata.setdefault('id_map', {})['intconstant_3'] = intconstant_3.node.id
-        primitiveboolean = raw_call(wf, 'PrimitiveBoolean', '2082', value=True)
-        wf.metadata.setdefault('id_map', {})['primitiveboolean'] = primitiveboolean.node.id
+        manualsigmas_3 = ManualSigmas(sigmas=SIGMAS)
+        primitivefloat = raw_call('PrimitiveFloat', '2076', value=public('output_fps', default=24))
+        intconstant = INTConstant(value=public('length', default=81))
+        intconstant_2 = INTConstant(value=public('height', default=720))
+        intconstant_3 = INTConstant(value=public('width', default=1280))
+        primitiveboolean = raw_call('PrimitiveBoolean', '2082', value=public('use_lora', default=True))
+
         primitivestringmultiline = PrimitiveStringMultiline(
-            _id='2103',
-            value="wf.nodes['2103'].inputs.get('value', '')",
+            value=public('prompt', default="wf.nodes['2103'].inputs.get('value', '')"),
         )
-        wf.metadata.setdefault('id_map', {})['primitivestringmultiline'] = primitivestringmultiline.node.id
 
-        getnode_34 = raw_call(wf, 'GetNode', '2106', widget_0=WIDGET_0_21)
-        wf.metadata.setdefault('id_map', {})['getnode_34'] = getnode_34.node.id
-        primitivefloat_2 = raw_call(wf, 'PrimitiveFloat', '2108', value=1.0)
-        wf.metadata.setdefault('id_map', {})['primitivefloat_2'] = primitivefloat_2.node.id
-        primitivefloat_3 = raw_call(wf, 'PrimitiveFloat', '2110', value=1.0)
-        wf.metadata.setdefault('id_map', {})['primitivefloat_3'] = primitivefloat_3.node.id
-        getnode_35 = raw_call(wf, 'GetNode', '2114', widget_0=WIDGET_0_22)
-        wf.metadata.setdefault('id_map', {})['getnode_35'] = getnode_35.node.id
-        getnode_36 = raw_call(wf, 'GetNode', '2115', widget_0=WIDGET_0_23)
-        wf.metadata.setdefault('id_map', {})['getnode_36'] = getnode_36.node.id
-        getnode_37 = raw_call(wf, 'GetNode', '2154', widget_0=WIDGET_0_12)
-        wf.metadata.setdefault('id_map', {})['getnode_37'] = getnode_37.node.id
-        getnode_38 = raw_call(wf, 'GetNode', '2155', widget_0=WIDGET_0_4)
-        wf.metadata.setdefault('id_map', {})['getnode_38'] = getnode_38.node.id
-        getnode_39 = raw_call(wf, 'GetNode', '2162', widget_0=WIDGET_0_4)
-        wf.metadata.setdefault('id_map', {})['getnode_39'] = getnode_39.node.id
-        getnode_40 = raw_call(wf, 'GetNode', '2163', widget_0=WIDGET_0_16)
-        wf.metadata.setdefault('id_map', {})['getnode_40'] = getnode_40.node.id
-        getnode_41 = raw_call(wf, 'GetNode', '2166', widget_0=WIDGET_0_24)
-        wf.metadata.setdefault('id_map', {})['getnode_41'] = getnode_41.node.id
-        getnode_42 = raw_call(wf, 'GetNode', '2167', widget_0=WIDGET_0_25)
-        wf.metadata.setdefault('id_map', {})['getnode_42'] = getnode_42.node.id
+        primitivefloat_2 = raw_call('PrimitiveFloat', '2108', value=public('last_frame_strength', default=1.0))
+        primitivefloat_3 = raw_call('PrimitiveFloat', '2110', value=public('first_frame_strength', default=1.0))
+
         # Conditioning
-        cfgguider = CFGGuider(
-            _id='8',
-            cfg=GUIDE_STRENGTH,
-            model=getnode_21.out(0),
-            negative=getnode_25.out(0),
-            positive=getnode_24.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['cfgguider'] = cfgguider.node.id
-
         cliptextencode = CLIPTextEncode(
-            _id='11',
-            text=DEFAULT_PROMPT,
-            clip=getnode_9.out(0),
+            text=public('negative_prompt', default=DEFAULT_PROMPT),
+            clip=dualcliploader,
         )
-        wf.metadata.setdefault('id_map', {})['cliptextencode'] = cliptextencode.node.id
 
         cliptextencode_2 = CLIPTextEncode(
-            _id='16',
             text=primitivestringmultiline,
-            clip=getnode_9.out(0),
+            clip=dualcliploader,
         )
-        wf.metadata.setdefault('id_map', {})['cliptextencode_2'] = cliptextencode_2.node.id
 
-        # Sampling
-        emptyltxvlatentvideo = EmptyLTXVLatentVideo(
-            _id='32',
-            width=getnode_29.out(0),
-            height=getnode_28.out(0),
-            length=getnode_10.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['emptyltxvlatentvideo'] = emptyltxvlatentvideo.node.id
-
-        # Conditioning
-        cfgguider_2 = CFGGuider(
-            _id='36',
-            cfg=GUIDE_STRENGTH,
-            model=getnode_20.out(0),
-            negative=getnode_26.out(0),
-            positive=getnode_27.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['cfgguider_2'] = cfgguider_2.node.id
-
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(
-            _id='43',
-            filename_prefix='reigh_vibecomfy_ltx_first_last',
-            format='video/h264-mp4',
-            frame_rate=getnode_15.out(0),
-            images=getnode_22.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['vhs_videocombine'] = vhs_videocombine.node.id
-
-        imageresizekjv2 = ImageResizeKJv2(
-            _id='44',
+        image_image, width, height, mask_image = ImageResizeKJv2(
             upscale_method=UPSCALE_METHOD,
             keep_proportion=KEEP_PROPORTION,
             divisible_by=32,
             device=DEVICE,
-            width=getnode.out(0),
-            height=getnode_2.out(0),
-            image=loadimage.out('IMAGE'),
-            _outputs=('IMAGE', 'WIDTH', 'HEIGHT', 'MASK'),
+            width=intconstant_3,
+            height=intconstant_2,
+            image=image,
         )
-        wf.metadata.setdefault('id_map', {})['imageresizekjv2'] = imageresizekjv2.node.id
 
-        ltxvpreprocess = LTXVPreprocess(
-            _id='50',
-            img_compression=18,
-            image=getnode_30.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['ltxvpreprocess'] = ltxvpreprocess.node.id
-
-        simplecalculatorkj = SimpleCalculatorKJ(
-            _id='92',
+        float, int, boolean = SimpleCalculatorKJ(
             expression=EXPRESSION,
             variables='a',
-            a=getnode_3.out(0),
-            _outputs=('FLOAT', 'INT', 'BOOLEAN'),
+            a=primitivefloat,
         )
-        wf.metadata.setdefault('id_map', {})['simplecalculatorkj'] = simplecalculatorkj.node.id
 
-        setnode_7 = raw_call(wf, 'SetNode', '171',
-            widget_0=WIDGET_0_10,
-            LATENT_UPSCALE_MODEL=latentupscalemodelloader,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_7'] = setnode_7.node.id
-
-        setnode_8 = raw_call(wf, 'SetNode', '172',
-            widget_0=WIDGET_0_5,
-            VAE=ltxvaudiovaeloader,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_8'] = setnode_8.node.id
-
-        setnode_9 = raw_call(wf, 'SetNode', '173', widget_0=WIDGET_0_4, VAE=vaeloader_2)
-        wf.metadata.setdefault('id_map', {})['setnode_9'] = setnode_9.node.id
-        setnode_10 = raw_call(wf, 'SetNode', '177', widget_0=WIDGET_0_11, VAE=vaeloader)
-        wf.metadata.setdefault('id_map', {})['setnode_10'] = setnode_10.node.id
         loraloadermodelonly = LoraLoaderModelOnly(
-            _id='186',
-            lora_name=MODEL_NAME_8,
-            strength_model=GUIDE_STRENGTH_2,
+            lora_name=LORA_NAME,
+            strength_model=GUIDE_STRENGTH,
             model=unetloader,
         )
-        wf.metadata.setdefault('id_map', {})['loraloadermodelonly'] = loraloadermodelonly.node.id
 
-        setnode_11 = raw_call(wf, 'SetNode', '188',
-            widget_0=WIDGET_0_7,
-            CLIP=dualcliploader,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_11'] = setnode_11.node.id
-
-        ltx2_nag = LTX2_NAG(
-            _id='197',
-            model=getnode_8.out(0),
-            nag_cond_audio=getnode_19.out(0),
-            nag_cond_video=getnode_19.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['ltx2_nag'] = ltx2_nag.node.id
-
-        setnode_17 = raw_call(wf, 'SetNode', '2072',
-            widget_0=WIDGET_0_2,
-            INT=intconstant_2,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_17'] = setnode_17.node.id
-
-        setnode_18 = raw_call(wf, 'SetNode', '2073',
-            widget_0=WIDGET_0,
-            INT=intconstant_3,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_18'] = setnode_18.node.id
-
-        setnode_19 = raw_call(wf, 'SetNode', '2074',
-            widget_0=WIDGET_0_3,
-            FLOAT=primitivefloat,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_19'] = setnode_19.node.id
-
-        simplecalculatorkj_2 = SimpleCalculatorKJ(
-            _id='2077',
+        float_simple, int_simple, boolean_simple = SimpleCalculatorKJ(
             expression=EXPRESSION,
             variables='a,b',
             widget_0='a',
             a=intconstant,
             b=primitivefloat,
-            _outputs=('FLOAT', 'INT', 'BOOLEAN'),
         )
-        wf.metadata.setdefault('id_map', {})['simplecalculatorkj_2'] = simplecalculatorkj_2.node.id
-
-        setnode_21 = raw_call(wf, 'SetNode', '2081',
-            widget_0=WIDGET_0_20,
-            BOOLEAN=primitiveboolean,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_21'] = setnode_21.node.id
-
-        ltxvpreprocess_2 = LTXVPreprocess(
-            _id='2084',
-            img_compression=18,
-            image=getnode_31.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['ltxvpreprocess_2'] = ltxvpreprocess_2.node.id
-
-        setnode_22 = raw_call(wf, 'SetNode', '2112',
-            widget_0=WIDGET_0_22,
-            FLOAT=primitivefloat_3,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_22'] = setnode_22.node.id
-
-        setnode_23 = raw_call(wf, 'SetNode', '2113',
-            widget_0=WIDGET_0_23,
-            FLOAT=primitivefloat_2,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_23'] = setnode_23.node.id
 
         ltxvemptylatentaudio = LTXVEmptyLatentAudio(
-            _id='9',
-            frames_number=getnode_10.out(0),
-            frame_rate=simplecalculatorkj.out('INT'),
-            audio_vae=getnode_6.out(0),
+            frames_number=int_simple,
+            frame_rate=int,
+            audio_vae=ltxvaudiovaeloader,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvemptylatentaudio'] = ltxvemptylatentaudio.node.id
 
-        ltxvconditioning = LTXVConditioning(
-            _id='10',
-            frame_rate=getnode_4.out(0),
+        positive, negative = LTXVConditioning(
+            frame_rate=primitivefloat,
             negative=cliptextencode,
             positive=cliptextencode_2,
-            _outputs=('POSITIVE', 'NEGATIVE'),
         )
-        wf.metadata.setdefault('id_map', {})['ltxvconditioning'] = ltxvconditioning.node.id
 
         imagescaleby = ImageScaleBy(
-            _id='26',
             upscale_method='lanczos',
             scale_by=0.5,
-            image=imageresizekjv2.out('IMAGE'),
+            image=image_image,
         )
-        wf.metadata.setdefault('id_map', {})['imagescaleby'] = imagescaleby.node.id
 
-        imageresizekjv2_2 = ImageResizeKJv2(
-            _id='48',
+        image_image_2, width_image, height_image, mask_image_2 = ImageResizeKJv2(
             upscale_method=UPSCALE_METHOD,
             keep_proportion=KEEP_PROPORTION,
             divisible_by=32,
             device=DEVICE,
-            width=imageresizekjv2.out('WIDTH'),
-            height=imageresizekjv2.out('HEIGHT'),
-            image=loadimage_2.out('IMAGE'),
-            _outputs=('IMAGE', 'WIDTH', 'HEIGHT', 'MASK'),
+            width=width,
+            height=height,
+            image=image_load,
         )
-        wf.metadata.setdefault('id_map', {})['imageresizekjv2_2'] = imageresizekjv2_2.node.id
-
-        setnode_13 = raw_call(wf, 'SetNode', '199',
-            widget_0=WIDGET_0_13,
-            MODEL=ltx2_nag,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_13'] = setnode_13.node.id
-
-        ltxvimgtovideoinplacekj = LTXVImgToVideoInplaceKJ(
-            _id='210',
-            num_images='2',
-            latent=emptyltxvlatentvideo,
-            vae=getnode_5.out(0),
-            **{'num_images.index_1': 0, 'num_images.index_2': -1, 'num_images.image_1': ltxvpreprocess_2, 'num_images.image_2': ltxvpreprocess, 'num_images.strength_1': getnode_35.out(0), 'num_images.strength_2': getnode_36.out(0)},
-        )
-        wf.metadata.setdefault('id_map', {})['ltxvimgtovideoinplacekj'] = ltxvimgtovideoinplacekj.node.id
 
         pathchsageattentionkj = PathchSageAttentionKJ(
-            _id='226',
             sage_attention='auto',
             model=loraloadermodelonly,
         )
-        wf.metadata.setdefault('id_map', {})['pathchsageattentionkj'] = pathchsageattentionkj.node.id
 
-        setnode_20 = raw_call(wf, 'SetNode', '2075',
-            widget_0=WIDGET_0_8,
-            INT=simplecalculatorkj_2.out('INT'),
+        resizeimagesbylongeredge = ResizeImagesByLongerEdge(
+            longer_edge=1536,
+            images=image_image,
         )
-        wf.metadata.setdefault('id_map', {})['setnode_20'] = setnode_20.node.id
+
+        width_get, height_get, batch_size = GetImageSize(image=imagescaleby)
 
         resizeimagesbylongeredge_2 = ResizeImagesByLongerEdge(
-            _id='2083',
             longer_edge=1536,
-            images=imageresizekjv2.out('IMAGE'),
+            images=image_image_2,
         )
-        wf.metadata.setdefault('id_map', {})['resizeimagesbylongeredge_2'] = resizeimagesbylongeredge_2.node.id
+
+        ltxvpreprocess = LTXVPreprocess(img_compression=18, image=image_image_2)
+        ltxvchunkfeedforward = LTXVChunkFeedForward(model=pathchsageattentionkj)
+
+        ltxvpreprocess_2 = LTXVPreprocess(
+            img_compression=18,
+            image=resizeimagesbylongeredge,
+        )
+
+        emptyltxvlatentvideo = EmptyLTXVLatentVideo(
+            width=width_get,
+            height=height_get,
+            length=int_simple,
+        )
+
+        ltx2attentiontunerpatch = LTX2AttentionTunerPatch(
+            triton_kernels=False,
+            model=ltxvchunkfeedforward,
+        )
+
+        ltxvimgtovideoinplacekj = LTXVImgToVideoInplaceKJ(
+            num_images='2',
+            latent=emptyltxvlatentvideo,
+            vae=vaeloader_2,
+            **{'num_images.index_1': 0, 'num_images.index_2': -1, 'num_images.image_1': ltxvpreprocess_2, 'num_images.image_2': ltxvpreprocess, 'num_images.strength_1': primitivefloat_3, 'num_images.strength_2': primitivefloat_2},
+        )
+
+        ltx2memoryefficientsageattentionpatch = LTX2MemoryEfficientSageAttentionPatch(
+            model=ltx2attentiontunerpatch,
+        )
+
+        power_lora_loader__rgthree_ = raw_call('Power Lora Loader (rgthree)', '2107',
+            _outputs=('MODEL', 'CLIP'),
+            model=ltx2memoryefficientsageattentionpatch,
+        )
 
         ltxvconcatavlatent = LTXVConcatAVLatent(
-            _id='24',
             audio_latent=ltxvemptylatentaudio,
             video_latent=ltxvimgtovideoinplacekj,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvconcatavlatent'] = ltxvconcatavlatent.node.id
 
-        getimagesize = GetImageSize(
-            _id='28',
-            image=imagescaleby,
-            _outputs=('WIDTH', 'HEIGHT', 'BATCH_SIZE'),
+        ltxvscheduler = LTXVScheduler(steps=1, latent=ltxvconcatavlatent)
+
+        ltx2_nag = LTX2_NAG(
+            model=power_lora_loader__rgthree_.out('MODEL'),
+            nag_cond_audio=negative,
+            nag_cond_video=negative,
         )
-        wf.metadata.setdefault('id_map', {})['getimagesize'] = getimagesize.node.id
 
-        resizeimagesbylongeredge = ResizeImagesByLongerEdge(
-            _id='49',
-            longer_edge=1536,
-            images=imageresizekjv2_2.out('IMAGE'),
+        cfgguider = CFGGuider(
+            cfg=GUIDE_STRENGTH_2,
+            model=ltx2_nag,
+            negative=negative,
+            positive=positive,
         )
-        wf.metadata.setdefault('id_map', {})['resizeimagesbylongeredge'] = resizeimagesbylongeredge.node.id
 
-        setnode = raw_call(wf, 'SetNode', '75',
-            widget_0=WIDGET_0_9,
-            IMAGE=resizeimagesbylongeredge_2,
+        cfgguider_2 = CFGGuider(
+            cfg=GUIDE_STRENGTH_2,
+            model=ltx2_nag,
+            negative=negative,
+            positive=positive,
         )
-        wf.metadata.setdefault('id_map', {})['setnode'] = setnode.node.id
 
-        setnode_3 = raw_call(wf, 'SetNode', '125',
-            widget_0=WIDGET_0_16,
-            CONDITIONING=ltxvconditioning.out('POSITIVE'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_3'] = setnode_3.node.id
-
-        setnode_4 = raw_call(wf, 'SetNode', '126',
-            widget_0=WIDGET_0_12,
-            CONDITIONING=ltxvconditioning.out('NEGATIVE'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_4'] = setnode_4.node.id
-
-        ltxvchunkfeedforward = LTXVChunkFeedForward(
-            _id='228',
-            model=pathchsageattentionkj,
-        )
-        wf.metadata.setdefault('id_map', {})['ltxvchunkfeedforward'] = ltxvchunkfeedforward.node.id
-
-        setnode_24 = raw_call(wf, 'SetNode', '2129',
-            widget_0=WIDGET_0_19,
-            IMAGE=imageresizekjv2_2.out('IMAGE'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_24'] = setnode_24.node.id
-
-        ltxvscheduler = LTXVScheduler(_id='2', steps=1, latent=ltxvconcatavlatent)
-        wf.metadata.setdefault('id_map', {})['ltxvscheduler'] = ltxvscheduler.node.id
-        # Sampling
-        samplercustomadvanced = SamplerCustomAdvanced(
-            _id='13',
+        output, denoised_output = SamplerCustomAdvanced(
             guider=cfgguider_2,
             latent_image=ltxvconcatavlatent,
             noise=randomnoise_2,
             sampler=ksamplerselect,
             sigmas=manualsigmas_2,
-            _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
         )
-        wf.metadata.setdefault('id_map', {})['samplercustomadvanced'] = samplercustomadvanced.node.id
 
-        setnode_2 = raw_call(wf, 'SetNode', '78',
-            widget_0=WIDGET_0_21,
-            IMAGE=resizeimagesbylongeredge,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_2'] = setnode_2.node.id
-
-        setnode_14 = raw_call(wf, 'SetNode', '217',
-            widget_0=WIDGET_0_18,
-            INT=getimagesize.out('WIDTH'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_14'] = setnode_14.node.id
-
-        setnode_15 = raw_call(wf, 'SetNode', '218',
-            widget_0=WIDGET_0_17,
-            INT=getimagesize.out('HEIGHT'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_15'] = setnode_15.node.id
-
-        ltx2attentiontunerpatch = LTX2AttentionTunerPatch(
-            _id='229',
-            triton_kernels=False,
-            model=ltxvchunkfeedforward,
-        )
-        wf.metadata.setdefault('id_map', {})['ltx2attentiontunerpatch'] = ltx2attentiontunerpatch.node.id
-
-        ltxvseparateavlatent = LTXVSeparateAVLatent(
-            _id='18',
-            av_latent=samplercustomadvanced.out('OUTPUT'),
-            _outputs=('VIDEO_LATENT', 'AUDIO_LATENT'),
-        )
-        wf.metadata.setdefault('id_map', {})['ltxvseparateavlatent'] = ltxvseparateavlatent.node.id
-
-        ltx2memoryefficientsageattentionpatch = LTX2MemoryEfficientSageAttentionPatch(
-            _id='2291',
-            model=ltx2attentiontunerpatch,
-        )
-        wf.metadata.setdefault('id_map', {})['ltx2memoryefficientsageattentionpatch'] = ltx2memoryefficientsageattentionpatch.node.id
+        video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=output)
 
         ltxvlatentupsampler = LTXVLatentUpsampler(
-            _id='25',
-            samples=ltxvseparateavlatent.out('VIDEO_LATENT'),
-            upscale_model=getnode_14.out(0),
-            vae=getnode_7.out(0),
+            samples=video_latent,
+            upscale_model=latentupscalemodelloader,
+            vae=vaeloader_2,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvlatentupsampler'] = ltxvlatentupsampler.node.id
 
-        power_lora_loader__rgthree_ = raw_call(wf, 'Power Lora Loader (rgthree)', '2107',
-            _outputs=('MODEL', 'CLIP'),
-            model=ltx2memoryefficientsageattentionpatch,
-        )
-        wf.metadata.setdefault('id_map', {})['power_lora_loader__rgthree_'] = power_lora_loader__rgthree_.node.id
-
-        setnode_12 = raw_call(wf, 'SetNode', '192',
-            widget_0=WIDGET_0_6,
-            MODEL=power_lora_loader__rgthree_.out('MODEL'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_12'] = setnode_12.node.id
-
-        setnode_16 = raw_call(wf, 'SetNode', '230',
-            widget_0='model_with_lora',
-            MODEL=power_lora_loader__rgthree_.out('MODEL'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_16'] = setnode_16.node.id
-
-        vram_debug = VRAM_Debug(
-            _id='1846',
+        any_output, image_pass, model_pass, freemem_before, freemem_after = VRAM_Debug(
             unload_all_models=True,
             any_input=ltxvlatentupsampler,
-            _outputs=('any_output', 'image_pass', 'model_pass', 'freemem_before', 'freemem_after'),
         )
-        wf.metadata.setdefault('id_map', {})['vram_debug'] = vram_debug.node.id
 
         ltxvimgtovideoinplacekj_2 = LTXVImgToVideoInplaceKJ(
-            _id='2105',
             num_images='1',
-            latent=vram_debug.out('any_output'),
-            vae=getnode_39.out(0),
-            **{'num_images.index_1': 0, 'num_images.image_1': getnode_13.out(0), 'num_images.strength_1': getnode_35.out(0)},
+            latent=any_output,
+            vae=vaeloader_2,
+            **{'num_images.index_1': 0, 'num_images.image_1': resizeimagesbylongeredge, 'num_images.strength_1': primitivefloat_3},
         )
-        wf.metadata.setdefault('id_map', {})['ltxvimgtovideoinplacekj_2'] = ltxvimgtovideoinplacekj_2.node.id
 
-        ltxvaddguide = LTXVAddGuide(
-            _id='2152',
+        positive_ltxv, negative_ltxv, latent = LTXVAddGuide(
             frame_idx=-1,
-            strength=getnode_36.out(0),
-            image=getnode_34.out(0),
+            strength=primitivefloat_2,
+            image=resizeimagesbylongeredge_2,
             latent=ltxvimgtovideoinplacekj_2,
-            negative=getnode_37.out(0),
-            positive=getnode_40.out(0),
-            vae=getnode_38.out(0),
-            _outputs=('POSITIVE', 'NEGATIVE', 'LATENT'),
+            negative=negative,
+            positive=positive,
+            vae=vaeloader_2,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvaddguide'] = ltxvaddguide.node.id
 
         ltxvconcatavlatent_2 = LTXVConcatAVLatent(
-            _id='34',
-            audio_latent=ltxvseparateavlatent.out('AUDIO_LATENT'),
-            video_latent=ltxvaddguide.out('LATENT'),
+            audio_latent=audio_latent,
+            video_latent=latent,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvconcatavlatent_2'] = ltxvconcatavlatent_2.node.id
 
-        setnode_25 = raw_call(wf, 'SetNode', '2164',
-            widget_0=WIDGET_0_25,
-            CONDITIONING=ltxvaddguide.out('POSITIVE'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_25'] = setnode_25.node.id
-
-        setnode_26 = raw_call(wf, 'SetNode', '2165',
-            widget_0=WIDGET_0_24,
-            CONDITIONING=ltxvaddguide.out('NEGATIVE'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_26'] = setnode_26.node.id
-
-        samplercustomadvanced_2 = SamplerCustomAdvanced(
-            _id='21',
+        output_sampler, denoised_output_sampler = SamplerCustomAdvanced(
             guider=cfgguider,
             latent_image=ltxvconcatavlatent_2,
             noise=randomnoise,
             sampler=ksamplerselect_2,
             sigmas=manualsigmas_3,
-            _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
         )
-        wf.metadata.setdefault('id_map', {})['samplercustomadvanced_2'] = samplercustomadvanced_2.node.id
 
-        ltxvseparateavlatent_2 = LTXVSeparateAVLatent(
-            _id='146',
-            av_latent=samplercustomadvanced_2.out('OUTPUT'),
-            _outputs=('VIDEO_LATENT', 'AUDIO_LATENT'),
+        video_latent_ltxv, audio_latent_ltxv = LTXVSeparateAVLatent(
+            av_latent=output_sampler,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvseparateavlatent_2'] = ltxvseparateavlatent_2.node.id
 
         ltxvaudiovaedecode = LTXVAudioVAEDecode(
-            _id='150',
-            audio_vae=getnode_17.out(0),
-            samples=ltxvseparateavlatent_2.out('AUDIO_LATENT'),
+            audio_vae=ltxvaudiovaeloader,
+            samples=audio_latent_ltxv,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvaudiovaedecode'] = ltxvaudiovaedecode.node.id
 
-        ltxvcropguides = LTXVCropGuides(
-            _id='2156',
-            latent=ltxvseparateavlatent_2.out('VIDEO_LATENT'),
-            negative=getnode_41.out(0),
-            positive=getnode_42.out(0),
-            _outputs=('POSITIVE', 'NEGATIVE', 'LATENT'),
+        positive_ltxv_2, negative_ltxv_2, latent_ltxv = LTXVCropGuides(
+            latent=video_latent_ltxv,
+            negative=negative_ltxv,
+            positive=positive_ltxv,
         )
-        wf.metadata.setdefault('id_map', {})['ltxvcropguides'] = ltxvcropguides.node.id
 
         # Decode
         vaedecodetiled = VAEDecodeTiled(
-            _id='149',
             temporal_size=4096,
-            samples=ltxvcropguides.out('LATENT'),
-            vae=getnode_16.out(0),
+            samples=latent_ltxv,
+            vae=vaeloader_2,
         )
-        wf.metadata.setdefault('id_map', {})['vaedecodetiled'] = vaedecodetiled.node.id
 
-        setnode_6 = raw_call(wf, 'SetNode', '154',
-            widget_0=WIDGET_0_15,
-            AUDIO=ltxvaudiovaedecode,
+        # Outputs
+        vhs_videocombine = VHS_VideoCombine(
+            filename_prefix='reigh_vibecomfy_ltx_first_last',
+            format='video/h264-mp4',
+            frame_rate=primitivefloat,
+            images=vaedecodetiled,
         )
-        wf.metadata.setdefault('id_map', {})['setnode_6'] = setnode_6.node.id
 
-        setnode_5 = raw_call(wf, 'SetNode', '153',
-            widget_0=WIDGET_0_14,
-            IMAGE=vaedecodetiled,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_5'] = setnode_5.node.id
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='reigh_vibecomfy_ltx_first_last')
+        wf.register_input('model', ltxvaudiovaeloader.node.id, 'ckpt_name', CKPT_NAME)
+        return wf.finalize({}, filename_prefix='reigh_vibecomfy_ltx_first_last', spec=OUTPUT_SPEC)
 

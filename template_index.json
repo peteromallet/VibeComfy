@@ -19,84 +19,12 @@
       "model_count": 4,
       "public_inputs": [
         {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "unet_name"
-          },
-          "node_id": "",
-          "field": "unet_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "steps",
-          "target": {
-            "node_id": "",
-            "field": "steps"
-          },
-          "node_id": "",
-          "field": "steps",
-          "value": 1,
-          "type": null,
-          "default": 1,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "lyrics",
-          "target": {
-            "node_id": "",
-            "field": "lyrics"
-          },
-          "node_id": "",
-          "field": "lyrics",
-          "value": "Verse\nTiny signal in the night.",
-          "type": null,
-          "default": "Verse\nTiny signal in the night.",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
           "name": "tags",
           "target": {
-            "node_id": "",
+            "node_id": "124",
             "field": "tags"
           },
-          "node_id": "",
+          "node_id": "124",
           "field": "tags",
           "value": "synthwave, short instrumental",
           "type": null,
@@ -109,12 +37,48 @@
           "source": "InputSpec"
         },
         {
+          "name": "lyrics",
+          "target": {
+            "node_id": "124",
+            "field": "lyrics"
+          },
+          "node_id": "124",
+          "field": "lyrics",
+          "value": "Verse\nTiny signal in the night.",
+          "type": null,
+          "default": "Verse\nTiny signal in the night.",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "124",
+            "field": "seed"
+          },
+          "node_id": "124",
+          "field": "seed",
+          "value": 561594583201063,
+          "type": null,
+          "default": 561594583201063,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "duration",
           "target": {
-            "node_id": "",
+            "node_id": "124",
             "field": "duration"
           },
-          "node_id": "",
+          "node_id": "124",
           "field": "duration",
           "value": 2,
           "type": null,
@@ -129,10 +93,10 @@
         {
           "name": "bpm",
           "target": {
-            "node_id": "",
+            "node_id": "124",
             "field": "bpm"
           },
-          "node_id": "",
+          "node_id": "124",
           "field": "bpm",
           "value": 120,
           "type": null,
@@ -145,16 +109,52 @@
           "source": "InputSpec"
         },
         {
+          "name": "seed_2",
+          "target": {
+            "node_id": "126",
+            "field": "seed"
+          },
+          "node_id": "126",
+          "field": "seed",
+          "value": 561594583201063,
+          "type": null,
+          "default": 561594583201063,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "126",
+            "field": "steps"
+          },
+          "node_id": "126",
+          "field": "steps",
+          "value": 1,
+          "type": null,
+          "default": 1,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "cfg",
           "target": {
-            "node_id": "",
+            "node_id": "126",
             "field": "cfg"
           },
-          "node_id": "",
+          "node_id": "126",
           "field": "cfg",
-          "value": null,
+          "value": 1,
           "type": null,
-          "default": null,
+          "default": 1,
           "required": false,
           "range": null,
           "aliases": [],
@@ -165,10 +165,10 @@
         {
           "name": "sampler_name",
           "target": {
-            "node_id": "",
+            "node_id": "126",
             "field": "sampler_name"
           },
-          "node_id": "",
+          "node_id": "126",
           "field": "sampler_name",
           "value": "euler",
           "type": null,
@@ -181,34 +181,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "seed_2",
+          "name": "model",
           "target": {
-            "node_id": "",
-            "field": "seed"
+            "node_id": "123",
+            "field": "unet_name"
           },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
+          "node_id": "123",
+          "field": "unet_name",
+          "value": "acestep_v1.5_turbo.safetensors",
           "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "noise_seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
+          "default": "acestep_v1.5_turbo.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -220,11 +202,11 @@
       "public_outputs": [
         {
           "name": "audio",
-          "node_id": "59",
+          "node_id": "128",
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/vibecomfy_ace_step_smoke",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -234,11 +216,11 @@
       "artifact_expectations": [
         {
           "name": "audio",
-          "node_id": "59",
+          "node_id": "128",
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/vibecomfy_ace_step_smoke",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -250,7 +232,7 @@
       "custom_node_count": 2,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": true,
       "blocked": false,
       "reference": false,
@@ -1552,6 +1534,24 @@
       "model_count": 1,
       "public_inputs": [
         {
+          "name": "prompt",
+          "target": {
+            "node_id": "8",
+            "field": "text"
+          },
+          "node_id": "8",
+          "field": "text",
+          "value": "",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
+        },
+        {
           "name": "seed",
           "target": {
             "node_id": "5",
@@ -1561,113 +1561,23 @@
           "field": "noise_seed",
           "value": 653844576367526,
           "type": null,
-          "default": 653844576367526,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "width",
-          "target": {
-            "node_id": "75:68",
-            "field": "value"
-          },
-          "node_id": "75:68",
-          "field": "value",
-          "value": 1024,
-          "type": null,
-          "default": 1024,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "75:69",
-            "field": "value"
-          },
-          "node_id": "75:69",
-          "field": "value",
-          "value": 1024,
-          "type": null,
-          "default": 1024,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "negative_prompt",
-          "target": {
-            "node_id": "8",
-            "field": "text"
-          },
-          "node_id": "8",
-          "field": "text",
-          "value": "",
-          "type": null,
-          "default": "",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "9",
-            "field": "text"
-          },
-          "node_id": "9",
-          "field": "text",
-          "value": "",
-          "type": null,
-          "default": "",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "2",
-            "field": "unet_name"
-          },
-          "node_id": "2",
-          "field": "unet_name",
-          "value": "flux-2-klein-base-9b-fp8.safetensors",
-          "type": null,
-          "default": "flux-2-klein-base-9b-fp8.safetensors",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "image",
-          "node_id": "13",
+          "node_id": "1",
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "Flux2-Klein",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1677,11 +1587,11 @@
       "artifact_expectations": [
         {
           "name": "image",
-          "node_id": "13",
+          "node_id": "1",
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "Flux2-Klein",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -2017,102 +1927,12 @@
       "model_count": 3,
       "public_inputs": [
         {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "unet_name"
-          },
-          "node_id": "",
-          "field": "unet_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "steps",
-          "target": {
-            "node_id": "",
-            "field": "steps"
-          },
-          "node_id": "",
-          "field": "steps",
-          "value": 25,
-          "type": null,
-          "default": 25,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "negative_prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": "",
-          "type": null,
-          "default": "",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
           "name": "width",
           "target": {
-            "node_id": "",
+            "node_id": "4",
             "field": "width"
           },
-          "node_id": "",
+          "node_id": "4",
           "field": "width",
           "value": 1024,
           "type": null,
@@ -2127,14 +1947,104 @@
         {
           "name": "height",
           "target": {
-            "node_id": "",
+            "node_id": "4",
             "field": "height"
           },
-          "node_id": "",
+          "node_id": "4",
           "field": "height",
           "value": 1024,
           "type": null,
           "default": 1024,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "6",
+            "field": "text"
+          },
+          "node_id": "6",
+          "field": "text",
+          "value": "A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.",
+          "type": null,
+          "default": "A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "negative_prompt",
+          "target": {
+            "node_id": "7",
+            "field": "text"
+          },
+          "node_id": "7",
+          "field": "text",
+          "value": "",
+          "type": null,
+          "default": "",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "8",
+            "field": "seed"
+          },
+          "node_id": "8",
+          "field": "seed",
+          "value": 770044821593082,
+          "type": null,
+          "default": 770044821593082,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "8",
+            "field": "steps"
+          },
+          "node_id": "8",
+          "field": "steps",
+          "value": 25,
+          "type": null,
+          "default": 25,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "unet_name"
+          },
+          "node_id": "1",
+          "field": "unet_name",
+          "value": "z_image_bf16.safetensors",
+          "type": null,
+          "default": "z_image_bf16.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -2150,7 +2060,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "z-image",
+          "filename_prefix": "image/z_image",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -2164,7 +2074,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "z-image",
+          "filename_prefix": "image/z_image",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -2176,7 +2086,7 @@
       "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": true,
       "blocked": false,
       "reference": false,
@@ -5201,19 +5111,57 @@
         "ComfyUI-VideoHelperSuite",
         "rgthree-comfy"
       ],
-      "model_count": 9,
+      "model_count": 0,
       "public_inputs": [
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "2",
             "field": "noise_seed"
           },
-          "node_id": "",
+          "node_id": "2",
           "field": "noise_seed",
-          "value": null,
+          "value": 420,
           "type": null,
-          "default": null,
+          "default": 420,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "image",
+          "target": {
+            "node_id": "6",
+            "field": "image"
+          },
+          "node_id": "6",
+          "field": "image",
+          "value": "liam-neeson-in-retribution-ra.jpg",
+          "type": null,
+          "default": "liam-neeson-in-retribution-ra.jpg",
+          "required": false,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "6",
+            "field": "image"
+          },
+          "node_id": "6",
+          "field": "image",
+          "value": "liam-neeson-in-retribution-ra.jpg",
+          "type": null,
+          "default": "liam-neeson-in-retribution-ra.jpg",
           "required": false,
           "range": null,
           "aliases": [],
@@ -5224,32 +5172,14 @@
         {
           "name": "model",
           "target": {
-            "node_id": "",
+            "node_id": "8",
             "field": "model_name"
           },
-          "node_id": "",
+          "node_id": "8",
           "field": "model_name",
-          "value": null,
+          "value": "ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
           "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
+          "default": "ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -5260,10 +5190,10 @@
         {
           "name": "use_lora",
           "target": {
-            "node_id": "",
+            "node_id": "290",
             "field": "value"
           },
-          "node_id": "",
+          "node_id": "290",
           "field": "value",
           "value": false,
           "type": null,
@@ -5276,34 +5206,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "image",
+          "name": "prompt",
           "target": {
-            "node_id": "",
-            "field": "image"
+            "node_id": "382",
+            "field": "text"
           },
-          "node_id": "",
-          "field": "image",
-          "value": "liam-neeson-in-retribution-ra.jpg",
+          "node_id": "382",
+          "field": "text",
+          "value": "blurry, oversaturated, pixelated, low resolution, grainy, distorted, noise, compression artifacts, jpeg artifacts, glitches, watermark, text, logo, signature, copyright, subtitles, distorted sound, saturated sound, loud",
           "type": null,
-          "default": "liam-neeson-in-retribution-ra.jpg",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "liam-neeson-in-retribution-ra.jpg",
-          "type": null,
-          "default": "liam-neeson-in-retribution-ra.jpg",
+          "default": "blurry, oversaturated, pixelated, low resolution, grainy, distorted, noise, compression artifacts, jpeg artifacts, glitches, watermark, text, logo, signature, copyright, subtitles, distorted sound, saturated sound, loud",
           "required": false,
           "range": null,
           "aliases": [],
@@ -5315,11 +5227,11 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "140",
+          "node_id": "419",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_custom_audio",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -5329,11 +5241,11 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "140",
+          "node_id": "419",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/ltx2_3_runexx_custom_audio",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -5345,7 +5257,7 @@
       "custom_node_count": 5,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -5376,16 +5288,16 @@
       "model_count": 8,
       "public_inputs": [
         {
-          "name": "seed",
+          "name": "seed_last",
           "target": {
-            "node_id": "",
+            "node_id": "4",
             "field": "noise_seed"
           },
-          "node_id": "",
+          "node_id": "4",
           "field": "noise_seed",
-          "value": null,
+          "value": 43,
           "type": null,
-          "default": null,
+          "default": 43,
           "required": false,
           "range": null,
           "aliases": [],
@@ -5394,34 +5306,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "model",
+          "name": "seed",
           "target": {
-            "node_id": "",
-            "field": "ckpt_name"
+            "node_id": "5",
+            "field": "noise_seed"
           },
-          "node_id": "",
-          "field": "ckpt_name",
-          "value": null,
+          "node_id": "5",
+          "field": "noise_seed",
+          "value": 42,
           "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": "wf.nodes['2103'].inputs.get('value', '')",
-          "type": null,
-          "default": "wf.nodes['2103'].inputs.get('value', '')",
+          "default": 42,
           "required": false,
           "range": null,
           "aliases": [],
@@ -5432,341 +5326,20 @@
         {
           "name": "start_image",
           "target": {
-            "node_id": "",
+            "node_id": "6",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "6",
           "field": "image",
           "value": "image (6).png",
           "type": null,
           "default": "image (6).png",
           "required": false,
           "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "end_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "0 (13).webp",
-          "type": null,
-          "default": "0 (13).webp",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "first_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "image (6).png",
-          "type": null,
-          "default": "image (6).png",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "last_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "0 (13).webp",
-          "type": null,
-          "default": "0 (13).webp",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "negative_prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed_first",
-          "target": {
-            "node_id": "",
-            "field": "noise_seed"
-          },
-          "node_id": "",
-          "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed_last",
-          "target": {
-            "node_id": "",
-            "field": "noise_seed"
-          },
-          "node_id": "",
-          "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1280,
-          "type": null,
-          "default": 1280,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 720,
-          "type": null,
-          "default": 720,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "output_fps",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 24,
-          "type": null,
-          "default": 24,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "fps",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 24,
-          "type": null,
-          "default": 24,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "fps_int",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 24,
-          "type": null,
-          "default": 24,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "first_frame_strength",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1.0,
-          "type": null,
-          "default": 1.0,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "last_frame_strength",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1.0,
-          "type": null,
-          "default": 1.0,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "first_strength",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1.0,
-          "type": null,
-          "default": 1.0,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "last_strength",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1.0,
-          "type": null,
-          "default": 1.0,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "use_lora",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": true,
-          "type": null,
-          "default": true,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "length",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 81,
-          "type": null,
-          "default": 81,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "frames",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 81,
-          "type": null,
-          "default": 81,
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "aliases": [
+            "image",
+            "input_image"
+          ],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
@@ -5774,10 +5347,10 @@
         {
           "name": "image",
           "target": {
-            "node_id": "",
+            "node_id": "6",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "6",
           "field": "image",
           "value": "image (6).png",
           "type": null,
@@ -5792,14 +5365,212 @@
         {
           "name": "input_image",
           "target": {
-            "node_id": "",
+            "node_id": "6",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "6",
           "field": "image",
           "value": "image (6).png",
           "type": null,
           "default": "image (6).png",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "end_image",
+          "target": {
+            "node_id": "7",
+            "field": "image"
+          },
+          "node_id": "7",
+          "field": "image",
+          "value": "0 (13).webp",
+          "type": null,
+          "default": "0 (13).webp",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "output_fps",
+          "target": {
+            "node_id": "2076",
+            "field": "value"
+          },
+          "node_id": "2076",
+          "field": "value",
+          "value": 24,
+          "type": null,
+          "default": 24,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "length",
+          "target": {
+            "node_id": "2077",
+            "field": "value"
+          },
+          "node_id": "2077",
+          "field": "value",
+          "value": 81,
+          "type": null,
+          "default": 81,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "height",
+          "target": {
+            "node_id": "2078",
+            "field": "value"
+          },
+          "node_id": "2078",
+          "field": "value",
+          "value": 720,
+          "type": null,
+          "default": 720,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "width",
+          "target": {
+            "node_id": "2079",
+            "field": "value"
+          },
+          "node_id": "2079",
+          "field": "value",
+          "value": 1280,
+          "type": null,
+          "default": 1280,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "use_lora",
+          "target": {
+            "node_id": "2082",
+            "field": "value"
+          },
+          "node_id": "2082",
+          "field": "value",
+          "value": true,
+          "type": null,
+          "default": true,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "2083",
+            "field": "value"
+          },
+          "node_id": "2083",
+          "field": "value",
+          "value": "wf.nodes['2103'].inputs.get('value', '')",
+          "type": null,
+          "default": "wf.nodes['2103'].inputs.get('value', '')",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "last_frame_strength",
+          "target": {
+            "node_id": "2108",
+            "field": "value"
+          },
+          "node_id": "2108",
+          "field": "value",
+          "value": 1.0,
+          "type": null,
+          "default": 1.0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "first_frame_strength",
+          "target": {
+            "node_id": "2110",
+            "field": "value"
+          },
+          "node_id": "2110",
+          "field": "value",
+          "value": 1.0,
+          "type": null,
+          "default": 1.0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "negative_prompt",
+          "target": {
+            "node_id": "2111",
+            "field": "text"
+          },
+          "node_id": "2111",
+          "field": "text",
+          "value": "wf.nodes['11'].inputs.get('text', '')",
+          "type": null,
+          "default": "wf.nodes['11'].inputs.get('text', '')",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "8",
+            "field": "ckpt_name"
+          },
+          "node_id": "8",
+          "field": "ckpt_name",
+          "value": "LTX23_audio_vae_bf16.safetensors",
+          "type": null,
+          "default": "LTX23_audio_vae_bf16.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -5811,11 +5582,11 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "43",
+          "node_id": "2149",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "reigh_vibecomfy_ltx_first_last",
+          "filename_prefix": "video/ltx2_3_runexx_first_last_frame",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -5825,11 +5596,11 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "43",
+          "node_id": "2149",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "reigh_vibecomfy_ltx_first_last",
+          "filename_prefix": "video/ltx2_3_runexx_first_last_frame",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -5841,7 +5612,7 @@
       "custom_node_count": 4,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -5874,50 +5645,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "4",
             "field": "noise_seed"
           },
-          "node_id": "",
+          "node_id": "4",
           "field": "noise_seed",
-          "value": null,
+          "value": 43,
           "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "ckpt_name"
-          },
-          "node_id": "",
-          "field": "ckpt_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": "wf.nodes['2103'].inputs.get('value', '')",
-          "type": null,
-          "default": "wf.nodes['2103'].inputs.get('value', '')",
+          "default": 43,
           "required": false,
           "range": null,
           "aliases": [],
@@ -5928,197 +5663,20 @@
         {
           "name": "start_image",
           "target": {
-            "node_id": "",
+            "node_id": "6",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "6",
           "field": "image",
           "value": "image (6).png",
           "type": null,
           "default": "image (6).png",
           "required": false,
           "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "end_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "0 (13).webp",
-          "type": null,
-          "default": "0 (13).webp",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "control_video",
-          "target": {
-            "node_id": "",
-            "field": "video"
-          },
-          "node_id": "",
-          "field": "video",
-          "value": "ltx_smoke_guide.mp4",
-          "type": null,
-          "default": "ltx_smoke_guide.mp4",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "negative",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "frames",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 81,
-          "type": null,
-          "default": 81,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1280,
-          "type": null,
-          "default": 1280,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 720,
-          "type": null,
-          "default": 720,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "fps",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 24,
-          "type": null,
-          "default": 24,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "strength",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1,
-          "type": null,
-          "default": 1,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "first_frame_strength",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1.0,
-          "type": null,
-          "default": 1.0,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "last_frame_strength",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": 1.0,
-          "type": null,
-          "default": 1.0,
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "aliases": [
+            "image",
+            "input_image"
+          ],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
@@ -6126,10 +5684,10 @@
         {
           "name": "image",
           "target": {
-            "node_id": "",
+            "node_id": "6",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "6",
           "field": "image",
           "value": "image (6).png",
           "type": null,
@@ -6144,14 +5702,230 @@
         {
           "name": "input_image",
           "target": {
-            "node_id": "",
+            "node_id": "6",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "6",
           "field": "image",
           "value": "image (6).png",
           "type": null,
           "default": "image (6).png",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "end_image",
+          "target": {
+            "node_id": "7",
+            "field": "image"
+          },
+          "node_id": "7",
+          "field": "image",
+          "value": "0 (13).webp",
+          "type": null,
+          "default": "0 (13).webp",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "fps",
+          "target": {
+            "node_id": "2076",
+            "field": "value"
+          },
+          "node_id": "2076",
+          "field": "value",
+          "value": 24,
+          "type": null,
+          "default": 24,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "frames",
+          "target": {
+            "node_id": "2077",
+            "field": "value"
+          },
+          "node_id": "2077",
+          "field": "value",
+          "value": 81,
+          "type": null,
+          "default": 81,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "height",
+          "target": {
+            "node_id": "2078",
+            "field": "value"
+          },
+          "node_id": "2078",
+          "field": "value",
+          "value": 720,
+          "type": null,
+          "default": 720,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "width",
+          "target": {
+            "node_id": "2079",
+            "field": "value"
+          },
+          "node_id": "2079",
+          "field": "value",
+          "value": 1280,
+          "type": null,
+          "default": 1280,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "2083",
+            "field": "value"
+          },
+          "node_id": "2083",
+          "field": "value",
+          "value": "wf.nodes['2103'].inputs.get('value', '')",
+          "type": null,
+          "default": "wf.nodes['2103'].inputs.get('value', '')",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "last_frame_strength",
+          "target": {
+            "node_id": "2108",
+            "field": "value"
+          },
+          "node_id": "2108",
+          "field": "value",
+          "value": 1.0,
+          "type": null,
+          "default": 1.0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "first_frame_strength",
+          "target": {
+            "node_id": "2110",
+            "field": "value"
+          },
+          "node_id": "2110",
+          "field": "value",
+          "value": 1.0,
+          "type": null,
+          "default": 1.0,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "control_video",
+          "target": {
+            "node_id": "2111",
+            "field": "video"
+          },
+          "node_id": "2111",
+          "field": "video",
+          "value": "ltx_smoke_guide.mp4",
+          "type": null,
+          "default": "ltx_smoke_guide.mp4",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "strength",
+          "target": {
+            "node_id": "6102",
+            "field": "value"
+          },
+          "node_id": "6102",
+          "field": "value",
+          "value": 1,
+          "type": null,
+          "default": 1,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "negative",
+          "target": {
+            "node_id": "6103",
+            "field": "text"
+          },
+          "node_id": "6103",
+          "field": "text",
+          "value": "wf.nodes['11'].inputs.get('text', '')",
+          "type": null,
+          "default": "wf.nodes['11'].inputs.get('text', '')",
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "8",
+            "field": "ckpt_name"
+          },
+          "node_id": "8",
+          "field": "ckpt_name",
+          "value": "LTX23_audio_vae_bf16.safetensors",
+          "type": null,
+          "default": "LTX23_audio_vae_bf16.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6163,11 +5937,11 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "43",
+          "node_id": "6143",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "reigh_vibecomfy_ltx_raw_guide",
+          "filename_prefix": "video/ltx2_3_runexx_first_last_frame",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6177,11 +5951,11 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "43",
+          "node_id": "6143",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "reigh_vibecomfy_ltx_raw_guide",
+          "filename_prefix": "video/ltx2_3_runexx_first_last_frame",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6193,7 +5967,7 @@
       "custom_node_count": 4,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -6227,14 +6001,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "4",
             "field": "noise_seed"
           },
-          "node_id": "",
+          "node_id": "4",
           "field": "noise_seed",
-          "value": null,
+          "value": 43,
           "type": null,
-          "default": null,
+          "default": 43,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6243,34 +6017,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "model",
+          "name": "image",
           "target": {
-            "node_id": "",
-            "field": "ckpt_name"
+            "node_id": "6",
+            "field": "image"
           },
-          "node_id": "",
-          "field": "ckpt_name",
-          "value": null,
+          "node_id": "6",
+          "field": "image",
+          "value": "sodacan_01.png",
           "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
+          "default": "sodacan_01.png",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6281,10 +6037,10 @@
         {
           "name": "use_lora",
           "target": {
-            "node_id": "",
+            "node_id": "2082",
             "field": "value"
           },
-          "node_id": "",
+          "node_id": "2082",
           "field": "value",
           "value": true,
           "type": null,
@@ -6297,16 +6053,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "image",
+          "name": "prompt",
           "target": {
-            "node_id": "",
-            "field": "image"
+            "node_id": "2279",
+            "field": "text"
           },
-          "node_id": "",
-          "field": "image",
-          "value": "sodacan_01.png",
+          "node_id": "2279",
+          "field": "text",
+          "value": "blurry, oversaturated, pixelated, low resolution, grainy, distorted, noise, compression artifacts, jpeg artifacts, glitches, watermark, text, logo, signature, copyright, subtitles, distorted sound, saturated sound, loud",
           "type": null,
-          "default": "sodacan_01.png",
+          "default": "blurry, oversaturated, pixelated, low resolution, grainy, distorted, noise, compression artifacts, jpeg artifacts, glitches, watermark, text, logo, signature, copyright, subtitles, distorted sound, saturated sound, loud",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6315,16 +6071,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "input_image",
+          "name": "model",
           "target": {
-            "node_id": "",
-            "field": "image"
+            "node_id": "8",
+            "field": "ckpt_name"
           },
-          "node_id": "",
-          "field": "image",
-          "value": "sodacan_01.png",
+          "node_id": "8",
+          "field": "ckpt_name",
+          "value": "LTX23_audio_vae_bf16.safetensors",
           "type": null,
-          "default": "sodacan_01.png",
+          "default": "LTX23_audio_vae_bf16.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -6336,11 +6092,11 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "43",
+          "node_id": "2318",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "reigh_vibecomfy_ltx_first_middle_last",
+          "filename_prefix": "video/ltx2_3_runexx_first_middle_last_frame",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6350,11 +6106,11 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "43",
+          "node_id": "2318",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "reigh_vibecomfy_ltx_first_middle_last",
+          "filename_prefix": "video/ltx2_3_runexx_first_middle_last_frame",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6366,7 +6122,7 @@
       "custom_node_count": 5,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -9184,10 +8940,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "97",
+            "node_id": "12",
             "field": "text"
           },
-          "node_id": "97",
+          "node_id": "12",
           "field": "text",
           "value": "CG\u52a8\u753b\u98ce\u683c\uff0c\u4e00\u53ea\u84dd\u8272\u7684\u5c0f\u9e1f\u4ece\u5730\u9762\u8d77\u98de\uff0c\u717d\u52a8\u7fc5\u8180\u3002\u5c0f\u9e1f\u7fbd\u6bdb\u7ec6\u817b\uff0c\u80f8\u524d\u6709\u72ec\u7279\u7684\u82b1\u7eb9\uff0c\u80cc\u666f\u662f\u84dd\u5929\u767d\u4e91\uff0c\u9633\u5149\u660e\u5a9a\u3002\u955c\u8ddf\u968f\u5c0f\u9e1f\u5411\u4e0a\u79fb\u52a8\uff0c\u5c55\u73b0\u51fa\u5c0f\u9e1f\u98de\u7fd4\u7684\u59ff\u6001\u548c\u5929\u7a7a\u7684\u5e7f\u9614\u3002\u8fd1\u666f\uff0c\u4ef0\u89c6\u89c6\u89d2",
           "type": null,
@@ -9202,10 +8958,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "101",
+            "node_id": "14",
             "field": "width"
           },
-          "node_id": "101",
+          "node_id": "14",
           "field": "width",
           "value": 256,
           "type": null,
@@ -9220,10 +8976,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "101",
+            "node_id": "14",
             "field": "height"
           },
-          "node_id": "101",
+          "node_id": "14",
           "field": "height",
           "value": 256,
           "type": null,
@@ -9238,10 +8994,10 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "108",
+            "node_id": "23",
             "field": "seed"
           },
-          "node_id": "108",
+          "node_id": "23",
           "field": "seed",
           "value": 43,
           "type": null,
@@ -9257,7 +9013,7 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "113",
+          "node_id": "28",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9271,7 +9027,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "113",
+          "node_id": "28",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9357,10 +9113,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "92",
+            "node_id": "83",
             "field": "text"
           },
-          "node_id": "92",
+          "node_id": "83",
           "field": "text",
           "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
           "type": null,
@@ -9375,10 +9131,10 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "95",
+            "node_id": "86",
             "field": "seed"
           },
-          "node_id": "95",
+          "node_id": "86",
           "field": "seed",
           "value": 42,
           "type": null,
@@ -9394,7 +9150,7 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "102",
+          "node_id": "91",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9405,7 +9161,7 @@
         },
         {
           "name": "video",
-          "node_id": "104",
+          "node_id": "95",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9419,7 +9175,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "102",
+          "node_id": "91",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9430,7 +9186,7 @@
         },
         {
           "name": "video",
-          "node_id": "104",
+          "node_id": "95",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9515,10 +9271,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "93",
+            "node_id": "84",
             "field": "text"
           },
-          "node_id": "93",
+          "node_id": "84",
           "field": "text",
           "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
           "type": null,
@@ -9533,10 +9289,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "95",
+            "node_id": "86",
             "field": "width"
           },
-          "node_id": "95",
+          "node_id": "86",
           "field": "width",
           "value": 256,
           "type": null,
@@ -9551,10 +9307,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "95",
+            "node_id": "86",
             "field": "height"
           },
-          "node_id": "95",
+          "node_id": "86",
           "field": "height",
           "value": 256,
           "type": null,
@@ -11311,37 +11067,19 @@
         "ComfyUI-VideoHelperSuite",
         "ComfyUI-WanVideoWrapper"
       ],
-      "model_count": 2,
+      "model_count": 0,
       "public_inputs": [
         {
           "name": "model",
           "target": {
-            "node_id": "",
+            "node_id": "2",
             "field": "model_name"
           },
-          "node_id": "",
+          "node_id": "2",
           "field": "model_name",
-          "value": null,
+          "value": "wanvideo\\Wan2_1_VAE_bf16.safetensors",
           "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
+          "default": "wanvideo\\Wan2_1_VAE_bf16.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -11352,17 +11090,19 @@
         {
           "name": "image",
           "target": {
-            "node_id": "",
+            "node_id": "72",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "72",
           "field": "image",
           "value": "2b.jpg",
           "type": null,
           "default": "2b.jpg",
           "required": false,
           "range": null,
-          "aliases": [],
+          "aliases": [
+            "input_image"
+          ],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
@@ -11370,10 +11110,10 @@
         {
           "name": "input_image",
           "target": {
-            "node_id": "",
+            "node_id": "72",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "72",
           "field": "image",
           "value": "2b.jpg",
           "type": null,
@@ -11388,10 +11128,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "",
+            "node_id": "97",
             "field": "width"
           },
-          "node_id": "",
+          "node_id": "97",
           "field": "width",
           "value": 256,
           "type": null,
@@ -11406,14 +11146,32 @@
         {
           "name": "height",
           "target": {
-            "node_id": "",
+            "node_id": "97",
             "field": "height"
           },
-          "node_id": "",
+          "node_id": "97",
           "field": "height",
           "value": 256,
           "type": null,
           "default": 256,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "106",
+            "field": "seed"
+          },
+          "node_id": "106",
+          "field": "seed",
+          "value": 45,
+          "type": null,
+          "default": 45,
           "required": false,
           "range": null,
           "aliases": [],
@@ -11425,11 +11183,22 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "30",
+          "node_id": "112",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/wanvideo_wrapper_22_s2v_context_window",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "114",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/wanvideo_wrapper_22_s2v_context_window",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -11439,29 +11208,34 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "30",
+          "node_id": "112",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "video/wanvideo_wrapper_22_s2v_context_window",
+          "expected_cardinality": "one",
+          "status": "static",
+          "source": "finalize"
+        },
+        {
+          "name": "video",
+          "node_id": "114",
+          "output_type": "VHS_VideoCombine",
+          "artifact_kind": "video",
+          "mime_type": "video/mp4",
+          "filename_prefix": "video/wanvideo_wrapper_22_s2v_context_window",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 3,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -11856,10 +11630,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "173",
+            "node_id": "157",
             "field": "width"
           },
-          "node_id": "173",
+          "node_id": "157",
           "field": "width",
           "value": 832,
           "type": null,
@@ -11874,10 +11648,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "173",
+            "node_id": "157",
             "field": "height"
           },
-          "node_id": "173",
+          "node_id": "157",
           "field": "height",
           "value": 480,
           "type": null,
@@ -11892,10 +11666,10 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "174",
+            "node_id": "166",
             "field": "seed"
           },
-          "node_id": "174",
+          "node_id": "166",
           "field": "seed",
           "value": 42,
           "type": null,
@@ -11911,7 +11685,7 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "180",
+          "node_id": "163",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -11922,7 +11696,7 @@
         },
         {
           "name": "video",
-          "node_id": "182",
+          "node_id": "165",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -11933,7 +11707,7 @@
         },
         {
           "name": "video",
-          "node_id": "184",
+          "node_id": "170",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -11947,7 +11721,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "180",
+          "node_id": "163",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -11958,7 +11732,7 @@
         },
         {
           "name": "video",
-          "node_id": "182",
+          "node_id": "165",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -11969,7 +11743,7 @@
         },
         {
           "name": "video",
-          "node_id": "184",
+          "node_id": "170",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",

@@ -19,8 +19,6 @@ DEFAULT_SEED = 43
 MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_2 = 'WanVideo\\Wan2.1-Fun-V1.1-1.3B-Control-Camera.safetensors'
 MODEL_NAME_3 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
-WIDGET_0 = 'VAE'
-WIDGET_0_2 = 'InputImage'
 
 
 OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
@@ -58,9 +56,6 @@ def build() -> VibeWorkflow:
         # Inputs
         image, mask = LoadImage(image=public('image', default='oldman_upscaled.png'))
         reroute = raw_call('Reroute', '80')
-        getnode = raw_call('GetNode', '85', widget_0=WIDGET_0)
-        getnode_2 = raw_call('GetNode', '86', widget_0=WIDGET_0)
-        getnode_3 = raw_call('GetNode', '89', widget_0=WIDGET_0_2)
 
         wanvideoexperimentalargs = WanVideoExperimentalArgs(
             cfg_zero_star=True,
@@ -68,7 +63,6 @@ def build() -> VibeWorkflow:
         )
 
         intconstant = INTConstant(value=81)
-        setnode = raw_call('SetNode', '83', widget_0=WIDGET_0, WANVAE=wanvideovaeloader)
 
         wanvideotextencode = WanVideoTextEncode(
             positive_prompt=DEFAULT_PROMPT,
@@ -100,8 +94,6 @@ def build() -> VibeWorkflow:
             widget_2=40,
             frame_length=intconstant,
         )
-
-        setnode_2 = raw_call('SetNode', '98', widget_0=WIDGET_0_2, IMAGE=image_image)
 
         samples, denoised_samples = WanVideoSampler(
             steps=1,
@@ -135,7 +127,7 @@ def build() -> VibeWorkflow:
             width=width,
         )
 
-        wanvideodecode = WanVideoDecode(samples=samples, vae=getnode_2.out(0))
+        wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
 
         wanvideoimagetovideoencode = WanVideoImageToVideoEncode(
             noise_aug_strength=0.03,
@@ -144,8 +136,8 @@ def build() -> VibeWorkflow:
             height=height,
             num_frames=intconstant,
             control_embeds=wanvideofuncameraembeds,
-            start_image=setnode_2.out(0),
-            vae=getnode.out(0),
+            start_image=image_image,
+            vae=wanvideovaeloader,
         )
 
         # Outputs
@@ -157,7 +149,7 @@ def build() -> VibeWorkflow:
             match_image_size=True,
             unused_3=None,
             image_1=wanvideodecode,
-            image_2=getnode_3.out(0),
+            image_2=image_image,
             image_3=cameraposevisualizer,
         )
 

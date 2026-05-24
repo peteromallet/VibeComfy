@@ -103,6 +103,6 @@ def build() -> VibeWorkflow:
         savevideo = SaveVideo(video=createvideo)
 
 
-        wf.register_input('model', '1', 'unet_name', UNET_NAME)
+        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
         return wf.finalize({}, spec=OUTPUT_SPEC)
 

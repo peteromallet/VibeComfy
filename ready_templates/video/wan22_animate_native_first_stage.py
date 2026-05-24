@@ -150,10 +150,10 @@ def build() -> VibeWorkflow:
             keep_model_loaded=True,
             coordinates_positive=positive_coords,
             image=imagescale,
-            sam2_model=downloadandloadsam2model.out(0),
+            sam2_model=downloadandloadsam2model,
         )
 
-        growmask = GrowMask(expand=10, mask=sam2segmentation.out(0))
+        growmask = GrowMask(expand=10, mask=sam2segmentation)
         blockifymask = BlockifyMask(masks=growmask)
         drawmaskonimage = DrawMaskOnImage(image=imagescale, mask=blockifymask)
 
@@ -204,6 +204,6 @@ def build() -> VibeWorkflow:
         savevideo = SaveVideo(video=createvideo)
 
 
-        wf.register_input('model', '5', 'unet_name', UNET_NAME)
+        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
         return wf.finalize({}, spec=OUTPUT_SPEC)
 

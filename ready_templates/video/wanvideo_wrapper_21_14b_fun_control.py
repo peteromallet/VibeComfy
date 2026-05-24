@@ -22,10 +22,8 @@ DEFAULT_SEED = 42
 MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_2 = 'WanVideo\\wan2.1_fun_control_1.3B_bf16.safetensors'
 MODEL_NAME_3 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
-WIDGET_0 = 'VAE'
-WIDGET_0_2 = 'ControlSignal'
+MODEL_NAME_4 = 'depth_anything_v2_vitl_fp16.safetensors'
 WIDGET_2 = 'lanczos'
-WIDGET__NAME = 'depth_anything_v2_vitl_fp16.safetensors'
 
 
 OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
@@ -68,17 +66,12 @@ def build() -> VibeWorkflow:
         )
 
         downloadandloaddepthanythingv2model = DownloadAndLoadDepthAnythingV2Model(
-            widget_0=WIDGET__NAME,
+            model=MODEL_NAME_4,
         )
 
         reroute = raw_call('Reroute', '79')
         reroute_2 = raw_call('Reroute', '80')
-        getnode = raw_call('GetNode', '84', widget_0=WIDGET_0)
-        getnode_2 = raw_call('GetNode', '85', widget_0=WIDGET_0)
-        getnode_3 = raw_call('GetNode', '86', widget_0=WIDGET_0)
-        getnode_4 = raw_call('GetNode', '89', widget_0=WIDGET_0_2)
         wanvideoexperimentalargs = WanVideoExperimentalArgs(cfg_zero_star=True)
-        setnode = raw_call('SetNode', '83', widget_0=WIDGET_0, WANVAE=wanvideovaeloader)
 
         wanvideotextencode = WanVideoTextEncode(
             positive_prompt=DEFAULT_PROMPT,
@@ -128,12 +121,14 @@ def build() -> VibeWorkflow:
             images=image_image,
         )
 
-        setnode_2 = raw_call('SetNode', '88', widget_0=WIDGET_0_2, IMAGE=depthanything_v2)
-        wanvideodecode = WanVideoDecode(samples=samples, vae=getnode_3.out(0))
+        wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
 
         image_get, width_get, height_get, count = GetImageSizeAndCount(
             image=depthanything_v2,
         )
+
+        # Outputs
+        vhs_videocombine = VHS_VideoCombine(images=depthanything_v2)
 
         image_image_2, width_image, height_image = ImageResizeKJ(
             widget_0=624,
@@ -158,15 +153,12 @@ def build() -> VibeWorkflow:
             widget_5=0,
             widget_6=1,
             image=image_get,
-            vae=getnode.out(0),
+            vae=wanvideovaeloader,
         )
-
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(images=setnode_2.out(0))
 
         imageconcatmulti = ImageConcatMulti(
             unused_3=None,
-            image_1=getnode_4.out(0),
+            image_1=depthanything_v2,
             image_2=wanvideodecode,
         )
 
@@ -189,7 +181,7 @@ def build() -> VibeWorkflow:
             clip_embeds=wanvideoclipvisionencode,
             control_embeds=wanvideocontrolembeds,
             start_image=image_image_2,
-            vae=getnode_2.out(0),
+            vae=wanvideovaeloader,
         )
 
         wanvideoemptyembeds = WanVideoEmptyEmbeds(

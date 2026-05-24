@@ -154,6 +154,6 @@ def build() -> VibeWorkflow:
         )
 
 
-        wf.register_input('model', '4', 'unet_name', UNET_NAME)
+        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
         return wf.finalize({}, filename_prefix='video/Wan2.2_image_to_video', spec=OUTPUT_SPEC)
 

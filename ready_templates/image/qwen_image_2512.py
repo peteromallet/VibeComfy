@@ -109,6 +109,6 @@ def build() -> VibeWorkflow:
         saveimage = SaveImage(filename_prefix='Qwen-Image-2512', images=vaedecode)
 
 
-        wf.register_input('model', '3', 'unet_name', UNET_NAME)
+        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
         return wf.finalize({}, spec=OUTPUT_SPEC)
 

@@ -197,6 +197,6 @@ def build() -> VibeWorkflow:
         saveimage = SaveImage(filename_prefix='Flux2-Klein', images=vaedecode)
 
 
-        wf.register_input('model', '2', 'unet_name', UNET_NAME)
+        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
         return wf.finalize({}, spec=OUTPUT_SPEC)
 
