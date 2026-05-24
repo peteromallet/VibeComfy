@@ -1,36 +1,31 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, GetImageSize, GetVideoComponents, KSamplerSelect, LTXAVTextEncoderLoader, LTXVConditioning, LTXVCropGuides, LoadVideo, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo, VAEDecodeTiled
 from vibecomfy.nodes.ltxvideo import GemmaAPITextEncode, LTXAddVideoICLoRAGuide, LTXICLoRALoaderModelOnly, LTXVHDRDecodePostprocess, LowVRAMCheckpointLoader
 
 
+API_KEY = ''
+CKPT_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
 DEFAULT_FPS = 8
 DEFAULT_PROMPT = 'pc game, console game, video game, ugly, still, static, slow'
+DEFAULT_PROMPT_2 = 'pc game, console game, video game, cartoon, childish, ugly'
 DEFAULT_SEED = 42
+ENHANCE_PROMPT_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
 GUIDE_STRENGTH = 0.5
 GUIDE_STRENGTH_2 = 2.5
-MODEL_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
-MODEL_NAME_2 = 'gemma_3_12B_it_fp4_mixed.safetensors'
-MODEL_NAME_3 = 'ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
-MODEL_NAME_4 = 'ltx-2.3-22b-ic-lora-hdr-0.9.safetensors'
-WIDGET_0 = ''
+LORA_NAME = 'ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
+LORA_NAME_2 = 'ltx-2.3-22b-ic-lora-hdr-0.9.safetensors'
+TEXT_ENCODER_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('model'), field='ckpt_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('cliptextencode'), field='text', default='HDR footage'),
-    'fps': InputSpec(node=ref('createvideo'), field='fps', default=DEFAULT_FPS),
-}
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='video_guided_hdr',
-    inputs=PUBLIC_INPUTS,
     requirements={'models': ['euler_ancestral', 'ltx-2.3-22b-dev-fp8.safetensors', 'ltx-2.3-22b-distilled-lora-384-1.1.safetensors', 'ltx-2.3-22b-ic-lora-hdr-0.9.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-LTXVideo']},
     custom_node_packs={'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageSize'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTXAVTextEncoderLoader', 'LTXVConditioning', 'LTXVCropGuides'], 'pip_packages': [], 'status': 'pinned'}},
     approach='official IC-LoRA HDR video guide',
@@ -46,13 +41,11 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=MODEL_NAME)
-
-        # Sampling
+        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=CKPT_NAME)
         ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral')
 
         randomnoise = RandomNoise(
-            noise_seed=DEFAULT_SEED,
+            noise_seed=public('seed', default=DEFAULT_SEED),
             control_after_generate='fixed',
         )
 
@@ -60,8 +53,8 @@ def build() -> VibeWorkflow:
         primitivestring = raw_call('PrimitiveString', '5022', value='')
 
         ltxavtextencoderloader = LTXAVTextEncoderLoader(
-            text_encoder=MODEL_NAME_2,
-            ckpt_name=MODEL_NAME,
+            text_encoder=TEXT_ENCODER_NAME,
+            ckpt_name=CKPT_NAME,
             device='default',
         )
 
@@ -72,7 +65,10 @@ def build() -> VibeWorkflow:
         loadvideo = LoadVideo(file='ltx_smoke_guide.mp4', video='ltx_smoke_guide.mp4')
 
         # Conditioning
-        cliptextencode = CLIPTextEncode(text='HDR footage', clip=ltxavtextencoderloader)
+        cliptextencode = CLIPTextEncode(
+            text=public('prompt', default='HDR footage'),
+            clip=ltxavtextencoderloader,
+        )
 
         cliptextencode_2 = CLIPTextEncode(
             text=DEFAULT_PROMPT,
@@ -80,25 +76,24 @@ def build() -> VibeWorkflow:
         )
 
         gemmaapitextencode = GemmaAPITextEncode(
-            widget_0=WIDGET_0,
-            widget_1='pc game, console game, video game, cartoon, childish, ugly',
-            widget_2=False,
-            widget_3=MODEL_NAME,
+            ckpt_name=CKPT_NAME,
+            enhance_prompt=False,
+            prompt=DEFAULT_PROMPT_2,
+            widget_0='',
             api_key=primitivestring,
         )
 
         gemmaapitextencode_2 = GemmaAPITextEncode(
-            widget_0=WIDGET_0,
-            widget_1='',
-            widget_2=MODEL_NAME,
-            widget_3=MODEL_NAME,
+            ckpt_name=CKPT_NAME,
+            enhance_prompt=ENHANCE_PROMPT_NAME,
+            widget_0='',
             api_key=primitivestring,
         )
 
         images, audio, fps = GetVideoComponents(video=loadvideo)
 
         model_ltxic, latent_downscale_factor = LTXICLoRALoaderModelOnly(
-            lora_name=MODEL_NAME_3,
+            lora_name=LORA_NAME,
             strength_model=GUIDE_STRENGTH,
             model=model,
         )
@@ -110,13 +105,13 @@ def build() -> VibeWorkflow:
         )
 
         model_ltxic_2, latent_downscale_factor_ltxic = LTXICLoRALoaderModelOnly(
-            lora_name=MODEL_NAME_4,
+            lora_name=LORA_NAME_2,
             model=model_ltxic,
         )
 
         simplemath_ = raw_call('SimpleMath+', '5111',
             _outputs=('INT', 'FLOAT'),
-            widget_0='a*32',
+            value='a*32',
             a=latent_downscale_factor_ltxic,
         )
 
@@ -188,7 +183,7 @@ def build() -> VibeWorkflow:
         )
 
         createvideo = CreateVideo(
-            fps=DEFAULT_FPS,
+            fps=public('fps', default=DEFAULT_FPS),
             widget_0=8,
             audio=audio,
             images=hdr_linear,
@@ -197,5 +192,7 @@ def build() -> VibeWorkflow:
         # Outputs
         savevideo = SaveVideo(filename_prefix='output', video=createvideo)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='output')
+
+        wf.register_input('model', '1', 'ckpt_name', CKPT_NAME)
+        return wf.finalize({}, filename_prefix='output', spec=OUTPUT_SPEC)
 

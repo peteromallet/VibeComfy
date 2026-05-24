@@ -1,10 +1,9 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
 from vibecomfy.nodes.core import LoadImage
 from vibecomfy.nodes.videohelpersuite import VHS_LoadVideo, VHS_VideoCombine
 from vibecomfy.nodes.wanvideowrapper import WanVideoBlockSwap, WanVideoDecode, WanVideoLoraSelectMulti, WanVideoModelLoader, WanVideoSampler, WanVideoSetBlockSwap, WanVideoSetLoRAs, WanVideoTextEncodeCached, WanVideoVACEEncode, WanVideoVACEModelSelect, WanVideoVACEStartToEndFrame, WanVideoVAELoader
@@ -16,14 +15,14 @@ DEFAULT_PROMPT = 'A smooth cinematic transition with consistent identity, lighti
 DEFAULT_SEED = 12345
 GUIDE_STRENGTH = 3.0
 GUIDE_STRENGTH_2 = 1.0
+LORA__NAME = 'WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors'
 MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_2 = 'wanvideo/Wan2_1_VAE_bf16.safetensors'
-MODEL_NAME_3 = 'WanVideo/Lightx2v/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors'
-MODEL_NAME_4 = 'WanVideo/Wan2_1-VACE_module_14B_fp8_e4m3fn.safetensors'
-MODEL_NAME_5 = 'WanVideo/2_2/Wan2_2-T2V-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors'
-MODEL_NAME_6 = 'WanVideo/2_2/Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors'
+MODEL_NAME_3 = 'WanVideo/2_2/Wan2_2-T2V-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors'
+MODEL_NAME_4 = 'WanVideo/2_2/Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors'
 QUANTIZATION = 'fp8_e4m3fn_scaled'
 SCHEDULER = 'euler'
+VACE_MODEL_NAME = 'WanVideo/Wan2_1-VACE_module_14B_fp8_e4m3fn.safetensors'
 
 
 MODELS = {
@@ -36,18 +35,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('wanvideovaeloader'), field='model_name', default=MODEL_NAME_2),
-    'seed': InputSpec(node=ref('samples'), field='seed', default=DEFAULT_SEED),
-    'width': InputSpec(node=ref('wanvideovaceencode'), field='width', default=832),
-    'height': InputSpec(node=ref('wanvideovaceencode'), field='height', default=480),
-    'image': InputSpec(node=ref('image'), field='image', default='vace_start.png'),
-    'input_image': InputSpec(node=ref('image'), field='image', default='vace_start.png'),
-}
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='video_vace_travel_join',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     requirements={'custom_nodes': ['ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper']},
     custom_node_packs={'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_LoadVideo', 'VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-WanVideoWrapper': {'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git', 'class_schema_sha256': '80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f', 'classes_used': ['WanVideoBlockSwap', 'WanVideoDecode', 'WanVideoLoraSelectMulti', 'WanVideoModelLoader', 'WanVideoSampler', 'WanVideoSetBlockSwap', 'WanVideoSetLoRAs', 'WanVideoTextEncodeCached', 'WanVideoVACEEncode', 'WanVideoVACEModelSelect', 'WanVideoVACEStartToEndFrame', 'WanVideoVAELoader'], 'pip_packages': ['onnx', 'opencv-python-headless'], 'status': 'pinned'}},
@@ -67,7 +58,9 @@ def build() -> VibeWorkflow:
             negative_prompt=DEFAULT_NEGATIVE,
         )
 
-        wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
+        wanvideovaeloader = WanVideoVAELoader(
+            model_name=public('model', default=MODEL_NAME_2),
+        )
 
         wanvideoblockswap = WanVideoBlockSwap(
             blocks_to_swap=30,
@@ -78,15 +71,15 @@ def build() -> VibeWorkflow:
         )
 
         # Inputs
-        image, mask = LoadImage(image='vace_start.png')
+        image, mask = LoadImage(image=public('image', default='vace_start.png'))
 
         wanvideoloraselectmulti = WanVideoLoraSelectMulti(
-            lora_0=MODEL_NAME_3,
+            lora_0=LORA__NAME,
             merge_loras=False,
         )
 
         wanvideoloraselectmulti_2 = WanVideoLoraSelectMulti(
-            lora_0=MODEL_NAME_3,
+            lora_0=LORA__NAME,
             merge_loras=False,
         )
 
@@ -101,17 +94,17 @@ def build() -> VibeWorkflow:
             **{'choose video to upload': 'image'},
         )
 
-        wanvideovacemodelselect = WanVideoVACEModelSelect(vace_model=MODEL_NAME_4)
+        wanvideovacemodelselect = WanVideoVACEModelSelect(vace_model=VACE_MODEL_NAME)
 
         wanvideomodelloader = WanVideoModelLoader(
-            model=MODEL_NAME_5,
+            model=MODEL_NAME_3,
             base_precision=BASE_PRECISION,
             quantization=QUANTIZATION,
             extra_model=wanvideovacemodelselect,
         )
 
         wanvideomodelloader_2 = WanVideoModelLoader(
-            model=MODEL_NAME_6,
+            model=MODEL_NAME_4,
             base_precision=BASE_PRECISION,
             quantization=QUANTIZATION,
             extra_model=wanvideovacemodelselect,
@@ -124,8 +117,8 @@ def build() -> VibeWorkflow:
         )
 
         wanvideovaceencode = WanVideoVACEEncode(
-            height=480,
-            width=832,
+            height=public('height', default=480),
+            width=public('width', default=832),
             input_frames=images,
             input_masks=masks,
             ref_images=image,
@@ -155,7 +148,7 @@ def build() -> VibeWorkflow:
         samples, denoised_samples = WanVideoSampler(
             steps=6,
             cfg=GUIDE_STRENGTH,
-            seed=DEFAULT_SEED,
+            seed=public('seed', default=DEFAULT_SEED),
             scheduler=SCHEDULER,
             end_step=2,
             image_embeds=wanvideovaceencode,
@@ -206,5 +199,5 @@ def build() -> VibeWorkflow:
             images=wanvideodecode,
         )
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='Wan-2-2-VACE')
+        return wf.finalize({}, filename_prefix='Wan-2-2-VACE', spec=OUTPUT_SPEC)
 

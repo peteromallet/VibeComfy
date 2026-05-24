@@ -1,10 +1,9 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import BasicScheduler, CFGGuider, CLIPTextEncode, DualCLIPLoader, EmptyLTXVLatentVideo, GetImageSize, KSamplerSelect, LTXVAudioVAEDecode, LTXVAudioVAEEncode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVImgToVideoInplace, LTXVPreprocess, LTXVSeparateAVLatent, LatentUpscaleModelLoader, LoadAudio, LoadImage, LoraLoaderModelOnly, ManualSigmas, ModelSamplingSD3, PreviewAudio, PrimitiveStringMultiline, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SetLatentNoiseMask, SolidMask, TrimAudioDuration, UNETLoader, VAEDecodeTiled, VAELoader
 from vibecomfy.nodes.gguf import DualCLIPLoaderGGUF, UnetLoaderGGUF
 from vibecomfy.nodes.kjnodes import INTConstant, ImageResizeKJv2, LTX2AttentionTunerPatch, LTX2_NAG, LTXVChunkFeedForward, PathchSageAttentionKJ, SimpleCalculatorKJ, VRAM_Debug
@@ -12,23 +11,22 @@ from vibecomfy.nodes.qwentts import AILab_Qwen3TTSVoiceClone
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
 
 
+CKPT_NAME = 'LTX23_audio_vae_bf16.safetensors'
+CLIP_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
+CLIP_NAME_2 = 'ltx-2.3_text_projection_bf16.safetensors'
+CLIP_NAME_3 = 'gemma-3-12b-it-Q2_K.gguf'
 CONTROL_AFTER_GENERATE = 'fixed'
 DEFAULT_PROMPT = 'text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth'
 DEFAULT_SEED = 420
 DEFAULT_SEED_2 = 42
 GUIDE_STRENGTH = 0.6
 GUIDE_STRENGTH_2 = 2.5
-MODEL_NAME = 'LTX23_video_vae_bf16.safetensors'
-MODEL_NAME_10 = 'MelBandRoformer\\MelBandRoformer_fp16.safetensors'
-MODEL_NAME_11 = 'LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors'
-MODEL_NAME_2 = 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'
-MODEL_NAME_3 = 'gemma_3_12B_it_fp4_mixed.safetensors'
-MODEL_NAME_4 = 'ltx-2.3_text_projection_bf16.safetensors'
-MODEL_NAME_5 = 'LTX23_audio_vae_bf16.safetensors'
-MODEL_NAME_6 = 'taeltx2_3.safetensors'
-MODEL_NAME_7 = 'ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors'
-MODEL_NAME_8 = 'LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf'
-MODEL_NAME_9 = 'gemma-3-12b-it-Q2_K.gguf'
+LORA_NAME = 'LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors'
+MODEL_NAME = 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'
+UNET_NAME = 'ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors'
+UNET_NAME_2 = 'LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf'
+VAE_NAME = 'LTX23_video_vae_bf16.safetensors'
+VAE_NAME_2 = 'taeltx2_3.safetensors'
 WIDGET_0 = 'vae'
 WIDGET_0_10 = 'ref_image'
 WIDGET_0_11 = 'vae_audio'
@@ -50,21 +48,10 @@ WIDGET_0_6 = 'fps'
 WIDGET_0_7 = 'audio_tts'
 WIDGET_0_8 = 'height_downscaled'
 WIDGET_0_9 = 'width_downscaled'
-
-
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('latentupscalemodelloader'), field='model_name', default=MODEL_NAME_2),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('cliptextencode'), field='text', default=DEFAULT_PROMPT),
-    'steps': InputSpec(node=ref('basicscheduler'), field='steps', default=8),
-    'use_lora': InputSpec(node=ref('primitiveboolean'), field='value', default=False),
-    'image': InputSpec(node=ref('image'), field='image', default='17745317855d08.png'),
-    'input_image': InputSpec(node=ref('image'), field='image', default='17745317855d08.png'),
-}
+WIDGET__NAME = 'MelBandRoformer\\MelBandRoformer_fp16.safetensors'
 
 READY_METADATA = ReadyMetadata.build(
     capability='tts_talking_avatar',
-    inputs=PUBLIC_INPUTS,
     requirements={'models': ['LTX23_audio_vae_bf16.safetensors', 'LTX23_video_vae_bf16.safetensors', 'LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors', 'LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf', 'euler_ancestral_cfg_pp', 'euler_cfg_pp', 'ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors', 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors', 'taeltx2_3.safetensors'], 'custom_nodes': ['ComfyUI-GGUF', 'ComfyUI-KJNodes', 'ComfyUI-LTXVideo', 'ComfyUI-QwenTTS', 'ComfyUI-VideoHelperSuite', 'rgthree-comfy']},
     custom_node_packs={'ComfyUI-GGUF': {'commit': '6ea2651e7df66d7585f6ffee804b20e92fb38b8a', 'url': 'https://github.com/city96/ComfyUI-GGUF.git', 'class_schema_sha256': '1336fad984841444a9559b602c34ef11d1dd4b68a9a902437aaee6771ab5d2d3', 'classes_used': ['DualCLIPLoaderGGUF', 'UnetLoaderGGUF'], 'pip_packages': ['gguf'], 'status': 'pinned'}, 'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageSize', 'INTConstant', 'ImageResizeKJv2', 'PathchSageAttentionKJ', 'SimpleCalculatorKJ'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTX2AttentionTunerPatch', 'LTX2_NAG', 'LTXVAudioVAEDecode', 'LTXVAudioVAELoader', 'LTXVChunkFeedForward', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVPreprocess', 'LTXVSeparateAVLatent', 'LatentUpscaleModelLoader'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-QwenTTS': {'commit': 'd8122a8ba835b65fd65c113d2b273b1ad1579293', 'url': 'https://github.com/1038lab/ComfyUI-QwenTTS.git', 'class_schema_sha256': '4137bb4f37ea178be0e794377829905d9ede1bc65496a23a51d766a3f03b2c84', 'classes_used': ['AILab_Qwen3TTSVoiceClone'], 'pip_packages': ['accelerate', 'librosa', 'openai-whisper', 'qwen-tts', 'soundfile', 'tiktoken'], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'rgthree-comfy': {'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git', 'class_schema_sha256': '2b52072e02c59cb05ce83e5c45e1c7fd5b1273fee9b62eaaa0e66a81a4c07872', 'classes_used': ['GetNode', 'Power Lora Loader (rgthree)', 'SetNode'], 'pip_packages': [], 'status': 'pinned'}},
     smoke_resolution='256x256x5_frames',
@@ -81,27 +68,28 @@ def build() -> VibeWorkflow:
         getnode = raw_call('GetNode', '413', widget_0=WIDGET_0)
 
         # Inputs
-        image, mask = LoadImage(image='17745317855d08.png')
+        image, mask = LoadImage(image=public('image', default='17745317855d08.png'))
+        vaeloader = VAELoader(vae_name=VAE_NAME)
 
-        # Loaders
-        vaeloader = VAELoader(vae_name=MODEL_NAME)
-        latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME_2)
+        latentupscalemodelloader = LatentUpscaleModelLoader(
+            model_name=public('model', default=MODEL_NAME),
+        )
 
         dualcliploader = DualCLIPLoader(
-            clip_name1=MODEL_NAME_3,
-            clip_name2=MODEL_NAME_4,
+            clip_name1=CLIP_NAME,
+            clip_name2=CLIP_NAME_2,
             type_='ltxv',
             device='default',
         )
 
-        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=MODEL_NAME_5)
-        vaeloader_2 = VAELoader(vae_name=MODEL_NAME_6)
-        unetloader = UNETLoader(unet_name=MODEL_NAME_7)
-        unetloadergguf = UnetLoaderGGUF(unet_name=MODEL_NAME_8)
+        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
+        vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        unetloadergguf = UnetLoaderGGUF(unet_name=UNET_NAME_2)
 
         dualcliploadergguf = DualCLIPLoaderGGUF(
-            clip_name1=MODEL_NAME_9,
-            clip_name2=MODEL_NAME_4,
+            clip_name1=CLIP_NAME_3,
+            clip_name2=CLIP_NAME_2,
             type_='sdxl',
         )
 
@@ -139,7 +127,7 @@ def build() -> VibeWorkflow:
         getnode_24 = raw_call('GetNode', '1831', widget_0=WIDGET_0_17)
 
         randomnoise = RandomNoise(
-            noise_seed=DEFAULT_SEED,
+            noise_seed=public('seed', default=DEFAULT_SEED),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
 
@@ -155,8 +143,6 @@ def build() -> VibeWorkflow:
 
         getnode_29 = raw_call('GetNode', '1843', widget_0=WIDGET_0_13)
         manualsigmas = ManualSigmas(sigmas='0.85, 0.7250, 0.4219, 0.0')
-
-        # Sampling
         ksamplerselect = KSamplerSelect(sampler_name='euler_cfg_pp')
         ksamplerselect_2 = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
         getnode_30 = raw_call('GetNode', '1855', widget_0=WIDGET_0_19)
@@ -165,7 +151,7 @@ def build() -> VibeWorkflow:
             sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
         )
 
-        primitiveboolean = raw_call('PrimitiveBoolean', '1862', value=False)
+        primitiveboolean = raw_call('PrimitiveBoolean', '1862', value=public('use_lora', default=False))
         reroute = raw_call('Reroute', '1865')
         getnode_31 = raw_call('GetNode', '1878', widget_0=WIDGET_0_16)
         getnode_32 = raw_call('GetNode', '1887', widget_0=WIDGET_0_4)
@@ -176,7 +162,7 @@ def build() -> VibeWorkflow:
         primitiveboolean_2 = raw_call('PrimitiveBoolean', '1929', value=True)
         getnode_37 = raw_call('GetNode', '1931', widget_0=WIDGET_0_21)
         getnode_38 = raw_call('GetNode', '1935', widget_0=WIDGET_0_15)
-        melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '1937', widget_0=MODEL_NAME_10)
+        melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '1937', widget_0=WIDGET__NAME)
         primitivestringmultiline_2 = PrimitiveStringMultiline(value='')
         loadaudio = LoadAudio(audio='d1b26d5a32db420183fa17af9c699278.mp3')
 
@@ -214,13 +200,16 @@ def build() -> VibeWorkflow:
         ltxvpreprocess = LTXVPreprocess(img_compression=18, image=getnode_11.out(0))
 
         loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_11,
+            lora_name=LORA_NAME,
             strength_model=GUIDE_STRENGTH,
             model=unetloader,
         )
 
         # Conditioning
-        cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=getnode_3.out(0))
+        cliptextencode = CLIPTextEncode(
+            text=public('prompt', default=DEFAULT_PROMPT),
+            clip=getnode_3.out(0),
+        )
 
         cfgguider = CFGGuider(
             cfg=GUIDE_STRENGTH_2,
@@ -245,7 +234,7 @@ def build() -> VibeWorkflow:
         modelsamplingsd3 = ModelSamplingSD3(shift=13, model=getnode_31.out(0))
 
         solidmask = SolidMask(
-            widget_0=0,
+            value=0,
             widget_1=512,
             widget_2=512,
             height=getnode_32.out(0),
@@ -294,7 +283,7 @@ def build() -> VibeWorkflow:
 
         basicscheduler = BasicScheduler(
             scheduler=1,
-            steps=1,
+            steps=public('steps', default=1),
             widget_1=8,
             model=modelsamplingsd3,
         )
@@ -339,8 +328,6 @@ def build() -> VibeWorkflow:
 
         ailab_qwen3ttsvoiceclone = AILab_Qwen3TTSVoiceClone(
             widget_0='Hello, this is a cloned voice.',
-            widget_1='1.7B',
-            widget_2='Auto',
             widget_3='',
             widget_4=True,
             widget_5=986337553816914,
@@ -449,9 +436,7 @@ def build() -> VibeWorkflow:
         )
 
         any_output, image_pass, model_pass, freemem_before, freemem_after = VRAM_Debug(
-            widget_0=True,
-            widget_1=True,
-            widget_2=True,
+            unload_all_models=True,
             image_pass=vaedecodetiled,
         )
 
@@ -462,5 +447,5 @@ def build() -> VibeWorkflow:
             images=image_pass,
         )
 
-        return wf.finalize(PUBLIC_INPUTS, output_node=previewaudio)
+        return wf.finalize({}, output_node=previewaudio)
 

@@ -1,12 +1,14 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ReadyMetadata, new_workflow
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import ImageScaleBy
 from vibecomfy.nodes.videohelpersuite import VHS_LoadVideo, VHS_VideoCombine
+
+
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='video_enhance',
@@ -39,5 +41,5 @@ def build() -> VibeWorkflow:
             images=imagescaleby,
         )
 
-        return wf.finalize({}, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='video-enhance')
+        return wf.finalize({}, filename_prefix='video-enhance', spec=OUTPUT_SPEC)
 

@@ -1,20 +1,19 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, ComfySwitchNode, EmptySD3LatentImage, KSampler, LoraLoaderModelOnly, ModelSamplingAuraFlow, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
+CLIP_NAME = 'qwen_2.5_vl_7b_fp8_scaled.safetensors'
 DEFAULT_PROMPT = 'Urban alleyway at dusk. Tall, statuesque high-fashion model striding elegantly, mid distant full body shot from an angular perspective, cinematic/editorial with bold contrasts and tactile materials. They wear a rose-gold metallic trench coat with deconstructed elements over a black long-sleeved turtleneck with subtle texture; paired with forest-green pleated pants with raw hems and a soft texture. Long braided dark hair, medium complexion. They carry a vibrant yellow designer handbag with geometric details and a structured silhouette. White architectural sneakers with bold geometric cutouts. Bold, high-contrast, tactile, urban-grit meets high-fashion impact, extreme clarity, extreme layering, post-processing with transparent light-transmitting ultra-smooth high-definition film effect, removing all noise and grain, removing all blur, removing all vintage feel, removing all roughness, drawn with 32K pixel precision, unparalleled fine line drawing of every single detail, the entire image like a brand new photograph, photorealistic\n'
 DEFAULT_PROMPT_2 = '低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲'
 DEFAULT_SEED = 1232512
-MODEL_NAME = 'qwen_2.5_vl_7b_fp8_scaled.safetensors'
-MODEL_NAME_2 = 'qwen_image_vae.safetensors'
-MODEL_NAME_3 = 'qwen_image_2512_fp8_e4m3fn.safetensors'
-MODEL_NAME_4 = 'Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors'
+LORA_NAME = 'Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors'
+UNET_NAME = 'qwen_image_2512_fp8_e4m3fn.safetensors'
+VAE_NAME = 'qwen_image_vae.safetensors'
 
 
 MODELS = {
@@ -25,21 +24,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME_3),
-    'prompt': InputSpec(node=ref('positive'), field='text', default=DEFAULT_PROMPT),
-    'seed': InputSpec(node=ref('ksampler'), field='seed', default=DEFAULT_SEED),
-    'negative_prompt': InputSpec(node=ref('negative'), field='text', default=DEFAULT_PROMPT_2),
-    'negative': InputSpec(node=ref('negative'), field='text', default=DEFAULT_PROMPT_2),
-    'width': InputSpec(node=ref('emptysd3latentimage'), field='width', default=768),
-    'height': InputSpec(node=ref('emptysd3latentimage'), field='height', default=768),
-    'use_lora': InputSpec(node=ref('primitiveboolean'), field='value', default=True),
-    'sampler_name': InputSpec(node=ref('ksampler'), field='sampler_name', default='euler'),
-}
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_image',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     output_prefix='Qwen-Image-2512',
     smoke_resolution='768x768',
@@ -52,29 +40,33 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        # Loaders
-        cliploader = CLIPLoader(clip_name=MODEL_NAME, type_='qwen_image')
-        vaeloader = VAELoader(vae_name=MODEL_NAME_2)
-        unetloader = UNETLoader(unet_name=MODEL_NAME_3)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='qwen_image')
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
 
-        # Sampling
-        emptysd3latentimage = EmptySD3LatentImage(width=768, height=768)
+        emptysd3latentimage = EmptySD3LatentImage(
+            width=public('width', default=768),
+            height=public('height', default=768),
+        )
 
         # Inputs
         primitivefloat = raw_call('PrimitiveFloat', '238:218', value=1.0)
         primitivefloat_2 = raw_call('PrimitiveFloat', '238:223', value=1)
         primitiveint = raw_call('PrimitiveInt', '238:224', value=4)
         primitiveint_2 = raw_call('PrimitiveInt', '238:225', value=4)
-        primitiveboolean = raw_call('PrimitiveBoolean', '238:229', value=True)
-
-        loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_4,
-            model=unetloader,
-        )
+        primitiveboolean = raw_call('PrimitiveBoolean', '238:229', value=public('use_lora', default=True))
+        loraloadermodelonly = LoraLoaderModelOnly(lora_name=LORA_NAME, model=unetloader)
 
         # Conditioning
-        positive = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
-        negative = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
+        positive = CLIPTextEncode(
+            text=public('prompt', default=DEFAULT_PROMPT),
+            clip=cliploader,
+        )
+
+        negative = CLIPTextEncode(
+            text=public('negative_prompt', default=DEFAULT_PROMPT_2),
+            clip=cliploader,
+        )
 
         comfyswitchnode = ComfySwitchNode(
             on_false=primitiveint,
@@ -100,8 +92,8 @@ def build() -> VibeWorkflow:
         )
 
         ksampler = KSampler(
-            seed=DEFAULT_SEED,
-            sampler_name='euler',
+            seed=public('seed', default=DEFAULT_SEED),
+            sampler_name=public('sampler_name', default='euler'),
             steps=comfyswitchnode,
             cfg=comfyswitchnode_2,
             latent_image=emptysd3latentimage,
@@ -116,5 +108,7 @@ def build() -> VibeWorkflow:
         # Outputs
         saveimage = SaveImage(filename_prefix='Qwen-Image-2512', images=vaedecode)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+
+        wf.register_input('model', '3', 'unet_name', UNET_NAME)
+        return wf.finalize({}, spec=OUTPUT_SPEC)
 

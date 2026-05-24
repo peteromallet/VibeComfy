@@ -1,21 +1,16 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, ref
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
 from vibecomfy.nodes.core import EmptyImage, SaveImage
 
 
-PUBLIC_INPUTS = {
-    'width': InputSpec(node=ref('emptyimage'), field='width', default=64),
-    'height': InputSpec(node=ref('emptyimage'), field='height', default=64),
-}
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='runtime_smoke',
-    inputs=PUBLIC_INPUTS,
     approach='minimal Python ready template for cloud/runtime/artifact validation',
     runtime_note='No model assets; use corpus/model matrices for production model coverage.',
 )
@@ -24,12 +19,16 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        emptyimage = EmptyImage(color=16711680, height=64, width=64)
+        emptyimage = EmptyImage(
+            color=16711680,
+            height=public('height', default=64),
+            width=public('width', default=64),
+        )
 
         saveimage = SaveImage(
             filename_prefix='vibecomfy_ready_smoke_red',
             images=emptyimage,
         )
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='vibecomfy_ready_smoke_red')
+        return wf.finalize({}, filename_prefix='vibecomfy_ready_smoke_red', spec=OUTPUT_SPEC)
 

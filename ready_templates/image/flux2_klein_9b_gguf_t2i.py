@@ -1,19 +1,18 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
+CLIP_NAME = 'qwen_3_8b_fp8mixed.safetensors'
 DEFAULT_SEED = 653844576367526
 GUIDE_STRENGTH = 5
-MODEL_NAME = 'flux-2-klein-base-9b-fp8.safetensors'
-MODEL_NAME_2 = 'qwen_3_8b_fp8mixed.safetensors'
-MODEL_NAME_3 = 'full_encoder_small_decoder.safetensors'
 TEXT = ''
+UNET_NAME = 'flux-2-klein-base-9b-fp8.safetensors'
+VAE_NAME = 'full_encoder_small_decoder.safetensors'
 
 
 MODELS = {
@@ -21,19 +20,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('positive'), field='text', default=TEXT),
-    'negative_prompt': InputSpec(node=ref('negative'), field='text', default=TEXT),
-    'negative': InputSpec(node=ref('negative'), field='text', default=TEXT),
-    'width': InputSpec(node=ref('primitiveint'), field='value', default=1024),
-    'height': InputSpec(node=ref('primitiveint_2'), field='value', default=1024),
-}
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_image',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     output_prefix='Flux2-Klein',
     provenance={'source_workflow': 'workflow_corpus/custom_nodes/flux2/flux2_klein_9b_gguf_t2i.json'},
@@ -43,18 +33,15 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        # Sampling
         ksamplerselect = KSamplerSelect(sampler_name='euler')
-
-        # Loaders
-        unetloader = UNETLoader(unet_name=MODEL_NAME)
-        cliploader = CLIPLoader(clip_name=MODEL_NAME_2, type_='flux2')
-        vaeloader = VAELoader(vae_name=MODEL_NAME_3)
-        randomnoise = RandomNoise(noise_seed=DEFAULT_SEED)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='flux2')
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+        randomnoise = RandomNoise(noise_seed=public('seed', default=DEFAULT_SEED))
 
         # Inputs
-        primitiveint = raw_call('PrimitiveInt', '75:68', value=1024)
-        primitiveint_2 = raw_call('PrimitiveInt', '75:69', value=1024)
+        primitiveint = raw_call('PrimitiveInt', '75:68', value=public('width', default=1024))
+        primitiveint_2 = raw_call('PrimitiveInt', '75:69', value=public('height', default=1024))
         flux2scheduler = Flux2Scheduler(width=primitiveint, height=primitiveint_2)
 
         emptyflux2latentimage = EmptyFlux2LatentImage(
@@ -63,8 +50,12 @@ def build() -> VibeWorkflow:
         )
 
         # Conditioning
-        negative = CLIPTextEncode(text=TEXT, clip=cliploader)
-        positive = CLIPTextEncode(text=TEXT, clip=cliploader)
+        negative = CLIPTextEncode(
+            text=public('negative_prompt', default=TEXT),
+            clip=cliploader,
+        )
+
+        positive = CLIPTextEncode(text=public('prompt', default=TEXT), clip=cliploader)
 
         cfgguider = CFGGuider(
             cfg=GUIDE_STRENGTH,
@@ -87,5 +78,7 @@ def build() -> VibeWorkflow:
         # Outputs
         saveimage = SaveImage(filename_prefix='Flux2-Klein', images=vaedecode)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+
+        wf.register_input('model', '2', 'unet_name', UNET_NAME)
+        return wf.finalize({}, spec=OUTPUT_SPEC)
 

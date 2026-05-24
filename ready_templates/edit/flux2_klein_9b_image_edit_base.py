@@ -1,26 +1,25 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, EmptyFlux2LatentImage, Flux2Scheduler, GetImageSize, ImageScaleToTotalPixels, KSamplerSelect, LoadImage, RandomNoise, ReferenceLatent, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAEEncode, VAELoader
 
 
+CLIP_NAME = 'qwen_3_8b_fp8mixed.safetensors'
 CONTROL_AFTER_GENERATE = 'randomize'
 DEFAULT_PROMPT = "Change the camera angle to a first-person driver's perspective looking through the steering wheel at the dashboard and windshield, maintaining the same white minimalist interior style and lighting\n"
 DEFAULT_PROMPT_2 = 'Apply the yellow "C" logo to the center hub of the steering wheel, and change the steering wheel color to royal blue matching the logo background, while maintaining the same interior style, lighting, camera angle, and all other elements unchanged'
 DEFAULT_SEED = 192774551144773
 DEFAULT_SEED_2 = 86928255107192
 GUIDE_STRENGTH = 5
-MODEL_NAME = 'flux-2-klein-base-9b-fp8.safetensors'
-MODEL_NAME_2 = 'qwen_3_8b_fp8mixed.safetensors'
-MODEL_NAME_3 = 'full_encoder_small_decoder.safetensors'
 SAMPLER_NAME = 'euler'
 TEXT = ''
 TYPE = 'flux2'
+UNET_NAME = 'flux-2-klein-base-9b-fp8.safetensors'
 UPSCALE_METHOD = 'lanczos'
+VAE_NAME = 'full_encoder_small_decoder.safetensors'
 
 
 MODELS = {
@@ -30,17 +29,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('negative'), field='text', default=TEXT),
-    'image': InputSpec(node=ref('image'), field='image', default='car_interior_white.jpeg'),
-    'input_image': InputSpec(node=ref('image'), field='image', default='car_interior_white.jpeg'),
-}
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='image_edit',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     custom_node_packs={'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageSize'], 'pip_packages': ['matplotlib'], 'status': 'discovered'}},
     approach='official Flux.2 Klein 9B base image-edit workflow',
@@ -189,19 +181,18 @@ def build() -> VibeWorkflow:
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
         # Inputs
-        image, mask = LoadImage(image='car_interior_white.jpeg')
+        image, mask = LoadImage(
+            image=public('image', default='car_interior_white.jpeg'),
+        )
+
         image_load, mask_load = LoadImage(image='comfy_logo_blue.png')
-
-        # Sampling
         ksamplerselect = KSamplerSelect(sampler_name=SAMPLER_NAME)
-
-        # Loaders
-        unetloader = UNETLoader(unet_name=MODEL_NAME)
-        cliploader = CLIPLoader(clip_name=MODEL_NAME_2, type_=TYPE)
-        vaeloader = VAELoader(vae_name=MODEL_NAME_3)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_=TYPE)
+        vaeloader = VAELoader(vae_name=VAE_NAME)
 
         randomnoise = RandomNoise(
-            noise_seed=DEFAULT_SEED,
+            noise_seed=public('seed', default=DEFAULT_SEED),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
 
@@ -212,9 +203,9 @@ def build() -> VibeWorkflow:
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
 
-        unetloader_2 = UNETLoader(unet_name=MODEL_NAME)
-        vaeloader_2 = VAELoader(vae_name=MODEL_NAME_3)
-        cliploader_2 = CLIPLoader(clip_name=MODEL_NAME_2, type_=TYPE)
+        unetloader_2 = UNETLoader(unet_name=UNET_NAME)
+        vaeloader_2 = VAELoader(vae_name=VAE_NAME)
+        cliploader_2 = CLIPLoader(clip_name=CLIP_NAME, type_=TYPE)
 
         imagescaletototalpixels = ImageScaleToTotalPixels(
             upscale_method=UPSCALE_METHOD,
@@ -222,7 +213,7 @@ def build() -> VibeWorkflow:
         )
 
         # Conditioning
-        negative = CLIPTextEncode(text=TEXT, clip=cliploader)
+        negative = CLIPTextEncode(text=public('prompt', default=TEXT), clip=cliploader)
         cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
 
         imagescaletototalpixels_2 = ImageScaleToTotalPixels(
@@ -321,5 +312,7 @@ def build() -> VibeWorkflow:
             images=vaedecode_2,
         )
 
-        return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='Flux2-Klein-4b-base')
+
+        wf.register_input('model', '4', 'unet_name', UNET_NAME)
+        return wf.finalize({}, output_node=saveimage, filename_prefix='Flux2-Klein-4b-base', spec=OUTPUT_SPEC)
 

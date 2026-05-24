@@ -1,14 +1,15 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, KSamplerSelect, LTXAVTextEncoderLoader, LTXVAudioVAEDecode, LTXVConcatAVLatent, LTXVConditioning, LTXVEmptyLatentAudio, LTXVPreprocess, LTXVSeparateAVLatent, LoadImage, LoraLoaderModelOnly, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo
 from vibecomfy.nodes.ltxvideo import GemmaAPITextEncode, LTXFloatToInt, LTXVImgToVideoConditionOnly, LTXVTiledVAEDecode, LowVRAMAudioVAELoader, LowVRAMCheckpointLoader
 
 
+API_KEY = ''
+CKPT_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
 CONTROL_AFTER_GENERATE = 'fixed'
 DEFAULT_FPS = 8
 DEFAULT_FRAMES = 5
@@ -16,28 +17,18 @@ DEFAULT_PROMPT = 'A traditional Japanese tea ceremony takes place in a tatami ro
 DEFAULT_PROMPT_2 = 'pc game, console game, video game, cartoon, childish, ugly'
 DEFAULT_SEED = 43
 DEFAULT_SEED_2 = 42
+ENHANCE_PROMPT_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
 GUIDE_STRENGTH = 0.5
 GUIDE_STRENGTH_2 = 2.5
 IMAGE = 'example.png'
-MODEL_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
-MODEL_NAME_2 = 'gemma_3_12B_it_fp4_mixed.safetensors'
-MODEL_NAME_3 = 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
-WIDGET_0 = ''
+LORA_NAME = 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
+TEXT_ENCODER_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('model'), field='ckpt_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('cliptextencode'), field='text', default=DEFAULT_PROMPT),
-    'image': InputSpec(node=ref('image'), field='image', default=IMAGE),
-    'input_image': InputSpec(node=ref('image'), field='image', default=IMAGE),
-    'width': InputSpec(node=ref('emptyltxvlatentvideo'), field='width', default=256),
-    'height': InputSpec(node=ref('emptyltxvlatentvideo'), field='height', default=256),
-}
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_or_image_to_video_upscale',
-    inputs=PUBLIC_INPUTS,
     requirements={'models': ['euler_ancestral_cfg_pp', 'euler_cfg_pp', 'ltx-2.3-22b-dev-fp8.safetensors', 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-LTXVideo']},
     custom_node_packs={'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTXAVTextEncoderLoader', 'LTXVAudioVAEDecode', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVEmptyLatentAudio', 'LTXVPreprocess', 'LTXVSeparateAVLatent'], 'pip_packages': [], 'status': 'pinned'}},
     approach='official two-stage low-VRAM T2V/I2V with latent spatial upscaler',
@@ -54,15 +45,17 @@ def build() -> VibeWorkflow:
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
         # Inputs
-        image, mask = LoadImage(image=IMAGE, widget_0='example.png')
-        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=MODEL_NAME)
-        lowvramaudiovaeloader = LowVRAMAudioVAELoader(ckpt_name=MODEL_NAME)
+        image, mask = LoadImage(
+            image=public('image', default=IMAGE),
+            widget_0='example.png',
+        )
 
-        # Sampling
+        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=CKPT_NAME)
+        lowvramaudiovaeloader = LowVRAMAudioVAELoader(ckpt_name=CKPT_NAME)
         ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
 
         randomnoise = RandomNoise(
-            noise_seed=DEFAULT_SEED,
+            noise_seed=public('seed', default=DEFAULT_SEED),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
 
@@ -75,8 +68,8 @@ def build() -> VibeWorkflow:
         primitivestring = raw_call('PrimitiveString', '4979', value='')
 
         ltxavtextencoderloader = LTXAVTextEncoderLoader(
-            text_encoder=MODEL_NAME_2,
-            ckpt_name=MODEL_NAME,
+            text_encoder=TEXT_ENCODER_NAME,
+            ckpt_name=CKPT_NAME,
             device='default',
             widget_0='gemma_3_12B_it_fp4_mixed.safetensors',
             widget_1='ltx-2.3-22b-dev-fp8.safetensors',
@@ -93,7 +86,7 @@ def build() -> VibeWorkflow:
 
         # Conditioning
         cliptextencode = CLIPTextEncode(
-            text=DEFAULT_PROMPT,
+            text=public('prompt', default=DEFAULT_PROMPT),
             clip=ltxavtextencoderloader,
         )
 
@@ -103,8 +96,8 @@ def build() -> VibeWorkflow:
         )
 
         emptyltxvlatentvideo = EmptyLTXVLatentVideo(
-            width=256,
-            height=256,
+            width=public('width', default=256),
+            height=public('height', default=256),
             widget_0=256,
             widget_1=256,
             widget_2=5,
@@ -112,24 +105,23 @@ def build() -> VibeWorkflow:
         )
 
         loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_3,
+            lora_name=LORA_NAME,
             strength_model=GUIDE_STRENGTH,
             model=model,
         )
 
         gemmaapitextencode = GemmaAPITextEncode(
-            widget_0=WIDGET_0,
-            widget_1='',
-            widget_2=MODEL_NAME,
-            widget_3=MODEL_NAME,
+            ckpt_name=CKPT_NAME,
+            enhance_prompt=ENHANCE_PROMPT_NAME,
+            widget_0='',
             api_key=primitivestring,
         )
 
         gemmaapitextencode_2 = GemmaAPITextEncode(
-            widget_0=WIDGET_0,
-            widget_1=384,
-            widget_2=False,
-            widget_3=MODEL_NAME,
+            ckpt_name=CKPT_NAME,
+            enhance_prompt=False,
+            prompt=384,
+            widget_0='',
             api_key=primitivestring,
         )
 
@@ -244,5 +236,7 @@ def build() -> VibeWorkflow:
         # Outputs
         savevideo = SaveVideo(filename_prefix='output', video=createvideo)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='output')
+
+        wf.register_input('model', '2', 'ckpt_name', CKPT_NAME)
+        return wf.finalize({}, filename_prefix='output', spec=OUTPUT_SPEC)
 

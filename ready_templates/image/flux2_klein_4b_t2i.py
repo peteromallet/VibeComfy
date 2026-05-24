@@ -1,18 +1,17 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, PrimitiveStringMultiline, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
+CLIP_NAME = 'qwen_3_4b.safetensors'
 DEFAULT_SEED = 0
 GUIDE_STRENGTH = 5
-MODEL_NAME = 'flux-2-klein-base-4b.safetensors'
-MODEL_NAME_2 = 'qwen_3_4b.safetensors'
-MODEL_NAME_3 = 'flux2-vae.safetensors'
+UNET_NAME = 'flux-2-klein-base-4b.safetensors'
+VAE_NAME = 'flux2-vae.safetensors'
 
 
 MODELS = {
@@ -23,19 +22,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('primitivestringmultiline'), field='value', default='A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere\n'),
-    'negative_prompt': InputSpec(node=ref('negative'), field='text', default=''),
-    'negative': InputSpec(node=ref('negative'), field='text', default=''),
-    'width': InputSpec(node=ref('primitiveint'), field='value', default=1024),
-    'height': InputSpec(node=ref('primitiveint_2'), field='value', default=1024),
-}
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_image',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     output_prefix='Flux2-Klein',
     provenance={'source_workflow': 'workflow_corpus/official/image/flux2_klein_4b_t2i.json'},
@@ -157,22 +147,19 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        # Sampling
         ksamplerselect = KSamplerSelect(sampler_name='euler')
-
-        # Loaders
-        unetloader = UNETLoader(unet_name=MODEL_NAME)
-        cliploader = CLIPLoader(clip_name=MODEL_NAME_2, type_='flux2')
-        vaeloader = VAELoader(vae_name=MODEL_NAME_3)
-        randomnoise = RandomNoise(noise_seed=DEFAULT_SEED)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='flux2')
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+        randomnoise = RandomNoise(noise_seed=public('seed', default=DEFAULT_SEED))
 
         primitivestringmultiline = PrimitiveStringMultiline(
-            value='A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere\n',
+            value=public('prompt', default='A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere\n'),
         )
 
         # Inputs
-        primitiveint = raw_call('PrimitiveInt', '75:68', value=1024)
-        primitiveint_2 = raw_call('PrimitiveInt', '75:69', value=1024)
+        primitiveint = raw_call('PrimitiveInt', '75:68', value=public('width', default=1024))
+        primitiveint_2 = raw_call('PrimitiveInt', '75:69', value=public('height', default=1024))
         flux2scheduler = Flux2Scheduler(width=primitiveint, height=primitiveint_2)
 
         emptyflux2latentimage = EmptyFlux2LatentImage(
@@ -181,7 +168,11 @@ def build() -> VibeWorkflow:
         )
 
         # Conditioning
-        negative = CLIPTextEncode(text='', clip=cliploader)
+        negative = CLIPTextEncode(
+            text=public('negative_prompt', default=''),
+            clip=cliploader,
+        )
+
         positive = CLIPTextEncode(text=primitivestringmultiline, clip=cliploader)
 
         cfgguider = CFGGuider(
@@ -205,5 +196,7 @@ def build() -> VibeWorkflow:
         # Outputs
         saveimage = SaveImage(filename_prefix='Flux2-Klein', images=vaedecode)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+
+        wf.register_input('model', '2', 'unet_name', UNET_NAME)
+        return wf.finalize({}, spec=OUTPUT_SPEC)
 

@@ -1,14 +1,59 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
+# vibecomfy: broken-regen
 # Edits will be overwritten on regeneration. Put the manual opt-out
 # marker on the first line if hand-editing is required.
 """Auto-generated ready_template - see tools/convert_ready_templates.py."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call, ref
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, DualCLIPLoader, EmptyLTXVLatentVideo, KSamplerSelect, LTXVAudioVAEEncode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVImgToVideoInplace, LTXVPreprocess, LTXVSeparateAVLatent, LoadImage, LoraLoaderModelOnly, ManualSigmas, RandomNoise, ResizeImageMaskNode, ResizeImagesByLongerEdge, SamplerCustomAdvanced, SetLatentNoiseMask, SolidMask, UNETLoader
 from vibecomfy.nodes.gguf import UnetLoaderGGUF
 from vibecomfy.nodes.kjnodes import VAELoaderKJ
 from vibecomfy.nodes.videohelpersuite import VHS_LoadAudioUpload
+
+# --- legacy SymbolicNodeRef shim (this template is marked manual; the
+# public ``vibecomfy.templates.ref`` symbol is retired) -------------------
+class SymbolicNodeRef:
+    """Local copy of the retired ``vibecomfy.templates.SymbolicNodeRef``."""
+
+    __slots__ = ("label",)
+
+    def __init__(self, label):
+        self.label = label
+
+    def __repr__(self):
+        return f"SymbolicNodeRef({self.label!r})"
+
+    def __eq__(self, other):
+        return isinstance(other, SymbolicNodeRef) and self.label == other.label
+
+    def __hash__(self):
+        return hash(("SymbolicNodeRef", self.label))
+
+    def resolve(self, namespace, wf):
+        value = namespace.get(self.label)
+        node_id = None
+        if hasattr(value, "node_id"):
+            node_id = str(value.node_id)
+        elif hasattr(value, "node") and value.node is not None and hasattr(value.node, "id"):
+            node_id = str(value.node.id)
+        elif hasattr(value, "id"):
+            node_id = str(value.id)
+        elif isinstance(value, str):
+            node_id = value
+        if node_id is None or node_id not in wf.nodes:
+            raise ValueError(
+                f"SymbolicNodeRef({self.label!r}) could not be resolved to a node "
+                f"in workflow {wf.id!r}"
+            )
+        wf.metadata.setdefault("id_map", {})[self.label] = node_id
+        return node_id
+
+
+def ref(label):
+    """Local copy of the retired ``vibecomfy.templates.ref``."""
+
+    return SymbolicNodeRef(label)
+# --- end legacy shim -----------------------------------------------------
 
 
 CONTROL_AFTER_GENERATE = 'randomize'
@@ -679,5 +724,13 @@ def build() -> VibeWorkflow:
         )
         wf.metadata.setdefault('id_map', {})['iamccs_videocombinefromdir'] = iamccs_videocombinefromdir.node.id
 
-        return wf.finalize(PUBLIC_INPUTS)
-
+        return wf.finalize(
+            PUBLIC_INPUTS,
+            output_node=iamccs_videocombinefromdir,
+            output_type='IAMCCS_VideoCombineFromDir',
+            name='video',
+            artifact_kind='video',
+            mime_type='video/mp4',
+            expected_cardinality='one',
+            filename_prefix='IAMCCS/LTX23_BEST_3SEG_AUDIOEXT_30S_FREE_LOW_RAM',
+        )

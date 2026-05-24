@@ -1,10 +1,9 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, DualCLIPLoader, EmptyLTXVLatentVideo, GetVideoComponents, KSamplerSelect, LTXVAudioVAEDecode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVCropGuides, LTXVEmptyLatentAudio, LTXVPreprocess, LTXVSeparateAVLatent, LoadImage, LoadVideo, LoraLoaderModelOnly, ManualSigmas, RandomNoise, SamplerCustomAdvanced, UNETLoader, VAEDecodeTiled, VAELoader
 from vibecomfy.nodes.depthanythingv2 import DepthAnything_V2, DownloadAndLoadDepthAnythingV2Model
 from vibecomfy.nodes.kjnodes import INTConstant, ImageResizeKJv2, LTX2AttentionTunerPatch, LTX2_NAG, LTXVChunkFeedForward, LTXVImgToVideoInplaceKJ, PathchSageAttentionKJ
@@ -12,6 +11,10 @@ from vibecomfy.nodes.ltxvideo import LTXAddVideoICLoRAGuide, LTXFloatToInt, LTXI
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
 
 
+BBOX_DETECTOR_NAME = 'yolox_l.onnx'
+CKPT_NAME = 'LTX23_audio_vae_bf16.safetensors'
+CLIP_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
+CLIP_NAME_2 = 'ltx-2.3_text_projection_bf16.safetensors'
 CONTROL_AFTER_GENERATE = 'fixed'
 DEFAULT_PROMPT = 'blurry, oversaturated, pixelated, low resolution, grainy, distorted, noise, compression artifacts, jpeg artifacts, glitches, watermark, text, logo, signature, copyright, subtitles'
 DEFAULT_PROMPT_2 = 'A cinematic first-to-last-frame travel shot with smooth continuous camera motion, coherent subject motion, realistic lighting, and natural temporal consistency.'
@@ -23,19 +26,15 @@ GUIDE_STRENGTH_2 = 2.5
 GUIDE_STRENGTH_3 = 1
 KEEP_PROPORTION = 'crop'
 KEEP_PROPORTION_2 = 'stretch'
-MODEL_NAME = 'LTX23_audio_vae_bf16.safetensors'
-MODEL_NAME_10 = 'dw-ll_ucoco_384_bs5.torchscript.pt'
-MODEL_NAME_11 = 'ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors'
-MODEL_NAME_2 = 'taeltx2_3.safetensors'
-MODEL_NAME_3 = 'LTX23_video_vae_bf16.safetensors'
-MODEL_NAME_4 = 'ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors'
-MODEL_NAME_5 = 'gemma_3_12B_it_fp4_mixed.safetensors'
-MODEL_NAME_6 = 'ltx-2.3_text_projection_bf16.safetensors'
-MODEL_NAME_7 = 'depth_anything_v2_vits_fp32.safetensors'
-MODEL_NAME_8 = 'LTX\\v2\\ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors'
-MODEL_NAME_9 = 'yolox_l.onnx'
+LORA_NAME = 'LTX\\v2\\ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors'
+LORA_NAME_2 = 'ltxv/ltx2/ltx-2.3-22b-ic-lora-union-control-ref0.5.safetensors'
+MODEL_NAME = 'depth_anything_v2_vits_fp32.safetensors'
+POSE_ESTIMATOR_NAME = 'dw-ll_ucoco_384_bs5.torchscript.pt'
+UNET_NAME = 'ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors'
 UPSCALE_METHOD = 'nearest-exact'
 UPSCALE_METHOD_2 = 'lanczos'
+VAE_NAME = 'taeltx2_3.safetensors'
+VAE_NAME_2 = 'LTX23_video_vae_bf16.safetensors'
 
 
 MODELS = {
@@ -51,34 +50,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'model': InputSpec(node=ref('ltxvaudiovaeloader'), field='ckpt_name', default=MODEL_NAME),
-    'prompt': InputSpec(node=ref('cliptextencode_2'), field='text', default=DEFAULT_PROMPT_2),
-    'start_image': InputSpec(node=ref('image'), field='image', default='example.png'),
-    'end_image': InputSpec(node=ref('image_load'), field='image', default='egyptian_queen.png'),
-    'control_video': InputSpec(node=ref('loadvideo'), field='video', default='ltx_smoke_guide.mp4'),
-    'control_mode': InputSpec(node=ref('primitivestring'), field='value', default='canny'),
-    'negative_prompt': InputSpec(node=ref('cliptextencode'), field='text', default=DEFAULT_PROMPT),
-    'negative': InputSpec(node=ref('cliptextencode'), field='text', default=DEFAULT_PROMPT),
-    'width': InputSpec(node=ref('intconstant_3'), field='value', default=256),
-    'height': InputSpec(node=ref('intconstant_2'), field='value', default=256),
-    'output_fps': InputSpec(node=ref('primitivefloat'), field='value', default=8),
-    'fps': InputSpec(node=ref('primitivefloat'), field='value', default=8),
-    'ic_lora_filename': InputSpec(node=ref('model'), field='lora_name', default=MODEL_NAME_11),
-    'ic_lora_strength': InputSpec(node=ref('model'), field='strength_model', default=GUIDE_STRENGTH_3),
-    'seed_refine': InputSpec(node=ref('randomnoise_2'), field='noise_seed', default=DEFAULT_SEED_2),
-    'length': InputSpec(node=ref('intconstant'), field='value', default=9),
-    'frames': InputSpec(node=ref('intconstant'), field='value', default=9),
-    'guide_strength': InputSpec(node=ref('positive_ltx'), field='strength', default=1),
-    'strength': InputSpec(node=ref('positive_ltx'), field='strength', default=1),
-    'image': InputSpec(node=ref('image'), field='image', default='example.png'),
-    'input_image': InputSpec(node=ref('image'), field='image', default='example.png'),
-}
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='first_last_frame_control_video',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     requirements={'custom_nodes': ['ComfyUI-DepthAnythingV2', 'ComfyUI-KJNodes', 'ComfyUI-LTXVideo', 'ComfyUI-VideoHelperSuite', 'comfyui_controlnet_aux']},
     custom_node_packs={'ComfyUI-DepthAnythingV2': {'commit': '553187872eeb1d52e50dc53209fa57e569609a72', 'url': 'https://github.com/kijai/ComfyUI-DepthAnythingV2.git', 'class_schema_sha256': 'f4e181ab42ca179eda161acba5121e999cb54b1dbee0dc087a22bd42af7241ae', 'classes_used': ['DepthAnything_V2', 'DownloadAndLoadDepthAnythingV2Model'], 'pip_packages': ['opencv-python-headless', 'transformers'], 'status': 'pinned'}, 'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['INTConstant', 'ImageResizeKJv2', 'PathchSageAttentionKJ'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTX2AttentionTunerPatch', 'LTX2_NAG', 'LTXVAudioVAEDecode', 'LTXVAudioVAELoader', 'LTXVChunkFeedForward', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVCropGuides', 'LTXVEmptyLatentAudio', 'LTXVImgToVideoInplaceKJ', 'LTXVPreprocess', 'LTXVSeparateAVLatent'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'comfyui_controlnet_aux': {'commit': 'e8b689a513c3e6b63edc44066560ca5919c0576e', 'url': 'https://github.com/Fannovel16/comfyui_controlnet_aux.git', 'class_schema_sha256': 'e485b148824d72ef7af7e90f711eefb511ffe73b25cd1c6053e1e5c7bd3bbd62', 'classes_used': ['CannyEdgePreprocessor', 'DWPreprocessor'], 'pip_packages': ['onnxruntime', 'opencv-python-headless'], 'status': 'pinned'}},
@@ -95,33 +70,36 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        # Sampling
         ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
         ksamplerselect_2 = KSamplerSelect(sampler_name='euler_cfg_pp')
 
         randomnoise = RandomNoise(
-            noise_seed=DEFAULT_SEED,
+            noise_seed=public('seed', default=DEFAULT_SEED),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
 
         randomnoise_2 = RandomNoise(
-            noise_seed=DEFAULT_SEED_2,
+            noise_seed=public('seed_refine', default=DEFAULT_SEED_2),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
 
         # Inputs
-        image, mask = LoadImage(image='example.png')
-        image_load, mask_load = LoadImage(image='egyptian_queen.png')
-        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=MODEL_NAME)
+        image, mask = LoadImage(
+            image=public('start_image', default='example.png', aliases=('image', 'input_image')),
+        )
 
-        # Loaders
-        vaeloader = VAELoader(vae_name=MODEL_NAME_2)
-        vaeloader_2 = VAELoader(vae_name=MODEL_NAME_3)
-        unetloader = UNETLoader(unet_name=MODEL_NAME_4)
+        image_load, mask_load = LoadImage(
+            image=public('end_image', default='egyptian_queen.png'),
+        )
+
+        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+        vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
 
         dualcliploader = DualCLIPLoader(
-            clip_name1=MODEL_NAME_5,
-            clip_name2=MODEL_NAME_6,
+            clip_name1=CLIP_NAME,
+            clip_name2=CLIP_NAME_2,
             type_='ltxv',
             device='default',
         )
@@ -131,24 +109,35 @@ def build() -> VibeWorkflow:
         )
 
         manualsigmas_2 = ManualSigmas(sigmas='0.85, 0.7250, 0.4219, 0.0')
-        primitivefloat = raw_call('PrimitiveFloat', '2076', value=8)
-        intconstant = INTConstant(value=9)
-        intconstant_2 = INTConstant(value=256)
-        intconstant_3 = INTConstant(value=256)
+        primitivefloat = raw_call('PrimitiveFloat', '2076', value=public('output_fps', default=8))
+        intconstant = INTConstant(value=public('length', default=9))
+        intconstant_2 = INTConstant(value=public('height', default=256))
+        intconstant_3 = INTConstant(value=public('width', default=256))
         primitivefloat_2 = raw_call('PrimitiveFloat', '2108', value=0.8)
         primitivefloat_3 = raw_call('PrimitiveFloat', '2110', value=0.8)
-        loadvideo = LoadVideo(file='ltx_smoke_guide.mp4', video='ltx_smoke_guide.mp4')
+
+        loadvideo = LoadVideo(
+            file='ltx_smoke_guide.mp4',
+            video=public('control_video', default='ltx_smoke_guide.mp4'),
+        )
 
         downloadandloaddepthanythingv2model = DownloadAndLoadDepthAnythingV2Model(
-            model=MODEL_NAME_7,
+            model=MODEL_NAME,
             precision='fp32',
         )
 
-        primitivestring = raw_call('PrimitiveString', '6000', value='canny')
+        primitivestring = raw_call('PrimitiveString', '6000', value=public('control_mode', default='canny'))
 
         # Conditioning
-        cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=dualcliploader)
-        cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=dualcliploader)
+        cliptextencode = CLIPTextEncode(
+            text=public('negative_prompt', default=DEFAULT_PROMPT),
+            clip=dualcliploader,
+        )
+
+        cliptextencode_2 = CLIPTextEncode(
+            text=public('prompt', default=DEFAULT_PROMPT_2),
+            clip=dualcliploader,
+        )
 
         emptyltxvlatentvideo = EmptyLTXVLatentVideo(
             width=intconstant_3,
@@ -177,7 +166,7 @@ def build() -> VibeWorkflow:
         )
 
         loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_8,
+            lora_name=LORA_NAME,
             strength_model=GUIDE_STRENGTH,
             model=unetloader,
         )
@@ -222,8 +211,8 @@ def build() -> VibeWorkflow:
             detect_body='enable',
             detect_face='enable',
             resolution=256,
-            bbox_detector=MODEL_NAME_9,
-            pose_estimator=MODEL_NAME_10,
+            bbox_detector=BBOX_DETECTOR_NAME,
+            pose_estimator=POSE_ESTIMATOR_NAME,
             scale_stick_for_xinsr_cn='disable',
             image=image_image_3,
         )
@@ -302,13 +291,13 @@ def build() -> VibeWorkflow:
         )
 
         model, latent_downscale_factor = LTXICLoRALoaderModelOnly(
-            lora_name=MODEL_NAME_11,
-            strength_model=GUIDE_STRENGTH_3,
+            lora_name=LORA_NAME_2,
+            strength_model=public('ic_lora_strength', default=GUIDE_STRENGTH_3),
             model=ltx2attentiontunerpatch,
         )
 
         positive_ltx, negative_ltx, latent = LTXAddVideoICLoRAGuide(
-            strength=1,
+            strength=public('guide_strength', default=1),
             crop='center',
             use_tiled_encode='disabled',
             tile_size=128,
@@ -386,5 +375,8 @@ def build() -> VibeWorkflow:
             images=vaedecodetiled,
         )
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='reigh_vibecomfy_ltx_control_first_last')
+
+        wf.register_input('model', '7', 'ckpt_name', CKPT_NAME)
+        wf.register_input('ic_lora_filename', '6025', 'lora_name', LORA_NAME_2)
+        return wf.finalize({}, filename_prefix='reigh_vibecomfy_ltx_control_first_last', spec=OUTPUT_SPEC)
 

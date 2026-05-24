@@ -1,15 +1,60 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
+# vibecomfy: broken-regen
 # Edits will be overwritten on regeneration. Put the manual opt-out
 # marker on the first line if hand-editing is required.
 """Auto-generated ready_template - see tools/convert_ready_templates.py."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call, ref
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call
 from vibecomfy.nodes.core import BasicScheduler, CFGGuider, CLIPTextEncode, CheckpointLoaderSimple, DualCLIPLoader, EmptyLTXVLatentVideo, KSamplerSelect, LTXVAudioVAEEncode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVImgToVideoInplace, LTXVPreprocess, LTXVSeparateAVLatent, LoadAudio, LoadImage, PreviewAudio, PreviewImage, RandomNoise, SamplerCustomAdvanced, SaveAudioMP3, SetLatentNoiseMask, SolidMask, TrimAudioDuration
 from vibecomfy.nodes.gguf import UnetLoaderGGUF
 from vibecomfy.nodes.kjnodes import ImageResizeKJv2, VAELoaderKJ
 from vibecomfy.nodes.ltxvideo import LTXVGemmaCLIPModelLoader, LowVRAMAudioVAELoader
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
+
+# --- legacy SymbolicNodeRef shim (this template is marked manual; the
+# public ``vibecomfy.templates.ref`` symbol is retired) -------------------
+class SymbolicNodeRef:
+    """Local copy of the retired ``vibecomfy.templates.SymbolicNodeRef``."""
+
+    __slots__ = ("label",)
+
+    def __init__(self, label):
+        self.label = label
+
+    def __repr__(self):
+        return f"SymbolicNodeRef({self.label!r})"
+
+    def __eq__(self, other):
+        return isinstance(other, SymbolicNodeRef) and self.label == other.label
+
+    def __hash__(self):
+        return hash(("SymbolicNodeRef", self.label))
+
+    def resolve(self, namespace, wf):
+        value = namespace.get(self.label)
+        node_id = None
+        if hasattr(value, "node_id"):
+            node_id = str(value.node_id)
+        elif hasattr(value, "node") and value.node is not None and hasattr(value.node, "id"):
+            node_id = str(value.node.id)
+        elif hasattr(value, "id"):
+            node_id = str(value.id)
+        elif isinstance(value, str):
+            node_id = value
+        if node_id is None or node_id not in wf.nodes:
+            raise ValueError(
+                f"SymbolicNodeRef({self.label!r}) could not be resolved to a node "
+                f"in workflow {wf.id!r}"
+            )
+        wf.metadata.setdefault("id_map", {})[self.label] = node_id
+        return node_id
+
+
+def ref(label):
+    """Local copy of the retired ``vibecomfy.templates.ref``."""
+
+    return SymbolicNodeRef(label)
+# --- end legacy shim -----------------------------------------------------
 
 
 DEFAULT_PROMPT = 'blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text on shirt or hat, incorrect lettering on cap (“PNTR”), incorrect t-shirt slogan (“JUST DO IT”), missing microphone, misplaced microphone, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, smiling, laughing, exaggerated sadness, wrong gaze direction, eyes looking at camera, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.'

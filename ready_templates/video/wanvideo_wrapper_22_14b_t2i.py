@@ -1,10 +1,9 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
 from vibecomfy.nodes.core import SaveImage
 from vibecomfy.nodes.wanvideowrapper import WanVideoBlockSwap, WanVideoDecode, WanVideoEmptyEmbeds, WanVideoLoraSelectMulti, WanVideoModelLoader, WanVideoSampler, WanVideoSetBlockSwap, WanVideoSetLoRAs, WanVideoTextEncodeCached, WanVideoVAELoader
 
@@ -17,11 +16,11 @@ DEFAULT_PROMPT = 'A compact cinematic still of a red cube on a clean white table
 DEFAULT_SEED = 12345
 GUIDE_STRENGTH = 3.0
 GUIDE_STRENGTH_2 = 1.0
+LORA__NAME = 'WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors'
 MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_2 = 'WanVideo\\2_2\\Wan2_2-T2V-A14B-HIGH_fp8_e4m3fn_scaled_KJ.safetensors'
 MODEL_NAME_3 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
 MODEL_NAME_4 = 'WanVideo\\2_2\\Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors'
-MODEL_NAME_5 = 'WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors'
 QUANTIZATION = 'fp8_e4m3fn_scaled'
 SCHEDULER = 'euler'
 
@@ -35,16 +34,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('wanvideovaeloader'), field='model_name', default=MODEL_NAME_3),
-    'seed': InputSpec(node=ref('samples'), field='seed', default=DEFAULT_SEED),
-    'width': InputSpec(node=ref('wanvideoemptyembeds'), field='width', default=832),
-    'height': InputSpec(node=ref('wanvideoemptyembeds'), field='height', default=480),
-}
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_image_single_frame',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     requirements={'custom_nodes': ['ComfyUI-WanVideoWrapper']},
     custom_node_packs={'ComfyUI-WanVideoWrapper': {'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git', 'class_schema_sha256': '80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f', 'classes_used': ['WanVideoBlockSwap', 'WanVideoDecode', 'WanVideoEmptyEmbeds', 'WanVideoLoraSelectMulti', 'WanVideoModelLoader', 'WanVideoSampler', 'WanVideoSetBlockSwap', 'WanVideoSetLoRAs', 'WanVideoTextEncodeCached', 'WanVideoVAELoader'], 'pip_packages': ['onnx', 'opencv-python-headless'], 'status': 'pinned'}},
@@ -71,16 +64,19 @@ def build() -> VibeWorkflow:
             widget_1='fp16',
         )
 
-        wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_3)
+        wanvideovaeloader = WanVideoVAELoader(
+            model_name=public('model', default=MODEL_NAME_3),
+        )
+
         wanvideoblockswap = WanVideoBlockSwap(blocks_to_swap=30)
 
         wanvideoemptyembeds = WanVideoEmptyEmbeds(
-            height=480,
+            height=public('height', default=480),
             num_frames=DEFAULT_FRAMES,
             widget_0=832,
             widget_1=480,
             widget_2=1,
-            width=832,
+            width=public('width', default=832),
         )
 
         wanvideomodelloader_2 = WanVideoModelLoader(
@@ -91,13 +87,13 @@ def build() -> VibeWorkflow:
         )
 
         wanvideoloraselectmulti = WanVideoLoraSelectMulti(
-            lora_0=MODEL_NAME_5,
+            lora_0=LORA__NAME,
             merge_loras=False,
             widget_0='WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors',
         )
 
         wanvideoloraselectmulti_2 = WanVideoLoraSelectMulti(
-            lora_0=MODEL_NAME_5,
+            lora_0=LORA__NAME,
             merge_loras=False,
             widget_0='WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors',
         )
@@ -125,7 +121,7 @@ def build() -> VibeWorkflow:
         samples, denoised_samples = WanVideoSampler(
             steps=6,
             cfg=GUIDE_STRENGTH,
-            seed=DEFAULT_SEED,
+            seed=public('seed', default=DEFAULT_SEED),
             scheduler=SCHEDULER,
             batched_cfg=BATCHED_CFG,
             end_step=2,
@@ -156,5 +152,5 @@ def build() -> VibeWorkflow:
         # Outputs
         saveimage = SaveImage(filename_prefix='Wan-2-2-T2I', images=wanvideodecode)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='Wan-2-2-T2I')
+        return wf.finalize({}, filename_prefix='Wan-2-2-T2I', spec=OUTPUT_SPEC)
 

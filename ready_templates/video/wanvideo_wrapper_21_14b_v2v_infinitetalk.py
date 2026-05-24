@@ -1,14 +1,59 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
+# vibecomfy: broken-regen
 # Edits will be overwritten on regeneration. Put the manual opt-out
 # marker on the first line if hand-editing is required.
 """Auto-generated ready_template - see tools/convert_ready_templates.py."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call, ref
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPVisionLoader, GetImageRangeFromBatch, LoadAudio, PreviewAny
 from vibecomfy.nodes.kjnodes import GetImageSizeAndCount, INTConstant, ImageConcatMulti, ImageResizeKJv2
 from vibecomfy.nodes.videohelpersuite import VHS_LoadVideo, VHS_VideoCombine
 from vibecomfy.nodes.wanvideowrapper import DownloadAndLoadWav2VecModel, MultiTalkModelLoader, MultiTalkWav2VecEmbeds, WanVideoBlockSwap, WanVideoClipVisionEncode, WanVideoDecode, WanVideoEncode, WanVideoImageToVideoMultiTalk, WanVideoLoraSelect, WanVideoModelLoader, WanVideoSampler, WanVideoTextEncodeCached, WanVideoTorchCompileSettings, WanVideoVAELoader, Wav2VecModelLoader
+
+# --- legacy SymbolicNodeRef shim (this template is marked manual; the
+# public ``vibecomfy.templates.ref`` symbol is retired) -------------------
+class SymbolicNodeRef:
+    """Local copy of the retired ``vibecomfy.templates.SymbolicNodeRef``."""
+
+    __slots__ = ("label",)
+
+    def __init__(self, label):
+        self.label = label
+
+    def __repr__(self):
+        return f"SymbolicNodeRef({self.label!r})"
+
+    def __eq__(self, other):
+        return isinstance(other, SymbolicNodeRef) and self.label == other.label
+
+    def __hash__(self):
+        return hash(("SymbolicNodeRef", self.label))
+
+    def resolve(self, namespace, wf):
+        value = namespace.get(self.label)
+        node_id = None
+        if hasattr(value, "node_id"):
+            node_id = str(value.node_id)
+        elif hasattr(value, "node") and value.node is not None and hasattr(value.node, "id"):
+            node_id = str(value.node.id)
+        elif hasattr(value, "id"):
+            node_id = str(value.id)
+        elif isinstance(value, str):
+            node_id = value
+        if node_id is None or node_id not in wf.nodes:
+            raise ValueError(
+                f"SymbolicNodeRef({self.label!r}) could not be resolved to a node "
+                f"in workflow {wf.id!r}"
+            )
+        wf.metadata.setdefault("id_map", {})[self.label] = node_id
+        return node_id
+
+
+def ref(label):
+    """Local copy of the retired ``vibecomfy.templates.ref``."""
+
+    return SymbolicNodeRef(label)
+# --- end legacy shim -----------------------------------------------------
 
 
 DEFAULT_NEGATIVE = 'bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards'

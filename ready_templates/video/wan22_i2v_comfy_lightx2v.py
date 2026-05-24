@@ -1,13 +1,13 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CreateVideo, LoadImage, LoraLoaderModelOnly, ModelSamplingSD3, SaveVideo, UNETLoader, VAEDecode, VAELoader, WanImageToVideo
 
 
+CLIP_NAME = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
 DEFAULT_FPS = 16
 DEFAULT_FRAMES = 81
 DEFAULT_PROMPT = 'A felt-style little eagle cashier greeting, waving, and smiling at the camera.'
@@ -15,13 +15,12 @@ DEFAULT_PROMPT_2 = '色调艳丽，过曝，静态，细节模糊不清，字幕
 DEFAULT_SEED = 0
 GUIDE_STRENGTH = 1.0000000000000002
 GUIDE_STRENGTH_2 = 1
-MODEL_NAME = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
-MODEL_NAME_2 = 'wan_2.1_vae.safetensors'
-MODEL_NAME_3 = 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors'
-MODEL_NAME_4 = 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors'
-MODEL_NAME_5 = 'wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors'
-MODEL_NAME_6 = 'wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors'
+LORA_NAME = 'wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors'
+LORA_NAME_2 = 'wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors'
 SAMPLER_NAME = 'euler'
+UNET_NAME = 'wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors'
+UNET_NAME_2 = 'wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors'
+VAE_NAME = 'wan_2.1_vae.safetensors'
 
 
 MODELS = {
@@ -34,22 +33,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME_3),
-    'prompt': InputSpec(node=ref('cliptextencode'), field='text', default=DEFAULT_PROMPT),
-    'seed': InputSpec(node=ref('ksampleradvanced'), field='noise_seed', default=DEFAULT_SEED),
-    'steps': InputSpec(node=ref('ksampleradvanced'), field='steps', default=4),
-    'image': InputSpec(node=ref('image'), field='image', default='03_video_wan2_2_14B_i2v_subgraphed_input_image.png'),
-    'input_image': InputSpec(node=ref('image'), field='image', default='03_video_wan2_2_14B_i2v_subgraphed_input_image.png'),
-    'fps': InputSpec(node=ref('createvideo'), field='fps', default=DEFAULT_FPS),
-    'width': InputSpec(node=ref('positive'), field='width', default=720),
-    'height': InputSpec(node=ref('positive'), field='height', default=720),
-    'frames': InputSpec(node=ref('positive'), field='length', default=DEFAULT_FRAMES),
-}
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='image_to_video',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     source_path='vendor/ComfyUI/tests/unit/playwright_cache/1.43.1+t0.9.45/03_video_wan2_2_14B_i2v_subgraphed.json',
     source_id='03_video_wan2_2_14B_i2v_subgraphed',
@@ -76,27 +63,30 @@ def build() -> VibeWorkflow:
 
         # Inputs
         image, mask = LoadImage(
-            image='03_video_wan2_2_14B_i2v_subgraphed_input_image.png',
+            image=public('image', default='03_video_wan2_2_14B_i2v_subgraphed_input_image.png'),
         )
 
-        # Loaders
-        cliploader = CLIPLoader(clip_name=MODEL_NAME, type_='wan')
-        vaeloader = VAELoader(vae_name=MODEL_NAME_2)
-        unetloader = UNETLoader(unet_name=MODEL_NAME_3)
-        unetloader_2 = UNETLoader(unet_name=MODEL_NAME_4)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        unetloader_2 = UNETLoader(unet_name=UNET_NAME_2)
 
         # Conditioning
-        cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+        cliptextencode = CLIPTextEncode(
+            text=public('prompt', default=DEFAULT_PROMPT),
+            clip=cliploader,
+        )
+
         cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
 
         loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_5,
+            lora_name=LORA_NAME,
             strength_model=GUIDE_STRENGTH,
             model=unetloader,
         )
 
         loraloadermodelonly_2 = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_6,
+            lora_name=LORA_NAME_2,
             strength_model=GUIDE_STRENGTH,
             model=unetloader_2,
         )
@@ -112,20 +102,19 @@ def build() -> VibeWorkflow:
         )
 
         positive, negative, latent = WanImageToVideo(
-            height=720,
-            length=DEFAULT_FRAMES,
-            width=720,
+            height=public('height', default=720),
+            length=public('frames', default=DEFAULT_FRAMES),
+            width=public('width', default=720),
             negative=cliptextencode_2,
             positive=cliptextencode,
             start_image=image,
             vae=vaeloader,
         )
 
-        # Sampling
         ksampleradvanced = raw_call('KSamplerAdvanced', '130:110',
             add_noise='enable',
-            noise_seed=DEFAULT_SEED,
-            steps=4,
+            noise_seed=public('seed', default=DEFAULT_SEED),
+            steps=public('steps', default=4),
             cfg=GUIDE_STRENGTH_2,
             sampler_name=SAMPLER_NAME,
             end_at_step=2,
@@ -152,7 +141,11 @@ def build() -> VibeWorkflow:
 
         # Decode
         vaedecode = VAEDecode(samples=ksampleradvanced_2, vae=vaeloader)
-        createvideo = CreateVideo(fps=DEFAULT_FPS, images=vaedecode)
+
+        createvideo = CreateVideo(
+            fps=public('fps', default=DEFAULT_FPS),
+            images=vaedecode,
+        )
 
         # Outputs
         savevideo = SaveVideo(
@@ -160,5 +153,7 @@ def build() -> VibeWorkflow:
             video=createvideo,
         )
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='video/Wan2.2_image_to_video')
+
+        wf.register_input('model', '4', 'unet_name', UNET_NAME)
+        return wf.finalize({}, filename_prefix='video/Wan2.2_image_to_video', spec=OUTPUT_SPEC)
 

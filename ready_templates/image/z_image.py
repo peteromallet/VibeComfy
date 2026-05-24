@@ -1,11 +1,56 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
+# vibecomfy: broken-regen
 # Edits will be overwritten on regeneration. Put the manual opt-out
 # marker on the first line if hand-editing is required.
 """Auto-generated ready_template - see tools/convert_ready_templates.py."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call, ref
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, finalize, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, EmptySD3LatentImage, KSampler, ModelSamplingAuraFlow, SaveImage, UNETLoader, VAEDecode, VAELoader
+
+# --- legacy SymbolicNodeRef shim (this template is marked manual; the
+# public ``vibecomfy.templates.ref`` symbol is retired) -------------------
+class SymbolicNodeRef:
+    """Local copy of the retired ``vibecomfy.templates.SymbolicNodeRef``."""
+
+    __slots__ = ("label",)
+
+    def __init__(self, label):
+        self.label = label
+
+    def __repr__(self):
+        return f"SymbolicNodeRef({self.label!r})"
+
+    def __eq__(self, other):
+        return isinstance(other, SymbolicNodeRef) and self.label == other.label
+
+    def __hash__(self):
+        return hash(("SymbolicNodeRef", self.label))
+
+    def resolve(self, namespace, wf):
+        value = namespace.get(self.label)
+        node_id = None
+        if hasattr(value, "node_id"):
+            node_id = str(value.node_id)
+        elif hasattr(value, "node") and value.node is not None and hasattr(value.node, "id"):
+            node_id = str(value.node.id)
+        elif hasattr(value, "id"):
+            node_id = str(value.id)
+        elif isinstance(value, str):
+            node_id = value
+        if node_id is None or node_id not in wf.nodes:
+            raise ValueError(
+                f"SymbolicNodeRef({self.label!r}) could not be resolved to a node "
+                f"in workflow {wf.id!r}"
+            )
+        wf.metadata.setdefault("id_map", {})[self.label] = node_id
+        return node_id
+
+
+def ref(label):
+    """Local copy of the retired ``vibecomfy.templates.ref``."""
+
+    return SymbolicNodeRef(label)
+# --- end legacy shim -----------------------------------------------------
 
 
 DEFAULT_PROMPT = 'A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.'

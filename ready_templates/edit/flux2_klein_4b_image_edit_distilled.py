@@ -1,18 +1,17 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, GetImageSize, ImageScaleToTotalPixels, KSamplerSelect, LoadImage, RandomNoise, ReferenceLatent, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAEEncode, VAELoader
 
 
+CLIP_NAME = 'qwen_3_4b.safetensors'
 DEFAULT_SEED = 43301611940728
 GUIDE_STRENGTH = 1
-MODEL_NAME = 'flux-2-klein-4b-fp8.safetensors'
-MODEL_NAME_2 = 'qwen_3_4b.safetensors'
-MODEL_NAME_3 = 'flux2-vae.safetensors'
+UNET_NAME = 'flux-2-klein-4b-fp8.safetensors'
+VAE_NAME = 'flux2-vae.safetensors'
 
 
 MODELS = {
@@ -22,17 +21,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('cliptextencode'), field='text', default='Change the bag color to blue.'),
-    'image': InputSpec(node=ref('image'), field='image', default='handbag_white.png'),
-    'input_image': InputSpec(node=ref('image'), field='image', default='handbag_white.png'),
-}
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='image_edit',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     output_prefix='Flux2-Klein',
     requirements={'custom_nodes': ['ComfyUI-KJNodes']},
@@ -225,22 +217,19 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        # Sampling
         ksamplerselect = KSamplerSelect(sampler_name='euler')
-
-        # Loaders
-        unetloader = UNETLoader(unet_name=MODEL_NAME)
-        cliploader = CLIPLoader(clip_name=MODEL_NAME_2, type_='flux2')
-        vaeloader = VAELoader(vae_name=MODEL_NAME_3)
-        randomnoise = RandomNoise(noise_seed=DEFAULT_SEED)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='flux2')
+        vaeloader = VAELoader(vae_name=VAE_NAME)
+        randomnoise = RandomNoise(noise_seed=public('seed', default=DEFAULT_SEED))
 
         # Inputs
-        image, mask = LoadImage(image='handbag_white.png')
+        image, mask = LoadImage(image=public('image', default='handbag_white.png'))
         image_load, mask_load = LoadImage(image='comfy_logo_blue.png')
 
         # Conditioning
         cliptextencode = CLIPTextEncode(
-            text='Change the bag color to blue.',
+            text=public('prompt', default='Change the bag color to blue.'),
             clip=cliploader,
         )
 
@@ -286,5 +275,7 @@ def build() -> VibeWorkflow:
         # Outputs
         saveimage = SaveImage(filename_prefix='Flux2-Klein', images=vaedecode)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+
+        wf.register_input('model', '2', 'unet_name', UNET_NAME)
+        return wf.finalize({}, spec=OUTPUT_SPEC)
 

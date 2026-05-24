@@ -1,15 +1,15 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.kjnodes import INTConstant, ImageResizeKJv2, PreviewAnimation
 from vibecomfy.nodes.videohelpersuite import VHS_LoadVideo, VHS_VideoCombine
 from vibecomfy.nodes.wanvideowrapper import LoadWanVideoT5TextEncoder, WanVideoControlnet, WanVideoControlnetLoader, WanVideoDecode, WanVideoEasyCache, WanVideoEmptyEmbeds, WanVideoEnhanceAVideo, WanVideoExperimentalArgs, WanVideoModelLoader, WanVideoSLG, WanVideoSampler, WanVideoTextEncode, WanVideoTorchCompileSettings, WanVideoVAELoader
 
 
+DEFAULT_FPS = 24
 DEFAULT_FRAMES = 5
 DEFAULT_NEGATIVE = 'Bright tones, overexposed, static, blurred details, subtitles, style, works, paintings, images, static, overall gray, worst quality, low quality, JPEG compression residue, ugly, incomplete, extra fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured, misshapen limbs, fused fingers, still picture, messy background, three legs, many people in the background, walking backwards"'
 DEFAULT_PROMPT = "Close-up shot with soft lighting, focusing sharply on the lower half of a young woman's face. Her lips are slightly parted as she blows an enormous bubblegum bubble. The bubble is semi-transparent, shimmering gently under the light, and surprisingly contains a miniature aquarium inside, where two orange-and-white goldfish slowly swim, their fins delicately fluttering as if in an aquatic universe. The background is a pure light blue color."
@@ -23,15 +23,8 @@ MODEL_NAME_3 = 'wan2.2-ti2v-5b-controlnet-depth-v1/diffusion_pytorch_model.safet
 MODEL_NAME_4 = 'Wan2_2-TI2V-5B-FastWanFullAttn_bf16.safetensors'
 UPSCALE_METHOD = 'nearest-exact'
 
-
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('loadwanvideot5textencoder'), field='model_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('samples'), field='seed', default=DEFAULT_SEED),
-}
-
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_video_controlnet',
-    inputs=PUBLIC_INPUTS,
     requirements={'models': ['Wan2_2_VAE_bf16.safetensors', 'umt5-xxl-enc-bf16.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper']},
     custom_node_packs={'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['INTConstant', 'ImageResizeKJv2', 'PreviewAnimation'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_LoadVideo', 'VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-WanVideoWrapper': {'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git', 'class_schema_sha256': '80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f', 'classes_used': ['LoadWanVideoT5TextEncoder', 'WanVideoDecode', 'WanVideoEasyCache', 'WanVideoEmptyEmbeds', 'WanVideoExperimentalArgs', 'WanVideoModelLoader', 'WanVideoSLG', 'WanVideoSampler', 'WanVideoTextEncode', 'WanVideoTorchCompileSettings', 'WanVideoVAELoader'], 'pip_packages': ['onnx', 'opencv-python-headless'], 'status': 'pinned'}},
     approach='WanVideoWrapper 2.2 5B text-to-video ControlNet',
@@ -43,45 +36,22 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(model_name=MODEL_NAME)
+        loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
+            model_name=public('model', default=MODEL_NAME),
+        )
+
         wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
         wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
 
         wanvideoexperimentalargs = WanVideoExperimentalArgs(
-            widget_0='',
-            widget_1=True,
-            widget_2=False,
-            widget_3=0,
-            widget_4=False,
-            widget_5=1,
-            widget_6=1.25,
-            widget_7=20,
-            widget_8=True,
-            widget_9=0,
+            cfg_zero_star=True,
+            use_tcfg=True,
         )
 
-        wanvideoslg = WanVideoSLG(widget_0='7,8,9', widget_1=0.1, widget_2=0.7)
-
-        wanvideoeasycache = WanVideoEasyCache(
-            widget_0=0.015,
-            widget_1=10,
-            widget_2=-1,
-            widget_3='offload_device',
-        )
-
-        wanvideocontrolnetloader = WanVideoControlnetLoader(
-            widget_0=MODEL_NAME_3,
-            widget_1='bf16',
-            widget_2='disabled',
-            widget_3='main_device',
-        )
-
-        wanvideoenhanceavideo = WanVideoEnhanceAVideo(
-            widget_0=2,
-            widget_1=0,
-            widget_2=1,
-        )
-
+        wanvideoslg = WanVideoSLG(blocks='7,8,9', end_percent=0.7)
+        wanvideoeasycache = WanVideoEasyCache()
+        wanvideocontrolnetloader = WanVideoControlnetLoader(model=MODEL_NAME_3)
+        wanvideoenhanceavideo = WanVideoEnhanceAVideo()
         intconstant = INTConstant(value=121)
         intconstant_2 = INTConstant(value=704)
         intconstant_3 = INTConstant(value=1280)
@@ -141,7 +111,10 @@ def build() -> VibeWorkflow:
             model=wanvideomodelloader,
         )
 
-        previewanimation = PreviewAnimation(widget_0=24, images=image_image_2)
+        previewanimation = PreviewAnimation(
+            fps=public('fps', default=DEFAULT_FPS),
+            images=image_image_2,
+        )
 
         wanvideotextencode = WanVideoTextEncode(
             positive_prompt=DEFAULT_PROMPT,
@@ -154,7 +127,7 @@ def build() -> VibeWorkflow:
             steps=1,
             cfg=GUIDE_STRENGTH,
             shift=8,
-            seed=DEFAULT_SEED,
+            seed=public('seed', default=DEFAULT_SEED),
             scheduler='flowmatch_pusa',
             batched_cfg='',
             add_noise_to_samples='',
@@ -176,5 +149,5 @@ def build() -> VibeWorkflow:
         # Outputs
         vhs_videocombine = VHS_VideoCombine(images=wanvideodecode)
 
-        return wf.finalize(PUBLIC_INPUTS, output_node=previewanimation)
+        return wf.finalize({}, output_node=previewanimation)
 

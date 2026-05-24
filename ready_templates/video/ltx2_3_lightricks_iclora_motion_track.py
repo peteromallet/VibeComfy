@@ -1,42 +1,35 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call, ref
+from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, GetImageSize, KSamplerSelect, LTXAVTextEncoderLoader, LTXVAudioVAEDecode, LTXVConcatAVLatent, LTXVConditioning, LTXVCropGuides, LTXVEmptyLatentAudio, LTXVSeparateAVLatent, LoadImage, LoraLoaderModelOnly, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo
 from vibecomfy.nodes.ltxvideo import GemmaAPITextEncode, LTXAddVideoICLoRAGuide, LTXFloatToInt, LTXICLoRALoaderModelOnly, LTXVImgToVideoConditionOnly, LTXVTiledVAEDecode, LowVRAMAudioVAELoader, LowVRAMCheckpointLoader
 
 
+API_KEY = ''
+CKPT_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
 CONTROL_AFTER_GENERATE = 'fixed'
 DEFAULT_FPS = 8
 DEFAULT_FRAMES = 5
 DEFAULT_PROMPT = 'Man on a small bycicle being chased by a police car. The sirens are blaring and the crowd of bystanders is cheering loudly. As he is pedaling away on the bike, he looks back at the police car and shouts in a taunting tone: "you can\'t catch me!" and waving his fist in the air. He then pedals away on his bike.'
 DEFAULT_PROMPT_2 = 'pc game, console game, video game, cartoon, childish, ugly'
 DEFAULT_SEED = 42
+ENHANCE_PROMPT_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
 GUIDE_STRENGTH = 0.5
 GUIDE_STRENGTH_2 = 2.5
 IMAGE = 'example.png'
-MODEL_NAME = 'ltx-2.3-22b-dev-fp8.safetensors'
-MODEL_NAME_2 = 'gemma_3_12B_it_fp4_mixed.safetensors'
-MODEL_NAME_3 = 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
-MODEL_NAME_4 = 'ltx-2.3-22b-ic-lora-motion-track-control-ref0.5.safetensors'
+LORA_NAME = 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
+LORA_NAME_2 = 'ltx-2.3-22b-ic-lora-motion-track-control-ref0.5.safetensors'
 SCALE_METHOD = 'lanczos'
-WIDGET_0 = ''
+TEXT_ENCODER_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('model'), field='ckpt_name', default=MODEL_NAME),
-    'seed': InputSpec(node=ref('randomnoise'), field='noise_seed', default=DEFAULT_SEED),
-    'prompt': InputSpec(node=ref('cliptextencode'), field='text', default=DEFAULT_PROMPT),
-    'image': InputSpec(node=ref('image'), field='image', default=IMAGE),
-    'input_image': InputSpec(node=ref('image'), field='image', default=IMAGE),
-}
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='motion_track_control',
-    inputs=PUBLIC_INPUTS,
     requirements={'models': ['euler_ancestral_cfg_pp', 'ltx-2.3-22b-dev-fp8.safetensors', 'ltx-2.3-22b-ic-lora-motion-track-control-ref0.5.safetensors', 'ltxv/ltx2/ltx-2.3-22b-distilled-lora-384-1.1.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-LTXVideo']},
     custom_node_packs={'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageSize'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTXAVTextEncoderLoader', 'LTXVAudioVAEDecode', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVCropGuides', 'LTXVEmptyLatentAudio', 'LTXVSeparateAVLatent'], 'pip_packages': [], 'status': 'pinned'}},
     approach='official IC-LoRA motion-track image anchor/control workflow',
@@ -53,23 +46,25 @@ def build() -> VibeWorkflow:
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
         # Inputs
-        image, mask = LoadImage(image=IMAGE, widget_0='example.png')
-        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=MODEL_NAME)
-        lowvramaudiovaeloader = LowVRAMAudioVAELoader(ckpt_name=MODEL_NAME)
+        image, mask = LoadImage(
+            image=public('image', default=IMAGE),
+            widget_0='example.png',
+        )
 
-        # Sampling
+        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=CKPT_NAME)
+        lowvramaudiovaeloader = LowVRAMAudioVAELoader(ckpt_name=CKPT_NAME)
         ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
 
         randomnoise = RandomNoise(
-            noise_seed=DEFAULT_SEED,
+            noise_seed=public('seed', default=DEFAULT_SEED),
             control_after_generate=CONTROL_AFTER_GENERATE,
         )
 
         primitivestring = raw_call('PrimitiveString', '5022', value='')
 
         ltxavtextencoderloader = LTXAVTextEncoderLoader(
-            text_encoder=MODEL_NAME_2,
-            ckpt_name=MODEL_NAME,
+            text_encoder=TEXT_ENCODER_NAME,
+            ckpt_name=CKPT_NAME,
             device='default',
             widget_0='gemma_3_12B_it_fp4_mixed.safetensors',
             widget_1='ltx-2.3-22b-dev-fp8.safetensors',
@@ -84,7 +79,7 @@ def build() -> VibeWorkflow:
 
         # Conditioning
         cliptextencode = CLIPTextEncode(
-            text=DEFAULT_PROMPT,
+            text=public('prompt', default=DEFAULT_PROMPT),
             clip=ltxavtextencoderloader,
         )
 
@@ -94,24 +89,23 @@ def build() -> VibeWorkflow:
         )
 
         loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_3,
+            lora_name=LORA_NAME,
             strength_model=GUIDE_STRENGTH,
             model=model,
         )
 
         gemmaapitextencode = GemmaAPITextEncode(
-            widget_0=WIDGET_0,
-            widget_1='pc game, console game, video game, cartoon, childish, ugly',
-            widget_2=False,
-            widget_3=MODEL_NAME,
+            ckpt_name=CKPT_NAME,
+            enhance_prompt=False,
+            prompt=DEFAULT_PROMPT_2,
+            widget_0='',
             api_key=primitivestring,
         )
 
         gemmaapitextencode_2 = GemmaAPITextEncode(
-            widget_0=WIDGET_0,
-            widget_1='',
-            widget_2=MODEL_NAME,
-            widget_3=MODEL_NAME,
+            ckpt_name=CKPT_NAME,
+            enhance_prompt=ENHANCE_PROMPT_NAME,
+            widget_0='',
             api_key=primitivestring,
         )
 
@@ -139,14 +133,14 @@ def build() -> VibeWorkflow:
         )
 
         model_ltxic, latent_downscale_factor = LTXICLoRALoaderModelOnly(
-            lora_name=MODEL_NAME_4,
+            lora_name=LORA_NAME_2,
             widget_0='ltx-2.3-22b-ic-lora-motion-track-control-ref0.5.safetensors',
             model=loraloadermodelonly,
         )
 
         simplemath_ = raw_call('SimpleMath+', '5056',
             _outputs=('INT', 'FLOAT'),
-            widget_0='a*32',
+            value='a*32',
             a=latent_downscale_factor,
         )
 
@@ -169,7 +163,7 @@ def build() -> VibeWorkflow:
         width, height, batch_size = GetImageSize(image=resizeimagemasknode_2)
 
         ltxvdrawtracks = raw_call('LTXVDrawTracks', '5034',
-            widget_0=WIDGET_0,
+            widget_0='',
             widget_1=512,
             widget_2=512,
             height=height,
@@ -260,5 +254,7 @@ def build() -> VibeWorkflow:
 
         savevideo_2 = SaveVideo(filename_prefix='output', video=createvideo_2)
 
-        return wf.finalize(PUBLIC_INPUTS, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='output')
+
+        wf.register_input('model', '2', 'ckpt_name', CKPT_NAME)
+        return wf.finalize({}, output_node=savevideo, filename_prefix='output', spec=OUTPUT_SPEC)
 

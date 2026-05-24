@@ -1,22 +1,21 @@
-# vibecomfy: generated - converted by tools/convert_ready_templates.py
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
-"""Auto-generated ready_template - see tools/convert_ready_templates.py."""
+# vibecomfy: generated
+# For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
+"""Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, ref
+from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CreateVideo, EmptyHunyuanLatentVideo, KSampler, ModelSamplingSD3, SaveVideo, UNETLoader, VAEDecode, VAELoader
 
 
+CLIP_NAME = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
 DEFAULT_FPS = 16
 DEFAULT_FRAMES = 33
 DEFAULT_PROMPT = 'a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera'
 DEFAULT_PROMPT_2 = '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'
 DEFAULT_SEED = 82628696717253
 GUIDE_STRENGTH = 6
-MODEL_NAME = 'wan2.1_t2v_1.3B_fp16.safetensors'
-MODEL_NAME_2 = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
-MODEL_NAME_3 = 'wan_2.1_vae.safetensors'
+UNET_NAME = 'wan2.1_t2v_1.3B_fp16.safetensors'
+VAE_NAME = 'wan_2.1_vae.safetensors'
 
 
 MODELS = {
@@ -26,26 +25,10 @@ MODELS = {
 }
 
 
-PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME),
-    'prompt': InputSpec(node=ref('positive'), field='text', default=DEFAULT_PROMPT),
-    'seed': InputSpec(node=ref('ksampler'), field='seed', default=DEFAULT_SEED),
-    'steps': InputSpec(node=ref('ksampler'), field='steps', default=30),
-    'negative_prompt': InputSpec(node=ref('negative'), field='text', default=DEFAULT_PROMPT_2),
-    'negative': InputSpec(node=ref('negative'), field='text', default=DEFAULT_PROMPT_2),
-    'width': InputSpec(node=ref('emptyhunyuanlatentvideo'), field='width', default=832),
-    'height': InputSpec(node=ref('emptyhunyuanlatentvideo'), field='height', default=480),
-    'output_fps': InputSpec(node=ref('createvideo'), field='fps', default=DEFAULT_FPS),
-    'fps': InputSpec(node=ref('createvideo'), field='fps', default=DEFAULT_FPS),
-    'cfg': InputSpec(node=ref('ksampler'), field='cfg', default=GUIDE_STRENGTH),
-    'sampler_name': InputSpec(node=ref('ksampler'), field='sampler_name', default='uni_pc'),
-    'length': InputSpec(node=ref('emptyhunyuanlatentvideo'), field='length', default=DEFAULT_FRAMES),
-    'frames': InputSpec(node=ref('emptyhunyuanlatentvideo'), field='length', default=DEFAULT_FRAMES),
-}
+OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_video',
-    inputs=PUBLIC_INPUTS,
     models=MODELS,
     output_prefix='video/ComfyUI',
     provenance={'source_workflow': 'workflow_corpus/official/video/wan_t2v.json'},
@@ -55,28 +38,34 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     with new_workflow(READY_METADATA, source_path=__file__) as wf:
 
-        # Loaders
-        unetloader = UNETLoader(unet_name=MODEL_NAME)
-        cliploader = CLIPLoader(clip_name=MODEL_NAME_2, type_='wan')
-        vaeloader = VAELoader(vae_name=MODEL_NAME_3)
+        unetloader = UNETLoader(unet_name=UNET_NAME)
+        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+        vaeloader = VAELoader(vae_name=VAE_NAME)
 
-        # Sampling
         emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
-            width=832,
-            height=480,
-            length=DEFAULT_FRAMES,
+            width=public('width', default=832),
+            height=public('height', default=480),
+            length=public('length', default=DEFAULT_FRAMES, aliases=('frames',)),
         )
 
         # Conditioning
-        positive = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
-        negative = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
+        positive = CLIPTextEncode(
+            text=public('prompt', default=DEFAULT_PROMPT),
+            clip=cliploader,
+        )
+
+        negative = CLIPTextEncode(
+            text=public('negative_prompt', default=DEFAULT_PROMPT_2),
+            clip=cliploader,
+        )
+
         modelsamplingsd3 = ModelSamplingSD3(shift=8, model=unetloader)
 
         ksampler = KSampler(
-            seed=DEFAULT_SEED,
-            steps=30,
-            cfg=GUIDE_STRENGTH,
-            sampler_name='uni_pc',
+            seed=public('seed', default=DEFAULT_SEED),
+            steps=public('steps', default=30),
+            cfg=public('cfg', default=GUIDE_STRENGTH),
+            sampler_name=public('sampler_name', default='uni_pc'),
             latent_image=emptyhunyuanlatentvideo,
             model=modelsamplingsd3,
             negative=negative,
@@ -85,10 +74,16 @@ def build() -> VibeWorkflow:
 
         # Decode
         vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
-        createvideo = CreateVideo(fps=DEFAULT_FPS, images=vaedecode)
+
+        createvideo = CreateVideo(
+            fps=public('output_fps', default=DEFAULT_FPS, aliases=('fps',)),
+            images=vaedecode,
+        )
 
         # Outputs
         savevideo = SaveVideo(video=createvideo)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
+
+        wf.register_input('model', '1', 'unet_name', UNET_NAME)
+        return wf.finalize({}, spec=OUTPUT_SPEC)
 
