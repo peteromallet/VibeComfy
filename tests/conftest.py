@@ -26,6 +26,23 @@ import warnings
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _release_workflow_context_binding():
+    """Release any leaked ContextVar workflow binding after each test.
+
+    Templates now use ``wf = new_workflow(...)`` (no ``with`` block), which
+    eagerly binds the ContextVar and relies on ``finalize()`` to release it.
+    Tests that ``exec`` + call ``build()`` directly are an unguarded exec+build
+    loop: a build that raises before ``finalize()`` leaks a binding that would
+    poison the next test's ``new_workflow()`` with a nested-context error. This
+    keeps test isolation the way the loader ``finally`` guards keep prod clean.
+    """
+    yield
+    from vibecomfy.workflow_context import active_workflow, unbind_workflow
+
+    unbind_workflow(active_workflow())
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Hand the active pytest config to the runpod budget helpers so that
     # ``--runpod-full`` raises the default cap from $2 to $15 without each

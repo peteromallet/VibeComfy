@@ -10,6 +10,7 @@ import vibecomfy.templates as templates
 from vibecomfy.errors import SchemaValidationError
 from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, _current_workflow_or_raise, _derive_output_kind, finalize, new_workflow, node
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+from vibecomfy.workflow_context import active_workflow, unbind_workflow
 
 
 def _workflow(workflow_id: str = "test/workflow") -> VibeWorkflow:
@@ -184,10 +185,17 @@ def test_new_workflow_constructs_ready_workflow_with_metadata() -> None:
     assert wf.metadata["capability"] == "text_to_image"
 
 
-def test_new_workflow_direct_assignment_remains_vibeworkflow() -> None:
+def test_new_workflow_direct_assignment_eagerly_binds() -> None:
     wf = new_workflow({"ready_template": "image/example"}, source_path="ready_templates/image/example.py")
 
     assert isinstance(wf, VibeWorkflow)
+    # SD3: new_workflow() eagerly binds the ContextVar so the with-less
+    # `wf = new_workflow(...)` template shape works without a `with` block.
+    assert active_workflow() is wf
+    assert _current_workflow_or_raise() is wf
+
+    # finalize() releases the binding in real templates; unbind directly here.
+    unbind_workflow(wf)
     with pytest.raises(RuntimeError, match="No active workflow"):
         _current_workflow_or_raise()
 
@@ -205,12 +213,17 @@ def test_workflow_context_propagates() -> None:
 
 def test_nested_workflow_context_raises() -> None:
     outer = new_workflow({"ready_template": "image/outer"}, source_path="ready_templates/image/outer.py")
-    inner = new_workflow({"ready_template": "image/inner"}, source_path="ready_templates/image/inner.py")
 
-    with outer:
-        with pytest.raises(RuntimeError, match="Nested workflow contexts not supported"):
-            with inner:
-                pass
+    # SD3: new_workflow() eagerly binds, so a second new_workflow() while one is
+    # already active trips the nested-context guard at construction time (not at
+    # a later `with`). This is the leak-detection signal.
+    with pytest.raises(RuntimeError, match="Nested workflow contexts not supported"):
+        new_workflow({"ready_template": "image/inner"}, source_path="ready_templates/image/inner.py")
+
+    # __enter__ is now an idempotent no-op for the already-bound outer workflow.
+    with outer as active:
+        assert active is outer
+        assert _current_workflow_or_raise() is outer
 
     with pytest.raises(RuntimeError, match="No active workflow"):
         _current_workflow_or_raise()
@@ -907,7 +920,6 @@ def test_canonical_finalize_does_not_warn() -> None:
 # ── T5: Regression tests for four-block template static consumers ──
 
 
-@pytest.mark.xfail(strict=True, reason="Phase 1: static_contract AST extraction of public() inline pattern not yet implemented; awaits Family F fix")
 def test_static_contract_extracts_public_inputs_from_inputspec() -> None:
     """T5(b): static_contract derives public_inputs from PUBLIC_INPUTS/InputSpec AST nodes."""
     from vibecomfy.registry.static_contract import extract_ready_template_contract
@@ -1142,7 +1154,6 @@ def test_readability_inventory_parses_ready_metadata_build_call() -> None:
 # -- T2: public-input metadata round-trips through static contract ------------
 
 
-@pytest.mark.xfail(strict=True, reason="Phase 1: static_contract round-trip for public() inline pattern not yet implemented; awaits Family F fix")
 def test_public_input_metadata_round_trips_through_static_contract() -> None:
     """Public-input keys in generated (PUBLIC_INPUT_METADATA) and old-style
     (PUBLIC_INPUTS) templates must be a subset of the contract's public_inputs

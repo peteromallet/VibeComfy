@@ -139,12 +139,12 @@ def test_reemit_all_family_p_discovers_documented_and_legacy(
     paths = discover_family_p_paths()
     assert paths, "expected at least one Family P / legacy-WIDGET_N template"
     rel_names = {p.name for p in paths}
-    # The 5 runexx Phase 1 targets should be discovered.
+    # The runexx Phase 1 targets that still have legacy WIDGET_N constants should be discovered.
+    # Note: ltx2_3_runexx_talking_avatar_qwen_tts.py was resolved in T6 (regenerated cleanly).
     expected_runexx = {
         "ltx2_3_runexx_lipsync_custom_audio.py",
         "ltx2_3_runexx_motion_transfer_dwpose.py",
         "ltx2_3_runexx_music_video_low_ram.py",
-        "ltx2_3_runexx_talking_avatar_qwen_tts.py",
         "ltx2_3_runexx_video_to_video_extend.py",
     }
     missing = expected_runexx - rel_names

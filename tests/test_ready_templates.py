@@ -57,7 +57,13 @@ def test_ready_template_ids_include_curated_workflows() -> None:
     assert all(not template_id.rsplit("/", 1)[-1].startswith("_") for template_id in ids)
 
 
-def test_ready_templates_use_v26_context_bound_shape() -> None:
+def test_ready_templates_use_v27_withless_new_workflow_shape() -> None:
+    """v2.7 (T7): templates drop the `with new_workflow(...) as wf:` wrapper.
+
+    ``new_workflow()`` now eagerly binds the ContextVar and ``finalize()``
+    releases it, so the canonical shape is a top-level ``wf = new_workflow(...)``
+    assignment in build() with no ``with`` block.
+    """
     offenders: list[str] = []
 
     for path in _ready_template_paths():
@@ -73,20 +79,28 @@ def test_ready_templates_use_v26_context_bound_shape() -> None:
 
         with_blocks = [
             stmt
-            for stmt in build.body
+            for stmt in ast.walk(build)
             if isinstance(stmt, ast.With)
             and any(
                 isinstance(item.context_expr, ast.Call)
                 and getattr(item.context_expr.func, "id", None) == "new_workflow"
-                and isinstance(item.optional_vars, ast.Name)
-                and item.optional_vars.id == "wf"
                 for item in stmt.items
             )
         ]
-        if len(with_blocks) != 1:
-            offenders.append(f"{path}: expected exactly one top-level with new_workflow(...) as wf")
-        if "wf = new_workflow(READY_METADATA, source_path=__file__)" in source:
-            offenders.append(f"{path}: old explicit new_workflow assignment")
+        if with_blocks:
+            offenders.append(f"{path}: still uses `with new_workflow(...) as wf:` (must drop the wrapper)")
+
+        wf_assigns = [
+            stmt
+            for stmt in build.body
+            if isinstance(stmt, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "wf" for t in stmt.targets)
+            and isinstance(stmt.value, ast.Call)
+            and getattr(stmt.value.func, "id", None) == "new_workflow"
+        ]
+        if len(wf_assigns) != 1:
+            offenders.append(f"{path}: expected exactly one top-level `wf = new_workflow(...)` assignment")
+
         if "return finalize(" in source:
             offenders.append(f"{path}: old finalize(...) helper return")
         if "return wf.finalize(" not in source:
@@ -494,10 +508,10 @@ def test_ltx_runexx_first_last_frame_omits_dead_gguf_branch_and_validates_calcul
     assert api["2140"]["inputs"]["any_input"] == ["2139", 0]
     assert api["2140"]["inputs"]["unload_all_models"] is True
     assert api["2141"]["inputs"]["latent"] == ["2140", 0]
-    assert workflow.inputs["start_image"].node_id == "6"
-    assert workflow.inputs["end_image"].node_id == "7"
-    assert workflow.inputs["length"].node_id == "2077"
-    assert workflow.inputs["output_fps"].node_id == "2076"
+    assert workflow._resolve_input("start_image").node_id == "6"
+    assert workflow._resolve_input("end_image").node_id == "7"
+    assert workflow._resolve_input("length").node_id == "2077"
+    assert workflow._resolve_input("output_fps").node_id == "2076"
 
 
 def test_ready_template_loads_vibe_workflow() -> None:
@@ -817,11 +831,11 @@ def test_ltx_first_last_raw_video_guide_exposes_worker_patch_points() -> None:
     assert workflow.validate().ok
     assert "rgthree-comfy" in workflow.requirements.custom_nodes
     assert workflow.metadata["source_role"] == "materialized_ready_python_template"
-    assert workflow.inputs["start_image"].node_id == "6"
-    assert workflow.inputs["end_image"].node_id == "7"
+    assert workflow._resolve_input("start_image").node_id == "6"
+    assert workflow._resolve_input("end_image").node_id == "7"
     assert workflow.inputs["control_video"].node_id == "2111"
     assert workflow.inputs["prompt"].node_id == "2083"
-    assert workflow.inputs["negative"].node_id == "6103"
+    assert workflow._resolve_input("negative").node_id == "6103"
     assert workflow.inputs["seed"].node_id == "4"
     assert workflow.inputs["frames"].node_id == "2077"
     assert workflow.inputs["width"].node_id == "2079"

@@ -10,7 +10,11 @@ import pytest
 
 
 def _run_verify(original: Path, candidate: Path) -> tuple[int, dict]:
-    if "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in candidate.read_text(encoding="utf-8"):
+    _candidate_src = candidate.read_text(encoding="utf-8")
+    if (
+        "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in _candidate_src
+        or "wf = new_workflow(READY_METADATA, source_path=__file__)" in _candidate_src
+    ):
         return 0, {
             "status": "ok",
             "checks": {
@@ -202,7 +206,10 @@ def test_verify_fails_disconnected_public_inputs(tmp_path: Path) -> None:
 def _run_restructure(template: str, out_path: Path) -> str:
     repo = Path(__file__).resolve().parents[1]
     original = (repo / template).read_text(encoding="utf-8")
-    if "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in original:
+    if (
+        "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in original
+        or "wf = new_workflow(READY_METADATA, source_path=__file__)" in original
+    ):
         out_path.write_text(original, encoding="utf-8")
         return original
     proc = subprocess.run(
@@ -231,8 +238,9 @@ def _run_restructure(template: str, out_path: Path) -> str:
 
 def _assert_v26_ready_shape(source: str) -> None:
     assert "# vibecomfy: generated" in source
-    assert "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in source
-    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" not in source
+    # v2.7 (T7): with-less shape.
+    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" in source
+    assert "with new_workflow(READY_METADATA, source_path=__file__) as wf:" not in source
     assert "return wf.finalize(" in source
     assert "return finalize(" not in source
     assert "bind_input(" not in source

@@ -1476,10 +1476,15 @@ def test_ready_template_uses_shared_helpers_and_passes_import_build_compile_pari
     assert result.validation is not None
 
     # Import check: emitted code must import the natural template surface, not define local _node
-    assert "from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public" in result.text
-    assert "from vibecomfy.registry.ready_template import" not in result.text
+    # New shape: InputSpec + ReadyMetadata + new_workflow; no OutputSpec or public()
+    assert "from vibecomfy.templates import" in result.text
+    assert "InputSpec" in result.text
+    assert "ReadyMetadata" in result.text
     assert "new_workflow" in result.text
-    assert "return wf.finalize({}" in result.text
+    assert "OutputSpec" not in result.text
+    assert "public(" not in result.text
+    assert "from vibecomfy.registry.ready_template import" not in result.text
+    assert "return wf.finalize(" in result.text
     assert "node=ref(" not in result.text
     assert "def _node" not in result.text
 

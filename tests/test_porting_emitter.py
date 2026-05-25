@@ -121,18 +121,24 @@ def test_emit_ready_template_python_has_ready_metadata_contract() -> None:
     assert "READY_REQUIREMENTS =" not in text
     assert "ReadyMetadata.build(" in text
     assert "template_id='image/sample'" not in text
-    assert "from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public" in text
+    # New shape: InputSpec + PUBLIC_INPUTS inside build(); no OutputSpec or public()
+    assert "from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow" in text
+    assert "OutputSpec" not in text
+    assert "public(" not in text
     assert "from vibecomfy.registry.ready_template import" not in text
     assert "def _node" not in text
-    assert "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in text
-    assert "public('image', default='input.png'" in text
+    # v2.7 (T7): with-less shape — eager-binding new_workflow assignment, no `with`.
+    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" in text
+    assert "with new_workflow(" not in text
+    assert "InputSpec(" in text
+    assert "PUBLIC_INPUTS = {" in text
     assert "_id='10'" not in text
     assert "wf.metadata.setdefault('id_map'" not in text
     assert "wf._set_id_map(" not in text
     assert "LoadImage(wf" not in text
     assert "PUBLIC_INPUT_METADATA = {" not in text
     assert "def PUBLIC_INPUTS(" not in text
-    assert "return wf.finalize({}" in text
+    assert "return wf.finalize(PUBLIC_INPUTS" in text
     assert "bind_input(" not in text
     assert "bind_output(" not in text
     assert "artifact_kind='image'" in text
@@ -183,8 +189,11 @@ def test_ready_template_public_inputs_bind_actual_node_objects() -> None:
         registered_inputs={"prefix": ("20", "filename_prefix")},
     )
 
+    # New shape: InputSpec dict inside build(), no ref() or inline public() wrapping
     assert "node=ref(" not in text
-    assert "public(" in text
+    assert "public(" not in text
+    assert "InputSpec(" in text
+    assert "PUBLIC_INPUTS = {" in text
     namespace: dict[str, object] = {"__file__": "ready_templates/image/sample.py"}
     exec(compile(text, "ready_templates/image/sample.py", "exec"), namespace)  # noqa: S102
     workflow = namespace["build"]()
@@ -566,7 +575,7 @@ def test_ready_template_id_map_contract_for_representative_emissions() -> None:
         assert emitted.id_map() == {}
 
 
-def test_ready_template_ltx_tail_lines_are_inside_workflow_context() -> None:
+def test_ready_template_ltx_tail_lines_at_build_body_indent() -> None:
     text = emit_ready_template_python(
         _sample_workflow(),
         ready_metadata={"ready_template": "video/ltx2_3_i2v", "source_workflow": "workflow_corpus/source.json"},
@@ -575,12 +584,16 @@ def test_ready_template_ltx_tail_lines_are_inside_workflow_context() -> None:
         registered_inputs={"prefix": ("20", "filename_prefix")},
     )
 
-    assert "    with new_workflow(READY_METADATA, source_path=__file__) as wf:" in text
-    assert "        apply_ltx_lowvram(wf)" in text
-    assert "        resolution(384, 256, 9).apply(wf)" in text
-    assert "        ensure_custom_nodes(wf, READY_METADATA.get(\"requirements\", {}).get(\"custom_nodes\", []))" in text
-    assert "        return wf.finalize({}" in text
-    assert "\n    apply_ltx_lowvram(wf)" not in text
+    # v2.7 (T7): with-less shape — tail lines sit at the 4-space build() body
+    # indent, not the old 8-space `with new_workflow(...)` body indent.
+    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" in text
+    assert "with new_workflow(" not in text
+    assert "\n    apply_ltx_lowvram(wf)" in text
+    assert "\n    resolution(384, 256, 9).apply(wf)" in text
+    assert "\n    ensure_custom_nodes(wf, READY_METADATA.get(\"requirements\", {}).get(\"custom_nodes\", []))" in text
+    # New shape: return wf.finalize(PUBLIC_INPUTS, ...) with inline output kwargs
+    assert "\n    return wf.finalize(PUBLIC_INPUTS" in text
+    assert "        apply_ltx_lowvram(wf)" not in text
 
 
 def test_convert_ready_templates_tool_dry_run_remains_compatible() -> None:
@@ -997,7 +1010,6 @@ def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
     assert "wanimagetovideo.out" not in text
 
 
-@pytest.mark.xfail(strict=True, reason="Phase 1: variable-name collision suffix for unpacked outputs not yet implemented")
 def test_ready_template_unpacked_output_names_use_collision_suffix() -> None:
     wf = VibeWorkflow("test", WorkflowSource("test", provenance={"origin": "test"}))
     wf.nodes["1"] = VibeNode("1", "CLIPTextEncode", inputs={"text": "prompt"})

@@ -33,7 +33,10 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def _generate(template: str, out_path: Path) -> str:
     original = (REPO / template).read_text(encoding="utf-8")
-    if "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in original:
+    if (
+        "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in original
+        or "wf = new_workflow(READY_METADATA, source_path=__file__)" in original
+    ):
         out_path.write_text(original, encoding="utf-8")
         return original
     proc = _run([template, "--mode", "restructure", "--out", str(out_path)])
@@ -46,8 +49,9 @@ def _generate(template: str, out_path: Path) -> str:
 
 def _assert_v26_ready_shape(source: str) -> None:
     assert "# vibecomfy: generated" in source
-    assert "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in source
-    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" not in source
+    # v2.7 (T7): with-less shape.
+    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" in source
+    assert "with new_workflow(READY_METADATA, source_path=__file__) as wf:" not in source
     assert "return wf.finalize(" in source
     assert "return finalize(" not in source
 
@@ -114,7 +118,7 @@ def test_default_mode_produces_restructure_output(tmp_path: Path) -> None:
     proc = _run([template, "--out", str(out_path)])
     assert proc.returncode == 0, proc.stderr
     source = out_path.read_text()
-    assert "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in source
+    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" in source
     assert "from vibecomfy.templates import" in source
     assert "READY_METADATA = ReadyMetadata.build(" in source
     assert "_at(" not in source  # restructure mode uses node(), not _at()

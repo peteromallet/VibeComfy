@@ -65,13 +65,17 @@ class TestVibeComfyError:
         assert str(exc) == "msg"
 
     def test_repr(self) -> None:
-        """__repr__ includes class name and both fields."""
+        """__repr__ includes class name, next_action, and severity."""
         exc = VibeComfyError("boo", next_action="run away")
-        assert repr(exc) == "VibeComfyError('boo', next_action='run away')"
+        assert repr(exc) == (
+            "VibeComfyError('boo', next_action='run away', severity='error')"
+        )
 
     def test_repr_without_next_action(self) -> None:
         exc = VibeComfyError("boo")
-        assert repr(exc) == "VibeComfyError('boo', next_action=None)"
+        assert repr(exc) == (
+            "VibeComfyError('boo', next_action=None, severity='error')"
+        )
 
 
 # -- Subclass isinstance checks ----------------------------------------------
@@ -114,10 +118,10 @@ class TestSubclassIsInstance:
 
     @pytest.mark.parametrize("cls,name", SUBCLASSES)
     def test_next_action_none_default(self, cls: type[VibeComfyError], name: str) -> None:
-        """Without next_action, message is unchanged."""
+        """Without explicit next_action, the subclass default_next_action is used."""
         exc = cls("test")
-        assert exc.next_action is None
-        assert str(exc) == "test"
+        assert exc.next_action == cls.default_next_action
+        assert exc.next_action is not None
 
 
 # -- Caught-by-CLI-tuple proof -----------------------------------------------
@@ -266,3 +270,69 @@ def test_all_raise_site_error_classes_are_vibecomfy_subclasses() -> None:
     # ConversionWriteError is not a VibeComfyError subclass (kept as RuntimeError
     # for backward compatibility) but carries next_action.
     assert issubclass(ConversionWriteError, RuntimeError)
+
+
+# -- to_dict() shape and subclass defaults (T11/F2) ---------------------------
+
+
+def test_vibecomfy_error_to_dict_shape() -> None:
+    """to_dict() returns a dict with the four expected keys."""
+    exc = VibeComfyError("something failed", next_action="run doctor")
+    d = exc.to_dict()
+    assert d == {
+        "type": "VibeComfyError",
+        "message": "something failed",
+        "severity": "error",
+        "next_action": "run doctor",
+    }
+    assert set(d.keys()) == {"type", "message", "severity", "next_action"}
+
+
+def test_subclass_to_dict_includes_default_next_action() -> None:
+    """Subclass to_dict() uses default_next_action when no explicit kwarg given."""
+    exc = ModelAssetError("model not found")
+    d = exc.to_dict()
+    assert d["type"] == "ModelAssetError"
+    assert d["message"] == "model not found"
+    assert d["severity"] == "error"
+    assert d["next_action"] == "vibecomfy doctor --models"
+
+
+def test_to_dict_respects_explicit_next_action_override() -> None:
+    """Explicit next_action kwarg overrides the subclass default in to_dict()."""
+    exc = ModelAssetError("missing", next_action="custom fix")
+    d = exc.to_dict()
+    assert d["next_action"] == "custom fix"
+
+
+def test_all_eight_subclasses_have_default_next_action() -> None:
+    """Every semantic subclass defines its own non-empty default_next_action."""
+    for cls, _name in SUBCLASSES:
+        assert cls.default_next_action is not None, (
+            f"{cls.__name__}.default_next_action is None"
+        )
+        assert isinstance(cls.default_next_action, str), (
+            f"{cls.__name__}.default_next_action is not a str"
+        )
+        assert len(cls.default_next_action) > 0, (
+            f"{cls.__name__}.default_next_action is empty"
+        )
+
+
+def test_subclass_severity_defaults_to_error() -> None:
+    """All subclasses default to severity='error'."""
+    for cls, _name in SUBCLASSES:
+        exc = cls("test")
+        assert exc.severity == "error", (
+            f"{cls.__name__} severity is {exc.severity!r}, expected 'error'"
+        )
+
+
+def test_severity_can_be_overridden() -> None:
+    """severity kwarg on any error class is honored."""
+    exc = VibeComfyError("warning", severity="warning")
+    assert exc.severity == "warning"
+
+    exc2 = ModelAssetError("info", severity="info")
+    assert exc2.severity == "info"
+    assert exc2.to_dict()["severity"] == "info"

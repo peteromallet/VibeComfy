@@ -8,6 +8,7 @@ import pytest
 
 from vibecomfy.nodes.core import EmptyImage, SaveImage
 from vibecomfy.templates import new_workflow
+from vibecomfy.workflow_context import unbind_workflow
 
 
 def test_generated_wrapper_uses_context_workflow_and_preserves_source_id() -> None:
@@ -34,6 +35,10 @@ def test_generated_wrapper_accepts_explicit_workflow_outside_context() -> None:
 
 def test_generated_wrapper_rejects_multiple_positional_workflows() -> None:
     first = new_workflow({"ready_template": "image/first"}, source_path="ready_templates/image/first.py")
+    # new_workflow eagerly binds (SD3); release before creating a second so the
+    # nested-context guard does not fire. This test exercises wrapper positional
+    # arg handling, not the context lifecycle.
+    unbind_workflow(first)
     second = new_workflow({"ready_template": "image/second"}, source_path="ready_templates/image/second.py")
 
     with pytest.raises(TypeError, match="EmptyImage\\(\\) takes at most 1 positional argument, got 2"):

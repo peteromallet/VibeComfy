@@ -158,7 +158,7 @@ def test_post_exit_compile_works_node_fails() -> None:
 
 def test_current_workflow_or_raise_outside_context_remediation_message() -> None:
     """The error message from _current_workflow_or_raise() outside a context
-    includes the 'with new_workflow(...)' remediation hint."""
+    includes the v2.7 with-less `wf = new_workflow(...)` remediation hint."""
     # Ensure we are outside any context
     assert active_workflow() is None
 
@@ -166,7 +166,7 @@ def test_current_workflow_or_raise_outside_context_remediation_message() -> None
         _current_workflow_or_raise()
 
     message = str(exc_info.value)
-    assert "with new_workflow(" in message, (
+    assert "wf = new_workflow(" in message, (
         f"Remediation message missing. Got: {message}"
     )
     assert "No active workflow" in message
