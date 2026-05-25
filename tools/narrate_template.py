@@ -33,7 +33,10 @@ def __getattr__(name: str) -> Any:
 
 
 def _is_v26_ready_source(source: str) -> bool:
-    return "with new_workflow(READY_METADATA, source_path=__file__) as wf:" in source
+    # Recognize both the legacy v2.6 `with new_workflow(...) as wf:` form and
+    # the v2.7 (T7) with-less `wf = new_workflow(...)` form via their common
+    # call substring (no codemod logic — this stays a pure compatibility shim).
+    return "new_workflow(READY_METADATA, source_path=__file__)" in source
 
 
 def _emit_existing_v26(path: Path) -> str:

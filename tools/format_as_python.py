@@ -395,6 +395,7 @@ def format_as_python(
     ready_requirements: dict,
     template_id: str,
     registered_inputs: dict[str, tuple[str, str]] | None = None,
+    registered_aliases: dict[str, tuple[str, ...]] | None = None,
     apply_overrides: dict | None = None,
     raw_workflow: dict | None = None,
 ) -> str:
@@ -407,6 +408,7 @@ def format_as_python(
         ready_requirements=ready_requirements,
         template_id=template_id,
         registered_inputs=registered_inputs,
+        registered_aliases=registered_aliases,
         apply_overrides=apply_overrides,
         raw_workflow=raw_workflow,
     )

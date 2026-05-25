@@ -5,7 +5,7 @@ import re
 import warnings
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from vibecomfy.errors import ContextVarBindingError, SchemaValidationError
+from vibecomfy.errors import SchemaValidationError
 from vibecomfy.handles import Handle
 from vibecomfy.porting import helpers as porting_helpers
 from vibecomfy.porting.widget_aliases import apply_positional_widget_aliases
@@ -137,21 +137,19 @@ class VibeWorkflow:
         from vibecomfy.workflow_context import bind_workflow
 
         if getattr(self, "_workflow_context_token", None) is not None:
-            raise ContextVarBindingError(
-                "Nested workflow contexts not supported. The outer `with new_workflow(...)` "
-                "block is still active.",
-                next_action="Close the outer `with new_workflow(...)` block before opening a new one.",
-            )
+            # Already bound — e.g. new_workflow() eagerly bound this workflow
+            # (SD3). Idempotent no-op so the legacy `with new_workflow(...) as
+            # wf:` form keeps working without double-binding.
+            return self
         self._workflow_context_token = bind_workflow(self)
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        from vibecomfy.workflow_context import reset_workflow
+        from vibecomfy.workflow_context import unbind_workflow
 
-        token = getattr(self, "_workflow_context_token", None)
-        if token is not None:
-            reset_workflow(token)
-            self._workflow_context_token = None
+        # Idempotent, identity-checked release (never Token.reset()); safe even
+        # when _finalize_impl already unbound inside the `with` body.
+        unbind_workflow(self)
 
     def set_prompt(self, value: str) -> "VibeWorkflow":
         return self.set_input("prompt", value)
@@ -176,6 +174,13 @@ class VibeWorkflow:
                 self.outputs.append(VibeOutput(node_id=node_id, output_type=node.class_type))
         self.outputs.sort(key=lambda o: (int(o.node_id) if o.node_id.isdigit() else (1 << 30), o.node_id))
         self.requirements = _infer_requirements(self)
+        # Terminal for scratchpad builds (`return wf.finalize_metadata()`): release
+        # the eager new_workflow() binding so building the same module twice in one
+        # process does not trip the nested-context guard. Idempotent and identity-
+        # checked; node() callers all pass wf explicitly past this point.
+        from vibecomfy.workflow_context import unbind_workflow
+
+        unbind_workflow(self)
         return self
 
     def finalize(

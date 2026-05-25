@@ -89,6 +89,15 @@ def new_workflow(metadata: Mapping[str, Any], *, source_path: str | None = None,
         provenance=provenance if isinstance(provenance, Mapping) else None,
     )
     wf.metadata.update(metadata)
+    # Eagerly bind the ContextVar so node() calls work without a `with` block
+    # (SD3). The stored token makes VibeWorkflow.__enter__ an idempotent no-op
+    # for the legacy `with new_workflow(...) as wf:` form, and the binding is
+    # released by _finalize_impl's finally (success or error). bind_workflow
+    # still raises ContextVarBindingError if a prior binding leaked, surfacing
+    # a guard gap instead of silently nesting.
+    from vibecomfy.workflow_context import bind_workflow
+
+    wf._workflow_context_token = bind_workflow(wf)
     return wf
 
 
@@ -630,6 +639,35 @@ def _finalize_impl(
     ``output_node`` is omitted, a single terminal Save/Create/Preview node is
     selected; multiple candidates require an explicit output binding.
     """
+    from vibecomfy.workflow_context import unbind_workflow
+
+    try:
+        return _finalize_impl_body(
+            wf,
+            inputs,
+            metadata,
+            output_node=output_node,
+            output_kind=output_kind,
+            spec=spec,
+            **bind_kwargs,
+        )
+    finally:
+        # Release the eager binding from new_workflow on BOTH success and error
+        # paths (e.g. when _resolve_output_node re-raises), so a failed build()
+        # never leaks a binding that poisons the next new_workflow().
+        unbind_workflow(wf)
+
+
+def _finalize_impl_body(
+    wf: VibeWorkflow,
+    inputs: dict[str, InputSpec],
+    metadata: dict[str, Any],
+    *,
+    output_node: Any = None,
+    output_kind: str | None = None,
+    spec: OutputSpec | None = None,
+    **bind_kwargs: Any,
+) -> VibeWorkflow:
     # Unpack OutputSpec when provided; spec fields take precedence over
     # conflicting legacy kwargs (no DeprecationWarning for legacy).
     if spec is not None:

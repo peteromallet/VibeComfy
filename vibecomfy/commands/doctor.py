@@ -25,6 +25,7 @@ from vibecomfy.schema.format import format_issue
 from vibecomfy.workflow import VibeEdge, VibeWorkflow
 from vibecomfy.node_packs import resolve_node_packs, unresolved_class_types
 from vibecomfy.patches.registry import find_applicable
+from vibecomfy.diagnostics.readability import run_readability_checks_for_file, ReadabilityReport
 
 _RAW_REF_RE = re.compile(r"^\w+\.\w+$")
 
@@ -33,6 +34,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     lint = getattr(args, "lint", False)
     allow_drift = getattr(args, "allow_drift", False)
     json_output = getattr(args, "json", False)
+    readability = getattr(args, "readability", False)
     schema_provider = get_schema_provider("auto")
     try:
         workflow = load_workflow_any(args.path)
@@ -42,6 +44,20 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print("Next: fix the Python file until build() returns a VibeWorkflow.")
         print(f"Port preflight: vibecomfy port check {args.path} --json")
         return 1
+    # -- Run readability diagnostics when --readability is requested ---------
+    readability_report: ReadabilityReport | None = None
+    if readability:
+        source_path = _resolve_readability_source_path(args.path)
+        if source_path is not None:
+            try:
+                readability_report = run_readability_checks_for_file(
+                    source_path, workflow_id=str(workflow.id)
+                )
+            except Exception as exc:
+                if not json_output:
+                    print(f"Readability checks skipped: {type(exc).__name__}: {exc}")
+        elif not json_output:
+            print("Readability checks: source is not a ready-template .py file; skipped.")
     contract_payload = build_contract(workflow).to_dict()
     if lint:
         for warning in _lint_untyped_raw_refs(Path(args.path)):
@@ -56,12 +72,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "recommended_command": f"vibecomfy port check {args.path} --json",
         }
         _attach_contract(payload, contract_payload, workflow)
+        _attach_readability(payload, readability_report)
         if json_output:
             emit(payload, json=True, text_renderer=_render_doctor_error)
         else:
             print("Layer: Porting helper diagnostics")
             for issue in helper_issues:
                 print(f"- {issue.message}")
+            _render_readability_text(readability_report)
             print(f"Next: {payload['recommended_command']}")
         return 1
     suggested_patches = _patch_suggestions(workflow)
@@ -75,9 +93,11 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         if allow_drift:
             payload = {"status": "warning", "nodepack_drift": [*drift_warnings, *drift_errors], "suggested_patches": suggested_patches}
             _attach_contract(payload, contract_payload, workflow)
+            _attach_readability(payload, readability_report)
             return emit(payload, json=json_output, text_renderer=_render_doctor_warning)
         payload = {"status": "error", "layer": "nodepack lockfile drift", "errors": drift_errors, "suggested_patches": suggested_patches}
         _attach_contract(payload, contract_payload, workflow)
+        _attach_readability(payload, readability_report)
         return emit(payload, json=json_output, text_renderer=_render_doctor_error) or 1
     if drift_warnings and not json_output:
         print("Nodepack lockfile warnings:")
@@ -95,12 +115,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "recommended_command": f"vibecomfy port check {args.path} --json",
         }
         _attach_contract(payload, contract_payload, workflow)
+        _attach_readability(payload, readability_report)
         if json_output:
             emit(payload, json=True, text_renderer=_render_doctor_error)
         else:
             print("Layer: VibeWorkflow validation")
             for issue in validation_issues:
                 print(f"- {issue}")
+            _render_readability_text(readability_report)
             print(f"Next: {payload['recommended_command']}")
         if json_output:
             return 1
@@ -134,11 +156,13 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "recommended_command": f"vibecomfy port check {args.path} --json",
         }
         _attach_contract(payload, contract_payload, workflow)
+        _attach_readability(payload, readability_report)
         emit(payload, json=json_output, text_renderer=_render_missing_models)
         return 1
     if warnings:
         payload = {"status": "warning", "warnings": warnings, "nodepack_warnings": drift_warnings, "suggested_patches": suggested_patches}
         _attach_contract(payload, contract_payload, workflow)
+        _attach_readability(payload, readability_report)
         emit(payload, json=json_output, text_renderer=lambda data: _render_list_section("Local checks passed with runtime warnings", data["warnings"], data))
         return 0
     payload = {
@@ -148,6 +172,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         "suggested_patches": suggested_patches,
     }
     _attach_contract(payload, contract_payload, workflow)
+    _attach_readability(payload, readability_report)
     return emit(payload, json=json_output, text_renderer=_render_doctor_ok)
 
 
@@ -175,10 +200,16 @@ def _render_recommended_command(payload: dict[str, Any]) -> list[str]:
 
 
 def _render_doctor_ok(payload: dict[str, Any]) -> str:
-    return "\n".join([payload["message"], *_render_suggested_patches(payload)])
+    lines = [payload["message"]]
+    lines.extend(_render_suggested_patches(payload))
+    readability_text = _render_readability_from_payload(payload)
+    if readability_text:
+        lines.append(readability_text)
+    return "\n".join(lines)
 
 
 def _render_doctor_warning(payload: dict[str, Any]) -> str:
+    # _render_list_section already includes readability when present in payload
     if "nodepack_drift" in payload:
         return _render_list_section("Nodepack lockfile drift warnings", payload["nodepack_drift"], payload)
     return _render_list_section("Local checks passed with runtime warnings", payload.get("warnings", []), payload)
@@ -189,6 +220,9 @@ def _render_doctor_error(payload: dict[str, Any]) -> str:
     lines.extend(f"- {error}" for error in payload.get("errors", []))
     lines.extend(_render_suggested_patches(payload))
     lines.extend(_render_recommended_command(payload))
+    readability_text = _render_readability_from_payload(payload)
+    if readability_text:
+        lines.append(readability_text)
     return "\n".join(lines)
 
 
@@ -197,6 +231,9 @@ def _render_list_section(title: str, items: list[str], payload: dict[str, Any]) 
     lines.extend(f"- {item}" for item in items)
     lines.extend(_render_suggested_patches(payload))
     lines.extend(_render_recommended_command(payload))
+    readability_text = _render_readability_from_payload(payload)
+    if readability_text:
+        lines.append(readability_text)
     return "\n".join(lines)
 
 
@@ -209,6 +246,9 @@ def _render_missing_models(payload: dict[str, Any]) -> str:
         lines.extend(f"- {item}" for item in warnings)
     lines.extend(_render_suggested_patches(payload))
     lines.extend(_render_recommended_command(payload))
+    readability_text = _render_readability_from_payload(payload)
+    if readability_text:
+        lines.append(readability_text)
     return "\n".join(lines)
 
 
@@ -508,10 +548,111 @@ def _audio_source(workflow: VibeWorkflow, edge: VibeEdge | None, literal: Any) -
     return None
 
 
+# ---------------------------------------------------------------------------
+# Readability integration helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_readability_source_path(path: str) -> str | None:
+    """Resolve *path* to a .py ready-template source file for readability checks.
+
+    Returns ``None`` when *path* does not point to a .py file (e.g. a JSON
+    workflow or a workflow ID that resolves to something non-Python).
+    """
+    p = Path(path)
+    if p.suffix.lower() == ".py" and p.is_file():
+        return str(p)
+    if p.suffix.lower() == ".json":
+        return None
+    # Try resolving through the workflow index
+    try:
+        resolved = Path(resolve_workflow_path(path))
+    except FileNotFoundError:
+        return None
+    if resolved.suffix.lower() == ".py" and resolved.is_file():
+        return str(resolved)
+    return None
+
+
+def _attach_readability(
+    payload: dict[str, Any], readability_report: ReadabilityReport | None
+) -> None:
+    """Attach a readability report to *payload* if one was produced."""
+    if readability_report is None:
+        return
+    payload["readability"] = readability_report.to_json()
+
+
+def _render_readability_text(
+    readability_report: ReadabilityReport | None, *_args: Any, **_kwargs: Any
+) -> None:
+    """Print a human-readable summary of the readability report."""
+    if readability_report is None:
+        return
+    text = _format_readability_text(readability_report)
+    if text:
+        print(text)
+
+
+def _format_readability_text(
+    readability_report: ReadabilityReport | None,
+) -> str:
+    """Return a human-readable summary string for a readability report."""
+    if readability_report is None:
+        return ""
+    total_findings = sum(len(sc.findings) for sc in readability_report.subchecks)
+    if total_findings == 0:
+        return "Readability: ok (no findings)"
+    lines = [
+        f"Readability: {total_findings} finding{'' if total_findings == 1 else 's'}"
+    ]
+    for sc in readability_report.subchecks:
+        if not sc.findings:
+            continue
+        for finding in sc.findings:
+            node = f" node={finding.node_id}" if finding.node_id else ""
+            field = f" field={finding.field}" if finding.field else ""
+            lines.append(
+                f"- {finding.severity}: {finding.code}{node}{field}: {finding.message}"
+            )
+    return "\n".join(lines)
+
+
+def _render_readability_from_payload(payload: dict[str, Any]) -> str:
+    """Extract readability text from a payload dict for use in text renderers."""
+    readability_payload = payload.get("readability")
+    if not isinstance(readability_payload, dict):
+        return ""
+    # Reconstruct a minimal report-like object for formatting
+    subchecks = readability_payload.get("subchecks") or []
+    total_findings = sum(
+        len(sc.get("findings") or []) for sc in subchecks
+    )
+    if total_findings == 0:
+        return "Readability: ok (no findings)"
+    lines = [
+        f"Readability: {total_findings} finding{'' if total_findings == 1 else 's'}"
+    ]
+    for sc in subchecks:
+        findings = sc.get("findings") or []
+        for f in findings:
+            node = f" node={f.get('node_id')}" if f.get("node_id") else ""
+            field = f" field={f.get('field')}" if f.get("field") else ""
+            lines.append(
+                f"- {f.get('severity', 'warning')}: {f.get('code', '?')}{node}{field}: {f.get('message', '')}"
+            )
+    return "\n".join(lines)
+
+
 def register(subparsers) -> None:
     doctor = subparsers.add_parser("doctor")
     doctor.add_argument("path")
     doctor.add_argument("--lint", action="store_true", default=False)
     doctor.add_argument("--allow-drift", action="store_true", default=False)
     doctor.add_argument("--json", action="store_true")
+    doctor.add_argument(
+        "--readability",
+        action="store_true",
+        help="Run readability diagnostics on the emitted ready-template source and include the report in the output.",
+    )
     doctor.set_defaults(func=_cmd_doctor)

@@ -9,8 +9,6 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from vibecomfy.comfy_command import has_comfyui_runtime
-from vibecomfy.runtime.client import ComfyClient
-from vibecomfy.runtime.server import comfy_server
 
 from .cache import (
     load_object_info_cache,
@@ -21,6 +19,23 @@ from .cache import (
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def __getattr__(name: str):
+    """Lazy-load ``ComfyClient``/``comfy_server`` on first access.
+
+    Keeps ``import vibecomfy.testing.dry_run`` cheap while preserving
+    monkeypatch compatibility for tests that setattr on the module.
+    """
+    if name == "ComfyClient":
+        from vibecomfy.runtime.client import ComfyClient as _val
+        globals()[name] = _val
+        return _val
+    if name == "comfy_server":
+        from vibecomfy.runtime.server import comfy_server as _val
+        globals()[name] = _val
+        return _val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 @dataclass(frozen=True)
@@ -636,6 +651,12 @@ class RuntimeSchemaProvider:
         return self._object_info
 
     async def object_info_async(self) -> dict[str, Any]:
+        # Lazy imports via module-level __getattr__ to preserve monkeypatch compatibility.
+        import sys
+        _self = sys.modules[__name__]
+        ComfyClient = _self.ComfyClient
+        comfy_server = _self.comfy_server
+
         cached = load_object_info_cache(self.cache_path)
         if cached is not None:
             return cached

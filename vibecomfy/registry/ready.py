@@ -97,7 +97,16 @@ def workflow_from_ready(template_id: str) -> VibeWorkflow:
     build = getattr(module, "build", None)
     if build is None:
         raise ValueError(f"Ready template {template_id} must define build()")
-    workflow = build()
+    from vibecomfy.workflow_context import active_workflow, unbind_workflow
+
+    try:
+        workflow = build()
+    finally:
+        # Drop the with-less template form: build() eagerly binds via
+        # new_workflow() and relies on finalize() to unbind. If build() raises
+        # before finalize, release the leaked binding so the next template's
+        # new_workflow() does not trip the nested-context guard.
+        unbind_workflow(active_workflow())
     if not isinstance(workflow, VibeWorkflow):
         raise TypeError(f"Ready template {template_id} build() must return VibeWorkflow, got {type(workflow).__name__}")
     resolved_template_id = _template_id_for_path(path)

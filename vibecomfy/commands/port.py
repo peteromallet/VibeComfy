@@ -23,6 +23,7 @@ from vibecomfy.porting.reemit import (
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.manual_repair import repair_manual_template
 from vibecomfy.porting.readability_inventory import build_readability_inventory
+from vibecomfy.diagnostics.readability import run_readability_checks_for_file, _KNOWN_CODES
 from vibecomfy.porting.report import PortIssue, PortReport
 from vibecomfy.porting.rules_registry import rules_by_category, to_json as rules_to_json
 from vibecomfy.analysis.corpus import build_corpus_snapshot
@@ -86,6 +87,7 @@ def build_port_check_payload(args: argparse.Namespace) -> tuple[dict[str, Any], 
     )
     if getattr(args, "strict_ready_template", False):
         _apply_strict_ready_template_gate(report)
+        _attach_readability_to_report(report)
     _inject_schema_source_metadata(report, args)
     payload = report.to_json()
     _attach_contract_fields(payload)
@@ -1168,6 +1170,46 @@ def _apply_strict_ready_template_gate(report: Any) -> None:
             ),
         )
     )
+
+
+def _attach_readability_to_report(report: Any) -> None:
+    """Run readability diagnostics against the source file and attach findings
+    as ``warning``-severity ``PortIssue`` items to *report*.
+
+    Only runs when the source is a .py file (ready-template).  Severity stays
+    ``warning`` on first ship — strict-ready-template does NOT hard-fail on
+    readability findings yet.
+    """
+    source_path = (report.metadata or {}).get("source_path")
+    if not isinstance(source_path, str) or not source_path.endswith(".py"):
+        return
+    try:
+        readability_report = run_readability_checks_for_file(
+            source_path,
+            workflow_id=report.workflow_id or "",
+        )
+    except Exception:
+        return
+    # Attach known_codes catalog to report metadata so the JSON payload
+    # exposes it even on a clean template (criterion #1).
+    report.metadata["readability_known_codes"] = list(_KNOWN_CODES)
+    for sc in readability_report.subchecks:
+        for finding in sc.findings:
+            report.diagnostics.append(
+                PortIssue(
+                    code=f"readability_{finding.code}",
+                    message=finding.message,
+                    severity="warning",
+                    node_id=finding.node_id,
+                    detail={
+                        "category": "readability",
+                        "readability_code": finding.code,
+                        "field": finding.field,
+                        "next_action": finding.next_action,
+                    },
+                    recommendation=finding.next_action,
+                )
+            )
 
 
 def _render_check(report: Any) -> str:

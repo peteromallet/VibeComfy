@@ -230,6 +230,7 @@ def _convert_template(path: Path, *, include_manual: bool = False) -> tuple[Row,
     # Drive the parser path (matching the spec's distinction).
     try:
         from tools.format_as_python import _build_workflow_for, format_as_python
+        reg_aliases: dict[str, tuple[str, ...]] = {}
         wf, metadata, requirements, tid, reg_inputs = _build_workflow_for(path)
     except Exception as exc:
         if shape != "authored" and not manual_included:
@@ -251,6 +252,13 @@ def _convert_template(path: Path, *, include_manual: bool = False) -> tuple[Row,
             for name, descriptor in getattr(original_workflow, "inputs", {}).items()
             if str(descriptor.node_id) in original_workflow.nodes
             and descriptor.field in original_workflow.nodes[str(descriptor.node_id)].inputs
+        }
+        # Preserve public-input aliases (e.g. T8 capability-canon renames keep the
+        # legacy name as an alias) across regeneration; reg_inputs alone is lossy.
+        reg_aliases = {
+            name: tuple(getattr(descriptor, "aliases", ()) or ())
+            for name, descriptor in getattr(original_workflow, "inputs", {}).items()
+            if getattr(descriptor, "aliases", ())
         }
 
     raw_workflow = _load_source_workflow(metadata)
@@ -280,6 +288,7 @@ def _convert_template(path: Path, *, include_manual: bool = False) -> tuple[Row,
             ready_requirements=requirements,
             template_id=tid,
             registered_inputs=reg_inputs,
+            registered_aliases=reg_aliases,
             apply_overrides=override,
             raw_workflow=raw_workflow,
         )
@@ -484,8 +493,17 @@ def main(argv: list[str] | None = None) -> int:
 
     rows: list[Row] = []
     converted = 0
+    from vibecomfy.workflow_context import active_workflow, unbind_workflow
+
     for path in paths:
-        row, emitted, _ = _convert_template(path, include_manual=args.include_manual)
+        try:
+            row, emitted, _ = _convert_template(path, include_manual=args.include_manual)
+        finally:
+            # The converter exec's template build() directly (an unguarded
+            # build path); a build that raises before finalize() leaks the
+            # eager new_workflow() binding and poisons the next template's
+            # new_workflow() with a nested-context error. Release it per row.
+            unbind_workflow(active_workflow())
         rows.append(row)
         if emitted is None:
             continue

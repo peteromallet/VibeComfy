@@ -126,7 +126,6 @@ _KNOWN_TOP_LEVEL_NAMES = frozenset({
     "PUBLIC_INPUTS",
     "MODELS",
     "OUTPUT_PREFIX",
-    "OUTPUT_SPEC",
     "PRIVATE_KNOBS",
 })
 

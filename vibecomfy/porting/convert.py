@@ -307,6 +307,14 @@ def port_convert_workflow(
             except Exception:
                 # Parity failure is non-fatal for the result; diffs are reported.
                 pass
+            finally:
+                # The parity build_fn() above is an unguarded build path;
+                # scratchpad templates end in finalize_metadata() (which, unlike
+                # finalize(), does not release the eager new_workflow() binding),
+                # so release any binding it left behind.
+                from vibecomfy.workflow_context import active_workflow, unbind_workflow
+
+                unbind_workflow(active_workflow())
 
     return result
 
@@ -389,7 +397,15 @@ def _build_emitted_workflow_from_text(text: str) -> VibeWorkflow:
         build = getattr(module, "build", None)
         if not callable(build):
             raise RuntimeError("build() missing")
-        workflow = build()
+        from vibecomfy.workflow_context import active_workflow, unbind_workflow
+
+        try:
+            workflow = build()
+        finally:
+            # build() eagerly binds via new_workflow(); release the binding on
+            # both success and error so a failed build never leaks a binding
+            # that poisons the next build() in this process.
+            unbind_workflow(active_workflow())
         if not isinstance(workflow, VibeWorkflow):
             raise RuntimeError(f"build() returned {type(workflow).__name__}, expected VibeWorkflow")
         return workflow
@@ -416,10 +432,16 @@ def _validate_emitted_path(path: Path, *, schema_provider: Any | None) -> PortCo
     if not callable(build):
         return PortConvertValidation(ok=False, import_ok=True, error="build() missing")
 
+    from vibecomfy.workflow_context import active_workflow, unbind_workflow
+
     try:
         workflow = build()
     except Exception as exc:
         return PortConvertValidation(ok=False, import_ok=True, error=f"build failed: {type(exc).__name__}: {exc}")
+    finally:
+        # Release the eager new_workflow() binding on both success and error so
+        # a failed build never poisons the next validation in this process.
+        unbind_workflow(active_workflow())
     if not isinstance(workflow, VibeWorkflow):
         return PortConvertValidation(
             ok=False,

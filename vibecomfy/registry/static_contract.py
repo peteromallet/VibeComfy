@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
 from vibecomfy.errors import ContextVarBindingError
+from vibecomfy.workflow_context import active_workflow, unbind_workflow
 
 from vibecomfy.metadata import (
     MODEL_KEYS,
@@ -68,8 +69,13 @@ def extract_ready_template_contract(path: str | Path) -> dict[str, Any]:
     public_inputs: list[dict[str, Any]] = []
     public_outputs: list[dict[str, Any]] = []
 
-    # ── Derive public_inputs from PUBLIC_INPUTS ──
+    # ── Derive public_inputs from PUBLIC_INPUTS (module-level or build()-local) ──
+    # New templates (v2.7+) emit PUBLIC_INPUTS as a local dict inside build();
+    # older templates may have it at module level. Check both.
     public_inputs_dict = assignments.get("PUBLIC_INPUTS")
+    if public_inputs_dict is None:
+        build_assignments = _build_function_assignments(tree, diagnostics, assignments)
+        public_inputs_dict = build_assignments.get("PUBLIC_INPUTS")
     if isinstance(public_inputs_dict, dict):
         for name, spec in public_inputs_dict.items():
             if not isinstance(spec, dict):
@@ -202,6 +208,16 @@ def extract_ready_template_contract_runtime(path: str | Path) -> dict[str, Any]:
     runtime_wf: Any = None
     runtime_module: Any = None
 
+    # Hard precondition: a leaked binding from a prior template would silently
+    # poison this template's new_workflow() eager bind (caught + downgraded to
+    # AST below), masking a real ContextVar-guard gap as a contract diff. Assert
+    # the precondition so a guard gap surfaces as a hard failure (the disambig
+    # signal the --check gate routes on) instead of silent AST fallback.
+    assert active_workflow() is None, (
+        f"Workflow context leaked before runtime contract extraction of {source_path}; "
+        "a prior template's binding was not released."
+    )
+
     try:
         runtime_module = _import_template_module(source_path)
         runtime_wf = runtime_module.build()
@@ -222,6 +238,11 @@ def extract_ready_template_contract_runtime(path: str | Path) -> dict[str, Any]:
             "message": f"{type(exc).__name__}: {exc}",
             "source": "runtime_executor",
         })
+    finally:
+        # Drop the with-less template form: build() relies on finalize() to
+        # unbind; on a build() error before finalize, release the leak so the
+        # next template starts clean (and the precondition assert above holds).
+        unbind_workflow(active_workflow())
 
     # Fallback: if runtime registered zero public inputs but the AST would
     # find some (legacy templates), fall back to AST.
@@ -392,34 +413,21 @@ def _runtime_public_inputs(wf: Any) -> list[dict[str, Any]]:
 
 
 def _runtime_public_outputs(wf: Any, module: Any) -> list[dict[str, Any]]:
-    """Derive public-output descriptors from *wf.outputs* and *module.OUTPUT_SPEC*.
+    """Derive public-output descriptors from *wf.outputs*.
 
-    Mirrors the AST path's ``_extract_finalize_outputs`` shape so byte-identity
-    is preserved.
+    The inline finalize-output-kwargs shape means all output fields are already
+    bound onto wf.outputs by finalize(); no module-level OUTPUT_SPEC overlay needed.
     """
     descriptors: list[dict[str, Any]] = []
-    output_spec = getattr(module, "OUTPUT_SPEC", None)
-    output_spec_name = getattr(output_spec, "name", None)
-    output_spec_mime = getattr(output_spec, "mime_type", None)
-    output_spec_kind = getattr(output_spec, "artifact_kind", None)
-    output_spec_cardinality = getattr(output_spec, "expected_cardinality", None)
-
-    # Derive filename_prefix from READY_METADATA.output_prefix as the AST path
-    # reads it from the finalize() call.
-    metadata = getattr(module, "READY_METADATA", None)
-    filename_prefix = None
-    if isinstance(metadata, dict):
-        filename_prefix = metadata.get("output_prefix")
-
     for output in wf.outputs:
         descriptor: dict[str, Any] = {
-            "name": output_spec_name or output.name,
+            "name": output.name,
             "node_id": str(output.node_id),
             "output_type": output.output_type,
-            "artifact_kind": output_spec_kind or output.artifact_kind,
-            "mime_type": output_spec_mime or output.mime_type,
-            "filename_prefix": filename_prefix or output.filename_prefix,
-            "expected_cardinality": output_spec_cardinality or output.expected_cardinality,
+            "artifact_kind": output.artifact_kind,
+            "mime_type": output.mime_type,
+            "filename_prefix": output.filename_prefix,
+            "expected_cardinality": output.expected_cardinality,
             "status": "static",
             "source": "finalize",
         }
@@ -455,19 +463,10 @@ def _extract_finalize_outputs(
             continue
         output_type = id_class_type.get(output_node) or output_type_kw
         output_kind = _keyword_literal(node, "output_kind", diagnostics, "finalize")
-        # Prefer OUTPUT_SPEC dict when available (generated templates), falling
-        # back to inline finalize() kwargs for manual templates.
-        output_spec = assignments.get("OUTPUT_SPEC")
-        if isinstance(output_spec, dict):
-            name = output_spec.get("name") or _keyword_literal(node, "name", diagnostics, "finalize")
-            mime_type = output_spec.get("mime_type") or _keyword_literal(node, "mime_type", diagnostics, "finalize")
-            artifact_kind = output_spec.get("artifact_kind") or _keyword_literal(node, "artifact_kind", diagnostics, "finalize")
-            expected_cardinality = output_spec.get("expected_cardinality") or _keyword_literal(node, "expected_cardinality", diagnostics, "finalize")
-        else:
-            name = _keyword_literal(node, "name", diagnostics, "finalize")
-            mime_type = _keyword_literal(node, "mime_type", diagnostics, "finalize")
-            artifact_kind = _keyword_literal(node, "artifact_kind", diagnostics, "finalize")
-            expected_cardinality = _keyword_literal(node, "expected_cardinality", diagnostics, "finalize")
+        name = _keyword_literal(node, "name", diagnostics, "finalize")
+        mime_type = _keyword_literal(node, "mime_type", diagnostics, "finalize")
+        artifact_kind = _keyword_literal(node, "artifact_kind", diagnostics, "finalize")
+        expected_cardinality = _keyword_literal(node, "expected_cardinality", diagnostics, "finalize")
         filename_prefix = _keyword_literal(node, "filename_prefix", diagnostics, "finalize")
 
         descriptor: dict[str, Any] = {
@@ -685,9 +684,36 @@ _KNOWN_TOP_LEVEL_NAMES = frozenset({
     "PUBLIC_INPUT_METADATA",
     "MODELS",
     "OUTPUT_PREFIX",
-    "OUTPUT_SPEC",
     "PRIVATE_KNOBS",
 })
+
+
+def _build_function_assignments(tree: ast.Module, diagnostics: list[dict[str, Any]], module_assignments: dict[str, Any]) -> dict[str, Any]:
+    """Collect assignments from the body of the ``build()`` function.
+
+    Scans only for ``PUBLIC_INPUTS = {...}`` since that is now emitted as a
+    local dict inside ``build()`` in the new template shape (v2.7+).
+    """
+    LOCAL_NAMES = frozenset({"PUBLIC_INPUTS"})
+    assignments: dict[str, Any] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name != "build":
+            continue
+        for stmt in ast.walk(node):
+            if not isinstance(stmt, ast.Assign):
+                continue
+            for target in stmt.targets:
+                if not isinstance(target, ast.Name) or target.id not in LOCAL_NAMES:
+                    continue
+                # Use module_assignments as context so constants (CLIP_NAME etc.) resolve.
+                value = _literal_value(stmt.value, module_assignments)
+                if value is _UNSUPPORTED:
+                    # Dynamic assignment; suppress noisy diagnostic for build-local dicts.
+                    continue
+                assignments[target.id] = value
+    return assignments
 
 
 def _module_assignments(tree: ast.Module, diagnostics: list[dict[str, Any]]) -> dict[str, Any]:
