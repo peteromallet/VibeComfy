@@ -13,7 +13,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -30,7 +30,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/qwen3_tts_custom_voice",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -43,7 +43,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/qwen3_tts_custom_voice",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -65,12 +65,32 @@
           "node_id": "",
           "field": "image",
           "value": "image_upscale_input.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "image_upscale_input.png",
-          "required": false,
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "image_upscale_input.png",
+          "type": "IMAGE",
+          "default": "image_upscale_input.png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         }
@@ -1170,42 +1190,6 @@
       "id": "video/wanvideo_wrapper_21_14b_t2v",
       "public_inputs": [
         {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
           "name": "seed",
           "target": {
             "node_id": "",
@@ -1214,7 +1198,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -1231,9 +1215,9 @@
           },
           "node_id": "",
           "field": "width",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "value": 832,
+          "type": "INT",
+          "default": 832,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1249,15 +1233,51 @@
           },
           "node_id": "",
           "field": "height",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "value": 480,
+          "type": "INT",
+          "default": 480,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": "STRING",
+          "default": null,
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "model_name"
+          },
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -1267,7 +1287,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_T2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1280,7 +1300,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_T2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"

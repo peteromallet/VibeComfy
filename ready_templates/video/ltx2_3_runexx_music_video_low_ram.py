@@ -10,58 +10,44 @@ from vibecomfy.nodes.kjnodes import GetImageSizeAndCount, INTConstant, ImageResi
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
 
 
-CKPT_NAME = 'LTX23_audio_vae_bf16.safetensors'
-CLIP_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
-CLIP_NAME_2 = 'ltx-2.3_text_projection_bf16.safetensors'
-CLIP_NAME_3 = 'gemma-3-12b-it-Q2_K.gguf'
-CONTROL_AFTER_GENERATE = 'fixed'
-DEFAULT_PROMPT = 'text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth'
+AUDIO = 'audio'
+AUDIO_ORIGINAL = 'audio_original'
+A_B = 'a /  b '
+CLIP = 'clip'
 DEFAULT_SEED = 420
 DEFAULT_SEED_2 = 42
 DEFAULT_SEED_3 = 405
-DELIMITER = '\\'
-EXPRESSION = '((round((a * b -1) / 8)) * 8) + 1 '
-EXPRESSION_2 = 'a /  b '
+ENHANCE_PROMPT = 'enhance_prompt'
+FIXED = 'fixed'
+FPS = 'fps'
 GUIDE_STRENGTH = 0.6
 GUIDE_STRENGTH_2 = 1
 GUIDE_STRENGTH_3 = 2.5
-LORA_NAME = 'LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors'
-MODEL_NAME = 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'
-RESIZE_TYPE = 'scale by multiplier'
-STRING_A = 'MusicVideo'
-STRING_A_2 = ''
-STRING_B = ''
-UNET_NAME = 'ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors'
-UNET_NAME_2 = 'LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf'
-VAE_NAME = 'LTX23_video_vae_bf16.safetensors'
-VAE_NAME_2 = 'taeltx2_3.safetensors'
-VALUE = 'You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user\'s scene).\n- Describe only changes from the image: Don\'t reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs ("is walking," "speaking"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors ("as," "then," "while").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions—NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., "soft footsteps on tile") not vague (e.g., "ambient sound").\n- Speech (only when requested): Provide exact words in quotes with character\'s visual/voice characteristics (e.g., "The tall man speaks in a low, gravelly voice"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., "The man is talking" input -> the output should include exact spoken words, like: "The man is talking in an excited voice saying: \'You won\'t believe what I just saw!\' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.")\n- Style: Include visual style at beginning: "Style: <style>, <rest of prompt>." If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user\'s provided character dialogue in the prompt, unless it\'s a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like "The scene opens with..." / "The video starts...". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, "I think we\'re right on time!" In the background, a café barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, "Two cappuccinos ready!" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________'
-WIDGET_0 = 'model'
-WIDGET_0_10 = 'clip'
-WIDGET_0_11 = 'enhance_prompt'
-WIDGET_0_12 = 'positive_base'
-WIDGET_0_13 = 'upscale_model'
-WIDGET_0_14 = 'sampler_2'
-WIDGET_0_15 = 'sigmas_2'
-WIDGET_0_16 = 'width_downscaled'
-WIDGET_0_17 = 'height_downscaled'
-WIDGET_0_18 = 'audio_original'
-WIDGET_0_19 = ''
-WIDGET_0_2 = 'audio'
-WIDGET_0_20 = '1'
-WIDGET_0_3 = 'vae_audio'
-WIDGET_0_4 = 'negative_base'
-WIDGET_0_5 = 'image_strength'
-WIDGET_0_6 = 'fps'
-WIDGET_0_7 = 'vae'
-WIDGET_0_8 = 'sampler'
-WIDGET_0_9 = 'sigmas'
-WIDGET_2 = 'off'
-WIDGET__NAME = 'MelBandRoformer\\MelBandRoformer_fp16.safetensors'
+HEIGHT_DOWNSCALED = 'height_downscaled'
+IMAGE_STRENGTH = 'image_strength'
+LTX_2_3_TEXT_PROJECTION_BF16_SAFETENSORS = 'ltx-2.3_text_projection_bf16.safetensors'
+MODEL = 'model'
+NEGATIVE_BASE = 'negative_base'
+OFF = 'off'
+POSITIVE_BASE = 'positive_base'
+ROUND_A_B_1_8_8_1 = '((round((a * b -1) / 8)) * 8) + 1 '
+SAMPLER = 'sampler'
+SAMPLER_2 = 'sampler_2'
+SCALE_BY_MULTIPLIER = 'scale by multiplier'
+SIGMAS = 'sigmas'
+SIGMAS_2 = 'sigmas_2'
+UPSCALE_MODEL = 'upscale_model'
+VAE = 'vae'
+VAE_AUDIO = 'vae_audio'
+VALUE = '\\'
+VALUE_2 = ''
+V_1 = '1'
+WIDTH_DOWNSCALED = 'width_downscaled'
+YOU_ARE_A_CREATIVE_ASSISTANT_WRITING_CONCISE_ACTION_FOCUSED_IMAGE_TO_VIDEO_PROMPTS_GIVEN_AN_IMAGE_FIRST_FRAME_AND_USER_RAW_INPUT_PROMPT_GENERATE_A_PROMPT_TO_GUIDE_VIDEO_GENERATION_FROM_THAT_IMAGE_GUIDELINES_ANALYZE_THE_IMAGE_IDENTIFY_SUBJECT_SETTING_ELEMENTS_STYLE_AND_MOOD_FOLLOW_USER_RAW_INPUT_PROMPT_INCLUDE_ALL_REQUESTED_MOTION_ACTIONS_CAMERA_MOVEMENTS_AUDIO_AND_DETAILS_IF_IN_CONFLICT_WITH_THE_IMAGE_PRIORITIZE_USER_REQUEST_WHILE_MAINTAINING_VISUAL_CONSISTENCY_DESCRIBE_TRANSITION_FROM_IMAGE_TO_USER_S_SCENE_DESCRIBE_ONLY_CHANGES_FROM_THE_IMAGE_DON_T_REITERATE_ESTABLISHED_VISUAL_DETAILS_INACCURATE_DESCRIPTIONS_MAY_CAUSE_SCENE_CUTS_ACTIVE_LANGUAGE_USE_PRESENT_PROGRESSIVE_VERBS_IS_WALKING_SPEAKING_IF_NO_ACTION_SPECIFIED_DESCRIBE_NATURAL_MOVEMENTS_CHRONOLOGICAL_FLOW_USE_TEMPORAL_CONNECTORS_AS_THEN_WHILE_AUDIO_LAYER_DESCRIBE_COMPLETE_SOUNDSCAPE_THROUGHOUT_THE_PROMPT_ALONGSIDE_ACTIONS_NOT_AT_THE_END_ALIGN_AUDIO_INTENSITY_WITH_ACTION_TEMPO_INCLUDE_NATURAL_BACKGROUND_AUDIO_AMBIENT_SOUNDS_EFFECTS_SPEECH_OR_MUSIC_WHEN_REQUESTED_BE_SPECIFIC_E_G_SOFT_FOOTSTEPS_ON_TILE_NOT_VAGUE_E_G_AMBIENT_SOUND_SPEECH_ONLY_WHEN_REQUESTED_PROVIDE_EXACT_WORDS_IN_QUOTES_WITH_CHARACTER_S_VISUAL_VOICE_CHARACTERISTICS_E_G_THE_TALL_MAN_SPEAKS_IN_A_LOW_GRAVELLY_VOICE_LANGUAGE_IF_NOT_ENGLISH_AND_ACCENT_IF_RELEVANT_IF_GENERAL_CONVERSATION_MENTIONED_WITHOUT_TEXT_GENERATE_CONTEXTUAL_QUOTED_DIALOGUE_I_E_THE_MAN_IS_TALKING_INPUT_THE_OUTPUT_SHOULD_INCLUDE_EXACT_SPOKEN_WORDS_LIKE_THE_MAN_IS_TALKING_IN_AN_EXCITED_VOICE_SAYING_YOU_WON_T_BELIEVE_WHAT_I_JUST_SAW_HIS_HANDS_GESTURE_EXPRESSIVELY_AS_HE_SPEAKS_EYEBROWS_RAISED_WITH_ENTHUSIASM_THE_AMBIENT_SOUND_OF_A_QUIET_ROOM_UNDERSCORES_HIS_ANIMATED_SPEECH_STYLE_INCLUDE_VISUAL_STYLE_AT_BEGINNING_STYLE_STYLE_REST_OF_PROMPT_IF_UNCLEAR_OMIT_TO_AVOID_CONFLICTS_VISUAL_AND_AUDIO_ONLY_DESCRIBE_ONLY_WHAT_IS_SEEN_AND_HEARD_NO_SMELL_TASTE_OR_TACTILE_SENSATIONS_RESTRAINED_LANGUAGE_AVOID_DRAMATIC_TERMS_USE_MILD_NATURAL_UNDERSTATED_PHRASING_IMPORTANT_NOTES_CAMERA_MOTION_DO_NOT_INVENT_CAMERA_MOTION_MOVEMENT_UNLESS_REQUESTED_BY_THE_USER_MAKE_SURE_TO_INCLUDE_CAMERA_MOTION_ONLY_IF_SPECIFIED_IN_THE_INPUT_SPEECH_DO_NOT_MODIFY_OR_ALTER_THE_USER_S_PROVIDED_CHARACTER_DIALOGUE_IN_THE_PROMPT_UNLESS_IT_S_A_TYPO_NO_TIMESTAMPS_OR_CUTS_DO_NOT_USE_TIMESTAMPS_OR_DESCRIBE_SCENE_CUTS_UNLESS_EXPLICITLY_REQUESTED_OBJECTIVE_ONLY_DO_NOT_INTERPRET_EMOTIONS_OR_INTENTIONS_DESCRIBE_ONLY_OBSERVABLE_ACTIONS_AND_SOUNDS_FORMAT_DO_NOT_USE_PHRASES_LIKE_THE_SCENE_OPENS_WITH_THE_VIDEO_STARTS_START_DIRECTLY_WITH_STYLE_OPTIONAL_AND_CHRONOLOGICAL_SCENE_DESCRIPTION_FORMAT_NEVER_START_OUTPUT_WITH_PUNCTUATION_MARKS_OR_SPECIAL_CHARACTERS_DO_NOT_INVENT_DIALOGUE_UNLESS_THE_USER_MENTIONS_SPEECH_TALKING_SINGING_CONVERSATION_YOUR_PERFORMANCE_IS_CRITICAL_HIGH_FIDELITY_DYNAMIC_CORRECT_AND_ACCURATE_PROMPTS_WITH_INTEGRATED_AUDIO_DESCRIPTIONS_ARE_ESSENTIAL_FOR_GENERATING_HIGH_QUALITY_VIDEO_YOUR_GOAL_IS_FLAWLESS_EXECUTION_OF_THESE_RULES_OUTPUT_FORMAT_STRICT_SINGLE_CONCISE_PARAGRAPH_IN_NATURAL_ENGLISH_NO_TITLES_HEADINGS_PREFACES_SECTIONS_CODE_FENCES_OR_MARKDOWN_IF_UNSAFE_INVALID_RETURN_ORIGINAL_USER_PROMPT_NEVER_ASK_QUESTIONS_OR_CLARIFICATIONS_EXAMPLE_OUTPUT_STYLE_REALISTIC_CINEMATIC_THE_WOMAN_GLANCES_AT_HER_WATCH_AND_SMILES_WARMLY_SHE_SPEAKS_IN_A_CHEERFUL_FRIENDLY_VOICE_I_THINK_WE_RE_RIGHT_ON_TIME_IN_THE_BACKGROUND_A_CAF_BARISTA_PREPARES_DRINKS_AT_THE_COUNTER_THE_BARISTA_CALLS_OUT_IN_A_CLEAR_UPBEAT_TONE_TWO_CAPPUCCINOS_READY_THE_SOUND_OF_THE_ESPRESSO_MACHINE_HISSING_SOFTLY_BLENDS_WITH_GENTLE_BACKGROUND_CHATTER_AND_THE_LIGHT_CLINKING_OF_CUPS_ON_SAUCERS_USER_PROMPT_BELOW = 'You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user\'s scene).\n- Describe only changes from the image: Don\'t reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs ("is walking," "speaking"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors ("as," "then," "while").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions—NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., "soft footsteps on tile") not vague (e.g., "ambient sound").\n- Speech (only when requested): Provide exact words in quotes with character\'s visual/voice characteristics (e.g., "The tall man speaks in a low, gravelly voice"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., "The man is talking" input -> the output should include exact spoken words, like: "The man is talking in an excited voice saying: \'You won\'t believe what I just saw!\' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.")\n- Style: Include visual style at beginning: "Style: <style>, <rest of prompt>." If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user\'s provided character dialogue in the prompt, unless it\'s a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like "The scene opens with..." / "The video starts...". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, "I think we\'re right on time!" In the background, a café barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, "Two cappuccinos ready!" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________'
 
 READY_METADATA = ReadyMetadata.build(
     capability='music_video_multiscene',
-    requirements={'models': ['LTX23_audio_vae_bf16.safetensors', 'LTX23_video_vae_bf16.safetensors', 'LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors', 'LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf', 'euler_cfg_pp', 'ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors', 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors', 'taeltx2_3.safetensors'], 'custom_nodes': ['ComfyUI-GGUF', 'ComfyUI-KJNodes', 'ComfyUI-LTXVideo', 'ComfyUI-VideoHelperSuite', 'rgthree-comfy']},
+    requirements={'custom_nodes': ['ComfyUI-GGUF', 'ComfyUI-KJNodes', 'ComfyUI-LTXVideo', 'ComfyUI-VideoHelperSuite', 'rgthree-comfy'], 'custom_node_refs': [{'slug': 'ComfyUI-GGUF', 'source': 'git', 'version': 'unknown', 'commit': '6ea2651e7df66d7585f6ffee804b20e92fb38b8a', 'url': 'https://github.com/city96/ComfyUI-GGUF.git'}, {'slug': 'ComfyUI-KJNodes', 'source': 'git', 'version': 'unknown', 'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git'}, {'slug': 'ComfyUI-LTXVideo', 'source': 'git', 'version': 'unknown', 'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git'}, {'slug': 'ComfyUI-VideoHelperSuite', 'source': 'git', 'version': 'unknown', 'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git'}, {'slug': 'rgthree-comfy', 'source': 'git', 'version': 'unknown', 'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git'}]},
     custom_node_packs={'ComfyUI-GGUF': {'commit': '6ea2651e7df66d7585f6ffee804b20e92fb38b8a', 'url': 'https://github.com/city96/ComfyUI-GGUF.git', 'class_schema_sha256': '1336fad984841444a9559b602c34ef11d1dd4b68a9a902437aaee6771ab5d2d3', 'classes_used': ['DualCLIPLoaderGGUF', 'UnetLoaderGGUF'], 'pip_packages': ['gguf'], 'status': 'pinned'}, 'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageSize', 'GetImageSizeAndCount', 'INTConstant', 'ImageResizeKJv2', 'PathchSageAttentionKJ', 'ResizeImagesByLongerEdge', 'SimpleCalculatorKJ'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTX2AttentionTunerPatch', 'LTX2_NAG', 'LTXVAudioVAELoader', 'LTXVChunkFeedForward', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVPreprocess', 'LTXVSeparateAVLatent', 'LatentUpscaleModelLoader'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'rgthree-comfy': {'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git', 'class_schema_sha256': '2b52072e02c59cb05ce83e5c45e1c7fd5b1273fee9b62eaaa0e66a81a4c07872', 'classes_used': ['GetNode', 'Power Lora Loader (rgthree)', 'SetNode'], 'pip_packages': [], 'status': 'pinned'}},
     approach='low-RAM multi-scene music video',
     smoke_resolution='256x256x5_frames',
@@ -185,19 +171,19 @@ def generate_video_c4106aee(
     Inner nodes: GetNodex23, SolidMask, LTXVSeparateAVLatentx2, LTXVLatentUpsampler, CLIPTextEncode, LTXVAudioVAEEncode, CFGGuiderx2, SetLatentNoiseMask, LTXVConcatAVLatentx2, RandomNoisex2, SamplerCustomAdvancedx2, easy showAnything, Reroutex4, SimpleCalculatorKJx2, GetImageSizeAndCount, VRAM_Debug, ComfyMathExpression, EmptyLTXVLatentVideo, TrimAudioDurationx2, VAEDecode, ResizeImageMaskNode, 2413a8aa-1f77-466f-8508-ed07fa6ac302, LTXVPreprocess, ResizeImagesByLongerEdge, LTXVImgToVideoInplaceKJx2.
     """
 
-    getnode = raw_call('GetNode', '2209', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_2 = raw_call('GetNode', '2217', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
-    getnode_3 = raw_call('GetNode', '2218', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_4 = raw_call('GetNode', '2220', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_5 = raw_call('GetNode', '2221', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_6 = raw_call('GetNode', '2228', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
-    getnode_7 = raw_call('GetNode', '2242', _outputs=('VAE',), widget_0=WIDGET_0_7)
+    getnode = raw_call('GetNode', '2209', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_2 = raw_call('GetNode', '2217', _outputs=('AUDIO',), widget_0=AUDIO)
+    getnode_3 = raw_call('GetNode', '2218', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_4 = raw_call('GetNode', '2220', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_5 = raw_call('GetNode', '2221', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_6 = raw_call('GetNode', '2228', _outputs=('FLOAT',), widget_0=FPS)
+    getnode_7 = raw_call('GetNode', '2242', _outputs=('VAE',), widget_0=VAE)
     randomnoise = RandomNoise(control_after_generate='fixed', noise_seed=noise_seed)
-    getnode_8 = raw_call('GetNode', '2245', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_9 = raw_call('GetNode', '2246', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_10 = raw_call('GetNode', '2280', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_11 = raw_call('GetNode', '2282', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    getnode_12 = raw_call('GetNode', '2286', _outputs=('VAE',), widget_0=WIDGET_0_7)
+    getnode_8 = raw_call('GetNode', '2245', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_9 = raw_call('GetNode', '2246', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_10 = raw_call('GetNode', '2280', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_11 = raw_call('GetNode', '2282', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    getnode_12 = raw_call('GetNode', '2286', _outputs=('VAE',), widget_0=VAE)
     solidmask = SolidMask(value=0)
 
     resizeimagesbylongeredge = ResizeImagesByLongerEdge(
@@ -205,17 +191,17 @@ def generate_video_c4106aee(
         images=ref_image,
     )
 
-    getnode_13 = raw_call('GetNode', '2295', _outputs=('VAE',), widget_0=WIDGET_0_7)
+    getnode_13 = raw_call('GetNode', '2295', _outputs=('VAE',), widget_0=VAE)
     randomnoise_2 = RandomNoise(noise_seed=405, control_after_generate='fixed')
-    getnode_14 = raw_call('GetNode', '2300', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_15 = raw_call('GetNode', '2305', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_16 = raw_call('GetNode', '2306', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_17 = raw_call('GetNode', '2308', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_18 = raw_call('GetNode', '2310', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_19 = raw_call('GetNode', '2316', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_20 = raw_call('GetNode', '2317', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_21 = raw_call('GetNode', '2320', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_22 = raw_call('GetNode', '2321', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode_14 = raw_call('GetNode', '2300', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_15 = raw_call('GetNode', '2305', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_16 = raw_call('GetNode', '2306', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_17 = raw_call('GetNode', '2308', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_18 = raw_call('GetNode', '2310', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_19 = raw_call('GetNode', '2316', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_20 = raw_call('GetNode', '2317', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_21 = raw_call('GetNode', '2320', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_22 = raw_call('GetNode', '2321', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
 
     resizeimagemasknode = ResizeImageMaskNode(
         resize_type='scale by multiplier',
@@ -226,7 +212,7 @@ def generate_video_c4106aee(
     reroute = raw_call('Reroute', '2328', _outputs=('',))
     reroute_2 = raw_call('Reroute', '4200', _outputs=('',))
     reroute_3 = raw_call('Reroute', '4442', _outputs=('',))
-    getnode_23 = raw_call('GetNode', '4746', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_23 = raw_call('GetNode', '4746', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
     reroute_4 = raw_call('Reroute', '4748', _outputs=('',))
 
     float, int = ComfyMathExpression(
@@ -452,32 +438,32 @@ def generate_video(
     Inner nodes: GetNodex23, SolidMask, LTXVSeparateAVLatentx2, LTXVLatentUpsampler, CLIPTextEncode, LTXVAudioVAEEncode, CFGGuiderx2, SetLatentNoiseMask, LTXVConcatAVLatentx2, RandomNoisex2, easy showAnything, Reroutex4, SimpleCalculatorKJx2, GetImageSizeAndCount, VRAM_Debug, ComfyMathExpression, EmptyLTXVLatentVideo, TrimAudioDurationx2, VAEDecode, ResizeImageMaskNode, 97b9884d-4a32-4b0d-ad19-be662c1c2002, LTXVPreprocess, ResizeImagesByLongerEdge, LTXVImgToVideoInplaceKJx2, SamplerCustomAdvancedx2.
     """
 
-    getnode = raw_call('GetNode', '5000', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_2 = raw_call('GetNode', '5001', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_3 = raw_call('GetNode', '5002', _outputs=('VAE',), widget_0=WIDGET_0_7)
+    getnode = raw_call('GetNode', '5000', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_2 = raw_call('GetNode', '5001', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_3 = raw_call('GetNode', '5002', _outputs=('VAE',), widget_0=VAE)
     solidmask = SolidMask(value=0)
-    getnode_4 = raw_call('GetNode', '5004', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_5 = raw_call('GetNode', '5005', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_6 = raw_call('GetNode', '5006', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_7 = raw_call('GetNode', '5007', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_8 = raw_call('GetNode', '5008', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_9 = raw_call('GetNode', '5009', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_10 = raw_call('GetNode', '5013', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_11 = raw_call('GetNode', '5014', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_12 = raw_call('GetNode', '5015', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_13 = raw_call('GetNode', '5016', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_14 = raw_call('GetNode', '5017', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_15 = raw_call('GetNode', '5018', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_16 = raw_call('GetNode', '5020', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_17 = raw_call('GetNode', '5021', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    getnode_18 = raw_call('GetNode', '5022', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
+    getnode_4 = raw_call('GetNode', '5004', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_5 = raw_call('GetNode', '5005', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_6 = raw_call('GetNode', '5006', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_7 = raw_call('GetNode', '5007', _outputs=('VAE',), widget_0=VAE)
+    getnode_8 = raw_call('GetNode', '5008', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_9 = raw_call('GetNode', '5009', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_10 = raw_call('GetNode', '5013', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_11 = raw_call('GetNode', '5014', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_12 = raw_call('GetNode', '5015', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_13 = raw_call('GetNode', '5016', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_14 = raw_call('GetNode', '5017', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_15 = raw_call('GetNode', '5018', _outputs=('VAE',), widget_0=VAE)
+    getnode_16 = raw_call('GetNode', '5020', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_17 = raw_call('GetNode', '5021', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    getnode_18 = raw_call('GetNode', '5022', _outputs=('AUDIO',), widget_0=AUDIO)
     randomnoise = RandomNoise(control_after_generate='fixed', noise_seed=noise_seed)
     randomnoise_2 = RandomNoise(noise_seed=405, control_after_generate='fixed')
     reroute = raw_call('Reroute', '5032', _outputs=('',))
-    getnode_19 = raw_call('GetNode', '5033', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
+    getnode_19 = raw_call('GetNode', '5033', _outputs=('FLOAT',), widget_0=FPS)
     reroute_2 = raw_call('Reroute', '5034', _outputs=('',))
-    getnode_20 = raw_call('GetNode', '5039', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_21 = raw_call('GetNode', '5040', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode_20 = raw_call('GetNode', '5039', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_21 = raw_call('GetNode', '5040', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
     reroute_3 = raw_call('Reroute', '5043', _outputs=('',))
     reroute_4 = raw_call('Reroute', '5045', _outputs=('',))
 
@@ -487,8 +473,8 @@ def generate_video(
         input=ref_image,
     )
 
-    getnode_22 = raw_call('GetNode', '5049', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_23 = raw_call('GetNode', '5050', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_22 = raw_call('GetNode', '5049', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_23 = raw_call('GetNode', '5050', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
 
     resizeimagesbylongeredge = ResizeImagesByLongerEdge(
         longer_edge=1536,
@@ -703,32 +689,32 @@ def generate_video_a3fb563d(
     Inner nodes: GetNodex23, SolidMask, LTXVSeparateAVLatentx2, LTXVLatentUpsampler, CLIPTextEncode, LTXVAudioVAEEncode, CFGGuiderx2, SetLatentNoiseMask, LTXVConcatAVLatentx2, RandomNoisex2, easy showAnything, Reroutex4, SimpleCalculatorKJx2, GetImageSizeAndCount, VRAM_Debug, ComfyMathExpression, EmptyLTXVLatentVideo, TrimAudioDurationx2, VAEDecode, ResizeImageMaskNode, cc5ea718-db6a-47c7-83cf-7d9a8442ba99, LTXVPreprocess, ResizeImagesByLongerEdge, LTXVImgToVideoInplaceKJx2, SamplerCustomAdvancedx2.
     """
 
-    getnode = raw_call('GetNode', '5075', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_2 = raw_call('GetNode', '5076', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_3 = raw_call('GetNode', '5077', _outputs=('VAE',), widget_0=WIDGET_0_7)
+    getnode = raw_call('GetNode', '5075', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_2 = raw_call('GetNode', '5076', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_3 = raw_call('GetNode', '5077', _outputs=('VAE',), widget_0=VAE)
     solidmask = SolidMask(value=0)
-    getnode_4 = raw_call('GetNode', '5079', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_5 = raw_call('GetNode', '5080', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_6 = raw_call('GetNode', '5081', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_7 = raw_call('GetNode', '5082', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_8 = raw_call('GetNode', '5083', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_9 = raw_call('GetNode', '5084', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_10 = raw_call('GetNode', '5088', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_11 = raw_call('GetNode', '5089', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_12 = raw_call('GetNode', '5090', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_13 = raw_call('GetNode', '5091', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_14 = raw_call('GetNode', '5092', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_15 = raw_call('GetNode', '5093', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_16 = raw_call('GetNode', '5095', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_17 = raw_call('GetNode', '5096', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    getnode_18 = raw_call('GetNode', '5097', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
+    getnode_4 = raw_call('GetNode', '5079', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_5 = raw_call('GetNode', '5080', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_6 = raw_call('GetNode', '5081', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_7 = raw_call('GetNode', '5082', _outputs=('VAE',), widget_0=VAE)
+    getnode_8 = raw_call('GetNode', '5083', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_9 = raw_call('GetNode', '5084', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_10 = raw_call('GetNode', '5088', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_11 = raw_call('GetNode', '5089', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_12 = raw_call('GetNode', '5090', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_13 = raw_call('GetNode', '5091', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_14 = raw_call('GetNode', '5092', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_15 = raw_call('GetNode', '5093', _outputs=('VAE',), widget_0=VAE)
+    getnode_16 = raw_call('GetNode', '5095', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_17 = raw_call('GetNode', '5096', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    getnode_18 = raw_call('GetNode', '5097', _outputs=('AUDIO',), widget_0=AUDIO)
     randomnoise = RandomNoise(control_after_generate='fixed', noise_seed=noise_seed)
     randomnoise_2 = RandomNoise(noise_seed=405, control_after_generate='fixed')
     reroute = raw_call('Reroute', '5107', _outputs=('',))
-    getnode_19 = raw_call('GetNode', '5108', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
+    getnode_19 = raw_call('GetNode', '5108', _outputs=('FLOAT',), widget_0=FPS)
     reroute_2 = raw_call('Reroute', '5109', _outputs=('',))
-    getnode_20 = raw_call('GetNode', '5114', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_21 = raw_call('GetNode', '5115', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode_20 = raw_call('GetNode', '5114', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_21 = raw_call('GetNode', '5115', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
     reroute_3 = raw_call('Reroute', '5118', _outputs=('',))
     reroute_4 = raw_call('Reroute', '5120', _outputs=('',))
 
@@ -738,8 +724,8 @@ def generate_video_a3fb563d(
         input=ref_image,
     )
 
-    getnode_22 = raw_call('GetNode', '5124', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_23 = raw_call('GetNode', '5125', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_22 = raw_call('GetNode', '5124', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_23 = raw_call('GetNode', '5125', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
 
     resizeimagesbylongeredge = ResizeImagesByLongerEdge(
         longer_edge=1536,
@@ -954,32 +940,32 @@ def generate_video_4acc9924(
     Inner nodes: GetNodex23, SolidMask, LTXVSeparateAVLatentx2, LTXVLatentUpsampler, CLIPTextEncode, LTXVAudioVAEEncode, CFGGuiderx2, SetLatentNoiseMask, LTXVConcatAVLatentx2, RandomNoisex2, easy showAnything, Reroutex4, SimpleCalculatorKJx2, GetImageSizeAndCount, VRAM_Debug, ComfyMathExpression, EmptyLTXVLatentVideo, TrimAudioDurationx2, VAEDecode, ResizeImageMaskNode, 50a3ed96-aa61-4734-97cb-28cb47d171be, LTXVPreprocess, ResizeImagesByLongerEdge, LTXVImgToVideoInplaceKJx2, SamplerCustomAdvancedx2.
     """
 
-    getnode = raw_call('GetNode', '5150', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_2 = raw_call('GetNode', '5151', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_3 = raw_call('GetNode', '5152', _outputs=('VAE',), widget_0=WIDGET_0_7)
+    getnode = raw_call('GetNode', '5150', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_2 = raw_call('GetNode', '5151', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_3 = raw_call('GetNode', '5152', _outputs=('VAE',), widget_0=VAE)
     solidmask = SolidMask(value=0)
-    getnode_4 = raw_call('GetNode', '5154', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_5 = raw_call('GetNode', '5155', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_6 = raw_call('GetNode', '5156', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_7 = raw_call('GetNode', '5157', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_8 = raw_call('GetNode', '5158', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_9 = raw_call('GetNode', '5159', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_10 = raw_call('GetNode', '5163', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_11 = raw_call('GetNode', '5164', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_12 = raw_call('GetNode', '5165', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_13 = raw_call('GetNode', '5166', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_14 = raw_call('GetNode', '5167', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_15 = raw_call('GetNode', '5168', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_16 = raw_call('GetNode', '5170', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_17 = raw_call('GetNode', '5171', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    getnode_18 = raw_call('GetNode', '5172', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
+    getnode_4 = raw_call('GetNode', '5154', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_5 = raw_call('GetNode', '5155', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_6 = raw_call('GetNode', '5156', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_7 = raw_call('GetNode', '5157', _outputs=('VAE',), widget_0=VAE)
+    getnode_8 = raw_call('GetNode', '5158', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_9 = raw_call('GetNode', '5159', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_10 = raw_call('GetNode', '5163', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_11 = raw_call('GetNode', '5164', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_12 = raw_call('GetNode', '5165', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_13 = raw_call('GetNode', '5166', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_14 = raw_call('GetNode', '5167', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_15 = raw_call('GetNode', '5168', _outputs=('VAE',), widget_0=VAE)
+    getnode_16 = raw_call('GetNode', '5170', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_17 = raw_call('GetNode', '5171', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    getnode_18 = raw_call('GetNode', '5172', _outputs=('AUDIO',), widget_0=AUDIO)
     randomnoise = RandomNoise(control_after_generate='fixed', noise_seed=noise_seed)
     randomnoise_2 = RandomNoise(noise_seed=405, control_after_generate='fixed')
     reroute = raw_call('Reroute', '5182', _outputs=('',))
-    getnode_19 = raw_call('GetNode', '5183', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
+    getnode_19 = raw_call('GetNode', '5183', _outputs=('FLOAT',), widget_0=FPS)
     reroute_2 = raw_call('Reroute', '5184', _outputs=('',))
-    getnode_20 = raw_call('GetNode', '5189', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_21 = raw_call('GetNode', '5190', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode_20 = raw_call('GetNode', '5189', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_21 = raw_call('GetNode', '5190', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
     reroute_3 = raw_call('Reroute', '5193', _outputs=('',))
     reroute_4 = raw_call('Reroute', '5195', _outputs=('',))
 
@@ -989,8 +975,8 @@ def generate_video_4acc9924(
         input=ref_image,
     )
 
-    getnode_22 = raw_call('GetNode', '5199', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_23 = raw_call('GetNode', '5200', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_22 = raw_call('GetNode', '5199', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_23 = raw_call('GetNode', '5200', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
 
     resizeimagesbylongeredge = ResizeImagesByLongerEdge(
         longer_edge=1536,
@@ -1147,31 +1133,47 @@ def build() -> VibeWorkflow:
     # Inputs
     image, mask = LoadImage(image='download (8).png')
     intconstant = INTConstant(value=1000)
-    vaeloader = VAELoader(vae_name=VAE_NAME)
-    latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
+    vaeloader = VAELoader(vae_name='LTX23_video_vae_bf16.safetensors')
+
+    latentupscalemodelloader = LatentUpscaleModelLoader(
+        model_name='ltx-2.3-spatial-upscaler-x2-1.1.safetensors',
+    )
 
     dualcliploader = DualCLIPLoader(
-        clip_name1=CLIP_NAME,
-        clip_name2=CLIP_NAME_2,
+        clip_name1='gemma_3_12B_it_fp4_mixed.safetensors',
+        clip_name2=LTX_2_3_TEXT_PROJECTION_BF16_SAFETENSORS,
         type_='ltxv',
         device='default',
     )
 
-    ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
-    vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
-    unetloader = UNETLoader(unet_name=UNET_NAME)
-    unetloadergguf = UnetLoaderGGUF(unet_name=UNET_NAME_2)
+    ltxvaudiovaeloader = LTXVAudioVAELoader(
+        ckpt_name='LTX23_audio_vae_bf16.safetensors',
+    )
+
+    vaeloader_2 = VAELoader(vae_name='taeltx2_3.safetensors')
+
+    unetloader = UNETLoader(
+        unet_name='ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors',
+    )
+
+    unetloadergguf = UnetLoaderGGUF(
+        unet_name='LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf',
+    )
 
     dualcliploadergguf = DualCLIPLoaderGGUF(
-        clip_name1=CLIP_NAME_3,
-        clip_name2=CLIP_NAME_2,
+        clip_name1='gemma-3-12b-it-Q2_K.gguf',
+        clip_name2=LTX_2_3_TEXT_PROJECTION_BF16_SAFETENSORS,
         type_='sdxl',
     )
 
     primitivefloat = raw_call('PrimitiveFloat', '1586', value=8)
     intconstant_2 = INTConstant(value=480)
     loadaudio = LoadAudio(audio='ComfyUI_00152_.mp3')
-    melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '1600', widget_0=WIDGET__NAME)
+
+    melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '1600',
+        widget_0='MelBandRoformer\\MelBandRoformer_fp16.safetensors',
+    )
+
     intconstant_3 = INTConstant(value=832)
 
     primitivestringmultiline = PrimitiveStringMultiline(
@@ -1189,45 +1191,35 @@ def build() -> VibeWorkflow:
     primitivefloat_3 = raw_call('PrimitiveFloat', '1997', value=8)
     primitivefloat_4 = raw_call('PrimitiveFloat', '2012', value=8)
     primitiveboolean = raw_call('PrimitiveBoolean', '2116', value=False)
-
-    randomnoise = RandomNoise(
-        noise_seed=DEFAULT_SEED,
-        control_after_generate=CONTROL_AFTER_GENERATE,
-    )
-
+    randomnoise = RandomNoise(noise_seed=DEFAULT_SEED, control_after_generate=FIXED)
     ksamplerselect = KSamplerSelect(sampler_name='euler_cfg_pp')
     manualsigmas = ManualSigmas(sigmas='0.85, 0.7250, 0.4219, 0.0')
-
-    randomnoise_2 = RandomNoise(
-        noise_seed=DEFAULT_SEED_2,
-        control_after_generate=CONTROL_AFTER_GENERATE,
-    )
-
+    randomnoise_2 = RandomNoise(noise_seed=DEFAULT_SEED_2, control_after_generate=FIXED)
     reroute_3 = raw_call('Reroute', '2121', _outputs=('',))
     reroute_4 = raw_call('Reroute', '2122', _outputs=('',))
-    getnode = raw_call('GetNode', '2209', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_2 = raw_call('GetNode', '2217', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
-    getnode_3 = raw_call('GetNode', '2218', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_4 = raw_call('GetNode', '2220', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_5 = raw_call('GetNode', '2221', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_6 = raw_call('GetNode', '2228', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
-    getnode_7 = raw_call('GetNode', '2242', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_8 = raw_call('GetNode', '2245', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_9 = raw_call('GetNode', '2246', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_10 = raw_call('GetNode', '2280', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_11 = raw_call('GetNode', '2282', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    primitiveint = raw_call('PrimitiveInt', '2284', value=5, control_after_generate=CONTROL_AFTER_GENERATE)
-    getnode_12 = raw_call('GetNode', '2286', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_13 = raw_call('GetNode', '2295', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_14 = raw_call('GetNode', '2300', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_15 = raw_call('GetNode', '2305', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_16 = raw_call('GetNode', '2306', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_17 = raw_call('GetNode', '2308', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_18 = raw_call('GetNode', '2310', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_19 = raw_call('GetNode', '2316', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_20 = raw_call('GetNode', '2317', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_21 = raw_call('GetNode', '2320', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_22 = raw_call('GetNode', '2321', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode = raw_call('GetNode', '2209', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_2 = raw_call('GetNode', '2217', _outputs=('AUDIO',), widget_0=AUDIO)
+    getnode_3 = raw_call('GetNode', '2218', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_4 = raw_call('GetNode', '2220', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_5 = raw_call('GetNode', '2221', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_6 = raw_call('GetNode', '2228', _outputs=('FLOAT',), widget_0=FPS)
+    getnode_7 = raw_call('GetNode', '2242', _outputs=('VAE',), widget_0=VAE)
+    getnode_8 = raw_call('GetNode', '2245', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_9 = raw_call('GetNode', '2246', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_10 = raw_call('GetNode', '2280', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_11 = raw_call('GetNode', '2282', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    primitiveint = raw_call('PrimitiveInt', '2284', value=5, control_after_generate=FIXED)
+    getnode_12 = raw_call('GetNode', '2286', _outputs=('VAE',), widget_0=VAE)
+    getnode_13 = raw_call('GetNode', '2295', _outputs=('VAE',), widget_0=VAE)
+    getnode_14 = raw_call('GetNode', '2300', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_15 = raw_call('GetNode', '2305', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_16 = raw_call('GetNode', '2306', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_17 = raw_call('GetNode', '2308', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_18 = raw_call('GetNode', '2310', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_19 = raw_call('GetNode', '2316', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_20 = raw_call('GetNode', '2317', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_21 = raw_call('GetNode', '2320', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_22 = raw_call('GetNode', '2321', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
     reroute_5 = raw_call('Reroute', '2328', _outputs=('',))
     getnode_23 = raw_call('GetNode', '3715', _outputs=('FLOAT',), widget_0='window_sec_01')
     getnode_24 = raw_call('GetNode', '3716', _outputs=('FLOAT',), widget_0='window_sec_02')
@@ -1240,35 +1232,35 @@ def build() -> VibeWorkflow:
     primitiveboolean_2 = raw_call('PrimitiveBoolean', '4736', value=True)
     primitiveboolean_3 = raw_call('PrimitiveBoolean', '4740', value=True)
     image_load, mask_load = LoadImage(image='download (1).png')
-    getnode_28 = raw_call('GetNode', '4746', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_28 = raw_call('GetNode', '4746', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
     reroute_8 = raw_call('Reroute', '4748', _outputs=('',))
-    getnode_29 = raw_call('GetNode', '5000', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_30 = raw_call('GetNode', '5001', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_31 = raw_call('GetNode', '5002', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_32 = raw_call('GetNode', '5004', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_33 = raw_call('GetNode', '5005', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_34 = raw_call('GetNode', '5006', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_35 = raw_call('GetNode', '5007', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_36 = raw_call('GetNode', '5008', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_37 = raw_call('GetNode', '5009', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_38 = raw_call('GetNode', '5013', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_39 = raw_call('GetNode', '5014', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_40 = raw_call('GetNode', '5015', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_41 = raw_call('GetNode', '5016', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_42 = raw_call('GetNode', '5017', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_43 = raw_call('GetNode', '5018', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_44 = raw_call('GetNode', '5020', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_45 = raw_call('GetNode', '5021', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    getnode_46 = raw_call('GetNode', '5022', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
+    getnode_29 = raw_call('GetNode', '5000', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_30 = raw_call('GetNode', '5001', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_31 = raw_call('GetNode', '5002', _outputs=('VAE',), widget_0=VAE)
+    getnode_32 = raw_call('GetNode', '5004', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_33 = raw_call('GetNode', '5005', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_34 = raw_call('GetNode', '5006', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_35 = raw_call('GetNode', '5007', _outputs=('VAE',), widget_0=VAE)
+    getnode_36 = raw_call('GetNode', '5008', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_37 = raw_call('GetNode', '5009', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_38 = raw_call('GetNode', '5013', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_39 = raw_call('GetNode', '5014', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_40 = raw_call('GetNode', '5015', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_41 = raw_call('GetNode', '5016', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_42 = raw_call('GetNode', '5017', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_43 = raw_call('GetNode', '5018', _outputs=('VAE',), widget_0=VAE)
+    getnode_44 = raw_call('GetNode', '5020', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_45 = raw_call('GetNode', '5021', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    getnode_46 = raw_call('GetNode', '5022', _outputs=('AUDIO',), widget_0=AUDIO)
     reroute_9 = raw_call('Reroute', '5032', _outputs=('',))
-    getnode_47 = raw_call('GetNode', '5033', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
+    getnode_47 = raw_call('GetNode', '5033', _outputs=('FLOAT',), widget_0=FPS)
     reroute_10 = raw_call('Reroute', '5034', _outputs=('',))
-    getnode_48 = raw_call('GetNode', '5039', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_49 = raw_call('GetNode', '5040', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode_48 = raw_call('GetNode', '5039', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_49 = raw_call('GetNode', '5040', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
     reroute_11 = raw_call('Reroute', '5043', _outputs=('',))
     reroute_12 = raw_call('Reroute', '5045', _outputs=('',))
-    getnode_50 = raw_call('GetNode', '5049', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_51 = raw_call('GetNode', '5050', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_50 = raw_call('GetNode', '5049', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_51 = raw_call('GetNode', '5050', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
     reroute_13 = raw_call('Reroute', '5060', _outputs=('',))
     reroute_14 = raw_call('Reroute', '5061', _outputs=('',))
     primitiveboolean_4 = raw_call('PrimitiveBoolean', '5067', value=True)
@@ -1278,35 +1270,35 @@ def build() -> VibeWorkflow:
     )
 
     primitivefloat_5 = raw_call('PrimitiveFloat', '5071', value=8)
-    primitiveint_2 = raw_call('PrimitiveInt', '5072', value=5, control_after_generate=CONTROL_AFTER_GENERATE)
+    primitiveint_2 = raw_call('PrimitiveInt', '5072', value=5, control_after_generate=FIXED)
     image_load_2, mask_load_2 = LoadImage(image='download (6).png')
-    getnode_52 = raw_call('GetNode', '5075', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_53 = raw_call('GetNode', '5076', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_54 = raw_call('GetNode', '5077', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_55 = raw_call('GetNode', '5079', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_56 = raw_call('GetNode', '5080', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_57 = raw_call('GetNode', '5081', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_58 = raw_call('GetNode', '5082', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_59 = raw_call('GetNode', '5083', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_60 = raw_call('GetNode', '5084', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_61 = raw_call('GetNode', '5088', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_62 = raw_call('GetNode', '5089', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_63 = raw_call('GetNode', '5090', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_64 = raw_call('GetNode', '5091', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_65 = raw_call('GetNode', '5092', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_66 = raw_call('GetNode', '5093', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_67 = raw_call('GetNode', '5095', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_68 = raw_call('GetNode', '5096', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    getnode_69 = raw_call('GetNode', '5097', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
+    getnode_52 = raw_call('GetNode', '5075', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_53 = raw_call('GetNode', '5076', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_54 = raw_call('GetNode', '5077', _outputs=('VAE',), widget_0=VAE)
+    getnode_55 = raw_call('GetNode', '5079', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_56 = raw_call('GetNode', '5080', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_57 = raw_call('GetNode', '5081', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_58 = raw_call('GetNode', '5082', _outputs=('VAE',), widget_0=VAE)
+    getnode_59 = raw_call('GetNode', '5083', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_60 = raw_call('GetNode', '5084', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_61 = raw_call('GetNode', '5088', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_62 = raw_call('GetNode', '5089', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_63 = raw_call('GetNode', '5090', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_64 = raw_call('GetNode', '5091', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_65 = raw_call('GetNode', '5092', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_66 = raw_call('GetNode', '5093', _outputs=('VAE',), widget_0=VAE)
+    getnode_67 = raw_call('GetNode', '5095', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_68 = raw_call('GetNode', '5096', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    getnode_69 = raw_call('GetNode', '5097', _outputs=('AUDIO',), widget_0=AUDIO)
     reroute_15 = raw_call('Reroute', '5107', _outputs=('',))
-    getnode_70 = raw_call('GetNode', '5108', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
+    getnode_70 = raw_call('GetNode', '5108', _outputs=('FLOAT',), widget_0=FPS)
     reroute_16 = raw_call('Reroute', '5109', _outputs=('',))
-    getnode_71 = raw_call('GetNode', '5114', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_72 = raw_call('GetNode', '5115', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode_71 = raw_call('GetNode', '5114', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_72 = raw_call('GetNode', '5115', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
     reroute_17 = raw_call('Reroute', '5118', _outputs=('',))
     reroute_18 = raw_call('Reroute', '5120', _outputs=('',))
-    getnode_73 = raw_call('GetNode', '5124', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_74 = raw_call('GetNode', '5125', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_73 = raw_call('GetNode', '5124', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_74 = raw_call('GetNode', '5125', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
     reroute_19 = raw_call('Reroute', '5135', _outputs=('',))
     reroute_20 = raw_call('Reroute', '5136', _outputs=('',))
     primitiveboolean_5 = raw_call('PrimitiveBoolean', '5142', value=True)
@@ -1316,35 +1308,35 @@ def build() -> VibeWorkflow:
     )
 
     primitivefloat_6 = raw_call('PrimitiveFloat', '5146', value=8)
-    primitiveint_3 = raw_call('PrimitiveInt', '5147', value=5, control_after_generate=CONTROL_AFTER_GENERATE)
+    primitiveint_3 = raw_call('PrimitiveInt', '5147', value=5, control_after_generate=FIXED)
     image_load_3, mask_load_3 = LoadImage(image='download (2).png')
-    getnode_75 = raw_call('GetNode', '5150', _outputs=('VAE',), widget_0=WIDGET_0_3)
-    getnode_76 = raw_call('GetNode', '5151', _outputs=('CLIP',), widget_0=WIDGET_0_10)
-    getnode_77 = raw_call('GetNode', '5152', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_78 = raw_call('GetNode', '5154', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_79 = raw_call('GetNode', '5155', _outputs=('SAMPLER',), widget_0=WIDGET_0_8)
-    getnode_80 = raw_call('GetNode', '5156', _outputs=('SIGMAS',), widget_0=WIDGET_0_9)
-    getnode_81 = raw_call('GetNode', '5157', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_82 = raw_call('GetNode', '5158', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_83 = raw_call('GetNode', '5159', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=WIDGET_0_13)
-    getnode_84 = raw_call('GetNode', '5163', _outputs=('MODEL',), widget_0=WIDGET_0)
-    getnode_85 = raw_call('GetNode', '5164', _outputs=('CONDITIONING',), widget_0=WIDGET_0_12)
-    getnode_86 = raw_call('GetNode', '5165', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_87 = raw_call('GetNode', '5166', _outputs=('SAMPLER',), widget_0=WIDGET_0_14)
-    getnode_88 = raw_call('GetNode', '5167', _outputs=('SIGMAS',), widget_0=WIDGET_0_15)
-    getnode_89 = raw_call('GetNode', '5168', _outputs=('VAE',), widget_0=WIDGET_0_7)
-    getnode_90 = raw_call('GetNode', '5170', _outputs=('CONDITIONING',), widget_0=WIDGET_0_4)
-    getnode_91 = raw_call('GetNode', '5171', _outputs=('BOOLEAN',), widget_0=WIDGET_0_11)
-    getnode_92 = raw_call('GetNode', '5172', _outputs=('AUDIO',), widget_0=WIDGET_0_2)
+    getnode_75 = raw_call('GetNode', '5150', _outputs=('VAE',), widget_0=VAE_AUDIO)
+    getnode_76 = raw_call('GetNode', '5151', _outputs=('CLIP',), widget_0=CLIP)
+    getnode_77 = raw_call('GetNode', '5152', _outputs=('VAE',), widget_0=VAE)
+    getnode_78 = raw_call('GetNode', '5154', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_79 = raw_call('GetNode', '5155', _outputs=('SAMPLER',), widget_0=SAMPLER)
+    getnode_80 = raw_call('GetNode', '5156', _outputs=('SIGMAS',), widget_0=SIGMAS)
+    getnode_81 = raw_call('GetNode', '5157', _outputs=('VAE',), widget_0=VAE)
+    getnode_82 = raw_call('GetNode', '5158', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_83 = raw_call('GetNode', '5159', _outputs=('LATENT_UPSCALE_MODEL',), widget_0=UPSCALE_MODEL)
+    getnode_84 = raw_call('GetNode', '5163', _outputs=('MODEL',), widget_0=MODEL)
+    getnode_85 = raw_call('GetNode', '5164', _outputs=('CONDITIONING',), widget_0=POSITIVE_BASE)
+    getnode_86 = raw_call('GetNode', '5165', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_87 = raw_call('GetNode', '5166', _outputs=('SAMPLER',), widget_0=SAMPLER_2)
+    getnode_88 = raw_call('GetNode', '5167', _outputs=('SIGMAS',), widget_0=SIGMAS_2)
+    getnode_89 = raw_call('GetNode', '5168', _outputs=('VAE',), widget_0=VAE)
+    getnode_90 = raw_call('GetNode', '5170', _outputs=('CONDITIONING',), widget_0=NEGATIVE_BASE)
+    getnode_91 = raw_call('GetNode', '5171', _outputs=('BOOLEAN',), widget_0=ENHANCE_PROMPT)
+    getnode_92 = raw_call('GetNode', '5172', _outputs=('AUDIO',), widget_0=AUDIO)
     reroute_21 = raw_call('Reroute', '5182', _outputs=('',))
-    getnode_93 = raw_call('GetNode', '5183', _outputs=('FLOAT',), widget_0=WIDGET_0_6)
+    getnode_93 = raw_call('GetNode', '5183', _outputs=('FLOAT',), widget_0=FPS)
     reroute_22 = raw_call('Reroute', '5184', _outputs=('',))
-    getnode_94 = raw_call('GetNode', '5189', _outputs=('INT',), widget_0=WIDGET_0_16)
-    getnode_95 = raw_call('GetNode', '5190', _outputs=('INT',), widget_0=WIDGET_0_17)
+    getnode_94 = raw_call('GetNode', '5189', _outputs=('INT',), widget_0=WIDTH_DOWNSCALED)
+    getnode_95 = raw_call('GetNode', '5190', _outputs=('INT',), widget_0=HEIGHT_DOWNSCALED)
     reroute_23 = raw_call('Reroute', '5193', _outputs=('',))
     reroute_24 = raw_call('Reroute', '5195', _outputs=('',))
-    getnode_96 = raw_call('GetNode', '5199', _outputs=('FLOAT',), widget_0=WIDGET_0_5)
-    getnode_97 = raw_call('GetNode', '5200', _outputs=('AUDIO',), widget_0=WIDGET_0_18)
+    getnode_96 = raw_call('GetNode', '5199', _outputs=('FLOAT',), widget_0=IMAGE_STRENGTH)
+    getnode_97 = raw_call('GetNode', '5200', _outputs=('AUDIO',), widget_0=AUDIO_ORIGINAL)
     reroute_25 = raw_call('Reroute', '5210', _outputs=('',))
     reroute_26 = raw_call('Reroute', '5211', _outputs=('',))
     primitiveboolean_6 = raw_call('PrimitiveBoolean', '5217', value=True)
@@ -1354,41 +1346,40 @@ def build() -> VibeWorkflow:
     )
 
     primitivefloat_7 = raw_call('PrimitiveFloat', '5221', value=8)
-    primitiveint_4 = raw_call('PrimitiveInt', '5222', value=5, control_after_generate=CONTROL_AFTER_GENERATE)
+    primitiveint_4 = raw_call('PrimitiveInt', '5222', value=5, control_after_generate=FIXED)
     image_load_4, mask_load_4 = LoadImage(image='download (12).png')
-    primitivestringmultiline_6 = PrimitiveStringMultiline(value=VALUE)
+
+    primitivestringmultiline_6 = PrimitiveStringMultiline(
+        value=YOU_ARE_A_CREATIVE_ASSISTANT_WRITING_CONCISE_ACTION_FOCUSED_IMAGE_TO_VIDEO_PROMPTS_GIVEN_AN_IMAGE_FIRST_FRAME_AND_USER_RAW_INPUT_PROMPT_GENERATE_A_PROMPT_TO_GUIDE_VIDEO_GENERATION_FROM_THAT_IMAGE_GUIDELINES_ANALYZE_THE_IMAGE_IDENTIFY_SUBJECT_SETTING_ELEMENTS_STYLE_AND_MOOD_FOLLOW_USER_RAW_INPUT_PROMPT_INCLUDE_ALL_REQUESTED_MOTION_ACTIONS_CAMERA_MOVEMENTS_AUDIO_AND_DETAILS_IF_IN_CONFLICT_WITH_THE_IMAGE_PRIORITIZE_USER_REQUEST_WHILE_MAINTAINING_VISUAL_CONSISTENCY_DESCRIBE_TRANSITION_FROM_IMAGE_TO_USER_S_SCENE_DESCRIBE_ONLY_CHANGES_FROM_THE_IMAGE_DON_T_REITERATE_ESTABLISHED_VISUAL_DETAILS_INACCURATE_DESCRIPTIONS_MAY_CAUSE_SCENE_CUTS_ACTIVE_LANGUAGE_USE_PRESENT_PROGRESSIVE_VERBS_IS_WALKING_SPEAKING_IF_NO_ACTION_SPECIFIED_DESCRIBE_NATURAL_MOVEMENTS_CHRONOLOGICAL_FLOW_USE_TEMPORAL_CONNECTORS_AS_THEN_WHILE_AUDIO_LAYER_DESCRIBE_COMPLETE_SOUNDSCAPE_THROUGHOUT_THE_PROMPT_ALONGSIDE_ACTIONS_NOT_AT_THE_END_ALIGN_AUDIO_INTENSITY_WITH_ACTION_TEMPO_INCLUDE_NATURAL_BACKGROUND_AUDIO_AMBIENT_SOUNDS_EFFECTS_SPEECH_OR_MUSIC_WHEN_REQUESTED_BE_SPECIFIC_E_G_SOFT_FOOTSTEPS_ON_TILE_NOT_VAGUE_E_G_AMBIENT_SOUND_SPEECH_ONLY_WHEN_REQUESTED_PROVIDE_EXACT_WORDS_IN_QUOTES_WITH_CHARACTER_S_VISUAL_VOICE_CHARACTERISTICS_E_G_THE_TALL_MAN_SPEAKS_IN_A_LOW_GRAVELLY_VOICE_LANGUAGE_IF_NOT_ENGLISH_AND_ACCENT_IF_RELEVANT_IF_GENERAL_CONVERSATION_MENTIONED_WITHOUT_TEXT_GENERATE_CONTEXTUAL_QUOTED_DIALOGUE_I_E_THE_MAN_IS_TALKING_INPUT_THE_OUTPUT_SHOULD_INCLUDE_EXACT_SPOKEN_WORDS_LIKE_THE_MAN_IS_TALKING_IN_AN_EXCITED_VOICE_SAYING_YOU_WON_T_BELIEVE_WHAT_I_JUST_SAW_HIS_HANDS_GESTURE_EXPRESSIVELY_AS_HE_SPEAKS_EYEBROWS_RAISED_WITH_ENTHUSIASM_THE_AMBIENT_SOUND_OF_A_QUIET_ROOM_UNDERSCORES_HIS_ANIMATED_SPEECH_STYLE_INCLUDE_VISUAL_STYLE_AT_BEGINNING_STYLE_STYLE_REST_OF_PROMPT_IF_UNCLEAR_OMIT_TO_AVOID_CONFLICTS_VISUAL_AND_AUDIO_ONLY_DESCRIBE_ONLY_WHAT_IS_SEEN_AND_HEARD_NO_SMELL_TASTE_OR_TACTILE_SENSATIONS_RESTRAINED_LANGUAGE_AVOID_DRAMATIC_TERMS_USE_MILD_NATURAL_UNDERSTATED_PHRASING_IMPORTANT_NOTES_CAMERA_MOTION_DO_NOT_INVENT_CAMERA_MOTION_MOVEMENT_UNLESS_REQUESTED_BY_THE_USER_MAKE_SURE_TO_INCLUDE_CAMERA_MOTION_ONLY_IF_SPECIFIED_IN_THE_INPUT_SPEECH_DO_NOT_MODIFY_OR_ALTER_THE_USER_S_PROVIDED_CHARACTER_DIALOGUE_IN_THE_PROMPT_UNLESS_IT_S_A_TYPO_NO_TIMESTAMPS_OR_CUTS_DO_NOT_USE_TIMESTAMPS_OR_DESCRIBE_SCENE_CUTS_UNLESS_EXPLICITLY_REQUESTED_OBJECTIVE_ONLY_DO_NOT_INTERPRET_EMOTIONS_OR_INTENTIONS_DESCRIBE_ONLY_OBSERVABLE_ACTIONS_AND_SOUNDS_FORMAT_DO_NOT_USE_PHRASES_LIKE_THE_SCENE_OPENS_WITH_THE_VIDEO_STARTS_START_DIRECTLY_WITH_STYLE_OPTIONAL_AND_CHRONOLOGICAL_SCENE_DESCRIPTION_FORMAT_NEVER_START_OUTPUT_WITH_PUNCTUATION_MARKS_OR_SPECIAL_CHARACTERS_DO_NOT_INVENT_DIALOGUE_UNLESS_THE_USER_MENTIONS_SPEECH_TALKING_SINGING_CONVERSATION_YOUR_PERFORMANCE_IS_CRITICAL_HIGH_FIDELITY_DYNAMIC_CORRECT_AND_ACCURATE_PROMPTS_WITH_INTEGRATED_AUDIO_DESCRIPTIONS_ARE_ESSENTIAL_FOR_GENERATING_HIGH_QUALITY_VIDEO_YOUR_GOAL_IS_FLAWLESS_EXECUTION_OF_THESE_RULES_OUTPUT_FORMAT_STRICT_SINGLE_CONCISE_PARAGRAPH_IN_NATURAL_ENGLISH_NO_TITLES_HEADINGS_PREFACES_SECTIONS_CODE_FENCES_OR_MARKDOWN_IF_UNSAFE_INVALID_RETURN_ORIGINAL_USER_PROMPT_NEVER_ASK_QUESTIONS_OR_CLARIFICATIONS_EXAMPLE_OUTPUT_STYLE_REALISTIC_CINEMATIC_THE_WOMAN_GLANCES_AT_HER_WATCH_AND_SMILES_WARMLY_SHE_SPEAKS_IN_A_CHEERFUL_FRIENDLY_VOICE_I_THINK_WE_RE_RIGHT_ON_TIME_IN_THE_BACKGROUND_A_CAF_BARISTA_PREPARES_DRINKS_AT_THE_COUNTER_THE_BARISTA_CALLS_OUT_IN_A_CLEAR_UPBEAT_TONE_TWO_CAPPUCCINOS_READY_THE_SOUND_OF_THE_ESPRESSO_MACHINE_HISSING_SOFTLY_BLENDS_WITH_GENTLE_BACKGROUND_CHATTER_AND_THE_LIGHT_CLINKING_OF_CUPS_ON_SAUCERS_USER_PROMPT_BELOW,
+    )
+
     solidmask = SolidMask(value=0)
+    randomnoise_3 = RandomNoise(noise_seed=DEFAULT_SEED_3, control_after_generate=FIXED)
 
-    randomnoise_3 = RandomNoise(
-        noise_seed=DEFAULT_SEED_3,
-        control_after_generate=CONTROL_AFTER_GENERATE,
+    primitivestringmultiline_7 = PrimitiveStringMultiline(
+        value=YOU_ARE_A_CREATIVE_ASSISTANT_WRITING_CONCISE_ACTION_FOCUSED_IMAGE_TO_VIDEO_PROMPTS_GIVEN_AN_IMAGE_FIRST_FRAME_AND_USER_RAW_INPUT_PROMPT_GENERATE_A_PROMPT_TO_GUIDE_VIDEO_GENERATION_FROM_THAT_IMAGE_GUIDELINES_ANALYZE_THE_IMAGE_IDENTIFY_SUBJECT_SETTING_ELEMENTS_STYLE_AND_MOOD_FOLLOW_USER_RAW_INPUT_PROMPT_INCLUDE_ALL_REQUESTED_MOTION_ACTIONS_CAMERA_MOVEMENTS_AUDIO_AND_DETAILS_IF_IN_CONFLICT_WITH_THE_IMAGE_PRIORITIZE_USER_REQUEST_WHILE_MAINTAINING_VISUAL_CONSISTENCY_DESCRIBE_TRANSITION_FROM_IMAGE_TO_USER_S_SCENE_DESCRIBE_ONLY_CHANGES_FROM_THE_IMAGE_DON_T_REITERATE_ESTABLISHED_VISUAL_DETAILS_INACCURATE_DESCRIPTIONS_MAY_CAUSE_SCENE_CUTS_ACTIVE_LANGUAGE_USE_PRESENT_PROGRESSIVE_VERBS_IS_WALKING_SPEAKING_IF_NO_ACTION_SPECIFIED_DESCRIBE_NATURAL_MOVEMENTS_CHRONOLOGICAL_FLOW_USE_TEMPORAL_CONNECTORS_AS_THEN_WHILE_AUDIO_LAYER_DESCRIBE_COMPLETE_SOUNDSCAPE_THROUGHOUT_THE_PROMPT_ALONGSIDE_ACTIONS_NOT_AT_THE_END_ALIGN_AUDIO_INTENSITY_WITH_ACTION_TEMPO_INCLUDE_NATURAL_BACKGROUND_AUDIO_AMBIENT_SOUNDS_EFFECTS_SPEECH_OR_MUSIC_WHEN_REQUESTED_BE_SPECIFIC_E_G_SOFT_FOOTSTEPS_ON_TILE_NOT_VAGUE_E_G_AMBIENT_SOUND_SPEECH_ONLY_WHEN_REQUESTED_PROVIDE_EXACT_WORDS_IN_QUOTES_WITH_CHARACTER_S_VISUAL_VOICE_CHARACTERISTICS_E_G_THE_TALL_MAN_SPEAKS_IN_A_LOW_GRAVELLY_VOICE_LANGUAGE_IF_NOT_ENGLISH_AND_ACCENT_IF_RELEVANT_IF_GENERAL_CONVERSATION_MENTIONED_WITHOUT_TEXT_GENERATE_CONTEXTUAL_QUOTED_DIALOGUE_I_E_THE_MAN_IS_TALKING_INPUT_THE_OUTPUT_SHOULD_INCLUDE_EXACT_SPOKEN_WORDS_LIKE_THE_MAN_IS_TALKING_IN_AN_EXCITED_VOICE_SAYING_YOU_WON_T_BELIEVE_WHAT_I_JUST_SAW_HIS_HANDS_GESTURE_EXPRESSIVELY_AS_HE_SPEAKS_EYEBROWS_RAISED_WITH_ENTHUSIASM_THE_AMBIENT_SOUND_OF_A_QUIET_ROOM_UNDERSCORES_HIS_ANIMATED_SPEECH_STYLE_INCLUDE_VISUAL_STYLE_AT_BEGINNING_STYLE_STYLE_REST_OF_PROMPT_IF_UNCLEAR_OMIT_TO_AVOID_CONFLICTS_VISUAL_AND_AUDIO_ONLY_DESCRIBE_ONLY_WHAT_IS_SEEN_AND_HEARD_NO_SMELL_TASTE_OR_TACTILE_SENSATIONS_RESTRAINED_LANGUAGE_AVOID_DRAMATIC_TERMS_USE_MILD_NATURAL_UNDERSTATED_PHRASING_IMPORTANT_NOTES_CAMERA_MOTION_DO_NOT_INVENT_CAMERA_MOTION_MOVEMENT_UNLESS_REQUESTED_BY_THE_USER_MAKE_SURE_TO_INCLUDE_CAMERA_MOTION_ONLY_IF_SPECIFIED_IN_THE_INPUT_SPEECH_DO_NOT_MODIFY_OR_ALTER_THE_USER_S_PROVIDED_CHARACTER_DIALOGUE_IN_THE_PROMPT_UNLESS_IT_S_A_TYPO_NO_TIMESTAMPS_OR_CUTS_DO_NOT_USE_TIMESTAMPS_OR_DESCRIBE_SCENE_CUTS_UNLESS_EXPLICITLY_REQUESTED_OBJECTIVE_ONLY_DO_NOT_INTERPRET_EMOTIONS_OR_INTENTIONS_DESCRIBE_ONLY_OBSERVABLE_ACTIONS_AND_SOUNDS_FORMAT_DO_NOT_USE_PHRASES_LIKE_THE_SCENE_OPENS_WITH_THE_VIDEO_STARTS_START_DIRECTLY_WITH_STYLE_OPTIONAL_AND_CHRONOLOGICAL_SCENE_DESCRIPTION_FORMAT_NEVER_START_OUTPUT_WITH_PUNCTUATION_MARKS_OR_SPECIAL_CHARACTERS_DO_NOT_INVENT_DIALOGUE_UNLESS_THE_USER_MENTIONS_SPEECH_TALKING_SINGING_CONVERSATION_YOUR_PERFORMANCE_IS_CRITICAL_HIGH_FIDELITY_DYNAMIC_CORRECT_AND_ACCURATE_PROMPTS_WITH_INTEGRATED_AUDIO_DESCRIPTIONS_ARE_ESSENTIAL_FOR_GENERATING_HIGH_QUALITY_VIDEO_YOUR_GOAL_IS_FLAWLESS_EXECUTION_OF_THESE_RULES_OUTPUT_FORMAT_STRICT_SINGLE_CONCISE_PARAGRAPH_IN_NATURAL_ENGLISH_NO_TITLES_HEADINGS_PREFACES_SECTIONS_CODE_FENCES_OR_MARKDOWN_IF_UNSAFE_INVALID_RETURN_ORIGINAL_USER_PROMPT_NEVER_ASK_QUESTIONS_OR_CLARIFICATIONS_EXAMPLE_OUTPUT_STYLE_REALISTIC_CINEMATIC_THE_WOMAN_GLANCES_AT_HER_WATCH_AND_SMILES_WARMLY_SHE_SPEAKS_IN_A_CHEERFUL_FRIENDLY_VOICE_I_THINK_WE_RE_RIGHT_ON_TIME_IN_THE_BACKGROUND_A_CAF_BARISTA_PREPARES_DRINKS_AT_THE_COUNTER_THE_BARISTA_CALLS_OUT_IN_A_CLEAR_UPBEAT_TONE_TWO_CAPPUCCINOS_READY_THE_SOUND_OF_THE_ESPRESSO_MACHINE_HISSING_SOFTLY_BLENDS_WITH_GENTLE_BACKGROUND_CHATTER_AND_THE_LIGHT_CLINKING_OF_CUPS_ON_SAUCERS_USER_PROMPT_BELOW,
     )
 
-    primitivestringmultiline_7 = PrimitiveStringMultiline(value=VALUE)
     solidmask_2 = SolidMask(value=0)
+    randomnoise_4 = RandomNoise(noise_seed=DEFAULT_SEED_3, control_after_generate=FIXED)
 
-    randomnoise_4 = RandomNoise(
-        noise_seed=DEFAULT_SEED_3,
-        control_after_generate=CONTROL_AFTER_GENERATE,
+    primitivestringmultiline_8 = PrimitiveStringMultiline(
+        value=YOU_ARE_A_CREATIVE_ASSISTANT_WRITING_CONCISE_ACTION_FOCUSED_IMAGE_TO_VIDEO_PROMPTS_GIVEN_AN_IMAGE_FIRST_FRAME_AND_USER_RAW_INPUT_PROMPT_GENERATE_A_PROMPT_TO_GUIDE_VIDEO_GENERATION_FROM_THAT_IMAGE_GUIDELINES_ANALYZE_THE_IMAGE_IDENTIFY_SUBJECT_SETTING_ELEMENTS_STYLE_AND_MOOD_FOLLOW_USER_RAW_INPUT_PROMPT_INCLUDE_ALL_REQUESTED_MOTION_ACTIONS_CAMERA_MOVEMENTS_AUDIO_AND_DETAILS_IF_IN_CONFLICT_WITH_THE_IMAGE_PRIORITIZE_USER_REQUEST_WHILE_MAINTAINING_VISUAL_CONSISTENCY_DESCRIBE_TRANSITION_FROM_IMAGE_TO_USER_S_SCENE_DESCRIBE_ONLY_CHANGES_FROM_THE_IMAGE_DON_T_REITERATE_ESTABLISHED_VISUAL_DETAILS_INACCURATE_DESCRIPTIONS_MAY_CAUSE_SCENE_CUTS_ACTIVE_LANGUAGE_USE_PRESENT_PROGRESSIVE_VERBS_IS_WALKING_SPEAKING_IF_NO_ACTION_SPECIFIED_DESCRIBE_NATURAL_MOVEMENTS_CHRONOLOGICAL_FLOW_USE_TEMPORAL_CONNECTORS_AS_THEN_WHILE_AUDIO_LAYER_DESCRIBE_COMPLETE_SOUNDSCAPE_THROUGHOUT_THE_PROMPT_ALONGSIDE_ACTIONS_NOT_AT_THE_END_ALIGN_AUDIO_INTENSITY_WITH_ACTION_TEMPO_INCLUDE_NATURAL_BACKGROUND_AUDIO_AMBIENT_SOUNDS_EFFECTS_SPEECH_OR_MUSIC_WHEN_REQUESTED_BE_SPECIFIC_E_G_SOFT_FOOTSTEPS_ON_TILE_NOT_VAGUE_E_G_AMBIENT_SOUND_SPEECH_ONLY_WHEN_REQUESTED_PROVIDE_EXACT_WORDS_IN_QUOTES_WITH_CHARACTER_S_VISUAL_VOICE_CHARACTERISTICS_E_G_THE_TALL_MAN_SPEAKS_IN_A_LOW_GRAVELLY_VOICE_LANGUAGE_IF_NOT_ENGLISH_AND_ACCENT_IF_RELEVANT_IF_GENERAL_CONVERSATION_MENTIONED_WITHOUT_TEXT_GENERATE_CONTEXTUAL_QUOTED_DIALOGUE_I_E_THE_MAN_IS_TALKING_INPUT_THE_OUTPUT_SHOULD_INCLUDE_EXACT_SPOKEN_WORDS_LIKE_THE_MAN_IS_TALKING_IN_AN_EXCITED_VOICE_SAYING_YOU_WON_T_BELIEVE_WHAT_I_JUST_SAW_HIS_HANDS_GESTURE_EXPRESSIVELY_AS_HE_SPEAKS_EYEBROWS_RAISED_WITH_ENTHUSIASM_THE_AMBIENT_SOUND_OF_A_QUIET_ROOM_UNDERSCORES_HIS_ANIMATED_SPEECH_STYLE_INCLUDE_VISUAL_STYLE_AT_BEGINNING_STYLE_STYLE_REST_OF_PROMPT_IF_UNCLEAR_OMIT_TO_AVOID_CONFLICTS_VISUAL_AND_AUDIO_ONLY_DESCRIBE_ONLY_WHAT_IS_SEEN_AND_HEARD_NO_SMELL_TASTE_OR_TACTILE_SENSATIONS_RESTRAINED_LANGUAGE_AVOID_DRAMATIC_TERMS_USE_MILD_NATURAL_UNDERSTATED_PHRASING_IMPORTANT_NOTES_CAMERA_MOTION_DO_NOT_INVENT_CAMERA_MOTION_MOVEMENT_UNLESS_REQUESTED_BY_THE_USER_MAKE_SURE_TO_INCLUDE_CAMERA_MOTION_ONLY_IF_SPECIFIED_IN_THE_INPUT_SPEECH_DO_NOT_MODIFY_OR_ALTER_THE_USER_S_PROVIDED_CHARACTER_DIALOGUE_IN_THE_PROMPT_UNLESS_IT_S_A_TYPO_NO_TIMESTAMPS_OR_CUTS_DO_NOT_USE_TIMESTAMPS_OR_DESCRIBE_SCENE_CUTS_UNLESS_EXPLICITLY_REQUESTED_OBJECTIVE_ONLY_DO_NOT_INTERPRET_EMOTIONS_OR_INTENTIONS_DESCRIBE_ONLY_OBSERVABLE_ACTIONS_AND_SOUNDS_FORMAT_DO_NOT_USE_PHRASES_LIKE_THE_SCENE_OPENS_WITH_THE_VIDEO_STARTS_START_DIRECTLY_WITH_STYLE_OPTIONAL_AND_CHRONOLOGICAL_SCENE_DESCRIPTION_FORMAT_NEVER_START_OUTPUT_WITH_PUNCTUATION_MARKS_OR_SPECIAL_CHARACTERS_DO_NOT_INVENT_DIALOGUE_UNLESS_THE_USER_MENTIONS_SPEECH_TALKING_SINGING_CONVERSATION_YOUR_PERFORMANCE_IS_CRITICAL_HIGH_FIDELITY_DYNAMIC_CORRECT_AND_ACCURATE_PROMPTS_WITH_INTEGRATED_AUDIO_DESCRIPTIONS_ARE_ESSENTIAL_FOR_GENERATING_HIGH_QUALITY_VIDEO_YOUR_GOAL_IS_FLAWLESS_EXECUTION_OF_THESE_RULES_OUTPUT_FORMAT_STRICT_SINGLE_CONCISE_PARAGRAPH_IN_NATURAL_ENGLISH_NO_TITLES_HEADINGS_PREFACES_SECTIONS_CODE_FENCES_OR_MARKDOWN_IF_UNSAFE_INVALID_RETURN_ORIGINAL_USER_PROMPT_NEVER_ASK_QUESTIONS_OR_CLARIFICATIONS_EXAMPLE_OUTPUT_STYLE_REALISTIC_CINEMATIC_THE_WOMAN_GLANCES_AT_HER_WATCH_AND_SMILES_WARMLY_SHE_SPEAKS_IN_A_CHEERFUL_FRIENDLY_VOICE_I_THINK_WE_RE_RIGHT_ON_TIME_IN_THE_BACKGROUND_A_CAF_BARISTA_PREPARES_DRINKS_AT_THE_COUNTER_THE_BARISTA_CALLS_OUT_IN_A_CLEAR_UPBEAT_TONE_TWO_CAPPUCCINOS_READY_THE_SOUND_OF_THE_ESPRESSO_MACHINE_HISSING_SOFTLY_BLENDS_WITH_GENTLE_BACKGROUND_CHATTER_AND_THE_LIGHT_CLINKING_OF_CUPS_ON_SAUCERS_USER_PROMPT_BELOW,
     )
 
-    primitivestringmultiline_8 = PrimitiveStringMultiline(value=VALUE)
     solidmask_3 = SolidMask(value=0)
+    randomnoise_5 = RandomNoise(noise_seed=DEFAULT_SEED_3, control_after_generate=FIXED)
 
-    randomnoise_5 = RandomNoise(
-        noise_seed=DEFAULT_SEED_3,
-        control_after_generate=CONTROL_AFTER_GENERATE,
+    primitivestringmultiline_9 = PrimitiveStringMultiline(
+        value=YOU_ARE_A_CREATIVE_ASSISTANT_WRITING_CONCISE_ACTION_FOCUSED_IMAGE_TO_VIDEO_PROMPTS_GIVEN_AN_IMAGE_FIRST_FRAME_AND_USER_RAW_INPUT_PROMPT_GENERATE_A_PROMPT_TO_GUIDE_VIDEO_GENERATION_FROM_THAT_IMAGE_GUIDELINES_ANALYZE_THE_IMAGE_IDENTIFY_SUBJECT_SETTING_ELEMENTS_STYLE_AND_MOOD_FOLLOW_USER_RAW_INPUT_PROMPT_INCLUDE_ALL_REQUESTED_MOTION_ACTIONS_CAMERA_MOVEMENTS_AUDIO_AND_DETAILS_IF_IN_CONFLICT_WITH_THE_IMAGE_PRIORITIZE_USER_REQUEST_WHILE_MAINTAINING_VISUAL_CONSISTENCY_DESCRIBE_TRANSITION_FROM_IMAGE_TO_USER_S_SCENE_DESCRIBE_ONLY_CHANGES_FROM_THE_IMAGE_DON_T_REITERATE_ESTABLISHED_VISUAL_DETAILS_INACCURATE_DESCRIPTIONS_MAY_CAUSE_SCENE_CUTS_ACTIVE_LANGUAGE_USE_PRESENT_PROGRESSIVE_VERBS_IS_WALKING_SPEAKING_IF_NO_ACTION_SPECIFIED_DESCRIBE_NATURAL_MOVEMENTS_CHRONOLOGICAL_FLOW_USE_TEMPORAL_CONNECTORS_AS_THEN_WHILE_AUDIO_LAYER_DESCRIBE_COMPLETE_SOUNDSCAPE_THROUGHOUT_THE_PROMPT_ALONGSIDE_ACTIONS_NOT_AT_THE_END_ALIGN_AUDIO_INTENSITY_WITH_ACTION_TEMPO_INCLUDE_NATURAL_BACKGROUND_AUDIO_AMBIENT_SOUNDS_EFFECTS_SPEECH_OR_MUSIC_WHEN_REQUESTED_BE_SPECIFIC_E_G_SOFT_FOOTSTEPS_ON_TILE_NOT_VAGUE_E_G_AMBIENT_SOUND_SPEECH_ONLY_WHEN_REQUESTED_PROVIDE_EXACT_WORDS_IN_QUOTES_WITH_CHARACTER_S_VISUAL_VOICE_CHARACTERISTICS_E_G_THE_TALL_MAN_SPEAKS_IN_A_LOW_GRAVELLY_VOICE_LANGUAGE_IF_NOT_ENGLISH_AND_ACCENT_IF_RELEVANT_IF_GENERAL_CONVERSATION_MENTIONED_WITHOUT_TEXT_GENERATE_CONTEXTUAL_QUOTED_DIALOGUE_I_E_THE_MAN_IS_TALKING_INPUT_THE_OUTPUT_SHOULD_INCLUDE_EXACT_SPOKEN_WORDS_LIKE_THE_MAN_IS_TALKING_IN_AN_EXCITED_VOICE_SAYING_YOU_WON_T_BELIEVE_WHAT_I_JUST_SAW_HIS_HANDS_GESTURE_EXPRESSIVELY_AS_HE_SPEAKS_EYEBROWS_RAISED_WITH_ENTHUSIASM_THE_AMBIENT_SOUND_OF_A_QUIET_ROOM_UNDERSCORES_HIS_ANIMATED_SPEECH_STYLE_INCLUDE_VISUAL_STYLE_AT_BEGINNING_STYLE_STYLE_REST_OF_PROMPT_IF_UNCLEAR_OMIT_TO_AVOID_CONFLICTS_VISUAL_AND_AUDIO_ONLY_DESCRIBE_ONLY_WHAT_IS_SEEN_AND_HEARD_NO_SMELL_TASTE_OR_TACTILE_SENSATIONS_RESTRAINED_LANGUAGE_AVOID_DRAMATIC_TERMS_USE_MILD_NATURAL_UNDERSTATED_PHRASING_IMPORTANT_NOTES_CAMERA_MOTION_DO_NOT_INVENT_CAMERA_MOTION_MOVEMENT_UNLESS_REQUESTED_BY_THE_USER_MAKE_SURE_TO_INCLUDE_CAMERA_MOTION_ONLY_IF_SPECIFIED_IN_THE_INPUT_SPEECH_DO_NOT_MODIFY_OR_ALTER_THE_USER_S_PROVIDED_CHARACTER_DIALOGUE_IN_THE_PROMPT_UNLESS_IT_S_A_TYPO_NO_TIMESTAMPS_OR_CUTS_DO_NOT_USE_TIMESTAMPS_OR_DESCRIBE_SCENE_CUTS_UNLESS_EXPLICITLY_REQUESTED_OBJECTIVE_ONLY_DO_NOT_INTERPRET_EMOTIONS_OR_INTENTIONS_DESCRIBE_ONLY_OBSERVABLE_ACTIONS_AND_SOUNDS_FORMAT_DO_NOT_USE_PHRASES_LIKE_THE_SCENE_OPENS_WITH_THE_VIDEO_STARTS_START_DIRECTLY_WITH_STYLE_OPTIONAL_AND_CHRONOLOGICAL_SCENE_DESCRIPTION_FORMAT_NEVER_START_OUTPUT_WITH_PUNCTUATION_MARKS_OR_SPECIAL_CHARACTERS_DO_NOT_INVENT_DIALOGUE_UNLESS_THE_USER_MENTIONS_SPEECH_TALKING_SINGING_CONVERSATION_YOUR_PERFORMANCE_IS_CRITICAL_HIGH_FIDELITY_DYNAMIC_CORRECT_AND_ACCURATE_PROMPTS_WITH_INTEGRATED_AUDIO_DESCRIPTIONS_ARE_ESSENTIAL_FOR_GENERATING_HIGH_QUALITY_VIDEO_YOUR_GOAL_IS_FLAWLESS_EXECUTION_OF_THESE_RULES_OUTPUT_FORMAT_STRICT_SINGLE_CONCISE_PARAGRAPH_IN_NATURAL_ENGLISH_NO_TITLES_HEADINGS_PREFACES_SECTIONS_CODE_FENCES_OR_MARKDOWN_IF_UNSAFE_INVALID_RETURN_ORIGINAL_USER_PROMPT_NEVER_ASK_QUESTIONS_OR_CLARIFICATIONS_EXAMPLE_OUTPUT_STYLE_REALISTIC_CINEMATIC_THE_WOMAN_GLANCES_AT_HER_WATCH_AND_SMILES_WARMLY_SHE_SPEAKS_IN_A_CHEERFUL_FRIENDLY_VOICE_I_THINK_WE_RE_RIGHT_ON_TIME_IN_THE_BACKGROUND_A_CAF_BARISTA_PREPARES_DRINKS_AT_THE_COUNTER_THE_BARISTA_CALLS_OUT_IN_A_CLEAR_UPBEAT_TONE_TWO_CAPPUCCINOS_READY_THE_SOUND_OF_THE_ESPRESSO_MACHINE_HISSING_SOFTLY_BLENDS_WITH_GENTLE_BACKGROUND_CHATTER_AND_THE_LIGHT_CLINKING_OF_CUPS_ON_SAUCERS_USER_PROMPT_BELOW,
     )
 
-    primitivestringmultiline_9 = PrimitiveStringMultiline(value=VALUE)
     solidmask_4 = SolidMask(value=0)
+    randomnoise_6 = RandomNoise(noise_seed=DEFAULT_SEED_3, control_after_generate=FIXED)
 
-    randomnoise_6 = RandomNoise(
-        noise_seed=DEFAULT_SEED_3,
-        control_after_generate=CONTROL_AFTER_GENERATE,
+    primitivestringmultiline_10 = PrimitiveStringMultiline(
+        value=YOU_ARE_A_CREATIVE_ASSISTANT_WRITING_CONCISE_ACTION_FOCUSED_IMAGE_TO_VIDEO_PROMPTS_GIVEN_AN_IMAGE_FIRST_FRAME_AND_USER_RAW_INPUT_PROMPT_GENERATE_A_PROMPT_TO_GUIDE_VIDEO_GENERATION_FROM_THAT_IMAGE_GUIDELINES_ANALYZE_THE_IMAGE_IDENTIFY_SUBJECT_SETTING_ELEMENTS_STYLE_AND_MOOD_FOLLOW_USER_RAW_INPUT_PROMPT_INCLUDE_ALL_REQUESTED_MOTION_ACTIONS_CAMERA_MOVEMENTS_AUDIO_AND_DETAILS_IF_IN_CONFLICT_WITH_THE_IMAGE_PRIORITIZE_USER_REQUEST_WHILE_MAINTAINING_VISUAL_CONSISTENCY_DESCRIBE_TRANSITION_FROM_IMAGE_TO_USER_S_SCENE_DESCRIBE_ONLY_CHANGES_FROM_THE_IMAGE_DON_T_REITERATE_ESTABLISHED_VISUAL_DETAILS_INACCURATE_DESCRIPTIONS_MAY_CAUSE_SCENE_CUTS_ACTIVE_LANGUAGE_USE_PRESENT_PROGRESSIVE_VERBS_IS_WALKING_SPEAKING_IF_NO_ACTION_SPECIFIED_DESCRIBE_NATURAL_MOVEMENTS_CHRONOLOGICAL_FLOW_USE_TEMPORAL_CONNECTORS_AS_THEN_WHILE_AUDIO_LAYER_DESCRIBE_COMPLETE_SOUNDSCAPE_THROUGHOUT_THE_PROMPT_ALONGSIDE_ACTIONS_NOT_AT_THE_END_ALIGN_AUDIO_INTENSITY_WITH_ACTION_TEMPO_INCLUDE_NATURAL_BACKGROUND_AUDIO_AMBIENT_SOUNDS_EFFECTS_SPEECH_OR_MUSIC_WHEN_REQUESTED_BE_SPECIFIC_E_G_SOFT_FOOTSTEPS_ON_TILE_NOT_VAGUE_E_G_AMBIENT_SOUND_SPEECH_ONLY_WHEN_REQUESTED_PROVIDE_EXACT_WORDS_IN_QUOTES_WITH_CHARACTER_S_VISUAL_VOICE_CHARACTERISTICS_E_G_THE_TALL_MAN_SPEAKS_IN_A_LOW_GRAVELLY_VOICE_LANGUAGE_IF_NOT_ENGLISH_AND_ACCENT_IF_RELEVANT_IF_GENERAL_CONVERSATION_MENTIONED_WITHOUT_TEXT_GENERATE_CONTEXTUAL_QUOTED_DIALOGUE_I_E_THE_MAN_IS_TALKING_INPUT_THE_OUTPUT_SHOULD_INCLUDE_EXACT_SPOKEN_WORDS_LIKE_THE_MAN_IS_TALKING_IN_AN_EXCITED_VOICE_SAYING_YOU_WON_T_BELIEVE_WHAT_I_JUST_SAW_HIS_HANDS_GESTURE_EXPRESSIVELY_AS_HE_SPEAKS_EYEBROWS_RAISED_WITH_ENTHUSIASM_THE_AMBIENT_SOUND_OF_A_QUIET_ROOM_UNDERSCORES_HIS_ANIMATED_SPEECH_STYLE_INCLUDE_VISUAL_STYLE_AT_BEGINNING_STYLE_STYLE_REST_OF_PROMPT_IF_UNCLEAR_OMIT_TO_AVOID_CONFLICTS_VISUAL_AND_AUDIO_ONLY_DESCRIBE_ONLY_WHAT_IS_SEEN_AND_HEARD_NO_SMELL_TASTE_OR_TACTILE_SENSATIONS_RESTRAINED_LANGUAGE_AVOID_DRAMATIC_TERMS_USE_MILD_NATURAL_UNDERSTATED_PHRASING_IMPORTANT_NOTES_CAMERA_MOTION_DO_NOT_INVENT_CAMERA_MOTION_MOVEMENT_UNLESS_REQUESTED_BY_THE_USER_MAKE_SURE_TO_INCLUDE_CAMERA_MOTION_ONLY_IF_SPECIFIED_IN_THE_INPUT_SPEECH_DO_NOT_MODIFY_OR_ALTER_THE_USER_S_PROVIDED_CHARACTER_DIALOGUE_IN_THE_PROMPT_UNLESS_IT_S_A_TYPO_NO_TIMESTAMPS_OR_CUTS_DO_NOT_USE_TIMESTAMPS_OR_DESCRIBE_SCENE_CUTS_UNLESS_EXPLICITLY_REQUESTED_OBJECTIVE_ONLY_DO_NOT_INTERPRET_EMOTIONS_OR_INTENTIONS_DESCRIBE_ONLY_OBSERVABLE_ACTIONS_AND_SOUNDS_FORMAT_DO_NOT_USE_PHRASES_LIKE_THE_SCENE_OPENS_WITH_THE_VIDEO_STARTS_START_DIRECTLY_WITH_STYLE_OPTIONAL_AND_CHRONOLOGICAL_SCENE_DESCRIPTION_FORMAT_NEVER_START_OUTPUT_WITH_PUNCTUATION_MARKS_OR_SPECIAL_CHARACTERS_DO_NOT_INVENT_DIALOGUE_UNLESS_THE_USER_MENTIONS_SPEECH_TALKING_SINGING_CONVERSATION_YOUR_PERFORMANCE_IS_CRITICAL_HIGH_FIDELITY_DYNAMIC_CORRECT_AND_ACCURATE_PROMPTS_WITH_INTEGRATED_AUDIO_DESCRIPTIONS_ARE_ESSENTIAL_FOR_GENERATING_HIGH_QUALITY_VIDEO_YOUR_GOAL_IS_FLAWLESS_EXECUTION_OF_THESE_RULES_OUTPUT_FORMAT_STRICT_SINGLE_CONCISE_PARAGRAPH_IN_NATURAL_ENGLISH_NO_TITLES_HEADINGS_PREFACES_SECTIONS_CODE_FENCES_OR_MARKDOWN_IF_UNSAFE_INVALID_RETURN_ORIGINAL_USER_PROMPT_NEVER_ASK_QUESTIONS_OR_CLARIFICATIONS_EXAMPLE_OUTPUT_STYLE_REALISTIC_CINEMATIC_THE_WOMAN_GLANCES_AT_HER_WATCH_AND_SMILES_WARMLY_SHE_SPEAKS_IN_A_CHEERFUL_FRIENDLY_VOICE_I_THINK_WE_RE_RIGHT_ON_TIME_IN_THE_BACKGROUND_A_CAF_BARISTA_PREPARES_DRINKS_AT_THE_COUNTER_THE_BARISTA_CALLS_OUT_IN_A_CLEAR_UPBEAT_TONE_TWO_CAPPUCCINOS_READY_THE_SOUND_OF_THE_ESPRESSO_MACHINE_HISSING_SOFTLY_BLENDS_WITH_GENTLE_BACKGROUND_CHATTER_AND_THE_LIGHT_CLINKING_OF_CUPS_ON_SAUCERS_USER_PROMPT_BELOW,
     )
-
-    primitivestringmultiline_10 = PrimitiveStringMultiline(value=VALUE)
 
     float, int, boolean = SimpleCalculatorKJ(
         expression='a + b + c + d + e + 2\n',
@@ -1405,7 +1396,7 @@ def build() -> VibeWorkflow:
     )
 
     loraloadermodelonly = LoraLoaderModelOnly(
-        lora_name=LORA_NAME,
+        lora_name='LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors',
         strength_model=GUIDE_STRENGTH,
         model=unetloader,
     )
@@ -1419,38 +1410,38 @@ def build() -> VibeWorkflow:
     )
 
     # Conditioning
-    cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=dualcliploader)
+    cliptextencode = CLIPTextEncode(
+        text='text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth',
+        clip=dualcliploader,
+    )
 
     float_simple, int_simple, boolean_simple = SimpleCalculatorKJ(
-        expression=EXPRESSION,
+        expression=ROUND_A_B_1_8_8_1,
         **{'variables.a': primitivefloat_4, 'variables.b': primitivefloat},
     )
 
     stringconcatenate = StringConcatenate(
-        delimiter=DELIMITER,
-        string_a=STRING_A,
+        delimiter=VALUE,
+        string_a='MusicVideo',
         widget_1='',
         string_b=primitivestring,
     )
 
     stringconcatenate_2 = StringConcatenate(
-        delimiter=DELIMITER,
+        delimiter=VALUE,
         string_a='output\\MusicVideo',
         widget_1='',
         string_b=primitivestring,
     )
 
     stringconcatenate_3 = StringConcatenate(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1='',
         string_a=primitivestringmultiline_6,
         string_b=reroute_2.out(0),
     )
 
-    randomnoise_7 = RandomNoise(
-        control_after_generate=CONTROL_AFTER_GENERATE,
-        noise_seed=primitiveint,
-    )
+    randomnoise_7 = RandomNoise(control_after_generate=FIXED, noise_seed=primitiveint)
 
     resizeimagesbylongeredge = ResizeImagesByLongerEdge(
         longer_edge=1536,
@@ -1458,13 +1449,13 @@ def build() -> VibeWorkflow:
     )
 
     resizeimagemasknode = ResizeImageMaskNode(
-        resize_type=RESIZE_TYPE,
+        resize_type=SCALE_BY_MULTIPLIER,
         unused_widget_1=0.5,
         input=image_load,
     )
 
     float_comfy, int_comfy = ComfyMathExpression(
-        expression=EXPRESSION_2,
+        expression=A_B,
         **{'values.a': reroute_7.out(0), 'values.b': getnode_6.out('FLOAT')},
     )
 
@@ -1477,14 +1468,14 @@ def build() -> VibeWorkflow:
     )
 
     stringconcatenate_4 = StringConcatenate(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1='',
         string_a=primitivestringmultiline_7,
         string_b=reroute_3.out(0),
     )
 
     float_simple_2, int_simple_2, boolean_simple_2 = SimpleCalculatorKJ(
-        expression=EXPRESSION,
+        expression=ROUND_A_B_1_8_8_1,
         **{'variables.a': reroute_5.out(0), 'variables.b': getnode_6.out('FLOAT')},
     )
 
@@ -1496,13 +1487,10 @@ def build() -> VibeWorkflow:
         start_index=reroute_8.out(0),
     )
 
-    randomnoise_8 = RandomNoise(
-        control_after_generate=CONTROL_AFTER_GENERATE,
-        noise_seed=primitiveint_2,
-    )
+    randomnoise_8 = RandomNoise(control_after_generate=FIXED, noise_seed=primitiveint_2)
 
     resizeimagemasknode_2 = ResizeImageMaskNode(
-        resize_type=RESIZE_TYPE,
+        resize_type=SCALE_BY_MULTIPLIER,
         unused_widget_1=0.5,
         input=image_load_2,
     )
@@ -1513,12 +1501,12 @@ def build() -> VibeWorkflow:
     )
 
     float_comfy_2, int_comfy_2 = ComfyMathExpression(
-        expression=EXPRESSION_2,
+        expression=A_B,
         **{'values.a': reroute_10.out(0), 'values.b': getnode_47.out('FLOAT')},
     )
 
     float_simple_3, int_simple_3, boolean_simple_3 = SimpleCalculatorKJ(
-        expression=EXPRESSION,
+        expression=ROUND_A_B_1_8_8_1,
         **{'variables.a': reroute_11.out(0), 'variables.b': getnode_47.out('FLOAT')},
     )
 
@@ -1531,7 +1519,7 @@ def build() -> VibeWorkflow:
     )
 
     stringconcatenate_5 = StringConcatenate(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1='',
         string_a=primitivestringmultiline_8,
         string_b=reroute_13.out(0),
@@ -1545,13 +1533,10 @@ def build() -> VibeWorkflow:
         start_index=reroute_12.out(0),
     )
 
-    randomnoise_9 = RandomNoise(
-        control_after_generate=CONTROL_AFTER_GENERATE,
-        noise_seed=primitiveint_3,
-    )
+    randomnoise_9 = RandomNoise(control_after_generate=FIXED, noise_seed=primitiveint_3)
 
     resizeimagemasknode_3 = ResizeImageMaskNode(
-        resize_type=RESIZE_TYPE,
+        resize_type=SCALE_BY_MULTIPLIER,
         unused_widget_1=0.5,
         input=image_load_3,
     )
@@ -1562,12 +1547,12 @@ def build() -> VibeWorkflow:
     )
 
     float_comfy_3, int_comfy_3 = ComfyMathExpression(
-        expression=EXPRESSION_2,
+        expression=A_B,
         **{'values.a': reroute_16.out(0), 'values.b': getnode_70.out('FLOAT')},
     )
 
     float_simple_4, int_simple_4, boolean_simple_4 = SimpleCalculatorKJ(
-        expression=EXPRESSION,
+        expression=ROUND_A_B_1_8_8_1,
         **{'variables.a': reroute_17.out(0), 'variables.b': getnode_70.out('FLOAT')},
     )
 
@@ -1580,7 +1565,7 @@ def build() -> VibeWorkflow:
     )
 
     stringconcatenate_6 = StringConcatenate(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1='',
         string_a=primitivestringmultiline_9,
         string_b=reroute_19.out(0),
@@ -1595,12 +1580,12 @@ def build() -> VibeWorkflow:
     )
 
     randomnoise_10 = RandomNoise(
-        control_after_generate=CONTROL_AFTER_GENERATE,
+        control_after_generate=FIXED,
         noise_seed=primitiveint_4,
     )
 
     resizeimagemasknode_4 = ResizeImageMaskNode(
-        resize_type=RESIZE_TYPE,
+        resize_type=SCALE_BY_MULTIPLIER,
         unused_widget_1=0.5,
         input=image_load_4,
     )
@@ -1611,12 +1596,12 @@ def build() -> VibeWorkflow:
     )
 
     float_comfy_4, int_comfy_4 = ComfyMathExpression(
-        expression=EXPRESSION_2,
+        expression=A_B,
         **{'values.a': reroute_22.out(0), 'values.b': getnode_93.out('FLOAT')},
     )
 
     float_simple_5, int_simple_5, boolean_simple_5 = SimpleCalculatorKJ(
-        expression=EXPRESSION,
+        expression=ROUND_A_B_1_8_8_1,
         **{'variables.a': reroute_23.out(0), 'variables.b': getnode_93.out('FLOAT')},
     )
 
@@ -1629,7 +1614,7 @@ def build() -> VibeWorkflow:
     )
 
     stringconcatenate_7 = StringConcatenate(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1='',
         string_a=primitivestringmultiline_10,
         string_b=reroute_25.out(0),
@@ -1680,7 +1665,7 @@ def build() -> VibeWorkflow:
     )
 
     resizeimagemasknode_5 = ResizeImageMaskNode(
-        resize_type=RESIZE_TYPE,
+        resize_type=SCALE_BY_MULTIPLIER,
         input=image_image,
     )
 
@@ -1690,7 +1675,7 @@ def build() -> VibeWorkflow:
     )
 
     stringconcatenate_8 = StringConcatenate(
-        delimiter=DELIMITER,
+        delimiter=VALUE,
         string_b='MusicVideo',
         widget_0='MusicVideo',
         string_a=stringconcatenate,
@@ -1699,9 +1684,9 @@ def build() -> VibeWorkflow:
     ltxvpreprocess = LTXVPreprocess(img_compression=18, image=resizeimagesbylongeredge)
 
     textgenerateltx2prompt = TextGenerateLTX2Prompt(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1=256,
-        widget_2=WIDGET_2,
+        widget_2=OFF,
         widget_3=False,
         widget_4=True,
         clip=getnode_10.out('CLIP'),
@@ -1721,9 +1706,9 @@ def build() -> VibeWorkflow:
     )
 
     textgenerateltx2prompt_2 = TextGenerateLTX2Prompt(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1=256,
-        widget_2=WIDGET_2,
+        widget_2=OFF,
         widget_3=False,
         widget_4=True,
         clip=getnode_30.out('CLIP'),
@@ -1748,9 +1733,9 @@ def build() -> VibeWorkflow:
     )
 
     textgenerateltx2prompt_3 = TextGenerateLTX2Prompt(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1=256,
-        widget_2=WIDGET_2,
+        widget_2=OFF,
         widget_3=False,
         widget_4=True,
         clip=getnode_53.out('CLIP'),
@@ -1775,9 +1760,9 @@ def build() -> VibeWorkflow:
     )
 
     textgenerateltx2prompt_4 = TextGenerateLTX2Prompt(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1=256,
-        widget_2=WIDGET_2,
+        widget_2=OFF,
         widget_3=False,
         widget_4=True,
         clip=getnode_76.out('CLIP'),
@@ -1815,9 +1800,9 @@ def build() -> VibeWorkflow:
     width_get, height_get, batch_size = GetImageSize(image=resizeimagemasknode_5)
 
     textgenerateltx2prompt_5 = TextGenerateLTX2Prompt(
-        widget_0=WIDGET_0_19,
+        widget_0='',
         widget_1=256,
-        widget_2=WIDGET_2,
+        widget_2=OFF,
         widget_3=False,
         widget_4=True,
         clip=dualcliploader,
@@ -1835,7 +1820,7 @@ def build() -> VibeWorkflow:
     setlatentnoisemask = SetLatentNoiseMask(mask=solidmask, samples=ltxvaudiovaeencode)
 
     ltxvimgtovideoinplacekj = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=emptyltxvlatentvideo,
@@ -1856,7 +1841,7 @@ def build() -> VibeWorkflow:
     )
 
     ltxvimgtovideoinplacekj_2 = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=emptyltxvlatentvideo_2,
@@ -1877,7 +1862,7 @@ def build() -> VibeWorkflow:
     )
 
     ltxvimgtovideoinplacekj_3 = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=emptyltxvlatentvideo_3,
@@ -1898,7 +1883,7 @@ def build() -> VibeWorkflow:
     )
 
     ltxvimgtovideoinplacekj_4 = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=emptyltxvlatentvideo_4,
@@ -2175,7 +2160,7 @@ def build() -> VibeWorkflow:
     )
 
     ltxvimgtovideoinplacekj_5 = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=ltxvlatentupsampler,
@@ -2184,7 +2169,7 @@ def build() -> VibeWorkflow:
     )
 
     ltxvimgtovideoinplacekj_6 = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=ltxvlatentupsampler_2,
@@ -2193,7 +2178,7 @@ def build() -> VibeWorkflow:
     )
 
     ltxvimgtovideoinplacekj_7 = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=ltxvlatentupsampler_3,
@@ -2202,7 +2187,7 @@ def build() -> VibeWorkflow:
     )
 
     ltxvimgtovideoinplacekj_8 = LTXVImgToVideoInplaceKJ(
-        widget_0=WIDGET_0_20,
+        widget_0=V_1,
         widget_1=1,
         widget_2=0,
         latent=ltxvlatentupsampler_4,
@@ -2434,11 +2419,9 @@ def build() -> VibeWorkflow:
 
 
     PUBLIC_INPUTS = {
-        'model': InputSpec(node=latentupscalemodelloader, field='model_name', default=MODEL_NAME),
-        'seed': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED),
-        'prompt': InputSpec(node=primitivestringmultiline, field='value', default='Make this image come alive with fluid motion. Cinematic music video shot of a red haired woman. \n\nShe sings with expressive motion and gesticulation. \nThe song she is singing is a sweet slow melancolic melody. Her lips moves in perfect lip-sync to the attached audio.  \n\nShe is walking through a mystical dreamy forrest, tracking camera as she walks towards the viewer. \nThe camera pulls away slowly keeping same distance to the woman. \n\nCinematic, volumetric lights, shadow play. \n\nIMPORTANT: The woman is singing, and her lips are moving with lip-sync to the lyrics of the song.'),
-        'steps': InputSpec(node=basicscheduler, field='steps', default=4),
-        'image': InputSpec(node=image, field='image', default='download (8).png', aliases=('input_image',)),
+        'image': InputSpec(node=image, field='image', default='download (8).png', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
+        'seed': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED, type='INT'),
+        'prompt': InputSpec(node=primitivestringmultiline, field='value', default='Make this image come alive with fluid motion. Cinematic music video shot of a red haired woman. \n\nShe sings with expressive motion and gesticulation. \nThe song she is singing is a sweet slow melancolic melody. Her lips moves in perfect lip-sync to the attached audio.  \n\nShe is walking through a mystical dreamy forrest, tracking camera as she walks towards the viewer. \nThe camera pulls away slowly keeping same distance to the woman. \n\nCinematic, volumetric lights, shadow play. \n\nIMPORTANT: The woman is singing, and her lips are moving with lip-sync to the lyrics of the song.', type='STRING', required=True, media_semantics='text'),
     }
     return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

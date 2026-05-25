@@ -263,11 +263,9 @@
       "path": "ready_templates/audio/qwen3_tts_custom_voice.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "text_to_speech_custom_voice",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-QwenTTS"
-      ],
+      "custom_nodes": [],
       "model_count": 0,
       "public_inputs": [
         {
@@ -279,7 +277,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -296,7 +294,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/qwen3_tts_custom_voice",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -310,7 +308,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/qwen3_tts_custom_voice",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -325,7 +323,7 @@
       ],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 1,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -340,7 +338,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/qwen_tts/1038lab/qwen3_tts_custom_voice.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -433,11 +431,9 @@
       "path": "ready_templates/audio/qwen3_tts_voice_design.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "text_to_speech_voice_design",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-QwenTTS"
-      ],
+      "custom_nodes": [],
       "model_count": 0,
       "public_inputs": [
         {
@@ -449,7 +445,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -466,7 +462,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/qwen3_tts_voice_design",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -480,7 +476,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": null,
+          "filename_prefix": "audio/qwen3_tts_voice_design",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -495,7 +491,7 @@
       ],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 1,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -510,7 +506,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/qwen_tts/1038lab/qwen3_tts_voice_design.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -1307,12 +1303,32 @@
           "node_id": "",
           "field": "image",
           "value": "image_upscale_input.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "image_upscale_input.png",
-          "required": false,
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "image_upscale_input.png",
+          "type": "IMAGE",
+          "default": "image_upscale_input.png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         }
@@ -3528,7 +3544,7 @@
       "custom_node_count": 3,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "manual",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -3557,26 +3573,8 @@
         "ComfyUI-VideoHelperSuite",
         "rgthree-comfy"
       ],
-      "model_count": 6,
+      "model_count": 0,
       "public_inputs": [
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
-          "node_id": "",
-          "field": "height",
-          "value": 1280,
-          "type": null,
-          "default": 1280,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
         {
           "name": "image",
           "target": {
@@ -3586,14 +3584,14 @@
           "node_id": "",
           "field": "image",
           "value": "ComfyUI_00126_.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "ComfyUI_00126_.png",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -3606,8 +3604,26 @@
           "node_id": "",
           "field": "image",
           "value": "ComfyUI_00126_.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "ComfyUI_00126_.png",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "width",
+          "target": {
+            "node_id": "",
+            "field": "width"
+          },
+          "node_id": "",
+          "field": "width",
+          "value": 720,
+          "type": "INT",
+          "default": 720,
           "required": false,
           "range": null,
           "aliases": [],
@@ -3616,15 +3632,33 @@
           "source": "InputSpec"
         },
         {
-          "name": "model",
+          "name": "height",
           "target": {
             "node_id": "",
-            "field": "unet_name"
+            "field": "height"
           },
           "node_id": "",
-          "field": "unet_name",
+          "field": "height",
+          "value": 1280,
+          "type": "INT",
+          "default": 1280,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -3641,7 +3675,25 @@
           },
           "node_id": "",
           "field": "text",
-          "value": null,
+          "value": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text on shirt or hat, incorrect lettering on cap (\u201cPNTR\u201d), incorrect t-shirt slogan (\u201cJUST DO IT\u201d), missing microphone, misplaced microphone, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, smiling, laughing, exaggerated sadness, wrong gaze direction, eyes looking at camera, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
+          "type": "STRING",
+          "default": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text on shirt or hat, incorrect lettering on cap (\u201cPNTR\u201d), incorrect t-shirt slogan (\u201cJUST DO IT\u201d), missing microphone, misplaced microphone, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, smiling, laughing, exaggerated sadness, wrong gaze direction, eyes looking at camera, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "4",
+            "field": "unet_name"
+          },
+          "node_id": "4",
+          "field": "unet_name",
+          "value": "LTX-2-dev-Q4_K_S.gguf",
           "type": null,
           "default": null,
           "required": false,
@@ -3649,49 +3701,31 @@
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         },
         {
           "name": "steps",
           "target": {
-            "node_id": "",
+            "node_id": "23",
             "field": "steps"
           },
-          "node_id": "",
+          "node_id": "23",
           "field": "steps",
-          "value": 8,
+          "value": 1,
           "type": null,
-          "default": 8,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
-          "field": "width",
-          "value": 720,
-          "type": null,
-          "default": 720,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "190",
+          "node_id": "984",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -3705,7 +3739,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "190",
+          "node_id": "984",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -3727,7 +3761,7 @@
       "custom_node_count": 5,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -3740,7 +3774,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/iamccs/IAMCCS_LTX2_AU_IMG2V.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_iamccs_long_i2v",
@@ -3755,7 +3826,7 @@
         "ComfyUI-LTXVideo",
         "rgthree-comfy"
       ],
-      "model_count": 6,
+      "model_count": 0,
       "public_inputs": [
         {
           "name": "image",
@@ -3766,14 +3837,14 @@
           "node_id": "",
           "field": "image",
           "value": "z-image_00255_.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "z-image_00255_.png",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -3786,8 +3857,26 @@
           "node_id": "",
           "field": "image",
           "value": "z-image_00255_.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "z-image_00255_.png",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "width",
+          "target": {
+            "node_id": "",
+            "field": "width"
+          },
+          "node_id": "",
+          "field": "width",
+          "value": 1332,
+          "type": "INT",
+          "default": 1332,
           "required": false,
           "range": null,
           "aliases": [],
@@ -3796,16 +3885,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "model",
+          "name": "height",
           "target": {
             "node_id": "",
-            "field": "ckpt_name"
+            "field": "height"
           },
           "node_id": "",
-          "field": "ckpt_name",
-          "value": null,
-          "type": null,
-          "default": null,
+          "field": "height",
+          "value": 720,
+          "type": "INT",
+          "default": 720,
           "required": false,
           "range": null,
           "aliases": [],
@@ -3822,20 +3911,56 @@
           "node_id": "",
           "field": "value",
           "value": "Cinematic action packed shot. the man says silently: \"We need to run.\" the camera zooms in on his mouth then immediately screams: \"NOW!\". the camera zooms back out, he turns around, and starts running away, the camera tracks his run in hand held style.",
-          "type": null,
+          "type": "STRING",
           "default": "Cinematic action packed shot. the man says silently: \"We need to run.\" the camera zooms in on his mouth then immediately screams: \"NOW!\". the camera zooms back out, he turns around, and starts running away, the camera tracks his run in hand held style.",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "53",
+            "field": "ckpt_name"
+          },
+          "node_id": "53",
+          "field": "ckpt_name",
+          "value": "ltx-2.3-22b-dev-fp8.safetensors",
+          "type": null,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "2",
+            "field": "noise_seed"
+          },
+          "node_id": "2",
+          "field": "noise_seed",
+          "value": 420,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "4958",
+          "node_id": "10964",
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -3849,7 +3974,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "4958",
+          "node_id": "10964",
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -3871,7 +3996,7 @@
       "custom_node_count": 4,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -3884,7 +4009,37 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/iamccs/IAMCCS_LTX2_I2V_LONG_LENGTH.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_lightricks_first_last_parity",
@@ -4973,7 +5128,7 @@
         "ComfyUI-LTXVideo",
         "comfyui_controlnet_aux"
       ],
-      "model_count": 4,
+      "model_count": 0,
       "public_inputs": [
         {
           "name": "image",
@@ -4983,15 +5138,15 @@
           },
           "node_id": "",
           "field": "image",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "value": "example.png",
+          "type": "IMAGE",
+          "default": "example.png",
+          "required": true,
           "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -5003,26 +5158,26 @@
           },
           "node_id": "",
           "field": "image",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "value": "example.png",
+          "type": "IMAGE",
+          "default": "example.png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "model",
+          "name": "seed",
           "target": {
             "node_id": "",
-            "field": "ckpt_name"
+            "field": "noise_seed"
           },
           "node_id": "",
-          "field": "ckpt_name",
+          "field": "noise_seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -5039,31 +5194,13 @@
           },
           "node_id": "",
           "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "value": "Apocalyptic landscape with abandoned buildings, overgrown with foliage and trees. The sky is clear and the sun is setting, with the horizon turning bright red. The buildings are delapidated, falling apart and crumbling due to being abandoned for so long.\nThe air is full of silence and the only thing to be heard is a young girl breathing and saying: \"Where is everyone?\"",
+          "type": "STRING",
+          "default": "Apocalyptic landscape with abandoned buildings, overgrown with foliage and trees. The sky is clear and the sun is setting, with the horizon turning bright red. The buildings are delapidated, falling apart and crumbling due to being abandoned for so long.\nThe air is full of silence and the only thing to be heard is a young girl breathing and saying: \"Where is everyone?\"",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "noise_seed"
-          },
-          "node_id": "",
-          "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "text",
           "status": "static",
           "source": "InputSpec"
         }
@@ -5071,7 +5208,7 @@
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "4852",
+          "node_id": "5052",
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -5085,7 +5222,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "4852",
+          "node_id": "5052",
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -5095,13 +5232,19 @@
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [],
+      "static_diagnostics": [
+        {
+          "code": "static_dynamic_value",
+          "severity": "warning",
+          "message": "finalize has dynamic 'output_node'"
+        }
+      ],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 4,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -5114,75 +5257,48 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/lightricks_2_3/LTX-2.3_ICLoRA_Union_Control_Distilled.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-DepthAnythingV2",
+          "source": "git",
+          "version": "unknown",
+          "commit": "553187872eeb1d52e50dc53209fa57e569609a72",
+          "url": "https://github.com/kijai/ComfyUI-DepthAnythingV2.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "comfyui_controlnet_aux",
+          "source": "git",
+          "version": "unknown",
+          "commit": "e8b689a513c3e6b63edc44066560ca5919c0576e",
+          "url": "https://github.com/Fannovel16/comfyui_controlnet_aux.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_lightricks_two_stage",
       "path": "ready_templates/video/ltx2_3_lightricks_two_stage.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "text_or_image_to_video_upscale",
+      "capability": "unknown",
       "coverage_tier": "required",
-      "custom_nodes": [
-        "ComfyUI-KJNodes",
-        "ComfyUI-LTXVideo"
-      ],
-      "model_count": 4,
+      "custom_nodes": [],
+      "model_count": 5,
       "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "ckpt_name"
-          },
-          "node_id": "",
-          "field": "ckpt_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "noise_seed"
-          },
-          "node_id": "",
-          "field": "noise_seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
         {
           "name": "image",
           "target": {
@@ -5191,13 +5307,33 @@
           },
           "node_id": "",
           "field": "image",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "value": "example.png",
+          "type": "IMAGE",
+          "default": "example.png",
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "example.png",
+          "type": "IMAGE",
+          "default": "example.png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -5209,9 +5345,9 @@
           },
           "node_id": "",
           "field": "width",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "value": 960,
+          "type": "INT",
+          "default": 960,
           "required": false,
           "range": null,
           "aliases": [],
@@ -5227,21 +5363,113 @@
           },
           "node_id": "",
           "field": "height",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "value": 544,
+          "type": "INT",
+          "default": 544,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "noise_seed"
+          },
+          "node_id": "",
+          "field": "noise_seed",
+          "value": null,
+          "type": "INT",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": "A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words.",
+          "type": "STRING",
+          "default": "A traditional Japanese tea ceremony takes place in a tatami room as a host carefully prepares matcha. Soft traditional koto music plays in the background, adding to the serene atmosphere. The bamboo whisk taps rhythmically against the ceramic bowl while water simmers in an iron kettle. Guests kneel in formal seiza position, watching in respectful silence. The host bows and presents the tea bowl, turning it precisely before offering it to the first guest with soft-spoken words.",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "negative_prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": "STRING",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [
+            "negative"
+          ],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "negative",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": "STRING",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "7",
+            "field": "model_name"
+          },
+          "node_id": "7",
+          "field": "model_name",
+          "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "5014",
+          "node_id": "5015",
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -5255,7 +5483,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "5014",
+          "node_id": "5015",
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -5270,16 +5498,11 @@
           "code": "static_dynamic_value",
           "severity": "warning",
           "message": "finalize has dynamic 'output_node'"
-        },
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "register_input has dynamic 'node_id'"
         }
       ],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 2,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -5294,7 +5517,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/lightricks_2_3/LTX-2.3_T2V_I2V_Two_Stage_Distilled.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -5316,14 +5539,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "2",
+            "node_id": "",
             "field": "noise_seed"
           },
-          "node_id": "2",
+          "node_id": "",
           "field": "noise_seed",
-          "value": 420,
-          "type": null,
-          "default": 420,
+          "value": null,
+          "type": "INT",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -5334,38 +5557,56 @@
         {
           "name": "image",
           "target": {
-            "node_id": "6",
+            "node_id": "",
             "field": "image"
           },
-          "node_id": "6",
+          "node_id": "",
           "field": "image",
           "value": "liam-neeson-in-retribution-ra.jpg",
-          "type": null,
+          "type": "IMAGE",
           "default": "liam-neeson-in-retribution-ra.jpg",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
         {
           "name": "input_image",
           "target": {
-            "node_id": "6",
+            "node_id": "",
             "field": "image"
           },
-          "node_id": "6",
+          "node_id": "",
           "field": "image",
           "value": "liam-neeson-in-retribution-ra.jpg",
-          "type": null,
+          "type": "IMAGE",
           "default": "liam-neeson-in-retribution-ra.jpg",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "value"
+          },
+          "node_id": "",
+          "field": "value",
+          "value": "You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user's scene).\n- Describe only changes from the image: Don't reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs (\"is walking,\" \"speaking\"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors (\"as,\" \"then,\" \"while\").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions\u2014NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., \"soft footsteps on tile\") not vague (e.g., \"ambient sound\").\n- Speech (only when requested): Provide exact words in quotes with character's visual/voice characteristics (e.g., \"The tall man speaks in a low, gravelly voice\"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., \"The man is talking\" input -> the output should include exact spoken words, like: \"The man is talking in an excited voice saying: 'You won't believe what I just saw!' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.\")\n- Style: Include visual style at beginning: \"Style: <style>, <rest of prompt>.\" If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user's provided character dialogue in the prompt, unless it's a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like \"The scene opens with...\" / \"The video starts...\". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, \"I think we're right on time!\" In the background, a caf\u00e9 barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, \"Two cappuccinos ready!\" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________",
+          "type": "STRING",
+          "default": "You are a Creative Assistant writing concise, action-focused image-to-video prompts. Given an image (first frame) and user Raw Input Prompt, generate a prompt to guide video generation from that image.\n\n#### Guidelines:\n- Analyze the Image: Identify Subject, Setting, Elements, Style and Mood.\n- Follow user Raw Input Prompt: Include all requested motion, actions, camera movements, audio, and details. If in conflict with the image, prioritize user request while maintaining visual consistency (describe transition from image to user's scene).\n- Describe only changes from the image: Don't reiterate established visual details. Inaccurate descriptions may cause scene cuts.\n- Active language: Use present-progressive verbs (\"is walking,\" \"speaking\"). If no action specified, describe natural movements.\n- Chronological flow: Use temporal connectors (\"as,\" \"then,\" \"while\").\n- Audio layer: Describe complete soundscape throughout the prompt alongside actions\u2014NOT at the end. Align audio intensity with action tempo. Include natural background audio, ambient sounds, effects, speech or music (when requested). Be specific (e.g., \"soft footsteps on tile\") not vague (e.g., \"ambient sound\").\n- Speech (only when requested): Provide exact words in quotes with character's visual/voice characteristics (e.g., \"The tall man speaks in a low, gravelly voice\"), language if not English and accent if relevant. If general conversation mentioned without text, generate contextual quoted dialogue. (i.e., \"The man is talking\" input -> the output should include exact spoken words, like: \"The man is talking in an excited voice saying: 'You won't believe what I just saw!' His hands gesture expressively as he speaks, eyebrows raised with enthusiasm. The ambient sound of a quiet room underscores his animated speech.\")\n- Style: Include visual style at beginning: \"Style: <style>, <rest of prompt>.\" If unclear, omit to avoid conflicts.\n- Visual and audio only: Describe only what is seen and heard. NO smell, taste, or tactile sensations.\n- Restrained language: Avoid dramatic terms. Use mild, natural, understated phrasing.\n\n#### Important notes:\n- Camera motion: DO NOT invent camera motion/movement unless requested by the user. Make sure to include camera motion only if specified in the input.\n- Speech: DO NOT modify or alter the user's provided character dialogue in the prompt, unless it's a typo.\n- No timestamps or cuts: DO NOT use timestamps or describe scene cuts unless explicitly requested.\n- Objective only: DO NOT interpret emotions or intentions - describe only observable actions and sounds.\n- Format: DO NOT use phrases like \"The scene opens with...\" / \"The video starts...\". Start directly with Style (optional) and chronological scene description.\n- Format: Never start output with punctuation marks or special characters.\n- DO NOT invent dialogue unless the user mentions speech/talking/singing/conversation.\n- Your performance is CRITICAL. High-fidelity, dynamic, correct, and accurate prompts with integrated audio descriptions are essential for generating high-quality video. Your goal is flawless execution of these rules.\n\n#### Output Format (Strict):\n- Single concise paragraph in natural English. NO titles, headings, prefaces, sections, code fences, or Markdown.\n- If unsafe/invalid, return original user prompt. Never ask questions or clarifications.\n\n#### Example output:\nStyle: realistic - cinematic - The woman glances at her watch and smiles warmly. She speaks in a cheerful, friendly voice, \"I think we're right on time!\" In the background, a caf\u00e9 barista prepares drinks at the counter. The barista calls out in a clear, upbeat tone, \"Two cappuccinos ready!\" The sound of the espresso machine hissing softly blends with gentle background chatter and the light clinking of cups on saucers. \n\nUSER PROMPT BELOW: \n___________________________________________________",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
           "status": "static",
           "source": "InputSpec"
         },
@@ -5379,49 +5620,13 @@
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
           "type": null,
-          "default": "ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "use_lora",
-          "target": {
-            "node_id": "290",
-            "field": "value"
-          },
-          "node_id": "290",
-          "field": "value",
-          "value": false,
-          "type": null,
-          "default": false,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "382",
-            "field": "text"
-          },
-          "node_id": "382",
-          "field": "text",
-          "value": "blurry, oversaturated, pixelated, low resolution, grainy, distorted, noise, compression artifacts, jpeg artifacts, glitches, watermark, text, logo, signature, copyright, subtitles, distorted sound, saturated sound, loud",
-          "type": null,
-          "default": "blurry, oversaturated, pixelated, low resolution, grainy, distorted, noise, compression artifacts, jpeg artifacts, glitches, watermark, text, logo, signature, copyright, subtitles, distorted sound, saturated sound, loud",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -5431,7 +5636,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_custom_audio",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -5445,13 +5650,19 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_custom_audio",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [],
+      "static_diagnostics": [
+        {
+          "code": "static_dynamic_value",
+          "severity": "warning",
+          "message": "finalize has dynamic 'output_node'"
+        }
+      ],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 5,
@@ -5470,7 +5681,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Custom_Audio.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_runexx_first_last_frame",
@@ -6251,7 +6499,7 @@
       "custom_node_count": 4,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "generated",
+      "marker": "manual",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -6451,14 +6699,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "noise_seed"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "noise_seed",
-          "value": 790774741312584,
+          "value": null,
           "type": "INT",
-          "default": 790774741312584,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6469,14 +6717,14 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "862",
-            "field": "text"
+            "node_id": "",
+            "field": "value"
           },
-          "node_id": "862",
-          "field": "text",
-          "value": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "node_id": "",
+          "field": "value",
+          "value": "Cinematic video woman wearing colorful make-up, with colorful  light creating a creative scene. \n\nShe talks with perfect lip-sync movements to the attached audio. Her mouth and lips moves as she talks. \n \nThe camera slowly moves away from the woman, showing her full body. She is standing at a  colorful theatre scene doing a victorian era play. ",
           "type": "STRING",
-          "default": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "default": "Cinematic video woman wearing colorful make-up, with colorful  light creating a creative scene. \n\nShe talks with perfect lip-sync movements to the attached audio. Her mouth and lips moves as she talks. \n \nThe camera slowly moves away from the woman, showing her full body. She is standing at a  colorful theatre scene doing a victorian era play. ",
           "required": true,
           "range": null,
           "aliases": [],
@@ -6487,59 +6735,48 @@
         {
           "name": "model",
           "target": {
-            "node_id": "218",
+            "node_id": "12",
             "field": "model_name"
           },
-          "node_id": "218",
+          "node_id": "12",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
-          "default": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         },
         {
           "name": "steps",
           "target": {
-            "node_id": "881",
+            "node_id": "46",
             "field": "steps"
           },
-          "node_id": "881",
+          "node_id": "46",
           "field": "steps",
           "value": 1,
           "type": null,
-          "default": 1,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
-          "name": null,
+          "name": "image",
           "node_id": "910",
           "output_type": "PreviewImage",
-          "artifact_kind": null,
-          "mime_type": null,
+          "artifact_kind": "image",
+          "mime_type": "image/png",
           "filename_prefix": null,
-          "expected_cardinality": null,
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": "video",
-          "node_id": "928",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_lipsync_custom_audio",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -6548,29 +6785,24 @@
       "contract_shape": "workflow_runtime_contract.v1.public_descriptors.v2",
       "artifact_expectations": [
         {
-          "name": null,
+          "name": "image",
           "node_id": "910",
           "output_type": "PreviewImage",
-          "artifact_kind": null,
-          "mime_type": null,
+          "artifact_kind": "image",
+          "mime_type": "image/png",
           "filename_prefix": null,
-          "expected_cardinality": null,
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": "video",
-          "node_id": "928",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_lipsync_custom_audio",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [],
+      "static_diagnostics": [
+        {
+          "code": "static_dynamic_value",
+          "severity": "warning",
+          "message": "finalize has dynamic 'output_node'"
+        }
+      ],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 5,
@@ -6648,10 +6880,10 @@
         {
           "name": "image",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "image"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "image",
           "value": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
           "type": "IMAGE",
@@ -6668,10 +6900,10 @@
         {
           "name": "input_image",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "image"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "image",
           "value": "fjf1oxsjnnrgphxxrnzx6dh4k9-nano-banana-gemini-3-pro-image-ultra-realistic-black-and-white-cinematic-fullbody-portrait-of-muhammad-ali-standing-side-lighting-strong-contrast-intense-mysterious-expression-sharp.jpg",
           "type": "IMAGE",
@@ -6686,14 +6918,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "3",
+            "node_id": "",
             "field": "noise_seed"
           },
-          "node_id": "3",
+          "node_id": "",
           "field": "noise_seed",
-          "value": 42,
+          "value": null,
           "type": "INT",
-          "default": 42,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -6704,14 +6936,14 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "5304",
-            "field": "text"
+            "node_id": "",
+            "field": "value"
           },
-          "node_id": "5304",
-          "field": "text",
-          "value": "low contrast, washed out, text, subtitles, logo, still image, still video, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "node_id": "",
+          "field": "value",
+          "value": "highly detailed, monochrime colors. Make this image come alive with fluid motion. \n\nA make boxer. \n\nHe is dancing in sync to the music ",
           "type": "STRING",
-          "default": "low contrast, washed out, text, subtitles, logo, still image, still video, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "default": "highly detailed, monochrime colors. Make this image come alive with fluid motion. \n\nA make boxer. \n\nHe is dancing in sync to the music ",
           "required": true,
           "range": null,
           "aliases": [],
@@ -6722,20 +6954,20 @@
         {
           "name": "model",
           "target": {
-            "node_id": "10",
+            "node_id": "14",
             "field": "ckpt_name"
           },
-          "node_id": "10",
+          "node_id": "14",
           "field": "ckpt_name",
           "value": "LTX23_audio_vae_bf16.safetensors",
           "type": null,
-          "default": "LTX23_audio_vae_bf16.safetensors",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -6745,19 +6977,8 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_motion_transfer_dwpose",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": null,
-          "node_id": "5360",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": null,
-          "mime_type": null,
           "filename_prefix": null,
-          "expected_cardinality": null,
+          "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
@@ -6770,24 +6991,19 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_motion_transfer_dwpose",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": null,
-          "node_id": "5360",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": null,
-          "mime_type": null,
           "filename_prefix": null,
-          "expected_cardinality": null,
+          "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [],
+      "static_diagnostics": [
+        {
+          "code": "static_dynamic_value",
+          "severity": "warning",
+          "message": "finalize has dynamic 'output_node'"
+        }
+      ],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 6,
@@ -6866,23 +7082,43 @@
         "ComfyUI-VideoHelperSuite",
         "rgthree-comfy"
       ],
-      "model_count": 8,
+      "model_count": 0,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "image",
           "target": {
             "node_id": "",
-            "field": "model_name"
+            "field": "image"
           },
           "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "field": "image",
+          "value": "download (8).png",
+          "type": "IMAGE",
+          "default": "download (8).png",
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "download (8).png",
+          "type": "IMAGE",
+          "default": "download (8).png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -6895,7 +7131,7 @@
           "node_id": "",
           "field": "noise_seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -6913,70 +7149,50 @@
           "node_id": "",
           "field": "value",
           "value": "Make this image come alive with fluid motion. Cinematic music video shot of a red haired woman. \n\nShe sings with expressive motion and gesticulation. \nThe song she is singing is a sweet slow melancolic melody. Her lips moves in perfect lip-sync to the attached audio.  \n\nShe is walking through a mystical dreamy forrest, tracking camera as she walks towards the viewer. \nThe camera pulls away slowly keeping same distance to the woman. \n\nCinematic, volumetric lights, shadow play. \n\nIMPORTANT: The woman is singing, and her lips are moving with lip-sync to the lyrics of the song.",
-          "type": null,
+          "type": "STRING",
           "default": "Make this image come alive with fluid motion. Cinematic music video shot of a red haired woman. \n\nShe sings with expressive motion and gesticulation. \nThe song she is singing is a sweet slow melancolic melody. Her lips moves in perfect lip-sync to the attached audio.  \n\nShe is walking through a mystical dreamy forrest, tracking camera as she walks towards the viewer. \nThe camera pulls away slowly keeping same distance to the woman. \n\nCinematic, volumetric lights, shadow play. \n\nIMPORTANT: The woman is singing, and her lips are moving with lip-sync to the lyrics of the song.",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "141",
+            "field": "model_name"
+          },
+          "node_id": "141",
+          "field": "model_name",
+          "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+          "type": null,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         },
         {
           "name": "steps",
           "target": {
-            "node_id": "",
+            "node_id": "299",
             "field": "steps"
           },
-          "node_id": "",
+          "node_id": "299",
           "field": "steps",
-          "value": 4,
+          "value": 1,
           "type": null,
-          "default": 4,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "download (8).png",
-          "type": null,
-          "default": "download (8).png",
-          "required": false,
-          "range": null,
-          "aliases": [
-            "input_image"
-          ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "download (8).png",
-          "type": null,
-          "default": "download (8).png",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -7031,7 +7247,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Music_Video_Creator_Low_RAM.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_runexx_talking_avatar_qwen_tts",
@@ -7048,23 +7301,43 @@
         "ComfyUI-VideoHelperSuite",
         "rgthree-comfy"
       ],
-      "model_count": 9,
+      "model_count": 0,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "image",
           "target": {
             "node_id": "",
-            "field": "model_name"
+            "field": "image"
           },
           "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "field": "image",
+          "value": "17745317855d08.png",
+          "type": "IMAGE",
+          "default": "17745317855d08.png",
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "17745317855d08.png",
+          "type": "IMAGE",
+          "default": "17745317855d08.png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -7077,7 +7350,7 @@
           "node_id": "",
           "field": "noise_seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -7095,70 +7368,50 @@
           "node_id": "",
           "field": "value",
           "value": "A video from a TV broadcast with a male and a female news achor. They both stay in frame all the time.\n\nThe dialog from the male and female is as follows:\n\nSpaker_1 is the woman, and Speaker_2 is the man.\n\n[speaker_1][confused]: This is awkward! I guess the prompter ran out of ideas, and put us in this odd situation.\n[speaker_2][embarrassed] : But hey,  just because we are here, in a new video, doesn't mean our voices change. \n[speaker_1][excited]: Aber ich m\u00f6chte mit dir schlafen.\n[speaker_2][happy]: I still have no idea what she said! Might be for the best [laughing]\n\nThe dialog with perfect lip-sync to the audio\n\n\nThey both smile at the end.\n\n\n",
-          "type": null,
+          "type": "STRING",
           "default": "A video from a TV broadcast with a male and a female news achor. They both stay in frame all the time.\n\nThe dialog from the male and female is as follows:\n\nSpaker_1 is the woman, and Speaker_2 is the man.\n\n[speaker_1][confused]: This is awkward! I guess the prompter ran out of ideas, and put us in this odd situation.\n[speaker_2][embarrassed] : But hey,  just because we are here, in a new video, doesn't mean our voices change. \n[speaker_1][excited]: Aber ich m\u00f6chte mit dir schlafen.\n[speaker_2][happy]: I still have no idea what she said! Might be for the best [laughing]\n\nThe dialog with perfect lip-sync to the audio\n\n\nThey both smile at the end.\n\n\n",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "11",
+            "field": "model_name"
+          },
+          "node_id": "11",
+          "field": "model_name",
+          "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+          "type": null,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         },
         {
           "name": "steps",
           "target": {
-            "node_id": "",
+            "node_id": "66",
             "field": "steps"
           },
-          "node_id": "",
+          "node_id": "66",
           "field": "steps",
-          "value": 8,
+          "value": 1,
           "type": null,
-          "default": 8,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "17745317855d08.png",
-          "type": null,
-          "default": "17745317855d08.png",
-          "required": false,
-          "range": null,
-          "aliases": [
-            "input_image"
-          ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "17745317855d08.png",
-          "type": null,
-          "default": "17745317855d08.png",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -7213,7 +7466,51 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-GGUF",
+          "source": "git",
+          "version": "unknown",
+          "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
+          "url": "https://github.com/city96/ComfyUI-GGUF.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-LTXVideo",
+          "source": "git",
+          "version": "unknown",
+          "commit": "229437c6b65796d6a7a63ae34be2bd5ba31fa543",
+          "url": "https://github.com/Lightricks/ComfyUI-LTXVideo.git"
+        },
+        {
+          "slug": "ComfyUI-QwenTTS",
+          "source": "git",
+          "version": "unknown",
+          "commit": "d8122a8ba835b65fd65c113d2b273b1ad1579293",
+          "url": "https://github.com/1038lab/ComfyUI-QwenTTS.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/ltx2_3_runexx_video_to_video_extend",
@@ -7234,14 +7531,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "noise_seed"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "noise_seed",
-          "value": 42,
+          "value": null,
           "type": "INT",
-          "default": 42,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -7252,14 +7549,14 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "596",
-            "field": "text"
+            "node_id": "",
+            "field": "value"
           },
-          "node_id": "596",
-          "field": "text",
-          "value": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "node_id": "",
+          "field": "value",
+          "value": "The Joker looks at the camera and talks, he says \"You know what clownheads. This scene is not from the movie. Its from LTX 2 point 3\". \n\nThen the Joker stands up with an LTX soda can in his hand. \n\nHe drinks from the soda can, and then he says \"Ahhh...  with a bit of LTX and Snickers, my mood changed. Lets all be friends.\" \n\nThen he laughs.\n",
           "type": "STRING",
-          "default": "text, subtitles, logo, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth",
+          "default": "The Joker looks at the camera and talks, he says \"You know what clownheads. This scene is not from the movie. Its from LTX 2 point 3\". \n\nThen the Joker stands up with an LTX soda can in his hand. \n\nHe drinks from the soda can, and then he says \"Ahhh...  with a bit of LTX and Snickers, my mood changed. Lets all be friends.\" \n\nThen he laughs.\n",
           "required": true,
           "range": null,
           "aliases": [],
@@ -7270,60 +7567,49 @@
         {
           "name": "model",
           "target": {
-            "node_id": "219",
+            "node_id": "13",
             "field": "model_name"
           },
-          "node_id": "219",
+          "node_id": "13",
           "field": "model_name",
           "value": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
           "type": null,
-          "default": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         },
         {
           "name": "steps",
           "target": {
-            "node_id": "619",
+            "node_id": "49",
             "field": "steps"
           },
-          "node_id": "619",
+          "node_id": "49",
           "field": "steps",
           "value": 1,
           "type": null,
-          "default": 1,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "656",
+          "node_id": "655",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_video_to_video_extend",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": null,
-          "node_id": "657",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": null,
-          "mime_type": null,
           "filename_prefix": null,
-          "expected_cardinality": null,
+          "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
@@ -7332,28 +7618,23 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "656",
+          "node_id": "655",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ltx2_3_runexx_video_to_video_extend",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": null,
-          "node_id": "657",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": null,
-          "mime_type": null,
           "filename_prefix": null,
-          "expected_cardinality": null,
+          "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
         }
       ],
-      "static_diagnostics": [],
+      "static_diagnostics": [
+        {
+          "code": "static_dynamic_value",
+          "severity": "warning",
+          "message": "finalize has dynamic 'output_node'"
+        }
+      ],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 5,
@@ -9052,18 +9333,18 @@
         "ComfyUI-WanVideoWrapper",
         "rgthree-comfy"
       ],
-      "model_count": 3,
+      "model_count": 0,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "seed",
           "target": {
             "node_id": "",
-            "field": "model_name"
+            "field": "seed"
           },
           "node_id": "",
-          "field": "model_name",
+          "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -9080,25 +9361,25 @@
           },
           "node_id": "",
           "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
+          "type": "STRING",
+          "default": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "text",
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "seed",
+          "name": "model",
           "target": {
-            "node_id": "",
-            "field": "seed"
+            "node_id": "1",
+            "field": "model_name"
           },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
           "default": null,
           "required": false,
@@ -9106,13 +9387,13 @@
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "30",
+          "node_id": "145",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9126,7 +9407,7 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "30",
+          "node_id": "145",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
@@ -9148,7 +9429,7 @@
       "custom_node_count": 4,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -9161,7 +9442,37 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_recammaster.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "ComfyUI-WanVideoWrapper",
+          "source": "git",
+          "version": "unknown",
+          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
+          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/wanvideo_wrapper_13b_vace",
@@ -9177,26 +9488,8 @@
         "ComfyUI-WanVideoWrapper",
         "rgthree-comfy"
       ],
-      "model_count": 2,
+      "model_count": 0,
       "public_inputs": [
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
-          "node_id": "",
-          "field": "height",
-          "value": 256,
-          "type": null,
-          "default": 256,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
         {
           "name": "image",
           "target": {
@@ -9206,14 +9499,14 @@
           "node_id": "",
           "field": "image",
           "value": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp",
-          "type": null,
+          "type": "IMAGE",
           "default": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -9226,30 +9519,12 @@
           "node_id": "",
           "field": "image",
           "value": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp",
-          "type": null,
+          "type": "IMAGE",
           "default": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -9262,7 +9537,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -9279,8 +9554,26 @@
           },
           "node_id": "",
           "field": "width",
+          "value": 8,
+          "type": "INT",
+          "default": 8,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "height",
+          "target": {
+            "node_id": "",
+            "field": "height"
+          },
+          "node_id": "",
+          "field": "height",
           "value": 256,
-          "type": null,
+          "type": "INT",
           "default": 256,
           "required": false,
           "range": null,
@@ -9288,12 +9581,30 @@
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "model_name"
+          },
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "image",
-          "node_id": "113",
+          "node_id": "57",
           "output_type": "PreviewImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
@@ -9307,7 +9618,7 @@
       "artifact_expectations": [
         {
           "name": "image",
-          "node_id": "113",
+          "node_id": "57",
           "output_type": "PreviewImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
@@ -9329,7 +9640,7 @@
       "custom_node_count": 5,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -9342,7 +9653,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-DepthAnythingV2",
+          "source": "git",
+          "version": "unknown",
+          "commit": "553187872eeb1d52e50dc53209fa57e569609a72",
+          "url": "https://github.com/kijai/ComfyUI-DepthAnythingV2.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "ComfyUI-WanVideoWrapper",
+          "source": "git",
+          "version": "unknown",
+          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
+          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/wanvideo_wrapper_21_14b_flf2v",
@@ -9357,62 +9705,8 @@
         "ComfyUI-WanVideoWrapper",
         "rgthree-comfy"
       ],
-      "model_count": 5,
+      "model_count": 0,
       "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
         {
           "name": "image",
           "target": {
@@ -9422,12 +9716,32 @@
           "node_id": "",
           "field": "image",
           "value": "pasted/image (853).png",
-          "type": null,
+          "type": "IMAGE",
           "default": "pasted/image (853).png",
-          "required": false,
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "pasted/image (853).png",
+          "type": "IMAGE",
+          "default": "pasted/image (853).png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -9440,7 +9754,7 @@
           "node_id": "",
           "field": "width",
           "value": 256,
-          "type": null,
+          "type": "INT",
           "default": 256,
           "required": false,
           "range": null,
@@ -9458,7 +9772,7 @@
           "node_id": "",
           "field": "height",
           "value": 256,
-          "type": null,
+          "type": "INT",
           "default": 256,
           "required": false,
           "range": null,
@@ -9466,6 +9780,60 @@
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
+          "value": null,
+          "type": "INT",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": "STRING",
+          "default": null,
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "model_name"
+          },
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -9520,7 +9888,37 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_flf2v.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "ComfyUI-WanVideoWrapper",
+          "source": "git",
+          "version": "unknown",
+          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
+          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/wanvideo_wrapper_21_14b_fun_control",
@@ -9536,18 +9934,56 @@
         "ComfyUI-WanVideoWrapper",
         "rgthree-comfy"
       ],
-      "model_count": 4,
+      "model_count": 0,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "image",
           "target": {
             "node_id": "",
-            "field": "model_name"
+            "field": "image"
           },
           "node_id": "",
-          "field": "model_name",
+          "field": "image",
+          "value": "pasted/image (758).png",
+          "type": "IMAGE",
+          "default": "pasted/image (758).png",
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "pasted/image (758).png",
+          "type": "IMAGE",
+          "default": "pasted/image (758).png",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -9564,7 +10000,25 @@
           },
           "node_id": "",
           "field": "text",
-          "value": null,
+          "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
+          "type": "STRING",
+          "default": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "model_name"
+          },
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
           "default": null,
           "required": false,
@@ -9572,43 +10026,7 @@
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "pasted/image (758).png",
-          "type": null,
-          "default": "pasted/image (758).png",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -9663,7 +10081,44 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_fun_control.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-DepthAnythingV2",
+          "source": "git",
+          "version": "unknown",
+          "commit": "553187872eeb1d52e50dc53209fa57e569609a72",
+          "url": "https://github.com/kijai/ComfyUI-DepthAnythingV2.git"
+        },
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "ComfyUI-WanVideoWrapper",
+          "source": "git",
+          "version": "unknown",
+          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
+          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/wanvideo_wrapper_21_14b_fun_control_camera",
@@ -9848,51 +10303,11 @@
       "path": "ready_templates/video/wanvideo_wrapper_21_14b_i2v.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "image_to_video",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-KJNodes",
-        "ComfyUI-VideoHelperSuite",
-        "ComfyUI-WanVideoWrapper"
-      ],
+      "custom_nodes": [],
       "model_count": 4,
       "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
         {
           "name": "seed",
           "target": {
@@ -9902,7 +10317,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -9920,12 +10335,32 @@
           "node_id": "",
           "field": "image",
           "value": "oldman_upscaled.png",
-          "type": null,
+          "type": "IMAGE",
           "default": "oldman_upscaled.png",
-          "required": false,
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "oldman_upscaled.png",
+          "type": "IMAGE",
+          "default": "oldman_upscaled.png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -9937,9 +10372,9 @@
           },
           "node_id": "",
           "field": "width",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "value": 624,
+          "type": "INT",
+          "default": 624,
           "required": false,
           "range": null,
           "aliases": [],
@@ -9955,15 +10390,51 @@
           },
           "node_id": "",
           "field": "height",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "value": 624,
+          "type": "INT",
+          "default": 624,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
+          "type": "STRING",
+          "default": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "model_name"
+          },
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -9973,7 +10444,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideoWrapper_I2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -9987,7 +10458,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideoWrapper_I2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -10002,7 +10473,7 @@
       ],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 3,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -10017,7 +10488,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_i2v.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -10025,25 +10496,58 @@
       "path": "ready_templates/video/wanvideo_wrapper_21_14b_t2v.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "text_to_video",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-VideoHelperSuite",
-        "ComfyUI-WanVideoWrapper"
-      ],
+      "custom_nodes": [],
       "model_count": 3,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "seed",
           "target": {
             "node_id": "",
-            "field": "model_name"
+            "field": "seed"
           },
           "node_id": "",
-          "field": "model_name",
+          "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "width",
+          "target": {
+            "node_id": "",
+            "field": "width"
+          },
+          "node_id": "",
+          "field": "width",
+          "value": 832,
+          "type": "INT",
+          "default": 832,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "height",
+          "target": {
+            "node_id": "",
+            "field": "height"
+          },
+          "node_id": "",
+          "field": "height",
+          "value": 480,
+          "type": "INT",
+          "default": 480,
           "required": false,
           "range": null,
           "aliases": [],
@@ -10060,6 +10564,24 @@
           "node_id": "",
           "field": "text",
           "value": null,
+          "type": "STRING",
+          "default": null,
+          "required": true,
+          "range": null,
+          "aliases": [],
+          "media_semantics": "text",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "1",
+            "field": "model_name"
+          },
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
           "default": null,
           "required": false,
@@ -10067,61 +10589,7 @@
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
-          "field": "width",
-          "value": 256,
-          "type": null,
-          "default": 256,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
-          "node_id": "",
-          "field": "height",
-          "value": 256,
-          "type": null,
-          "default": 256,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -10131,7 +10599,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_T2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -10145,7 +10613,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_T2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -10160,7 +10628,7 @@
       ],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 2,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -10175,7 +10643,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_t2v.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -10183,34 +10651,11 @@
       "path": "ready_templates/video/wanvideo_wrapper_21_14b_v2v_infinitetalk.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "video_to_video_talking_avatar",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-KJNodes",
-        "ComfyUI-VideoHelperSuite",
-        "ComfyUI-WanVideoWrapper",
-        "rgthree-comfy"
-      ],
+      "custom_nodes": [],
       "model_count": 3,
       "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
         {
           "name": "seed",
           "target": {
@@ -10220,7 +10665,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -10228,16 +10673,52 @@
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "fps",
+          "target": {
+            "node_id": "",
+            "field": "fps"
+          },
+          "node_id": "",
+          "field": "fps",
+          "value": null,
+          "type": "FLOAT",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "3",
+            "field": "model_name"
+          },
+          "node_id": "3",
+          "field": "model_name",
+          "value": "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "131",
+          "node_id": "320",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_InfiniteTalk",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -10247,11 +10728,11 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "131",
+          "node_id": "320",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_InfiniteTalk",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -10266,10 +10747,10 @@
       ],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 4,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -10281,7 +10762,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_v2v_infinitetalk.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -10296,23 +10777,43 @@
         "ComfyUI-VideoHelperSuite",
         "ComfyUI-WanVideoWrapper"
       ],
-      "model_count": 3,
+      "model_count": 0,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "image",
           "target": {
             "node_id": "",
-            "field": "model_name"
+            "field": "image"
           },
           "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
+          "field": "image",
+          "value": "oldman_upscaled.png",
+          "type": "IMAGE",
+          "default": "oldman_upscaled.png",
+          "required": true,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": "image",
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "oldman_upscaled.png",
+          "type": "IMAGE",
+          "default": "oldman_upscaled.png",
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -10325,7 +10826,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -10335,22 +10836,22 @@
           "source": "InputSpec"
         },
         {
-          "name": "image",
+          "name": "model",
           "target": {
-            "node_id": "",
-            "field": "image"
+            "node_id": "1",
+            "field": "model_name"
           },
-          "node_id": "",
-          "field": "image",
-          "value": "oldman_upscaled.png",
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
-          "default": "oldman_upscaled.png",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -10405,7 +10906,30 @@
         "version": "0.18.2"
       },
       "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_wanmove_i2v.json",
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "ComfyUI-WanVideoWrapper",
+          "source": "git",
+          "version": "unknown",
+          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
+          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+        }
+      ]
     },
     {
       "id": "video/wanvideo_wrapper_22_14b_i2v_kijai",
@@ -11681,28 +12205,22 @@
       "path": "ready_templates/video/wanvideo_wrapper_22_s2v_framepack_pose.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "speech_to_video_pose_control",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-KJNodes",
-        "ComfyUI-VideoHelperSuite",
-        "ComfyUI-WanVideoWrapper",
-        "comfyui_controlnet_aux",
-        "rgthree-comfy"
-      ],
-      "model_count": 2,
+      "custom_nodes": [],
+      "model_count": 3,
       "public_inputs": [
         {
-          "name": "height",
+          "name": "seed",
           "target": {
             "node_id": "",
-            "field": "height"
+            "field": "seed"
           },
           "node_id": "",
-          "field": "height",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "field": "seed",
+          "value": null,
+          "type": "INT",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -11719,14 +12237,14 @@
           "node_id": "",
           "field": "image",
           "value": "2b.jpg",
-          "type": null,
+          "type": "IMAGE",
           "default": "2b.jpg",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -11739,48 +12257,12 @@
           "node_id": "",
           "field": "image",
           "value": "2b.jpg",
-          "type": null,
+          "type": "IMAGE",
           "default": "2b.jpg",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -11792,25 +12274,61 @@
           },
           "node_id": "",
           "field": "width",
-          "value": 256,
-          "type": null,
-          "default": 256,
+          "value": 640,
+          "type": "INT",
+          "default": 640,
           "required": false,
           "range": null,
           "aliases": [],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "height",
+          "target": {
+            "node_id": "",
+            "field": "height"
+          },
+          "node_id": "",
+          "field": "height",
+          "value": 640,
+          "type": "INT",
+          "default": 640,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "2",
+            "field": "model_name"
+          },
+          "node_id": "2",
+          "field": "model_name",
+          "value": "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "97",
+          "node_id": "155",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_2_S2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -11820,11 +12338,11 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "97",
+          "node_id": "155",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_2_S2V",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -11839,10 +12357,10 @@
       ],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 5,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -11854,7 +12372,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan22_s2v_framepack_pose.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -11884,14 +12402,14 @@
           "node_id": "",
           "field": "image",
           "value": "refer.jpeg",
-          "type": null,
+          "type": "IMAGE",
           "default": "refer.jpeg",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -11904,30 +12422,12 @@
           "node_id": "",
           "field": "image",
           "value": "refer.jpeg",
-          "type": null,
+          "type": "IMAGE",
           "default": "refer.jpeg",
-          "required": false,
+          "required": true,
           "range": null,
           "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "media_semantics": "image",
           "status": "static",
           "source": "InputSpec"
         },
@@ -11940,7 +12440,7 @@
           "node_id": "",
           "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -11948,16 +12448,34 @@
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
+        },
+        {
+          "name": "model",
+          "target": {
+            "node_id": "2",
+            "field": "model_name"
+          },
+          "node_id": "2",
+          "field": "model_name",
+          "value": "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
         {
           "name": "video",
-          "node_id": "30",
+          "node_id": "23",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "Wanimate",
+          "filename_prefix": "vitpose",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -11967,11 +12485,11 @@
       "artifact_expectations": [
         {
           "name": "video",
-          "node_id": "30",
+          "node_id": "23",
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "Wanimate",
+          "filename_prefix": "vitpose",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -11989,7 +12507,7 @@
       "custom_node_count": 7,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
-      "marker": "broken-regen",
+      "marker": "generated",
       "app_active": false,
       "blocked": false,
       "reference": false,
@@ -12002,7 +12520,58 @@
         "version": "0.18.2"
       },
       "source_workflow": null,
-      "source_sha256": null
+      "source_sha256": null,
+      "custom_node_refs": [
+        {
+          "slug": "ComfyUI-KJNodes",
+          "source": "git",
+          "version": "unknown",
+          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
+          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
+        },
+        {
+          "slug": "ComfyUI-VideoHelperSuite",
+          "source": "git",
+          "version": "unknown",
+          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
+          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        },
+        {
+          "slug": "ComfyUI-WanAnimatePreprocess",
+          "source": "git",
+          "version": "unknown",
+          "commit": "1a35b81a418bbba093356ad19b19bf2a76a24f4e",
+          "url": "https://github.com/kijai/ComfyUI-WanAnimatePreprocess.git"
+        },
+        {
+          "slug": "ComfyUI-WanVideoWrapper",
+          "source": "git",
+          "version": "unknown",
+          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
+          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
+        },
+        {
+          "slug": "ComfyUI-segment-anything-2",
+          "source": "git",
+          "version": "unknown",
+          "commit": "0c35fff5f382803e2310103357b5e985f5437f32",
+          "url": "https://github.com/kijai/ComfyUI-segment-anything-2.git"
+        },
+        {
+          "slug": "comfyui_controlnet_aux",
+          "source": "git",
+          "version": "unknown",
+          "commit": "e8b689a513c3e6b63edc44066560ca5919c0576e",
+          "url": "https://github.com/Fannovel16/comfyui_controlnet_aux.git"
+        },
+        {
+          "slug": "rgthree-comfy",
+          "source": "git",
+          "version": "unknown",
+          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
+          "url": "https://github.com/rgthree/rgthree-comfy.git"
+        }
+      ]
     },
     {
       "id": "video/wanvideo_wrapper_wan_animate",

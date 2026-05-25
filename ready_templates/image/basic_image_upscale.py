@@ -23,7 +23,7 @@ def build() -> VibeWorkflow:
 
 
     PUBLIC_INPUTS = {
-        'image': InputSpec(node=image, field='image', default='image_upscale_input.png'),
+        'image': InputSpec(node=image, field='image', default='image_upscale_input.png', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
     }
     return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='image-upscale')
 

@@ -1,4 +1,4 @@
-# vibecomfy: generated
+# vibecomfy: manual
 # For hand-editing, run: python -m vibecomfy.cli copy-to-recipe <id>
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations

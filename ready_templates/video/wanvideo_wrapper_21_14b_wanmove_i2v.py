@@ -10,19 +10,13 @@ from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
 from vibecomfy.nodes.wanvideowrapper import LoadWanVideoT5TextEncoder, WanVideoAddWanMoveTracks, WanVideoBlockSwap, WanVideoClipVisionEncode, WanVideoDecode, WanVideoImageToVideoEncode, WanVideoLoraSelect, WanVideoModelLoader, WanVideoSampler, WanVideoSetBlockSwap, WanVideoSetLoRAs, WanVideoTextEncode, WanVideoTorchCompileSettings, WanVideoVAELoader, WanVideoWanDrawWanMoveTracks
 
 
-CLIP_NAME = 'clip_vision_h.safetensors'
-DEFAULT_NEGATIVE = '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'
 DEFAULT_SEED = 1057359483639287
+FIXED = 'fixed'
 GUIDE_STRENGTH = 1
-LORA_NAME = 'WanVideo\\Lightx2v\\lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors'
-MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
-MODEL_NAME_2 = 'WanVideo\\WanMove\\Wan21-WanMove_fp8_scaled_e4m3fn_KJ.safetensors'
-MODEL_NAME_3 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
-WIDGET_1 = 'fixed'
 
 READY_METADATA = ReadyMetadata.build(
     capability='motion_track_i2v',
-    requirements={'models': ['clip_vision_h.safetensors', 'umt5-xxl-enc-bf16.safetensors', 'wanvideo\\Wan2_1_VAE_bf16.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper']},
+    requirements={'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper'], 'custom_node_refs': [{'slug': 'ComfyUI-KJNodes', 'source': 'git', 'version': 'unknown', 'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git'}, {'slug': 'ComfyUI-VideoHelperSuite', 'source': 'git', 'version': 'unknown', 'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git'}, {'slug': 'ComfyUI-WanVideoWrapper', 'source': 'git', 'version': 'unknown', 'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git'}]},
     custom_node_packs={'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['ImageResizeKJv2'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-WanVideoWrapper': {'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git', 'class_schema_sha256': '80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f', 'classes_used': ['LoadWanVideoT5TextEncoder', 'WanVideoBlockSwap', 'WanVideoDecode', 'WanVideoImageToVideoEncode', 'WanVideoLoraSelect', 'WanVideoModelLoader', 'WanVideoSampler', 'WanVideoSetBlockSwap', 'WanVideoSetLoRAs', 'WanVideoTextEncode', 'WanVideoTorchCompileSettings', 'WanVideoVAELoader'], 'pip_packages': ['onnx', 'opencv-python-headless'], 'status': 'pinned'}},
     approach='WanMove image-to-video motion track',
     smoke_resolution='256x256x5_frames',
@@ -33,10 +27,21 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
-    loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(model_name=MODEL_NAME)
-    wanvideomodelloader = WanVideoModelLoader(model=MODEL_NAME_2, base_precision='fp16')
+    loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
+        model_name='umt5-xxl-enc-bf16.safetensors',
+    )
+
+    wanvideomodelloader = WanVideoModelLoader(
+        model='WanVideo\\WanMove\\Wan21-WanMove_fp8_scaled_e4m3fn_KJ.safetensors',
+        base_precision='fp16',
+    )
+
     wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
-    wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_3, compile_args=False)
+
+    wanvideovaeloader = WanVideoVAELoader(
+        model_name='wanvideo\\Wan2_1_VAE_bf16.safetensors',
+        compile_args=False,
+    )
 
     wanvideoblockswap = WanVideoBlockSwap(
         blocks_to_swap=25,
@@ -46,15 +51,20 @@ def build() -> VibeWorkflow:
 
     # Inputs
     image, mask = LoadImage(image='oldman_upscaled.png')
-    clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME)
-    wanvideoloraselect = WanVideoLoraSelect(lora=LORA_NAME, merge_loras=False)
-    primitivenode = raw_call('PrimitiveNode', '85', widget_0=81, widget_1=WIDGET_1)
-    primitivenode_2 = raw_call('PrimitiveNode', '86', widget_0=640, widget_1=WIDGET_1)
-    primitivenode_3 = raw_call('PrimitiveNode', '87', widget_0=640, widget_1=WIDGET_1)
+    clipvisionloader = CLIPVisionLoader(clip_name='clip_vision_h.safetensors')
+
+    wanvideoloraselect = WanVideoLoraSelect(
+        lora='WanVideo\\Lightx2v\\lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors',
+        merge_loras=False,
+    )
+
+    primitivenode = raw_call('PrimitiveNode', '85', widget_0=81, widget_1=FIXED)
+    primitivenode_2 = raw_call('PrimitiveNode', '86', widget_0=640, widget_1=FIXED)
+    primitivenode_3 = raw_call('PrimitiveNode', '87', widget_0=640, widget_1=FIXED)
 
     wanvideotextencode = WanVideoTextEncode(
         positive_prompt='video of an old man',
-        negative_prompt=DEFAULT_NEGATIVE,
+        negative_prompt='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走',
         use_disk_cache=True,
         model_to_offload=wanvideomodelloader,
         t5=loadwanvideot5textencoder,
@@ -158,9 +168,8 @@ def build() -> VibeWorkflow:
 
 
     PUBLIC_INPUTS = {
-        'model': InputSpec(node=loadwanvideot5textencoder, field='model_name', default=MODEL_NAME),
-        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED),
-        'image': InputSpec(node=image, field='image', default='oldman_upscaled.png'),
+        'image': InputSpec(node=image, field='image', default='oldman_upscaled.png', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
+        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED, type='INT'),
     }
     return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

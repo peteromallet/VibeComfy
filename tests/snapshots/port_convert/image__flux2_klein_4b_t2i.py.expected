@@ -7,11 +7,9 @@ from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as 
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, PrimitiveStringMultiline, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
-WIDGET_0 = ''
-WIDGET__NAME = 'flux-2-klein-base-4b.safetensors'
-WIDGET__NAME_2 = 'qwen_3_4b.safetensors'
-WIDGET__NAME_3 = 'flux2-vae.safetensors'
-WIDGET__NAME_4 = 'flux-2-klein-4b.safetensors'
+FLUX2_VAE_SAFETENSORS = 'flux2-vae.safetensors'
+QWEN_3_4B_SAFETENSORS = 'qwen_3_4b.safetensors'
+VALUE = ''
 
 READY_METADATA = ReadyMetadata.build(
     capability='unknown',

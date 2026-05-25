@@ -6,11 +6,6 @@ from __future__ import annotations
 from vibecomfy.templates import ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, EmptySD3LatentImage, KSampler, ModelSamplingAuraFlow, SaveImage, UNETLoader, VAEDecode, VAELoader
 
-
-WIDGET__NAME = 'z_image_bf16.safetensors'
-WIDGET__NAME_2 = 'qwen_3_4b.safetensors'
-WIDGET__NAME_3 = 'ae.safetensors'
-
 READY_METADATA = ReadyMetadata.build(
     capability='unknown',
     provenance={'source_path': 'workflow_corpus/official/image/z_image.json', 'source_id': 'z_image', 'source_type': 'api', 'source_workflow_path': 'workflow_corpus/official/image/z_image.json', 'output_mode': 'ready_template', 'ready_id': 'image/z_image'},

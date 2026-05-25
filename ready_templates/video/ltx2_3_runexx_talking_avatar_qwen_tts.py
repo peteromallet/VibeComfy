@@ -11,28 +11,17 @@ from vibecomfy.nodes.qwentts import AILab_Qwen3TTSVoiceClone
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
 
 
-CKPT_NAME = 'LTX23_audio_vae_bf16.safetensors'
-CLIP_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
-CLIP_NAME_2 = 'ltx-2.3_text_projection_bf16.safetensors'
-CLIP_NAME_3 = 'gemma-3-12b-it-Q2_K.gguf'
-CONTROL_AFTER_GENERATE = 'fixed'
-DEFAULT_PROMPT = 'text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth'
 DEFAULT_SEED = 420
 DEFAULT_SEED_2 = 42
-EXPRESSION = '((round((a * b -1) / 8)) * 8) + 1 '
+FIXED = 'fixed'
 GUIDE_STRENGTH = 0.6
 GUIDE_STRENGTH_2 = 2.5
-LORA_NAME = 'LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors'
-MODEL_NAME = 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors'
-UNET_NAME = 'ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors'
-UNET_NAME_2 = 'LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf'
-VAE_NAME = 'LTX23_video_vae_bf16.safetensors'
-VAE_NAME_2 = 'taeltx2_3.safetensors'
-WIDGET__NAME = 'MelBandRoformer\\MelBandRoformer_fp16.safetensors'
+LTX_2_3_TEXT_PROJECTION_BF16_SAFETENSORS = 'ltx-2.3_text_projection_bf16.safetensors'
+ROUND_A_B_1_8_8_1 = '((round((a * b -1) / 8)) * 8) + 1 '
 
 READY_METADATA = ReadyMetadata.build(
     capability='tts_talking_avatar',
-    requirements={'models': ['LTX23_audio_vae_bf16.safetensors', 'LTX23_video_vae_bf16.safetensors', 'LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors', 'LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf', 'euler_ancestral_cfg_pp', 'euler_cfg_pp', 'ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors', 'ltx-2.3-spatial-upscaler-x2-1.1.safetensors', 'taeltx2_3.safetensors'], 'custom_nodes': ['ComfyUI-GGUF', 'ComfyUI-KJNodes', 'ComfyUI-LTXVideo', 'ComfyUI-QwenTTS', 'ComfyUI-VideoHelperSuite', 'rgthree-comfy']},
+    requirements={'custom_nodes': ['ComfyUI-GGUF', 'ComfyUI-KJNodes', 'ComfyUI-LTXVideo', 'ComfyUI-QwenTTS', 'ComfyUI-VideoHelperSuite', 'rgthree-comfy'], 'custom_node_refs': [{'slug': 'ComfyUI-GGUF', 'source': 'git', 'version': 'unknown', 'commit': '6ea2651e7df66d7585f6ffee804b20e92fb38b8a', 'url': 'https://github.com/city96/ComfyUI-GGUF.git'}, {'slug': 'ComfyUI-KJNodes', 'source': 'git', 'version': 'unknown', 'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git'}, {'slug': 'ComfyUI-LTXVideo', 'source': 'git', 'version': 'unknown', 'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git'}, {'slug': 'ComfyUI-QwenTTS', 'source': 'git', 'version': 'unknown', 'commit': 'd8122a8ba835b65fd65c113d2b273b1ad1579293', 'url': 'https://github.com/1038lab/ComfyUI-QwenTTS.git'}, {'slug': 'ComfyUI-VideoHelperSuite', 'source': 'git', 'version': 'unknown', 'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git'}, {'slug': 'rgthree-comfy', 'source': 'git', 'version': 'unknown', 'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git'}]},
     custom_node_packs={'ComfyUI-GGUF': {'commit': '6ea2651e7df66d7585f6ffee804b20e92fb38b8a', 'url': 'https://github.com/city96/ComfyUI-GGUF.git', 'class_schema_sha256': '1336fad984841444a9559b602c34ef11d1dd4b68a9a902437aaee6771ab5d2d3', 'classes_used': ['DualCLIPLoaderGGUF', 'UnetLoaderGGUF'], 'pip_packages': ['gguf'], 'status': 'pinned'}, 'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageSize', 'INTConstant', 'ImageResizeKJv2', 'PathchSageAttentionKJ', 'SimpleCalculatorKJ'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-LTXVideo': {'commit': '229437c6b65796d6a7a63ae34be2bd5ba31fa543', 'url': 'https://github.com/Lightricks/ComfyUI-LTXVideo.git', 'class_schema_sha256': '82e0b1f31509a969cf441c45e2517d0cd93f31b5390cc16f4a0ffa244421f39e', 'classes_used': ['EmptyLTXVLatentVideo', 'LTX2AttentionTunerPatch', 'LTX2_NAG', 'LTXVAudioVAEDecode', 'LTXVAudioVAELoader', 'LTXVChunkFeedForward', 'LTXVConcatAVLatent', 'LTXVConditioning', 'LTXVPreprocess', 'LTXVSeparateAVLatent', 'LatentUpscaleModelLoader'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-QwenTTS': {'commit': 'd8122a8ba835b65fd65c113d2b273b1ad1579293', 'url': 'https://github.com/1038lab/ComfyUI-QwenTTS.git', 'class_schema_sha256': '4137bb4f37ea178be0e794377829905d9ede1bc65496a23a51d766a3f03b2c84', 'classes_used': ['AILab_Qwen3TTSVoiceClone'], 'pip_packages': ['accelerate', 'librosa', 'openai-whisper', 'qwen-tts', 'soundfile', 'tiktoken'], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'rgthree-comfy': {'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git', 'class_schema_sha256': '2b52072e02c59cb05ce83e5c45e1c7fd5b1273fee9b62eaaa0e66a81a4c07872', 'classes_used': ['GetNode', 'Power Lora Loader (rgthree)', 'SetNode'], 'pip_packages': [], 'status': 'pinned'}},
     smoke_resolution='256x256x5_frames',
     approach='Qwen TTS talking avatar',
@@ -140,24 +129,36 @@ def build() -> VibeWorkflow:
 
     # Inputs
     image, mask = LoadImage(image='17745317855d08.png')
-    vaeloader = VAELoader(vae_name=VAE_NAME)
-    latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
+    vaeloader = VAELoader(vae_name='LTX23_video_vae_bf16.safetensors')
+
+    latentupscalemodelloader = LatentUpscaleModelLoader(
+        model_name='ltx-2.3-spatial-upscaler-x2-1.1.safetensors',
+    )
 
     dualcliploader = DualCLIPLoader(
-        clip_name1=CLIP_NAME,
-        clip_name2=CLIP_NAME_2,
+        clip_name1='gemma_3_12B_it_fp4_mixed.safetensors',
+        clip_name2=LTX_2_3_TEXT_PROJECTION_BF16_SAFETENSORS,
         type_='ltxv',
         device='default',
     )
 
-    ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
-    vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
-    unetloader = UNETLoader(unet_name=UNET_NAME)
-    unetloadergguf = UnetLoaderGGUF(unet_name=UNET_NAME_2)
+    ltxvaudiovaeloader = LTXVAudioVAELoader(
+        ckpt_name='LTX23_audio_vae_bf16.safetensors',
+    )
+
+    vaeloader_2 = VAELoader(vae_name='taeltx2_3.safetensors')
+
+    unetloader = UNETLoader(
+        unet_name='ltx-2.3-22b-distilled_transformer_only_fp8_scaled.safetensors',
+    )
+
+    unetloadergguf = UnetLoaderGGUF(
+        unet_name='LTXvideo\\LTX-2\\quantstack\\LTX-2.3-distilled-Q4_K_S.gguf',
+    )
 
     dualcliploadergguf = DualCLIPLoaderGGUF(
-        clip_name1=CLIP_NAME_3,
-        clip_name2=CLIP_NAME_2,
+        clip_name1='gemma-3-12b-it-Q2_K.gguf',
+        clip_name2=LTX_2_3_TEXT_PROJECTION_BF16_SAFETENSORS,
         type_='sdxl',
     )
 
@@ -170,16 +171,8 @@ def build() -> VibeWorkflow:
         value="A video from a TV broadcast with a male and a female news achor. They both stay in frame all the time.\n\nThe dialog from the male and female is as follows:\n\nSpaker_1 is the woman, and Speaker_2 is the man.\n\n[speaker_1][confused]: This is awkward! I guess the prompter ran out of ideas, and put us in this odd situation.\n[speaker_2][embarrassed] : But hey,  just because we are here, in a new video, doesn't mean our voices change. \n[speaker_1][excited]: Aber ich möchte mit dir schlafen.\n[speaker_2][happy]: I still have no idea what she said! Might be for the best [laughing]\n\nThe dialog with perfect lip-sync to the audio\n\n\nThey both smile at the end.\n\n\n",
     )
 
-    randomnoise = RandomNoise(
-        noise_seed=DEFAULT_SEED,
-        control_after_generate=CONTROL_AFTER_GENERATE,
-    )
-
-    randomnoise_2 = RandomNoise(
-        noise_seed=DEFAULT_SEED_2,
-        control_after_generate=CONTROL_AFTER_GENERATE,
-    )
-
+    randomnoise = RandomNoise(noise_seed=DEFAULT_SEED, control_after_generate=FIXED)
+    randomnoise_2 = RandomNoise(noise_seed=DEFAULT_SEED_2, control_after_generate=FIXED)
     manualsigmas = ManualSigmas(sigmas='0.85, 0.7250, 0.4219, 0.0')
     ksamplerselect = KSamplerSelect(sampler_name='euler_cfg_pp')
     ksamplerselect_2 = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
@@ -195,7 +188,11 @@ def build() -> VibeWorkflow:
     primitiveboolean_2 = raw_call('PrimitiveBoolean', '1929', value=True)
     reroute_2 = raw_call('Reroute', '1932', _outputs=('',))
     reroute_3 = raw_call('Reroute', '1933', _outputs=('',))
-    melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '1937', widget_0=WIDGET__NAME)
+
+    melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '1937',
+        widget_0='MelBandRoformer\\MelBandRoformer_fp16.safetensors',
+    )
+
     primitivestringmultiline_2 = PrimitiveStringMultiline(value='')
     loadaudio = LoadAudio(audio='d1b26d5a32db420183fa17af9c699278.mp3')
 
@@ -219,13 +216,16 @@ def build() -> VibeWorkflow:
     )
 
     loraloadermodelonly = LoraLoaderModelOnly(
-        lora_name=LORA_NAME,
+        lora_name='LTX\\LTX-2\\ltx-2.3-22b-distilled-lora-384.safetensors',
         strength_model=GUIDE_STRENGTH,
         model=unetloader,
     )
 
     # Conditioning
-    cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=dualcliploader)
+    cliptextencode = CLIPTextEncode(
+        text='text, subtitles, logo, still image, still video, no motion, static, frozen, blurry, low quality, distorted, bad anatomy, oversaturated, pixelated, low resolution, grainy, compression artifacts, jpeg artifacts, glitches, watermark, signature, copyright,  distortedsound, saturated sound, loud sound , deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, blurry teeth, disfigured teeth',
+        clip=dualcliploader,
+    )
 
     solidmask = SolidMask(
         value=0,
@@ -241,7 +241,7 @@ def build() -> VibeWorkflow:
     )
 
     float, int, boolean = SimpleCalculatorKJ(
-        expression=EXPRESSION,
+        expression=ROUND_A_B_1_8_8_1,
         **{'variables.a': intconstant, 'variables.b': primitivefloat},
     )
 
@@ -279,7 +279,7 @@ def build() -> VibeWorkflow:
     setlatentnoisemask = SetLatentNoiseMask(mask=solidmask, samples=ltxvaudiovaeencode)
 
     float_simple_2, int_simple_2, boolean_simple_2 = SimpleCalculatorKJ(
-        expression=EXPRESSION,
+        expression=ROUND_A_B_1_8_8_1,
         **{'variables.a': int_simple, 'variables.b': getnode.out('FLOAT')},
     )
 
@@ -493,11 +493,9 @@ def build() -> VibeWorkflow:
 
 
     PUBLIC_INPUTS = {
-        'model': InputSpec(node=latentupscalemodelloader, field='model_name', default=MODEL_NAME),
-        'seed': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED),
-        'prompt': InputSpec(node=primitivestringmultiline, field='value', default="A video from a TV broadcast with a male and a female news achor. They both stay in frame all the time.\n\nThe dialog from the male and female is as follows:\n\nSpaker_1 is the woman, and Speaker_2 is the man.\n\n[speaker_1][confused]: This is awkward! I guess the prompter ran out of ideas, and put us in this odd situation.\n[speaker_2][embarrassed] : But hey,  just because we are here, in a new video, doesn't mean our voices change. \n[speaker_1][excited]: Aber ich möchte mit dir schlafen.\n[speaker_2][happy]: I still have no idea what she said! Might be for the best [laughing]\n\nThe dialog with perfect lip-sync to the audio\n\n\nThey both smile at the end.\n\n\n"),
-        'steps': InputSpec(node=basicscheduler, field='steps', default=8),
-        'image': InputSpec(node=image, field='image', default='17745317855d08.png', aliases=('input_image',)),
+        'image': InputSpec(node=image, field='image', default='17745317855d08.png', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
+        'seed': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED, type='INT'),
+        'prompt': InputSpec(node=primitivestringmultiline, field='value', default="A video from a TV broadcast with a male and a female news achor. They both stay in frame all the time.\n\nThe dialog from the male and female is as follows:\n\nSpaker_1 is the woman, and Speaker_2 is the man.\n\n[speaker_1][confused]: This is awkward! I guess the prompter ran out of ideas, and put us in this odd situation.\n[speaker_2][embarrassed] : But hey,  just because we are here, in a new video, doesn't mean our voices change. \n[speaker_1][excited]: Aber ich möchte mit dir schlafen.\n[speaker_2][happy]: I still have no idea what she said! Might be for the best [laughing]\n\nThe dialog with perfect lip-sync to the audio\n\n\nThey both smile at the end.\n\n\n", type='STRING', required=True, media_semantics='text'),
     }
     return wf.finalize(PUBLIC_INPUTS, output_node=previewaudio)
 

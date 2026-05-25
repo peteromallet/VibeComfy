@@ -7,15 +7,10 @@ from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CreateVideo, EmptyHunyuanLatentVideo, KSampler, ModelSamplingSD3, SaveVideo, UNETLoader, VAEDecode, VAELoader
 
 
-CLIP_NAME = 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'
 DEFAULT_FPS = 16
 DEFAULT_FRAMES = 33
-DEFAULT_PROMPT = '色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走'
-DEFAULT_PROMPT_2 = 'a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera'
 DEFAULT_SEED = 82628696717253
 GUIDE_STRENGTH = 6
-UNET_NAME = 'wan2.1_t2v_1.3B_fp16.safetensors'
-VAE_NAME = 'wan_2.1_vae.safetensors'
 
 READY_METADATA = ReadyMetadata.build(
     capability='unknown',
@@ -27,14 +22,32 @@ def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
-    unetloader = UNETLoader(unet_name=UNET_NAME)
-    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
-    vaeloader = VAELoader(vae_name=VAE_NAME)
-    emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(width=832, length=DEFAULT_FRAMES)
+    unetloader = UNETLoader(unet_name='wan2.1_t2v_1.3B_fp16.safetensors')
+
+    cliploader = CLIPLoader(
+        clip_name='umt5_xxl_fp8_e4m3fn_scaled.safetensors',
+        type_='wan',
+    )
+
+    vaeloader = VAELoader(vae_name='wan_2.1_vae.safetensors')
+
+    emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
+        width=832,
+        height=480,
+        length=DEFAULT_FRAMES,
+    )
 
     # Conditioning
-    positive = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
-    negative = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+    positive = CLIPTextEncode(
+        text='a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera',
+        clip=cliploader,
+    )
+
+    negative = CLIPTextEncode(
+        text='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走',
+        clip=cliploader,
+    )
+
     modelsamplingsd3 = ModelSamplingSD3(shift=8, model=unetloader)
 
     ksampler = KSampler(
@@ -63,8 +76,8 @@ def build() -> VibeWorkflow:
         'height': InputSpec(node=emptyhunyuanlatentvideo, field='height', default=480, type='INT'),
         'frames': InputSpec(node=emptyhunyuanlatentvideo, field='length', default=DEFAULT_FRAMES, type='INT'),
         'fps': InputSpec(node=createvideo, field='fps', default=DEFAULT_FPS, type='FLOAT'),
-        'prompt': InputSpec(node=positive, field='text', default=DEFAULT_PROMPT_2, type='STRING', required=True, media_semantics='text'),
-        'negative_prompt': InputSpec(node=negative, field='text', default=DEFAULT_PROMPT, type='STRING', aliases=('negative',), media_semantics='text'),
+        'prompt': InputSpec(node=positive, field='text', default='a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera', type='STRING', required=True, media_semantics='text'),
+        'negative_prompt': InputSpec(node=negative, field='text', default='色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走', type='STRING', aliases=('negative',), media_semantics='text'),
     }
     return wf.finalize(PUBLIC_INPUTS, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='video/ComfyUI')
 

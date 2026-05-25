@@ -1,6 +1,7 @@
-# vibecomfy: broken-regen
-# Edits will be overwritten on regeneration. Put the manual opt-out
-# marker on the first line if hand-editing is required.
+# vibecomfy: manual
+# Cannot reemit: IAMCCS_VideoCombineFromDir is not a known output node type for
+# auto-detection, and source JSON has 42 hard schema errors blocking port convert.
+# WIDGET_N constants are permanent until source JSON is repaired.
 """Auto-generated ready_template - see tools/convert_ready_templates.py."""
 from __future__ import annotations
 

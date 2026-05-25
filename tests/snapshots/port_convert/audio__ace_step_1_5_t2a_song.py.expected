@@ -7,11 +7,7 @@ from vibecomfy.templates import ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import ConditioningZeroOut, DualCLIPLoader, KSampler, ModelSamplingAuraFlow, SaveAudioMP3, UNETLoader, VAEDecodeAudio, VAELoader
 
 
-CLIP_NAME = 'qwen_0.6b_ace15.safetensors'
-CLIP_NAME_2 = 'qwen_4b_ace15.safetensors'
 GUIDE_STRENGTH = 1
-UNET_NAME = 'acestep_v1.5_turbo.safetensors'
-VAE_NAME = 'ace_1.5_vae.safetensors'
 
 READY_METADATA = ReadyMetadata.build(
     capability='unknown',
@@ -24,17 +20,17 @@ def build() -> VibeWorkflow:
     wf = new_workflow(READY_METADATA, source_path=__file__)
 
     dualcliploader = DualCLIPLoader(
-        clip_name1=CLIP_NAME,
-        clip_name2=CLIP_NAME_2,
+        clip_name1='qwen_0.6b_ace15.safetensors',
+        clip_name2='qwen_4b_ace15.safetensors',
         type_='ace',
         device='default',
     )
 
-    vaeloader = VAELoader(vae_name=VAE_NAME)
+    vaeloader = VAELoader(vae_name='ace_1.5_vae.safetensors')
 
     # Inputs
     primitivefloat = raw_call('PrimitiveFloat', '110', value=2)
-    unetloader = UNETLoader(unet_name=UNET_NAME)
+    unetloader = UNETLoader(unet_name='acestep_v1.5_turbo.safetensors')
 
     primitivenode = raw_call('PrimitiveNode', '126',
         _outputs=('value',),
