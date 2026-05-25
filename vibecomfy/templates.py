@@ -3,11 +3,15 @@ from __future__ import annotations
 import warnings
 import json
 import re
+import sys
 import tomllib
-from dataclasses import dataclass
+import ast
+import textwrap
+import functools
+from dataclasses import dataclass, field as dc_field
 import inspect
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from urllib.parse import urlsplit
 
 from vibecomfy.errors import SchemaValidationError
@@ -1086,10 +1090,252 @@ def _assert_public_input_invariant(
         )
 
 
+@dataclass(frozen=True)
+class PublicInput:
+    """String-node-ref declaration of a public input.
+
+    Used by the :func:`ready_template` decorator, which resolves ``node`` (a
+    local-variable name inside ``build()``) against the body's captured locals
+    at runtime. The resolved value is converted to an :class:`InputSpec` and
+    passed to :meth:`VibeWorkflow.finalize`.
+
+    The decorator validates that ``node`` references a real assignment inside
+    the decorated function at module import time (AST scan), so a typo here is
+    caught when the template is imported, not when it is executed.
+    """
+
+    node: str
+    field: str
+    default: Any = None
+    type: str | None = None
+    required: bool = False
+    aliases: tuple[str, ...] = ()
+    description: str | None = None
+    media_semantics: str | None = None
+
+
+def _assignment_target_names(node: ast.AST) -> list[str]:
+    """Return Name strings bound by *node* if it is an assignment target."""
+    names: list[str] = []
+    if isinstance(node, ast.Name):
+        names.append(node.id)
+    elif isinstance(node, (ast.Tuple, ast.List)):
+        for elt in node.elts:
+            names.extend(_assignment_target_names(elt))
+    elif isinstance(node, ast.Starred):
+        names.extend(_assignment_target_names(node.value))
+    return names
+
+
+def _collect_function_locals(func: Callable[..., Any]) -> set[str]:
+    """Return the set of names bound anywhere in *func*'s body.
+
+    Includes assignments, augmented assignments, annotated assignments,
+    for-loop targets, with-statement aliases, and nested function/class
+    definitions. Used to validate that ``PublicInput(node='var')`` references
+    resolve to a real local before runtime.
+    """
+    try:
+        source = inspect.getsource(func)
+    except (OSError, TypeError):
+        return set()
+    source = textwrap.dedent(source)
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    names: set[str] = set()
+    # The parsed tree's top-level is the function def itself; descend into it.
+    for top in tree.body:
+        if isinstance(top, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # Parameters
+            for arg in top.args.args + top.args.kwonlyargs + top.args.posonlyargs:
+                names.add(arg.arg)
+            if top.args.vararg:
+                names.add(top.args.vararg.arg)
+            if top.args.kwarg:
+                names.add(top.args.kwarg.arg)
+            for descendant in ast.walk(top):
+                if isinstance(descendant, ast.Assign):
+                    for target in descendant.targets:
+                        names.update(_assignment_target_names(target))
+                elif isinstance(descendant, (ast.AugAssign, ast.AnnAssign)):
+                    names.update(_assignment_target_names(descendant.target))
+                elif isinstance(descendant, ast.For) or isinstance(descendant, ast.AsyncFor):
+                    names.update(_assignment_target_names(descendant.target))
+                elif isinstance(descendant, ast.With) or isinstance(descendant, ast.AsyncWith):
+                    for item in descendant.items:
+                        if item.optional_vars is not None:
+                            names.update(_assignment_target_names(item.optional_vars))
+                elif isinstance(descendant, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    names.add(descendant.name)
+                elif isinstance(descendant, ast.NamedExpr):  # walrus
+                    names.update(_assignment_target_names(descendant.target))
+    return names
+
+
+def _capture_locals(func: Callable[..., Any], args: tuple, kwargs: dict) -> tuple[Any, dict[str, Any]]:
+    """Invoke *func* and capture its frame locals at return time.
+
+    Uses ``sys.setprofile`` to snapshot ``frame.f_locals`` when the target
+    frame fires a ``return`` event. The hook only fires for the target frame
+    (matched by code object) so unrelated frames are ignored. The previous
+    profile hook is restored in a ``finally`` block, leaving any active
+    coverage tracer / profiler unmolested for the duration of the body only.
+    """
+    captured: dict[str, Any] = {}
+    target_code = func.__code__
+    previous = sys.getprofile()
+
+    def hook(frame, event, arg):  # noqa: ANN001 (profile hook signature)
+        if event == "return" and frame.f_code is target_code:
+            captured.update(frame.f_locals)
+
+    sys.setprofile(hook)
+    try:
+        result = func(*args, **kwargs)
+    finally:
+        sys.setprofile(previous)
+    return result, captured
+
+
+def ready_template(
+    metadata: Mapping[str, Any],
+    *,
+    source_path: str,
+    inputs: Mapping[str, PublicInput] | None = None,
+    output: Mapping[str, Any] | None = None,
+) -> Callable[[Callable[..., Any]], Callable[[], VibeWorkflow]]:
+    """Decorator that absorbs ``new_workflow``/``finalize`` boilerplate.
+
+    The decorated function's body becomes the workflow body — no explicit
+    ``wf = new_workflow(...)`` line, no trailing ``return wf.finalize(...)``.
+    The decorator:
+
+    1. Binds the workflow via :func:`new_workflow` (which sets the ContextVar).
+    2. Runs the body. Typed node wrappers and ``node()`` calls see ``wf`` via
+       the ContextVar.
+    3. Captures the body's locals at return time.
+    4. Resolves each ``PublicInput(node='var', ...)`` and ``output['node']``
+       against those locals, building ``InputSpec`` entries.
+    5. Calls ``wf.finalize(resolved_inputs, output_node=..., **output_kwargs)``
+       and returns the finalized workflow.
+
+    Validation at decoration time (module import): every ``PublicInput.node``
+    string and ``output['node']`` must name a real local assigned in the
+    function body. Typos raise ``ValueError`` at import.
+
+    Example::
+
+        PUBLIC_INPUTS = {'prompt': PublicInput(node='cliptextencode', field='text', default='...')}
+        OUTPUT = dict(node='save', output_type='SaveImage', name='image',
+                      artifact_kind='image', mime_type='image/png')
+
+        @ready_template(READY_METADATA, source_path=__file__,
+                        inputs=PUBLIC_INPUTS, output=OUTPUT)
+        def build():
+            cliptextencode = CLIPTextEncode(text='hello')
+            save = SaveImage(images=...)
+    """
+    inputs = dict(inputs or {})
+    output = dict(output or {})
+
+    def decorator(func: Callable[..., Any]) -> Callable[[], VibeWorkflow]:
+        # AST validation: ensure every node='var' reference resolves to a
+        # real assignment in the body before runtime.
+        local_names = _collect_function_locals(func)
+        if local_names:  # only validate when we could parse the source
+            missing: list[str] = []
+            for input_name, spec in inputs.items():
+                if not isinstance(spec, PublicInput):
+                    continue
+                if spec.node not in local_names:
+                    missing.append(f"inputs[{input_name!r}].node={spec.node!r}")
+            if "node" in output and isinstance(output["node"], str):
+                if output["node"] not in local_names:
+                    missing.append(f"output['node']={output['node']!r}")
+            if missing:
+                available = ", ".join(sorted(local_names))
+                raise ValueError(
+                    f"@ready_template: references do not resolve to locals in "
+                    f"{func.__qualname__}: {'; '.join(missing)}. "
+                    f"Available locals: {available}"
+                )
+
+        @functools.wraps(func)
+        def wrapper() -> VibeWorkflow:
+            wf = new_workflow(metadata, source_path=source_path)
+            try:
+                _result, captured = _capture_locals(func, (), {})
+            except Exception:
+                # Ensure binding is released on exception inside body.
+                from vibecomfy.workflow_context import unbind_workflow
+                unbind_workflow(wf)
+                raise
+
+            resolved_inputs: dict[str, InputSpec] = {}
+            for input_name, spec in inputs.items():
+                if not isinstance(spec, PublicInput):
+                    # Allow already-resolved InputSpec entries.
+                    resolved_inputs[input_name] = spec  # type: ignore[assignment]
+                    continue
+                if spec.node not in captured:
+                    from vibecomfy.workflow_context import unbind_workflow
+                    unbind_workflow(wf)
+                    raise ValueError(
+                        f"@ready_template: PublicInput({input_name!r}) references "
+                        f"unknown local {spec.node!r}; captured locals: "
+                        f"{sorted(captured)}"
+                    )
+                resolved_inputs[input_name] = InputSpec(
+                    node=captured[spec.node],
+                    field=spec.field,
+                    default=spec.default,
+                    type=spec.type,
+                    required=spec.required,
+                    aliases=spec.aliases,
+                    description=spec.description,
+                    media_semantics=spec.media_semantics,
+                )
+
+            output_kwargs = dict(output)
+            output_node_value: Any = None
+            output_ref = output_kwargs.pop("node", None)
+            if output_ref is not None:
+                if isinstance(output_ref, str):
+                    if output_ref not in captured:
+                        from vibecomfy.workflow_context import unbind_workflow
+                        unbind_workflow(wf)
+                        raise ValueError(
+                            f"@ready_template: output['node']={output_ref!r} does not "
+                            f"name a local in build(); captured locals: "
+                            f"{sorted(captured)}"
+                        )
+                    output_node_value = captured[output_ref]
+                else:
+                    output_node_value = output_ref
+
+            return wf.finalize(
+                resolved_inputs,
+                output_node=output_node_value,
+                **output_kwargs,
+            )
+
+        wrapper.__wrapped__ = func  # type: ignore[attr-defined]
+        wrapper._vibecomfy_ready_template = True  # type: ignore[attr-defined]
+        wrapper._vibecomfy_public_inputs = inputs  # type: ignore[attr-defined]
+        wrapper._vibecomfy_output = output  # type: ignore[attr-defined]
+        return wrapper
+
+    return decorator
+
+
 __all__ = [
     "InputSpec",
     "ModelAsset",
     "OutputSpec",
+    "PublicInput",
     "ReadyMetadata",
     "_current_workflow_or_raise",
     "_derive_output_kind",
@@ -1097,6 +1343,7 @@ __all__ = [
     "finalize_ready",
     "new_workflow",
     "node",
+    "ready_template",
     "template_input",
     "template_output",
 ]
