@@ -208,6 +208,18 @@ python -m vibecomfy.cli port check <template> --strict-ready-template --json
 
 The JSON output includes a `known_codes` catalog listing all five code names, so even a clean template reports which codes were checked. Findings are deterministically ordered (by code, then node_id, then field). The readiness model is shared between `doctor` and `port check`; both emit the same code/severity schema.
 
+### Widget alias resolution
+
+When the emitter encounters a `widget_N` positional key, it resolves it through a fixed five-step precedence (do not invert):
+
+1. `input_aliases` metadata
+2. Curated `WIDGET_SCHEMA` (widget-only positions; link sockets excluded)
+3. `WIDGET_SEMANTIC_NAMES` (patches for `Primitive*` nodes)
+4. Schema provider (installed custom-node `INPUT_TYPES`)
+5. Object_info cache (guarded by `_object_info_position_is_safe`)
+
+Unresolved keys fall through to raw `widget_N` and emit the existing `schema_backed_widget_alias_not_resolved` warning (hard error under `--strict-ready-template`). Object_info is last by design — its snapshots include link-only sockets at earlier positional indices, which would shift widget names if consulted before WIDGET_SCHEMA. See `docs/widget_alias_resolution.md` for the complete analysis including dual-coverage results (112 classes, 64 deliberate divergences) and diagnostic reconciliation.
+
 ## Roadmap
 
 The first useful slice is intentionally pragmatic: source loading, helper stripping, custom-node pack inference, model asset analysis, opt-in URL HEAD checks, widget alias diagnostics, Python emission, CLI preflights, doctor guidance, and RunPod report artifacts.
