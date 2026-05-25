@@ -186,6 +186,28 @@ python -m vibecomfy.cli port check video/wanvideo_wrapper_22_wan_animate_preproc
 
 Add `--head-check-models` only when you specifically need URL reachability diagnostics.
 
+## Doctor Readability Diagnostics
+
+`doctor --readability` and `port check --strict-ready-template` both report five first-wave readability diagnostic codes on emitted ready-template source. All five emit at severity `warning` on the first ship so they surface without blocking flows:
+
+| Code | What it flags |
+|---|---|
+| `avoidable_positional_output` | `wf.finalize()` call without an explicit `output_node=` kwarg |
+| `schema_backed_widget_alias_not_resolved` | `widget_N=` patterns in source that the object_info schema could resolve to a canonical name |
+| `uuid_class_type_in_ready_template` | A raw UUID string used as a `class_type` (subgraph nodes should be materialized as Python functions) |
+| `model_filename_not_declared` | A bare model filename literal in a model-picker input that is not declared via `model_assets` |
+| `generated_template_has_local_node_helper` | A local `_node()` helper function copy embedded in a generated ready template |
+
+Run against any ready template or scratchpad:
+
+```bash
+python -m vibecomfy.cli doctor <template> --readability
+python -m vibecomfy.cli doctor <template> --readability --json
+python -m vibecomfy.cli port check <template> --strict-ready-template --json
+```
+
+The JSON output includes a `known_codes` catalog listing all five code names, so even a clean template reports which codes were checked. Findings are deterministically ordered (by code, then node_id, then field). The readiness model is shared between `doctor` and `port check`; both emit the same code/severity schema.
+
 ## Roadmap
 
 The first useful slice is intentionally pragmatic: source loading, helper stripping, custom-node pack inference, model asset analysis, opt-in URL HEAD checks, widget alias diagnostics, Python emission, CLI preflights, doctor guidance, and RunPod report artifacts.

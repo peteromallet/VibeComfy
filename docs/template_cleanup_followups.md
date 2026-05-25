@@ -1,8 +1,17 @@
-# Template cleanup follow-ups
+# Template cleanup follow-ups — CLOSED (2026-05-25)
 
 Captured 2026-05-23 after porting `desloppify/strict-score-push` work onto
 `vibecomfy-v26-1` (branch `agentic-port-20260523`). Natural-Python ready
 templates are now live again; this doc lists what's still worth doing.
+
+**Status: CLOSED.** The Phase 2 sprint brief (plan_v1.meta.json) has addressed
+or explicitly deferred all items. Section C recoverability checkpoints have
+been resolved: stash@{0} and stash@{1} were inspected on 2026-05-25 and found
+to contain unabsorbed work; stash@{1} originates from a different branch
+(`fix/latentupscale-model-mmap-residency`) and holds unique unmerged changes
+(39 files, 388 insertions, 1072 deletions) — both stashes are retained.
+`/tmp/desloppify_lifeboat_20260523/` has been removed. The remaining B.1–B.4
+items are tracked in the sprint plan.
 
 ## A. Cosmetic — could the `def build()` shape be cleaner?
 
@@ -160,13 +169,11 @@ Resolved via `/cleanup-loose-branches` on 2026-05-23. End state:
 
 ---
 
-## C. Recoverability checkpoints (do not delete until satisfied with B.4)
+## C. Recoverability checkpoints — RESOLVED (2026-05-25)
 
-- **`stash@{1}`** — original desloppify `strict-score-push` worktree (with `-u`, captures all untracked files including the 8 novel modules pre-port).
-- **`stash@{0}`** — agentic-port WIP from mid-port (the parity.py + assertions.py changes before the linter reverted parity.py).
-- **`/tmp/desloppify_lifeboat_20260523/`** — explicit out-of-repo copy of all 8 novel files + the in-flight emitter diff patches. Independent of git.
-
-Once you've verified the natural-Python form output is what you wanted AND items B.1–B.4 are decided or done, these can go.
+- **`stash@{1}`** — RETAINED. Original desloppify `strict-score-push` worktree from branch `fix/latentupscale-model-mmap-residency`. Inspection on 2026-05-25 confirmed 39 files of unique unmerged work (388 insertions, 1072 deletions) including `_node` helper relocation, CLI additions (`validate-call`, `doctor-all`, `eval-node`, `inspect --node`, `nodes compatible-with`), AGENTS.md §1e, and template dedup. Not safe to drop.
+- **`stash@{0}`** — RETAINED. Agentic-port WIP from mid-port (parity.py lazy-import + preview_types.py rewrite). 2 files unabsorbed. Not safe to drop.
+- **`/tmp/desloppify_lifeboat_20260523/`** — REMOVED 2026-05-25. Out-of-repo copy of novel files and emitter diff patches. Contents verified redundant with stashes.
 
 ---
 

@@ -385,29 +385,62 @@ result = router.pick("video", "i2v", model="ltx")    # RouterResult(template_id,
 
 ## v2.7 guidance
 
-### ContextVar template authoring
+### Template shape
 
-Templates now use a **context-manager pattern** with `new_workflow()` instead of passing `wf` explicitly to every call. This aligns generated templates with the typed-wrapper convention:
+Ready templates use a **module-level `PUBLIC_INPUTS` + inline finalize-output-kwargs** shape.
+The legacy `with new_workflow(...) as wf:` wrapper remains valid and is the currently-emitted
+form, but the underlying ContextVar machinery also supports a with-less form
+(`wf = new_workflow(...)`) for future evolution:
 
 ```python
-from vibecomfy.templates import new_workflow, node, InputSpec
-from vibecomfy.handles import Handle
+from vibecomfy.templates import new_workflow, public
+from vibecomfy.nodes.core import LoadImage, SaveImage
 
-READY_METADATA = {
-    "ready_template": "image/my_template",
-    "task": "t2i",
-    "description": "...",
+OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', ...)
+READY_METADATA = ReadyMetadata.build(capability='...', ...)
+
+PUBLIC_INPUTS = {
+    'prompt': public('prompt', default='...'),
+    'seed':   public('seed', default=42),
 }
 
-with new_workflow(READY_METADATA, source_path=__file__) as wf:
-    # node() reads wf from ContextVar — no explicit wf arg needed
-    loader = node("CheckpointLoaderSimple", ckpt_name=InputSpec("ckpt_name", default="..."))
-    # ...
-
-wf.finalize_metadata()
+def build() -> VibeWorkflow:
+    # Legacy `with` form — still valid and currently emitted.
+    # new_workflow() eagerly binds the ContextVar; __enter__ is an idempotent
+    # no-op when the workflow is already bound, so the `with` form works
+    # without double-binding.
+    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+        loader = LoadImage(image=PUBLIC_INPUTS['image'])
+        save = SaveImage(images=loader, filename_prefix='my-output')
+        # finalize() unbinds the ContextVar idempotently in a try/finally.
+        # Output kwargs are inline: output_node=, output_type=, filename_prefix=,
+        # spec=, etc. — keyword-only on finalize().
+        return wf.finalize(PUBLIC_INPUTS, output_node=save.node.id,
+                          output_type='SaveImage', filename_prefix='my-output',
+                          spec=OUTPUT_SPEC)
 ```
 
-The `node()` function reads the active workflow from a `ContextVar` set by `new_workflow().__enter__()`. Legacy explicit-`wf` calling conventions still work: `node(wf, class_type, ...)`. The `_current_workflow_or_raise()` helper raises `ContextVarBindingError` (with `next_action="vibecomfy doctor"`) if called outside a `with new_workflow(...)` block.
+Key conventions:
+- **`PUBLIC_INPUTS`** is a module-level or `build()`-local dict of `public(name, default=...)` calls.
+- **`wf.finalize(PUBLIC_INPUTS, ...)`** takes the public inputs dict as its required first positional and accepts keyword-only output kwargs inline.
+- **No `OUTPUT_SPEC` in the module body** for output wiring — output shape is expressed as kwargs to `finalize()`.
+- **`node()` reads `wf` from a ContextVar** set by `new_workflow()`. Explicit-`wf` calling conventions still work.
+- **`_current_workflow_or_raise()`** raises `ContextVarBindingError` (with `next_action="vibecomfy doctor"`) if called outside a bound context.
+
+### ContextVar lifecycle contract
+
+| Operation | Behavior |
+|---|---|
+| `new_workflow(...)` | **Eagerly binds** the ContextVar and stores the token on `wf._workflow_context_token`. Returns `wf`. |
+| `wf.__enter__()` | **Idempotent no-op** when the token is already set (returns `self`). Binds only when no prior bind exists. |
+| `wf.__exit__()` | Calls `unbind_workflow(self)` — idempotent, identity-checked. |
+| `wf.finalize(...)` | Calls `unbind_workflow(wf)` in a **try/finally** so unbind fires on both success and error paths (e.g., when `_resolve_output_node` raises). |
+| `unbind_workflow(wf)` | **Idempotent, identity-checked.** Sets the ContextVar to `None` only when `active_workflow() is wf`, then clears `wf._workflow_context_token`. **NEVER** calls `Token.reset()` — `contextvars.Token` is single-use and LIFO; three unbind sites sharing one Token would `RuntimeError`. Safe to call repeatedly. |
+
+**Authoring contract:**
+- The legacy `with new_workflow() as wf:` form remains fully valid. `new_workflow()` eagerly binds, `__enter__` is an idempotent no-op, and `__exit__` + `finalize()` both unbind idempotently — no double-bind or double-reset hazard.
+- The with-less form `wf = new_workflow(...); ...; return wf.finalize(...)` also works: eager bind in `new_workflow()`, unbind in `finalize()`.
+- Loader loops (`registry/ready.py` and `static_contract.py`) guard with `try/finally: unbind_workflow(active_workflow() or wf)` and assert `active_workflow() is None` between iterations to surface binding leaks as hard failures.
 
 ### Tuple-unpacked multi-output wrappers
 
