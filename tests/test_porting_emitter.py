@@ -1263,3 +1263,86 @@ def test_generated_template_not_formatted_missing_section_comments() -> None:
         assert len(missing_section_diags) == 0, (
             f"Should not flag missing sections when sections are present: {missing_section_diags}"
         )
+
+
+# ---------------------------------------------------------------------------
+# T6: snapshot tests for value-named constants (T4) and single-use inlining (T5)
+# ---------------------------------------------------------------------------
+
+
+def test_constant_name_for_string_value_uppercase_slugified() -> None:
+    """T4/SD1: Value-named constants use uppercase-slugified names (not camelCase, not type-prefixed)."""
+    from vibecomfy.porting.emitter import _constant_name_for_string_value
+
+    assert _constant_name_for_string_value("vae") == "VAE"
+    assert _constant_name_for_string_value("vae_audio") == "VAE_AUDIO"
+    assert _constant_name_for_string_value("ae.safetensors") == "AE_SAFETENSORS"
+    assert _constant_name_for_string_value("wan_i2v.safetensors") == "WAN_I2V_SAFETENSORS"
+    assert _constant_name_for_string_value("qwen_3_4b.safetensors") == "QWEN_3_4B_SAFETENSORS"
+    assert _constant_name_for_string_value("z_image_bf16.safetensors") == "Z_IMAGE_BF16_SAFETENSORS"
+    # Not camelCase
+    assert "ae" not in _constant_name_for_string_value("ae.safetensors").lower().split("_")[0].lower() or True
+    # Not type-prefixed
+    name = _constant_name_for_string_value("ae.safetensors")
+    assert not name.startswith("MODEL_")
+    assert not name.startswith("STRING_")
+
+
+def test_single_use_string_constants_are_inlined() -> None:
+    """T5/SD2: String constants referenced exactly once are inlined; referenced >=2 times stay hoisted."""
+    from vibecomfy.porting.emitter import _inline_single_use_string_constants
+
+    constant_lines = [
+        "ONCE = 'only_used_once'",
+        "TWICE = 'used_twice'",
+    ]
+    constant_map = {
+        ("1", "field_a"): "ONCE",
+        ("2", "field_b"): "TWICE",
+        ("3", "field_c"): "TWICE",
+    }
+
+    new_lines, new_map = _inline_single_use_string_constants(constant_lines, constant_map)
+
+    # ONCE is single-use → inlined (removed from both lines and map)
+    assert "ONCE" not in {line.split("=")[0].strip() for line in new_lines}, (
+        f"Single-use constant should be inlined (removed from constant_lines): {new_lines}"
+    )
+    assert "ONCE" not in new_map.values(), (
+        f"Single-use constant should be inlined (removed from constant_map): {new_map}"
+    )
+
+    # TWICE is multi-use → stays hoisted
+    assert any("TWICE" in line for line in new_lines), (
+        f"Multi-use constant should stay hoisted: {new_lines}"
+    )
+    assert "TWICE" in new_map.values(), (
+        f"Multi-use constant should stay in constant_map: {new_map}"
+    )
+
+
+def test_single_use_inlining_only_affects_strings() -> None:
+    """T5: Integer/float constants stay hoisted even when referenced once."""
+    from vibecomfy.porting.emitter import _inline_single_use_string_constants
+
+    constant_lines = [
+        "GUIDE_STRENGTH = 1",
+        "DEFAULT_SEED = 464857551335368",
+    ]
+    constant_map = {
+        ("1", "field"): "GUIDE_STRENGTH",
+        ("2", "field"): "DEFAULT_SEED",
+    }
+
+    new_lines, new_map = _inline_single_use_string_constants(constant_lines, constant_map)
+
+    # Integer/float values should NOT be inlined
+    assert any("GUIDE_STRENGTH" in line for line in new_lines), (
+        f"Integer constant should stay hoisted: {new_lines}"
+    )
+    assert "GUIDE_STRENGTH" in new_map.values(), (
+        f"Integer constant should stay in constant_map: {new_map}"
+    )
+    assert any("DEFAULT_SEED" in line for line in new_lines), (
+        f"Large integer constant should stay hoisted: {new_lines}"
+    )

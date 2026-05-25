@@ -310,8 +310,9 @@ def test_codemod_hypothesis_property_6_no_widget_n_leakage(api_json: dict[str, A
         pattern = re.compile(rf"{re.escape(ct)}\((.*?)\)", re.DOTALL)
         for match in pattern.finditer(text):
             call_args = match.group(1)
-            # widget_N pattern: widget_ followed by digits
-            if re.search(r"widget_\d+", call_args):
+            # widget_N pattern as a PARAMETER NAME (key=value), not inside a dict literal value
+            # Match `widget_N=` (keyword arg) but not `'widget_N': ...` (dict key in a value).
+            if re.search(r"\bwidget_\d+\s*=", call_args):
                 import pytest
                 pytest.fail(
                     f"widget_N leakage detected for alias-backed class {ct!r} "
