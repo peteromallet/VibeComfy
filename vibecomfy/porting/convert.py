@@ -154,6 +154,7 @@ def port_convert_workflow(
     schema_provider: Any | None = None,
     validate: bool = True,
     raw_workflow: dict[str, Any] | None = None,
+    emit_shape: str = "flat",
 ) -> PortConvertResult:
     emission_diagnostics: list[EmissionDiagnostic] = []
 
@@ -196,6 +197,7 @@ def port_convert_workflow(
             registered_inputs=registered_inputs,
             diagnostics=emission_diagnostics,
             raw_workflow=raw_workflow,
+            emit_shape=emit_shape,
         )
         mode = "ready_template"
 

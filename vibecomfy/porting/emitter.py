@@ -1101,6 +1101,7 @@ def emit_ready_template_python(
     apply_overrides: dict[str, Any] | None = None,
     diagnostics: list[EmissionDiagnostic] | None = None,
     raw_workflow: dict[str, Any] | None = None,
+    emit_shape: str = "flat",
 ) -> str:
     metadata = dict(ready_metadata)
     requirements = dict(ready_requirements)
@@ -1207,6 +1208,9 @@ def emit_ready_template_python(
     combined = "\n".join(out_lines) + "\n"
     combined = _strip_unused_template_imports(combined)
 
+    if emit_shape == "decorator":
+        combined = _rewrite_to_decorator_shape(combined)
+
     # -- readability diagnostic: generated_template_not_formatted -------------
     if diagnostics is not None:
         _check_template_formatting(combined, workflow_nodes, section_groups, diagnostics)
@@ -1220,6 +1224,288 @@ def emit_ready_template_python(
             next_action="Check the generated code for syntax errors; the AST parse failure details are in the exception message.",
         ) from exc
     return combined
+
+
+def _rewrite_to_decorator_shape(source: str) -> str:
+    """Post-emission transform from flat shape to @ready_template decorator shape.
+
+    Transforms the flat shape::
+
+        from vibecomfy.templates import InputSpec, ..., new_workflow
+        ...
+        def build() -> VibeWorkflow:
+            wf = new_workflow(READY_METADATA, source_path=__file__)
+            cliptextencode = CLIPTextEncode(text='...')
+            saveimage = SaveImage(images=cliptextencode)
+
+            PUBLIC_INPUTS = {
+                'prompt': InputSpec(node=cliptextencode, field='text', default='...'),
+            }
+            return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', ...)
+
+    into the decorator shape::
+
+        from vibecomfy.templates import PublicInput, ReadyMetadata, ready_template
+        ...
+        PUBLIC_INPUTS = {
+            'prompt': PublicInput(node='cliptextencode', field='text', default='...'),
+        }
+        OUTPUT = dict(node='saveimage', output_type='SaveImage', ...)
+
+        @ready_template(READY_METADATA, source_path=__file__,
+                        inputs=PUBLIC_INPUTS, output=OUTPUT)
+        def build() -> VibeWorkflow:
+            cliptextencode = CLIPTextEncode(text='...')
+            saveimage = SaveImage(images=cliptextencode)
+
+    The transform is a string/regex rewrite over a fully-emitted module. It is
+    intentionally narrow: any input the regexes don't recognise produces a
+    ``ConversionParityError`` so failures show up at conversion time rather
+    than at template load.
+    """
+    import re as _re
+
+    lines = source.splitlines()
+
+    # 1. Locate def build() and extract its body.
+    build_start = None
+    for i, line in enumerate(lines):
+        if line.startswith("def build(") and line.rstrip().endswith(":"):
+            build_start = i
+            break
+    if build_start is None:
+        raise ConversionParityError(
+            "decorator-shape rewrite: could not find def build() line.",
+            next_action="Re-run port convert with --emit-shape=flat to inspect the emitted source.",
+        )
+
+    # 2. Find the `wf = new_workflow(...)` line and the `return wf.finalize(...)` line.
+    wf_line_idx = None
+    new_workflow_match = None
+    return_idx = None
+    return_text = ""
+    for i in range(build_start + 1, len(lines)):
+        line = lines[i]
+        if wf_line_idx is None:
+            m = _re.match(r"\s*wf = new_workflow\((READY_METADATA),\s*source_path=(__file__)\)\s*$", line)
+            if m:
+                wf_line_idx = i
+                new_workflow_match = m
+                continue
+        if line.lstrip().startswith("return wf.finalize"):
+            return_idx = i
+            return_text = line
+            # finalize call may span multiple lines but emitter currently produces one line.
+            break
+
+    if wf_line_idx is None or return_idx is None:
+        raise ConversionParityError(
+            "decorator-shape rewrite: could not locate wf = new_workflow / return wf.finalize lines.",
+            next_action="Re-run port convert with --emit-shape=flat to inspect emitted source.",
+        )
+
+    # 3. Locate the PUBLIC_INPUTS dict block inside build() (may be absent).
+    public_inputs_start = None
+    public_inputs_end = None
+    for i in range(build_start + 1, return_idx):
+        if _re.match(r"\s*PUBLIC_INPUTS = \{\s*$", lines[i]):
+            public_inputs_start = i
+            for j in range(i + 1, return_idx):
+                if lines[j].rstrip() == "    }":
+                    public_inputs_end = j
+                    break
+            break
+
+    # 4. Parse the return wf.finalize(...) call to extract output kwargs.
+    finalize_match = _re.match(
+        r"\s*return wf\.finalize\(([A-Z_]+|\{\})(?:,\s*(.*))?\)\s*$",
+        return_text,
+    )
+    if finalize_match is None:
+        raise ConversionParityError(
+            f"decorator-shape rewrite: could not parse finalize call: {return_text!r}",
+            next_action="Re-run port convert with --emit-shape=flat to inspect emitted source.",
+        )
+    inputs_arg = finalize_match.group(1)
+    kwargs_str = finalize_match.group(2) or ""
+
+    # Split kwargs by top-level commas (no nested parens in current emission).
+    output_kwargs: list[tuple[str, str]] = []
+    if kwargs_str:
+        depth = 0
+        current = []
+        parts: list[str] = []
+        for ch in kwargs_str:
+            if ch in "([{":
+                depth += 1
+                current.append(ch)
+            elif ch in ")]}":
+                depth -= 1
+                current.append(ch)
+            elif ch == "," and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+            else:
+                current.append(ch)
+        if current:
+            parts.append("".join(current).strip())
+        for part in parts:
+            if "=" not in part:
+                continue
+            k, _, v = part.partition("=")
+            output_kwargs.append((k.strip(), v.strip()))
+
+    # 5. Pull out output_node specifically; the rest become OUTPUT dict members.
+    output_node_var: str | None = None
+    remaining_kwargs: list[tuple[str, str]] = []
+    for k, v in output_kwargs:
+        if k == "output_node":
+            output_node_var = v
+        else:
+            remaining_kwargs.append((k, v))
+
+    # 6. Build the module-top blocks.
+    new_top_blocks: list[str] = []
+
+    # PUBLIC_INPUTS block — rewrite InputSpec(node=<var>, ...) → PublicInput(node='<var>', ...).
+    if public_inputs_start is not None and public_inputs_end is not None:
+        pi_lines = lines[public_inputs_start:public_inputs_end + 1]
+        rewritten: list[str] = []
+        for ln in pi_lines:
+            # Strip leading 4-space indent from build-local block.
+            if ln.startswith("    "):
+                ln = ln[4:]
+            # InputSpec(node=identifier, field=...)  →  PublicInput(node='identifier', field=...)
+            ln = _re.sub(
+                r"InputSpec\(node=([A-Za-z_][A-Za-z_0-9]*)",
+                lambda m: f"PublicInput(node={m.group(1)!r}",
+                ln,
+            )
+            rewritten.append(ln)
+        new_top_blocks.append("\n".join(rewritten))
+
+    # OUTPUT block — only when there's an output_node.
+    if output_node_var is not None:
+        output_members = [f"node={output_node_var!r}"]
+        for k, v in remaining_kwargs:
+            output_members.append(f"{k}={v}")
+        # Format multi-line if long.
+        joined_one = "OUTPUT = dict(" + ", ".join(output_members) + ")"
+        if len(joined_one) <= 100:
+            new_top_blocks.append(joined_one)
+        else:
+            new_top_blocks.append(
+                "OUTPUT = dict(\n    "
+                + ",\n    ".join(output_members)
+                + ",\n)"
+            )
+
+    # 7. Build the decorator line.
+    decorator_args = ["READY_METADATA", "source_path=__file__"]
+    if public_inputs_start is not None:
+        decorator_args.append("inputs=PUBLIC_INPUTS")
+    if output_node_var is not None:
+        decorator_args.append("output=OUTPUT")
+    decorator_line = f"@ready_template({', '.join(decorator_args)})"
+
+    # 8. Splice it all together.
+    # Find where to insert top-level blocks: directly after READY_METADATA = ... block.
+    # Locate the line that closes READY_METADATA = ReadyMetadata.build(...).
+    metadata_end = None
+    for i in range(build_start):
+        if lines[i].startswith("READY_METADATA = ReadyMetadata.build("):
+            # find closing ')' at column 0
+            for j in range(i + 1, build_start):
+                if lines[j] == ")":
+                    metadata_end = j
+                    break
+            break
+    if metadata_end is None:
+        # Fall back: insert right before build()
+        metadata_end = build_start - 1
+        # but skip back over blank lines / subgraph-function blocks
+        while metadata_end > 0 and not lines[metadata_end].strip():
+            metadata_end -= 1
+
+    # Build the new file:
+    # lines[0..metadata_end] + blank + new_top_blocks + blank + lines[metadata_end+1..build_start-1] + decorator + def build line + body (without wf= line, without PUBLIC_INPUTS block, without return line)
+    head = lines[: metadata_end + 1]
+    middle = lines[metadata_end + 1 : build_start]  # blank lines, subgraph functions, etc.
+
+    # Body lines: everything from build_start+1..end, but skip:
+    #   - wf = new_workflow line
+    #   - the PUBLIC_INPUTS block (start..end inclusive)
+    #   - the return line
+    body_lines: list[str] = [lines[build_start]]  # def build() -> VibeWorkflow:
+    skip_pi = public_inputs_start is not None
+    for i in range(build_start + 1, len(lines)):
+        if i == wf_line_idx:
+            continue
+        if skip_pi and public_inputs_start <= i <= public_inputs_end:
+            continue
+        if i == return_idx:
+            continue
+        body_lines.append(lines[i])
+
+    # Trim trailing blank lines from body
+    while body_lines and not body_lines[-1].strip():
+        body_lines.pop()
+
+    output_parts: list[str] = []
+    output_parts.extend(head)
+    output_parts.append("")
+    output_parts.extend(new_top_blocks)
+    output_parts.append("")
+    # middle may already have blank lines; keep as-is
+    output_parts.extend(middle)
+    if output_parts[-1].strip():
+        output_parts.append("")
+    output_parts.append(decorator_line)
+    output_parts.extend(body_lines)
+    output_parts.append("")
+
+    rewritten_source = "\n".join(output_parts)
+
+    # Fix imports: replace `InputSpec` with `PublicInput`, drop `new_workflow`,
+    # add `ready_template`.
+    rewritten_source = _rewrite_imports_for_decorator_shape(rewritten_source)
+    return rewritten_source
+
+
+def _rewrite_imports_for_decorator_shape(source: str) -> str:
+    """Update the ``from vibecomfy.templates import ...`` line for the decorator shape.
+
+    * Replaces ``InputSpec`` with ``PublicInput``.
+    * Removes ``new_workflow`` (no longer called by the template).
+    * Adds ``ready_template``.
+    * Preserves the rest of the imported names (``ReadyMetadata``, ``ModelAsset``,
+      ``OutputSpec``, ``node as raw_call``, ``ref``, etc.) in alphabetical order.
+    """
+    import re as _re
+
+    def _replace(match: _re.Match[str]) -> str:
+        names_str = match.group(1)
+        # Split by comma at top level (no parens in imports).
+        names = [name.strip() for name in names_str.split(",") if name.strip()]
+        cleaned: list[str] = []
+        for name in names:
+            if name == "InputSpec":
+                cleaned.append("PublicInput")
+            elif name == "new_workflow":
+                continue
+            else:
+                cleaned.append(name)
+        if "ready_template" not in cleaned:
+            cleaned.append("ready_template")
+        cleaned.sort(key=lambda s: s.lower())
+        return f"from vibecomfy.templates import {', '.join(cleaned)}"
+
+    return _re.sub(
+        r"from vibecomfy\.templates import (.+)",
+        _replace,
+        source,
+        count=1,
+    )
 
 
 def emit_scratchpad_python(

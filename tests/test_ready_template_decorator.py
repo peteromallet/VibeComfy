@@ -177,3 +177,109 @@ def test_decorator_releases_context_on_error():
     with pytest.raises(RuntimeError, match="boom"):
         build()
     assert active_workflow() is None
+
+
+# ---------------------------------------------------------------------------
+# Emitter shape: decorator
+# ---------------------------------------------------------------------------
+
+
+def _emit_for_source(json_path: str, ready_id: str, emit_shape: str) -> str:
+    from vibecomfy.porting.workbench import load_port_source
+    from vibecomfy.porting.emitter import emit_ready_template_python
+    from vibecomfy.porting.convert import (
+        _ready_metadata,
+        _ready_requirements,
+        _conversion_provenance,
+    )
+
+    loaded = load_port_source(json_path)
+    provenance = _conversion_provenance(
+        loaded.workflow,
+        source_path=loaded.source_path,
+        provenance=None,
+        source_hash=None,
+        workflow_shape=None,
+        output_mode="ready_template",
+        ready_id=ready_id,
+    )
+    return emit_ready_template_python(
+        loaded.workflow,
+        ready_metadata=_ready_metadata(
+            loaded.workflow,
+            ready_id=ready_id,
+            source_path=loaded.source_path,
+            provenance=provenance,
+        ),
+        ready_requirements=_ready_requirements(loaded.workflow),
+        template_id=ready_id,
+        raw_workflow=loaded.raw_workflow,
+        emit_shape=emit_shape,
+    )
+
+
+def test_emit_decorator_shape_produces_expected_structure(tmp_path):
+    """The decorator emit shape hoists PUBLIC_INPUTS, adds @ready_template, and drops wf/return lines."""
+    pytest_repo = "workflow_corpus/official/video/wan_t2v.json"
+    from pathlib import Path
+    if not Path(pytest_repo).exists():
+        pytest.skip("source JSON not present in this checkout")
+
+    text = _emit_for_source(pytest_repo, "video/wan_t2v", "decorator")
+
+    assert "from vibecomfy.templates import" in text
+    assert "PublicInput" in text
+    assert "ready_template" in text
+    # No new_workflow import in decorator shape.
+    assert "new_workflow" not in text.split("\ndef build")[0]
+    # PUBLIC_INPUTS at module top (before def build).
+    head, _, body = text.partition("\ndef build")
+    assert "PUBLIC_INPUTS = {" in head
+    assert "OUTPUT = dict(" in head
+    assert "@ready_template(READY_METADATA" in head
+    # No `wf = new_workflow` inside build body.
+    assert "wf = new_workflow" not in body
+    # No trailing return wf.finalize.
+    assert "return wf.finalize" not in body
+
+
+def test_emit_decorator_shape_compile_parity(tmp_path):
+    """Decorator shape compiles to byte-identical API JSON as flat shape."""
+    pytest_repo = "workflow_corpus/official/video/wan_t2v.json"
+    from pathlib import Path
+    if not Path(pytest_repo).exists():
+        pytest.skip("source JSON not present in this checkout")
+
+    flat_text = _emit_for_source(pytest_repo, "video/wan_t2v", "flat")
+    deco_text = _emit_for_source(pytest_repo, "video/wan_t2v", "decorator")
+
+    flat_path = tmp_path / "flat.py"
+    deco_path = tmp_path / "deco.py"
+    flat_path.write_text(flat_text, encoding="utf-8")
+    deco_path.write_text(deco_text, encoding="utf-8")
+
+    import importlib.util
+
+    def _load_build(path, name):
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.build()
+
+    flat_wf = _load_build(flat_path, "flat_parity")
+    deco_wf = _load_build(deco_path, "deco_parity")
+
+    flat_api = flat_wf.compile("api")
+    deco_api = deco_wf.compile("api")
+
+    # Normalize: same nodes + same inputs (order-insensitive).
+    def _normalize(api):
+        return {
+            nid: {
+                "class_type": v.get("class_type"),
+                "inputs": sorted(v.get("inputs", {}).items(), key=lambda kv: kv[0]),
+            }
+            for nid, v in api.items()
+        }
+
+    assert _normalize(flat_api) == _normalize(deco_api)

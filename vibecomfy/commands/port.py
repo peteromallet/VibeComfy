@@ -153,6 +153,7 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
             workflow_shape=report.workflow_shape,
             schema_provider=schema_provider,
             raw_workflow=loaded.raw_workflow,
+            emit_shape=getattr(args, "emit_shape", "flat"),
         )
     except Exception as exc:
         return _emit_strict_ready_load_failure(
@@ -1569,6 +1570,12 @@ def register(subparsers) -> None:
         "--no-object-info-cache",
         action="store_true",
         help="Do not use cached /object_info schema evidence.",
+    )
+    convert.add_argument(
+        "--emit-shape",
+        choices=["flat", "decorator"],
+        default="flat",
+        help="Template shape to emit: 'flat' (default; wf = new_workflow + return wf.finalize) or 'decorator' (@ready_template with module-top PUBLIC_INPUTS).",
     )
     convert.add_argument(
         "--server-url",
