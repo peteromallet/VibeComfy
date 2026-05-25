@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, ImageScale, KSampler, LoadImage, ModelSamplingAuraFlow, SaveImage, UNETLoader, VAEDecode, VAEEncode, VAELoader
 
 
@@ -21,9 +21,6 @@ MODELS = {
     'vae': ModelAsset(url='https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors', subdir='vae'),
 }
 
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='image_to_image',
     models=MODELS,
@@ -35,55 +32,58 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        # Inputs
-        image, mask = LoadImage(
-            image=public('image', default='image_z_image_img2img_input.png'),
-        )
+    # Inputs
+    image, mask = LoadImage(image='image_z_image_img2img_input.png')
+    unetloader = UNETLoader(unet_name=UNET_NAME)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='lumina2')
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
 
-        unetloader = UNETLoader(unet_name=UNET_NAME)
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='lumina2')
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
+    # Conditioning
+    positive = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+    negative = CLIPTextEncode(text='', clip=cliploader)
 
-        # Conditioning
-        positive = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT),
-            clip=cliploader,
-        )
+    imagescale = ImageScale(
+        upscale_method='lanczos',
+        width=1024,
+        height=1024,
+        crop='center',
+        image=image,
+    )
 
-        negative = CLIPTextEncode(text='', clip=cliploader)
+    vaeencode = VAEEncode(pixels=imagescale, vae=vaeloader)
 
-        imagescale = ImageScale(
-            upscale_method='lanczos',
-            width=public('width', default=1024),
-            height=public('height', default=1024),
-            crop='center',
-            image=image,
-        )
+    ksampler = KSampler(
+        seed=DEFAULT_SEED,
+        steps=12,
+        cfg=GUIDE_STRENGTH,
+        sampler_name='res_multistep',
+        denoise=0.7,
+        latent_image=vaeencode,
+        model=modelsamplingauraflow,
+        negative=negative,
+        positive=positive,
+    )
 
-        vaeencode = VAEEncode(pixels=imagescale, vae=vaeloader)
+    # Decode
+    vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
 
-        ksampler = KSampler(
-            seed=public('seed', default=DEFAULT_SEED),
-            steps=public('steps', default=12),
-            cfg=GUIDE_STRENGTH,
-            sampler_name='res_multistep',
-            denoise=0.7,
-            latent_image=vaeencode,
-            model=modelsamplingauraflow,
-            negative=negative,
-            positive=positive,
-        )
-
-        # Decode
-        vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
-
-        # Outputs
-        saveimage = SaveImage(filename_prefix='z-image-img2img', images=vaedecode)
+    # Outputs
+    saveimage = SaveImage(filename_prefix='z-image-img2img', images=vaedecode)
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, filename_prefix='z-image-img2img', spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=unetloader, field='unet_name', default=UNET_NAME),
+        'prompt': InputSpec(node=positive, field='text', default=DEFAULT_PROMPT),
+        'seed': InputSpec(node=ksampler, field='seed', default=DEFAULT_SEED),
+        'steps': InputSpec(node=ksampler, field='steps', default=12),
+        'image': InputSpec(node=image, field='image', default='image_z_image_img2img_input.png'),
+        'width': InputSpec(node=imagescale, field='width', default=1024),
+        'height': InputSpec(node=imagescale, field='height', default=1024),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='z-image-img2img')
 

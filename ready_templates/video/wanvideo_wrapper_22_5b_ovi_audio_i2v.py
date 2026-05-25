@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import LoadImage, PreviewAudio
 from vibecomfy.nodes.kjnodes import ImageResizeKJv2
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
@@ -24,9 +24,6 @@ MODEL_NAME_3 = 'WanVideo/Ovi/Wan_2_1_Ovi_video_model_bf16.safetensors'
 VAE_NAME = 'mmaudio_vae_16k_fp32.safetensors'
 VOCODER_NAME = 'mmaudio_vocoder_bigvgan_best_netG_fp32.safetensors'
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='audio_image_to_video',
     requirements={'models': ['Wan2_2_VAE_bf16.safetensors', 'umt5-xxl-enc-bf16.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper']},
@@ -38,129 +35,133 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        wanvideoextramodelselect = WanVideoExtraModelSelect(
-            extra_model=EXTRA_MODEL_NAME,
-        )
+    wanvideoextramodelselect = WanVideoExtraModelSelect(extra_model=EXTRA_MODEL_NAME)
 
-        wanvideoblockswap = WanVideoBlockSwap(
-            blocks_to_swap=15,
-            use_non_blocking=True,
-            prefetch_blocks=1,
-        )
+    wanvideoblockswap = WanVideoBlockSwap(
+        blocks_to_swap=15,
+        use_non_blocking=True,
+        prefetch_blocks=1,
+    )
 
-        text_embeds, negative_text_embeds, positive_prompt = WanVideoTextEncodeCached(
-            model_name=public('model', default=MODEL_NAME),
-            positive_prompt=DEFAULT_PROMPT,
-            negative_prompt=DEFAULT_NEGATIVE,
-            use_disk_cache=False,
-        )
+    text_embeds, negative_text_embeds, positive_prompt = WanVideoTextEncodeCached(
+        model_name=MODEL_NAME,
+        positive_prompt=DEFAULT_PROMPT,
+        negative_prompt=DEFAULT_NEGATIVE,
+        use_disk_cache=False,
+    )
 
-        wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
+    wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
 
-        ovimmaudiovaeloader = OviMMAudioVAELoader(
-            precision='fp32',
-            vae=VAE_NAME,
-            vocoder=VOCODER_NAME,
-        )
+    ovimmaudiovaeloader = OviMMAudioVAELoader(
+        precision='fp32',
+        vae=VAE_NAME,
+        vocoder=VOCODER_NAME,
+    )
 
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
-        wanvideoslg = WanVideoSLG(blocks='11', start_percent=0)
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideoslg = WanVideoSLG(blocks='11', start_percent=0)
 
-        text_embeds_wan, negative_text_embeds_wan, positive_prompt_wan = WanVideoTextEncodeCached(
-            model_name=MODEL_NAME,
-            negative_prompt=DEFAULT_NEGATIVE_2,
-        )
+    text_embeds_wan, negative_text_embeds_wan, positive_prompt_wan = WanVideoTextEncodeCached(
+        model_name=MODEL_NAME,
+        negative_prompt=DEFAULT_NEGATIVE_2,
+    )
 
-        # Inputs
-        image, mask = LoadImage(image=public('image', default='oldman_upscaled.png'))
-        wanvideoeasycache = WanVideoEasyCache()
+    # Inputs
+    image, mask = LoadImage(image='oldman_upscaled.png')
+    wanvideoeasycache = WanVideoEasyCache()
+    wanvideoemptymmaudiolatents = WanVideoEmptyMMAudioLatents(length=DEFAULT_FRAMES)
 
-        wanvideoemptymmaudiolatents = WanVideoEmptyMMAudioLatents(
-            length=public('frames', default=DEFAULT_FRAMES),
-        )
+    wanvideomodelloader = WanVideoModelLoader(
+        model=MODEL_NAME_3,
+        compile_args=wanvideotorchcompilesettings,
+        extra_model=wanvideoextramodelselect,
+    )
 
-        wanvideomodelloader = WanVideoModelLoader(
-            model=MODEL_NAME_3,
-            compile_args=wanvideotorchcompilesettings,
-            extra_model=wanvideoextramodelselect,
-        )
+    wanvideoovicfg = WanVideoOviCFG(
+        widget_0=3,
+        original_text_embeds=text_embeds,
+        ovi_negative_text_embeds=negative_text_embeds_wan,
+    )
 
-        wanvideoovicfg = WanVideoOviCFG(
-            widget_0=3,
-            original_text_embeds=text_embeds,
-            ovi_negative_text_embeds=negative_text_embeds_wan,
-        )
+    image_image, width, height, mask_image = ImageResizeKJv2(
+        width=256,
+        height=256,
+        upscale_method='lanczos',
+        keep_proportion='crop',
+        divisible_by=32,
+        device='cpu',
+        image=image,
+    )
 
-        image_image, width, height, mask_image = ImageResizeKJv2(
-            width=public('width', default=256),
-            height=public('height', default=256),
-            upscale_method='lanczos',
-            keep_proportion='crop',
-            divisible_by=32,
-            device='cpu',
-            image=image,
-        )
+    wanvideosetblockswap = WanVideoSetBlockSwap(
+        block_swap_args=wanvideoblockswap,
+        model=wanvideomodelloader,
+    )
 
-        wanvideosetblockswap = WanVideoSetBlockSwap(
-            block_swap_args=wanvideoblockswap,
-            model=wanvideomodelloader,
-        )
+    wanvideoencode = WanVideoEncode(
+        widget_0=False,
+        widget_1=272,
+        widget_2=272,
+        widget_3=144,
+        widget_4=128,
+        widget_5=0,
+        widget_6=1,
+        image=image_image,
+        vae=wanvideovaeloader,
+    )
 
-        wanvideoencode = WanVideoEncode(
-            widget_0=False,
-            widget_1=272,
-            widget_2=272,
-            widget_3=144,
-            widget_4=128,
-            widget_5=0,
-            widget_6=1,
-            image=image_image,
-            vae=wanvideovaeloader,
-        )
+    wanvideoemptyembeds = WanVideoEmptyEmbeds(
+        num_frames=DEFAULT_FRAMES_2,
+        widget_0=256,
+        widget_1=256,
+        widget_2=5,
+        extra_latents=wanvideoencode,
+        height=height,
+        width=width,
+    )
 
-        wanvideoemptyembeds = WanVideoEmptyEmbeds(
-            num_frames=DEFAULT_FRAMES_2,
-            widget_0=256,
-            widget_1=256,
-            widget_2=5,
-            extra_latents=wanvideoencode,
-            height=height,
-            width=width,
-        )
+    samples, denoised_samples = WanVideoSampler(
+        steps=1,
+        cfg=GUIDE_STRENGTH,
+        seed=DEFAULT_SEED,
+        rope_function='default',
+        cache_args=wanvideoeasycache,
+        image_embeds=wanvideoemptyembeds,
+        model=wanvideosetblockswap,
+        samples=wanvideoemptymmaudiolatents,
+        slg_args=wanvideoslg,
+        text_embeds=wanvideoovicfg,
+    )
 
-        samples, denoised_samples = WanVideoSampler(
-            steps=1,
-            cfg=GUIDE_STRENGTH,
-            seed=public('seed', default=DEFAULT_SEED),
-            rope_function='default',
-            cache_args=wanvideoeasycache,
-            image_embeds=wanvideoemptyembeds,
-            model=wanvideosetblockswap,
-            samples=wanvideoemptymmaudiolatents,
-            slg_args=wanvideoslg,
-            text_embeds=wanvideoovicfg,
-        )
+    wanvideodecode = WanVideoDecode(
+        normalization='default',
+        samples=samples,
+        vae=wanvideovaeloader,
+    )
 
-        wanvideodecode = WanVideoDecode(
-            normalization='default',
-            samples=samples,
-            vae=wanvideovaeloader,
-        )
+    wanvideodecodeoviaudio = WanVideoDecodeOviAudio(
+        mmaudio_vae=ovimmaudiovaeloader,
+        samples=samples,
+    )
 
-        wanvideodecodeoviaudio = WanVideoDecodeOviAudio(
-            mmaudio_vae=ovimmaudiovaeloader,
-            samples=samples,
-        )
+    # Outputs
+    vhs_videocombine = VHS_VideoCombine(
+        audio=wanvideodecodeoviaudio,
+        images=wanvideodecode,
+    )
 
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(
-            audio=wanvideodecodeoviaudio,
-            images=wanvideodecode,
-        )
+    previewaudio = PreviewAudio(audio=wanvideodecodeoviaudio)
 
-        previewaudio = PreviewAudio(audio=wanvideodecodeoviaudio)
 
-        return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=text_embeds, field='model_name', default=MODEL_NAME),
+        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED),
+        'image': InputSpec(node=image, field='image', default='oldman_upscaled.png'),
+        'frames': InputSpec(node=wanvideoemptymmaudiolatents, field='length', default=DEFAULT_FRAMES),
+        'width': InputSpec(node=image_image, field='width', default=256),
+        'height': InputSpec(node=image_image, field='height', default=256),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

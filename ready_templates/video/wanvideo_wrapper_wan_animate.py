@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPVisionLoader, GrowMask, LoadImage, PixelPerfectResolution
 from vibecomfy.nodes.kjnodes import BlockifyMask, DrawMaskOnImage, GetImageSizeAndCount, INTConstant, ImageConcatMulti, ImageResizeKJv2, PointsEditor
 from vibecomfy.nodes.sam2 import DownloadAndLoadSAM2Model, Sam2Segmentation
@@ -26,9 +26,6 @@ MODEL_NAME_3 = 'sam2_hiera_base_plus.safetensors'
 MODEL_NAME_4 = 'WanVideo\\2_2\\Wan2_2-Animate-14B_fp8_e4m3fn_scaled_KJ.safetensors'
 POSE_ESTIMATOR_NAME = 'dw-ll_ucoco_384_bs5.torchscript.pt'
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='animate_reference_video',
     requirements={'models': ['clip_vision_h.safetensors', 'umt5-xxl-enc-bf16.safetensors', 'wanvideo\\Wan2_1_VAE_bf16.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper', 'ComfyUI-segment-anything-2', 'comfyui_controlnet_aux', 'rgthree-comfy']},
@@ -40,223 +37,220 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME)
 
-        wanvideovaeloader = WanVideoVAELoader(
-            model_name=public('model', default=MODEL_NAME),
-        )
+    wanvideoblockswap = WanVideoBlockSwap(
+        blocks_to_swap=25,
+        use_non_blocking=True,
+        prefetch_blocks=1,
+    )
 
-        wanvideoblockswap = WanVideoBlockSwap(
-            blocks_to_swap=25,
-            use_non_blocking=True,
-            prefetch_blocks=1,
-        )
+    # Inputs
+    image, mask = LoadImage(image='refer.jpeg')
 
-        # Inputs
-        image, mask = LoadImage(image=public('image', default='refer.jpeg'))
+    text_embeds, negative_text_embeds, positive_prompt = WanVideoTextEncodeCached(
+        model_name=MODEL_NAME_2,
+        positive_prompt=DEFAULT_PROMPT,
+        negative_prompt=DEFAULT_NEGATIVE,
+        use_disk_cache=False,
+    )
 
-        text_embeds, negative_text_embeds, positive_prompt = WanVideoTextEncodeCached(
-            model_name=MODEL_NAME_2,
-            positive_prompt=DEFAULT_PROMPT,
-            negative_prompt=DEFAULT_NEGATIVE,
-            use_disk_cache=False,
-        )
+    clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME)
 
-        clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME)
+    downloadandloadsam2model = DownloadAndLoadSAM2Model(
+        model=MODEL_NAME_3,
+        segmentor='video',
+        device='cuda',
+    )
 
-        downloadandloadsam2model = DownloadAndLoadSAM2Model(
-            model=MODEL_NAME_3,
-            segmentor='video',
-            device='cuda',
-        )
+    wanvideocontextoptions = WanVideoContextOptions(
+        context_schedule='static_standard',
+        context_overlap=32,
+    )
 
-        wanvideocontextoptions = WanVideoContextOptions(
-            context_schedule='static_standard',
-            context_overlap=32,
-        )
+    reroute = raw_call('Reroute', '147')
+    intconstant = INTConstant(value=832)
+    intconstant_2 = INTConstant(value=480)
 
-        reroute = raw_call('Reroute', '147')
-        intconstant = INTConstant(value=832)
-        intconstant_2 = INTConstant(value=480)
+    wanvideoloraselectmulti = WanVideoLoraSelectMulti(
+        lora_0=LORA__NAME,
+        lora_1=LORA__NAME_2,
+        strength_1=1.2,
+        merge_loras=False,
+    )
 
-        wanvideoloraselectmulti = WanVideoLoraSelectMulti(
-            lora_0=LORA__NAME,
-            lora_1=LORA__NAME_2,
-            strength_1=1.2,
-            merge_loras=False,
-        )
+    wanvideomodelloader = WanVideoModelLoader(
+        model=MODEL_NAME_4,
+        base_precision='fp16',
+        compile_args=wanvideotorchcompilesettings,
+    )
 
-        wanvideomodelloader = WanVideoModelLoader(
-            model=MODEL_NAME_4,
-            base_precision='fp16',
-            compile_args=wanvideotorchcompilesettings,
-        )
+    image_load, frame_count, audio, video_info = VHS_LoadVideo(
+        video='wolf_interpolated.mp4',
+        custom_height=intconstant_2,
+        custom_width=intconstant,
+    )
 
-        image_load, frame_count, audio, video_info = VHS_LoadVideo(
-            video='wolf_interpolated.mp4',
-            custom_height=intconstant_2,
-            custom_width=intconstant,
-        )
+    image_image, width, height, mask_image = ImageResizeKJv2(
+        upscale_method='lanczos',
+        keep_proportion='pad_edge_pixel',
+        crop_position='top',
+        divisible_by=16,
+        device='cpu',
+        widget_0=256,
+        widget_1=256,
+        width=intconstant,
+        height=intconstant_2,
+        image=image,
+    )
 
-        image_image, width, height, mask_image = ImageResizeKJv2(
-            upscale_method='lanczos',
-            keep_proportion='pad_edge_pixel',
-            crop_position='top',
-            divisible_by=16,
-            device='cpu',
-            widget_0=256,
-            widget_1=256,
-            width=intconstant,
-            height=intconstant_2,
-            image=image,
-        )
+    pixelperfectresolution = PixelPerfectResolution(
+        resize_mode=512,
+        widget_1=512,
+        widget_2='Just Resize',
+        image_gen_height=intconstant_2,
+        image_gen_width=intconstant,
+        original_image=reroute.out(0),
+    )
 
-        pixelperfectresolution = PixelPerfectResolution(
-            resize_mode=512,
-            widget_1=512,
-            widget_2='Just Resize',
-            image_gen_height=intconstant_2,
-            image_gen_width=intconstant,
-            original_image=reroute.out(0),
-        )
+    dwpreprocessor = raw_call('DWPreprocessor', '73',
+        detect_hand='disable',
+        detect_body='enable',
+        detect_face='disable',
+        bbox_detector=BBOX_DETECTOR_NAME,
+        pose_estimator=POSE_ESTIMATOR_NAME,
+        scale_stick_for_xinsr_cn='disable',
+        widget_3=960,
+        resolution=pixelperfectresolution,
+        image=reroute.out(0),
+    )
 
-        dwpreprocessor = raw_call('DWPreprocessor', '73',
-            detect_hand='disable',
-            detect_body='enable',
-            detect_face='disable',
-            bbox_detector=BBOX_DETECTOR_NAME,
-            pose_estimator=POSE_ESTIMATOR_NAME,
-            scale_stick_for_xinsr_cn='disable',
-            widget_3=960,
-            resolution=pixelperfectresolution,
-            image=reroute.out(0),
-        )
+    wanvideoclipvisionencode = WanVideoClipVisionEncode(
+        clip_vision=clipvisionloader,
+        image_1=image_image,
+    )
 
-        wanvideoclipvisionencode = WanVideoClipVisionEncode(
-            clip_vision=clipvisionloader,
-            image_1=image_image,
-        )
+    wanvideosetloras = WanVideoSetLoRAs(
+        lora=wanvideoloraselectmulti,
+        model=wanvideomodelloader,
+    )
 
-        wanvideosetloras = WanVideoSetLoRAs(
-            lora=wanvideoloraselectmulti,
-            model=wanvideomodelloader,
-        )
+    positive_coords, negative_coords, bbox, bbox_mask, cropped_image = PointsEditor(
+        points_store='{"positive":[{"x":483.34844284815,"y":333.283583335728},{"x":479.85856239437277,"y":158.78956064686517}],"negative":[{"x":0,"y":0}]}',
+        coordinates='[{"x":483.34844284815,"y":333.283583335728},{"x":479.85856239437277,"y":158.78956064686517}]',
+        neg_coordinates='[{"x":0,"y":0}]',
+        bbox_store='[{}]',
+        bboxes='[{}]',
+        bbox_format='xyxy',
+        width=832,
+        height=480,
+        widget_10=None,
+        widget_9='',
+        bg_image=image_load,
+    )
 
-        positive_coords, negative_coords, bbox, bbox_mask, cropped_image = PointsEditor(
-            points_store='{"positive":[{"x":483.34844284815,"y":333.283583335728},{"x":479.85856239437277,"y":158.78956064686517}],"negative":[{"x":0,"y":0}]}',
-            coordinates='[{"x":483.34844284815,"y":333.283583335728},{"x":479.85856239437277,"y":158.78956064686517}]',
-            neg_coordinates='[{"x":0,"y":0}]',
-            bbox_store='[{}]',
-            bboxes='[{}]',
-            bbox_format='xyxy',
-            width=public('width', default=832),
-            height=public('height', default=480),
-            widget_10=None,
-            widget_9='',
-            bg_image=image_load,
-        )
+    facemaskfromposekeypoints = raw_call('FaceMaskFromPoseKeypoints', '120', widget_0=0, pose_kps=dwpreprocessor.out(1))
 
-        facemaskfromposekeypoints = raw_call('FaceMaskFromPoseKeypoints', '120',
-            widget_0=0,
-            pose_kps=dwpreprocessor.out(1),
-        )
+    wanvideosetblockswap = WanVideoSetBlockSwap(
+        block_swap_args=wanvideoblockswap,
+        model=wanvideosetloras,
+    )
 
-        wanvideosetblockswap = WanVideoSetBlockSwap(
-            block_swap_args=wanvideoblockswap,
-            model=wanvideosetloras,
-        )
+    sam2segmentation = Sam2Segmentation(
+        coordinates_positive=positive_coords,
+        image=image_load,
+        sam2_model=downloadandloadsam2model,
+    )
 
-        sam2segmentation = Sam2Segmentation(
-            coordinates_positive=positive_coords,
-            image=image_load,
-            sam2_model=downloadandloadsam2model,
-        )
+    imagecropbymaskandresize = raw_call('ImageCropByMaskAndResize', '96',
+        _outputs=('IMAGES', 'MASKS', 'BBOX'),
+        widget_0=512,
+        widget_1=0,
+        widget_2=128,
+        widget_3=512,
+        image=reroute.out(0),
+        mask=facemaskfromposekeypoints,
+    )
 
-        imagecropbymaskandresize = raw_call('ImageCropByMaskAndResize', '96',
-            _outputs=('IMAGES', 'MASKS', 'BBOX'),
-            widget_0=512,
-            widget_1=0,
-            widget_2=128,
-            widget_3=512,
-            image=reroute.out(0),
-            mask=facemaskfromposekeypoints,
-        )
+    growmask = GrowMask(expand=10, mask=sam2segmentation)
 
-        growmask = GrowMask(expand=10, mask=sam2segmentation)
+    imageconcatmulti = ImageConcatMulti(
+        inputcount=4,
+        direction='down',
+        match_image_size=True,
+        unused_3=None,
+        image_1=image_image,
+        image_2=imagecropbymaskandresize.out('IMAGES'),
+        image_3=dwpreprocessor,
+        image_4=image_load,
+    )
 
-        imageconcatmulti = ImageConcatMulti(
-            inputcount=4,
-            direction='down',
-            match_image_size=True,
-            unused_3=None,
-            image_1=image_image,
-            image_2=imagecropbymaskandresize.out('IMAGES'),
-            image_3=dwpreprocessor,
-            image_4=image_load,
-        )
+    blockifymask = BlockifyMask(masks=growmask)
 
-        blockifymask = BlockifyMask(masks=growmask)
+    # Outputs
+    vhs_videocombine = VHS_VideoCombine(images=imagecropbymaskandresize.out('IMAGES'))
+    drawmaskonimage = DrawMaskOnImage(image=image_load, mask=blockifymask)
 
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(
-            images=imagecropbymaskandresize.out('IMAGES'),
-        )
+    wanvideoanimateembeds = raw_call('WanVideoAnimateEmbeds', '62',
+        force_offload=False,
+        unused_8=False,
+        widget_0=832,
+        widget_1=480,
+        widget_2=501,
+        width=intconstant,
+        height=intconstant_2,
+        num_frames=frame_count,
+        bg_images=drawmaskonimage,
+        clip_embeds=wanvideoclipvisionencode,
+        face_images=imagecropbymaskandresize.out('IMAGES'),
+        mask=blockifymask,
+        pose_images=dwpreprocessor,
+        ref_images=image_image,
+        vae=wanvideovaeloader,
+    )
 
-        drawmaskonimage = DrawMaskOnImage(image=image_load, mask=blockifymask)
+    vhs_videocombine_2 = VHS_VideoCombine(images=drawmaskonimage)
 
-        wanvideoanimateembeds = raw_call('WanVideoAnimateEmbeds', '62',
-            force_offload=False,
-            unused_8=False,
-            widget_0=832,
-            widget_1=480,
-            widget_2=501,
-            width=intconstant,
-            height=intconstant_2,
-            num_frames=frame_count,
-            bg_images=drawmaskonimage,
-            clip_embeds=wanvideoclipvisionencode,
-            face_images=imagecropbymaskandresize.out('IMAGES'),
-            mask=blockifymask,
-            pose_images=dwpreprocessor,
-            ref_images=image_image,
-            vae=wanvideovaeloader,
-        )
+    samples, denoised_samples = WanVideoSampler(
+        steps=1,
+        cfg=GUIDE_STRENGTH,
+        seed=DEFAULT_SEED,
+        scheduler='dpm++_sde',
+        batched_cfg='',
+        widget_0=1,
+        image_embeds=wanvideoanimateembeds,
+        model=wanvideosetblockswap,
+        text_embeds=text_embeds,
+    )
 
-        vhs_videocombine_2 = VHS_VideoCombine(images=drawmaskonimage)
+    wanvideodecode = WanVideoDecode(
+        normalization='default',
+        samples=samples,
+        vae=wanvideovaeloader,
+    )
 
-        samples, denoised_samples = WanVideoSampler(
-            steps=1,
-            cfg=GUIDE_STRENGTH,
-            seed=public('seed', default=DEFAULT_SEED),
-            scheduler='dpm++_sde',
-            batched_cfg='',
-            widget_0=1,
-            image_embeds=wanvideoanimateembeds,
-            model=wanvideosetblockswap,
-            text_embeds=text_embeds,
-        )
+    image_get, width_get, height_get, count = GetImageSizeAndCount(image=wanvideodecode)
 
-        wanvideodecode = WanVideoDecode(
-            normalization='default',
-            samples=samples,
-            vae=wanvideovaeloader,
-        )
+    imageconcatmulti_2 = ImageConcatMulti(
+        direction='left',
+        match_image_size=True,
+        unused_3=None,
+        image_1=image_get,
+        image_2=imageconcatmulti,
+    )
 
-        image_get, width_get, height_get, count = GetImageSizeAndCount(
-            image=wanvideodecode,
-        )
+    vhs_videocombine_3 = VHS_VideoCombine(audio=audio, images=imageconcatmulti_2)
 
-        imageconcatmulti_2 = ImageConcatMulti(
-            direction='left',
-            match_image_size=True,
-            unused_3=None,
-            image_1=image_get,
-            image_2=imageconcatmulti,
-        )
 
-        vhs_videocombine_3 = VHS_VideoCombine(audio=audio, images=imageconcatmulti_2)
-
-        return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=wanvideovaeloader, field='model_name', default=MODEL_NAME),
+        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED),
+        'image': InputSpec(node=image, field='image', default='refer.jpeg'),
+        'width': InputSpec(node=positive_coords, field='width', default=832),
+        'height': InputSpec(node=positive_coords, field='height', default=480),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

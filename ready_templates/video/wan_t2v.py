@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CreateVideo, EmptyHunyuanLatentVideo, KSampler, ModelSamplingSD3, SaveVideo, UNETLoader, VAEDecode, VAELoader
 
 
@@ -24,9 +24,6 @@ MODELS = {
     'vae': ModelAsset(url='https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors', hf_revision='main', subdir='vae'),
 }
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_video',
     models=MODELS,
@@ -36,54 +33,56 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        unetloader = UNETLoader(unet_name=UNET_NAME)
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
-        vaeloader = VAELoader(vae_name=VAE_NAME)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+    vaeloader = VAELoader(vae_name=VAE_NAME)
 
-        emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
-            width=public('width', default=832),
-            height=public('height', default=480),
-            length=public('length', default=DEFAULT_FRAMES, aliases=('frames',)),
-        )
+    emptyhunyuanlatentvideo = EmptyHunyuanLatentVideo(
+        width=832,
+        height=480,
+        length=DEFAULT_FRAMES,
+    )
 
-        # Conditioning
-        positive = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT),
-            clip=cliploader,
-        )
+    # Conditioning
+    positive = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+    negative = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
+    modelsamplingsd3 = ModelSamplingSD3(shift=8, model=unetloader)
 
-        negative = CLIPTextEncode(
-            text=public('negative_prompt', default=DEFAULT_PROMPT_2),
-            clip=cliploader,
-        )
+    ksampler = KSampler(
+        seed=DEFAULT_SEED,
+        steps=30,
+        cfg=GUIDE_STRENGTH,
+        sampler_name='uni_pc',
+        latent_image=emptyhunyuanlatentvideo,
+        model=modelsamplingsd3,
+        negative=negative,
+        positive=positive,
+    )
 
-        modelsamplingsd3 = ModelSamplingSD3(shift=8, model=unetloader)
+    # Decode
+    vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
+    createvideo = CreateVideo(fps=DEFAULT_FPS, images=vaedecode)
 
-        ksampler = KSampler(
-            seed=public('seed', default=DEFAULT_SEED),
-            steps=public('steps', default=30),
-            cfg=public('cfg', default=GUIDE_STRENGTH),
-            sampler_name=public('sampler_name', default='uni_pc'),
-            latent_image=emptyhunyuanlatentvideo,
-            model=modelsamplingsd3,
-            negative=negative,
-            positive=positive,
-        )
-
-        # Decode
-        vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
-
-        createvideo = CreateVideo(
-            fps=public('output_fps', default=DEFAULT_FPS, aliases=('fps',)),
-            images=vaedecode,
-        )
-
-        # Outputs
-        savevideo = SaveVideo(video=createvideo)
+    # Outputs
+    savevideo = SaveVideo(video=createvideo)
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=unetloader, field='unet_name', default=UNET_NAME),
+        'prompt': InputSpec(node=positive, field='text', default=DEFAULT_PROMPT),
+        'seed': InputSpec(node=ksampler, field='seed', default=DEFAULT_SEED),
+        'steps': InputSpec(node=ksampler, field='steps', default=30),
+        'width': InputSpec(node=emptyhunyuanlatentvideo, field='width', default=832),
+        'height': InputSpec(node=emptyhunyuanlatentvideo, field='height', default=480),
+        'frames': InputSpec(node=emptyhunyuanlatentvideo, field='length', default=DEFAULT_FRAMES, aliases=('length',)),
+        'negative_prompt': InputSpec(node=negative, field='text', default=DEFAULT_PROMPT_2),
+        'cfg': InputSpec(node=ksampler, field='cfg', default=GUIDE_STRENGTH),
+        'sampler_name': InputSpec(node=ksampler, field='sampler_name', default='uni_pc'),
+        'fps': InputSpec(node=createvideo, field='fps', default=DEFAULT_FPS, aliases=('output_fps',)),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

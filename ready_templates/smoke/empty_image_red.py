@@ -3,11 +3,8 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import EmptyImage, SaveImage
-
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='runtime_smoke',
@@ -17,18 +14,19 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        emptyimage = EmptyImage(
-            color=16711680,
-            height=public('height', default=64),
-            width=public('width', default=64),
-        )
+    emptyimage = EmptyImage(color=16711680, height=64, width=64)
 
-        saveimage = SaveImage(
-            filename_prefix='vibecomfy_ready_smoke_red',
-            images=emptyimage,
-        )
+    saveimage = SaveImage(
+        filename_prefix='vibecomfy_ready_smoke_red',
+        images=emptyimage,
+    )
 
-        return wf.finalize({}, filename_prefix='vibecomfy_ready_smoke_red', spec=OUTPUT_SPEC)
+
+    PUBLIC_INPUTS = {
+        'width': InputSpec(node=emptyimage, field='width', default=64),
+        'height': InputSpec(node=emptyimage, field='height', default=64),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='vibecomfy_ready_smoke_red')
 

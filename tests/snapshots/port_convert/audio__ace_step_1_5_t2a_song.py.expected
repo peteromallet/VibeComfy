@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call
+from vibecomfy.templates import ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import ConditioningZeroOut, DualCLIPLoader, KSampler, ModelSamplingAuraFlow, SaveAudioMP3, UNETLoader, VAEDecodeAudio, VAELoader
 
 
@@ -13,9 +13,6 @@ GUIDE_STRENGTH = 1
 UNET_NAME = 'acestep_v1.5_turbo.safetensors'
 VAE_NAME = 'ace_1.5_vae.safetensors'
 
-
-OUTPUT_SPEC = OutputSpec(name='audio', artifact_kind='audio', mime_type='audio/mpeg', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='unknown',
     requirements={'models': ['ace_1.5_vae.safetensors', 'acestep_v1.5_turbo.safetensors', 'euler'], 'custom_nodes': ['EmptyAceStep1', 'TextEncodeAceStepAudio1']},
@@ -24,66 +21,64 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        dualcliploader = DualCLIPLoader(
-            clip_name1=CLIP_NAME,
-            clip_name2=CLIP_NAME_2,
-            type_='ace',
-            device='default',
-        )
+    dualcliploader = DualCLIPLoader(
+        clip_name1=CLIP_NAME,
+        clip_name2=CLIP_NAME_2,
+        type_='ace',
+        device='default',
+    )
 
-        vaeloader = VAELoader(vae_name=VAE_NAME)
+    vaeloader = VAELoader(vae_name=VAE_NAME)
 
-        # Inputs
-        primitivefloat = raw_call('PrimitiveFloat', '110', value=2)
-        unetloader = UNETLoader(unet_name=UNET_NAME)
+    # Inputs
+    primitivefloat = raw_call('PrimitiveFloat', '110', value=2)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
 
-        primitivenode = raw_call('PrimitiveNode', '126',
-            _outputs=('value',),
-            widget_0=561594583201063,
-            widget_1='randomize',
-        )
+    primitivenode = raw_call('PrimitiveNode', '126',
+        _outputs=('value',),
+        widget_0=561594583201063,
+        widget_1='randomize',
+    )
 
-        modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
-        emptyacestep1_5latentaudio = raw_call('EmptyAceStep1.5LatentAudio', '122', seconds=primitivefloat)
+    modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
+    emptyacestep1_5latentaudio = raw_call('EmptyAceStep1.5LatentAudio', '122', seconds=primitivefloat)
 
-        textencodeacestepaudio1_5 = raw_call('TextEncodeAceStepAudio1.5', '124',
-            tags='synthwave, techno, synthpop, futuristic, electro, with liquid drum & bass drive.\nRestless, confident, dreamy mood at 128 BPM.\nAnalog bass, pulsating arps, percussive synth stabs, gated drums.\nQuick build,  then explosive drum burst, then clean fade.\nBreathy, rhythmic female vocals, minimal emotion, metallic echo.',
-            lyrics='Verse\nNeon rain on my screen,\nDreams compile in silver sheen.\nNo weight, just motion,\nI’m plugged into emotion.\n\nChorus\nComfy Cloud — breathing light,\nCode and color, spark and wire.\nDrift through data, feel alive,\nIn your circuits, I arrive.',
-            timesignature='4',
-            language='en',
-            keyscale='E minor',
-            cfg_scale=1.5,
-            unused_widget_3='fixed',
-            seed=primitivenode.out('value'),
-            duration=primitivefloat,
-            clip=dualcliploader,
-        )
+    textencodeacestepaudio1_5 = raw_call('TextEncodeAceStepAudio1.5', '124',
+        tags='synthwave, techno, synthpop, futuristic, electro, with liquid drum & bass drive.\nRestless, confident, dreamy mood at 128 BPM.\nAnalog bass, pulsating arps, percussive synth stabs, gated drums.\nQuick build,  then explosive drum burst, then clean fade.\nBreathy, rhythmic female vocals, minimal emotion, metallic echo.',
+        lyrics='Verse\nNeon rain on my screen,\nDreams compile in silver sheen.\nNo weight, just motion,\nI’m plugged into emotion.\n\nChorus\nComfy Cloud — breathing light,\nCode and color, spark and wire.\nDrift through data, feel alive,\nIn your circuits, I arrive.',
+        timesignature='4',
+        language='en',
+        keyscale='E minor',
+        cfg_scale=1.5,
+        unused_widget_3='fixed',
+        seed=primitivenode.out('value'),
+        duration=primitivefloat,
+        clip=dualcliploader,
+    )
 
-        conditioningzeroout = ConditioningZeroOut(
-            conditioning=textencodeacestepaudio1_5,
-        )
+    conditioningzeroout = ConditioningZeroOut(conditioning=textencodeacestepaudio1_5)
 
-        ksampler = KSampler(
-            steps=1,
-            cfg=GUIDE_STRENGTH,
-            sampler_name='euler',
-            unused_widget_1='fixed',
-            seed=primitivenode.out('value'),
-            latent_image=emptyacestep1_5latentaudio,
-            model=modelsamplingauraflow,
-            negative=conditioningzeroout,
-            positive=textencodeacestepaudio1_5,
-        )
+    ksampler = KSampler(
+        steps=1,
+        cfg=GUIDE_STRENGTH,
+        sampler_name='euler',
+        unused_widget_1='fixed',
+        seed=primitivenode.out('value'),
+        latent_image=emptyacestep1_5latentaudio,
+        model=modelsamplingauraflow,
+        negative=conditioningzeroout,
+        positive=textencodeacestepaudio1_5,
+    )
 
-        vaedecodeaudio = VAEDecodeAudio(samples=ksampler, vae=vaeloader)
+    vaedecodeaudio = VAEDecodeAudio(samples=ksampler, vae=vaeloader)
 
-        # Outputs
-        saveaudiomp3 = SaveAudioMP3(
-            filename_prefix='audio/vibecomfy_ace_step_smoke',
-            audio=vaedecodeaudio,
-        )
+    # Outputs
+    saveaudiomp3 = SaveAudioMP3(
+        filename_prefix='audio/vibecomfy_ace_step_smoke',
+        audio=vaedecodeaudio,
+    )
 
-        return wf.finalize({}, filename_prefix='audio/vibecomfy_ace_step_smoke', spec=OUTPUT_SPEC)
+    return wf.finalize({}, output_node=saveaudiomp3, output_type='SaveAudioMP3', name='audio', artifact_kind='audio', mime_type='audio/mpeg', expected_cardinality='one', filename_prefix='audio/vibecomfy_ace_step_smoke')
 

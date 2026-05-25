@@ -3,11 +3,8 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import ImageScaleBy, LoadImage, SaveImage
-
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='image_upscale',
@@ -18,14 +15,15 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        image, mask = LoadImage(
-            image=public('image', default='image_upscale_input.png'),
-        )
+    image, mask = LoadImage(image='image_upscale_input.png')
+    imagescaleby = ImageScaleBy(upscale_method='lanczos', scale_by=2.0, image=image)
+    saveimage = SaveImage(filename_prefix='image-upscale', images=imagescaleby)
 
-        imagescaleby = ImageScaleBy(upscale_method='lanczos', scale_by=2.0, image=image)
-        saveimage = SaveImage(filename_prefix='image-upscale', images=imagescaleby)
 
-        return wf.finalize({}, filename_prefix='image-upscale', spec=OUTPUT_SPEC)
+    PUBLIC_INPUTS = {
+        'image': InputSpec(node=image, field='image', default='image_upscale_input.png'),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='image-upscale')
 

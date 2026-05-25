@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, ComfySwitchNode, DualCLIPLoader, EmptyLTXVLatentVideo, GetImageSize, ImageScaleBy, KSamplerSelect, LTXVAddGuide, LTXVAudioVAEDecode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVCropGuides, LTXVEmptyLatentAudio, LTXVLatentUpsampler, LTXVPreprocess, LTXVScheduler, LTXVSeparateAVLatent, LatentUpscaleModelLoader, LoadImage, LoraLoaderModelOnly, ManualSigmas, PrimitiveStringMultiline, RandomNoise, ResizeImageMaskNode, ResizeImagesByLongerEdge, SamplerCustomAdvanced, StringConcatenate, TextGenerateLTX2Prompt, UNETLoader, VAEDecodeTiled, VAELoader
 from vibecomfy.nodes.kjnodes import INTConstant, ImageResizeKJv2, LTX2AttentionTunerPatch, LTX2MemoryEfficientSageAttentionPatch, LTX2_NAG, LTXVChunkFeedForward, LTXVImgToVideoInplaceKJ, PathchSageAttentionKJ, SimpleCalculatorKJ, VRAM_Debug
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
@@ -40,9 +40,6 @@ MODELS = {
     'lora': ModelAsset(filename='LTX\\v2\\ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors', url='https://huggingface.co/Kijai/LTX2.3_comfy/resolve/main/loras/ltx-2.3-22b-distilled-1.1_lora-dynamic_fro09_avg_rank_111_bf16.safetensors', hf_revision='main', subdir='loras'),
     'upscale_model': ModelAsset(url='https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors', sha256='5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed', hf_revision='76730e634e70a28f4e8d51f5e29c08e40e2d8e74', size_bytes=995743560, subdir='latent_upscale_models'),
 }
-
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='first_last_frame_video',
@@ -170,292 +167,300 @@ def frames_split_view():
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
-        ksamplerselect_2 = KSamplerSelect(sampler_name='euler_cfg_pp')
-        manualsigmas = ManualSigmas(sigmas=SIGMAS)
+    ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
+    ksamplerselect_2 = KSamplerSelect(sampler_name='euler_cfg_pp')
+    manualsigmas = ManualSigmas(sigmas=SIGMAS)
 
-        randomnoise = RandomNoise(
-            noise_seed=public('seed_last', default=DEFAULT_SEED),
-            control_after_generate=CONTROL_AFTER_GENERATE,
-        )
+    randomnoise = RandomNoise(
+        noise_seed=DEFAULT_SEED,
+        control_after_generate=CONTROL_AFTER_GENERATE,
+    )
 
-        randomnoise_2 = RandomNoise(
-            noise_seed=public('seed', default=DEFAULT_SEED_2),
-            control_after_generate=CONTROL_AFTER_GENERATE,
-        )
+    randomnoise_2 = RandomNoise(
+        noise_seed=DEFAULT_SEED_2,
+        control_after_generate=CONTROL_AFTER_GENERATE,
+    )
 
-        # Inputs
-        image, mask = LoadImage(
-            image=public('start_image', default='image (6).png', aliases=('image', 'input_image')),
-        )
+    # Inputs
+    image, mask = LoadImage(image='image (6).png')
+    image_load, mask_load = LoadImage(image='0 (13).webp')
+    ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
+    latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
 
-        image_load, mask_load = LoadImage(
-            image=public('end_image', default='0 (13).webp'),
-        )
+    dualcliploader = DualCLIPLoader(
+        clip_name1=CLIP_NAME,
+        clip_name2=CLIP_NAME_2,
+        type_='ltxv',
+        device='default',
+    )
 
-        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
-        latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
-        unetloader = UNETLoader(unet_name=UNET_NAME)
+    manualsigmas_2 = ManualSigmas(
+        sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
+    )
 
-        dualcliploader = DualCLIPLoader(
-            clip_name1=CLIP_NAME,
-            clip_name2=CLIP_NAME_2,
-            type_='ltxv',
-            device='default',
-        )
+    manualsigmas_3 = ManualSigmas(sigmas=SIGMAS)
+    primitivefloat = raw_call('PrimitiveFloat', '2076', value=24)
+    intconstant = INTConstant(value=81)
+    intconstant_2 = INTConstant(value=720)
+    intconstant_3 = INTConstant(value=1280)
+    primitiveboolean = raw_call('PrimitiveBoolean', '2082', value=True)
 
-        manualsigmas_2 = ManualSigmas(
-            sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
-        )
+    primitivestringmultiline = PrimitiveStringMultiline(
+        value="wf.nodes['2103'].inputs.get('value', '')",
+    )
 
-        manualsigmas_3 = ManualSigmas(sigmas=SIGMAS)
-        primitivefloat = raw_call('PrimitiveFloat', '2076', value=public('output_fps', default=24))
-        intconstant = INTConstant(value=public('length', default=81))
-        intconstant_2 = INTConstant(value=public('height', default=720))
-        intconstant_3 = INTConstant(value=public('width', default=1280))
-        primitiveboolean = raw_call('PrimitiveBoolean', '2082', value=public('use_lora', default=True))
+    primitivefloat_2 = raw_call('PrimitiveFloat', '2108', value=1.0)
+    primitivefloat_3 = raw_call('PrimitiveFloat', '2110', value=1.0)
 
-        primitivestringmultiline = PrimitiveStringMultiline(
-            value=public('prompt', default="wf.nodes['2103'].inputs.get('value', '')"),
-        )
+    # Conditioning
+    cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=dualcliploader)
 
-        primitivefloat_2 = raw_call('PrimitiveFloat', '2108', value=public('last_frame_strength', default=1.0))
-        primitivefloat_3 = raw_call('PrimitiveFloat', '2110', value=public('first_frame_strength', default=1.0))
+    cliptextencode_2 = CLIPTextEncode(
+        text=primitivestringmultiline,
+        clip=dualcliploader,
+    )
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('negative_prompt', default=DEFAULT_PROMPT),
-            clip=dualcliploader,
-        )
+    image_image, width, height, mask_image = ImageResizeKJv2(
+        upscale_method=UPSCALE_METHOD,
+        keep_proportion=KEEP_PROPORTION,
+        divisible_by=32,
+        device=DEVICE,
+        width=intconstant_3,
+        height=intconstant_2,
+        image=image,
+    )
 
-        cliptextencode_2 = CLIPTextEncode(
-            text=primitivestringmultiline,
-            clip=dualcliploader,
-        )
+    float, int, boolean = SimpleCalculatorKJ(
+        expression=EXPRESSION,
+        variables='a',
+        a=primitivefloat,
+    )
 
-        image_image, width, height, mask_image = ImageResizeKJv2(
-            upscale_method=UPSCALE_METHOD,
-            keep_proportion=KEEP_PROPORTION,
-            divisible_by=32,
-            device=DEVICE,
-            width=intconstant_3,
-            height=intconstant_2,
-            image=image,
-        )
+    loraloadermodelonly = LoraLoaderModelOnly(
+        lora_name=LORA_NAME,
+        strength_model=GUIDE_STRENGTH,
+        model=unetloader,
+    )
 
-        float, int, boolean = SimpleCalculatorKJ(
-            expression=EXPRESSION,
-            variables='a',
-            a=primitivefloat,
-        )
+    float_simple, int_simple, boolean_simple = SimpleCalculatorKJ(
+        expression=EXPRESSION,
+        variables='a,b',
+        widget_0='a',
+        a=intconstant,
+        b=primitivefloat,
+    )
 
-        loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=LORA_NAME,
-            strength_model=GUIDE_STRENGTH,
-            model=unetloader,
-        )
+    ltxvemptylatentaudio = LTXVEmptyLatentAudio(
+        frames_number=int_simple,
+        frame_rate=int,
+        audio_vae=ltxvaudiovaeloader,
+    )
 
-        float_simple, int_simple, boolean_simple = SimpleCalculatorKJ(
-            expression=EXPRESSION,
-            variables='a,b',
-            widget_0='a',
-            a=intconstant,
-            b=primitivefloat,
-        )
+    positive, negative = LTXVConditioning(
+        frame_rate=primitivefloat,
+        negative=cliptextencode,
+        positive=cliptextencode_2,
+    )
 
-        ltxvemptylatentaudio = LTXVEmptyLatentAudio(
-            frames_number=int_simple,
-            frame_rate=int,
-            audio_vae=ltxvaudiovaeloader,
-        )
+    imagescaleby = ImageScaleBy(
+        upscale_method='lanczos',
+        scale_by=0.5,
+        image=image_image,
+    )
 
-        positive, negative = LTXVConditioning(
-            frame_rate=primitivefloat,
-            negative=cliptextencode,
-            positive=cliptextencode_2,
-        )
+    image_image_2, width_image, height_image, mask_image_2 = ImageResizeKJv2(
+        upscale_method=UPSCALE_METHOD,
+        keep_proportion=KEEP_PROPORTION,
+        divisible_by=32,
+        device=DEVICE,
+        width=width,
+        height=height,
+        image=image_load,
+    )
 
-        imagescaleby = ImageScaleBy(
-            upscale_method='lanczos',
-            scale_by=0.5,
-            image=image_image,
-        )
+    pathchsageattentionkj = PathchSageAttentionKJ(
+        sage_attention='auto',
+        model=loraloadermodelonly,
+    )
 
-        image_image_2, width_image, height_image, mask_image_2 = ImageResizeKJv2(
-            upscale_method=UPSCALE_METHOD,
-            keep_proportion=KEEP_PROPORTION,
-            divisible_by=32,
-            device=DEVICE,
-            width=width,
-            height=height,
-            image=image_load,
-        )
+    resizeimagesbylongeredge = ResizeImagesByLongerEdge(
+        longer_edge=1536,
+        images=image_image,
+    )
 
-        pathchsageattentionkj = PathchSageAttentionKJ(
-            sage_attention='auto',
-            model=loraloadermodelonly,
-        )
+    width_get, height_get, batch_size = GetImageSize(image=imagescaleby)
 
-        resizeimagesbylongeredge = ResizeImagesByLongerEdge(
-            longer_edge=1536,
-            images=image_image,
-        )
+    resizeimagesbylongeredge_2 = ResizeImagesByLongerEdge(
+        longer_edge=1536,
+        images=image_image_2,
+    )
 
-        width_get, height_get, batch_size = GetImageSize(image=imagescaleby)
+    ltxvpreprocess = LTXVPreprocess(img_compression=18, image=image_image_2)
+    ltxvchunkfeedforward = LTXVChunkFeedForward(model=pathchsageattentionkj)
 
-        resizeimagesbylongeredge_2 = ResizeImagesByLongerEdge(
-            longer_edge=1536,
-            images=image_image_2,
-        )
+    ltxvpreprocess_2 = LTXVPreprocess(
+        img_compression=18,
+        image=resizeimagesbylongeredge,
+    )
 
-        ltxvpreprocess = LTXVPreprocess(img_compression=18, image=image_image_2)
-        ltxvchunkfeedforward = LTXVChunkFeedForward(model=pathchsageattentionkj)
+    emptyltxvlatentvideo = EmptyLTXVLatentVideo(
+        width=width_get,
+        height=height_get,
+        length=int_simple,
+    )
 
-        ltxvpreprocess_2 = LTXVPreprocess(
-            img_compression=18,
-            image=resizeimagesbylongeredge,
-        )
+    ltx2attentiontunerpatch = LTX2AttentionTunerPatch(
+        triton_kernels=False,
+        model=ltxvchunkfeedforward,
+    )
 
-        emptyltxvlatentvideo = EmptyLTXVLatentVideo(
-            width=width_get,
-            height=height_get,
-            length=int_simple,
-        )
+    ltxvimgtovideoinplacekj = LTXVImgToVideoInplaceKJ(
+        num_images='2',
+        latent=emptyltxvlatentvideo,
+        vae=vaeloader_2,
+        **{'num_images.index_1': 0, 'num_images.index_2': -1, 'num_images.image_1': ltxvpreprocess_2, 'num_images.image_2': ltxvpreprocess, 'num_images.strength_1': primitivefloat_3, 'num_images.strength_2': primitivefloat_2},
+    )
 
-        ltx2attentiontunerpatch = LTX2AttentionTunerPatch(
-            triton_kernels=False,
-            model=ltxvchunkfeedforward,
-        )
+    ltx2memoryefficientsageattentionpatch = LTX2MemoryEfficientSageAttentionPatch(
+        model=ltx2attentiontunerpatch,
+    )
 
-        ltxvimgtovideoinplacekj = LTXVImgToVideoInplaceKJ(
-            num_images='2',
-            latent=emptyltxvlatentvideo,
-            vae=vaeloader_2,
-            **{'num_images.index_1': 0, 'num_images.index_2': -1, 'num_images.image_1': ltxvpreprocess_2, 'num_images.image_2': ltxvpreprocess, 'num_images.strength_1': primitivefloat_3, 'num_images.strength_2': primitivefloat_2},
-        )
+    power_lora_loader__rgthree_ = raw_call('Power Lora Loader (rgthree)', '2107',
+        _outputs=('MODEL', 'CLIP'),
+        model=ltx2memoryefficientsageattentionpatch,
+    )
 
-        ltx2memoryefficientsageattentionpatch = LTX2MemoryEfficientSageAttentionPatch(
-            model=ltx2attentiontunerpatch,
-        )
+    ltxvconcatavlatent = LTXVConcatAVLatent(
+        audio_latent=ltxvemptylatentaudio,
+        video_latent=ltxvimgtovideoinplacekj,
+    )
 
-        power_lora_loader__rgthree_ = raw_call('Power Lora Loader (rgthree)', '2107',
-            _outputs=('MODEL', 'CLIP'),
-            model=ltx2memoryefficientsageattentionpatch,
-        )
+    ltxvscheduler = LTXVScheduler(steps=1, latent=ltxvconcatavlatent)
 
-        ltxvconcatavlatent = LTXVConcatAVLatent(
-            audio_latent=ltxvemptylatentaudio,
-            video_latent=ltxvimgtovideoinplacekj,
-        )
+    ltx2_nag = LTX2_NAG(
+        model=power_lora_loader__rgthree_.out('MODEL'),
+        nag_cond_audio=negative,
+        nag_cond_video=negative,
+    )
 
-        ltxvscheduler = LTXVScheduler(steps=1, latent=ltxvconcatavlatent)
+    cfgguider = CFGGuider(
+        cfg=GUIDE_STRENGTH_2,
+        model=ltx2_nag,
+        negative=negative,
+        positive=positive,
+    )
 
-        ltx2_nag = LTX2_NAG(
-            model=power_lora_loader__rgthree_.out('MODEL'),
-            nag_cond_audio=negative,
-            nag_cond_video=negative,
-        )
+    cfgguider_2 = CFGGuider(
+        cfg=GUIDE_STRENGTH_2,
+        model=ltx2_nag,
+        negative=negative,
+        positive=positive,
+    )
 
-        cfgguider = CFGGuider(
-            cfg=GUIDE_STRENGTH_2,
-            model=ltx2_nag,
-            negative=negative,
-            positive=positive,
-        )
+    output, denoised_output = SamplerCustomAdvanced(
+        guider=cfgguider_2,
+        latent_image=ltxvconcatavlatent,
+        noise=randomnoise_2,
+        sampler=ksamplerselect,
+        sigmas=manualsigmas_2,
+    )
 
-        cfgguider_2 = CFGGuider(
-            cfg=GUIDE_STRENGTH_2,
-            model=ltx2_nag,
-            negative=negative,
-            positive=positive,
-        )
+    video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=output)
 
-        output, denoised_output = SamplerCustomAdvanced(
-            guider=cfgguider_2,
-            latent_image=ltxvconcatavlatent,
-            noise=randomnoise_2,
-            sampler=ksamplerselect,
-            sigmas=manualsigmas_2,
-        )
+    ltxvlatentupsampler = LTXVLatentUpsampler(
+        samples=video_latent,
+        upscale_model=latentupscalemodelloader,
+        vae=vaeloader_2,
+    )
 
-        video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=output)
+    any_output, image_pass, model_pass, freemem_before, freemem_after = VRAM_Debug(
+        unload_all_models=True,
+        any_input=ltxvlatentupsampler,
+    )
 
-        ltxvlatentupsampler = LTXVLatentUpsampler(
-            samples=video_latent,
-            upscale_model=latentupscalemodelloader,
-            vae=vaeloader_2,
-        )
+    ltxvimgtovideoinplacekj_2 = LTXVImgToVideoInplaceKJ(
+        num_images='1',
+        latent=any_output,
+        vae=vaeloader_2,
+        **{'num_images.index_1': 0, 'num_images.image_1': resizeimagesbylongeredge, 'num_images.strength_1': primitivefloat_3},
+    )
 
-        any_output, image_pass, model_pass, freemem_before, freemem_after = VRAM_Debug(
-            unload_all_models=True,
-            any_input=ltxvlatentupsampler,
-        )
+    positive_ltxv, negative_ltxv, latent = LTXVAddGuide(
+        frame_idx=-1,
+        strength=primitivefloat_2,
+        image=resizeimagesbylongeredge_2,
+        latent=ltxvimgtovideoinplacekj_2,
+        negative=negative,
+        positive=positive,
+        vae=vaeloader_2,
+    )
 
-        ltxvimgtovideoinplacekj_2 = LTXVImgToVideoInplaceKJ(
-            num_images='1',
-            latent=any_output,
-            vae=vaeloader_2,
-            **{'num_images.index_1': 0, 'num_images.image_1': resizeimagesbylongeredge, 'num_images.strength_1': primitivefloat_3},
-        )
+    ltxvconcatavlatent_2 = LTXVConcatAVLatent(
+        audio_latent=audio_latent,
+        video_latent=latent,
+    )
 
-        positive_ltxv, negative_ltxv, latent = LTXVAddGuide(
-            frame_idx=-1,
-            strength=primitivefloat_2,
-            image=resizeimagesbylongeredge_2,
-            latent=ltxvimgtovideoinplacekj_2,
-            negative=negative,
-            positive=positive,
-            vae=vaeloader_2,
-        )
+    output_sampler, denoised_output_sampler = SamplerCustomAdvanced(
+        guider=cfgguider,
+        latent_image=ltxvconcatavlatent_2,
+        noise=randomnoise,
+        sampler=ksamplerselect_2,
+        sigmas=manualsigmas_3,
+    )
 
-        ltxvconcatavlatent_2 = LTXVConcatAVLatent(
-            audio_latent=audio_latent,
-            video_latent=latent,
-        )
+    video_latent_ltxv, audio_latent_ltxv = LTXVSeparateAVLatent(
+        av_latent=output_sampler,
+    )
 
-        output_sampler, denoised_output_sampler = SamplerCustomAdvanced(
-            guider=cfgguider,
-            latent_image=ltxvconcatavlatent_2,
-            noise=randomnoise,
-            sampler=ksamplerselect_2,
-            sigmas=manualsigmas_3,
-        )
+    ltxvaudiovaedecode = LTXVAudioVAEDecode(
+        audio_vae=ltxvaudiovaeloader,
+        samples=audio_latent_ltxv,
+    )
 
-        video_latent_ltxv, audio_latent_ltxv = LTXVSeparateAVLatent(
-            av_latent=output_sampler,
-        )
+    positive_ltxv_2, negative_ltxv_2, latent_ltxv = LTXVCropGuides(
+        latent=video_latent_ltxv,
+        negative=negative_ltxv,
+        positive=positive_ltxv,
+    )
 
-        ltxvaudiovaedecode = LTXVAudioVAEDecode(
-            audio_vae=ltxvaudiovaeloader,
-            samples=audio_latent_ltxv,
-        )
+    # Decode
+    vaedecodetiled = VAEDecodeTiled(
+        temporal_size=4096,
+        samples=latent_ltxv,
+        vae=vaeloader_2,
+    )
 
-        positive_ltxv_2, negative_ltxv_2, latent_ltxv = LTXVCropGuides(
-            latent=video_latent_ltxv,
-            negative=negative_ltxv,
-            positive=positive_ltxv,
-        )
-
-        # Decode
-        vaedecodetiled = VAEDecodeTiled(
-            temporal_size=4096,
-            samples=latent_ltxv,
-            vae=vaeloader_2,
-        )
-
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(
-            filename_prefix='reigh_vibecomfy_ltx_first_last',
-            format='video/h264-mp4',
-            frame_rate=primitivefloat,
-            images=vaedecodetiled,
-        )
+    # Outputs
+    vhs_videocombine = VHS_VideoCombine(
+        filename_prefix='reigh_vibecomfy_ltx_first_last',
+        format='video/h264-mp4',
+        frame_rate=primitivefloat,
+        images=vaedecodetiled,
+    )
 
 
-        wf.register_input('model', ltxvaudiovaeloader.node.id, 'ckpt_name', CKPT_NAME)
-        return wf.finalize({}, filename_prefix='reigh_vibecomfy_ltx_first_last', spec=OUTPUT_SPEC)
+    wf.register_input('model', ltxvaudiovaeloader.node.id, 'ckpt_name', CKPT_NAME)
+
+    PUBLIC_INPUTS = {
+        'seed': InputSpec(node=randomnoise_2, field='noise_seed', default=DEFAULT_SEED_2),
+        'model': InputSpec(node=ltxvaudiovaeloader, field='ckpt_name', default=CKPT_NAME),
+        'prompt': InputSpec(node=primitivestringmultiline, field='value', default="wf.nodes['2103'].inputs.get('value', '')"),
+        'seed_last': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED),
+        'first_image': InputSpec(node=image, field='image', default='image (6).png', aliases=('start_image',)),
+        'last_image': InputSpec(node=image_load, field='image', default='0 (13).webp', aliases=('end_image',)),
+        'fps': InputSpec(node=primitivefloat, field='value', default=24, aliases=('output_fps',)),
+        'frames': InputSpec(node=intconstant, field='value', default=81, aliases=('length',)),
+        'height': InputSpec(node=intconstant_2, field='value', default=720),
+        'width': InputSpec(node=intconstant_3, field='value', default=1280),
+        'use_lora': InputSpec(node=primitiveboolean, field='value', default=True),
+        'last_frame_strength': InputSpec(node=primitivefloat_2, field='value', default=1.0),
+        'first_frame_strength': InputSpec(node=primitivefloat_3, field='value', default=1.0),
+        'negative_prompt': InputSpec(node=cliptextencode, field='text', default=DEFAULT_PROMPT),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='reigh_vibecomfy_ltx_first_last')
 

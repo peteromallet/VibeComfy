@@ -7,14 +7,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "seed"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "seed",
-          "value": 3327,
+          "value": null,
           "type": null,
-          "default": 3327,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -30,7 +30,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": "audio/qwen3_tts_custom_voice",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -43,7 +43,7 @@
           "output_type": "SaveAudioMP3",
           "artifact_kind": "audio",
           "mime_type": "audio/mpeg",
-          "filename_prefix": "audio/qwen3_tts_custom_voice",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -59,10 +59,10 @@
         {
           "name": "image",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "image"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "image",
           "value": "image_upscale_input.png",
           "type": null,
@@ -82,7 +82,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "image/basic_image_upscale",
+          "filename_prefix": "image-upscale",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -95,7 +95,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "image/basic_image_upscale",
+          "filename_prefix": "image-upscale",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -109,12 +109,66 @@
       "id": "image/qwen_image_2512",
       "public_inputs": [
         {
+          "name": "model",
+          "target": {
+            "node_id": "",
+            "field": "unet_name"
+          },
+          "node_id": "",
+          "field": "unet_name",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "width",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "width"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "width",
           "value": 768,
           "type": null,
@@ -129,10 +183,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "height"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "height",
           "value": 768,
           "type": null,
@@ -147,10 +201,10 @@
         {
           "name": "use_lora",
           "target": {
-            "node_id": "238:229",
+            "node_id": "",
             "field": "value"
           },
-          "node_id": "238:229",
+          "node_id": "",
           "field": "value",
           "value": true,
           "type": null,
@@ -163,52 +217,16 @@
           "source": "InputSpec"
         },
         {
-          "name": "prompt",
-          "target": {
-            "node_id": "6",
-            "field": "text"
-          },
-          "node_id": "6",
-          "field": "text",
-          "value": "Urban alleyway at dusk. Tall, statuesque high-fashion model striding elegantly, mid distant full body shot from an angular perspective, cinematic/editorial with bold contrasts and tactile materials. They wear a rose-gold metallic trench coat with deconstructed elements over a black long-sleeved turtleneck with subtle texture; paired with forest-green pleated pants with raw hems and a soft texture. Long braided dark hair, medium complexion. They carry a vibrant yellow designer handbag with geometric details and a structured silhouette. White architectural sneakers with bold geometric cutouts. Bold, high-contrast, tactile, urban-grit meets high-fashion impact, extreme clarity, extreme layering, post-processing with transparent light-transmitting ultra-smooth high-definition film effect, removing all noise and grain, removing all blur, removing all vintage feel, removing all roughness, drawn with 32K pixel precision, unparalleled fine line drawing of every single detail, the entire image like a brand new photograph, photorealistic\n",
-          "type": null,
-          "default": "Urban alleyway at dusk. Tall, statuesque high-fashion model striding elegantly, mid distant full body shot from an angular perspective, cinematic/editorial with bold contrasts and tactile materials. They wear a rose-gold metallic trench coat with deconstructed elements over a black long-sleeved turtleneck with subtle texture; paired with forest-green pleated pants with raw hems and a soft texture. Long braided dark hair, medium complexion. They carry a vibrant yellow designer handbag with geometric details and a structured silhouette. White architectural sneakers with bold geometric cutouts. Bold, high-contrast, tactile, urban-grit meets high-fashion impact, extreme clarity, extreme layering, post-processing with transparent light-transmitting ultra-smooth high-definition film effect, removing all noise and grain, removing all blur, removing all vintage feel, removing all roughness, drawn with 32K pixel precision, unparalleled fine line drawing of every single detail, the entire image like a brand new photograph, photorealistic\n",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
           "name": "negative_prompt",
           "target": {
-            "node_id": "7",
+            "node_id": "",
             "field": "text"
           },
-          "node_id": "7",
+          "node_id": "",
           "field": "text",
-          "value": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲",
+          "value": null,
           "type": null,
-          "default": "低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感。构图混乱。文字模糊，扭曲",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "12",
-            "field": "seed"
-          },
-          "node_id": "12",
-          "field": "seed",
-          "value": 1232512,
-          "type": null,
-          "default": 1232512,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -219,32 +237,14 @@
         {
           "name": "sampler_name",
           "target": {
-            "node_id": "12",
+            "node_id": "",
             "field": "sampler_name"
           },
-          "node_id": "12",
+          "node_id": "",
           "field": "sampler_name",
           "value": "euler",
           "type": null,
           "default": "euler",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "3",
-            "field": "unet_name"
-          },
-          "node_id": "3",
-          "field": "unet_name",
-          "value": "qwen_image_2512_fp8_e4m3fn.safetensors",
-          "type": null,
-          "default": "qwen_image_2512_fp8_e4m3fn.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -260,7 +260,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "Qwen-Image-2512",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -273,7 +273,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "Qwen-Image-2512",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -287,12 +287,84 @@
       "id": "image/z_image_img2img",
       "public_inputs": [
         {
+          "name": "model",
+          "target": {
+            "node_id": "",
+            "field": "unet_name"
+          },
+          "node_id": "",
+          "field": "unet_name",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "",
+            "field": "steps"
+          },
+          "node_id": "",
+          "field": "steps",
+          "value": 12,
+          "type": null,
+          "default": 12,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "image",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "image"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "image",
           "value": "image_z_image_img2img_input.png",
           "type": null,
@@ -305,30 +377,12 @@
           "source": "InputSpec"
         },
         {
-          "name": "prompt",
-          "target": {
-            "node_id": "6",
-            "field": "text"
-          },
-          "node_id": "6",
-          "field": "text",
-          "value": "A compact red cube on a clean white tabletop, product-photo lighting.",
-          "type": null,
-          "default": "A compact red cube on a clean white tabletop, product-photo lighting.",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
           "name": "width",
           "target": {
-            "node_id": "8",
+            "node_id": "",
             "field": "width"
           },
-          "node_id": "8",
+          "node_id": "",
           "field": "width",
           "value": 1024,
           "type": null,
@@ -343,68 +397,14 @@
         {
           "name": "height",
           "target": {
-            "node_id": "8",
+            "node_id": "",
             "field": "height"
           },
-          "node_id": "8",
+          "node_id": "",
           "field": "height",
           "value": 1024,
           "type": null,
           "default": 1024,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "10",
-            "field": "seed"
-          },
-          "node_id": "10",
-          "field": "seed",
-          "value": 770044821593082,
-          "type": null,
-          "default": 770044821593082,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "steps",
-          "target": {
-            "node_id": "10",
-            "field": "steps"
-          },
-          "node_id": "10",
-          "field": "steps",
-          "value": 12,
-          "type": null,
-          "default": 12,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "2",
-            "field": "unet_name"
-          },
-          "node_id": "2",
-          "field": "unet_name",
-          "value": "z_image_bf16.safetensors",
-          "type": null,
-          "default": "z_image_bf16.safetensors",
           "required": false,
           "range": null,
           "aliases": [],
@@ -420,7 +420,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "image/z_image_img2img",
+          "filename_prefix": "z-image-img2img",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -433,7 +433,7 @@
           "output_type": "SaveImage",
           "artifact_kind": "image",
           "mime_type": "image/png",
-          "filename_prefix": "image/z_image_img2img",
+          "filename_prefix": "z-image-img2img",
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -480,12 +480,84 @@
       "id": "video/wan_t2v",
       "public_inputs": [
         {
+          "name": "model",
+          "target": {
+            "node_id": "",
+            "field": "unet_name"
+          },
+          "node_id": "",
+          "field": "unet_name",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "",
+            "field": "steps"
+          },
+          "node_id": "",
+          "field": "steps",
+          "value": 30,
+          "type": null,
+          "default": 30,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
           "name": "width",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "width"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "width",
           "value": 832,
           "type": null,
@@ -500,10 +572,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "height"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "height",
           "value": 480,
           "type": null,
@@ -516,54 +588,36 @@
           "source": "InputSpec"
         },
         {
-          "name": "length",
+          "name": "frames",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "length"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "length",
-          "value": 33,
+          "value": null,
           "type": null,
-          "default": 33,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [
-            "frames"
+            "length"
           ],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "frames",
+          "name": "length",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "length"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "length",
-          "value": 33,
+          "value": null,
           "type": null,
-          "default": 33,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "5",
-            "field": "text"
-          },
-          "node_id": "5",
-          "field": "text",
-          "value": "a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera",
-          "type": null,
-          "default": "a fox moving quickly in a beautiful winter scenery nature trees mountains daytime tracking camera",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -574,50 +628,14 @@
         {
           "name": "negative_prompt",
           "target": {
-            "node_id": "6",
+            "node_id": "",
             "field": "text"
           },
-          "node_id": "6",
+          "node_id": "",
           "field": "text",
-          "value": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+          "value": null,
           "type": null,
-          "default": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "8",
-            "field": "seed"
-          },
-          "node_id": "8",
-          "field": "seed",
-          "value": 82628696717253,
-          "type": null,
-          "default": 82628696717253,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "steps",
-          "target": {
-            "node_id": "8",
-            "field": "steps"
-          },
-          "node_id": "8",
-          "field": "steps",
-          "value": 30,
-          "type": null,
-          "default": 30,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -628,14 +646,14 @@
         {
           "name": "cfg",
           "target": {
-            "node_id": "8",
+            "node_id": "",
             "field": "cfg"
           },
-          "node_id": "8",
+          "node_id": "",
           "field": "cfg",
-          "value": 6,
+          "value": null,
           "type": null,
-          "default": 6,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -646,10 +664,10 @@
         {
           "name": "sampler_name",
           "target": {
-            "node_id": "8",
+            "node_id": "",
             "field": "sampler_name"
           },
-          "node_id": "8",
+          "node_id": "",
           "field": "sampler_name",
           "value": "uni_pc",
           "type": null,
@@ -662,54 +680,36 @@
           "source": "InputSpec"
         },
         {
-          "name": "output_fps",
+          "name": "fps",
           "target": {
-            "node_id": "10",
+            "node_id": "",
             "field": "fps"
           },
-          "node_id": "10",
+          "node_id": "",
           "field": "fps",
-          "value": 16,
+          "value": null,
           "type": null,
-          "default": 16,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [
-            "fps"
+            "output_fps"
           ],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "fps",
+          "name": "output_fps",
           "target": {
-            "node_id": "10",
+            "node_id": "",
             "field": "fps"
           },
-          "node_id": "10",
+          "node_id": "",
           "field": "fps",
-          "value": 16,
+          "value": null,
           "type": null,
-          "default": 16,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "1",
-            "field": "unet_name"
-          },
-          "node_id": "1",
-          "field": "unet_name",
-          "value": "wan2.1_t2v_1.3B_fp16.safetensors",
-          "type": null,
-          "default": "wan2.1_t2v_1.3B_fp16.safetensors",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -725,7 +725,7 @@
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ComfyUI",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -738,7 +738,7 @@
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ComfyUI",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -752,55 +752,16 @@
       "id": "video/wan_i2v",
       "public_inputs": [
         {
-          "name": "start_image",
+          "name": "model",
           "target": {
-            "node_id": "5",
-            "field": "image"
+            "node_id": "",
+            "field": "unet_name"
           },
-          "node_id": "5",
-          "field": "image",
-          "value": "image_to_video_wan_start_image.png",
+          "node_id": "",
+          "field": "unet_name",
+          "value": null,
           "type": null,
-          "default": "image_to_video_wan_start_image.png",
-          "required": false,
-          "range": null,
-          "aliases": [
-            "image",
-            "input_image"
-          ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "5",
-            "field": "image"
-          },
-          "node_id": "5",
-          "field": "image",
-          "value": "image_to_video_wan_start_image.png",
-          "type": null,
-          "default": "image_to_video_wan_start_image.png",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "5",
-            "field": "image"
-          },
-          "node_id": "5",
-          "field": "image",
-          "value": "image_to_video_wan_start_image.png",
-          "type": null,
-          "default": "image_to_video_wan_start_image.png",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -811,14 +772,88 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "6",
+            "node_id": "",
             "field": "text"
           },
-          "node_id": "6",
+          "node_id": "",
           "field": "text",
-          "value": "a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around",
+          "value": null,
           "type": null,
-          "default": "a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "steps",
+          "target": {
+            "node_id": "",
+            "field": "steps"
+          },
+          "node_id": "",
+          "field": "steps",
+          "value": 20,
+          "type": null,
+          "default": 20,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "first_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "image_to_video_wan_start_image.png",
+          "type": null,
+          "default": "image_to_video_wan_start_image.png",
+          "required": false,
+          "range": null,
+          "aliases": [
+            "start_image"
+          ],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "start_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "image_to_video_wan_start_image.png",
+          "type": null,
+          "default": "image_to_video_wan_start_image.png",
           "required": false,
           "range": null,
           "aliases": [],
@@ -829,14 +864,14 @@
         {
           "name": "negative_prompt",
           "target": {
-            "node_id": "7",
+            "node_id": "",
             "field": "text"
           },
-          "node_id": "7",
+          "node_id": "",
           "field": "text",
-          "value": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+          "value": null,
           "type": null,
-          "default": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -847,10 +882,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "10",
+            "node_id": "",
             "field": "width"
           },
-          "node_id": "10",
+          "node_id": "",
           "field": "width",
           "value": 512,
           "type": null,
@@ -865,10 +900,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "10",
+            "node_id": "",
             "field": "height"
           },
-          "node_id": "10",
+          "node_id": "",
           "field": "height",
           "value": 512,
           "type": null,
@@ -881,72 +916,36 @@
           "source": "InputSpec"
         },
         {
-          "name": "length",
+          "name": "frames",
           "target": {
-            "node_id": "10",
+            "node_id": "",
             "field": "length"
           },
-          "node_id": "10",
+          "node_id": "",
           "field": "length",
-          "value": 33,
+          "value": null,
           "type": null,
-          "default": 33,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [
-            "frames"
+            "length"
           ],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "frames",
+          "name": "length",
           "target": {
-            "node_id": "10",
+            "node_id": "",
             "field": "length"
           },
-          "node_id": "10",
+          "node_id": "",
           "field": "length",
-          "value": 33,
+          "value": null,
           "type": null,
-          "default": 33,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "11",
-            "field": "seed"
-          },
-          "node_id": "11",
-          "field": "seed",
-          "value": 987948718394761,
-          "type": null,
-          "default": 987948718394761,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "steps",
-          "target": {
-            "node_id": "11",
-            "field": "steps"
-          },
-          "node_id": "11",
-          "field": "steps",
-          "value": 20,
-          "type": null,
-          "default": 20,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -957,14 +956,14 @@
         {
           "name": "cfg",
           "target": {
-            "node_id": "11",
+            "node_id": "",
             "field": "cfg"
           },
-          "node_id": "11",
+          "node_id": "",
           "field": "cfg",
-          "value": 6,
+          "value": null,
           "type": null,
-          "default": 6,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -975,10 +974,10 @@
         {
           "name": "sampler_name",
           "target": {
-            "node_id": "11",
+            "node_id": "",
             "field": "sampler_name"
           },
-          "node_id": "11",
+          "node_id": "",
           "field": "sampler_name",
           "value": "uni_pc",
           "type": null,
@@ -991,36 +990,36 @@
           "source": "InputSpec"
         },
         {
-          "name": "output_fps",
+          "name": "fps",
           "target": {
-            "node_id": "13",
+            "node_id": "",
             "field": "fps"
           },
-          "node_id": "13",
+          "node_id": "",
           "field": "fps",
-          "value": 16,
+          "value": null,
           "type": null,
-          "default": 16,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [
-            "fps"
+            "output_fps"
           ],
           "media_semantics": null,
           "status": "static",
           "source": "InputSpec"
         },
         {
-          "name": "fps",
+          "name": "output_fps",
           "target": {
-            "node_id": "13",
+            "node_id": "",
             "field": "fps"
           },
-          "node_id": "13",
+          "node_id": "",
           "field": "fps",
-          "value": 16,
+          "value": null,
           "type": null,
-          "default": 16,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1029,16 +1028,36 @@
           "source": "InputSpec"
         },
         {
-          "name": "model",
+          "name": "image",
           "target": {
-            "node_id": "1",
-            "field": "unet_name"
+            "node_id": "",
+            "field": "image"
           },
-          "node_id": "1",
-          "field": "unet_name",
-          "value": "wan2.1_i2v_480p_14B_fp16.safetensors",
+          "node_id": "",
+          "field": "image",
+          "value": "image_to_video_wan_start_image.png",
           "type": null,
-          "default": "wan2.1_i2v_480p_14B_fp16.safetensors",
+          "default": "image_to_video_wan_start_image.png",
+          "required": false,
+          "range": null,
+          "aliases": [
+            "input_image"
+          ],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "input_image",
+          "target": {
+            "node_id": "",
+            "field": "image"
+          },
+          "node_id": "",
+          "field": "image",
+          "value": "image_to_video_wan_start_image.png",
+          "type": null,
+          "default": "image_to_video_wan_start_image.png",
           "required": false,
           "range": null,
           "aliases": [],
@@ -1054,7 +1073,7 @@
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ComfyUI",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1067,7 +1086,7 @@
           "output_type": "SaveVideo",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/ComfyUI",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1083,14 +1102,14 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "model_name",
-          "value": "umt5-xxl-enc-bf16.safetensors",
+          "value": null,
           "type": null,
-          "default": "umt5-xxl-enc-bf16.safetensors",
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1101,14 +1120,14 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "13",
+            "node_id": "",
             "field": "seed"
           },
-          "node_id": "13",
+          "node_id": "",
           "field": "seed",
-          "value": 0,
+          "value": null,
           "type": null,
-          "default": 0,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1124,7 +1143,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_13b_control_lora",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1137,7 +1156,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_13b_control_lora",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1153,14 +1172,50 @@
         {
           "name": "model",
           "target": {
-            "node_id": "1",
+            "node_id": "",
             "field": "model_name"
           },
-          "node_id": "1",
+          "node_id": "",
           "field": "model_name",
-          "value": "umt5-xxl-enc-bf16.safetensors",
+          "value": null,
           "type": null,
-          "default": "umt5-xxl-enc-bf16.safetensors",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "prompt",
+          "target": {
+            "node_id": "",
+            "field": "text"
+          },
+          "node_id": "",
+          "field": "text",
+          "value": null,
+          "type": null,
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
+          "value": null,
+          "type": null,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1171,10 +1226,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "width"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "width",
           "value": 256,
           "type": null,
@@ -1189,50 +1244,14 @@
         {
           "name": "height",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "height"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "height",
           "value": 256,
           "type": null,
           "default": 256,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "11",
-            "field": "text"
-          },
-          "node_id": "11",
-          "field": "text",
-          "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
-          "type": null,
-          "default": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "16",
-            "field": "seed"
-          },
-          "node_id": "16",
-          "field": "seed",
-          "value": 42,
-          "type": null,
-          "default": 42,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1248,7 +1267,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_21_14b_t2v",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1261,7 +1280,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_21_14b_t2v",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1277,14 +1296,32 @@
         {
           "name": "model",
           "target": {
-            "node_id": "2",
+            "node_id": "",
             "field": "model_name"
           },
-          "node_id": "2",
+          "node_id": "",
           "field": "model_name",
-          "value": "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+          "value": null,
           "type": null,
-          "default": "wanvideo\\Wan2_1_VAE_bf16.safetensors",
+          "default": null,
+          "required": false,
+          "range": null,
+          "aliases": [],
+          "media_semantics": null,
+          "status": "static",
+          "source": "InputSpec"
+        },
+        {
+          "name": "seed",
+          "target": {
+            "node_id": "",
+            "field": "seed"
+          },
+          "node_id": "",
+          "field": "seed",
+          "value": null,
+          "type": null,
+          "default": null,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1295,10 +1332,10 @@
         {
           "name": "image",
           "target": {
-            "node_id": "4",
+            "node_id": "",
             "field": "image"
           },
-          "node_id": "4",
+          "node_id": "",
           "field": "image",
           "value": "refer.jpeg",
           "type": null,
@@ -1313,10 +1350,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "157",
+            "node_id": "",
             "field": "width"
           },
-          "node_id": "157",
+          "node_id": "",
           "field": "width",
           "value": 832,
           "type": null,
@@ -1331,32 +1368,14 @@
         {
           "name": "height",
           "target": {
-            "node_id": "157",
+            "node_id": "",
             "field": "height"
           },
-          "node_id": "157",
+          "node_id": "",
           "field": "height",
           "value": 480,
           "type": null,
           "default": 480,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "166",
-            "field": "seed"
-          },
-          "node_id": "166",
-          "field": "seed",
-          "value": 42,
-          "type": null,
-          "default": 42,
           "required": false,
           "range": null,
           "aliases": [],
@@ -1372,29 +1391,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_wan_animate",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": "video",
-          "node_id": "165",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_wan_animate",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": "video",
-          "node_id": "170",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_wan_animate",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"
@@ -1407,29 +1404,7 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_wan_animate",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": "video",
-          "node_id": "165",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_wan_animate",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        },
-        {
-          "name": "video",
-          "node_id": "170",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video/wanvideo_wrapper_wan_animate",
+          "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
           "source": "finalize"

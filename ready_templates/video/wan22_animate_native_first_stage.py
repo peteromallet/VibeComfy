@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CLIPVisionEncode, CLIPVisionLoader, CreateVideo, GetVideoComponents, GrowMask, ImageFromBatch, ImageScale, KSampler, LoadImage, LoadVideo, LoraLoaderModelOnly, ModelSamplingSD3, PixelPerfectResolution, SaveVideo, TrimVideoLatent, UNETLoader, VAEDecode, VAELoader, WanAnimateToVideo
 from vibecomfy.nodes.kjnodes import BlockifyMask, DrawMaskOnImage, PointsEditor
 from vibecomfy.nodes.sam2 import DownloadAndLoadSAM2Model, Sam2Segmentation
@@ -39,9 +39,6 @@ MODELS = {
     'checkpoint_7': ModelAsset(url='https://huggingface.co/hr16/DWPose-TorchScript-BatchSize5/resolve/main/dw-ll_ucoco_384_bs5.torchscript.pt', hf_revision='main', subdir='checkpoints'),
 }
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='animate_character',
     models=MODELS,
@@ -55,155 +52,165 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME_2)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME_2)
 
-        # Inputs
-        image, mask = LoadImage(image=public('image', default='reference_image.png'))
-        unetloader = UNETLoader(unet_name=UNET_NAME)
+    # Inputs
+    image, mask = LoadImage(image='reference_image.png')
+    unetloader = UNETLoader(unet_name=UNET_NAME)
 
-        downloadandloadsam2model = DownloadAndLoadSAM2Model(
-            model=MODEL_NAME,
-            segmentor='video',
-            device='cuda',
-        )
+    downloadandloadsam2model = DownloadAndLoadSAM2Model(
+        model=MODEL_NAME,
+        segmentor='video',
+        device='cuda',
+    )
 
-        loadvideo = LoadVideo(file='motion_video.mp4')
-        primitiveint = raw_call('PrimitiveInt', '159', value=832)
-        primitiveint_2 = raw_call('PrimitiveInt', '160', value=480)
+    loadvideo = LoadVideo(file='motion_video.mp4')
+    primitiveint = raw_call('PrimitiveInt', '159', value=832)
+    primitiveint_2 = raw_call('PrimitiveInt', '160', value=480)
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default='low quality, blurry, distorted'),
-            clip=cliploader,
-        )
+    # Conditioning
+    cliptextencode = CLIPTextEncode(
+        text='low quality, blurry, distorted',
+        clip=cliploader,
+    )
 
-        clipvisionencode = CLIPVisionEncode(
-            crop='none',
-            clip_vision=clipvisionloader,
-            image=image,
-        )
+    clipvisionencode = CLIPVisionEncode(
+        crop='none',
+        clip_vision=clipvisionloader,
+        image=image,
+    )
 
-        loraloadermodelonly = LoraLoaderModelOnly(lora_name=LORA_NAME, model=unetloader)
-        cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
-        images, audio, fps = GetVideoComponents(video=loadvideo)
+    loraloadermodelonly = LoraLoaderModelOnly(lora_name=LORA_NAME, model=unetloader)
+    cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+    images, audio, fps = GetVideoComponents(video=loadvideo)
 
-        loraloadermodelonly_2 = LoraLoaderModelOnly(
-            lora_name=LORA_NAME_2,
-            model=loraloadermodelonly,
-        )
+    loraloadermodelonly_2 = LoraLoaderModelOnly(
+        lora_name=LORA_NAME_2,
+        model=loraloadermodelonly,
+    )
 
-        pixelperfectresolution = PixelPerfectResolution(
-            image_gen_height=primitiveint_2,
-            image_gen_width=primitiveint,
-            original_image=images,
-        )
+    pixelperfectresolution = PixelPerfectResolution(
+        image_gen_height=primitiveint_2,
+        image_gen_width=primitiveint,
+        original_image=images,
+    )
 
-        imagescale = ImageScale(
-            upscale_method='lanczos',
-            crop='center',
-            width=primitiveint,
-            height=primitiveint_2,
-            image=images,
-        )
+    imagescale = ImageScale(
+        upscale_method='lanczos',
+        crop='center',
+        width=primitiveint,
+        height=primitiveint_2,
+        image=images,
+    )
 
-        dwpreprocessor = raw_call('DWPreprocessor', '100',
-            detect_hand='disable',
-            detect_body='disable',
-            detect_face='enable',
-            bbox_detector=BBOX_DETECTOR_NAME,
-            pose_estimator=POSE_ESTIMATOR_NAME,
-            scale_stick_for_xinsr_cn=SCALE_STICK_FOR_XINSR_CN,
-            resolution=pixelperfectresolution,
-            image=imagescale,
-        )
+    dwpreprocessor = raw_call('DWPreprocessor', '100',
+        detect_hand='disable',
+        detect_body='disable',
+        detect_face='enable',
+        bbox_detector=BBOX_DETECTOR_NAME,
+        pose_estimator=POSE_ESTIMATOR_NAME,
+        scale_stick_for_xinsr_cn=SCALE_STICK_FOR_XINSR_CN,
+        resolution=pixelperfectresolution,
+        image=imagescale,
+    )
 
-        dwpreprocessor_2 = raw_call('DWPreprocessor', '101',
-            detect_hand='enable',
-            detect_body='enable',
-            detect_face='disable',
-            bbox_detector=BBOX_DETECTOR_NAME,
-            pose_estimator=POSE_ESTIMATOR_NAME,
-            scale_stick_for_xinsr_cn=SCALE_STICK_FOR_XINSR_CN,
-            resolution=pixelperfectresolution,
-            image=imagescale,
-        )
+    dwpreprocessor_2 = raw_call('DWPreprocessor', '101',
+        detect_hand='enable',
+        detect_body='enable',
+        detect_face='disable',
+        bbox_detector=BBOX_DETECTOR_NAME,
+        pose_estimator=POSE_ESTIMATOR_NAME,
+        scale_stick_for_xinsr_cn=SCALE_STICK_FOR_XINSR_CN,
+        resolution=pixelperfectresolution,
+        image=imagescale,
+    )
 
-        modelsamplingsd3 = ModelSamplingSD3(shift=8, model=loraloadermodelonly_2)
+    modelsamplingsd3 = ModelSamplingSD3(shift=8, model=loraloadermodelonly_2)
 
-        positive_coords, negative_coords, bbox, bbox_mask, cropped_image = PointsEditor(
-            points_store='[{}]',
-            coordinates='[{"x":320,"y":320}]',
-            neg_coordinates='[]',
-            bbox_store='[{}]',
-            bboxes='[{"startX":160,"startY":96,"endX":480,"endY":544}]',
-            bbox_format='xyxy',
-            width=public('width', default=640),
-            height=public('height', default=640),
-            bg_image=imagescale,
-        )
+    positive_coords, negative_coords, bbox, bbox_mask, cropped_image = PointsEditor(
+        points_store='[{}]',
+        coordinates='[{"x":320,"y":320}]',
+        neg_coordinates='[]',
+        bbox_store='[{}]',
+        bboxes='[{"startX":160,"startY":96,"endX":480,"endY":544}]',
+        bbox_format='xyxy',
+        width=640,
+        height=640,
+        bg_image=imagescale,
+    )
 
-        sam2segmentation = Sam2Segmentation(
-            keep_model_loaded=True,
-            coordinates_positive=positive_coords,
-            image=imagescale,
-            sam2_model=downloadandloadsam2model,
-        )
+    sam2segmentation = Sam2Segmentation(
+        keep_model_loaded=True,
+        coordinates_positive=positive_coords,
+        image=imagescale,
+        sam2_model=downloadandloadsam2model,
+    )
 
-        growmask = GrowMask(expand=10, mask=sam2segmentation)
-        blockifymask = BlockifyMask(masks=growmask)
-        drawmaskonimage = DrawMaskOnImage(image=imagescale, mask=blockifymask)
+    growmask = GrowMask(expand=10, mask=sam2segmentation)
+    blockifymask = BlockifyMask(masks=growmask)
+    drawmaskonimage = DrawMaskOnImage(image=imagescale, mask=blockifymask)
 
-        positive, negative, latent, trim_latent, trim_image, video_frame_offset = WanAnimateToVideo(
-            length=public('frames', default=DEFAULT_FRAMES),
-            background_video=drawmaskonimage,
-            character_mask=blockifymask,
-            clip_vision_output=clipvisionencode,
-            face_video=dwpreprocessor,
-            height=primitiveint_2,
-            negative=cliptextencode,
-            pose_video=dwpreprocessor_2,
-            positive=cliptextencode_2,
-            reference_image=image,
-            vae=vaeloader,
-            width=primitiveint,
-        )
+    positive, negative, latent, trim_latent, trim_image, video_frame_offset = WanAnimateToVideo(
+        length=DEFAULT_FRAMES,
+        background_video=drawmaskonimage,
+        character_mask=blockifymask,
+        clip_vision_output=clipvisionencode,
+        face_video=dwpreprocessor,
+        height=primitiveint_2,
+        negative=cliptextencode,
+        pose_video=dwpreprocessor_2,
+        positive=cliptextencode_2,
+        reference_image=image,
+        vae=vaeloader,
+        width=primitiveint,
+    )
 
-        ksampler = KSampler(
-            seed=public('seed', default=DEFAULT_SEED),
-            steps=public('steps', default=20),
-            cfg=public('cfg', default=GUIDE_STRENGTH),
-            sampler_name=public('sampler_name', default='euler'),
-            latent_image=latent,
-            model=modelsamplingsd3,
-            negative=negative,
-            positive=positive,
-        )
+    ksampler = KSampler(
+        seed=DEFAULT_SEED,
+        steps=20,
+        cfg=GUIDE_STRENGTH,
+        sampler_name='euler',
+        latent_image=latent,
+        model=modelsamplingsd3,
+        negative=negative,
+        positive=positive,
+    )
 
-        trimvideolatent = TrimVideoLatent(samples=ksampler, trim_amount=trim_latent)
+    trimvideolatent = TrimVideoLatent(samples=ksampler, trim_amount=trim_latent)
 
-        # Decode
-        vaedecode = VAEDecode(samples=trimvideolatent, vae=vaeloader)
+    # Decode
+    vaedecode = VAEDecode(samples=trimvideolatent, vae=vaeloader)
 
-        imagefrombatch = ImageFromBatch(
-            length=DEFAULT_FRAMES_2,
-            batch_index=trim_image,
-            image=vaedecode,
-        )
+    imagefrombatch = ImageFromBatch(
+        length=DEFAULT_FRAMES_2,
+        batch_index=trim_image,
+        image=vaedecode,
+    )
 
-        createvideo = CreateVideo(
-            fps=public('fps', default=DEFAULT_FPS),
-            audio=audio,
-            images=imagefrombatch,
-        )
+    createvideo = CreateVideo(fps=DEFAULT_FPS, audio=audio, images=imagefrombatch)
 
-        # Outputs
-        savevideo = SaveVideo(video=createvideo)
+    # Outputs
+    savevideo = SaveVideo(video=createvideo)
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=unetloader, field='unet_name', default=UNET_NAME),
+        'prompt': InputSpec(node=cliptextencode, field='text', default='low quality, blurry, distorted'),
+        'seed': InputSpec(node=ksampler, field='seed', default=DEFAULT_SEED),
+        'steps': InputSpec(node=ksampler, field='steps', default=20),
+        'image': InputSpec(node=image, field='image', default='reference_image.png'),
+        'width': InputSpec(node=positive_coords, field='width', default=640),
+        'height': InputSpec(node=positive_coords, field='height', default=640),
+        'frames': InputSpec(node=positive, field='length', default=DEFAULT_FRAMES),
+        'cfg': InputSpec(node=ksampler, field='cfg', default=GUIDE_STRENGTH),
+        'sampler_name': InputSpec(node=ksampler, field='sampler_name', default='euler'),
+        'fps': InputSpec(node=createvideo, field='fps', default=DEFAULT_FPS),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CLIPVisionLoader, LoadImage
 from vibecomfy.nodes.depthanythingv2 import DepthAnything_V2, DownloadAndLoadDepthAnythingV2Model
 from vibecomfy.nodes.kjnodes import GetImageSizeAndCount, ImageConcatMulti, ImageResizeKJ
@@ -25,9 +25,6 @@ MODEL_NAME_3 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
 MODEL_NAME_4 = 'depth_anything_v2_vitl_fp16.safetensors'
 WIDGET_2 = 'lanczos'
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='fun_control_video',
     requirements={'models': ['clip_vision_h.safetensors', 'umt5-xxl-enc-bf16.safetensors', 'umt5_xxl_fp16.safetensors', 'wanvideo\\Wan2_1_VAE_bf16.safetensors'], 'custom_nodes': ['ComfyUI-DepthAnythingV2', 'ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper', 'rgthree-comfy']},
@@ -39,160 +36,156 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
-            model_name=public('model', default=MODEL_NAME),
-        )
+    loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(model_name=MODEL_NAME)
+    wanvideomodelloader = WanVideoModelLoader(model=MODEL_NAME_2)
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_3)
+    wanvideoblockswap = WanVideoBlockSwap(blocks_to_swap=10, use_non_blocking=True)
+    wanvideovrammanagement = WanVideoVRAMManagement()
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+    wanvideoteacache = WanVideoTeaCache(rel_l1_thresh=0.08, use_coefficients='true')
 
-        wanvideomodelloader = WanVideoModelLoader(model=MODEL_NAME_2)
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
-        wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_3)
-        wanvideoblockswap = WanVideoBlockSwap(blocks_to_swap=10, use_non_blocking=True)
-        wanvideovrammanagement = WanVideoVRAMManagement()
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
-        wanvideoteacache = WanVideoTeaCache(rel_l1_thresh=0.08, use_coefficients='true')
+    # Inputs
+    image, mask = LoadImage(image='pasted/image (758).png', widget_2='')
+    clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME_2)
 
-        # Inputs
-        image, mask = LoadImage(
-            image=public('image', default='pasted/image (758).png'),
-            widget_2='',
-        )
+    image_load, frame_count, audio, video_info = VHS_LoadVideo(
+        video='wolf_interpolated.mp4',
+    )
 
-        clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME_2)
+    downloadandloaddepthanythingv2model = DownloadAndLoadDepthAnythingV2Model(
+        model=MODEL_NAME_4,
+    )
 
-        image_load, frame_count, audio, video_info = VHS_LoadVideo(
-            video='wolf_interpolated.mp4',
-        )
+    reroute = raw_call('Reroute', '79')
+    reroute_2 = raw_call('Reroute', '80')
+    wanvideoexperimentalargs = WanVideoExperimentalArgs(cfg_zero_star=True)
 
-        downloadandloaddepthanythingv2model = DownloadAndLoadDepthAnythingV2Model(
-            model=MODEL_NAME_4,
-        )
+    wanvideotextencode = WanVideoTextEncode(
+        positive_prompt=DEFAULT_PROMPT,
+        negative_prompt=DEFAULT_NEGATIVE,
+        model_to_offload=wanvideomodelloader,
+        t5=loadwanvideot5textencoder,
+    )
 
-        reroute = raw_call('Reroute', '79')
-        reroute_2 = raw_call('Reroute', '80')
-        wanvideoexperimentalargs = WanVideoExperimentalArgs(cfg_zero_star=True)
+    # Conditioning
+    cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
+    cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_3, clip=cliploader)
 
-        wanvideotextencode = WanVideoTextEncode(
-            positive_prompt=DEFAULT_PROMPT,
-            negative_prompt=DEFAULT_NEGATIVE,
-            model_to_offload=wanvideomodelloader,
-            t5=loadwanvideot5textencoder,
-        )
+    image_image, width, height = ImageResizeKJ(
+        widget_0=640,
+        widget_1=640,
+        widget_2=WIDGET_2,
+        widget_3=False,
+        widget_4=16,
+        widget_5=0,
+        widget_6=0,
+        widget_7='disabled',
+        image=image_load,
+    )
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT_2),
-            clip=cliploader,
-        )
+    samples, denoised_samples = WanVideoSampler(
+        steps=1,
+        seed=DEFAULT_SEED,
+        batched_cfg='',
+        cache_args=wanvideoteacache,
+        experimental_args=wanvideoexperimentalargs,
+        image_embeds=reroute.out(0),
+        model=wanvideomodelloader,
+        text_embeds=wanvideotextencode,
+    )
 
-        cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_3, clip=cliploader)
+    wanvideotextembedbridge = WanVideoTextEmbedBridge(
+        negative=cliptextencode_2,
+        positive=cliptextencode,
+    )
 
-        image_image, width, height = ImageResizeKJ(
-            widget_0=640,
-            widget_1=640,
-            widget_2=WIDGET_2,
-            widget_3=False,
-            widget_4=16,
-            widget_5=0,
-            widget_6=0,
-            widget_7='disabled',
-            image=image_load,
-        )
+    depthanything_v2 = DepthAnything_V2(
+        da_model=downloadandloaddepthanythingv2model,
+        images=image_image,
+    )
 
-        samples, denoised_samples = WanVideoSampler(
-            steps=1,
-            seed=public('seed', default=DEFAULT_SEED),
-            batched_cfg='',
-            cache_args=wanvideoteacache,
-            experimental_args=wanvideoexperimentalargs,
-            image_embeds=reroute.out(0),
-            model=wanvideomodelloader,
-            text_embeds=wanvideotextencode,
-        )
+    wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
 
-        wanvideotextembedbridge = WanVideoTextEmbedBridge(
-            negative=cliptextencode_2,
-            positive=cliptextencode,
-        )
+    image_get, width_get, height_get, count = GetImageSizeAndCount(
+        image=depthanything_v2,
+    )
 
-        depthanything_v2 = DepthAnything_V2(
-            da_model=downloadandloaddepthanythingv2model,
-            images=image_image,
-        )
+    # Outputs
+    vhs_videocombine = VHS_VideoCombine(images=depthanything_v2)
 
-        wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
+    image_image_2, width_image, height_image = ImageResizeKJ(
+        widget_0=624,
+        widget_1=624,
+        widget_2=WIDGET_2,
+        widget_3=False,
+        widget_4=16,
+        widget_5=0,
+        widget_6=0,
+        widget_7='center',
+        height=height_get,
+        image=image,
+        width=width_get,
+    )
 
-        image_get, width_get, height_get, count = GetImageSizeAndCount(
-            image=depthanything_v2,
-        )
+    wanvideoencode = WanVideoEncode(
+        widget_0=False,
+        widget_1=272,
+        widget_2=272,
+        widget_3=144,
+        widget_4=128,
+        widget_5=0,
+        widget_6=1,
+        image=image_get,
+        vae=wanvideovaeloader,
+    )
 
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(images=depthanything_v2)
+    imageconcatmulti = ImageConcatMulti(
+        unused_3=None,
+        image_1=depthanything_v2,
+        image_2=wanvideodecode,
+    )
 
-        image_image_2, width_image, height_image = ImageResizeKJ(
-            widget_0=624,
-            widget_1=624,
-            widget_2=WIDGET_2,
-            widget_3=False,
-            widget_4=16,
-            widget_5=0,
-            widget_6=0,
-            widget_7='center',
-            height=height_get,
-            image=image,
-            width=width_get,
-        )
+    vhs_videocombine_2 = VHS_VideoCombine(images=imageconcatmulti)
 
-        wanvideoencode = WanVideoEncode(
-            widget_0=False,
-            widget_1=272,
-            widget_2=272,
-            widget_3=144,
-            widget_4=128,
-            widget_5=0,
-            widget_6=1,
-            image=image_get,
-            vae=wanvideovaeloader,
-        )
+    wanvideoclipvisionencode = WanVideoClipVisionEncode(
+        ratio=0.2,
+        clip_vision=clipvisionloader,
+        image_1=image_image_2,
+    )
 
-        imageconcatmulti = ImageConcatMulti(
-            unused_3=None,
-            image_1=depthanything_v2,
-            image_2=wanvideodecode,
-        )
+    wanvideocontrolembeds = WanVideoControlEmbeds(latents=wanvideoencode)
 
-        vhs_videocombine_2 = VHS_VideoCombine(images=imageconcatmulti)
+    wanvideoimagetovideoencode = WanVideoImageToVideoEncode(
+        noise_aug_strength=0.03,
+        tiled_vae=True,
+        width=width_image,
+        height=height_image,
+        num_frames=count,
+        clip_embeds=wanvideoclipvisionencode,
+        control_embeds=wanvideocontrolembeds,
+        start_image=image_image_2,
+        vae=wanvideovaeloader,
+    )
 
-        wanvideoclipvisionencode = WanVideoClipVisionEncode(
-            ratio=0.2,
-            clip_vision=clipvisionloader,
-            image_1=image_image_2,
-        )
+    wanvideoemptyembeds = WanVideoEmptyEmbeds(
+        widget_0=256,
+        widget_1=256,
+        widget_2=5,
+        control_embeds=wanvideocontrolembeds,
+        height=height_get,
+        num_frames=count,
+        width=width_get,
+    )
 
-        wanvideocontrolembeds = WanVideoControlEmbeds(latents=wanvideoencode)
 
-        wanvideoimagetovideoencode = WanVideoImageToVideoEncode(
-            noise_aug_strength=0.03,
-            tiled_vae=True,
-            width=width_image,
-            height=height_image,
-            num_frames=count,
-            clip_embeds=wanvideoclipvisionencode,
-            control_embeds=wanvideocontrolembeds,
-            start_image=image_image_2,
-            vae=wanvideovaeloader,
-        )
-
-        wanvideoemptyembeds = WanVideoEmptyEmbeds(
-            widget_0=256,
-            widget_1=256,
-            widget_2=5,
-            control_embeds=wanvideocontrolembeds,
-            height=height_get,
-            num_frames=count,
-            width=width_get,
-        )
-
-        return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=loadwanvideot5textencoder, field='model_name', default=MODEL_NAME),
+        'prompt': InputSpec(node=cliptextencode, field='text', default=DEFAULT_PROMPT_2),
+        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED),
+        'image': InputSpec(node=image, field='image', default='pasted/image (758).png'),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

@@ -92,281 +92,281 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
-            _id='11',
-            model_name=MODEL_NAME,
-        )
-        wf.metadata.setdefault('id_map', {})['loadwanvideot5textencoder'] = loadwanvideot5textencoder.node.id
+    loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
+        _id='11',
+        model_name=MODEL_NAME,
+    )
+    wf.metadata.setdefault('id_map', {})['loadwanvideot5textencoder'] = loadwanvideot5textencoder.node.id
 
-        wanvideomodelloader = WanVideoModelLoader(_id='22', model=MODEL_NAME_2)
-        wf.metadata.setdefault('id_map', {})['wanvideomodelloader'] = wanvideomodelloader.node.id
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings(_id='35')
-        wf.metadata.setdefault('id_map', {})['wanvideotorchcompilesettings'] = wanvideotorchcompilesettings.node.id
-        wanvideovaeloader = WanVideoVAELoader(_id='38', model_name=MODEL_NAME_3)
-        wf.metadata.setdefault('id_map', {})['wanvideovaeloader'] = wanvideovaeloader.node.id
-        wanvideoblockswap = WanVideoBlockSwap(_id='39', use_non_blocking=True)
-        wf.metadata.setdefault('id_map', {})['wanvideoblockswap'] = wanvideoblockswap.node.id
-        wanvideovrammanagement = WanVideoVRAMManagement(_id='45', widget_0=1)
-        wf.metadata.setdefault('id_map', {})['wanvideovrammanagement'] = wanvideovrammanagement.node.id
-        # Loaders
-        cliploader = CLIPLoader(_id='48', clip_name=MODEL_NAME_4, type_='wan')
-        wf.metadata.setdefault('id_map', {})['cliploader'] = cliploader.node.id
-        wanvideoteacache = WanVideoTeaCache(
-            _id='52',
-            widget_0=0.1,
-            widget_1=6,
-            widget_2=-1,
-            widget_3='offload_device',
-            widget_4='true',
-            widget_5='e0',
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideoteacache'] = wanvideoteacache.node.id
+    wanvideomodelloader = WanVideoModelLoader(_id='22', model=MODEL_NAME_2)
+    wf.metadata.setdefault('id_map', {})['wanvideomodelloader'] = wanvideomodelloader.node.id
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings(_id='35')
+    wf.metadata.setdefault('id_map', {})['wanvideotorchcompilesettings'] = wanvideotorchcompilesettings.node.id
+    wanvideovaeloader = WanVideoVAELoader(_id='38', model_name=MODEL_NAME_3)
+    wf.metadata.setdefault('id_map', {})['wanvideovaeloader'] = wanvideovaeloader.node.id
+    wanvideoblockswap = WanVideoBlockSwap(_id='39', use_non_blocking=True)
+    wf.metadata.setdefault('id_map', {})['wanvideoblockswap'] = wanvideoblockswap.node.id
+    wanvideovrammanagement = WanVideoVRAMManagement(_id='45', widget_0=1)
+    wf.metadata.setdefault('id_map', {})['wanvideovrammanagement'] = wanvideovrammanagement.node.id
+    # Loaders
+    cliploader = CLIPLoader(_id='48', clip_name=MODEL_NAME_4, type_='wan')
+    wf.metadata.setdefault('id_map', {})['cliploader'] = cliploader.node.id
+    wanvideoteacache = WanVideoTeaCache(
+        _id='52',
+        widget_0=0.1,
+        widget_1=6,
+        widget_2=-1,
+        widget_3='offload_device',
+        widget_4='true',
+        widget_5='e0',
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideoteacache'] = wanvideoteacache.node.id
 
-        downloadandloadflorence2model = raw_call(wf, 'DownloadAndLoadFlorence2Model', '124',
-            widget_0='MiaoshouAI/Florence-2-base-PromptGen-v2.0',
-            widget_1='fp16',
-            widget_2='sdpa',
-        )
-        wf.metadata.setdefault('id_map', {})['downloadandloadflorence2model'] = downloadandloadflorence2model.node.id
+    downloadandloadflorence2model = raw_call(wf, 'DownloadAndLoadFlorence2Model', '124',
+        widget_0='MiaoshouAI/Florence-2-base-PromptGen-v2.0',
+        widget_1='fp16',
+        widget_2='sdpa',
+    )
+    wf.metadata.setdefault('id_map', {})['downloadandloadflorence2model'] = downloadandloadflorence2model.node.id
 
-        wanvideoexperimentalargs = WanVideoExperimentalArgs(
-            _id='127',
-            widget_0=WIDGET_0,
-            widget_1=True,
-            widget_2=False,
-            widget_3=0,
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideoexperimentalargs'] = wanvideoexperimentalargs.node.id
+    wanvideoexperimentalargs = WanVideoExperimentalArgs(
+        _id='127',
+        widget_0=WIDGET_0,
+        widget_1=True,
+        widget_2=False,
+        widget_3=0,
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideoexperimentalargs'] = wanvideoexperimentalargs.node.id
 
-        vhs_loadvideo = VHS_LoadVideo(
-            _id='128',
-            video='wolf_interpolated.mp4',
-            _outputs=('IMAGE', 'FRAME_COUNT', 'AUDIO', 'VIDEO_INFO'),
-        )
-        wf.metadata.setdefault('id_map', {})['vhs_loadvideo'] = vhs_loadvideo.node.id
+    vhs_loadvideo = VHS_LoadVideo(
+        _id='128',
+        video='wolf_interpolated.mp4',
+        _outputs=('IMAGE', 'FRAME_COUNT', 'AUDIO', 'VIDEO_INFO'),
+    )
+    wf.metadata.setdefault('id_map', {})['vhs_loadvideo'] = vhs_loadvideo.node.id
 
-        getnode = raw_call(wf, 'GetNode', '141', widget_0=WIDGET_0_2)
-        wf.metadata.setdefault('id_map', {})['getnode'] = getnode.node.id
-        getnode_2 = raw_call(wf, 'GetNode', '143', widget_0=WIDGET_0_3)
-        wf.metadata.setdefault('id_map', {})['getnode_2'] = getnode_2.node.id
-        getnode_3 = raw_call(wf, 'GetNode', '145', widget_0=WIDGET_0_4)
-        wf.metadata.setdefault('id_map', {})['getnode_3'] = getnode_3.node.id
-        getnode_4 = raw_call(wf, 'GetNode', '146', widget_0=WIDGET_0_4)
-        wf.metadata.setdefault('id_map', {})['getnode_4'] = getnode_4.node.id
-        getnode_5 = raw_call(wf, 'GetNode', '157', widget_0=WIDGET_0_5)
-        wf.metadata.setdefault('id_map', {})['getnode_5'] = getnode_5.node.id
-        wanvideorecammastergenerateorbitcamera = WanVideoReCamMasterGenerateOrbitCamera(
-            _id='206',
-            widget_0=81,
-            widget_1=90,
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideorecammastergenerateorbitcamera'] = wanvideorecammastergenerateorbitcamera.node.id
+    getnode = raw_call(wf, 'GetNode', '141', widget_0=WIDGET_0_2)
+    wf.metadata.setdefault('id_map', {})['getnode'] = getnode.node.id
+    getnode_2 = raw_call(wf, 'GetNode', '143', widget_0=WIDGET_0_3)
+    wf.metadata.setdefault('id_map', {})['getnode_2'] = getnode_2.node.id
+    getnode_3 = raw_call(wf, 'GetNode', '145', widget_0=WIDGET_0_4)
+    wf.metadata.setdefault('id_map', {})['getnode_3'] = getnode_3.node.id
+    getnode_4 = raw_call(wf, 'GetNode', '146', widget_0=WIDGET_0_4)
+    wf.metadata.setdefault('id_map', {})['getnode_4'] = getnode_4.node.id
+    getnode_5 = raw_call(wf, 'GetNode', '157', widget_0=WIDGET_0_5)
+    wf.metadata.setdefault('id_map', {})['getnode_5'] = getnode_5.node.id
+    wanvideorecammastergenerateorbitcamera = WanVideoReCamMasterGenerateOrbitCamera(
+        _id='206',
+        widget_0=81,
+        widget_1=90,
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideorecammastergenerateorbitcamera'] = wanvideorecammastergenerateorbitcamera.node.id
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(_id='49', text=DEFAULT_PROMPT, clip=cliploader)
-        wf.metadata.setdefault('id_map', {})['cliptextencode'] = cliptextencode.node.id
-        cliptextencode_2 = CLIPTextEncode(
-            _id='50',
-            text=DEFAULT_PROMPT_2,
-            clip=cliploader,
-        )
-        wf.metadata.setdefault('id_map', {})['cliptextencode_2'] = cliptextencode_2.node.id
+    # Conditioning
+    cliptextencode = CLIPTextEncode(_id='49', text=DEFAULT_PROMPT, clip=cliploader)
+    wf.metadata.setdefault('id_map', {})['cliptextencode'] = cliptextencode.node.id
+    cliptextencode_2 = CLIPTextEncode(
+        _id='50',
+        text=DEFAULT_PROMPT_2,
+        clip=cliploader,
+    )
+    wf.metadata.setdefault('id_map', {})['cliptextencode_2'] = cliptextencode_2.node.id
 
-        getimagesizeandcount = GetImageSizeAndCount(
-            _id='129',
-            image=vhs_loadvideo.out('IMAGE'),
-            _outputs=('IMAGE', 'WIDTH', 'HEIGHT', 'COUNT'),
-        )
-        wf.metadata.setdefault('id_map', {})['getimagesizeandcount'] = getimagesizeandcount.node.id
+    getimagesizeandcount = GetImageSizeAndCount(
+        _id='129',
+        image=vhs_loadvideo.out('IMAGE'),
+        _outputs=('IMAGE', 'WIDTH', 'HEIGHT', 'COUNT'),
+    )
+    wf.metadata.setdefault('id_map', {})['getimagesizeandcount'] = getimagesizeandcount.node.id
 
-        setnode = raw_call(wf, 'SetNode', '140',
-            widget_0=WIDGET_0_2,
-            WANVIDEOMODEL=wanvideomodelloader,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode'] = setnode.node.id
+    setnode = raw_call(wf, 'SetNode', '140',
+        widget_0=WIDGET_0_2,
+        WANVIDEOMODEL=wanvideomodelloader,
+    )
+    wf.metadata.setdefault('id_map', {})['setnode'] = setnode.node.id
 
-        setnode_3 = raw_call(wf, 'SetNode', '144',
-            widget_0=WIDGET_0_4,
-            WANVAE=wanvideovaeloader,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_3'] = setnode_3.node.id
+    setnode_3 = raw_call(wf, 'SetNode', '144',
+        widget_0=WIDGET_0_4,
+        WANVAE=wanvideovaeloader,
+    )
+    wf.metadata.setdefault('id_map', {})['setnode_3'] = setnode_3.node.id
 
-        wanvideorecammasterdefaultcamera = WanVideoReCamMasterDefaultCamera(
-            _id='205',
-            widget_0='pan_right',
-            latents=getnode_5.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideorecammasterdefaultcamera'] = wanvideorecammasterdefaultcamera.node.id
+    wanvideorecammasterdefaultcamera = WanVideoReCamMasterDefaultCamera(
+        _id='205',
+        widget_0='pan_right',
+        latents=getnode_5.out(0),
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideorecammasterdefaultcamera'] = wanvideorecammasterdefaultcamera.node.id
 
-        wanvideotextembedbridge = WanVideoTextEmbedBridge(
-            _id='46',
-            negative=cliptextencode_2,
-            positive=cliptextencode,
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideotextembedbridge'] = wanvideotextembedbridge.node.id
+    wanvideotextembedbridge = WanVideoTextEmbedBridge(
+        _id='46',
+        negative=cliptextencode_2,
+        positive=cliptextencode,
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideotextembedbridge'] = wanvideotextembedbridge.node.id
 
-        wanvideorecammastercameraembed = WanVideoReCamMasterCameraEmbed(
-            _id='56',
-            camera_poses=wanvideorecammasterdefaultcamera,
-            latents=getnode_5.out(0),
-            _outputs=('CAMERA_EMBEDS', 'CAMERA_POSES'),
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideorecammastercameraembed'] = wanvideorecammastercameraembed.node.id
+    wanvideorecammastercameraembed = WanVideoReCamMasterCameraEmbed(
+        _id='56',
+        camera_poses=wanvideorecammasterdefaultcamera,
+        latents=getnode_5.out(0),
+        _outputs=('CAMERA_EMBEDS', 'CAMERA_POSES'),
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideorecammastercameraembed'] = wanvideorecammastercameraembed.node.id
 
-        imageresizekj = ImageResizeKJ(
-            _id='59',
-            widget_0=832,
-            widget_1=480,
-            widget_2='lanczos',
-            widget_3=False,
-            widget_4=16,
-            widget_5='center',
-            image=getimagesizeandcount.out('IMAGE'),
-            _outputs=('IMAGE', 'WIDTH', 'HEIGHT'),
-        )
-        wf.metadata.setdefault('id_map', {})['imageresizekj'] = imageresizekj.node.id
+    imageresizekj = ImageResizeKJ(
+        _id='59',
+        widget_0=832,
+        widget_1=480,
+        widget_2='lanczos',
+        widget_3=False,
+        widget_4=16,
+        widget_5='center',
+        image=getimagesizeandcount.out('IMAGE'),
+        _outputs=('IMAGE', 'WIDTH', 'HEIGHT'),
+    )
+    wf.metadata.setdefault('id_map', {})['imageresizekj'] = imageresizekj.node.id
 
-        widgettostring = WidgetToString(
-            _id='74',
-            widget_0=0,
-            widget_1='camera_type',
-            widget_2=False,
-            widget_3='',
-            widget_4=2,
-            any_input=wanvideorecammasterdefaultcamera,
-        )
-        wf.metadata.setdefault('id_map', {})['widgettostring'] = widgettostring.node.id
+    widgettostring = WidgetToString(
+        _id='74',
+        widget_0=0,
+        widget_1='camera_type',
+        widget_2=False,
+        widget_3='',
+        widget_4=2,
+        any_input=wanvideorecammasterdefaultcamera,
+    )
+    wf.metadata.setdefault('id_map', {})['widgettostring'] = widgettostring.node.id
 
-        getimagerangefrombatch = GetImageRangeFromBatch(
-            _id='130',
-            widget_0=0,
-            widget_1=1,
-            images=imageresizekj.out('IMAGE'),
-            _outputs=('IMAGE', 'MASK'),
-        )
-        wf.metadata.setdefault('id_map', {})['getimagerangefrombatch'] = getimagerangefrombatch.node.id
+    getimagerangefrombatch = GetImageRangeFromBatch(
+        _id='130',
+        widget_0=0,
+        widget_1=1,
+        images=imageresizekj.out('IMAGE'),
+        _outputs=('IMAGE', 'MASK'),
+    )
+    wf.metadata.setdefault('id_map', {})['getimagerangefrombatch'] = getimagerangefrombatch.node.id
 
-        recammasterposevisualizer = ReCamMasterPoseVisualizer(
-            _id='138',
-            widget_0=0.1,
-            widget_1=0.2,
-            widget_2=0.4,
-            widget_3=0.5,
-            camera_poses=wanvideorecammastercameraembed.out('CAMERA_POSES'),
-        )
-        wf.metadata.setdefault('id_map', {})['recammasterposevisualizer'] = recammasterposevisualizer.node.id
+    recammasterposevisualizer = ReCamMasterPoseVisualizer(
+        _id='138',
+        widget_0=0.1,
+        widget_1=0.2,
+        widget_2=0.4,
+        widget_3=0.5,
+        camera_poses=wanvideorecammastercameraembed.out('CAMERA_POSES'),
+    )
+    wf.metadata.setdefault('id_map', {})['recammasterposevisualizer'] = recammasterposevisualizer.node.id
 
-        setnode_4 = raw_call(wf, 'SetNode', '147',
-            widget_0='InputVideo',
-            IMAGE=imageresizekj.out('IMAGE'),
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_4'] = setnode_4.node.id
+    setnode_4 = raw_call(wf, 'SetNode', '147',
+        widget_0='InputVideo',
+        IMAGE=imageresizekj.out('IMAGE'),
+    )
+    wf.metadata.setdefault('id_map', {})['setnode_4'] = setnode_4.node.id
 
-        wanvideosampler = WanVideoSampler(
-            _id='155',
-            steps=1,
-            seed=DEFAULT_SEED,
-            cache_args=wanvideoteacache,
-            experimental_args=wanvideoexperimentalargs,
-            image_embeds=wanvideorecammastercameraembed.out('CAMERA_EMBEDS'),
-            model=getnode.out(0),
-            text_embeds=getnode_2.out(0),
-            _outputs=('SAMPLES', 'DENOISED_SAMPLES'),
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideosampler'] = wanvideosampler.node.id
+    wanvideosampler = WanVideoSampler(
+        _id='155',
+        steps=1,
+        seed=DEFAULT_SEED,
+        cache_args=wanvideoteacache,
+        experimental_args=wanvideoexperimentalargs,
+        image_embeds=wanvideorecammastercameraembed.out('CAMERA_EMBEDS'),
+        model=getnode.out(0),
+        text_embeds=getnode_2.out(0),
+        _outputs=('SAMPLES', 'DENOISED_SAMPLES'),
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideosampler'] = wanvideosampler.node.id
 
-        wanvideodecode = WanVideoDecode(
-            _id='28',
-            samples=wanvideosampler.out('SAMPLES'),
-            vae=getnode_3.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideodecode'] = wanvideodecode.node.id
+    wanvideodecode = WanVideoDecode(
+        _id='28',
+        samples=wanvideosampler.out('SAMPLES'),
+        vae=getnode_3.out(0),
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideodecode'] = wanvideodecode.node.id
 
-        wanvideoencode = WanVideoEncode(
-            _id='58',
-            widget_0=False,
-            widget_1=272,
-            widget_2=272,
-            widget_3=144,
-            widget_4=128,
-            widget_5=0,
-            widget_6=1,
-            image=setnode_4.out(0),
-            vae=getnode_4.out(0),
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideoencode'] = wanvideoencode.node.id
+    wanvideoencode = WanVideoEncode(
+        _id='58',
+        widget_0=False,
+        widget_1=272,
+        widget_2=272,
+        widget_3=144,
+        widget_4=128,
+        widget_5=0,
+        widget_6=1,
+        image=setnode_4.out(0),
+        vae=getnode_4.out(0),
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideoencode'] = wanvideoencode.node.id
 
-        florence2run = raw_call(wf, 'Florence2Run', '123',
-            widget_0=WIDGET_0,
-            widget_1='detailed_caption',
-            widget_2=True,
-            widget_3=False,
-            widget_4=1024,
-            widget_5=3,
-            widget_6=True,
-            widget_7='',
-            widget_8=1,
-            widget_9='fixed',
-            florence2_model=downloadandloadflorence2model.out(0),
-            image=getimagerangefrombatch.out('IMAGE'),
-        )
-        wf.metadata.setdefault('id_map', {})['florence2run'] = florence2run.node.id
+    florence2run = raw_call(wf, 'Florence2Run', '123',
+        widget_0=WIDGET_0,
+        widget_1='detailed_caption',
+        widget_2=True,
+        widget_3=False,
+        widget_4=1024,
+        widget_5=3,
+        widget_6=True,
+        widget_7='',
+        widget_8=1,
+        widget_9='fixed',
+        florence2_model=downloadandloadflorence2model.out(0),
+        image=getimagerangefrombatch.out('IMAGE'),
+    )
+    wf.metadata.setdefault('id_map', {})['florence2run'] = florence2run.node.id
 
-        # Outputs
-        previewimage = PreviewImage(
-            _id='131',
-            images=getimagerangefrombatch.out('IMAGE'),
-        )
-        wf.metadata.setdefault('id_map', {})['previewimage'] = previewimage.node.id
+    # Outputs
+    previewimage = PreviewImage(
+        _id='131',
+        images=getimagerangefrombatch.out('IMAGE'),
+    )
+    wf.metadata.setdefault('id_map', {})['previewimage'] = previewimage.node.id
 
-        previewimage_2 = PreviewImage(_id='139', images=recammasterposevisualizer)
-        wf.metadata.setdefault('id_map', {})['previewimage_2'] = previewimage_2.node.id
-        wanvideotextencode = WanVideoTextEncode(
-            _id='16',
-            negative_prompt=DEFAULT_NEGATIVE,
-            positive_prompt=florence2run.out(2),
-            t5=loadwanvideot5textencoder,
-        )
-        wf.metadata.setdefault('id_map', {})['wanvideotextencode'] = wanvideotextencode.node.id
+    previewimage_2 = PreviewImage(_id='139', images=recammasterposevisualizer)
+    wf.metadata.setdefault('id_map', {})['previewimage_2'] = previewimage_2.node.id
+    wanvideotextencode = WanVideoTextEncode(
+        _id='16',
+        negative_prompt=DEFAULT_NEGATIVE,
+        positive_prompt=florence2run.out(2),
+        t5=loadwanvideot5textencoder,
+    )
+    wf.metadata.setdefault('id_map', {})['wanvideotextencode'] = wanvideotextencode.node.id
 
-        addlabel = AddLabel(
-            _id='122',
-            widget_0=10,
-            widget_1=2,
-            widget_2=48,
-            widget_3=32,
-            widget_4='white',
-            widget_5='black',
-            widget_6='FreeMonoBoldOblique.otf',
-            widget_7='input',
-            widget_8='up',
-            image=wanvideodecode,
-            text=widgettostring,
-        )
-        wf.metadata.setdefault('id_map', {})['addlabel'] = addlabel.node.id
+    addlabel = AddLabel(
+        _id='122',
+        widget_0=10,
+        widget_1=2,
+        widget_2=48,
+        widget_3=32,
+        widget_4='white',
+        widget_5='black',
+        widget_6='FreeMonoBoldOblique.otf',
+        widget_7='input',
+        widget_8='up',
+        image=wanvideodecode,
+        text=widgettostring,
+    )
+    wf.metadata.setdefault('id_map', {})['addlabel'] = addlabel.node.id
 
-        showtext_pysssss = raw_call(wf, 'ShowText|pysssss', '125',
-            widget_0='A man in a suit and tie walking down a hallway. He has a friendly expression and is looking directly at the camera. The hallway has beige walls adorned with framed black and white photographs. There is a door on the left side of the hallway and a poster on the wall. The lighting is soft and natural. The image is high quality and has a watermark in the bottom right corner.',
-            widget_1='A man in a suit and tie walking down a hallway. He has a friendly expression and is looking directly at the camera. The hallway has beige walls adorned with framed black and white photographs. There is a door on the left side of the hallway and a poster on the wall. The lighting is soft and natural. The image is high quality and has a watermark in the bottom right corner.',
-            text=florence2run.out(2),
-        )
-        wf.metadata.setdefault('id_map', {})['showtext_pysssss'] = showtext_pysssss.node.id
+    showtext_pysssss = raw_call(wf, 'ShowText|pysssss', '125',
+        widget_0='A man in a suit and tie walking down a hallway. He has a friendly expression and is looking directly at the camera. The hallway has beige walls adorned with framed black and white photographs. There is a door on the left side of the hallway and a poster on the wall. The lighting is soft and natural. The image is high quality and has a watermark in the bottom right corner.',
+        widget_1='A man in a suit and tie walking down a hallway. He has a friendly expression and is looking directly at the camera. The hallway has beige walls adorned with framed black and white photographs. There is a door on the left side of the hallway and a poster on the wall. The lighting is soft and natural. The image is high quality and has a watermark in the bottom right corner.',
+        text=florence2run.out(2),
+    )
+    wf.metadata.setdefault('id_map', {})['showtext_pysssss'] = showtext_pysssss.node.id
 
-        setnode_5 = raw_call(wf, 'SetNode', '156',
-            widget_0=WIDGET_0_5,
-            LATENT=wanvideoencode,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_5'] = setnode_5.node.id
+    setnode_5 = raw_call(wf, 'SetNode', '156',
+        widget_0=WIDGET_0_5,
+        LATENT=wanvideoencode,
+    )
+    wf.metadata.setdefault('id_map', {})['setnode_5'] = setnode_5.node.id
 
-        vhs_videocombine = VHS_VideoCombine(_id='30', images=addlabel)
-        wf.metadata.setdefault('id_map', {})['vhs_videocombine'] = vhs_videocombine.node.id
-        setnode_2 = raw_call(wf, 'SetNode', '142',
-            widget_0=WIDGET_0_3,
-            WANVIDEOTEXTEMBEDS=wanvideotextencode,
-        )
-        wf.metadata.setdefault('id_map', {})['setnode_2'] = setnode_2.node.id
+    vhs_videocombine = VHS_VideoCombine(_id='30', images=addlabel)
+    wf.metadata.setdefault('id_map', {})['vhs_videocombine'] = vhs_videocombine.node.id
+    setnode_2 = raw_call(wf, 'SetNode', '142',
+        widget_0=WIDGET_0_3,
+        WANVIDEOTEXTEMBEDS=wanvideotextencode,
+    )
+    wf.metadata.setdefault('id_map', {})['setnode_2'] = setnode_2.node.id
 
-        return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
+    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

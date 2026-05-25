@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import ConditioningZeroOut, DualCLIPLoader, KSampler, SaveAudioMP3, UNETLoader, VAEDecodeAudio, VAELoader
 
 
@@ -22,9 +22,6 @@ MODELS = {
     'diffusion_model': ModelAsset(url='https://huggingface.co/Comfy-Org/ace_step_1.5_ComfyUI_files/resolve/main/split_files/diffusion_models/acestep_v1.5_turbo.safetensors', sha256='3f6e0797fad420a39bd33979eb6e840e30989e34a3794e843d23b60ec6e422d7', hf_revision='54b2ef4d8af5582f54c7e6b84c22b679a194bc4b', size_bytes=4787825604, subdir='diffusion_models'),
 }
 
-
-OUTPUT_SPEC = OutputSpec(name='audio', artifact_kind='audio', mime_type='audio/mpeg', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_audio_song',
     models=MODELS,
@@ -39,60 +36,71 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        dualcliploader = DualCLIPLoader(
-            clip_name1=CLIP_NAME,
-            clip_name2=CLIP_NAME_2,
-            type_='ace',
-            device='default',
-        )
+    dualcliploader = DualCLIPLoader(
+        clip_name1=CLIP_NAME,
+        clip_name2=CLIP_NAME_2,
+        type_='ace',
+        device='default',
+    )
 
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        emptyacestep1_5latentaudio = raw_call('EmptyAceStep1.5LatentAudio', '122', seconds=2)
-        unetloader = UNETLoader(unet_name=UNET_NAME)
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    emptyacestep1_5latentaudio = raw_call('EmptyAceStep1.5LatentAudio', '122', seconds=2)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
 
-        textencodeacestepaudio1_5 = raw_call('TextEncodeAceStepAudio1.5', '124',
-            tags=public('tags', default='synthwave, short instrumental'),
-            lyrics=public('lyrics', default='Verse\nTiny signal in the night.'),
-            seed=public('seed', default=DEFAULT_SEED),
-            duration=public('duration', default=2),
-            bpm=public('bpm', default=120),
-            timesignature='4',
-            language='en',
-            keyscale='E minor',
-            cfg_scale=1.5,
-            temperature=0,
-            top_p=0.85,
-            min_p=0.9,
-            clip=dualcliploader,
-            model=unetloader,
-        )
+    textencodeacestepaudio1_5 = raw_call('TextEncodeAceStepAudio1.5', '124',
+        tags='synthwave, short instrumental',
+        lyrics='Verse\nTiny signal in the night.',
+        seed=DEFAULT_SEED,
+        duration=2,
+        bpm=120,
+        timesignature='4',
+        language='en',
+        keyscale='E minor',
+        cfg_scale=1.5,
+        temperature=0,
+        top_p=0.85,
+        min_p=0.9,
+        clip=dualcliploader,
+        model=unetloader,
+    )
 
-        conditioningzeroout = ConditioningZeroOut(
-            conditioning=textencodeacestepaudio1_5,
-        )
+    conditioningzeroout = ConditioningZeroOut(conditioning=textencodeacestepaudio1_5)
 
-        ksampler = KSampler(
-            seed=public('seed_2', default=DEFAULT_SEED),
-            steps=public('steps', default=1),
-            cfg=public('cfg', default=GUIDE_STRENGTH),
-            sampler_name=public('sampler_name', default='euler'),
-            latent_image=emptyacestep1_5latentaudio,
-            model=textencodeacestepaudio1_5,
-            negative=conditioningzeroout,
-            positive=textencodeacestepaudio1_5,
-        )
+    ksampler = KSampler(
+        seed=DEFAULT_SEED,
+        steps=1,
+        cfg=GUIDE_STRENGTH,
+        sampler_name='euler',
+        latent_image=emptyacestep1_5latentaudio,
+        model=textencodeacestepaudio1_5,
+        negative=conditioningzeroout,
+        positive=textencodeacestepaudio1_5,
+    )
 
-        vaedecodeaudio = VAEDecodeAudio(samples=ksampler, vae=vaeloader)
+    vaedecodeaudio = VAEDecodeAudio(samples=ksampler, vae=vaeloader)
 
-        # Outputs
-        saveaudiomp3 = SaveAudioMP3(
-            filename_prefix='audio/vibecomfy_ace_step_smoke',
-            audio=vaedecodeaudio,
-        )
+    # Outputs
+    saveaudiomp3 = SaveAudioMP3(
+        filename_prefix='audio/vibecomfy_ace_step_smoke',
+        audio=vaedecodeaudio,
+    )
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=unetloader, field='unet_name', default=UNET_NAME),
+        'seed': InputSpec(node=textencodeacestepaudio1_5, field='seed', default=DEFAULT_SEED),
+        'steps': InputSpec(node=ksampler, field='steps', default=1),
+        'tags': InputSpec(node=textencodeacestepaudio1_5, field='tags', default='synthwave, short instrumental'),
+        'lyrics': InputSpec(node=textencodeacestepaudio1_5, field='lyrics', default='Verse\nTiny signal in the night.'),
+        'duration': InputSpec(node=textencodeacestepaudio1_5, field='duration', default=2),
+        'bpm': InputSpec(node=textencodeacestepaudio1_5, field='bpm', default=120),
+        'seed_2': InputSpec(node=ksampler, field='seed', default=DEFAULT_SEED),
+        'cfg': InputSpec(node=ksampler, field='cfg', default=GUIDE_STRENGTH),
+        'sampler_name': InputSpec(node=ksampler, field='sampler_name', default='euler'),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveaudiomp3, output_type='SaveAudioMP3', name='audio', artifact_kind='audio', mime_type='audio/mpeg', expected_cardinality='one')
 

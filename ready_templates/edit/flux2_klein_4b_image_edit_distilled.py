@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, GetImageSize, ImageScaleToTotalPixels, KSamplerSelect, LoadImage, RandomNoise, ReferenceLatent, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAEEncode, VAELoader
 
 
@@ -19,9 +19,6 @@ MODELS = {
     'text_encoder': ModelAsset(url='https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors', sha256='6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a', hf_revision='2f862278568d3f0a83167a16e5f11094da6dee72', size_bytes=8044982048, subdir='text_encoders'),
     'vae': ModelAsset(url='https://huggingface.co/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors', sha256='d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5', hf_revision='03d6521e6f6a47396b3f951cbea50f7e6c2f482e', size_bytes=336213556, subdir='vae'),
 }
-
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='image_edit',
@@ -215,67 +212,71 @@ def image_edit_flux2_klein_4b_distilled_dual(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        ksamplerselect = KSamplerSelect(sampler_name='euler')
-        unetloader = UNETLoader(unet_name=UNET_NAME)
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='flux2')
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        randomnoise = RandomNoise(noise_seed=public('seed', default=DEFAULT_SEED))
+    ksamplerselect = KSamplerSelect(sampler_name='euler')
+    unetloader = UNETLoader(unet_name=UNET_NAME)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='flux2')
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    randomnoise = RandomNoise(noise_seed=DEFAULT_SEED)
 
-        # Inputs
-        image, mask = LoadImage(image=public('image', default='handbag_white.png'))
-        image_load, mask_load = LoadImage(image='comfy_logo_blue.png')
+    # Inputs
+    image, mask = LoadImage(image='handbag_white.png')
+    image_load, mask_load = LoadImage(image='comfy_logo_blue.png')
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default='Change the bag color to blue.'),
-            clip=cliploader,
-        )
+    # Conditioning
+    cliptextencode = CLIPTextEncode(
+        text='Change the bag color to blue.',
+        clip=cliploader,
+    )
 
-        imagescaletototalpixels = ImageScaleToTotalPixels(
-            upscale_method='nearest-exact',
-            image=image,
-        )
+    imagescaletototalpixels = ImageScaleToTotalPixels(
+        upscale_method='nearest-exact',
+        image=image,
+    )
 
-        conditioningzeroout = ConditioningZeroOut(conditioning=cliptextencode)
-        width, height, batch_size = GetImageSize(image=imagescaletototalpixels)
-        vaeencode = VAEEncode(pixels=imagescaletototalpixels, vae=vaeloader)
-        flux2scheduler = Flux2Scheduler(steps=4, width=width, height=height)
-        emptyflux2latentimage = EmptyFlux2LatentImage(width=width, height=height)
+    conditioningzeroout = ConditioningZeroOut(conditioning=cliptextencode)
+    width, height, batch_size = GetImageSize(image=imagescaletototalpixels)
+    vaeencode = VAEEncode(pixels=imagescaletototalpixels, vae=vaeloader)
+    flux2scheduler = Flux2Scheduler(steps=4, width=width, height=height)
+    emptyflux2latentimage = EmptyFlux2LatentImage(width=width, height=height)
 
-        referencelatent = ReferenceLatent(
-            conditioning=conditioningzeroout,
-            latent=vaeencode,
-        )
+    referencelatent = ReferenceLatent(
+        conditioning=conditioningzeroout,
+        latent=vaeencode,
+    )
 
-        referencelatent_2 = ReferenceLatent(
-            conditioning=cliptextencode,
-            latent=vaeencode,
-        )
+    referencelatent_2 = ReferenceLatent(conditioning=cliptextencode, latent=vaeencode)
 
-        cfgguider = CFGGuider(
-            cfg=GUIDE_STRENGTH,
-            model=unetloader,
-            negative=referencelatent,
-            positive=referencelatent_2,
-        )
+    cfgguider = CFGGuider(
+        cfg=GUIDE_STRENGTH,
+        model=unetloader,
+        negative=referencelatent,
+        positive=referencelatent_2,
+    )
 
-        output, denoised_output = SamplerCustomAdvanced(
-            guider=cfgguider,
-            latent_image=emptyflux2latentimage,
-            noise=randomnoise,
-            sampler=ksamplerselect,
-            sigmas=flux2scheduler,
-        )
+    output, denoised_output = SamplerCustomAdvanced(
+        guider=cfgguider,
+        latent_image=emptyflux2latentimage,
+        noise=randomnoise,
+        sampler=ksamplerselect,
+        sigmas=flux2scheduler,
+    )
 
-        # Decode
-        vaedecode = VAEDecode(samples=output, vae=vaeloader)
+    # Decode
+    vaedecode = VAEDecode(samples=output, vae=vaeloader)
 
-        # Outputs
-        saveimage = SaveImage(filename_prefix='Flux2-Klein', images=vaedecode)
+    # Outputs
+    saveimage = SaveImage(filename_prefix='Flux2-Klein', images=vaedecode)
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=unetloader, field='unet_name', default=UNET_NAME),
+        'seed': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED),
+        'prompt': InputSpec(node=cliptextencode, field='text', default='Change the bag color to blue.'),
+        'image': InputSpec(node=image, field='image', default='handbag_white.png'),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 

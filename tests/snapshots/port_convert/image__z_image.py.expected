@@ -3,16 +3,13 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call
+from vibecomfy.templates import ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, EmptySD3LatentImage, KSampler, ModelSamplingAuraFlow, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
 WIDGET__NAME = 'z_image_bf16.safetensors'
 WIDGET__NAME_2 = 'qwen_3_4b.safetensors'
 WIDGET__NAME_3 = 'ae.safetensors'
-
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='unknown',
@@ -66,19 +63,19 @@ def text_to_image_z_image_base(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        edited = text_to_image_z_image_base(
-            width=1024,
-            height=1024,
-            unet_name='z_image_bf16.safetensors',
-            clip_name='qwen_3_4b.safetensors',
-            vae_name='ae.safetensors',
-            prompt='A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.',
-            steps=25,
-            cfg=4,
-        )
-        saveimage = SaveImage(filename_prefix='z-image', images=edited)
+    edited = text_to_image_z_image_base(
+        width=1024,
+        height=1024,
+        unet_name='z_image_bf16.safetensors',
+        clip_name='qwen_3_4b.safetensors',
+        vae_name='ae.safetensors',
+        prompt='A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.',
+        steps=25,
+        cfg=4,
+    )
+    saveimage = SaveImage(filename_prefix='z-image', images=edited)
 
-        return wf.finalize({}, filename_prefix='z-image', spec=OUTPUT_SPEC)
+    return wf.finalize({}, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='z-image')
 

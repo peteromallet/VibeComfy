@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, ComfySwitchNode, EmptySD3LatentImage, KSampler, LoraLoaderModelOnly, ModelSamplingAuraFlow, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
@@ -23,9 +23,6 @@ MODELS = {
     'lora': ModelAsset(url='https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning/resolve/main/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors', sha256='ad12117461cb41e2ea637fec8df6392ce8e8550c47fbe2b829ed3deb98262066', hf_revision='a52649c9d0f6e1a248bff13f0df33bb8a2abdb52', size_bytes=1698951104, subdir='loras'),
 }
 
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_image',
     models=MODELS,
@@ -38,77 +35,74 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='qwen_image')
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        unetloader = UNETLoader(unet_name=UNET_NAME)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='qwen_image')
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
+    emptysd3latentimage = EmptySD3LatentImage(width=768, height=768)
 
-        emptysd3latentimage = EmptySD3LatentImage(
-            width=public('width', default=768),
-            height=public('height', default=768),
-        )
+    # Inputs
+    primitivefloat = raw_call('PrimitiveFloat', '238:218', value=1.0)
+    primitivefloat_2 = raw_call('PrimitiveFloat', '238:223', value=1)
+    primitiveint = raw_call('PrimitiveInt', '238:224', value=4)
+    primitiveint_2 = raw_call('PrimitiveInt', '238:225', value=4)
+    primitiveboolean = raw_call('PrimitiveBoolean', '238:229', value=True)
+    loraloadermodelonly = LoraLoaderModelOnly(lora_name=LORA_NAME, model=unetloader)
 
-        # Inputs
-        primitivefloat = raw_call('PrimitiveFloat', '238:218', value=1.0)
-        primitivefloat_2 = raw_call('PrimitiveFloat', '238:223', value=1)
-        primitiveint = raw_call('PrimitiveInt', '238:224', value=4)
-        primitiveint_2 = raw_call('PrimitiveInt', '238:225', value=4)
-        primitiveboolean = raw_call('PrimitiveBoolean', '238:229', value=public('use_lora', default=True))
-        loraloadermodelonly = LoraLoaderModelOnly(lora_name=LORA_NAME, model=unetloader)
+    # Conditioning
+    positive = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+    negative = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
 
-        # Conditioning
-        positive = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT),
-            clip=cliploader,
-        )
+    comfyswitchnode = ComfySwitchNode(
+        on_false=primitiveint,
+        on_true=primitiveint_2,
+        switch=primitiveboolean,
+    )
 
-        negative = CLIPTextEncode(
-            text=public('negative_prompt', default=DEFAULT_PROMPT_2),
-            clip=cliploader,
-        )
+    comfyswitchnode_2 = ComfySwitchNode(
+        on_false=primitivefloat_2,
+        on_true=primitivefloat,
+        switch=primitiveboolean,
+    )
 
-        comfyswitchnode = ComfySwitchNode(
-            on_false=primitiveint,
-            on_true=primitiveint_2,
-            switch=primitiveboolean,
-        )
+    comfyswitchnode_3 = ComfySwitchNode(
+        on_false=unetloader,
+        on_true=loraloadermodelonly,
+        switch=primitiveboolean,
+    )
 
-        comfyswitchnode_2 = ComfySwitchNode(
-            on_false=primitivefloat_2,
-            on_true=primitivefloat,
-            switch=primitiveboolean,
-        )
+    modelsamplingauraflow = ModelSamplingAuraFlow(shift=3.1, model=comfyswitchnode_3)
 
-        comfyswitchnode_3 = ComfySwitchNode(
-            on_false=unetloader,
-            on_true=loraloadermodelonly,
-            switch=primitiveboolean,
-        )
+    ksampler = KSampler(
+        seed=DEFAULT_SEED,
+        sampler_name='euler',
+        steps=comfyswitchnode,
+        cfg=comfyswitchnode_2,
+        latent_image=emptysd3latentimage,
+        model=modelsamplingauraflow,
+        negative=negative,
+        positive=positive,
+    )
 
-        modelsamplingauraflow = ModelSamplingAuraFlow(
-            shift=3.1,
-            model=comfyswitchnode_3,
-        )
+    # Decode
+    vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
 
-        ksampler = KSampler(
-            seed=public('seed', default=DEFAULT_SEED),
-            sampler_name=public('sampler_name', default='euler'),
-            steps=comfyswitchnode,
-            cfg=comfyswitchnode_2,
-            latent_image=emptysd3latentimage,
-            model=modelsamplingauraflow,
-            negative=negative,
-            positive=positive,
-        )
-
-        # Decode
-        vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
-
-        # Outputs
-        saveimage = SaveImage(filename_prefix='Qwen-Image-2512', images=vaedecode)
+    # Outputs
+    saveimage = SaveImage(filename_prefix='Qwen-Image-2512', images=vaedecode)
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=unetloader, field='unet_name', default=UNET_NAME),
+        'prompt': InputSpec(node=positive, field='text', default=DEFAULT_PROMPT),
+        'seed': InputSpec(node=ksampler, field='seed', default=DEFAULT_SEED),
+        'width': InputSpec(node=emptysd3latentimage, field='width', default=768),
+        'height': InputSpec(node=emptysd3latentimage, field='height', default=768),
+        'use_lora': InputSpec(node=primitiveboolean, field='value', default=True),
+        'negative_prompt': InputSpec(node=negative, field='text', default=DEFAULT_PROMPT_2),
+        'sampler_name': InputSpec(node=ksampler, field='sampler_name', default='euler'),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 

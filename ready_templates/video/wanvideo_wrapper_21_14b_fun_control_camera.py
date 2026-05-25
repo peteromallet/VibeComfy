@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, LoadImage, PreviewImage
 from vibecomfy.nodes.kjnodes import CameraPoseVisualizer, INTConstant, ImageConcatMulti, ImageResizeKJv2
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
@@ -20,9 +20,6 @@ MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_2 = 'WanVideo\\Wan2.1-Fun-V1.1-1.3B-Control-Camera.safetensors'
 MODEL_NAME_3 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
 
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='camera_control_video',
     requirements={'models': ['umt5-xxl-enc-bf16.safetensors', 'umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'wanvideo\\Wan2_1_VAE_bf16.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper', 'rgthree-comfy']},
@@ -34,126 +31,128 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
-            model_name=public('model', default=MODEL_NAME),
-        )
+    loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(model_name=MODEL_NAME)
+    wanvideomodelloader = WanVideoModelLoader(model=MODEL_NAME_2)
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_3)
+    wanvideoblockswap = WanVideoBlockSwap(blocks_to_swap=15, use_non_blocking=True)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
 
-        wanvideomodelloader = WanVideoModelLoader(model=MODEL_NAME_2)
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
-        wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_3)
-        wanvideoblockswap = WanVideoBlockSwap(blocks_to_swap=15, use_non_blocking=True)
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+    wanvideoteacache = WanVideoTeaCache(
+        mode='e0',
+        rel_l1_thresh=0.08,
+        start_step=6,
+        use_coefficients='true',
+    )
 
-        wanvideoteacache = WanVideoTeaCache(
-            mode='e0',
-            rel_l1_thresh=0.08,
-            start_step=6,
-            use_coefficients='true',
-        )
+    # Inputs
+    image, mask = LoadImage(image='oldman_upscaled.png')
+    reroute = raw_call('Reroute', '80')
 
-        # Inputs
-        image, mask = LoadImage(image=public('image', default='oldman_upscaled.png'))
-        reroute = raw_call('Reroute', '80')
+    wanvideoexperimentalargs = WanVideoExperimentalArgs(
+        cfg_zero_star=True,
+        use_fresca=True,
+    )
 
-        wanvideoexperimentalargs = WanVideoExperimentalArgs(
-            cfg_zero_star=True,
-            use_fresca=True,
-        )
+    intconstant = INTConstant(value=81)
 
-        intconstant = INTConstant(value=81)
+    wanvideotextencode = WanVideoTextEncode(
+        positive_prompt=DEFAULT_PROMPT,
+        negative_prompt=DEFAULT_NEGATIVE,
+        model_to_offload=wanvideomodelloader,
+        t5=loadwanvideot5textencoder,
+    )
 
-        wanvideotextencode = WanVideoTextEncode(
-            positive_prompt=DEFAULT_PROMPT,
-            negative_prompt=DEFAULT_NEGATIVE,
-            model_to_offload=wanvideomodelloader,
-            t5=loadwanvideot5textencoder,
-        )
+    # Conditioning
+    cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
+    cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_3, clip=cliploader)
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT_2),
-            clip=cliploader,
-        )
+    image_image, width, height, mask_image = ImageResizeKJv2(
+        width=256,
+        height=256,
+        upscale_method='lanczos',
+        keep_proportion='crop',
+        divisible_by=16,
+        image=image,
+    )
 
-        cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_3, clip=cliploader)
+    ade_cameraposebasic = raw_call('ADE_CameraPoseBasic', '99',
+        widget_0='Zoom Out',
+        widget_1=0.1,
+        widget_2=40,
+        frame_length=intconstant,
+    )
 
-        image_image, width, height, mask_image = ImageResizeKJv2(
-            width=public('width', default=256),
-            height=public('height', default=256),
-            upscale_method='lanczos',
-            keep_proportion='crop',
-            divisible_by=16,
-            image=image,
-        )
+    samples, denoised_samples = WanVideoSampler(
+        steps=1,
+        seed=DEFAULT_SEED,
+        batched_cfg='',
+        start_step='',
+        cache_args=wanvideoteacache,
+        experimental_args=wanvideoexperimentalargs,
+        image_embeds=reroute.out(0),
+        model=wanvideomodelloader,
+        text_embeds=wanvideotextencode,
+    )
 
-        ade_cameraposebasic = raw_call('ADE_CameraPoseBasic', '99',
-            widget_0='Zoom Out',
-            widget_1=0.1,
-            widget_2=40,
-            frame_length=intconstant,
-        )
+    wanvideotextembedbridge = WanVideoTextEmbedBridge(
+        negative=cliptextencode_2,
+        positive=cliptextencode,
+    )
 
-        samples, denoised_samples = WanVideoSampler(
-            steps=1,
-            seed=public('seed', default=DEFAULT_SEED),
-            batched_cfg='',
-            start_step='',
-            cache_args=wanvideoteacache,
-            experimental_args=wanvideoexperimentalargs,
-            image_embeds=reroute.out(0),
-            model=wanvideomodelloader,
-            text_embeds=wanvideotextencode,
-        )
+    cameraposevisualizer = CameraPoseVisualizer(
+        cameractrl_poses=ade_cameraposebasic.out(0),
+    )
 
-        wanvideotextembedbridge = WanVideoTextEmbedBridge(
-            negative=cliptextencode_2,
-            positive=cliptextencode,
-        )
+    wanvideofuncameraembeds = WanVideoFunCameraEmbeds(
+        start_percent=1,
+        strength=0,
+        widget_0=832,
+        widget_1=480,
+        widget_2=1,
+        height=height,
+        poses=ade_cameraposebasic.out(0),
+        width=width,
+    )
 
-        cameraposevisualizer = CameraPoseVisualizer(
-            cameractrl_poses=ade_cameraposebasic.out(0),
-        )
+    wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
 
-        wanvideofuncameraembeds = WanVideoFunCameraEmbeds(
-            start_percent=1,
-            strength=0,
-            widget_0=832,
-            widget_1=480,
-            widget_2=1,
-            height=height,
-            poses=ade_cameraposebasic.out(0),
-            width=width,
-        )
+    wanvideoimagetovideoencode = WanVideoImageToVideoEncode(
+        noise_aug_strength=0.03,
+        tiled_vae=True,
+        width=width,
+        height=height,
+        num_frames=intconstant,
+        control_embeds=wanvideofuncameraembeds,
+        start_image=image_image,
+        vae=wanvideovaeloader,
+    )
 
-        wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
+    # Outputs
+    previewimage = PreviewImage(images=cameraposevisualizer)
 
-        wanvideoimagetovideoencode = WanVideoImageToVideoEncode(
-            noise_aug_strength=0.03,
-            tiled_vae=True,
-            width=width,
-            height=height,
-            num_frames=intconstant,
-            control_embeds=wanvideofuncameraembeds,
-            start_image=image_image,
-            vae=wanvideovaeloader,
-        )
+    imageconcatmulti = ImageConcatMulti(
+        inputcount=3,
+        direction='left',
+        match_image_size=True,
+        unused_3=None,
+        image_1=wanvideodecode,
+        image_2=image_image,
+        image_3=cameraposevisualizer,
+    )
 
-        # Outputs
-        previewimage = PreviewImage(images=cameraposevisualizer)
+    vhs_videocombine = VHS_VideoCombine(images=imageconcatmulti)
 
-        imageconcatmulti = ImageConcatMulti(
-            inputcount=3,
-            direction='left',
-            match_image_size=True,
-            unused_3=None,
-            image_1=wanvideodecode,
-            image_2=image_image,
-            image_3=cameraposevisualizer,
-        )
 
-        vhs_videocombine = VHS_VideoCombine(images=imageconcatmulti)
-
-        return wf.finalize({}, output_node=previewimage, spec=OUTPUT_SPEC)
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=loadwanvideot5textencoder, field='model_name', default=MODEL_NAME),
+        'prompt': InputSpec(node=cliptextencode, field='text', default=DEFAULT_PROMPT_2),
+        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED),
+        'image': InputSpec(node=image, field='image', default='oldman_upscaled.png'),
+        'width': InputSpec(node=image_image, field='width', default=256),
+        'height': InputSpec(node=image_image, field='height', default=256),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=previewimage, output_type='PreviewImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 

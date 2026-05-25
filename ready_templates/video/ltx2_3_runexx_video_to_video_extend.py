@@ -121,382 +121,382 @@ def prompt_enhancer(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
-
-        randomnoise = RandomNoise(
-            noise_seed=public('seed', default=DEFAULT_SEED, type='INT'),
-            control_after_generate=CONTROL_AFTER_GENERATE,
-        )
-
-        # Decode
-        vaedecodetiled = VAEDecodeTiled(temporal_size=4096)
-        ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral')
-        intconstant = INTConstant(value=10)
-
-        # Inputs
-        primitivefloat = raw_call('PrimitiveFloat', '214', value=8)
-
-        randomnoise_2 = RandomNoise(
-            noise_seed=DEFAULT_SEED_2,
-            control_after_generate=CONTROL_AFTER_GENERATE,
-        )
-
-        ksamplerselect_2 = KSamplerSelect(sampler_name='euler')
-        intconstant_2 = INTConstant(value=3)
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
-
-        dualcliploader = DualCLIPLoader(
-            clip_name1=CLIP_NAME,
-            clip_name2=CLIP_NAME_2,
-            type_='ltxv',
-            device='default',
-        )
-
-        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
-        vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
-        unetloader = UNETLoader(unet_name=UNET_NAME)
-        unetloadergguf = UnetLoaderGGUF(unet_name=UNET_NAME_2)
-
-        dualcliploadergguf = DualCLIPLoaderGGUF(
-            clip_name1=CLIP_NAME_3,
-            clip_name2=CLIP_NAME_2,
-            type_='sdxl',
-        )
-
-        manualsigmas = ManualSigmas(sigmas='0.85, 0.7250, 0.4219, 0.0')
-
-        manualsigmas_2 = ManualSigmas(
-            sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
-        )
-
-        primitivestringmultiline = PrimitiveStringMultiline(
-            value='The Joker looks at the camera and talks, he says "You know what clownheads. This scene is not from the movie. Its from LTX 2 point 3". \n\nThen the Joker stands up with an LTX soda can in his hand. \n\nHe drinks from the soda can, and then he says "Ahhh...  with a bit of LTX and Snickers, my mood changed. Lets all be friends." \n\nThen he laughs.\n',
-        )
-
-        reroute = raw_call('Reroute', '496')
-        intconstant_3 = INTConstant(value=832)
-        reroute_2 = raw_call('Reroute', '528')
-        primitiveboolean = raw_call('PrimitiveBoolean', '594', value=True)
-        loadaudio = LoadAudio(audio=AUDIO, widget_0='speech_smoke.wav')
-
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT, type='STRING', required=True, media_semantics='text'),
-            clip=dualcliploader,
-        )
-
-        image_load, frame_count, audio, video_info = VHS_LoadVideo(
-            file='ltx_smoke_guide.mp4',
-            video=VIDEO,
-            widget_0='ltx_smoke_guide.mp4',
-            force_rate=primitivefloat,
-        )
-
-        float, int, boolean = SimpleCalculatorKJ(
-            expression=EXPRESSION,
-            **{'variables.a': intconstant, 'variables.b': primitivefloat},
-        )
-
-        normalizeaudioloudness = NormalizeAudioLoudness(widget_0=-16, audio=loadaudio)
-
-        loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=LORA_NAME,
-            strength_model=GUIDE_STRENGTH,
-            model=unetloader,
-        )
-
-        resizeimagesbylongeredge_2 = ResizeImagesByLongerEdge(
-            longer_edge=intconstant_3,
-            images=reroute.out(0),
-        )
-
-        float_simple_5, int_simple_5, boolean_simple_5 = SimpleCalculatorKJ(
-            expression=EXPRESSION,
-            **{'variables.a': intconstant_2, 'variables.b': primitivefloat},
-        )
-
-        cliptextencode_3 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=dualcliploader)
-
-        image, mask = GetImageRangeFromBatch(
-            num_frames=DEFAULT_FRAMES,
-            widget_0=0,
-            images=reroute_2.out(0),
-            start_index=int_simple_5,
-        )
-
-        source_fps_, source_frame_count_, source_duration_, source_width_, source_height_, loaded_fps_, loaded_frame_count_, loaded_duration_, loaded_width_, loaded_height_ = VHS_VideoInfo(
-            video_info=video_info,
-        )
-
-        source_fps__video, source_frame_count__video, source_duration__video, source_width__video, source_height__video, loaded_fps__video, loaded_frame_count__video, loaded_duration__video, loaded_width__video, loaded_height__video = VHS_VideoInfo(
-            video_info=video_info,
-        )
-
-        pathchsageattentionkj = PathchSageAttentionKJ(
-            sage_attention='disabled',
-            model=loraloadermodelonly,
-        )
-
-        float_simple_2, int_simple_2, boolean_simple_2 = SimpleCalculatorKJ(
-            expression='a / b',
-            **{'variables.a': int_simple_5, 'variables.b': loaded_fps_},
-        )
-
-        float_simple_4, int_simple_4, boolean_simple_4 = SimpleCalculatorKJ(
-            expression='(a > c) or (b > c) ',
-            **{'variables.a': loaded_width__video, 'variables.b': loaded_height__video, 'variables.c': intconstant_3},
-        )
-
-        ltxvchunkfeedforward = LTXVChunkFeedForward(model=pathchsageattentionkj)
-
-        float_simple, int_simple, boolean_simple = SimpleCalculatorKJ(
-            **{'variables.a': intconstant, 'variables.b': float_simple_2},
-        )
-
-        float_simple_3, int_simple_3, boolean_simple_3 = SimpleCalculatorKJ(
-            expression='a - b',
-            **{'variables.a': loaded_duration_, 'variables.b': float_simple_2},
-        )
-
-        lazyswitchkj = LazySwitchKJ(
-            widget_0=False,
-            on_false=reroute.out(0),
-            on_true=resizeimagesbylongeredge_2,
-            switch=boolean_simple_4,
-        )
-
-        ltx2attentiontunerpatch = LTX2AttentionTunerPatch(
-            triton_kernels=False,
-            model=ltxvchunkfeedforward,
-        )
-
-        trimaudioduration = TrimAudioDuration(
-            widget_0=0,
-            widget_1=60,
-            audio=normalizeaudioloudness,
-            duration=float_simple_2,
-            start_index=float_simple_3,
-        )
-
-        image_get_3, width, height, count = GetImageSizeAndCount(image=lazyswitchkj)
-        modelsamplingsd3 = ModelSamplingSD3(shift=13, model=ltx2attentiontunerpatch)
-
-        ltx2_nag = LTX2_NAG(
-            model=ltx2attentiontunerpatch,
-            nag_cond_audio=cliptextencode_3,
-            nag_cond_video=cliptextencode,
-        )
-
-        basicscheduler = BasicScheduler(
-            scheduler=1,
-            steps=1,
-            widget_1=8,
-            model=modelsamplingsd3,
-        )
-
-        ltxvaudiovaeencode = LTXVAudioVAEEncode(
-            audio=trimaudioduration,
-            audio_vae=ltxvaudiovaeloader,
-        )
-
-        image_image, width_image, height_image, mask_image = ImageResizeKJv2(
-            upscale_method='lanczos',
-            keep_proportion='crop',
-            divisible_by=64,
-            device='cpu',
-            width=width,
-            height=height,
-            image=image_get_3,
-        )
-
-        image_get, mask_get = GetImageRangeFromBatch(
-            start_index=-1,
-            widget_1=1,
-            images=image_image,
-            num_frames=int_simple_5,
-        )
-
-        imagebatchmulti = ImageBatchMulti(image_1=image_image, image_2=image)
-        image_get_2, mask_get_2 = GetImageRangeFromBatch(images=image_image)
-
-        source_images, start_images, extended_images = ImageBatchExtendWithOverlap(
-            widget_0=1,
-            widget_1='source',
-            widget_2='perceptual_crossfade',
-            new_images=reroute_2.out(0),
-            overlap=int_simple_5,
-            source_images=image_image,
-        )
-
-        resizeimagemasknode = ResizeImageMaskNode(
-            resize_type='scale by multiplier',
-            input=image_get,
-        )
-
-        resizeimagesbylongeredge = ResizeImagesByLongerEdge(
-            longer_edge=1536,
-            images=image_get_2,
-        )
-
-        image_get_5, mask_get_4 = GetImageRangeFromBatch(images=image_get)
-
-        ltxvpreprocess = LTXVPreprocess(
-            img_compression=18,
-            image=resizeimagesbylongeredge,
-        )
-
-        image_get_4, mask_get_3 = GetImageRangeFromBatch(
-            start_index=-1,
-            images=resizeimagemasknode,
-        )
-
-        vaeencode_2 = VAEEncode(pixels=resizeimagemasknode, vae=vaeloader)
-        prompt_enhancer_result = prompt_enhancer(
-            clip=dualcliploader,
-            image=resizeimagesbylongeredge,
-            prompt=primitivestringmultiline,
-            enabled=None,
-        )
-
-        video_latent_ltxv, audio_latent_ltxv = LTXVAudioVideoMask(
-            max_length='pad',
-            widget_0=24,
-            widget_1=0,
-            widget_2=15,
-            widget_3=0,
-            widget_4=15,
-            widget_6='add',
-            audio_end_time=float_simple,
-            audio_latent=ltxvaudiovaeencode,
-            audio_start_time=float_simple_2,
-            video_end_time=float_simple,
-            video_fps=primitivefloat,
-            video_latent=vaeencode_2,
-            video_start_time=float_simple_2,
-        )
-
-        vaeencode = VAEEncode(pixels=image_get_4, vae=vaeloader)
-
-        cliptextencode_2 = CLIPTextEncode(
-            text=prompt_enhancer_result,
-            clip=dualcliploader,
-        )
-
-        positive_ltxv, negative_ltxv, latent = LTXVAddLatentGuide(
-            widget_0=-1,
-            widget_1=1,
-            guiding_latent=vaeencode,
-            latent=video_latent_ltxv,
-            negative=cliptextencode,
-            positive=cliptextencode_2,
-            vae=vaeloader,
-        )
-
-        positive, negative = LTXVConditioning(
-            frame_rate=primitivefloat,
-            negative=negative_ltxv,
-            positive=positive_ltxv,
-        )
-
-        ltxvconcatavlatent = LTXVConcatAVLatent(
-            audio_latent=audio_latent_ltxv,
-            video_latent=latent,
-        )
-
-        cfgguider = CFGGuider(
-            cfg=GUIDE_STRENGTH_2,
-            model=ltx2_nag,
-            negative=negative,
-            positive=positive,
-        )
-
-        output, denoised_output = SamplerCustomAdvanced(
-            guider=cfgguider,
-            latent_image=ltxvconcatavlatent,
-            noise=randomnoise,
-            sampler=ksamplerselect,
-            sigmas=basicscheduler,
-        )
-
-        video_latent_ltxv_2, audio_latent_ltxv_2 = LTXVSeparateAVLatent(
-            av_latent=output,
-        )
-
-        positive_ltxv_2, negative_ltxv_2, latent_ltxv = LTXVCropGuides(
-            latent=video_latent_ltxv_2,
-            negative=negative,
-            positive=positive,
-        )
-
-        cfgguider_2 = CFGGuider(
-            cfg=GUIDE_STRENGTH_2,
-            model=ltx2_nag,
-            negative=negative_ltxv_2,
-            positive=latent_ltxv,
-        )
-
-        ltxvimgtovideoinplace = LTXVImgToVideoInplace(
-            widget_0=1,
-            widget_1=False,
-            image=image_get_5,
-            latent=latent_ltxv,
-            vae=vaeloader,
-        )
-
-        ltxvconcatavlatent_2 = LTXVConcatAVLatent(
-            audio_latent=audio_latent_ltxv_2,
-            video_latent=ltxvimgtovideoinplace,
-        )
-
-        output_sampler, denoised_output_sampler = SamplerCustomAdvanced(
-            guider=cfgguider_2,
-            latent_image=ltxvconcatavlatent_2,
-            noise=randomnoise_2,
-            sampler=ksamplerselect_2,
-            sigmas=manualsigmas,
-        )
-
-        video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=output_sampler)
-
-        ltxvaudiovaedecode = LTXVAudioVAEDecode(
-            audio_vae=ltxvaudiovaeloader,
-            samples=audio_latent,
-        )
-
-        positive_ltxv_3, negative_ltxv_3, latent_ltxv_2 = LTXVCropGuides(
-            latent=video_latent,
-            negative=negative,
-            positive=positive,
-        )
-
-        trimaudioduration_2 = TrimAudioDuration(
-            widget_0=0,
-            widget_1=2048,
-            audio=ltxvaudiovaedecode,
-            start_index=float_simple_2,
-        )
-
-        vaedecode = VAEDecode(samples=latent_ltxv_2, vae=vaeloader)
-
-        audioconcat = AudioConcat(
-            widget_0='after',
-            audio1=normalizeaudioloudness,
-            audio2=trimaudioduration_2,
-        )
-
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(
-            frame_rate=primitivefloat,
-            audio=audioconcat,
-            images=extended_images,
-        )
-
-        vhs_videocombine_2 = VHS_VideoCombine(
-            frame_rate=primitivefloat,
-            audio=audioconcat,
-            images=imagebatchmulti,
-        )
-
-        return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
+    wf = new_workflow(READY_METADATA, source_path=__file__)
+
+    randomnoise = RandomNoise(
+        noise_seed=public('seed', default=DEFAULT_SEED, type='INT'),
+        control_after_generate=CONTROL_AFTER_GENERATE,
+    )
+
+    # Decode
+    vaedecodetiled = VAEDecodeTiled(temporal_size=4096)
+    ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral')
+    intconstant = INTConstant(value=10)
+
+    # Inputs
+    primitivefloat = raw_call('PrimitiveFloat', '214', value=8)
+
+    randomnoise_2 = RandomNoise(
+        noise_seed=DEFAULT_SEED_2,
+        control_after_generate=CONTROL_AFTER_GENERATE,
+    )
+
+    ksamplerselect_2 = KSamplerSelect(sampler_name='euler')
+    intconstant_2 = INTConstant(value=3)
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
+
+    dualcliploader = DualCLIPLoader(
+        clip_name1=CLIP_NAME,
+        clip_name2=CLIP_NAME_2,
+        type_='ltxv',
+        device='default',
+    )
+
+    ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
+    vaeloader_2 = VAELoader(vae_name=VAE_NAME_2)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
+    unetloadergguf = UnetLoaderGGUF(unet_name=UNET_NAME_2)
+
+    dualcliploadergguf = DualCLIPLoaderGGUF(
+        clip_name1=CLIP_NAME_3,
+        clip_name2=CLIP_NAME_2,
+        type_='sdxl',
+    )
+
+    manualsigmas = ManualSigmas(sigmas='0.85, 0.7250, 0.4219, 0.0')
+
+    manualsigmas_2 = ManualSigmas(
+        sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
+    )
+
+    primitivestringmultiline = PrimitiveStringMultiline(
+        value='The Joker looks at the camera and talks, he says "You know what clownheads. This scene is not from the movie. Its from LTX 2 point 3". \n\nThen the Joker stands up with an LTX soda can in his hand. \n\nHe drinks from the soda can, and then he says "Ahhh...  with a bit of LTX and Snickers, my mood changed. Lets all be friends." \n\nThen he laughs.\n',
+    )
+
+    reroute = raw_call('Reroute', '496')
+    intconstant_3 = INTConstant(value=832)
+    reroute_2 = raw_call('Reroute', '528')
+    primitiveboolean = raw_call('PrimitiveBoolean', '594', value=True)
+    loadaudio = LoadAudio(audio=AUDIO, widget_0='speech_smoke.wav')
+
+    # Conditioning
+    cliptextencode = CLIPTextEncode(
+        text=public('prompt', default=DEFAULT_PROMPT, type='STRING', required=True, media_semantics='text'),
+        clip=dualcliploader,
+    )
+
+    image_load, frame_count, audio, video_info = VHS_LoadVideo(
+        file='ltx_smoke_guide.mp4',
+        video=VIDEO,
+        widget_0='ltx_smoke_guide.mp4',
+        force_rate=primitivefloat,
+    )
+
+    float, int, boolean = SimpleCalculatorKJ(
+        expression=EXPRESSION,
+        **{'variables.a': intconstant, 'variables.b': primitivefloat},
+    )
+
+    normalizeaudioloudness = NormalizeAudioLoudness(widget_0=-16, audio=loadaudio)
+
+    loraloadermodelonly = LoraLoaderModelOnly(
+        lora_name=LORA_NAME,
+        strength_model=GUIDE_STRENGTH,
+        model=unetloader,
+    )
+
+    resizeimagesbylongeredge_2 = ResizeImagesByLongerEdge(
+        longer_edge=intconstant_3,
+        images=reroute.out(0),
+    )
+
+    float_simple_5, int_simple_5, boolean_simple_5 = SimpleCalculatorKJ(
+        expression=EXPRESSION,
+        **{'variables.a': intconstant_2, 'variables.b': primitivefloat},
+    )
+
+    cliptextencode_3 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=dualcliploader)
+
+    image, mask = GetImageRangeFromBatch(
+        num_frames=DEFAULT_FRAMES,
+        widget_0=0,
+        images=reroute_2.out(0),
+        start_index=int_simple_5,
+    )
+
+    source_fps_, source_frame_count_, source_duration_, source_width_, source_height_, loaded_fps_, loaded_frame_count_, loaded_duration_, loaded_width_, loaded_height_ = VHS_VideoInfo(
+        video_info=video_info,
+    )
+
+    source_fps__video, source_frame_count__video, source_duration__video, source_width__video, source_height__video, loaded_fps__video, loaded_frame_count__video, loaded_duration__video, loaded_width__video, loaded_height__video = VHS_VideoInfo(
+        video_info=video_info,
+    )
+
+    pathchsageattentionkj = PathchSageAttentionKJ(
+        sage_attention='disabled',
+        model=loraloadermodelonly,
+    )
+
+    float_simple_2, int_simple_2, boolean_simple_2 = SimpleCalculatorKJ(
+        expression='a / b',
+        **{'variables.a': int_simple_5, 'variables.b': loaded_fps_},
+    )
+
+    float_simple_4, int_simple_4, boolean_simple_4 = SimpleCalculatorKJ(
+        expression='(a > c) or (b > c) ',
+        **{'variables.a': loaded_width__video, 'variables.b': loaded_height__video, 'variables.c': intconstant_3},
+    )
+
+    ltxvchunkfeedforward = LTXVChunkFeedForward(model=pathchsageattentionkj)
+
+    float_simple, int_simple, boolean_simple = SimpleCalculatorKJ(
+        **{'variables.a': intconstant, 'variables.b': float_simple_2},
+    )
+
+    float_simple_3, int_simple_3, boolean_simple_3 = SimpleCalculatorKJ(
+        expression='a - b',
+        **{'variables.a': loaded_duration_, 'variables.b': float_simple_2},
+    )
+
+    lazyswitchkj = LazySwitchKJ(
+        widget_0=False,
+        on_false=reroute.out(0),
+        on_true=resizeimagesbylongeredge_2,
+        switch=boolean_simple_4,
+    )
+
+    ltx2attentiontunerpatch = LTX2AttentionTunerPatch(
+        triton_kernels=False,
+        model=ltxvchunkfeedforward,
+    )
+
+    trimaudioduration = TrimAudioDuration(
+        widget_0=0,
+        widget_1=60,
+        audio=normalizeaudioloudness,
+        duration=float_simple_2,
+        start_index=float_simple_3,
+    )
+
+    image_get_3, width, height, count = GetImageSizeAndCount(image=lazyswitchkj)
+    modelsamplingsd3 = ModelSamplingSD3(shift=13, model=ltx2attentiontunerpatch)
+
+    ltx2_nag = LTX2_NAG(
+        model=ltx2attentiontunerpatch,
+        nag_cond_audio=cliptextencode_3,
+        nag_cond_video=cliptextencode,
+    )
+
+    basicscheduler = BasicScheduler(
+        scheduler=1,
+        steps=1,
+        widget_1=8,
+        model=modelsamplingsd3,
+    )
+
+    ltxvaudiovaeencode = LTXVAudioVAEEncode(
+        audio=trimaudioduration,
+        audio_vae=ltxvaudiovaeloader,
+    )
+
+    image_image, width_image, height_image, mask_image = ImageResizeKJv2(
+        upscale_method='lanczos',
+        keep_proportion='crop',
+        divisible_by=64,
+        device='cpu',
+        width=width,
+        height=height,
+        image=image_get_3,
+    )
+
+    image_get, mask_get = GetImageRangeFromBatch(
+        start_index=-1,
+        widget_1=1,
+        images=image_image,
+        num_frames=int_simple_5,
+    )
+
+    imagebatchmulti = ImageBatchMulti(image_1=image_image, image_2=image)
+    image_get_2, mask_get_2 = GetImageRangeFromBatch(images=image_image)
+
+    source_images, start_images, extended_images = ImageBatchExtendWithOverlap(
+        widget_0=1,
+        widget_1='source',
+        widget_2='perceptual_crossfade',
+        new_images=reroute_2.out(0),
+        overlap=int_simple_5,
+        source_images=image_image,
+    )
+
+    resizeimagemasknode = ResizeImageMaskNode(
+        resize_type='scale by multiplier',
+        input=image_get,
+    )
+
+    resizeimagesbylongeredge = ResizeImagesByLongerEdge(
+        longer_edge=1536,
+        images=image_get_2,
+    )
+
+    image_get_5, mask_get_4 = GetImageRangeFromBatch(images=image_get)
+
+    ltxvpreprocess = LTXVPreprocess(
+        img_compression=18,
+        image=resizeimagesbylongeredge,
+    )
+
+    image_get_4, mask_get_3 = GetImageRangeFromBatch(
+        start_index=-1,
+        images=resizeimagemasknode,
+    )
+
+    vaeencode_2 = VAEEncode(pixels=resizeimagemasknode, vae=vaeloader)
+    prompt_enhancer_result = prompt_enhancer(
+        clip=dualcliploader,
+        image=resizeimagesbylongeredge,
+        prompt=primitivestringmultiline,
+        enabled=None,
+    )
+
+    video_latent_ltxv, audio_latent_ltxv = LTXVAudioVideoMask(
+        max_length='pad',
+        widget_0=24,
+        widget_1=0,
+        widget_2=15,
+        widget_3=0,
+        widget_4=15,
+        widget_6='add',
+        audio_end_time=float_simple,
+        audio_latent=ltxvaudiovaeencode,
+        audio_start_time=float_simple_2,
+        video_end_time=float_simple,
+        video_fps=primitivefloat,
+        video_latent=vaeencode_2,
+        video_start_time=float_simple_2,
+    )
+
+    vaeencode = VAEEncode(pixels=image_get_4, vae=vaeloader)
+
+    cliptextencode_2 = CLIPTextEncode(
+        text=prompt_enhancer_result,
+        clip=dualcliploader,
+    )
+
+    positive_ltxv, negative_ltxv, latent = LTXVAddLatentGuide(
+        widget_0=-1,
+        widget_1=1,
+        guiding_latent=vaeencode,
+        latent=video_latent_ltxv,
+        negative=cliptextencode,
+        positive=cliptextencode_2,
+        vae=vaeloader,
+    )
+
+    positive, negative = LTXVConditioning(
+        frame_rate=primitivefloat,
+        negative=negative_ltxv,
+        positive=positive_ltxv,
+    )
+
+    ltxvconcatavlatent = LTXVConcatAVLatent(
+        audio_latent=audio_latent_ltxv,
+        video_latent=latent,
+    )
+
+    cfgguider = CFGGuider(
+        cfg=GUIDE_STRENGTH_2,
+        model=ltx2_nag,
+        negative=negative,
+        positive=positive,
+    )
+
+    output, denoised_output = SamplerCustomAdvanced(
+        guider=cfgguider,
+        latent_image=ltxvconcatavlatent,
+        noise=randomnoise,
+        sampler=ksamplerselect,
+        sigmas=basicscheduler,
+    )
+
+    video_latent_ltxv_2, audio_latent_ltxv_2 = LTXVSeparateAVLatent(
+        av_latent=output,
+    )
+
+    positive_ltxv_2, negative_ltxv_2, latent_ltxv = LTXVCropGuides(
+        latent=video_latent_ltxv_2,
+        negative=negative,
+        positive=positive,
+    )
+
+    cfgguider_2 = CFGGuider(
+        cfg=GUIDE_STRENGTH_2,
+        model=ltx2_nag,
+        negative=negative_ltxv_2,
+        positive=latent_ltxv,
+    )
+
+    ltxvimgtovideoinplace = LTXVImgToVideoInplace(
+        widget_0=1,
+        widget_1=False,
+        image=image_get_5,
+        latent=latent_ltxv,
+        vae=vaeloader,
+    )
+
+    ltxvconcatavlatent_2 = LTXVConcatAVLatent(
+        audio_latent=audio_latent_ltxv_2,
+        video_latent=ltxvimgtovideoinplace,
+    )
+
+    output_sampler, denoised_output_sampler = SamplerCustomAdvanced(
+        guider=cfgguider_2,
+        latent_image=ltxvconcatavlatent_2,
+        noise=randomnoise_2,
+        sampler=ksamplerselect_2,
+        sigmas=manualsigmas,
+    )
+
+    video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=output_sampler)
+
+    ltxvaudiovaedecode = LTXVAudioVAEDecode(
+        audio_vae=ltxvaudiovaeloader,
+        samples=audio_latent,
+    )
+
+    positive_ltxv_3, negative_ltxv_3, latent_ltxv_2 = LTXVCropGuides(
+        latent=video_latent,
+        negative=negative,
+        positive=positive,
+    )
+
+    trimaudioduration_2 = TrimAudioDuration(
+        widget_0=0,
+        widget_1=2048,
+        audio=ltxvaudiovaedecode,
+        start_index=float_simple_2,
+    )
+
+    vaedecode = VAEDecode(samples=latent_ltxv_2, vae=vaeloader)
+
+    audioconcat = AudioConcat(
+        widget_0='after',
+        audio1=normalizeaudioloudness,
+        audio2=trimaudioduration_2,
+    )
+
+    # Outputs
+    vhs_videocombine = VHS_VideoCombine(
+        frame_rate=primitivefloat,
+        audio=audioconcat,
+        images=extended_images,
+    )
+
+    vhs_videocombine_2 = VHS_VideoCombine(
+        frame_rate=primitivefloat,
+        audio=audioconcat,
+        images=imagebatchmulti,
+    )
+
+    return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
 

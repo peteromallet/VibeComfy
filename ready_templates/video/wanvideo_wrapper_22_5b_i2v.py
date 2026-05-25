@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, LoadImage
 from vibecomfy.nodes.kjnodes import ImageResizeKJv2
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
@@ -22,9 +22,6 @@ MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_2 = 'wanvideo\\Wan2_2_VAE_bf16.safetensors'
 MODEL_NAME_3 = 'WanVideo\\2_2\\wan2.2_ti2v_5B_fp16.safetensors'
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='image_to_video',
     requirements={'models': ['umt5-xxl-enc-bf16.safetensors', 'umt5_xxl_fp16.safetensors', 'wanvideo\\Wan2_2_VAE_bf16.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper']},
@@ -36,109 +33,111 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
-            model_name=public('model', default=MODEL_NAME),
-        )
+    loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(model_name=MODEL_NAME)
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
 
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
-        wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+    # Inputs
+    image, mask = LoadImage(image='image (658).png')
 
-        # Inputs
-        image, mask = LoadImage(image=public('image', default='image (658).png'))
+    wanvideoexperimentalargs = WanVideoExperimentalArgs(
+        cfg_zero_star=True,
+        use_tcfg=True,
+    )
 
-        wanvideoexperimentalargs = WanVideoExperimentalArgs(
-            cfg_zero_star=True,
-            use_tcfg=True,
-        )
+    wanvideoslg = WanVideoSLG(blocks='7,8,9', end_percent=0.7)
+    wanvideoeasycache = WanVideoEasyCache()
 
-        wanvideoslg = WanVideoSLG(blocks='7,8,9', end_percent=0.7)
-        wanvideoeasycache = WanVideoEasyCache()
+    wanvideomodelloader = WanVideoModelLoader(
+        model=MODEL_NAME_3,
+        base_precision='fp16',
+        compile_args=wanvideotorchcompilesettings,
+    )
 
-        wanvideomodelloader = WanVideoModelLoader(
-            model=MODEL_NAME_3,
-            base_precision='fp16',
-            compile_args=wanvideotorchcompilesettings,
-        )
+    # Conditioning
+    cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+    cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT),
-            clip=cliploader,
-        )
+    image_image, width, height, mask_image = ImageResizeKJv2(
+        width=256,
+        height=256,
+        upscale_method='lanczos',
+        keep_proportion='crop',
+        divisible_by=32,
+        device='cpu',
+        image=image,
+    )
 
-        cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
+    wanvideotextencode = WanVideoTextEncode(
+        positive_prompt=DEFAULT_PROMPT_3,
+        negative_prompt=DEFAULT_NEGATIVE,
+        model_to_offload=wanvideomodelloader,
+        t5=loadwanvideot5textencoder,
+    )
 
-        image_image, width, height, mask_image = ImageResizeKJv2(
-            width=public('width', default=256),
-            height=public('height', default=256),
-            upscale_method='lanczos',
-            keep_proportion='crop',
-            divisible_by=32,
-            device='cpu',
-            image=image,
-        )
+    wanvideotextembedbridge = WanVideoTextEmbedBridge(
+        negative=cliptextencode_2,
+        positive=cliptextencode,
+    )
 
-        wanvideotextencode = WanVideoTextEncode(
-            positive_prompt=DEFAULT_PROMPT_3,
-            negative_prompt=DEFAULT_NEGATIVE,
-            model_to_offload=wanvideomodelloader,
-            t5=loadwanvideot5textencoder,
-        )
+    wanvideoencode = WanVideoEncode(
+        widget_0=False,
+        widget_1=272,
+        widget_2=272,
+        widget_3=144,
+        widget_4=128,
+        widget_5=0,
+        widget_6=1,
+        image=image_image,
+        vae=wanvideovaeloader,
+    )
 
-        wanvideotextembedbridge = WanVideoTextEmbedBridge(
-            negative=cliptextencode_2,
-            positive=cliptextencode,
-        )
+    wanvideoemptyembeds = WanVideoEmptyEmbeds(
+        num_frames=DEFAULT_FRAMES,
+        widget_0=256,
+        widget_1=256,
+        widget_2=5,
+        extra_latents=wanvideoencode,
+        height=height,
+        width=width,
+    )
 
-        wanvideoencode = WanVideoEncode(
-            widget_0=False,
-            widget_1=272,
-            widget_2=272,
-            widget_3=144,
-            widget_4=128,
-            widget_5=0,
-            widget_6=1,
-            image=image_image,
-            vae=wanvideovaeloader,
-        )
+    samples, denoised_samples = WanVideoSampler(
+        steps=1,
+        cfg=GUIDE_STRENGTH,
+        shift=8,
+        seed=DEFAULT_SEED,
+        scheduler='flowmatch_pusa',
+        batched_cfg='',
+        add_noise_to_samples='',
+        cache_args=wanvideoeasycache,
+        experimental_args=wanvideoexperimentalargs,
+        image_embeds=wanvideoemptyembeds,
+        model=wanvideomodelloader,
+        slg_args=wanvideoslg,
+        text_embeds=wanvideotextencode,
+    )
 
-        wanvideoemptyembeds = WanVideoEmptyEmbeds(
-            num_frames=DEFAULT_FRAMES,
-            widget_0=256,
-            widget_1=256,
-            widget_2=5,
-            extra_latents=wanvideoencode,
-            height=height,
-            width=width,
-        )
+    wanvideodecode = WanVideoDecode(
+        normalization='default',
+        samples=samples,
+        vae=wanvideovaeloader,
+    )
 
-        samples, denoised_samples = WanVideoSampler(
-            steps=1,
-            cfg=GUIDE_STRENGTH,
-            shift=8,
-            seed=public('seed', default=DEFAULT_SEED),
-            scheduler='flowmatch_pusa',
-            batched_cfg='',
-            add_noise_to_samples='',
-            cache_args=wanvideoeasycache,
-            experimental_args=wanvideoexperimentalargs,
-            image_embeds=wanvideoemptyembeds,
-            model=wanvideomodelloader,
-            slg_args=wanvideoslg,
-            text_embeds=wanvideotextencode,
-        )
+    # Outputs
+    vhs_videocombine = VHS_VideoCombine(images=wanvideodecode)
 
-        wanvideodecode = WanVideoDecode(
-            normalization='default',
-            samples=samples,
-            vae=wanvideovaeloader,
-        )
 
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(images=wanvideodecode)
-
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=loadwanvideot5textencoder, field='model_name', default=MODEL_NAME),
+        'prompt': InputSpec(node=cliptextencode, field='text', default=DEFAULT_PROMPT),
+        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED),
+        'image': InputSpec(node=image, field='image', default='image (658).png'),
+        'width': InputSpec(node=image_image, field='width', default=256),
+        'height': InputSpec(node=image_image, field='height', default=256),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

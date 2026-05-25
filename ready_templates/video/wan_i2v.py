@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode, CLIPVisionEncode, CLIPVisionLoader, CreateVideo, KSampler, LoadImage, ModelSamplingSD3, SaveVideo, UNETLoader, VAEDecode, VAELoader, WanImageToVideo
 
 
@@ -26,9 +26,6 @@ MODELS = {
     'clip_vision': ModelAsset(url='https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors', sha256='64a7ef761bfccbadbaa3da77366aac4185a6c58fa5de5f589b42a65bcc21f161', hf_revision='06e001fc51048fb03433a6fb25334de7836704a5', size_bytes=1264219396, subdir='clip_vision'),
 }
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='image_to_video',
     models=MODELS,
@@ -38,71 +35,74 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        unetloader = UNETLoader(unet_name=UNET_NAME)
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
-        vaeloader = VAELoader(vae_name=VAE_NAME)
-        clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME_2)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='wan')
+    vaeloader = VAELoader(vae_name=VAE_NAME)
+    clipvisionloader = CLIPVisionLoader(clip_name=CLIP_NAME_2)
 
-        # Inputs
-        image, mask = LoadImage(
-            image=public('start_image', default='image_to_video_wan_start_image.png', aliases=('image', 'input_image')),
-        )
+    # Inputs
+    image, mask = LoadImage(image='image_to_video_wan_start_image.png')
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT),
-            clip=cliploader,
-        )
+    # Conditioning
+    cliptextencode = CLIPTextEncode(text=DEFAULT_PROMPT, clip=cliploader)
+    cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT_2, clip=cliploader)
 
-        cliptextencode_2 = CLIPTextEncode(
-            text=public('negative_prompt', default=DEFAULT_PROMPT_2),
-            clip=cliploader,
-        )
+    clipvisionencode = CLIPVisionEncode(
+        crop='none',
+        clip_vision=clipvisionloader,
+        image=image,
+    )
 
-        clipvisionencode = CLIPVisionEncode(
-            crop='none',
-            clip_vision=clipvisionloader,
-            image=image,
-        )
+    modelsamplingsd3 = ModelSamplingSD3(shift=8, model=unetloader)
 
-        modelsamplingsd3 = ModelSamplingSD3(shift=8, model=unetloader)
+    positive, negative, latent = WanImageToVideo(
+        height=512,
+        length=DEFAULT_FRAMES,
+        width=512,
+        clip_vision_output=clipvisionencode,
+        negative=cliptextencode_2,
+        positive=cliptextencode,
+        start_image=image,
+        vae=vaeloader,
+    )
 
-        positive, negative, latent = WanImageToVideo(
-            height=public('height', default=512),
-            length=public('length', default=DEFAULT_FRAMES, aliases=('frames',)),
-            width=public('width', default=512),
-            clip_vision_output=clipvisionencode,
-            negative=cliptextencode_2,
-            positive=cliptextencode,
-            start_image=image,
-            vae=vaeloader,
-        )
+    ksampler = KSampler(
+        seed=DEFAULT_SEED,
+        steps=20,
+        cfg=GUIDE_STRENGTH,
+        sampler_name='uni_pc',
+        latent_image=latent,
+        model=modelsamplingsd3,
+        negative=negative,
+        positive=positive,
+    )
 
-        ksampler = KSampler(
-            seed=public('seed', default=DEFAULT_SEED),
-            steps=public('steps', default=20),
-            cfg=public('cfg', default=GUIDE_STRENGTH),
-            sampler_name=public('sampler_name', default='uni_pc'),
-            latent_image=latent,
-            model=modelsamplingsd3,
-            negative=negative,
-            positive=positive,
-        )
+    # Decode
+    vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
+    createvideo = CreateVideo(fps=DEFAULT_FPS, images=vaedecode)
 
-        # Decode
-        vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
-
-        createvideo = CreateVideo(
-            fps=public('output_fps', default=DEFAULT_FPS, aliases=('fps',)),
-            images=vaedecode,
-        )
-
-        # Outputs
-        savevideo = SaveVideo(video=createvideo)
+    # Outputs
+    savevideo = SaveVideo(video=createvideo)
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=unetloader, field='unet_name', default=UNET_NAME),
+        'prompt': InputSpec(node=cliptextencode, field='text', default=DEFAULT_PROMPT),
+        'seed': InputSpec(node=ksampler, field='seed', default=DEFAULT_SEED),
+        'steps': InputSpec(node=ksampler, field='steps', default=20),
+        'first_image': InputSpec(node=image, field='image', default='image_to_video_wan_start_image.png', aliases=('start_image',)),
+        'negative_prompt': InputSpec(node=cliptextencode_2, field='text', default=DEFAULT_PROMPT_2),
+        'width': InputSpec(node=positive, field='width', default=512),
+        'height': InputSpec(node=positive, field='height', default=512),
+        'frames': InputSpec(node=positive, field='length', default=DEFAULT_FRAMES, aliases=('length',)),
+        'cfg': InputSpec(node=ksampler, field='cfg', default=GUIDE_STRENGTH),
+        'sampler_name': InputSpec(node=ksampler, field='sampler_name', default='uni_pc'),
+        'fps': InputSpec(node=createvideo, field='fps', default=DEFAULT_FPS, aliases=('output_fps',)),
+        'image': InputSpec(node=image, field='image', default='image_to_video_wan_start_image.png', aliases=('input_image',)),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

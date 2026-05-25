@@ -77,48 +77,48 @@ def text_to_image_z_image_base(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        unetloader = UNETLoader(unet_name=UNET_NAME)
-        cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='lumina2')
-        vaeloader = VAELoader(vae_name=VAE_NAME)
+    unetloader = UNETLoader(unet_name=UNET_NAME)
+    cliploader = CLIPLoader(clip_name=CLIP_NAME, type_='lumina2')
+    vaeloader = VAELoader(vae_name=VAE_NAME)
 
-        emptysd3latentimage = EmptySD3LatentImage(
-            width=public('width', default=1024),
-            height=public('height', default=1024),
-        )
+    emptysd3latentimage = EmptySD3LatentImage(
+        width=public('width', default=1024),
+        height=public('height', default=1024),
+    )
 
-        modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
+    modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
 
-        # Conditioning
-        positive = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT),
-            clip=cliploader,
-        )
+    # Conditioning
+    positive = CLIPTextEncode(
+        text=public('prompt', default=DEFAULT_PROMPT),
+        clip=cliploader,
+    )
 
-        negative = CLIPTextEncode(
-            text=public('negative_prompt', default=''),
-            clip=cliploader,
-        )
+    negative = CLIPTextEncode(
+        text=public('negative_prompt', default=''),
+        clip=cliploader,
+    )
 
-        ksampler = KSampler(
-            seed=public('seed', default=DEFAULT_SEED),
-            steps=public('steps', default=25),
-            cfg=GUIDE_STRENGTH,
-            sampler_name='res_multistep',
-            latent_image=emptysd3latentimage,
-            model=modelsamplingauraflow,
-            negative=negative,
-            positive=positive,
-        )
+    ksampler = KSampler(
+        seed=public('seed', default=DEFAULT_SEED),
+        steps=public('steps', default=25),
+        cfg=GUIDE_STRENGTH,
+        sampler_name='res_multistep',
+        latent_image=emptysd3latentimage,
+        model=modelsamplingauraflow,
+        negative=negative,
+        positive=positive,
+    )
 
-        # Decode
-        vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
+    # Decode
+    vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
 
-        # Outputs
-        saveimage = SaveImage(filename_prefix='z-image', images=vaedecode)
+    # Outputs
+    saveimage = SaveImage(filename_prefix='z-image', images=vaedecode)
 
 
-        wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
-        return wf.finalize({}, filename_prefix='z-image', spec=OUTPUT_SPEC)
+    wf.register_input('model', unetloader.node.id, 'unet_name', UNET_NAME)
+    return wf.finalize({}, filename_prefix='z-image', spec=OUTPUT_SPEC)
 

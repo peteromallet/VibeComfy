@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ModelAsset, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, GetImageSize, KSamplerSelect, LTXAVTextEncoderLoader, LTXVAddGuide, LTXVAudioVAEDecode, LTXVAudioVAELoader, LTXVConcatAVLatent, LTXVConditioning, LTXVCropGuides, LTXVEmptyLatentAudio, LTXVLatentUpsampler, LTXVPreprocess, LTXVSeparateAVLatent, LatentUpscaleModelLoader, LoadImage, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo
 from vibecomfy.nodes.kjnodes import LTX2MemoryEfficientSageAttentionPatch, VRAM_Debug
 from vibecomfy.nodes.ltxvideo import LTXVTiledVAEDecode, LowVRAMCheckpointLoader
@@ -26,9 +26,6 @@ MODELS = {
     'upscale_model': ModelAsset(url='https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors', sha256='5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed', hf_revision='76730e634e70a28f4e8d51f5e29c08e40e2d8e74', size_bytes=995743560, subdir='latent_upscale_models'),
 }
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='first_last_frame_video',
     models=MODELS,
@@ -45,255 +42,255 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        # Inputs
-        image, mask = LoadImage(
-            image=public('first_image', default='example_start.png', aliases=('image', 'input_image')),
-        )
+    # Inputs
+    image, mask = LoadImage(image='example_start.png')
+    image_load, mask_load = LoadImage(image='example_end.png')
+    primitiveint = raw_call('PrimitiveInt', '98', value=480)
+    randomnoise = RandomNoise(noise_seed=DEFAULT_SEED)
+    randomnoise_2 = RandomNoise(noise_seed=DEFAULT_SEED)
+    primitiveint_2 = raw_call('PrimitiveInt', '102', value=81)
 
-        image_load, mask_load = LoadImage(
-            image=public('last_image', default='example_end.png'),
-        )
+    ltxavtextencoderloader = LTXAVTextEncoderLoader(
+        text_encoder=TEXT_ENCODER_NAME,
+        ckpt_name=CKPT_NAME,
+        device='default',
+    )
 
-        primitiveint = raw_call('PrimitiveInt', '98', value=public('height', default=480))
-        randomnoise = RandomNoise(noise_seed=public('seed', default=DEFAULT_SEED))
+    primitiveint_3 = raw_call('PrimitiveInt', '113', value=832)
+    primitiveint_4 = raw_call('PrimitiveInt', '114', value=16)
+    primitivefloat = raw_call('PrimitiveFloat', '123', value=16)
+    ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
+    model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=CKPT_NAME)
+    latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
+    primitiveint_5 = raw_call('PrimitiveInt', '981', value=480)
+    primitiveint_6 = raw_call('PrimitiveInt', '1131', value=832)
+    ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
 
-        randomnoise_2 = RandomNoise(
-            noise_seed=public('seed_last', default=DEFAULT_SEED),
-        )
+    manualsigmas = ManualSigmas(
+        sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
+    )
 
-        primitiveint_2 = raw_call('PrimitiveInt', '102', value=public('length', default=81))
+    ksamplerselect_2 = KSamplerSelect(sampler_name='euler_cfg_pp')
+    manualsigmas_2 = ManualSigmas(sigmas='0.909375, 0.725, 0.421875, 0.0')
 
-        ltxavtextencoderloader = LTXAVTextEncoderLoader(
-            text_encoder=TEXT_ENCODER_NAME,
-            ckpt_name=CKPT_NAME,
-            device='default',
-        )
+    # Conditioning
+    cliptextencode = CLIPTextEncode(
+        text='blurry, distorted, low quality',
+        clip=ltxavtextencoderloader,
+    )
 
-        primitiveint_3 = raw_call('PrimitiveInt', '113', value=public('width', default=832))
-        primitiveint_4 = raw_call('PrimitiveInt', '114', value=public('fps_int', default=16))
-        primitivefloat = raw_call('PrimitiveFloat', '123', value=public('output_fps', default=16))
-        ltxvaudiovaeloader = LTXVAudioVAELoader(ckpt_name=CKPT_NAME)
-        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=CKPT_NAME)
-        latentupscalemodelloader = LatentUpscaleModelLoader(model_name=MODEL_NAME)
-        primitiveint_5 = raw_call('PrimitiveInt', '981', value=public('stage1_height', default=480))
-        primitiveint_6 = raw_call('PrimitiveInt', '1131', value=public('stage1_width', default=832))
-        ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral_cfg_pp')
+    resizeimagemasknode = ResizeImageMaskNode(
+        resize_type=RESIZE_TYPE,
+        scale_method=SCALE_METHOD,
+        input=image,
+        **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint, 'resize_type.width': primitiveint_3},
+    )
 
-        manualsigmas = ManualSigmas(
-            sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
-        )
+    resizeimagemasknode_2 = ResizeImageMaskNode(
+        resize_type=RESIZE_TYPE,
+        scale_method=SCALE_METHOD,
+        input=image_load,
+        **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint, 'resize_type.width': primitiveint_3},
+    )
 
-        ksamplerselect_2 = KSamplerSelect(sampler_name='euler_cfg_pp')
-        manualsigmas_2 = ManualSigmas(sigmas='0.909375, 0.725, 0.421875, 0.0')
+    cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT, clip=ltxavtextencoderloader)
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('negative_prompt', default='blurry, distorted, low quality'),
-            clip=ltxavtextencoderloader,
-        )
+    ltx2memoryefficientsageattentionpatch = LTX2MemoryEfficientSageAttentionPatch(
+        model=model,
+    )
 
-        resizeimagemasknode = ResizeImageMaskNode(
-            resize_type=RESIZE_TYPE,
-            scale_method=SCALE_METHOD,
-            input=image,
-            **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint, 'resize_type.width': primitiveint_3},
-        )
+    ltxvemptylatentaudio = LTXVEmptyLatentAudio(
+        frames_number=primitiveint_2,
+        frame_rate=primitiveint_4,
+        audio_vae=ltxvaudiovaeloader,
+    )
 
-        resizeimagemasknode_2 = ResizeImageMaskNode(
-            resize_type=RESIZE_TYPE,
-            scale_method=SCALE_METHOD,
-            input=image_load,
-            **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint, 'resize_type.width': primitiveint_3},
-        )
+    resizeimagemasknode_3 = ResizeImageMaskNode(
+        resize_type=RESIZE_TYPE,
+        scale_method=SCALE_METHOD,
+        input=image,
+        **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint_5, 'resize_type.width': primitiveint_6},
+    )
 
-        cliptextencode_2 = CLIPTextEncode(
-            text=public('prompt', default=DEFAULT_PROMPT),
-            clip=ltxavtextencoderloader,
-        )
+    resizeimagemasknode_4 = ResizeImageMaskNode(
+        resize_type=RESIZE_TYPE,
+        scale_method=SCALE_METHOD,
+        input=image_load,
+        **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint_5, 'resize_type.width': primitiveint_6},
+    )
 
-        ltx2memoryefficientsageattentionpatch = LTX2MemoryEfficientSageAttentionPatch(
-            model=model,
-        )
+    ltxvpreprocess = LTXVPreprocess(img_compression=25, image=resizeimagemasknode_2)
+    ltxvpreprocess_2 = LTXVPreprocess(img_compression=25, image=resizeimagemasknode)
 
-        ltxvemptylatentaudio = LTXVEmptyLatentAudio(
-            frames_number=primitiveint_2,
-            frame_rate=primitiveint_4,
-            audio_vae=ltxvaudiovaeloader,
-        )
+    positive, negative = LTXVConditioning(
+        frame_rate=primitivefloat,
+        negative=cliptextencode,
+        positive=cliptextencode_2,
+    )
 
-        resizeimagemasknode_3 = ResizeImageMaskNode(
-            resize_type=RESIZE_TYPE,
-            scale_method=SCALE_METHOD,
-            input=image,
-            **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint_5, 'resize_type.width': primitiveint_6},
-        )
+    width, height, batch_size = GetImageSize(image=resizeimagemasknode_3)
+    ltxvpreprocess_3 = LTXVPreprocess(img_compression=25, image=resizeimagemasknode_4)
+    ltxvpreprocess_4 = LTXVPreprocess(img_compression=25, image=resizeimagemasknode_3)
 
-        resizeimagemasknode_4 = ResizeImageMaskNode(
-            resize_type=RESIZE_TYPE,
-            scale_method=SCALE_METHOD,
-            input=image_load,
-            **{'resize_type.crop': RESIZE_TYPE_CROP, 'resize_type.height': primitiveint_5, 'resize_type.width': primitiveint_6},
-        )
+    emptyltxvlatentvideo = EmptyLTXVLatentVideo(
+        width=width,
+        height=height,
+        length=primitiveint_2,
+    )
 
-        ltxvpreprocess = LTXVPreprocess(img_compression=25, image=resizeimagemasknode_2)
-        ltxvpreprocess_2 = LTXVPreprocess(img_compression=25, image=resizeimagemasknode)
+    positive_ltxv, negative_ltxv, latent = LTXVAddGuide(
+        strength=1.0,
+        image=ltxvpreprocess_4,
+        latent=emptyltxvlatentvideo,
+        negative=negative,
+        positive=positive,
+        vae=vae,
+    )
 
-        positive, negative = LTXVConditioning(
-            frame_rate=primitivefloat,
-            negative=cliptextencode,
-            positive=cliptextencode_2,
-        )
+    positive_ltxv_2, negative_ltxv_2, latent_ltxv = LTXVAddGuide(
+        frame_idx=-1,
+        strength=1.0,
+        image=ltxvpreprocess_3,
+        latent=latent,
+        negative=negative_ltxv,
+        positive=positive_ltxv,
+        vae=vae,
+    )
 
-        width, height, batch_size = GetImageSize(image=resizeimagemasknode_3)
+    ltxvconcatavlatent = LTXVConcatAVLatent(
+        audio_latent=ltxvemptylatentaudio,
+        video_latent=latent_ltxv,
+    )
 
-        ltxvpreprocess_3 = LTXVPreprocess(
-            img_compression=25,
-            image=resizeimagemasknode_4,
-        )
+    cfgguider = CFGGuider(
+        cfg=GUIDE_STRENGTH,
+        model=ltx2memoryefficientsageattentionpatch,
+        negative=negative_ltxv_2,
+        positive=positive_ltxv_2,
+    )
 
-        ltxvpreprocess_4 = LTXVPreprocess(
-            img_compression=25,
-            image=resizeimagemasknode_3,
-        )
+    output, denoised_output = SamplerCustomAdvanced(
+        guider=cfgguider,
+        latent_image=ltxvconcatavlatent,
+        noise=randomnoise,
+        sampler=ksamplerselect,
+        sigmas=manualsigmas,
+    )
 
-        emptyltxvlatentvideo = EmptyLTXVLatentVideo(
-            width=width,
-            height=height,
-            length=primitiveint_2,
-        )
+    video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=denoised_output)
 
-        positive_ltxv, negative_ltxv, latent = LTXVAddGuide(
-            strength=public('first_strength', default=1.0),
-            image=ltxvpreprocess_4,
-            latent=emptyltxvlatentvideo,
-            negative=negative,
-            positive=positive,
-            vae=vae,
-        )
+    ltxvlatentupsampler = LTXVLatentUpsampler(
+        samples=video_latent,
+        upscale_model=latentupscalemodelloader,
+        vae=vae,
+    )
 
-        positive_ltxv_2, negative_ltxv_2, latent_ltxv = LTXVAddGuide(
-            frame_idx=-1,
-            strength=public('last_strength', default=1.0),
-            image=ltxvpreprocess_3,
-            latent=latent,
-            negative=negative_ltxv,
-            positive=positive_ltxv,
-            vae=vae,
-        )
+    any_output, image_pass, model_pass, freemem_before, freemem_after = VRAM_Debug(
+        unload_all_models=True,
+        any_input=ltxvlatentupsampler,
+    )
 
-        ltxvconcatavlatent = LTXVConcatAVLatent(
-            audio_latent=ltxvemptylatentaudio,
-            video_latent=latent_ltxv,
-        )
+    positive_ltxv_3, negative_ltxv_3, latent_ltxv_2 = LTXVCropGuides(
+        latent=any_output,
+        negative=negative_ltxv_2,
+        positive=positive_ltxv_2,
+    )
 
-        cfgguider = CFGGuider(
-            cfg=GUIDE_STRENGTH,
-            model=ltx2memoryefficientsageattentionpatch,
-            negative=negative_ltxv_2,
-            positive=positive_ltxv_2,
-        )
+    positive_ltxv_4, negative_ltxv_4, latent_ltxv_3 = LTXVAddGuide(
+        strength=1.0,
+        image=ltxvpreprocess_2,
+        latent=latent_ltxv_2,
+        negative=negative_ltxv_3,
+        positive=positive_ltxv_3,
+        vae=vae,
+    )
 
-        output, denoised_output = SamplerCustomAdvanced(
-            guider=cfgguider,
-            latent_image=ltxvconcatavlatent,
-            noise=randomnoise,
-            sampler=ksamplerselect,
-            sigmas=manualsigmas,
-        )
+    positive_ltxv_5, negative_ltxv_5, latent_ltxv_4 = LTXVAddGuide(
+        frame_idx=-1,
+        strength=1.0,
+        image=ltxvpreprocess,
+        latent=latent_ltxv_3,
+        negative=negative_ltxv_4,
+        positive=positive_ltxv_4,
+        vae=vae,
+    )
 
-        video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=denoised_output)
+    ltxvconcatavlatent_2 = LTXVConcatAVLatent(
+        audio_latent=audio_latent,
+        video_latent=latent_ltxv_4,
+    )
 
-        ltxvlatentupsampler = LTXVLatentUpsampler(
-            samples=video_latent,
-            upscale_model=latentupscalemodelloader,
-            vae=vae,
-        )
+    cfgguider_2 = CFGGuider(
+        cfg=GUIDE_STRENGTH,
+        model=ltx2memoryefficientsageattentionpatch,
+        negative=negative_ltxv_5,
+        positive=positive_ltxv_5,
+    )
 
-        any_output, image_pass, model_pass, freemem_before, freemem_after = VRAM_Debug(
-            unload_all_models=True,
-            any_input=ltxvlatentupsampler,
-        )
+    output_sampler, denoised_output_sampler = SamplerCustomAdvanced(
+        guider=cfgguider_2,
+        latent_image=ltxvconcatavlatent_2,
+        noise=randomnoise_2,
+        sampler=ksamplerselect_2,
+        sigmas=manualsigmas_2,
+    )
 
-        positive_ltxv_3, negative_ltxv_3, latent_ltxv_2 = LTXVCropGuides(
-            latent=any_output,
-            negative=negative_ltxv_2,
-            positive=positive_ltxv_2,
-        )
+    video_latent_ltxv, audio_latent_ltxv = LTXVSeparateAVLatent(
+        av_latent=denoised_output_sampler,
+    )
 
-        positive_ltxv_4, negative_ltxv_4, latent_ltxv_3 = LTXVAddGuide(
-            strength=public('first_frame_strength', default=1.0),
-            image=ltxvpreprocess_2,
-            latent=latent_ltxv_2,
-            negative=negative_ltxv_3,
-            positive=positive_ltxv_3,
-            vae=vae,
-        )
+    ltxvaudiovaedecode = LTXVAudioVAEDecode(
+        audio_vae=ltxvaudiovaeloader,
+        samples=audio_latent_ltxv,
+    )
 
-        positive_ltxv_5, negative_ltxv_5, latent_ltxv_4 = LTXVAddGuide(
-            frame_idx=-1,
-            strength=public('last_frame_strength', default=1.0),
-            image=ltxvpreprocess,
-            latent=latent_ltxv_3,
-            negative=negative_ltxv_4,
-            positive=positive_ltxv_4,
-            vae=vae,
-        )
+    positive_ltxv_6, negative_ltxv_6, latent_ltxv_5 = LTXVCropGuides(
+        latent=video_latent_ltxv,
+        negative=negative_ltxv_5,
+        positive=positive_ltxv_5,
+    )
 
-        ltxvconcatavlatent_2 = LTXVConcatAVLatent(
-            audio_latent=audio_latent,
-            video_latent=latent_ltxv_4,
-        )
+    ltxvtiledvaedecode = LTXVTiledVAEDecode(
+        horizontal_tiles=2,
+        vertical_tiles=2,
+        overlap=6,
+        latents=latent_ltxv_5,
+        vae=vae,
+    )
 
-        cfgguider_2 = CFGGuider(
-            cfg=GUIDE_STRENGTH,
-            model=ltx2memoryefficientsageattentionpatch,
-            negative=negative_ltxv_5,
-            positive=positive_ltxv_5,
-        )
+    createvideo = CreateVideo(
+        fps=primitivefloat,
+        audio=ltxvaudiovaedecode,
+        images=ltxvtiledvaedecode,
+    )
 
-        output_sampler, denoised_output_sampler = SamplerCustomAdvanced(
-            guider=cfgguider_2,
-            latent_image=ltxvconcatavlatent_2,
-            noise=randomnoise_2,
-            sampler=ksamplerselect_2,
-            sigmas=manualsigmas_2,
-        )
-
-        video_latent_ltxv, audio_latent_ltxv = LTXVSeparateAVLatent(
-            av_latent=denoised_output_sampler,
-        )
-
-        ltxvaudiovaedecode = LTXVAudioVAEDecode(
-            audio_vae=ltxvaudiovaeloader,
-            samples=audio_latent_ltxv,
-        )
-
-        positive_ltxv_6, negative_ltxv_6, latent_ltxv_5 = LTXVCropGuides(
-            latent=video_latent_ltxv,
-            negative=negative_ltxv_5,
-            positive=positive_ltxv_5,
-        )
-
-        ltxvtiledvaedecode = LTXVTiledVAEDecode(
-            horizontal_tiles=2,
-            vertical_tiles=2,
-            overlap=6,
-            latents=latent_ltxv_5,
-            vae=vae,
-        )
-
-        createvideo = CreateVideo(
-            fps=primitivefloat,
-            audio=ltxvaudiovaedecode,
-            images=ltxvtiledvaedecode,
-        )
-
-        # Outputs
-        savevideo = SaveVideo(filename_prefix='output', video=createvideo)
+    # Outputs
+    savevideo = SaveVideo(filename_prefix='output', video=createvideo)
 
 
-        wf.register_input('model', model.node_id, 'ckpt_name', CKPT_NAME)
-        return wf.finalize({}, filename_prefix='output', spec=OUTPUT_SPEC)
+    wf.register_input('model', model.node_id, 'ckpt_name', CKPT_NAME)
+
+    PUBLIC_INPUTS = {
+        'seed': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED),
+        'model': InputSpec(node=model, field='ckpt_name', default=CKPT_NAME),
+        'prompt': InputSpec(node=cliptextencode_2, field='text', default=DEFAULT_PROMPT),
+        'first_image': InputSpec(node=image, field='image', default='example_start.png'),
+        'last_image': InputSpec(node=image_load, field='image', default='example_end.png'),
+        'height': InputSpec(node=primitiveint, field='value', default=480),
+        'seed_last': InputSpec(node=randomnoise_2, field='noise_seed', default=DEFAULT_SEED),
+        'frames': InputSpec(node=primitiveint_2, field='value', default=81, aliases=('length',)),
+        'width': InputSpec(node=primitiveint_3, field='value', default=832),
+        'fps_int': InputSpec(node=primitiveint_4, field='value', default=16),
+        'fps': InputSpec(node=primitivefloat, field='value', default=16, aliases=('output_fps',)),
+        'stage1_height': InputSpec(node=primitiveint_5, field='value', default=480),
+        'stage1_width': InputSpec(node=primitiveint_6, field='value', default=832),
+        'negative_prompt': InputSpec(node=cliptextencode, field='text', default='blurry, distorted, low quality'),
+        'first_strength': InputSpec(node=positive_ltxv, field='strength', default=1.0),
+        'last_strength': InputSpec(node=positive_ltxv_2, field='strength', default=1.0),
+        'first_frame_strength': InputSpec(node=positive_ltxv_4, field='strength', default=1.0),
+        'last_frame_strength': InputSpec(node=positive_ltxv_5, field='strength', default=1.0),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='output')
 

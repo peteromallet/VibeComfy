@@ -3,12 +3,9 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow
+from vibecomfy.templates import ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import ImageScaleBy
 from vibecomfy.nodes.videohelpersuite import VHS_LoadVideo, VHS_VideoCombine
-
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='video_enhance',
@@ -21,25 +18,25 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        image, frame_count, audio, video_info = VHS_LoadVideo(
-            video='video_enhance_input.mp4',
-        )
+    image, frame_count, audio, video_info = VHS_LoadVideo(
+        video='video_enhance_input.mp4',
+    )
 
-        imagescaleby = ImageScaleBy(upscale_method='lanczos', scale_by=2.0, image=image)
+    imagescaleby = ImageScaleBy(upscale_method='lanczos', scale_by=2.0, image=image)
 
-        vhs_videocombine = VHS_VideoCombine(
-            frame_rate=16,
-            filename_prefix='video-enhance',
-            format='video/h264-mp4',
-            crf=19,
-            pix_fmt='yuv420p',
-            save_metadata=True,
-            trim_to_audio=False,
-            audio=audio,
-            images=imagescaleby,
-        )
+    vhs_videocombine = VHS_VideoCombine(
+        frame_rate=16,
+        filename_prefix='video-enhance',
+        format='video/h264-mp4',
+        crf=19,
+        pix_fmt='yuv420p',
+        save_metadata=True,
+        trim_to_audio=False,
+        audio=audio,
+        images=imagescaleby,
+    )
 
-        return wf.finalize({}, filename_prefix='video-enhance', spec=OUTPUT_SPEC)
+    return wf.finalize({}, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='video-enhance')
 

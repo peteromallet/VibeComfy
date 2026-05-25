@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import ModelAsset, OutputSpec, ReadyMetadata, new_workflow, node as raw_call
+from vibecomfy.templates import ModelAsset, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
@@ -12,9 +12,6 @@ MODELS = {
     'text_encoder': ModelAsset(url='https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors', sha256='abad16806e0cbabc54e0325d6565847443fe396d5f0be38bb3cd3fe75a1201d6', hf_revision='23fbc8aa8b621f29f2249cd1bd9c47e5d0eebd83', size_bytes=8664848742, subdir='text_encoders'),
     'vae': ModelAsset(url='https://huggingface.co/black-forest-labs/FLUX.2-small-decoder/resolve/main/full_encoder_small_decoder.safetensors', sha256='ea4273f02d1fafbf8e1d1c2cf6018ed8748652eb0bf34f2dd91171f16f15ab62', hf_revision='a3efc24f613ef42d9428af62fdbd6f5fd8856c4a', size_bytes=249519092, subdir='vae'),
 }
-
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_image',
@@ -84,17 +81,17 @@ def text_to_image_flux2_klein_9b(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        edited = text_to_image_flux2_klein_9b(
-            width=1024,
-            height=1024,
-            unet_name='flux-2-klein-base-9b-fp8.safetensors',
-            clip_name='qwen_3_8b_fp8mixed.safetensors',
-            vae_name='full_encoder_small_decoder.safetensors',
-            prompt='',
-        )
-        saveimage = SaveImage(filename_prefix='Flux2-Klein', images=edited)
+    edited = text_to_image_flux2_klein_9b(
+        width=1024,
+        height=1024,
+        unet_name='flux-2-klein-base-9b-fp8.safetensors',
+        clip_name='qwen_3_8b_fp8mixed.safetensors',
+        vae_name='full_encoder_small_decoder.safetensors',
+        prompt='',
+    )
+    saveimage = SaveImage(filename_prefix='Flux2-Klein', images=edited)
 
-        return wf.finalize({}, filename_prefix='Flux2-Klein', spec=OUTPUT_SPEC)
+    return wf.finalize({}, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='Flux2-Klein')
 

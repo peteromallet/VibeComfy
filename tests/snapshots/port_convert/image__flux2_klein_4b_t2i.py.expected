@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CFGGuider, CLIPLoader, CLIPTextEncode, ConditioningZeroOut, EmptyFlux2LatentImage, Flux2Scheduler, KSamplerSelect, PrimitiveStringMultiline, RandomNoise, SamplerCustomAdvanced, SaveImage, UNETLoader, VAEDecode, VAELoader
 
 
@@ -12,9 +12,6 @@ WIDGET__NAME = 'flux-2-klein-base-4b.safetensors'
 WIDGET__NAME_2 = 'qwen_3_4b.safetensors'
 WIDGET__NAME_3 = 'flux2-vae.safetensors'
 WIDGET__NAME_4 = 'flux-2-klein-4b.safetensors'
-
-
-OUTPUT_SPEC = OutputSpec(name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='unknown',
@@ -135,30 +132,34 @@ def text_to_image_flux2_klein_4b_distilled(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        primitivestringmultiline = PrimitiveStringMultiline(
-            value=public('prompt', default='A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere\n', type='STRING', required=True, media_semantics='text'),
-        )
+    primitivestringmultiline = PrimitiveStringMultiline(
+        value='A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere\n',
+    )
 
-        edited = text_to_image_flux2_klein_4b(
-            value=1024,
-            value_1=1024,
-            unet_name='flux-2-klein-base-4b.safetensors',
-            clip_name='qwen_3_4b.safetensors',
-            vae_name='flux2-vae.safetensors',
-            prompt=primitivestringmultiline,
-        )
-        edited_2 = text_to_image_flux2_klein_4b_distilled(
-            value=1024,
-            value_1=1024,
-            unet_name='flux-2-klein-4b.safetensors',
-            clip_name='qwen_3_4b.safetensors',
-            vae_name='flux2-vae.safetensors',
-            prompt=primitivestringmultiline,
-        )
-        saveimage = SaveImage(filename_prefix='Flux2-Klein', images=edited)
-        saveimage_2 = SaveImage(filename_prefix='Flux2-Klein', images=edited_2)
+    edited = text_to_image_flux2_klein_4b(
+        value=1024,
+        value_1=1024,
+        unet_name='flux-2-klein-base-4b.safetensors',
+        clip_name='qwen_3_4b.safetensors',
+        vae_name='flux2-vae.safetensors',
+        prompt=primitivestringmultiline,
+    )
+    edited_2 = text_to_image_flux2_klein_4b_distilled(
+        value=1024,
+        value_1=1024,
+        unet_name='flux-2-klein-4b.safetensors',
+        clip_name='qwen_3_4b.safetensors',
+        vae_name='flux2-vae.safetensors',
+        prompt=primitivestringmultiline,
+    )
+    saveimage = SaveImage(filename_prefix='Flux2-Klein', images=edited)
+    saveimage_2 = SaveImage(filename_prefix='Flux2-Klein', images=edited_2)
 
-        return wf.finalize({}, output_node=saveimage, filename_prefix='Flux2-Klein', spec=OUTPUT_SPEC)
+
+    PUBLIC_INPUTS = {
+        'prompt': InputSpec(node=primitivestringmultiline, field='value', default='A hedgehog wearing a tiny party hat surrounded by confetti, early digital camera style, slight noise, flash photography, candid moment, 2000s digicam aesthetic, festive birthday celebration atmosphere\n', type='STRING', required=True, media_semantics='text'),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveimage, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one', filename_prefix='Flux2-Klein')
 

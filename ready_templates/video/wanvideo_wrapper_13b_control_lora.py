@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import ImageBlur
 from vibecomfy.nodes.kjnodes import ImageConcatMulti
 from vibecomfy.nodes.videohelpersuite import VHS_LoadVideo, VHS_VideoCombine
@@ -17,9 +17,6 @@ MODEL_NAME = 'umt5-xxl-enc-bf16.safetensors'
 MODEL_NAME_2 = 'wanvideo\\Wan2_1_VAE_bf16.safetensors'
 MODEL_NAME_3 = 'WanVideo\\wan2.1_t2v_1.3B_fp16.safetensors'
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='control_lora_video',
     requirements={'models': ['umt5-xxl-enc-bf16.safetensors', 'wanvideo\\Wan2_1_VAE_bf16.safetensors'], 'custom_nodes': ['ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper']},
@@ -31,74 +28,72 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
-            model_name=public('model', default=MODEL_NAME),
-        )
+    loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(model_name=MODEL_NAME)
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
+    wanvideoteacache = WanVideoTeaCache(rel_l1_thresh=0.1, use_coefficients='true')
+    wanvideotorchcompilesettings_2 = WanVideoTorchCompileSettings()
+    image, frame_count, audio, video_info = VHS_LoadVideo(video='wolf_interpolated.mp4')
+    wanvideoloraselect = WanVideoLoraSelect(lora=LORA_NAME)
 
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
-        wanvideovaeloader = WanVideoVAELoader(model_name=MODEL_NAME_2)
-        wanvideoteacache = WanVideoTeaCache(rel_l1_thresh=0.1, use_coefficients='true')
-        wanvideotorchcompilesettings_2 = WanVideoTorchCompileSettings()
+    wanvideotextencode = WanVideoTextEncode(
+        positive_prompt='video of a wolf',
+        negative_prompt=DEFAULT_NEGATIVE,
+        t5=loadwanvideot5textencoder,
+    )
 
-        image, frame_count, audio, video_info = VHS_LoadVideo(
-            video='wolf_interpolated.mp4',
-        )
+    wanvideomodelloader = WanVideoModelLoader(
+        model=MODEL_NAME_3,
+        base_precision='fp16',
+        lora=wanvideoloraselect,
+    )
 
-        wanvideoloraselect = WanVideoLoraSelect(lora=LORA_NAME)
+    imageblur = ImageBlur(widget_0=4, widget_1=1, image=image)
 
-        wanvideotextencode = WanVideoTextEncode(
-            positive_prompt='video of a wolf',
-            negative_prompt=DEFAULT_NEGATIVE,
-            t5=loadwanvideot5textencoder,
-        )
+    wanvideoencode = WanVideoEncode(
+        widget_0=False,
+        widget_1=272,
+        widget_2=272,
+        widget_3=144,
+        widget_4=128,
+        widget_5=0,
+        widget_6=1.0000000000000002,
+        image=imageblur,
+        vae=wanvideovaeloader,
+    )
 
-        wanvideomodelloader = WanVideoModelLoader(
-            model=MODEL_NAME_3,
-            base_precision='fp16',
-            lora=wanvideoloraselect,
-        )
+    wanvideocontrolembeds = WanVideoControlEmbeds(
+        end_percent=0.7,
+        latents=wanvideoencode,
+    )
 
-        imageblur = ImageBlur(widget_0=4, widget_1=1, image=image)
+    samples, denoised_samples = WanVideoSampler(
+        steps=1,
+        seed=DEFAULT_SEED,
+        batched_cfg='',
+        cache_args=wanvideoteacache,
+        image_embeds=wanvideocontrolembeds,
+        model=wanvideomodelloader,
+        text_embeds=wanvideotextencode,
+    )
 
-        wanvideoencode = WanVideoEncode(
-            widget_0=False,
-            widget_1=272,
-            widget_2=272,
-            widget_3=144,
-            widget_4=128,
-            widget_5=0,
-            widget_6=1.0000000000000002,
-            image=imageblur,
-            vae=wanvideovaeloader,
-        )
+    wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
 
-        wanvideocontrolembeds = WanVideoControlEmbeds(
-            end_percent=0.7,
-            latents=wanvideoencode,
-        )
+    imageconcatmulti = ImageConcatMulti(
+        unused_3=None,
+        image_1=imageblur,
+        image_2=wanvideodecode,
+    )
 
-        samples, denoised_samples = WanVideoSampler(
-            steps=1,
-            seed=public('seed', default=DEFAULT_SEED),
-            batched_cfg='',
-            cache_args=wanvideoteacache,
-            image_embeds=wanvideocontrolembeds,
-            model=wanvideomodelloader,
-            text_embeds=wanvideotextencode,
-        )
+    # Outputs
+    vhs_videocombine = VHS_VideoCombine(images=imageconcatmulti)
 
-        wanvideodecode = WanVideoDecode(samples=samples, vae=wanvideovaeloader)
 
-        imageconcatmulti = ImageConcatMulti(
-            unused_3=None,
-            image_1=imageblur,
-            image_2=wanvideodecode,
-        )
-
-        # Outputs
-        vhs_videocombine = VHS_VideoCombine(images=imageconcatmulti)
-
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=loadwanvideot5textencoder, field='model_name', default=MODEL_NAME),
+        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
 

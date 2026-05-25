@@ -69,14 +69,13 @@ MODELS = {
 }
 
 PUBLIC_INPUTS = {
-    'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME),
-    'prompt': InputSpec(node=ref('textencodeqwenimageedit'), field='prompt', default=DEFAULT_PROMPT),
-    'seed': InputSpec(node=ref('ksampler'), field='seed', default=DEFAULT_SEED),
-    'use_lora': InputSpec(node=ref('primitiveboolean'), field='value', default=False),
-    'sampler_name': InputSpec(node=ref('ksampler'), field='sampler_name', default='euler'),
-    'source_image': InputSpec(node=ref('image'), field='image', default='image_qwen_image_edit_input_image.png'),
-    'input_image': InputSpec(node=ref('image'), field='image', default='image_qwen_image_edit_input_image.png'),
-    'image': InputSpec(node=ref('image'), field='image', default='image_qwen_image_edit_input_image.png'),
+'image': InputSpec(node=ref('image'), field='image', default='image_qwen_image_edit_input_image.png', aliases=('input_image',)),
+'model': InputSpec(node=ref('unetloader'), field='unet_name', default=MODEL_NAME),
+'prompt': InputSpec(node=ref('textencodeqwenimageedit'), field='prompt', default=DEFAULT_PROMPT),
+'sampler_name': InputSpec(node=ref('ksampler'), field='sampler_name', default='euler'),
+'seed': InputSpec(node=ref('ksampler'), field='seed', default=DEFAULT_SEED),
+'source_image': InputSpec(node=ref('image'), field='image', default='image_qwen_image_edit_input_image.png'),
+'use_lora': InputSpec(node=ref('primitiveboolean'), field='value', default=False),
 }
 
 READY_METADATA = ReadyMetadata.build(
@@ -188,88 +187,88 @@ def qwen_image_edit(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
         # Inputs
-        image, mask = LoadImage(image='image_qwen_image_edit_input_image.png')
+    image, mask = LoadImage(image='image_qwen_image_edit_input_image.png')
 
-        # Loaders
-        unetloader = UNETLoader(unet_name=MODEL_NAME)
-        cliploader = CLIPLoader(clip_name=MODEL_NAME_2, type_='qwen_image')
-        vaeloader = VAELoader(vae_name=MODEL_NAME_3)
+    # Loaders
+    unetloader = UNETLoader(unet_name=MODEL_NAME)
+    cliploader = CLIPLoader(clip_name=MODEL_NAME_2, type_='qwen_image')
+    vaeloader = VAELoader(vae_name=MODEL_NAME_3)
 
-        # Inputs
-        primitiveint = raw_call('PrimitiveInt', '102:103', value=4)
-        primitivefloat = raw_call('PrimitiveFloat', '102:105', value=1)
-        primitiveint_2 = raw_call('PrimitiveInt', '102:106', value=20)
-        primitivefloat_2 = raw_call('PrimitiveFloat', '102:107', value=2.5)
-        primitiveboolean = raw_call('PrimitiveBoolean', '102:111', value=False)
+    # Inputs
+    primitiveint = raw_call('PrimitiveInt', '102:103', value=4)
+    primitivefloat = raw_call('PrimitiveFloat', '102:105', value=1)
+    primitiveint_2 = raw_call('PrimitiveInt', '102:106', value=20)
+    primitivefloat_2 = raw_call('PrimitiveFloat', '102:107', value=2.5)
+    primitiveboolean = raw_call('PrimitiveBoolean', '102:111', value=False)
 
-        imagescaletototalpixels = ImageScaleToTotalPixels(
-            upscale_method='lanczos',
-            megapixels=1.5,
-            image=image,
-        )
+    imagescaletototalpixels = ImageScaleToTotalPixels(
+        upscale_method='lanczos',
+        megapixels=1.5,
+        image=image,
+    )
 
-        textencodeqwenimageedit = TextEncodeQwenImageEdit(
-            prompt=DEFAULT_PROMPT,
-            clip=cliploader,
-            image=image,
-            vae=vaeloader,
-        )
+    textencodeqwenimageedit = TextEncodeQwenImageEdit(
+        prompt=DEFAULT_PROMPT,
+        clip=cliploader,
+        image=image,
+        vae=vaeloader,
+    )
 
-        textencodeqwenimageedit_2 = TextEncodeQwenImageEdit(
-            prompt='',
-            clip=cliploader,
-            image=image,
-            vae=vaeloader,
-        )
+    textencodeqwenimageedit_2 = TextEncodeQwenImageEdit(
+        prompt='',
+        clip=cliploader,
+        image=image,
+        vae=vaeloader,
+    )
 
-        vaeencode = VAEEncode(pixels=image, vae=vaeloader)
+    vaeencode = VAEEncode(pixels=image, vae=vaeloader)
 
-        loraloadermodelonly = LoraLoaderModelOnly(
-            lora_name=MODEL_NAME_4,
-            model=unetloader,
-        )
+    loraloadermodelonly = LoraLoaderModelOnly(
+        lora_name=MODEL_NAME_4,
+        model=unetloader,
+    )
 
-        comfyswitchnode = ComfySwitchNode(
-            on_false=primitivefloat_2,
-            on_true=primitivefloat,
-            switch=primitiveboolean,
-        )
+    comfyswitchnode = ComfySwitchNode(
+        on_false=primitivefloat_2,
+        on_true=primitivefloat,
+        switch=primitiveboolean,
+    )
 
-        comfyswitchnode_2 = ComfySwitchNode(
-            on_false=primitiveint_2,
-            on_true=primitiveint,
-            switch=primitiveboolean,
-        )
+    comfyswitchnode_2 = ComfySwitchNode(
+        on_false=primitiveint_2,
+        on_true=primitiveint,
+        switch=primitiveboolean,
+    )
 
-        comfyswitchnode_3 = ComfySwitchNode(
-            on_false=unetloader,
-            on_true=loraloadermodelonly,
-            switch=primitiveboolean,
-        )
+    comfyswitchnode_3 = ComfySwitchNode(
+        on_false=unetloader,
+        on_true=loraloadermodelonly,
+        switch=primitiveboolean,
+    )
 
-        modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=comfyswitchnode_3)
-        cfgnorm = CFGNorm(model=modelsamplingauraflow)
+    modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=comfyswitchnode_3)
+    cfgnorm = CFGNorm(model=modelsamplingauraflow)
 
-        # Sampling
-        ksampler = KSampler(
-            seed=DEFAULT_SEED,
-            sampler_name='euler',
-            steps=comfyswitchnode_2,
-            cfg=comfyswitchnode,
-            latent_image=vaeencode,
-            model=cfgnorm,
-            negative=textencodeqwenimageedit_2,
-            positive=textencodeqwenimageedit,
-        )
+    # Sampling
+    ksampler = KSampler(
+        seed=DEFAULT_SEED,
+        sampler_name='euler',
+        steps=comfyswitchnode_2,
+        cfg=comfyswitchnode,
+        latent_image=vaeencode,
+        model=cfgnorm,
+        negative=textencodeqwenimageedit_2,
+        positive=textencodeqwenimageedit,
+    )
 
-        # Decode
-        vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
+    # Decode
+    vaedecode = VAEDecode(samples=ksampler, vae=vaeloader)
 
-        # Outputs
-        saveimage = SaveImage(images=vaedecode)
+    # Outputs
+    saveimage = SaveImage(images=vaedecode)
 
-        return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
+    return wf.finalize(PUBLIC_INPUTS, output_type='SaveImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
 

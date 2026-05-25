@@ -3,16 +3,13 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
 from vibecomfy.nodes.core import LoadAudio, SaveAudioMP3
 from vibecomfy.nodes.qwentts import AILab_Qwen3TTSVoiceClone
 
 
 AUDIO = 'speech_smoke.wav'
 DEFAULT_SEED = 3189
-
-
-OUTPUT_SPEC = OutputSpec(name='audio', artifact_kind='audio', mime_type='audio/mpeg', expected_cardinality='one')
 
 READY_METADATA = ReadyMetadata.build(
     capability='text_to_speech_voice_clone',
@@ -27,23 +24,27 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        loadaudio = LoadAudio(audio=AUDIO, widget_0='speech_smoke.wav')
+    loadaudio = LoadAudio(audio=AUDIO, widget_0='speech_smoke.wav')
 
-        ailab_qwen3ttsvoiceclone = AILab_Qwen3TTSVoiceClone(
-            language='English',
-            model_size='0.6B',
-            reference_text='This is a short reference audio sample for workflow smoke testing.',
-            seed=public('seed', default=DEFAULT_SEED),
-            target_text='This Qwen voice clone template uses a tiny bundled reference clip and runs as a reusable audio smoke test.',
-            reference_audio=loadaudio,
-        )
+    ailab_qwen3ttsvoiceclone = AILab_Qwen3TTSVoiceClone(
+        language='English',
+        model_size='0.6B',
+        reference_text='This is a short reference audio sample for workflow smoke testing.',
+        seed=DEFAULT_SEED,
+        target_text='This Qwen voice clone template uses a tiny bundled reference clip and runs as a reusable audio smoke test.',
+        reference_audio=loadaudio,
+    )
 
-        saveaudiomp3 = SaveAudioMP3(
-            filename_prefix='audio/qwen3_tts_voice_clone',
-            audio=ailab_qwen3ttsvoiceclone,
-        )
+    saveaudiomp3 = SaveAudioMP3(
+        filename_prefix='audio/qwen3_tts_voice_clone',
+        audio=ailab_qwen3ttsvoiceclone,
+    )
 
-        return wf.finalize({}, spec=OUTPUT_SPEC)
+
+    PUBLIC_INPUTS = {
+        'seed': InputSpec(node=ailab_qwen3ttsvoiceclone, field='seed', default=DEFAULT_SEED),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=saveaudiomp3, output_type='SaveAudioMP3', name='audio', artifact_kind='audio', mime_type='audio/mpeg', expected_cardinality='one')
 

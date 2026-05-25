@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import OutputSpec, ReadyMetadata, new_workflow, node as raw_call, public
+from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow, node as raw_call
 from vibecomfy.nodes.core import CFGGuider, CLIPTextEncode, CreateVideo, EmptyLTXVLatentVideo, GetImageSize, GetVideoComponents, KSamplerSelect, LTXAVTextEncoderLoader, LTXVConditioning, LTXVCropGuides, LoadVideo, ManualSigmas, RandomNoise, ResizeImageMaskNode, SamplerCustomAdvanced, SaveVideo, VAEDecodeTiled
 from vibecomfy.nodes.ltxvideo import GemmaAPITextEncode, LTXAddVideoICLoRAGuide, LTXICLoRALoaderModelOnly, LTXVHDRDecodePostprocess, LowVRAMCheckpointLoader
 
@@ -21,9 +21,6 @@ LORA_NAME = 'ltx-2.3-22b-distilled-lora-384-1.1.safetensors'
 LORA_NAME_2 = 'ltx-2.3-22b-ic-lora-hdr-0.9.safetensors'
 TEXT_ENCODER_NAME = 'gemma_3_12B_it_fp4_mixed.safetensors'
 
-
-OUTPUT_SPEC = OutputSpec(name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
 READY_METADATA = ReadyMetadata.build(
     capability='video_guided_hdr',
     requirements={'models': ['euler_ancestral', 'ltx-2.3-22b-dev-fp8.safetensors', 'ltx-2.3-22b-distilled-lora-384-1.1.safetensors', 'ltx-2.3-22b-ic-lora-hdr-0.9.safetensors'], 'custom_nodes': ['ComfyUI-KJNodes', 'ComfyUI-LTXVideo']},
@@ -39,160 +36,156 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=CKPT_NAME)
-        ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral')
+    model, clip, vae = LowVRAMCheckpointLoader(ckpt_name=CKPT_NAME)
+    ksamplerselect = KSamplerSelect(sampler_name='euler_ancestral')
+    randomnoise = RandomNoise(noise_seed=DEFAULT_SEED, control_after_generate='fixed')
 
-        randomnoise = RandomNoise(
-            noise_seed=public('seed', default=DEFAULT_SEED),
-            control_after_generate='fixed',
-        )
+    # Inputs
+    primitivestring = raw_call('PrimitiveString', '5022', value='')
 
-        # Inputs
-        primitivestring = raw_call('PrimitiveString', '5022', value='')
+    ltxavtextencoderloader = LTXAVTextEncoderLoader(
+        text_encoder=TEXT_ENCODER_NAME,
+        ckpt_name=CKPT_NAME,
+        device='default',
+    )
 
-        ltxavtextencoderloader = LTXAVTextEncoderLoader(
-            text_encoder=TEXT_ENCODER_NAME,
-            ckpt_name=CKPT_NAME,
-            device='default',
-        )
+    manualsigmas = ManualSigmas(
+        sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
+    )
 
-        manualsigmas = ManualSigmas(
-            sigmas='1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0',
-        )
+    loadvideo = LoadVideo(file='ltx_smoke_guide.mp4', video='ltx_smoke_guide.mp4')
 
-        loadvideo = LoadVideo(file='ltx_smoke_guide.mp4', video='ltx_smoke_guide.mp4')
+    # Conditioning
+    cliptextencode = CLIPTextEncode(text='HDR footage', clip=ltxavtextencoderloader)
+    cliptextencode_2 = CLIPTextEncode(text=DEFAULT_PROMPT, clip=ltxavtextencoderloader)
 
-        # Conditioning
-        cliptextencode = CLIPTextEncode(
-            text=public('prompt', default='HDR footage'),
-            clip=ltxavtextencoderloader,
-        )
+    gemmaapitextencode = GemmaAPITextEncode(
+        ckpt_name=CKPT_NAME,
+        enhance_prompt=False,
+        prompt=DEFAULT_PROMPT_2,
+        widget_0='',
+        api_key=primitivestring,
+    )
 
-        cliptextencode_2 = CLIPTextEncode(
-            text=DEFAULT_PROMPT,
-            clip=ltxavtextencoderloader,
-        )
+    gemmaapitextencode_2 = GemmaAPITextEncode(
+        ckpt_name=CKPT_NAME,
+        enhance_prompt=ENHANCE_PROMPT_NAME,
+        widget_0='',
+        api_key=primitivestring,
+    )
 
-        gemmaapitextencode = GemmaAPITextEncode(
-            ckpt_name=CKPT_NAME,
-            enhance_prompt=False,
-            prompt=DEFAULT_PROMPT_2,
-            widget_0='',
-            api_key=primitivestring,
-        )
+    images, audio, fps = GetVideoComponents(video=loadvideo)
 
-        gemmaapitextencode_2 = GemmaAPITextEncode(
-            ckpt_name=CKPT_NAME,
-            enhance_prompt=ENHANCE_PROMPT_NAME,
-            widget_0='',
-            api_key=primitivestring,
-        )
+    model_ltxic, latent_downscale_factor = LTXICLoRALoaderModelOnly(
+        lora_name=LORA_NAME,
+        strength_model=GUIDE_STRENGTH,
+        model=model,
+    )
 
-        images, audio, fps = GetVideoComponents(video=loadvideo)
+    positive, negative = LTXVConditioning(
+        frame_rate=fps,
+        negative=cliptextencode_2,
+        positive=cliptextencode,
+    )
 
-        model_ltxic, latent_downscale_factor = LTXICLoRALoaderModelOnly(
-            lora_name=LORA_NAME,
-            strength_model=GUIDE_STRENGTH,
-            model=model,
-        )
+    model_ltxic_2, latent_downscale_factor_ltxic = LTXICLoRALoaderModelOnly(
+        lora_name=LORA_NAME_2,
+        model=model_ltxic,
+    )
 
-        positive, negative = LTXVConditioning(
-            frame_rate=fps,
-            negative=cliptextencode_2,
-            positive=cliptextencode,
-        )
+    simplemath_ = raw_call('SimpleMath+', '5111',
+        _outputs=('INT', 'FLOAT'),
+        value='a*32',
+        a=latent_downscale_factor_ltxic,
+    )
 
-        model_ltxic_2, latent_downscale_factor_ltxic = LTXICLoRALoaderModelOnly(
-            lora_name=LORA_NAME_2,
-            model=model_ltxic,
-        )
+    resizeimagemasknode = ResizeImageMaskNode(
+        resize_type='scale to multiple',
+        scale_method='lanczos',
+        input=images,
+        **{'resize_type.multiple': simplemath_.out('INT')},
+    )
 
-        simplemath_ = raw_call('SimpleMath+', '5111',
-            _outputs=('INT', 'FLOAT'),
-            value='a*32',
-            a=latent_downscale_factor_ltxic,
-        )
+    width, height, batch_size = GetImageSize(image=resizeimagemasknode)
 
-        resizeimagemasknode = ResizeImageMaskNode(
-            resize_type='scale to multiple',
-            scale_method='lanczos',
-            input=images,
-            **{'resize_type.multiple': simplemath_.out('INT')},
-        )
+    emptyltxvlatentvideo = EmptyLTXVLatentVideo(
+        width=width,
+        height=height,
+        length=batch_size,
+    )
 
-        width, height, batch_size = GetImageSize(image=resizeimagemasknode)
+    positive_ltx, negative_ltx, latent = LTXAddVideoICLoRAGuide(
+        crop=1,
+        use_tiled_encode='disabled',
+        tile_size=128,
+        tile_overlap=32,
+        image=resizeimagemasknode,
+        latent=emptyltxvlatentvideo,
+        negative=negative,
+        positive=positive,
+        vae=vae,
+    )
 
-        emptyltxvlatentvideo = EmptyLTXVLatentVideo(
-            width=width,
-            height=height,
-            length=batch_size,
-        )
+    cfgguider = CFGGuider(
+        cfg=GUIDE_STRENGTH_2,
+        model=model_ltxic_2,
+        negative=negative_ltx,
+        positive=positive_ltx,
+    )
 
-        positive_ltx, negative_ltx, latent = LTXAddVideoICLoRAGuide(
-            crop=1,
-            use_tiled_encode='disabled',
-            tile_size=128,
-            tile_overlap=32,
-            image=resizeimagemasknode,
-            latent=emptyltxvlatentvideo,
-            negative=negative,
-            positive=positive,
-            vae=vae,
-        )
+    output, denoised_output = SamplerCustomAdvanced(
+        guider=cfgguider,
+        latent_image=latent,
+        noise=randomnoise,
+        sampler=ksamplerselect,
+        sigmas=manualsigmas,
+    )
 
-        cfgguider = CFGGuider(
-            cfg=GUIDE_STRENGTH_2,
-            model=model_ltxic_2,
-            negative=negative_ltx,
-            positive=positive_ltx,
-        )
+    positive_ltxv, negative_ltxv, latent_ltxv = LTXVCropGuides(
+        latent=output,
+        negative=negative_ltx,
+        positive=positive_ltx,
+    )
 
-        output, denoised_output = SamplerCustomAdvanced(
-            guider=cfgguider,
-            latent_image=latent,
-            noise=randomnoise,
-            sampler=ksamplerselect,
-            sigmas=manualsigmas,
-        )
+    # Decode
+    vaedecodetiled = VAEDecodeTiled(
+        tile_size=768,
+        overlap=256,
+        temporal_size=8,
+        temporal_overlap=4,
+        samples=latent_ltxv,
+        vae=vae,
+    )
 
-        positive_ltxv, negative_ltxv, latent_ltxv = LTXVCropGuides(
-            latent=output,
-            negative=negative_ltx,
-            positive=positive_ltx,
-        )
+    tonemapped, hdr_linear = LTXVHDRDecodePostprocess(
+        widget_0=7.1,
+        widget_1=True,
+        widget_2='output/hdr_exr3',
+        widget_3='frame',
+        widget_4=True,
+        image=vaedecodetiled,
+    )
 
-        # Decode
-        vaedecodetiled = VAEDecodeTiled(
-            tile_size=768,
-            overlap=256,
-            temporal_size=8,
-            temporal_overlap=4,
-            samples=latent_ltxv,
-            vae=vae,
-        )
+    createvideo = CreateVideo(
+        fps=DEFAULT_FPS,
+        widget_0=8,
+        audio=audio,
+        images=hdr_linear,
+    )
 
-        tonemapped, hdr_linear = LTXVHDRDecodePostprocess(
-            widget_0=7.1,
-            widget_1=True,
-            widget_2='output/hdr_exr3',
-            widget_3='frame',
-            widget_4=True,
-            image=vaedecodetiled,
-        )
-
-        createvideo = CreateVideo(
-            fps=public('fps', default=DEFAULT_FPS),
-            widget_0=8,
-            audio=audio,
-            images=hdr_linear,
-        )
-
-        # Outputs
-        savevideo = SaveVideo(filename_prefix='output', video=createvideo)
+    # Outputs
+    savevideo = SaveVideo(filename_prefix='output', video=createvideo)
 
 
-        wf.register_input('model', model.node_id, 'ckpt_name', CKPT_NAME)
-        return wf.finalize({}, filename_prefix='output', spec=OUTPUT_SPEC)
+    wf.register_input('model', model.node_id, 'ckpt_name', CKPT_NAME)
+
+    PUBLIC_INPUTS = {
+        'model': InputSpec(node=model, field='ckpt_name', default=CKPT_NAME),
+        'seed': InputSpec(node=randomnoise, field='noise_seed', default=DEFAULT_SEED),
+        'prompt': InputSpec(node=cliptextencode, field='text', default='HDR footage'),
+        'fps': InputSpec(node=createvideo, field='fps', default=DEFAULT_FPS),
+    }
+    return wf.finalize(PUBLIC_INPUTS, output_node=savevideo, output_type='SaveVideo', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='output')
 

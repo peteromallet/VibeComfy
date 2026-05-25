@@ -37,184 +37,184 @@ READY_METADATA = ReadyMetadata.build(
 
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    with new_workflow(READY_METADATA, source_path=__file__) as wf:
+    wf = new_workflow(READY_METADATA, source_path=__file__)
 
-        wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
+    wanvideotorchcompilesettings = WanVideoTorchCompileSettings()
 
-        wanvideovaeloader = WanVideoVAELoader(
-            model_name=public('model', default=MODEL_NAME),
-        )
+    wanvideovaeloader = WanVideoVAELoader(
+        model_name=public('model', default=MODEL_NAME),
+    )
 
-        wanvideoblockswap = WanVideoBlockSwap(
-            blocks_to_swap=25,
-            use_non_blocking=True,
-            prefetch_blocks=1,
-        )
+    wanvideoblockswap = WanVideoBlockSwap(
+        blocks_to_swap=25,
+        use_non_blocking=True,
+        prefetch_blocks=1,
+    )
 
-        wanvideoloraselectmulti = WanVideoLoraSelectMulti(
-            lora_0=LORA__NAME,
-            strength_0=1.5,
-            merge_loras=False,
-        )
+    wanvideoloraselectmulti = WanVideoLoraSelectMulti(
+        lora_0=LORA__NAME,
+        strength_0=1.5,
+        merge_loras=False,
+    )
 
-        audioencoderloader = AudioEncoderLoader(audio_encoder_name=AUDIO_ENCODER_NAME)
+    audioencoderloader = AudioEncoderLoader(audio_encoder_name=AUDIO_ENCODER_NAME)
 
-        loadaudio = LoadAudio(
-            audio='NieR_ Automata - _Weight of the World_ ENG VER. by Lizz Robinett [CyOSTbel3AM].mp3',
-            widget_1=None,
-            widget_2=None,
-        )
+    loadaudio = LoadAudio(
+        audio='NieR_ Automata - _Weight of the World_ ENG VER. by Lizz Robinett [CyOSTbel3AM].mp3',
+        widget_1=None,
+        widget_2=None,
+    )
 
-        text_embeds, negative_text_embeds, positive_prompt = WanVideoTextEncodeCached(
-            model_name=MODEL_NAME_2,
-            positive_prompt=DEFAULT_PROMPT,
-            negative_prompt=DEFAULT_NEGATIVE,
-        )
+    text_embeds, negative_text_embeds, positive_prompt = WanVideoTextEncodeCached(
+        model_name=MODEL_NAME_2,
+        positive_prompt=DEFAULT_PROMPT,
+        negative_prompt=DEFAULT_NEGATIVE,
+    )
 
-        primitivenode = raw_call('PrimitiveNode', '71', widget_0=201, widget_1='fixed')
+    primitivenode = raw_call('PrimitiveNode', '71', widget_0=201, widget_1='fixed')
 
-        # Inputs
-        image_load, mask = LoadImage(
-            image=public('image', default='2b.jpg', aliases=('input_image',)),
-        )
+    # Inputs
+    image_load, mask = LoadImage(
+        image=public('image', default='2b.jpg', aliases=('input_image',)),
+    )
 
-        melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '81', widget_0=WIDGET__NAME)
+    melbandroformermodelloader = raw_call('MelBandRoFormerModelLoader', '81', widget_0=WIDGET__NAME)
 
-        wanvideocontextoptions = WanVideoContextOptions(
-            context_schedule='uniform_standard',
-        )
+    wanvideocontextoptions = WanVideoContextOptions(
+        context_schedule='uniform_standard',
+    )
 
-        audio, duration = VHS_LoadAudio()
+    audio, duration = VHS_LoadAudio()
 
-        downloadandloadgimmvfimodel = raw_call('DownloadAndLoadGIMMVFIModel', '95',
-            widget_0=WIDGET__NAME_2,
-            widget_1='fp16',
-            widget_2=False,
-        )
+    downloadandloadgimmvfimodel = raw_call('DownloadAndLoadGIMMVFIModel', '95',
+        widget_0=WIDGET__NAME_2,
+        widget_1='fp16',
+        widget_2=False,
+    )
 
-        wanvideomodelloader = WanVideoModelLoader(
-            model=MODEL_NAME_3,
-            base_precision='fp16',
-            quantization='fp8_e4m3fn_scaled',
-            compile_args=wanvideotorchcompilesettings,
-        )
+    wanvideomodelloader = WanVideoModelLoader(
+        model=MODEL_NAME_3,
+        base_precision='fp16',
+        quantization='fp8_e4m3fn_scaled',
+        compile_args=wanvideotorchcompilesettings,
+    )
 
-        image_image, width_image, height_image, mask_image = ImageResizeKJv2(
-            width=public('width', default=256),
-            height=public('height', default=256),
-            upscale_method='lanczos',
-            keep_proportion='crop',
-            device='cpu',
-            image=image_load,
-        )
+    image_image, width_image, height_image, mask_image = ImageResizeKJv2(
+        width=public('width', default=256),
+        height=public('height', default=256),
+        upscale_method='lanczos',
+        keep_proportion='crop',
+        device='cpu',
+        image=image_load,
+    )
 
-        melbandroformersampler = raw_call('MelBandRoFormerSampler', '82',
-            audio=audio,
-            model=melbandroformermodelloader.out(0),
-        )
+    melbandroformersampler = raw_call('MelBandRoFormerSampler', '82',
+        audio=audio,
+        model=melbandroformermodelloader.out(0),
+    )
 
-        wanvideoemptyembeds = WanVideoEmptyEmbeds(
-            widget_0=256,
-            widget_1=256,
-            widget_2=5,
-            height=height_image,
-            num_frames=primitivenode.out(0),
-            width=width_image,
-        )
+    wanvideoemptyembeds = WanVideoEmptyEmbeds(
+        widget_0=256,
+        widget_1=256,
+        widget_2=5,
+        height=height_image,
+        num_frames=primitivenode.out(0),
+        width=width_image,
+    )
 
-        wanvideosetloras = WanVideoSetLoRAs(
-            lora=wanvideoloraselectmulti,
-            model=wanvideomodelloader,
-        )
+    wanvideosetloras = WanVideoSetLoRAs(
+        lora=wanvideoloraselectmulti,
+        model=wanvideomodelloader,
+    )
 
-        previewany = PreviewAny(source=wanvideomodelloader)
+    previewany = PreviewAny(source=wanvideomodelloader)
 
-        wanvideoencode = WanVideoEncode(
-            widget_0=False,
-            widget_1=272,
-            widget_2=272,
-            widget_3=144,
-            widget_4=128,
-            widget_5=0,
-            widget_6=1,
-            image=image_image,
-            vae=wanvideovaeloader,
-        )
+    wanvideoencode = WanVideoEncode(
+        widget_0=False,
+        widget_1=272,
+        widget_2=272,
+        widget_3=144,
+        widget_4=128,
+        widget_5=0,
+        widget_6=1,
+        image=image_image,
+        vae=wanvideovaeloader,
+    )
 
-        normalizeaudioloudness = NormalizeAudioLoudness(
-            widget_0=-23,
-            audio=melbandroformersampler.out(0),
-        )
+    normalizeaudioloudness = NormalizeAudioLoudness(
+        widget_0=-23,
+        audio=melbandroformersampler.out(0),
+    )
 
-        wanvideosetblockswap = WanVideoSetBlockSwap(
-            block_swap_args=wanvideoblockswap,
-            model=wanvideosetloras,
-        )
+    wanvideosetblockswap = WanVideoSetBlockSwap(
+        block_swap_args=wanvideoblockswap,
+        model=wanvideosetloras,
+    )
 
-        audioencoderencode = AudioEncoderEncode(
-            audio=normalizeaudioloudness,
-            audio_encoder=audioencoderloader,
-        )
+    audioencoderencode = AudioEncoderEncode(
+        audio=normalizeaudioloudness,
+        audio_encoder=audioencoderloader,
+    )
 
-        image_embeds, audio_frame_count = WanVideoAddS2VEmbeds(
-            audio_scale=0,
-            pose_end_percent=False,
-            pose_start_percent=1,
-            widget_0=201,
-            widget_1=1,
-            audio_encoder_output=audioencoderencode,
-            embeds=wanvideoemptyembeds,
-            frame_window_size=primitivenode.out(0),
-            ref_latent=wanvideoencode,
-        )
+    image_embeds, audio_frame_count = WanVideoAddS2VEmbeds(
+        audio_scale=0,
+        pose_end_percent=False,
+        pose_start_percent=1,
+        widget_0=201,
+        widget_1=1,
+        audio_encoder_output=audioencoderencode,
+        embeds=wanvideoemptyembeds,
+        frame_window_size=primitivenode.out(0),
+        ref_latent=wanvideoencode,
+    )
 
-        samples, denoised_samples = WanVideoSampler(
-            steps=1,
-            cfg=GUIDE_STRENGTH,
-            shift=4,
-            seed=public('seed', default=DEFAULT_SEED),
-            scheduler='dpm++_sde',
-            context_options=wanvideocontextoptions,
-            image_embeds=image_embeds,
-            model=wanvideosetblockswap,
-            text_embeds=text_embeds,
-        )
+    samples, denoised_samples = WanVideoSampler(
+        steps=1,
+        cfg=GUIDE_STRENGTH,
+        shift=4,
+        seed=public('seed', default=DEFAULT_SEED),
+        scheduler='dpm++_sde',
+        context_options=wanvideocontextoptions,
+        image_embeds=image_embeds,
+        model=wanvideosetblockswap,
+        text_embeds=text_embeds,
+    )
 
-        previewany_2 = PreviewAny(source=audio_frame_count)
+    previewany_2 = PreviewAny(source=audio_frame_count)
 
-        wanvideodecode = WanVideoDecode(
-            normalization='default',
-            samples=samples,
-            vae=wanvideovaeloader,
-        )
+    wanvideodecode = WanVideoDecode(
+        normalization='default',
+        samples=samples,
+        vae=wanvideovaeloader,
+    )
 
-        insertlatenttoindexed = InsertLatentToIndexed(
-            widget_0=0,
-            destination=samples,
-            source=wanvideoencode,
-        )
+    insertlatenttoindexed = InsertLatentToIndexed(
+        widget_0=0,
+        destination=samples,
+        source=wanvideoencode,
+    )
 
-        image, width, height, count = GetImageSizeAndCount(image=wanvideodecode)
-        image_a, a_count, image_b, b_count = VHS_SplitImages(images=image)
+    image, width, height, count = GetImageSizeAndCount(image=wanvideodecode)
+    image_a, a_count, image_b, b_count = VHS_SplitImages(images=image)
 
-        gimmvfi_interpolate = raw_call('GIMMVFI_interpolate', '96',
-            widget_0=1,
-            widget_1=3,
-            widget_2=0,
-            widget_3='fixed',
-            widget_4=False,
-            gimmvfi_model=downloadandloadgimmvfimodel.out(0),
-            images=image_b,
-        )
+    gimmvfi_interpolate = raw_call('GIMMVFI_interpolate', '96',
+        widget_0=1,
+        widget_1=3,
+        widget_2=0,
+        widget_3='fixed',
+        widget_4=False,
+        gimmvfi_model=downloadandloadgimmvfimodel.out(0),
+        images=image_b,
+    )
 
-        # Outputs
-        vhs_videocombine_2 = VHS_VideoCombine(audio=audio, images=image_b)
+    # Outputs
+    vhs_videocombine_2 = VHS_VideoCombine(audio=audio, images=image_b)
 
-        image_select, count_select = VHS_SelectEveryNthImage(
-            images=gimmvfi_interpolate.out(0),
-        )
+    image_select, count_select = VHS_SelectEveryNthImage(
+        images=gimmvfi_interpolate.out(0),
+    )
 
-        vhs_videocombine = VHS_VideoCombine(audio=audio, images=image_select)
+    vhs_videocombine = VHS_VideoCombine(audio=audio, images=image_select)
 
-        return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
+    return wf.finalize({}, output_node=vhs_videocombine, spec=OUTPUT_SPEC)
 
