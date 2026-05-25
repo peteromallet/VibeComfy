@@ -31,6 +31,8 @@ READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG = "generated_variable_name_
 READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND = "subgraph_input_unbound"
 READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS = "schema_unknown_kwarg_hidden_by_extras"
 READABILITY_WARNING_OPAQUE_COMPONENT_RAW_CALL = "opaque_component_raw_call"
+# T2 SD4: multiple SetNode nodes share the same broadcast name; first-by-node-id wins.
+HELPER_RESOLUTION_MULTI_SETNODE_COLLISION = "multi_setnode_name_collision"
 
 READABILITY_WARNING_CODES: frozenset[str] = frozenset(
     {
@@ -45,6 +47,7 @@ READABILITY_WARNING_CODES: frozenset[str] = frozenset(
         READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND,
         READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
         READABILITY_WARNING_OPAQUE_COMPONENT_RAW_CALL,
+        HELPER_RESOLUTION_MULTI_SETNODE_COLLISION,
     }
 )
 
@@ -396,6 +399,22 @@ def _constant_name_base_for_category(category: str, field: str) -> str:
     return sanitized
 
 
+def _constant_name_for_string_value(value: str) -> str:
+    """Return an uppercase-slugified constant name derived from string VALUE (SD1 B1).
+
+    Examples: ``'vae'`` → ``VAE``, ``'vae_audio'`` → ``VAE_AUDIO``,
+    ``'wan_i2v.safetensors'`` → ``WAN_I2V_SAFETENSORS``.
+    Numeric suffixes are added by callers only on real name collision.
+    """
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", str(value).upper())
+    sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+    if not sanitized:
+        return "VALUE"
+    if sanitized[0].isdigit():
+        sanitized = f"V_{sanitized}"
+    return sanitized
+
+
 def _build_section_groups(
     workflow_nodes: dict[str, Any],
     edges_in: dict[str, list[Any]],
@@ -498,7 +517,10 @@ def _hoist_constants(
         if not should_hoist:
             continue
 
-        base = _constant_name_base_for_category(category, field)
+        if category == "model" and isinstance(value, str):
+            base = _constant_name_for_string_value(value)
+        else:
+            base = _constant_name_base_for_category(category, field)
         value_key = (base, category, str(value))
         if value_key in value_to_name:
             name = value_to_name[value_key]
@@ -534,10 +556,8 @@ def _hoist_constants(
 
     for (field, value), count in all_values.items():
         if count >= 2:
-            # This is a repeated preset
-            sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", field.upper())
-            if not sanitized or sanitized[0].isdigit():
-                sanitized = f"P_{sanitized}"
+            # This is a repeated preset — name by value (SD1 B1)
+            sanitized = _constant_name_for_string_value(value)
             value_key = (sanitized, "preset", str(value))
             if value_key in value_to_name:
                 continue  # already named
@@ -607,6 +627,36 @@ def _drop_output_prefix_constants(
             for key, value in constant_map.items()
             if value not in output_prefix_names
         },
+    )
+
+
+def _inline_single_use_string_constants(
+    constant_lines: list[str],
+    constant_map: dict[tuple[str, str], str],
+) -> tuple[list[str], dict[tuple[str, str], str]]:
+    """SD2 B2: remove single-use STRING constants; inline literal value at call site.
+
+    A constant is inlined iff it maps to exactly one (nid, field) entry in constant_map
+    AND its declared value is a string literal (starts with quote character).
+    Integer/float constants (seed, fps, frames, guide strength) are unaffected.
+    """
+    name_ref_counts: Counter[str] = Counter(constant_map.values())
+    single_use_string_names: set[str] = set()
+    for line in constant_lines:
+        eq_idx = line.find("=")
+        if eq_idx < 0:
+            continue
+        name = line[:eq_idx].strip()
+        if name_ref_counts.get(name, 0) != 1:
+            continue
+        val_part = line[eq_idx + 1:].strip()
+        if val_part.startswith(("'", '"')):
+            single_use_string_names.add(name)
+    if not single_use_string_names:
+        return constant_lines, constant_map
+    return (
+        [line for line in constant_lines if line[:line.find("=")].strip() not in single_use_string_names],
+        {k: v for k, v in constant_map.items() if v not in single_use_string_names},
     )
 
 
@@ -1072,6 +1122,7 @@ def emit_ready_template_python(
     # Hoist constants and build section groups
     constant_lines, constant_map = _hoist_constants(workflow_nodes, edges_in, var_names)
     constant_lines, constant_map = _drop_output_prefix_constants(constant_lines, constant_map)
+    constant_lines, constant_map = _inline_single_use_string_constants(constant_lines, constant_map)
     section_groups = _build_section_groups(workflow_nodes, edges_in)
     wrapper_imports = _wrapper_imports_for_nodes(_all_nodes_for_imports(workflow_nodes, subgraph_definitions))
     output_var_names = prepared["output_var_names"]
@@ -1197,6 +1248,7 @@ def emit_scratchpad_python(
     # Hoist constants and build section groups (shared typed-wrapper path)
     constant_lines, constant_map = _hoist_constants(workflow_nodes, edges_in, var_names)
     constant_lines, constant_map = _drop_output_prefix_constants(constant_lines, constant_map)
+    constant_lines, constant_map = _inline_single_use_string_constants(constant_lines, constant_map)
     section_groups = _build_section_groups(workflow_nodes, edges_in)
     wrapper_imports = _wrapper_imports_for_nodes(_all_nodes_for_imports(workflow_nodes, subgraph_definitions))
 
@@ -1890,9 +1942,15 @@ def _emit_build_function(
         section_groups = {}
     if public_lookup is None:
         public_lookup = {}
-    # Build preserve-fields from public_lookup (which uses (node_id, field) keys)
+    # Build preserve-fields from public_lookup (which uses (node_id, field) keys).
+    # For ready templates, public_lookup is passed as {} to suppress inline public()
+    # wrapping — fall back to building it from public_inputs so strip_schema_defaults
+    # never drops a field that InputSpec.register() needs at build() time.
+    effective_public_for_preserve = public_lookup or (
+        _build_public_lookup(public_inputs) if public_inputs else {}
+    )
     public_preserve_fields: dict[str, set[str]] = {}
-    for (nid, field) in public_lookup:
+    for (nid, field) in effective_public_for_preserve:
         public_preserve_fields.setdefault(nid, set()).add(field)
 
     # Track which public-input (node_id, field) keys get wrapped by _node_kwargs
@@ -1907,7 +1965,7 @@ def _emit_build_function(
     # edges before topo_order is built so resolved helper nodes never reach the topo loop.
     # FALLBACK_CLASS_TYPES stays intact as a raw_call safety net for unresolved instances.
     if use_shared_helpers:
-        _resolve_helper_nodes_for_emission(workflow_nodes, edges_in)
+        _resolve_helper_nodes_for_emission(workflow_nodes, edges_in, diagnostics=diagnostics)
 
     # Build ordered list of (section_name, nid) for topological-sorted nodes
     topo_order = _topological_node_order(workflow_nodes, edges_in)
@@ -2419,6 +2477,8 @@ def _subgraph_docstring(subgraph: _SubgraphDef) -> list[str]:
 def _resolve_helper_nodes_for_emission(
     workflow_nodes: dict[str, Any],
     edges_in: dict[str, list[Any]],
+    *,
+    diagnostics: list[EmissionDiagnostic] | None = None,
 ) -> None:
     """Pre-emission resolver: rewrite GetNode consumer edges to their broadcast source and
     remove SetNode/GetNode/resolved-Reroute before topo_order is built.
@@ -2438,7 +2498,33 @@ def _resolve_helper_nodes_for_emission(
     flat_edges = [edge for edges in edges_in.values() for edge in edges]
 
     # --- SetNode/GetNode broadcast resolution ---
-    broadcast_sources = collect_broadcast_sources(workflow_nodes, flat_edges)
+    # SD4: detect multi-SetNode name collisions, emit warning, ensure first-by-node-id wins.
+    # Sort SetNodes ascending by node_id; collect duplicate names.
+    setnode_by_name: dict[str, list[str]] = {}
+    for nid in sorted(workflow_nodes, key=_id_sort_key):
+        node = workflow_nodes[nid]
+        if str(getattr(node, "class_type", "")) == "SetNode":
+            name = _broadcast_name(node)
+            if name:
+                setnode_by_name.setdefault(name, []).append(nid)
+    for name, nids in setnode_by_name.items():
+        if len(nids) > 1 and diagnostics is not None:
+            diagnostics.append(EmissionDiagnostic(
+                code=HELPER_RESOLUTION_MULTI_SETNODE_COLLISION,
+                message=(
+                    f"Multiple SetNode nodes share broadcast name {name!r}; "
+                    f"picking first by node id ({nids[0]!r})."
+                ),
+                severity="warning",
+                node_id=str(nids[0]),
+                class_type="SetNode",
+                detail={"broadcast": name, "node_ids": nids},
+            ))
+
+    # Build broadcast_sources with first-by-node-id semantics: reverse-sort so that
+    # collect_broadcast_sources (last-write-wins) picks the lowest node_id.
+    sorted_nodes_reversed = dict(sorted(workflow_nodes.items(), key=lambda x: _id_sort_key(x[0]), reverse=True))
+    broadcast_sources = collect_broadcast_sources(sorted_nodes_reversed, flat_edges)
     resolved_getnode_sources: dict[str, tuple[str, str]] = {}  # getnode_id -> (src_node, src_slot)
     removed_ids: set[str] = set()
 
@@ -2486,6 +2572,8 @@ def _resolve_helper_nodes_for_emission(
     # --- Reroute resolution (additive; governed by RESOLVER_HELPER_CLASS_TYPES) ---
     # New set intentionally separate from BROADCAST_HELPER_CLASS_TYPES so consumers of
     # HELPER_CLASS_TYPES / is_broadcast_helper remain byte-identical (SD3).
+    # T2(a): raw_call('Reroute', ...) nodes also have class_type="Reroute" so they are
+    # captured by RESOLVER_HELPER_CLASS_TYPES check below — no extra handling required.
     resolved_reroute_sources: dict[str, tuple[str, str]] = {}  # reroute_id -> (src_node, src_slot)
     for node_id, node in list(workflow_nodes.items()):
         if str(getattr(node, "class_type", "")) not in RESOLVER_HELPER_CLASS_TYPES:
@@ -2494,7 +2582,18 @@ def _resolve_helper_nodes_for_emission(
             resolved_reroute_sources[node_id] = (str(edge.from_node), str(edge.from_output))
             break  # Reroute has exactly one input
 
+    # T2(c): Transitive chain collapse — follow reroute chains until source is not a reroute.
+    # Prevents dangling edges when Reroute A -> Reroute B -> real source.
+    # Guard against cycles with a visited set (circular reroutes are malformed but shouldn't crash).
     if resolved_reroute_sources:
+        for reroute_id in list(resolved_reroute_sources.keys()):
+            src_node, src_slot = resolved_reroute_sources[reroute_id]
+            visited: set[str] = {reroute_id}
+            while src_node in resolved_reroute_sources and src_node not in visited:
+                visited.add(src_node)
+                src_node, src_slot = resolved_reroute_sources[src_node]
+            resolved_reroute_sources[reroute_id] = (src_node, src_slot)
+
         for consumer_id in list(edges_in.keys()):
             new_edges = []
             for edge in edges_in[consumer_id]:
@@ -3293,6 +3392,24 @@ def _node_kwargs(
         else:
             static_inputs[key] = value
 
+    # T8: emit diagnostic for unresolved widget_N keys remaining in static_inputs.
+    # Only when input_aliases is None — the out-of-range input_aliases case is handled
+    # separately by _collect_emission_diagnostics to avoid duplicate warnings.
+    if diagnostics is not None and input_aliases is None:
+        for _k in static_inputs:
+            if _k.startswith("widget_"):
+                diagnostics.append(EmissionDiagnostic(
+                    code=READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED,
+                    message=(
+                        f"Node {getattr(node, 'id', None)} ({cls}) has unresolved widget alias {_k!r}; "
+                        f"no schema mapping found, keeping positional."
+                    ),
+                    severity="warning",
+                    node_id=str(getattr(node, "id", "")),
+                    class_type=cls,
+                    detail={"input": _k},
+                ))
+
     if schema:
         ordered_static_keys = [key for key in schema if key in static_inputs]
         ordered_static_keys += sorted(key for key in static_inputs if key not in schema_set)
@@ -3339,7 +3456,11 @@ def _node_kwargs(
         if key in incoming or key in incoming_exprs:
             continue
         if key not in preserve_fields and strip_schema_defaults and _is_schema_default(cls, key, static_inputs[key], node_metadata):
-            continue
+            # Never strip a public-input field: InputSpec.register() requires the field
+            # to be present in node.inputs at build() time, even when the value is the
+            # schema default.
+            if (str(getattr(node, "id", "")), key) not in public_lookup:
+                continue
         val_expr = _format_static_value(key, static_inputs[key])
         if not _is_python_ident(key) and not (emit_reserved_keyword_args and key in RESERVED_WRAPPER_INPUT_NAMES):
             extras.append((key, _wrap_public(key, val_expr)))

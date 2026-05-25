@@ -373,6 +373,16 @@ _STATIC_NODE_PACKS: tuple[CustomNodePack, ...] = (
             }
         ),
     ),
+    CustomNodePack(
+        name="ComfyUI-AudioTools",
+        repo="https://github.com/Urabewe/ComfyUI-AudioTools.git",
+        classes=frozenset(
+            {
+                "AudioEnhancementNode",
+                "AudioNormalizeLUFS",
+            }
+        ),
+    ),
 )
 
 

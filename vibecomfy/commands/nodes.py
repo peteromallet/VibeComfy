@@ -312,6 +312,62 @@ def _cmd_nodes_refresh_template(args: argparse.Namespace) -> int:
     return emit(payload, json=args.json, text_renderer=lambda data: data["status"])
 
 
+def _cmd_nodes_refresh_object_info(args: argparse.Namespace) -> int:
+    """Fetch /object_info from a live ComfyUI server and rebuild the local widget-alias cache."""
+    try:
+        import httpx
+    except ImportError:
+        print("httpx is required; install with: pip install httpx", file=sys.stderr)
+        return 1
+
+    import tempfile
+    from vibecomfy.porting.object_info.serialize import build_cache
+    from vibecomfy.porting.object_info.consume import CACHE_DIR
+
+    server_url = args.server_url.rstrip("/")
+    version = args.version
+    cache_dir = Path(args.cache_dir) if args.cache_dir else None
+
+    url = f"{server_url}/object_info"
+    try:
+        response = httpx.get(url, timeout=30.0)
+        response.raise_for_status()
+        raw_data = response.json()
+    except httpx.HTTPError as exc:
+        print(f"HTTP error fetching {url}: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"Failed to fetch {url}: {exc}", file=sys.stderr)
+        return 1
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    ) as tf:
+        json.dump(raw_data, tf)
+        temp_path = tf.name
+
+    try:
+        class_count, pack_count = build_cache(temp_path, version=version, cache_dir=cache_dir)
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+
+    payload = {
+        "status": "ok",
+        "server_url": server_url,
+        "version": version,
+        "classes_indexed": class_count,
+        "packs_written": pack_count,
+        "cache_dir": str(cache_dir or CACHE_DIR),
+    }
+    return emit(
+        payload,
+        json=args.json,
+        text_renderer=lambda d: (
+            f"ok: {d['classes_indexed']} classes, {d['packs_written']} packs → {d['cache_dir']}"
+        ),
+    )
+
+
 def _cmd_nodes_ensure(args: argparse.Namespace) -> int:
     path = args.template or args.workflow
     schema_provider = get_schema_provider("auto")
@@ -1228,3 +1284,25 @@ def register(subparsers) -> None:
     nodes_reconcile.add_argument("--strict-ready-template", action="store_true", default=False)
     nodes_reconcile.add_argument("--head-check-models", action="store_true", default=False)
     nodes_reconcile.set_defaults(func=_cmd_nodes_reconcile)
+
+    nodes_refresh_oi = nodes_sub.add_parser(
+        "refresh-object-info",
+        help="Fetch /object_info from a live ComfyUI server and rebuild the local widget-alias cache.",
+    )
+    nodes_refresh_oi.add_argument(
+        "--server-url",
+        default="http://127.0.0.1:8188",
+        help="ComfyUI server URL (default: http://127.0.0.1:8188).",
+    )
+    nodes_refresh_oi.add_argument(
+        "--version",
+        default="live-snapshot",
+        help="Version tag for written cache files (default: live-snapshot).",
+    )
+    nodes_refresh_oi.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Override cache directory (default: vibecomfy/porting/cache/object_info/).",
+    )
+    nodes_refresh_oi.add_argument("--json", action="store_true")
+    nodes_refresh_oi.set_defaults(func=_cmd_nodes_refresh_object_info)
