@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
+from vibecomfy.templates import PublicInput, ready_template, ReadyMetadata
 from vibecomfy.nodes.core import CLIPLoader, CLIPTextEncode
 from vibecomfy.nodes.videohelpersuite import VHS_VideoCombine
 from vibecomfy.nodes.wanvideowrapper import LoadWanVideoT5TextEncoder, WanVideoBlockSwap, WanVideoDecode, WanVideoEmptyEmbeds, WanVideoEnhanceAVideo, WanVideoLoraSelectMulti, WanVideoModelLoader, WanVideoSampler, WanVideoSetBlockSwap, WanVideoSetLoRAs, WanVideoTextEmbedBridge, WanVideoTextEncode, WanVideoTorchCompileSettings, WanVideoVAELoader
@@ -20,12 +20,29 @@ READY_METADATA = ReadyMetadata.build(
     capability='unknown',
     requirements={'models': ['umt5-xxl-enc-bf16.safetensors', 'umt5_xxl_fp16.safetensors', 'wanvideo\\Wan2_1_VAE_bf16.safetensors']},
     custom_node_packs={'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_VideoCombine'], 'pip_packages': [], 'status': 'discovered'}, 'ComfyUI-WanVideoWrapper': {'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git', 'class_schema_sha256': '80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f', 'classes_used': ['LoadWanVideoT5TextEncoder', 'WanVideoBlockSwap', 'WanVideoDecode', 'WanVideoEmptyEmbeds', 'WanVideoLoraSelectMulti', 'WanVideoModelLoader', 'WanVideoSampler', 'WanVideoSetBlockSwap', 'WanVideoSetLoRAs', 'WanVideoTextEmbedBridge', 'WanVideoTextEncode', 'WanVideoTorchCompileSettings', 'WanVideoVAELoader'], 'pip_packages': ['onnx', 'opencv-python-headless'], 'status': 'discovered'}},
-    provenance={'source_path': '/Users/peteromalley/Documents/.megaplan-worktrees/scratchpad-emitter/workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_t2v.json', 'source_id': 'wan21_14b_t2v', 'source_type': 'api', 'source_workflow_path': '/Users/peteromalley/Documents/.megaplan-worktrees/scratchpad-emitter/workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_t2v.json', 'source_ref': '/Users/peteromalley/Documents/.megaplan-worktrees/scratchpad-emitter/workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_t2v.json', 'source_kind': 'raw_json', 'indexed_id': None, 'workflow_source_id': 'wan21_14b_t2v', 'workflow_source_type': 'api', 'raw_workflow_shape': 'ui', 'source_hash': 'sha256:241242abd8b5d388cc594e808258b1c551429ac4d0b7785ebf1837c680dac23a', 'workflow_shape': {'nodes': 25, 'runtime_nodes': 18, 'helper_nodes': 7, 'edges': 16, 'inputs': 3, 'outputs': 1}, 'output_mode': 'ready_template', 'ready_id': 'video/wanvideo_wrapper_21_14b_t2v'},
+    provenance={'source_path': 'workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_t2v.json', 'source_id': 'wan21_14b_t2v', 'source_type': 'api', 'source_workflow_path': 'workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan21_14b_t2v.json', 'output_mode': 'ready_template', 'ready_id': 'video/wanvideo_wrapper_21_14b_t2v'},
 )
 
+PUBLIC_INPUTS = {
+    'seed': PublicInput(node='samples', field='seed', default=DEFAULT_SEED, type='INT'),
+    'width': PublicInput(node='wanvideoemptyembeds', field='width', default=832, type='INT'),
+    'height': PublicInput(node='wanvideoemptyembeds', field='height', default=480, type='INT'),
+    'prompt': PublicInput(node='cliptextencode', field='text', default=DEFAULT_PROMPT_2, type='STRING', required=True, media_semantics='text'),
+}
+OUTPUT = dict(
+    node='vhs_videocombine',
+    output_type='VHS_VideoCombine',
+    name='video',
+    artifact_kind='video',
+    mime_type='video/mp4',
+    expected_cardinality='one',
+    filename_prefix='WanVideo2_1_T2V',
+)
+
+
+@ready_template(READY_METADATA, source_path=__file__, inputs=PUBLIC_INPUTS, output=OUTPUT)
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    wf = new_workflow(READY_METADATA, source_path=__file__)
 
     loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
         model_name='umt5-xxl-enc-bf16.safetensors',
@@ -87,8 +104,8 @@ def build() -> VibeWorkflow:
         cfg=GUIDE_STRENGTH,
         seed=DEFAULT_SEED,
         scheduler='dpm++_sde',
-        flowedit_args='',
         unused_widget_4='fixed',
+        widget_14='',
         feta_args=wanvideoenhanceavideo,
         image_embeds=wanvideoemptyembeds,
         model=wanvideosetblockswap,
@@ -113,13 +130,3 @@ def build() -> VibeWorkflow:
         videopreview={'hidden': False, 'paused': False, 'params': {'filename': 'WanVideo2_1_T2V_00724.mp4', 'subfolder': '', 'type': 'output', 'format': 'video/h264-mp4', 'frame_rate': 16, 'workflow': 'WanVideo2_1_T2V_00724.png', 'fullpath': 'N:\\AI\\ComfyUI\\output\\WanVideo2_1_T2V_00724.mp4'}},
         images=wanvideodecode,
     )
-
-
-    PUBLIC_INPUTS = {
-        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED, type='INT'),
-        'width': InputSpec(node=wanvideoemptyembeds, field='width', default=832, type='INT'),
-        'height': InputSpec(node=wanvideoemptyembeds, field='height', default=480, type='INT'),
-        'prompt': InputSpec(node=cliptextencode, field='text', default=DEFAULT_PROMPT_2, type='STRING', required=True, media_semantics='text'),
-    }
-    return wf.finalize(PUBLIC_INPUTS, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='WanVideo2_1_T2V')
-

@@ -2,1437 +2,1437 @@
   "note": "Post-F template_index contract snapshot. Update only by intentional contract-shape change.",
   "templates": [
     {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "audio",
+          "expected_cardinality": "one",
+          "filename_prefix": "audio/qwen3_tts_custom_voice",
+          "mime_type": "audio/mpeg",
+          "name": "audio",
+          "node_id": "2",
+          "output_type": "SaveAudioMP3",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
       "id": "audio/qwen3_tts_custom_voice",
+      "models": null,
       "public_inputs": [
         {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": "INT",
-          "default": null,
-          "required": false,
-          "range": null,
           "aliases": [],
+          "default": null,
+          "field": "seed",
           "media_semantics": null,
+          "name": "seed",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "seed",
+            "node_id": ""
+          },
+          "type": "INT",
+          "value": null
         }
       ],
       "public_outputs": [
         {
+          "artifact_kind": "audio",
+          "expected_cardinality": "one",
+          "filename_prefix": "audio/qwen3_tts_custom_voice",
+          "mime_type": "audio/mpeg",
           "name": "audio",
           "node_id": "2",
           "output_type": "SaveAudioMP3",
-          "artifact_kind": "audio",
-          "mime_type": "audio/mpeg",
-          "filename_prefix": "audio/qwen3_tts_custom_voice",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
+          "source": "finalize",
+          "status": "static"
         }
       ],
-      "artifact_expectations": [
-        {
-          "name": "audio",
-          "node_id": "2",
-          "output_type": "SaveAudioMP3",
-          "artifact_kind": "audio",
-          "mime_type": "audio/mpeg",
-          "filename_prefix": "audio/qwen3_tts_custom_voice",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
+      "requirements": null
     },
     {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "image",
+          "expected_cardinality": "one",
+          "filename_prefix": "image-upscale",
+          "mime_type": "image/png",
+          "name": "image",
+          "node_id": "3",
+          "output_type": "SaveImage",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
       "id": "image/basic_image_upscale",
+      "models": null,
       "public_inputs": [
         {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "image_upscale_input.png",
-          "type": "IMAGE",
-          "default": "image_upscale_input.png",
-          "required": true,
-          "range": null,
           "aliases": [
             "input_image"
           ],
-          "media_semantics": "image",
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "image_upscale_input.png",
-          "type": "IMAGE",
           "default": "image_upscale_input.png",
-          "required": true,
-          "range": null,
-          "aliases": [],
-          "media_semantics": "image",
-          "status": "static",
-          "source": "InputSpec"
-        }
-      ],
-      "public_outputs": [
-        {
-          "name": "image",
-          "node_id": "3",
-          "output_type": "SaveImage",
-          "artifact_kind": "image",
-          "mime_type": "image/png",
-          "filename_prefix": "image-upscale",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "artifact_expectations": [
-        {
-          "name": "image",
-          "node_id": "3",
-          "output_type": "SaveImage",
-          "artifact_kind": "image",
-          "mime_type": "image/png",
-          "filename_prefix": "image-upscale",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
-    },
-    {
-      "id": "image/qwen_image_2512",
-      "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "unet_name"
-          },
-          "node_id": "",
-          "field": "unet_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
-          "field": "width",
-          "value": 768,
-          "type": null,
-          "default": 768,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
-          "node_id": "",
-          "field": "height",
-          "value": 768,
-          "type": null,
-          "default": 768,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "use_lora",
-          "target": {
-            "node_id": "",
-            "field": "value"
-          },
-          "node_id": "",
-          "field": "value",
-          "value": true,
-          "type": null,
-          "default": true,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "negative_prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "sampler_name",
-          "target": {
-            "node_id": "",
-            "field": "sampler_name"
-          },
-          "node_id": "",
-          "field": "sampler_name",
-          "value": "euler",
-          "type": null,
-          "default": "euler",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        }
-      ],
-      "public_outputs": [
-        {
-          "name": "image",
-          "node_id": "14",
-          "output_type": "SaveImage",
-          "artifact_kind": "image",
-          "mime_type": "image/png",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "artifact_expectations": [
-        {
-          "name": "image",
-          "node_id": "14",
-          "output_type": "SaveImage",
-          "artifact_kind": "image",
-          "mime_type": "image/png",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
-    },
-    {
-      "id": "image/z_image_img2img",
-      "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "unet_name"
-          },
-          "node_id": "",
-          "field": "unet_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "steps",
-          "target": {
-            "node_id": "",
-            "field": "steps"
-          },
-          "node_id": "",
-          "field": "steps",
-          "value": 12,
-          "type": null,
-          "default": 12,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
           "field": "image",
-          "value": "image_z_image_img2img_input.png",
-          "type": null,
-          "default": "image_z_image_img2img_input.png",
-          "required": false,
+          "media_semantics": "image",
+          "name": "image",
+          "node_id": "",
           "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "required": true,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": "IMAGE",
+          "value": "image_upscale_input.png"
         },
         {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
-          "field": "width",
-          "value": 1024,
-          "type": null,
-          "default": 1024,
-          "required": false,
-          "range": null,
           "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
+          "default": "image_upscale_input.png",
+          "field": "image",
+          "media_semantics": "image",
+          "name": "input_image",
           "node_id": "",
-          "field": "height",
-          "value": 1024,
-          "type": null,
-          "default": 1024,
-          "required": false,
           "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "required": true,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": "IMAGE",
+          "value": "image_upscale_input.png"
         }
       ],
       "public_outputs": [
         {
-          "name": "image",
-          "node_id": "12",
-          "output_type": "SaveImage",
           "artifact_kind": "image",
-          "mime_type": "image/png",
-          "filename_prefix": "z-image-img2img",
           "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
+          "filename_prefix": "image-upscale",
+          "mime_type": "image/png",
+          "name": "image",
+          "node_id": "3",
+          "output_type": "SaveImage",
+          "source": "finalize",
+          "status": "static"
         }
       ],
-      "artifact_expectations": [
-        {
-          "name": "image",
-          "node_id": "12",
-          "output_type": "SaveImage",
-          "artifact_kind": "image",
-          "mime_type": "image/png",
-          "filename_prefix": "z-image-img2img",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
+      "requirements": null
     },
     {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "image",
+          "expected_cardinality": "one",
+          "filename_prefix": null,
+          "mime_type": "image/png",
+          "name": "image",
+          "node_id": "14",
+          "output_type": "SaveImage",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
+      "id": "image/qwen_image_2512",
+      "models": null,
+      "public_inputs": [
+        {
+          "aliases": [],
+          "default": null,
+          "field": "unet_name",
+          "media_semantics": null,
+          "name": "model",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "unet_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "text",
+          "media_semantics": null,
+          "name": "prompt",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "text",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "seed",
+          "media_semantics": null,
+          "name": "seed",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "seed",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": 768,
+          "field": "width",
+          "media_semantics": null,
+          "name": "width",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "width",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 768
+        },
+        {
+          "aliases": [],
+          "default": 768,
+          "field": "height",
+          "media_semantics": null,
+          "name": "height",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "height",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 768
+        },
+        {
+          "aliases": [],
+          "default": true,
+          "field": "value",
+          "media_semantics": null,
+          "name": "use_lora",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "value",
+            "node_id": ""
+          },
+          "type": null,
+          "value": true
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "text",
+          "media_semantics": null,
+          "name": "negative_prompt",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "text",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": "euler",
+          "field": "sampler_name",
+          "media_semantics": null,
+          "name": "sampler_name",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "sampler_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "euler"
+        }
+      ],
+      "public_outputs": [
+        {
+          "artifact_kind": "image",
+          "expected_cardinality": "one",
+          "filename_prefix": null,
+          "mime_type": "image/png",
+          "name": "image",
+          "node_id": "14",
+          "output_type": "SaveImage",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "requirements": null
+    },
+    {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "image",
+          "expected_cardinality": "one",
+          "filename_prefix": "z-image-img2img",
+          "mime_type": "image/png",
+          "name": "image",
+          "node_id": "12",
+          "output_type": "SaveImage",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
+      "id": "image/z_image_img2img",
+      "models": null,
+      "public_inputs": [
+        {
+          "aliases": [],
+          "default": null,
+          "field": "unet_name",
+          "media_semantics": null,
+          "name": "model",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "unet_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "text",
+          "media_semantics": null,
+          "name": "prompt",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "text",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "seed",
+          "media_semantics": null,
+          "name": "seed",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "seed",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": 12,
+          "field": "steps",
+          "media_semantics": null,
+          "name": "steps",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "steps",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 12
+        },
+        {
+          "aliases": [],
+          "default": "image_z_image_img2img_input.png",
+          "field": "image",
+          "media_semantics": null,
+          "name": "image",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "image_z_image_img2img_input.png"
+        },
+        {
+          "aliases": [],
+          "default": 1024,
+          "field": "width",
+          "media_semantics": null,
+          "name": "width",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "width",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 1024
+        },
+        {
+          "aliases": [],
+          "default": 1024,
+          "field": "height",
+          "media_semantics": null,
+          "name": "height",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "height",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 1024
+        }
+      ],
+      "public_outputs": [
+        {
+          "artifact_kind": "image",
+          "expected_cardinality": "one",
+          "filename_prefix": "z-image-img2img",
+          "mime_type": "image/png",
+          "name": "image",
+          "node_id": "12",
+          "output_type": "SaveImage",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "requirements": null
+    },
+    {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": "video-enhance",
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "3",
+          "output_type": "VHS_VideoCombine",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
       "id": "video/basic_video_enhance",
+      "models": null,
       "public_inputs": [],
       "public_outputs": [
         {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": "video-enhance",
+          "mime_type": "video/mp4",
           "name": "video",
           "node_id": "3",
           "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video-enhance",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
+          "source": "finalize",
+          "status": "static"
         }
       ],
-      "artifact_expectations": [
-        {
-          "name": "video",
-          "node_id": "3",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "video-enhance",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
+      "requirements": null
     },
     {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": null,
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "11",
+          "output_type": "SaveVideo",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
       "id": "video/wan_t2v",
+      "models": null,
       "public_inputs": [
         {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "unet_name"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": null,
           "field": "unet_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "model",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "unet_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": null,
           "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "prompt",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "text",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": null,
           "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "seed",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "seed",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "steps",
-          "target": {
-            "node_id": "",
-            "field": "steps"
-          },
-          "node_id": "",
-          "field": "steps",
-          "value": 30,
-          "type": null,
+          "aliases": [],
           "default": 30,
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "steps",
           "media_semantics": null,
+          "name": "steps",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "steps",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 30
         },
         {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
-          "field": "width",
-          "value": 832,
-          "type": null,
+          "aliases": [],
           "default": 832,
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "width",
           "media_semantics": null,
+          "name": "width",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "width",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 832
         },
         {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
-          "node_id": "",
-          "field": "height",
-          "value": 480,
-          "type": null,
+          "aliases": [],
           "default": 480,
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "height",
           "media_semantics": null,
+          "name": "height",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "height",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 480
         },
         {
-          "name": "frames",
-          "target": {
-            "node_id": "",
-            "field": "length"
-          },
-          "node_id": "",
-          "field": "length",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
           "aliases": [
             "length"
           ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "length",
-          "target": {
-            "node_id": "",
-            "field": "length"
-          },
-          "node_id": "",
+          "default": null,
           "field": "length",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "frames",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "length",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "negative_prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
+          "aliases": [],
+          "default": null,
+          "field": "length",
+          "media_semantics": null,
+          "name": "length",
           "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "length",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
           "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "negative_prompt",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "text",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "cfg",
-          "target": {
-            "node_id": "",
-            "field": "cfg"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": null,
           "field": "cfg",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "cfg",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "cfg",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "sampler_name",
-          "target": {
-            "node_id": "",
-            "field": "sampler_name"
-          },
-          "node_id": "",
-          "field": "sampler_name",
-          "value": "uni_pc",
-          "type": null,
+          "aliases": [],
           "default": "uni_pc",
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "sampler_name",
           "media_semantics": null,
+          "name": "sampler_name",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "sampler_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "uni_pc"
         },
         {
-          "name": "fps",
-          "target": {
-            "node_id": "",
-            "field": "fps"
-          },
-          "node_id": "",
-          "field": "fps",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
           "aliases": [
             "output_fps"
           ],
+          "default": null,
+          "field": "fps",
           "media_semantics": null,
+          "name": "fps",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "fps",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "output_fps",
-          "target": {
-            "node_id": "",
-            "field": "fps"
-          },
-          "node_id": "",
-          "field": "fps",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
           "aliases": [],
+          "default": null,
+          "field": "fps",
           "media_semantics": null,
+          "name": "output_fps",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "fps",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         }
       ],
       "public_outputs": [
         {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": null,
+          "mime_type": "video/mp4",
           "name": "video",
           "node_id": "11",
           "output_type": "SaveVideo",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
+          "source": "finalize",
+          "status": "static"
         }
       ],
-      "artifact_expectations": [
-        {
-          "name": "video",
-          "node_id": "11",
-          "output_type": "SaveVideo",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
+      "requirements": null
     },
     {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": null,
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "14",
+          "output_type": "SaveVideo",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
       "id": "video/wan_i2v",
+      "models": null,
       "public_inputs": [
         {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "unet_name"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": null,
           "field": "unet_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "model",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "unet_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": null,
           "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "prompt",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "text",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": null,
           "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "seed",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "seed",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "steps",
-          "target": {
-            "node_id": "",
-            "field": "steps"
-          },
-          "node_id": "",
-          "field": "steps",
-          "value": 20,
-          "type": null,
+          "aliases": [],
           "default": 20,
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "steps",
           "media_semantics": null,
+          "name": "steps",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "steps",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 20
         },
         {
-          "name": "first_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "image_to_video_wan_start_image.png",
-          "type": null,
-          "default": "image_to_video_wan_start_image.png",
-          "required": false,
-          "range": null,
           "aliases": [
             "start_image"
           ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "start_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "image_to_video_wan_start_image.png",
-          "type": null,
           "default": "image_to_video_wan_start_image.png",
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "image",
           "media_semantics": null,
+          "name": "first_image",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "image_to_video_wan_start_image.png"
         },
         {
-          "name": "negative_prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
+          "aliases": [],
+          "default": "image_to_video_wan_start_image.png",
+          "field": "image",
+          "media_semantics": null,
+          "name": "start_image",
           "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "image_to_video_wan_start_image.png"
+        },
+        {
+          "aliases": [],
+          "default": null,
           "field": "text",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "negative_prompt",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "text",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": 512,
           "field": "width",
-          "value": 512,
-          "type": null,
-          "default": 512,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "width",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "width",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 512
         },
         {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
-          "node_id": "",
+          "aliases": [],
+          "default": 512,
           "field": "height",
-          "value": 512,
-          "type": null,
-          "default": 512,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "height",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "height",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 512
         },
         {
-          "name": "frames",
-          "target": {
-            "node_id": "",
-            "field": "length"
-          },
-          "node_id": "",
-          "field": "length",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
           "aliases": [
             "length"
           ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "length",
-          "target": {
-            "node_id": "",
-            "field": "length"
-          },
-          "node_id": "",
+          "default": null,
           "field": "length",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "frames",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "length",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "cfg",
-          "target": {
-            "node_id": "",
-            "field": "cfg"
-          },
+          "aliases": [],
+          "default": null,
+          "field": "length",
+          "media_semantics": null,
+          "name": "length",
           "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "length",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
           "field": "cfg",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "cfg",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "cfg",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "sampler_name",
-          "target": {
-            "node_id": "",
-            "field": "sampler_name"
-          },
-          "node_id": "",
-          "field": "sampler_name",
-          "value": "uni_pc",
-          "type": null,
+          "aliases": [],
           "default": "uni_pc",
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "sampler_name",
           "media_semantics": null,
+          "name": "sampler_name",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "sampler_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "uni_pc"
         },
         {
-          "name": "fps",
-          "target": {
-            "node_id": "",
-            "field": "fps"
-          },
-          "node_id": "",
-          "field": "fps",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
           "aliases": [
             "output_fps"
           ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "output_fps",
-          "target": {
-            "node_id": "",
-            "field": "fps"
-          },
-          "node_id": "",
-          "field": "fps",
-          "value": null,
-          "type": null,
           "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
+          "field": "fps",
           "media_semantics": null,
+          "name": "fps",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "fps",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
         },
         {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
+          "aliases": [],
+          "default": null,
+          "field": "fps",
+          "media_semantics": null,
+          "name": "output_fps",
           "node_id": "",
-          "field": "image",
-          "value": "image_to_video_wan_start_image.png",
-          "type": null,
-          "default": "image_to_video_wan_start_image.png",
-          "required": false,
           "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "fps",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
           "aliases": [
             "input_image"
           ],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "input_image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
-          "field": "image",
-          "value": "image_to_video_wan_start_image.png",
-          "type": null,
           "default": "image_to_video_wan_start_image.png",
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        }
-      ],
-      "public_outputs": [
-        {
-          "name": "video",
-          "node_id": "14",
-          "output_type": "SaveVideo",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "artifact_expectations": [
-        {
-          "name": "video",
-          "node_id": "14",
-          "output_type": "SaveVideo",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
-    },
-    {
-      "id": "video/wanvideo_wrapper_13b_control_lora",
-      "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        }
-      ],
-      "public_outputs": [
-        {
-          "name": "video",
-          "node_id": "16",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "artifact_expectations": [
-        {
-          "name": "video",
-          "node_id": "16",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
-    },
-    {
-      "id": "video/wanvideo_wrapper_21_14b_t2v",
-      "public_inputs": [
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": "INT",
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
-          "field": "width",
-          "value": 832,
-          "type": "INT",
-          "default": 832,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
-          "node_id": "",
-          "field": "height",
-          "value": 480,
-          "type": "INT",
-          "default": 480,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "prompt",
-          "target": {
-            "node_id": "",
-            "field": "text"
-          },
-          "node_id": "",
-          "field": "text",
-          "value": null,
-          "type": "STRING",
-          "default": null,
-          "required": true,
-          "range": null,
-          "aliases": [],
-          "media_semantics": "text",
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "model",
-          "target": {
-            "node_id": "1",
-            "field": "model_name"
-          },
-          "node_id": "1",
-          "field": "model_name",
-          "value": "umt5-xxl-enc-bf16.safetensors",
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "finalize_metadata"
-        }
-      ],
-      "public_outputs": [
-        {
-          "name": "video",
-          "node_id": "18",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "WanVideo2_1_T2V",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "artifact_expectations": [
-        {
-          "name": "video",
-          "node_id": "18",
-          "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": "WanVideo2_1_T2V",
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
-        }
-      ],
-      "requirements": null,
-      "custom_node_packs": null,
-      "models": null
-    },
-    {
-      "id": "video/wanvideo_wrapper_wan_animate",
-      "public_inputs": [
-        {
-          "name": "model",
-          "target": {
-            "node_id": "",
-            "field": "model_name"
-          },
-          "node_id": "",
-          "field": "model_name",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "seed",
-          "target": {
-            "node_id": "",
-            "field": "seed"
-          },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
-          "type": null,
-          "default": null,
-          "required": false,
-          "range": null,
-          "aliases": [],
-          "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "image",
-          "target": {
-            "node_id": "",
-            "field": "image"
-          },
-          "node_id": "",
           "field": "image",
-          "value": "refer.jpeg",
-          "type": null,
-          "default": "refer.jpeg",
-          "required": false,
-          "range": null,
-          "aliases": [],
           "media_semantics": null,
+          "name": "image",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "image_to_video_wan_start_image.png"
         },
         {
-          "name": "width",
-          "target": {
-            "node_id": "",
-            "field": "width"
-          },
-          "node_id": "",
-          "field": "width",
-          "value": 832,
-          "type": null,
-          "default": 832,
-          "required": false,
-          "range": null,
           "aliases": [],
+          "default": "image_to_video_wan_start_image.png",
+          "field": "image",
           "media_semantics": null,
-          "status": "static",
-          "source": "InputSpec"
-        },
-        {
-          "name": "height",
-          "target": {
-            "node_id": "",
-            "field": "height"
-          },
+          "name": "input_image",
           "node_id": "",
-          "field": "height",
-          "value": 480,
-          "type": null,
-          "default": 480,
-          "required": false,
           "range": null,
-          "aliases": [],
-          "media_semantics": null,
+          "required": false,
+          "source": "InputSpec",
           "status": "static",
-          "source": "InputSpec"
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "image_to_video_wan_start_image.png"
         }
       ],
       "public_outputs": [
         {
-          "name": "video",
-          "node_id": "163",
-          "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
           "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
+          "filename_prefix": null,
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "14",
+          "output_type": "SaveVideo",
+          "source": "finalize",
+          "status": "static"
         }
       ],
+      "requirements": null
+    },
+    {
       "artifact_expectations": [
         {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": "WanVideoWrapper_I2V",
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "16",
+          "output_type": "VHS_VideoCombine",
+          "source": "ready_template_decorator",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
+      "id": "video/wanvideo_wrapper_13b_control_lora",
+      "models": null,
+      "public_inputs": [
+        {
+          "aliases": [],
+          "default": null,
+          "field": "seed",
+          "media_semantics": null,
+          "name": "seed",
+          "node_id": "samples",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "seed",
+            "node_id": "samples"
+          },
+          "type": "INT",
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "model_name",
+          "media_semantics": null,
+          "name": "model",
+          "node_id": "1",
+          "range": null,
+          "required": false,
+          "source": "finalize_metadata",
+          "status": "static",
+          "target": {
+            "field": "model_name",
+            "node_id": "1"
+          },
+          "type": null,
+          "value": "umt5-xxl-enc-bf16.safetensors"
+        }
+      ],
+      "public_outputs": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": "WanVideoWrapper_I2V",
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "16",
+          "output_type": "VHS_VideoCombine",
+          "source": "ready_template_decorator",
+          "status": "static"
+        }
+      ],
+      "requirements": null
+    },
+    {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": "WanVideo2_1_T2V",
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "18",
+          "output_type": "VHS_VideoCombine",
+          "source": "ready_template_decorator",
+          "status": "static"
+        }
+      ],
+      "custom_node_packs": null,
+      "id": "video/wanvideo_wrapper_21_14b_t2v",
+      "models": null,
+      "public_inputs": [
+        {
+          "aliases": [],
+          "default": null,
+          "field": "seed",
+          "media_semantics": null,
+          "name": "seed",
+          "node_id": "samples",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "seed",
+            "node_id": "samples"
+          },
+          "type": "INT",
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": 832,
+          "field": "width",
+          "media_semantics": null,
+          "name": "width",
+          "node_id": "wanvideoemptyembeds",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "width",
+            "node_id": "wanvideoemptyembeds"
+          },
+          "type": "INT",
+          "value": 832
+        },
+        {
+          "aliases": [],
+          "default": 480,
+          "field": "height",
+          "media_semantics": null,
+          "name": "height",
+          "node_id": "wanvideoemptyembeds",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "height",
+            "node_id": "wanvideoemptyembeds"
+          },
+          "type": "INT",
+          "value": 480
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "text",
+          "media_semantics": "text",
+          "name": "prompt",
+          "node_id": "cliptextencode",
+          "range": null,
+          "required": true,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "text",
+            "node_id": "cliptextencode"
+          },
+          "type": "STRING",
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "model_name",
+          "media_semantics": null,
+          "name": "model",
+          "node_id": "1",
+          "range": null,
+          "required": false,
+          "source": "finalize_metadata",
+          "status": "static",
+          "target": {
+            "field": "model_name",
+            "node_id": "1"
+          },
+          "type": null,
+          "value": "umt5-xxl-enc-bf16.safetensors"
+        }
+      ],
+      "public_outputs": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": "WanVideo2_1_T2V",
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "18",
+          "output_type": "VHS_VideoCombine",
+          "source": "ready_template_decorator",
+          "status": "static"
+        }
+      ],
+      "requirements": null
+    },
+    {
+      "artifact_expectations": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": null,
+          "mime_type": "video/mp4",
           "name": "video",
           "node_id": "163",
           "output_type": "VHS_VideoCombine",
-          "artifact_kind": "video",
-          "mime_type": "video/mp4",
-          "filename_prefix": null,
-          "expected_cardinality": "one",
-          "status": "static",
-          "source": "finalize"
+          "source": "finalize",
+          "status": "static"
         }
       ],
-      "requirements": null,
       "custom_node_packs": null,
-      "models": null
+      "id": "video/wanvideo_wrapper_wan_animate",
+      "models": null,
+      "public_inputs": [
+        {
+          "aliases": [],
+          "default": null,
+          "field": "model_name",
+          "media_semantics": null,
+          "name": "model",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "model_name",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": null,
+          "field": "seed",
+          "media_semantics": null,
+          "name": "seed",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "seed",
+            "node_id": ""
+          },
+          "type": null,
+          "value": null
+        },
+        {
+          "aliases": [],
+          "default": "refer.jpeg",
+          "field": "image",
+          "media_semantics": null,
+          "name": "image",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "image",
+            "node_id": ""
+          },
+          "type": null,
+          "value": "refer.jpeg"
+        },
+        {
+          "aliases": [],
+          "default": 832,
+          "field": "width",
+          "media_semantics": null,
+          "name": "width",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "width",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 832
+        },
+        {
+          "aliases": [],
+          "default": 480,
+          "field": "height",
+          "media_semantics": null,
+          "name": "height",
+          "node_id": "",
+          "range": null,
+          "required": false,
+          "source": "InputSpec",
+          "status": "static",
+          "target": {
+            "field": "height",
+            "node_id": ""
+          },
+          "type": null,
+          "value": 480
+        }
+      ],
+      "public_outputs": [
+        {
+          "artifact_kind": "video",
+          "expected_cardinality": "one",
+          "filename_prefix": null,
+          "mime_type": "video/mp4",
+          "name": "video",
+          "node_id": "163",
+          "output_type": "VHS_VideoCombine",
+          "source": "finalize",
+          "status": "static"
+        }
+      ],
+      "requirements": null
     }
   ]
 }

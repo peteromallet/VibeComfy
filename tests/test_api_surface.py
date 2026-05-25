@@ -34,9 +34,9 @@ PUBLIC_EXPORT_SNAPSHOTS = {
     ],
     "vibecomfy.artifacts": ["Artifact", "ArtifactKind", "Image", "Video", "Audio", "Latent", "Mask"],
     "vibecomfy.templates": [
-        "InputSpec", "ModelAsset", "OutputSpec", "ReadyMetadata", "_current_workflow_or_raise",
-        "_derive_output_kind", "finalize", "finalize_ready", "new_workflow", "node",
-        "template_input", "template_output",
+        "InputSpec", "ModelAsset", "OutputSpec", "PublicInput", "ReadyMetadata",
+        "_current_workflow_or_raise", "_derive_output_kind", "finalize", "finalize_ready",
+        "new_workflow", "node", "ready_template", "template_input", "template_output",
     ],
 }
 

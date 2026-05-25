@@ -61,8 +61,12 @@ def test_ready_templates_use_v27_withless_new_workflow_shape() -> None:
     """v2.7 (T7): templates drop the `with new_workflow(...) as wf:` wrapper.
 
     ``new_workflow()`` now eagerly binds the ContextVar and ``finalize()``
-    releases it, so the canonical shape is a top-level ``wf = new_workflow(...)``
-    assignment in build() with no ``with`` block.
+    releases it, so the canonical flat shape is a top-level
+    ``wf = new_workflow(...)`` assignment in build() with no ``with`` block.
+
+    Templates emitted with ``--emit-shape=decorator`` use ``@ready_template``
+    on ``build`` instead and have neither the ``wf = new_workflow`` line nor a
+    ``return wf.finalize`` — those are checked separately below.
     """
     offenders: list[str] = []
 
@@ -75,6 +79,33 @@ def test_ready_templates_use_v27_withless_new_workflow_shape() -> None:
         )
         if build is None:
             offenders.append(f"{path}: missing build()")
+            continue
+
+        # Templates decorated with @ready_template use the decorator shape and
+        # are validated under that shape's contract instead.
+        is_decorated = any(
+            isinstance(dec, ast.Call) and getattr(dec.func, "id", None) == "ready_template"
+            for dec in build.decorator_list
+        )
+        if is_decorated:
+            # Decorator shape: no `wf = new_workflow` and no `return wf.finalize`
+            # inside build().
+            with_blocks = [
+                stmt
+                for stmt in ast.walk(build)
+                if isinstance(stmt, ast.With)
+                and any(
+                    isinstance(item.context_expr, ast.Call)
+                    and getattr(item.context_expr.func, "id", None) == "new_workflow"
+                    for item in stmt.items
+                )
+            ]
+            if with_blocks:
+                offenders.append(f"{path}: decorator shape must not use `with new_workflow(...)`")
+            if "wf = new_workflow" in source:
+                offenders.append(f"{path}: decorator shape must not contain `wf = new_workflow(...)`")
+            if "return wf.finalize" in source:
+                offenders.append(f"{path}: decorator shape must not contain `return wf.finalize(...)`")
             continue
 
         with_blocks = [

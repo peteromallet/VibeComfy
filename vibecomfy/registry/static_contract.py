@@ -107,6 +107,13 @@ def extract_ready_template_contract(path: str | Path) -> dict[str, Any]:
     # ── Derive public_outputs from finalize(..., output_node=...) call ──
     _extract_finalize_outputs(tree, assignments, public_outputs, diagnostics)
 
+    # ── Derive public_outputs from @ready_template(...) OUTPUT dict ──
+    # When a template is emitted with --emit-shape=decorator, the output is
+    # declared via a module-top `OUTPUT = dict(node='var', output_type=..., ...)`
+    # rather than a `wf.finalize(...)` call. Read it directly.
+    if not public_outputs:
+        _extract_decorator_outputs(tree, assignments, public_outputs, diagnostics)
+
     # ── Fallback: walk bind_input/bind_output calls (legacy templates) ──
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -483,6 +490,41 @@ def _extract_finalize_outputs(
         public_outputs.append(descriptor)
 
 
+def _extract_decorator_outputs(
+    tree: ast.Module,
+    assignments: dict[str, Any],
+    public_outputs: list[dict[str, Any]],
+    diagnostics: list[dict[str, Any]],
+) -> None:
+    """Derive public outputs from a module-top ``OUTPUT = dict(...)`` used by the @ready_template decorator shape."""
+    output_dict = assignments.get("OUTPUT")
+    if not isinstance(output_dict, dict):
+        return
+    # OUTPUT entries are literals — fetch with safe fallbacks.
+    output_node_var = output_dict.get("node")
+    if not isinstance(output_node_var, str):
+        return
+    # Resolve the local variable name to a node id by walking build()'s assignments.
+    node_assignments = _node_assignment_ids(tree)
+    id_class_type = _node_id_class_type_map(tree)
+    output_node = node_assignments.get(output_node_var)
+    if output_node is None:
+        return
+    output_type = output_dict.get("output_type") or id_class_type.get(output_node)
+    descriptor: dict[str, Any] = {
+        "name": output_dict.get("name"),
+        "node_id": output_node,
+        "output_type": output_type,
+        "artifact_kind": output_dict.get("artifact_kind"),
+        "mime_type": output_dict.get("mime_type"),
+        "filename_prefix": output_dict.get("filename_prefix"),
+        "expected_cardinality": output_dict.get("expected_cardinality"),
+        "status": "static",
+        "source": "ready_template_decorator",
+    }
+    public_outputs.append(descriptor)
+
+
 def _node_assignment_ids(tree: ast.Module) -> dict[str, str]:
     ids: dict[str, str] = {}
     runtime_ids = _node_runtime_ids(tree)
@@ -683,6 +725,7 @@ _KNOWN_TOP_LEVEL_NAMES = frozenset({
     "PUBLIC_INPUTS",
     "PUBLIC_INPUT_METADATA",
     "MODELS",
+    "OUTPUT",
     "OUTPUT_PREFIX",
     "PRIVATE_KNOBS",
 })
@@ -1045,12 +1088,22 @@ def _evaluate_call(node: ast.Call, assignments: dict[str, Any]) -> Any:
     func_name = _call_qualified_name(node.func)
     if func_name in ("ReadyMetadata.build", "ReadyMetadata.build"):
         return _eval_ready_metadata_build(node, assignments)
-    if func_name in ("InputSpec",):
+    if func_name in ("InputSpec", "PublicInput"):
         return _eval_input_spec_call(node, assignments)
     if func_name in ("OutputSpec",):
         return _eval_output_spec_call(node, assignments)
     if func_name in ("ModelAsset",):
         return _eval_model_asset_call(node, assignments)
+    if func_name == "dict":
+        # Used by the @ready_template decorator shape: `OUTPUT = dict(node='...', ...)`.
+        result: dict[str, Any] = {}
+        for kw in node.keywords:
+            if kw.arg is None:
+                continue
+            value = _literal_value(kw.value, assignments)
+            if value is not _UNSUPPORTED:
+                result[kw.arg] = value
+        return result
     return _UNSUPPORTED
 
 

@@ -9221,24 +9221,21 @@
       "path": "ready_templates/video/wanvideo_wrapper_13b_control_lora.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "control_lora_video",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-VideoHelperSuite",
-        "ComfyUI-WanVideoWrapper"
-      ],
+      "custom_nodes": [],
       "model_count": 2,
       "public_inputs": [
         {
-          "name": "model",
+          "name": "seed",
           "target": {
-            "node_id": "",
-            "field": "model_name"
+            "node_id": "samples",
+            "field": "seed"
           },
-          "node_id": "",
-          "field": "model_name",
+          "node_id": "samples",
+          "field": "seed",
           "value": null,
-          "type": null,
+          "type": "INT",
           "default": null,
           "required": false,
           "range": null,
@@ -9248,14 +9245,14 @@
           "source": "InputSpec"
         },
         {
-          "name": "seed",
+          "name": "model",
           "target": {
-            "node_id": "",
-            "field": "seed"
+            "node_id": "1",
+            "field": "model_name"
           },
-          "node_id": "",
-          "field": "seed",
-          "value": null,
+          "node_id": "1",
+          "field": "model_name",
+          "value": "umt5-xxl-enc-bf16.safetensors",
           "type": null,
           "default": null,
           "required": false,
@@ -9263,7 +9260,7 @@
           "aliases": [],
           "media_semantics": null,
           "status": "static",
-          "source": "InputSpec"
+          "source": "finalize_metadata"
         }
       ],
       "public_outputs": [
@@ -9273,10 +9270,10 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideoWrapper_I2V",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
       "contract_shape": "workflow_runtime_contract.v1.public_descriptors.v2",
@@ -9287,22 +9284,16 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideoWrapper_I2V",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 2,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -9317,7 +9308,7 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_control_lora.json",
+      "source_workflow": null,
       "source_sha256": null
     },
     {
@@ -9325,23 +9316,18 @@
       "path": "ready_templates/video/wanvideo_wrapper_13b_recammaster.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "camera_control_video",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-KJNodes",
-        "ComfyUI-VideoHelperSuite",
-        "ComfyUI-WanVideoWrapper",
-        "rgthree-comfy"
-      ],
-      "model_count": 0,
+      "custom_nodes": [],
+      "model_count": 3,
       "public_inputs": [
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "samples",
             "field": "seed"
           },
-          "node_id": "",
+          "node_id": "samples",
           "field": "seed",
           "value": null,
           "type": "INT",
@@ -9356,10 +9342,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "",
+            "node_id": "cliptextencode",
             "field": "text"
           },
-          "node_id": "",
+          "node_id": "cliptextencode",
           "field": "text",
           "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
           "type": "STRING",
@@ -9397,10 +9383,10 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_ReCamMaster",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
       "contract_shape": "workflow_runtime_contract.v1.public_descriptors.v2",
@@ -9411,22 +9397,16 @@
           "output_type": "VHS_VideoCombine",
           "artifact_kind": "video",
           "mime_type": "video/mp4",
-          "filename_prefix": null,
+          "filename_prefix": "WanVideo2_1_ReCamMaster",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 4,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -9441,62 +9421,26 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_recammaster.json",
-      "source_sha256": null,
-      "custom_node_refs": [
-        {
-          "slug": "ComfyUI-KJNodes",
-          "source": "git",
-          "version": "unknown",
-          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
-          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
-        },
-        {
-          "slug": "ComfyUI-VideoHelperSuite",
-          "source": "git",
-          "version": "unknown",
-          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
-          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
-        },
-        {
-          "slug": "ComfyUI-WanVideoWrapper",
-          "source": "git",
-          "version": "unknown",
-          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
-          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
-        },
-        {
-          "slug": "rgthree-comfy",
-          "source": "git",
-          "version": "unknown",
-          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
-          "url": "https://github.com/rgthree/rgthree-comfy.git"
-        }
-      ]
+      "source_workflow": null,
+      "source_sha256": null
     },
     {
       "id": "video/wanvideo_wrapper_13b_vace",
       "path": "ready_templates/video/wanvideo_wrapper_13b_vace.py",
       "source_scope": "repo",
       "indexed": true,
-      "capability": "vace_video_control",
+      "capability": "unknown",
       "coverage_tier": "supplemental",
-      "custom_nodes": [
-        "ComfyUI-DepthAnythingV2",
-        "ComfyUI-KJNodes",
-        "ComfyUI-VideoHelperSuite",
-        "ComfyUI-WanVideoWrapper",
-        "rgthree-comfy"
-      ],
-      "model_count": 0,
+      "custom_nodes": [],
+      "model_count": 2,
       "public_inputs": [
         {
           "name": "image",
           "target": {
-            "node_id": "",
+            "node_id": "image",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "image",
           "field": "image",
           "value": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp",
           "type": "IMAGE",
@@ -9513,10 +9457,10 @@
         {
           "name": "input_image",
           "target": {
-            "node_id": "",
+            "node_id": "image",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "image",
           "field": "image",
           "value": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp",
           "type": "IMAGE",
@@ -9531,10 +9475,10 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "samples",
             "field": "seed"
           },
-          "node_id": "",
+          "node_id": "samples",
           "field": "seed",
           "value": null,
           "type": "INT",
@@ -9549,10 +9493,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "",
+            "node_id": "emptyimage",
             "field": "width"
           },
-          "node_id": "",
+          "node_id": "emptyimage",
           "field": "width",
           "value": 8,
           "type": "INT",
@@ -9567,14 +9511,14 @@
         {
           "name": "height",
           "target": {
-            "node_id": "",
+            "node_id": "image_image",
             "field": "height"
           },
-          "node_id": "",
+          "node_id": "image_image",
           "field": "height",
-          "value": 256,
+          "value": 512,
           "type": "INT",
-          "default": 256,
+          "default": 512,
           "required": false,
           "range": null,
           "aliases": [],
@@ -9611,7 +9555,7 @@
           "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
       "contract_shape": "workflow_runtime_contract.v1.public_descriptors.v2",
@@ -9625,19 +9569,13 @@
           "filename_prefix": null,
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
-      "custom_node_count": 5,
+      "custom_node_count": 0,
       "strict_ready_diagnostic_counts": {},
       "readiness_class": "ready",
       "marker": "generated",
@@ -9652,45 +9590,8 @@
         "tested_at": "2026-05-20T09:19:32.302139+00:00",
         "version": "0.18.2"
       },
-      "source_workflow": "workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json",
-      "source_sha256": null,
-      "custom_node_refs": [
-        {
-          "slug": "ComfyUI-DepthAnythingV2",
-          "source": "git",
-          "version": "unknown",
-          "commit": "553187872eeb1d52e50dc53209fa57e569609a72",
-          "url": "https://github.com/kijai/ComfyUI-DepthAnythingV2.git"
-        },
-        {
-          "slug": "ComfyUI-KJNodes",
-          "source": "git",
-          "version": "unknown",
-          "commit": "b7646ad70a7daa7aeb919ca542274758d26ba2df",
-          "url": "https://github.com/kijai/ComfyUI-KJNodes.git"
-        },
-        {
-          "slug": "ComfyUI-VideoHelperSuite",
-          "source": "git",
-          "version": "unknown",
-          "commit": "4ee72c065db22c9d96c2427954dc69e7b908444b",
-          "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
-        },
-        {
-          "slug": "ComfyUI-WanVideoWrapper",
-          "source": "git",
-          "version": "unknown",
-          "commit": "df8f3e49daaad117cf3090cc916c83f3d001494c",
-          "url": "https://github.com/kijai/ComfyUI-WanVideoWrapper.git"
-        },
-        {
-          "slug": "rgthree-comfy",
-          "source": "git",
-          "version": "unknown",
-          "commit": "738105af5fb14e96fbecaf406dc356e284797e8c",
-          "url": "https://github.com/rgthree/rgthree-comfy.git"
-        }
-      ]
+      "source_workflow": null,
+      "source_sha256": null
     },
     {
       "id": "video/wanvideo_wrapper_21_14b_flf2v",
@@ -10311,10 +10212,10 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "samples",
             "field": "seed"
           },
-          "node_id": "",
+          "node_id": "samples",
           "field": "seed",
           "value": null,
           "type": "INT",
@@ -10329,10 +10230,10 @@
         {
           "name": "image",
           "target": {
-            "node_id": "",
+            "node_id": "image",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "image",
           "field": "image",
           "value": "oldman_upscaled.png",
           "type": "IMAGE",
@@ -10349,10 +10250,10 @@
         {
           "name": "input_image",
           "target": {
-            "node_id": "",
+            "node_id": "image",
             "field": "image"
           },
-          "node_id": "",
+          "node_id": "image",
           "field": "image",
           "value": "oldman_upscaled.png",
           "type": "IMAGE",
@@ -10367,10 +10268,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "",
+            "node_id": "image_image",
             "field": "width"
           },
-          "node_id": "",
+          "node_id": "image_image",
           "field": "width",
           "value": 624,
           "type": "INT",
@@ -10385,10 +10286,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "",
+            "node_id": "image_image",
             "field": "height"
           },
-          "node_id": "",
+          "node_id": "image_image",
           "field": "height",
           "value": 624,
           "type": "INT",
@@ -10403,10 +10304,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "",
+            "node_id": "cliptextencode",
             "field": "text"
           },
-          "node_id": "",
+          "node_id": "cliptextencode",
           "field": "text",
           "value": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
           "type": "STRING",
@@ -10447,7 +10348,7 @@
           "filename_prefix": "WanVideoWrapper_I2V",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
       "contract_shape": "workflow_runtime_contract.v1.public_descriptors.v2",
@@ -10461,16 +10362,10 @@
           "filename_prefix": "WanVideoWrapper_I2V",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 0,
@@ -10504,10 +10399,10 @@
         {
           "name": "seed",
           "target": {
-            "node_id": "",
+            "node_id": "samples",
             "field": "seed"
           },
-          "node_id": "",
+          "node_id": "samples",
           "field": "seed",
           "value": null,
           "type": "INT",
@@ -10522,10 +10417,10 @@
         {
           "name": "width",
           "target": {
-            "node_id": "",
+            "node_id": "wanvideoemptyembeds",
             "field": "width"
           },
-          "node_id": "",
+          "node_id": "wanvideoemptyembeds",
           "field": "width",
           "value": 832,
           "type": "INT",
@@ -10540,10 +10435,10 @@
         {
           "name": "height",
           "target": {
-            "node_id": "",
+            "node_id": "wanvideoemptyembeds",
             "field": "height"
           },
-          "node_id": "",
+          "node_id": "wanvideoemptyembeds",
           "field": "height",
           "value": 480,
           "type": "INT",
@@ -10558,10 +10453,10 @@
         {
           "name": "prompt",
           "target": {
-            "node_id": "",
+            "node_id": "cliptextencode",
             "field": "text"
           },
-          "node_id": "",
+          "node_id": "cliptextencode",
           "field": "text",
           "value": null,
           "type": "STRING",
@@ -10602,7 +10497,7 @@
           "filename_prefix": "WanVideo2_1_T2V",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
       "contract_shape": "workflow_runtime_contract.v1.public_descriptors.v2",
@@ -10616,16 +10511,10 @@
           "filename_prefix": "WanVideo2_1_T2V",
           "expected_cardinality": "one",
           "status": "static",
-          "source": "finalize"
+          "source": "ready_template_decorator"
         }
       ],
-      "static_diagnostics": [
-        {
-          "code": "static_dynamic_value",
-          "severity": "warning",
-          "message": "finalize has dynamic 'output_node'"
-        }
-      ],
+      "static_diagnostics": [],
       "public_input_status": "declared",
       "public_output_status": "declared",
       "custom_node_count": 0,

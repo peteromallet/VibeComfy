@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-05-25T14:06:45+00:00",
+  "generated_at": "2026-05-25T23:19:29+00:00",
   "generated_from": "repo-only buildable non-protected ready_templates canonical compile output",
   "include_rule": "find ready_templates -type f -name '*.py' ! -name '_*' ! -name '__init__.py', exclude protected markers, and include templates whose build() compiles to API",
   "template_count": 59,
@@ -20848,15 +20848,15 @@
     {
       "id": "video/wanvideo_wrapper_13b_control_lora",
       "path": "ready_templates/video/wanvideo_wrapper_13b_control_lora.py",
-      "sha256": "b741b27bcf9e6660a29505caab2dd4e1042114b617f64a05fbbe8ab19494973b",
+      "sha256": "75e48c040b571e31ab47c1c8739ed5148a26fbe9511ba9ea69d27740496b5af2",
       "canonical_form": {
         "nodes": [
           {
-            "label": "b9d01c5f40ff",
+            "label": "82e9979703fa",
             "class_type": "ImageBlur",
             "inputs": {
               "image": [
-                "b20c71e13f55",
+                "47186cfea73c",
                 0
               ],
               "widget_0": 4,
@@ -20864,78 +20864,86 @@
             }
           },
           {
-            "label": "49928ec0b45b",
+            "label": "071e7ed8aa50",
             "class_type": "ImageConcatMulti",
             "inputs": {
               "image_1": [
-                "b9d01c5f40ff",
+                "82e9979703fa",
                 0
               ],
               "image_2": [
-                "b20d24506af4",
+                "1fe11ec5a3f9",
                 0
               ]
             }
           },
           {
-            "label": "096f09bfdaad",
+            "label": "e69071500097",
             "class_type": "LoadWanVideoT5TextEncoder",
             "inputs": {
               "model_name": "umt5-xxl-enc-bf16.safetensors"
             }
           },
           {
-            "label": "b20c71e13f55",
+            "label": "47186cfea73c",
             "class_type": "VHS_LoadVideo",
             "inputs": {
+              "choose video to upload": "image",
               "video": "wolf_interpolated.mp4"
             }
           },
           {
-            "label": "d2a6261f003a",
+            "label": "71076ca9121e",
             "class_type": "VHS_VideoCombine",
             "inputs": {
+              "crf": 19,
+              "filename_prefix": "WanVideoWrapper_I2V",
+              "format": "video/h264-mp4",
+              "frame_rate": 16,
               "images": [
-                "49928ec0b45b",
+                "071e7ed8aa50",
                 0
-              ]
+              ],
+              "pix_fmt": "yuv420p",
+              "save_metadata": true,
+              "trim_to_audio": false
             }
           },
           {
-            "label": "c311acf848d8",
+            "label": "180d71bd7381",
             "class_type": "WanVideoControlEmbeds",
             "inputs": {
               "end_percent": 0.7,
               "latents": [
-                "840148c2a484",
+                "1820587d9eb4",
                 0
               ]
             }
           },
           {
-            "label": "b20d24506af4",
+            "label": "1fe11ec5a3f9",
             "class_type": "WanVideoDecode",
             "inputs": {
               "samples": [
-                "34fb9f16217f",
+                "71d342d3f08a",
                 0
               ],
               "vae": [
-                "892d1b0ea714",
+                "9ea3fd798619",
                 0
               ]
             }
           },
           {
-            "label": "840148c2a484",
+            "label": "1820587d9eb4",
             "class_type": "WanVideoEncode",
             "inputs": {
               "image": [
-                "b9d01c5f40ff",
+                "82e9979703fa",
                 0
               ],
               "vae": [
-                "892d1b0ea714",
+                "9ea3fd798619",
                 0
               ],
               "widget_0": false,
@@ -20948,51 +20956,50 @@
             }
           },
           {
-            "label": "e74fec4b892d",
+            "label": "84a26a8d5b65",
             "class_type": "WanVideoLoraSelect",
             "inputs": {
-              "lora": "WanVid\\wan2.1-1.3b-control-lora-tile-v1.1_comfy.safetensors"
+              "lora": "WanVid\\wan2.1-1.3b-control-lora-tile-v0.1_comfy.safetensors"
             }
           },
           {
-            "label": "130e0a67d088",
+            "label": "13fdbebe54d0",
             "class_type": "WanVideoModelLoader",
             "inputs": {
               "base_precision": "fp16",
               "lora": [
-                "e74fec4b892d",
+                "84a26a8d5b65",
                 0
               ],
               "model": "WanVideo\\wan2.1_t2v_1.3B_fp16.safetensors"
             }
           },
           {
-            "label": "34fb9f16217f",
+            "label": "71d342d3f08a",
             "class_type": "WanVideoSampler",
             "inputs": {
               "batched_cfg": "",
               "cache_args": [
-                "ba3bce363e6d",
+                "e57c8c4a1892",
                 0
               ],
               "image_embeds": [
-                "c311acf848d8",
+                "180d71bd7381",
                 0
               ],
               "model": [
-                "130e0a67d088",
+                "13fdbebe54d0",
                 0
               ],
               "seed": 0,
-              "steps": 1,
               "text_embeds": [
-                "2e32478c1cc5",
+                "211bbc3ad8a8",
                 0
               ]
             }
           },
           {
-            "label": "ba3bce363e6d",
+            "label": "e57c8c4a1892",
             "class_type": "WanVideoTeaCache",
             "inputs": {
               "rel_l1_thresh": 0.1,
@@ -21000,13 +21007,13 @@
             }
           },
           {
-            "label": "2e32478c1cc5",
+            "label": "211bbc3ad8a8",
             "class_type": "WanVideoTextEncode",
             "inputs": {
               "negative_prompt": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
               "positive_prompt": "video of a wolf",
               "t5": [
-                "096f09bfdaad",
+                "e69071500097",
                 0
               ]
             }
@@ -21022,7 +21029,7 @@
             "inputs": {}
           },
           {
-            "label": "892d1b0ea714",
+            "label": "9ea3fd798619",
             "class_type": "WanVideoVAELoader",
             "inputs": {
               "model_name": "wanvideo\\Wan2_1_VAE_bf16.safetensors"
@@ -21034,19 +21041,19 @@
     {
       "id": "video/wanvideo_wrapper_13b_recammaster",
       "path": "ready_templates/video/wanvideo_wrapper_13b_recammaster.py",
-      "sha256": "2368032dd964828f1cf6502d3f08c99b24345cfd7407b286a2f50bdd79cb9fe4",
+      "sha256": "29ca5a7eeb402e54662bac32da43e4862dd7bcc01880a17eaaea6b795c10fbe3",
       "canonical_form": {
         "nodes": [
           {
-            "label": "0727e1908b18",
+            "label": "91957e11c34e",
             "class_type": "AddLabel",
             "inputs": {
               "image": [
-                "090efdeedd4d",
+                "85cd6927707b",
                 0
               ],
               "text": [
-                "93e9df760d2f",
+                "647e71d213ea",
                 0
               ],
               "widget_0": 10,
@@ -21091,7 +21098,7 @@
             }
           },
           {
-            "label": "2e8b4150b358",
+            "label": "9e9dfc7ba82b",
             "class_type": "DownloadAndLoadFlorence2Model",
             "inputs": {
               "widget_0": "MiaoshouAI/Florence-2-base-PromptGen-v2.0",
@@ -21100,15 +21107,15 @@
             }
           },
           {
-            "label": "9a194237c1f5",
+            "label": "4e331037c3f7",
             "class_type": "Florence2Run",
             "inputs": {
               "florence2_model": [
-                "2e8b4150b358",
+                "9e9dfc7ba82b",
                 0
               ],
               "image": [
-                "782333a8f806",
+                "46a3cfe359ab",
                 0
               ],
               "widget_0": "",
@@ -21124,31 +21131,31 @@
             }
           },
           {
-            "label": "782333a8f806",
+            "label": "46a3cfe359ab",
             "class_type": "GetImageRangeFromBatch",
             "inputs": {
               "images": [
-                "a93aadf7b654",
+                "3c16b4db7e7a",
                 0
               ]
             }
           },
           {
-            "label": "663c4ff45036",
+            "label": "c88db10f2ba9",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "c8026ae9fade",
+                "7c7866f1fdb6",
                 0
               ]
             }
           },
           {
-            "label": "a93aadf7b654",
+            "label": "3c16b4db7e7a",
             "class_type": "ImageResizeKJ",
             "inputs": {
               "image": [
-                "663c4ff45036",
+                "c88db10f2ba9",
                 0
               ],
               "widget_0": 832,
@@ -21160,51 +21167,52 @@
             }
           },
           {
-            "label": "fb91bc22ffee",
+            "label": "1c916991ba24",
             "class_type": "LoadWanVideoT5TextEncoder",
             "inputs": {
               "model_name": "umt5-xxl-enc-bf16.safetensors"
             }
           },
           {
-            "label": "660ddafec5d3",
+            "label": "fa104c475d5c",
             "class_type": "PreviewImage",
             "inputs": {
               "images": [
-                "02aaa5adc9fd",
+                "46a3cfe359ab",
                 0
               ]
             }
           },
           {
-            "label": "8126b7737467",
+            "label": "70c618811fd2",
             "class_type": "PreviewImage",
             "inputs": {
               "images": [
-                "782333a8f806",
+                "8da750afd8ea",
                 0
               ]
             }
           },
           {
-            "label": "02aaa5adc9fd",
+            "label": "8da750afd8ea",
             "class_type": "ReCamMasterPoseVisualizer",
             "inputs": {
+              "base_xval": 0.20000000000000004,
               "camera_poses": [
-                "0ef6d8be5763",
+                "4d72a270c550",
                 1
               ],
-              "scale": 0.5,
-              "widget_0": 0.1,
-              "zval": 0.4
+              "scale": 0.5000000000000001,
+              "widget_0": 0.10000000000000002,
+              "zval": 0.4000000000000001
             }
           },
           {
-            "label": "d347fc79d369",
+            "label": "2ad43fb1c8ee",
             "class_type": "ShowText|pysssss",
             "inputs": {
               "text": [
-                "9a194237c1f5",
+                "4e331037c3f7",
                 2
               ],
               "widget_0": "A man in a suit and tie walking down a hallway. He has a friendly expression and is looking directly at the camera. The hallway has beige walls adorned with framed black and white photographs. There is a door on the left side of the hallway and a poster on the wall. The lighting is soft and natural. The image is high quality and has a watermark in the bottom right corner.",
@@ -21212,20 +21220,30 @@
             }
           },
           {
-            "label": "c8026ae9fade",
+            "label": "7c7866f1fdb6",
             "class_type": "VHS_LoadVideo",
             "inputs": {
-              "video": "wolf_interpolated.mp4"
+              "choose video to upload": "image",
+              "frame_load_cap": 81,
+              "video": "9.mp4"
             }
           },
           {
-            "label": "9afc7c173c6b",
+            "label": "338a3e6774b7",
             "class_type": "VHS_VideoCombine",
             "inputs": {
+              "crf": 19,
+              "filename_prefix": "WanVideo2_1_ReCamMaster",
+              "format": "video/h264-mp4",
+              "frame_rate": 16,
               "images": [
-                "0727e1908b18",
+                "91957e11c34e",
                 0
-              ]
+              ],
+              "pix_fmt": "yuv420p",
+              "save_metadata": true,
+              "save_output": false,
+              "trim_to_audio": false
             }
           },
           {
@@ -21236,29 +21254,29 @@
             }
           },
           {
-            "label": "090efdeedd4d",
+            "label": "85cd6927707b",
             "class_type": "WanVideoDecode",
             "inputs": {
               "samples": [
-                "c82c61d64438",
+                "a8c199790f54",
                 0
               ],
               "vae": [
-                "548597ca07d3",
+                "4d9caafb8022",
                 0
               ]
             }
           },
           {
-            "label": "7944be6a81da",
+            "label": "9b32699d5e16",
             "class_type": "WanVideoEncode",
             "inputs": {
               "image": [
-                "a93aadf7b654",
+                "3c16b4db7e7a",
                 0
               ],
               "vae": [
-                "548597ca07d3",
+                "4d9caafb8022",
                 0
               ],
               "widget_0": false,
@@ -21271,32 +21289,32 @@
             }
           },
           {
-            "label": "dfa38595c136",
+            "label": "769c9334e5d9",
             "class_type": "WanVideoModelLoader",
             "inputs": {
               "model": "WanVideo\\Wan2_1_kwai_recammaster_1_3B_step20000_bf16.safetensors"
             }
           },
           {
-            "label": "0ef6d8be5763",
+            "label": "4d72a270c550",
             "class_type": "WanVideoReCamMasterCameraEmbed",
             "inputs": {
               "camera_poses": [
-                "6fc40bf9c253",
+                "59d93ddba73d",
                 0
               ],
               "latents": [
-                "7944be6a81da",
+                "9b32699d5e16",
                 0
               ]
             }
           },
           {
-            "label": "6fc40bf9c253",
+            "label": "59d93ddba73d",
             "class_type": "WanVideoReCamMasterDefaultCamera",
             "inputs": {
               "latents": [
-                "7944be6a81da",
+                "9b32699d5e16",
                 0
               ]
             }
@@ -21307,39 +21325,39 @@
             "inputs": {}
           },
           {
-            "label": "c82c61d64438",
+            "label": "a8c199790f54",
             "class_type": "WanVideoSampler",
             "inputs": {
               "cache_args": [
-                "f86331d25817",
+                "9193b86069d1",
                 0
               ],
               "experimental_args": [
-                "d347fc79d369",
+                "2ad43fb1c8ee",
                 0
               ],
               "image_embeds": [
-                "0ef6d8be5763",
+                "4d72a270c550",
                 0
               ],
               "model": [
-                "dfa38595c136",
+                "769c9334e5d9",
                 0
               ],
               "seed": 42,
-              "steps": 1,
+              "steps": 20,
               "text_embeds": [
-                "bb1fc333289f",
+                "84b051813861",
                 0
               ]
             }
           },
           {
-            "label": "f86331d25817",
+            "label": "9193b86069d1",
             "class_type": "WanVideoTeaCache",
             "inputs": {
               "mode": "e0",
-              "rel_l1_thresh": 0.1,
+              "rel_l1_thresh": 0.10000000000000002,
               "start_step": 6,
               "use_coefficients": "true"
             }
@@ -21359,16 +21377,16 @@
             }
           },
           {
-            "label": "bb1fc333289f",
+            "label": "84b051813861",
             "class_type": "WanVideoTextEncode",
             "inputs": {
               "negative_prompt": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
               "positive_prompt": [
-                "9a194237c1f5",
+                "4e331037c3f7",
                 2
               ],
               "t5": [
-                "fb91bc22ffee",
+                "1c916991ba24",
                 0
               ]
             }
@@ -21379,7 +21397,7 @@
             "inputs": {}
           },
           {
-            "label": "548597ca07d3",
+            "label": "4d9caafb8022",
             "class_type": "WanVideoVAELoader",
             "inputs": {
               "model_name": "wanvideo\\Wan2_1_VAE_bf16.safetensors"
@@ -21391,11 +21409,11 @@
             "inputs": {}
           },
           {
-            "label": "93e9df760d2f",
+            "label": "647e71d213ea",
             "class_type": "WidgetToString",
             "inputs": {
               "any_input": [
-                "6fc40bf9c253",
+                "59d93ddba73d",
                 0
               ],
               "node_title": 2,
@@ -21409,15 +21427,15 @@
     {
       "id": "video/wanvideo_wrapper_13b_vace",
       "path": "ready_templates/video/wanvideo_wrapper_13b_vace.py",
-      "sha256": "d396208a02ff780dbfd5302279e57738066ed1aeddc9aa314a34e60212ee430b",
+      "sha256": "97884bdc312b4d01735732d370b945dea21a2328f3f51b8453fdd073128bea00",
       "canonical_form": {
         "nodes": [
           {
-            "label": "7104fcc00d81",
+            "label": "9506602726e6",
             "class_type": "AddLabel",
             "inputs": {
               "image": [
-                "25c0c61582f8",
+                "1f6bd849b971",
                 0
               ],
               "widget_0": 10,
@@ -21432,49 +21450,11 @@
             }
           },
           {
-            "label": "822e1a82d3f1",
+            "label": "4e3305984a88",
             "class_type": "AddLabel",
             "inputs": {
               "image": [
-                "383f5c586011",
-                0
-              ],
-              "widget_0": 10,
-              "widget_1": 2,
-              "widget_2": 48,
-              "widget_3": 32,
-              "widget_4": "white",
-              "widget_5": "black",
-              "widget_6": "FreeMono.ttf",
-              "widget_7": "reference image",
-              "widget_8": "up"
-            }
-          },
-          {
-            "label": "ee94a25cb103",
-            "class_type": "AddLabel",
-            "inputs": {
-              "image": [
-                "3ed96b974dd8",
-                0
-              ],
-              "widget_0": 10,
-              "widget_1": 2,
-              "widget_2": 48,
-              "widget_3": 32,
-              "widget_4": "white",
-              "widget_5": "black",
-              "widget_6": "FreeMono.ttf",
-              "widget_7": "control_video",
-              "widget_8": "up"
-            }
-          },
-          {
-            "label": "e594c6c2e1dc",
-            "class_type": "AddLabel",
-            "inputs": {
-              "image": [
-                "7afdd519d421",
+                "389a78d3aec8",
                 0
               ],
               "widget_0": 10,
@@ -21489,11 +21469,30 @@
             }
           },
           {
-            "label": "013eddf2f043",
+            "label": "6081e118e009",
             "class_type": "AddLabel",
             "inputs": {
               "image": [
-                "f8b74cfb0cb0",
+                "3a8c31356a2b",
+                0
+              ],
+              "widget_0": 10,
+              "widget_1": 2,
+              "widget_2": 48,
+              "widget_3": 32,
+              "widget_4": "white",
+              "widget_5": "black",
+              "widget_6": "FreeMono.ttf",
+              "widget_7": "reference image",
+              "widget_8": "up"
+            }
+          },
+          {
+            "label": "26fa4623eb19",
+            "class_type": "AddLabel",
+            "inputs": {
+              "image": [
+                "b9c0ee8676da",
                 0
               ],
               "widget_0": 10,
@@ -21508,32 +21507,51 @@
             }
           },
           {
-            "label": "3ed96b974dd8",
+            "label": "d712cee7ba14",
+            "class_type": "AddLabel",
+            "inputs": {
+              "image": [
+                "c4f025fb7581",
+                0
+              ],
+              "widget_0": 10,
+              "widget_1": 2,
+              "widget_2": 48,
+              "widget_3": 32,
+              "widget_4": "white",
+              "widget_5": "black",
+              "widget_6": "FreeMono.ttf",
+              "widget_7": "control_video",
+              "widget_8": "up"
+            }
+          },
+          {
+            "label": "c4f025fb7581",
             "class_type": "DepthAnything_V2",
             "inputs": {
               "da_model": [
-                "2fc0d4860021",
+                "7c3a3b47c7f7",
                 0
               ],
               "images": [
-                "1bcc0a68ce0a",
+                "9eb17109fb0f",
                 0
               ]
             }
           },
           {
-            "label": "2fc0d4860021",
+            "label": "7c3a3b47c7f7",
             "class_type": "DownloadAndLoadDepthAnythingV2Model",
             "inputs": {
               "model": "depth_anything_v2_vitl_fp16.safetensors"
             }
           },
           {
-            "label": "ddf1b0a36d33",
+            "label": "5e205c52655a",
             "class_type": "EmptyImage",
             "inputs": {
               "height": [
-                "01f57442b876",
+                "2e4fb4255678",
                 2
               ],
               "widget_1": 512,
@@ -21541,11 +21559,11 @@
             }
           },
           {
-            "label": "08a99507f6de",
+            "label": "c48273aa8e08",
             "class_type": "EmptyImage",
             "inputs": {
               "height": [
-                "5af38b82f3ae",
+                "51e9b38c46a9",
                 2
               ],
               "widget_1": 512,
@@ -21553,11 +21571,11 @@
             }
           },
           {
-            "label": "321159e096ec",
+            "label": "84e7da46919c",
             "class_type": "EmptyImage",
             "inputs": {
               "height": [
-                "f545a9663232",
+                "e2795861f961",
                 2
               ],
               "widget_1": 512,
@@ -21565,132 +21583,132 @@
             }
           },
           {
-            "label": "f7f2661420c3",
+            "label": "b538bfb85528",
             "class_type": "GetImageRangeFromBatch",
             "inputs": {
               "images": [
-                "f8b74cfb0cb0",
+                "b9c0ee8676da",
                 0
               ]
             }
           },
           {
-            "label": "e476321b1bed",
+            "label": "624dd9599c2b",
             "class_type": "GetImageRangeFromBatch",
             "inputs": {
               "masks": [
-                "f8b74cfb0cb0",
+                "b9c0ee8676da",
                 1
               ]
             }
           },
           {
-            "label": "f545a9663232",
+            "label": "80b6654c70c2",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "05f6d5121255",
+                "07ce769a1308",
                 0
               ]
             }
           },
           {
-            "label": "01f57442b876",
+            "label": "51e9b38c46a9",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "169723bdfcaa",
+                "12cebbf0994c",
                 0
               ]
             }
           },
           {
-            "label": "05c0ae86f00f",
+            "label": "e2795861f961",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "8bd2e5d1408d",
+                "68025be91721",
                 0
               ]
             }
           },
           {
-            "label": "5af38b82f3ae",
+            "label": "853e74f76a6c",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "b66d9ae4b221",
+                "b9c0ee8676da",
                 0
               ]
             }
           },
           {
-            "label": "31479bb561bb",
+            "label": "2e4fb4255678",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "ea97bb46869d",
+                "cae69ae6b5c5",
                 0
               ]
             }
           },
           {
-            "label": "502e299dea4b",
+            "label": "2aa1ed5c935b",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "f8b74cfb0cb0",
+                "f2ae65d92f11",
                 0
               ]
             }
           },
           {
-            "label": "956d73b16994",
+            "label": "6f9346596e83",
             "class_type": "ImageConcatMulti",
             "inputs": {
               "direction": "down",
               "image_1": [
-                "7104fcc00d81",
+                "6081e118e009",
                 0
               ],
               "image_2": [
-                "e594c6c2e1dc",
+                "d712cee7ba14",
                 0
               ],
               "match_image_size": true
             }
           },
           {
-            "label": "021775395c32",
+            "label": "398308d37a2f",
             "class_type": "ImageConcatMulti",
             "inputs": {
               "direction": "down",
               "image_1": [
-                "822e1a82d3f1",
+                "9506602726e6",
                 0
               ],
               "image_2": [
-                "ee94a25cb103",
+                "4e3305984a88",
                 0
               ],
               "match_image_size": true
             }
           },
           {
-            "label": "9a51b8a008e1",
+            "label": "075b96dabfc2",
             "class_type": "ImageConcatMulti",
             "inputs": {
               "direction": "left",
               "image_1": [
-                "01f57442b876",
+                "2e4fb4255678",
                 0
               ],
               "image_2": [
-                "ddf1b0a36d33",
+                "5e205c52655a",
                 0
               ],
               "image_3": [
-                "013eddf2f043",
+                "26fa4623eb19",
                 0
               ],
               "inputcount": 3,
@@ -21698,20 +21716,20 @@
             }
           },
           {
-            "label": "a68681c0490e",
+            "label": "8b5df7bd66cb",
             "class_type": "ImageConcatMulti",
             "inputs": {
               "direction": "left",
               "image_1": [
-                "5af38b82f3ae",
+                "51e9b38c46a9",
                 0
               ],
               "image_2": [
-                "08a99507f6de",
+                "c48273aa8e08",
                 0
               ],
               "image_3": [
-                "021775395c32",
+                "6f9346596e83",
                 0
               ],
               "inputcount": 3,
@@ -21719,20 +21737,20 @@
             }
           },
           {
-            "label": "e168ff4d9540",
+            "label": "e4aabc458f99",
             "class_type": "ImageConcatMulti",
             "inputs": {
               "direction": "left",
               "image_1": [
-                "f545a9663232",
+                "e2795861f961",
                 0
               ],
               "image_2": [
-                "321159e096ec",
+                "84e7da46919c",
                 0
               ],
               "image_3": [
-                "956d73b16994",
+                "398308d37a2f",
                 0
               ],
               "inputcount": 3,
@@ -21740,28 +21758,11 @@
             }
           },
           {
-            "label": "f8b74cfb0cb0",
+            "label": "b085ca1ac489",
             "class_type": "ImagePadKJ",
             "inputs": {
               "image": [
-                "46dd069c0171",
-                0
-              ],
-              "widget_0": 0,
-              "widget_1": 0,
-              "widget_2": 0,
-              "widget_3": 0,
-              "widget_4": 128,
-              "widget_5": "color",
-              "widget_6": "127,127,127"
-            }
-          },
-          {
-            "label": "60d309f0ebf6",
-            "class_type": "ImagePadKJ",
-            "inputs": {
-              "image": [
-                "882d7353652e",
+                "43270b9aefd5",
                 0
               ],
               "widget_0": 0,
@@ -21774,268 +21775,316 @@
             }
           },
           {
-            "label": "1bcc0a68ce0a",
+            "label": "b9c0ee8676da",
+            "class_type": "ImagePadKJ",
+            "inputs": {
+              "image": [
+                "7ea6c891e2e2",
+                0
+              ],
+              "widget_0": 0,
+              "widget_1": 0,
+              "widget_2": 0,
+              "widget_3": 0,
+              "widget_4": 128,
+              "widget_5": "color",
+              "widget_6": "127,127,127"
+            }
+          },
+          {
+            "label": "1f6bd849b971",
             "class_type": "ImageResizeKJv2",
             "inputs": {
               "divisible_by": 16,
-              "height": 256,
+              "height": 640,
               "image": [
-                "436e79a5bf03",
+                "bf2c4586b69a",
                 0
               ],
               "keep_proportion": "crop",
               "pad_color": "172,172,172",
               "upscale_method": "lanczos",
-              "width": 256
+              "width": 640
             }
           },
           {
-            "label": "25c0c61582f8",
-            "class_type": "ImageResizeKJv2",
-            "inputs": {
-              "divisible_by": 16,
-              "height": 256,
-              "image": [
-                "71eeaa677df0",
-                0
-              ],
-              "keep_proportion": "crop",
-              "pad_color": "172,172,172",
-              "upscale_method": "lanczos",
-              "width": 256
-            }
-          },
-          {
-            "label": "383f5c586011",
+            "label": "389a78d3aec8",
             "class_type": "ImageResizeKJv2",
             "inputs": {
               "divisible_by": 16,
               "height": [
-                "1bcc0a68ce0a",
+                "1f6bd849b971",
                 2
               ],
               "image": [
-                "60d309f0ebf6",
+                "f076bca45260",
+                0
+              ],
+              "keep_proportion": "crop",
+              "pad_color": "172,172,172",
+              "upscale_method": "lanczos",
+              "width": [
+                "1f6bd849b971",
+                1
+              ]
+            }
+          },
+          {
+            "label": "0d04816f8233",
+            "class_type": "ImageResizeKJv2",
+            "inputs": {
+              "divisible_by": 16,
+              "height": [
+                "9eb17109fb0f",
+                2
+              ],
+              "image": [
+                "43270b9aefd5",
                 0
               ],
               "keep_proportion": "pad",
               "pad_color": "255,255,255",
               "upscale_method": "lanczos",
               "width": [
-                "1bcc0a68ce0a",
+                "9eb17109fb0f",
                 1
               ]
             }
           },
           {
-            "label": "ddbc7db5351c",
+            "label": "3a8c31356a2b",
             "class_type": "ImageResizeKJv2",
             "inputs": {
               "divisible_by": 16,
               "height": [
-                "1bcc0a68ce0a",
+                "9eb17109fb0f",
                 2
               ],
               "image": [
-                "882d7353652e",
+                "b085ca1ac489",
                 0
               ],
               "keep_proportion": "pad",
               "pad_color": "255,255,255",
               "upscale_method": "lanczos",
               "width": [
-                "1bcc0a68ce0a",
+                "9eb17109fb0f",
                 1
               ]
             }
           },
           {
-            "label": "7afdd519d421",
+            "label": "9eb17109fb0f",
             "class_type": "ImageResizeKJv2",
             "inputs": {
               "divisible_by": 16,
-              "height": [
-                "25c0c61582f8",
-                2
-              ],
               "image": [
-                "855ecececc92",
+                "302785575a81",
                 0
               ],
               "keep_proportion": "crop",
               "pad_color": "172,172,172",
-              "upscale_method": "lanczos",
-              "width": [
-                "25c0c61582f8",
-                1
-              ]
+              "upscale_method": "lanczos"
             }
           },
           {
-            "label": "46dd069c0171",
+            "label": "7ea6c891e2e2",
             "class_type": "ImageResizeKJv2",
             "inputs": {
-              "height": 256,
+              "height": 512,
               "image": [
-                "9c0e38ccc63a",
+                "7409b6d64946",
                 0
               ],
               "keep_proportion": "crop",
               "pad_color": "172,172,172",
-              "upscale_method": "lanczos",
-              "width": 256
+              "upscale_method": "lanczos"
             }
           },
           {
-            "label": "882d7353652e",
+            "label": "43270b9aefd5",
             "class_type": "LoadImage",
             "inputs": {
               "image": "hunhyuanwolf.png"
             }
           },
           {
-            "label": "71eeaa677df0",
+            "label": "bf2c4586b69a",
             "class_type": "LoadImage",
             "inputs": {
               "image": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp"
             }
           },
           {
-            "label": "855ecececc92",
+            "label": "f076bca45260",
             "class_type": "LoadImage",
             "inputs": {
               "image": "replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-3.webp"
             }
           },
           {
-            "label": "370ad549c2f9",
+            "label": "ecffa44d7e8f",
             "class_type": "LoadWanVideoT5TextEncoder",
             "inputs": {
               "model_name": "umt5-xxl-enc-bf16.safetensors"
             }
           },
           {
-            "label": "6cd3f85c0f71",
+            "label": "f790bc365308",
             "class_type": "MaskPreview",
             "inputs": {
               "mask": [
-                "8bd2e5d1408d",
+                "07ce769a1308",
                 1
               ]
             }
           },
           {
-            "label": "e6b786ac4d97",
+            "label": "017534c2704f",
             "class_type": "MaskPreview",
             "inputs": {
               "mask": [
-                "e476321b1bed",
+                "624dd9599c2b",
                 1
               ]
             }
           },
           {
-            "label": "9db4d1ef03ca",
+            "label": "eb7ac7d7ecd8",
             "class_type": "MaskPreview",
             "inputs": {
               "mask": [
-                "ea97bb46869d",
+                "f2ae65d92f11",
                 1
               ]
             }
           },
           {
-            "label": "a33b0b73defc",
+            "label": "37644259da1e",
             "class_type": "PreviewImage",
             "inputs": {
               "images": [
-                "31479bb561bb",
+                "07ce769a1308",
                 0
               ]
             }
           },
           {
-            "label": "60121be21437",
+            "label": "456430095927",
             "class_type": "PreviewImage",
             "inputs": {
               "images": [
-                "383f5c586011",
+                "2aa1ed5c935b",
                 0
               ]
             }
           },
           {
-            "label": "265797d10205",
+            "label": "9bd9d6e4471d",
             "class_type": "PreviewImage",
             "inputs": {
               "images": [
-                "8bd2e5d1408d",
+                "3a8c31356a2b",
                 0
               ]
             }
           },
           {
-            "label": "71f2e1647b04",
+            "label": "438142de0d2a",
             "class_type": "PreviewImage",
             "inputs": {
               "images": [
-                "f7f2661420c3",
+                "b538bfb85528",
                 0
               ]
             }
           },
           {
-            "label": "436e79a5bf03",
+            "label": "302785575a81",
             "class_type": "VHS_LoadVideo",
             "inputs": {
+              "choose video to upload": "image",
               "video": "wolf_interpolated.mp4"
             }
           },
           {
-            "label": "9c0e38ccc63a",
+            "label": "7409b6d64946",
             "class_type": "VHS_LoadVideo",
             "inputs": {
+              "choose video to upload": "image",
               "video": "wolf_interpolated.mp4"
             }
           },
           {
-            "label": "490844e6962e",
+            "label": "cff037a45fd8",
             "class_type": "VHS_VideoCombine",
             "inputs": {
+              "crf": 19,
+              "filename_prefix": "WanVideoWrapper_VACE_outpaint",
+              "format": "video/h264-mp4",
+              "frame_rate": 16,
               "images": [
-                "3ed96b974dd8",
+                "075b96dabfc2",
                 0
-              ]
+              ],
+              "pix_fmt": "yuv420p",
+              "save_metadata": true,
+              "save_output": false,
+              "trim_to_audio": false
             }
           },
           {
-            "label": "41079f4f0c94",
+            "label": "66f6f832392a",
             "class_type": "VHS_VideoCombine",
             "inputs": {
+              "crf": 19,
+              "filename_prefix": "WanVideoWrapper_VACE_startendframe",
+              "format": "video/h264-mp4",
+              "frame_rate": 16,
               "images": [
-                "9a51b8a008e1",
+                "8b5df7bd66cb",
                 0
-              ]
+              ],
+              "pix_fmt": "yuv420p",
+              "save_metadata": true,
+              "save_output": false,
+              "trim_to_audio": false
             }
           },
           {
-            "label": "cefdbb9b15a0",
+            "label": "a274db43cf38",
             "class_type": "VHS_VideoCombine",
             "inputs": {
+              "crf": 19,
+              "filename_prefix": "WanVideoWrapper_VACE_startendframe",
+              "format": "video/h264-mp4",
+              "frame_rate": 16,
               "images": [
-                "a68681c0490e",
+                "c4f025fb7581",
                 0
-              ]
+              ],
+              "pix_fmt": "yuv420p",
+              "save_metadata": true,
+              "save_output": false,
+              "trim_to_audio": false
             }
           },
           {
-            "label": "9c5f5c99be57",
+            "label": "24ca8aaa9c46",
             "class_type": "VHS_VideoCombine",
             "inputs": {
+              "crf": 19,
+              "filename_prefix": "WanVideoWrapper_VACE_startendframe",
+              "format": "video/h264-mp4",
+              "frame_rate": 16,
               "images": [
-                "e168ff4d9540",
+                "e4aabc458f99",
                 0
-              ]
+              ],
+              "pix_fmt": "yuv420p",
+              "save_metadata": true,
+              "save_output": false,
+              "trim_to_audio": false
             }
           },
           {
@@ -22048,282 +22097,282 @@
             }
           },
           {
-            "label": "05f6d5121255",
+            "label": "68025be91721",
             "class_type": "WanVideoDecode",
             "inputs": {
               "samples": [
-                "0c890fc81027",
+                "045298f63b44",
                 0
               ],
               "vae": [
-                "21016dc5a415",
+                "c47be2df563b",
                 0
               ]
             }
           },
           {
-            "label": "169723bdfcaa",
+            "label": "cae69ae6b5c5",
             "class_type": "WanVideoDecode",
             "inputs": {
               "samples": [
-                "d08b8788e7f0",
+                "336a5d898f98",
                 0
               ],
               "vae": [
-                "21016dc5a415",
+                "c47be2df563b",
                 0
               ]
             }
           },
           {
-            "label": "b66d9ae4b221",
+            "label": "12cebbf0994c",
             "class_type": "WanVideoDecode",
             "inputs": {
               "samples": [
-                "d77ef51be2d9",
+                "434dc24cf33c",
                 0
               ],
               "vae": [
-                "21016dc5a415",
+                "c47be2df563b",
                 0
               ]
             }
           },
           {
-            "label": "6545a46f84db",
+            "label": "11f0d8bc97e7",
             "class_type": "WanVideoExperimentalArgs",
             "inputs": {
               "cfg_zero_star": true
             }
           },
           {
-            "label": "8f33a0b12d35",
+            "label": "86254adffbe1",
             "class_type": "WanVideoExperimentalArgs",
             "inputs": {
               "cfg_zero_star": true
             }
           },
           {
-            "label": "b1a9a43eacbd",
+            "label": "88d144549d71",
             "class_type": "WanVideoExperimentalArgs",
             "inputs": {
               "cfg_zero_star": true
             }
           },
           {
-            "label": "0bed7465da3e",
+            "label": "544d6ac7156a",
             "class_type": "WanVideoModelLoader",
             "inputs": {
               "base_precision": "fp16",
               "model": "WanVideo\\wan2.1_t2v_1.3B_fp16.safetensors",
               "vace_model": [
-                "4db6a6ea0e5f",
+                "bb855cff7008",
                 0
               ]
             }
           },
           {
-            "label": "b05f98301f73",
+            "label": "1c5741409e64",
             "class_type": "WanVideoSLG",
             "inputs": {
               "blocks": "8",
-              "end_percent": 0.7,
-              "start_percent": 0.3
+              "end_percent": 0.7000000000000002,
+              "start_percent": 0.30000000000000004
             }
           },
           {
-            "label": "c4230b8624bb",
+            "label": "a61b93c22dfd",
             "class_type": "WanVideoSLG",
             "inputs": {
               "blocks": "8",
-              "end_percent": 0.7,
-              "start_percent": 0.3
+              "end_percent": 0.7000000000000002,
+              "start_percent": 0.30000000000000004
             }
           },
           {
-            "label": "051d1608ae60",
+            "label": "0ac08132b616",
             "class_type": "WanVideoSLG",
             "inputs": {
               "blocks": "8",
-              "end_percent": 0.71,
-              "start_percent": 0.3
+              "end_percent": 0.7100000000000002,
+              "start_percent": 0.30000000000000004
             }
           },
           {
-            "label": "0c890fc81027",
+            "label": "045298f63b44",
             "class_type": "WanVideoSampler",
             "inputs": {
               "cache_args": [
-                "104b9720400c",
+                "30be0c1d2313",
                 0
               ],
               "cfg": 4.000000000000001,
               "experimental_args": [
-                "6545a46f84db",
+                "11f0d8bc97e7",
                 0
               ],
               "image_embeds": [
-                "71fb96de212b",
+                "a8a6cd46723b",
                 0
               ],
               "model": [
-                "0bed7465da3e",
+                "544d6ac7156a",
                 0
               ],
               "seed": 18,
               "shift": 8.000000000000002,
               "slg_args": [
-                "b05f98301f73",
+                "1c5741409e64",
                 0
               ],
               "start_step": "",
-              "steps": 1,
+              "steps": 20,
               "text_embeds": [
-                "a56600dfc8ad",
+                "b1bd375c373d",
                 0
               ]
             }
           },
           {
-            "label": "d08b8788e7f0",
+            "label": "434dc24cf33c",
             "class_type": "WanVideoSampler",
             "inputs": {
               "cache_args": [
-                "1af869f8fbbf",
+                "4147594920b5",
                 0
               ],
               "cfg": 4.000000000000001,
               "experimental_args": [
-                "8f33a0b12d35",
+                "88d144549d71",
                 0
               ],
               "image_embeds": [
-                "5d351bb43eb7",
+                "c099da09ea72",
                 0
               ],
               "model": [
-                "0bed7465da3e",
+                "544d6ac7156a",
+                0
+              ],
+              "shift": 8.000000000000002,
+              "slg_args": [
+                "0ac08132b616",
+                0
+              ],
+              "start_step": "",
+              "steps": 20,
+              "text_embeds": [
+                "411a3ebf4c97",
+                0
+              ]
+            }
+          },
+          {
+            "label": "336a5d898f98",
+            "class_type": "WanVideoSampler",
+            "inputs": {
+              "cache_args": [
+                "be08113108d3",
+                0
+              ],
+              "cfg": 4.000000000000001,
+              "experimental_args": [
+                "86254adffbe1",
+                0
+              ],
+              "image_embeds": [
+                "a531a77d8704",
+                0
+              ],
+              "model": [
+                "544d6ac7156a",
                 0
               ],
               "seed": 18,
               "shift": 8.000000000000002,
               "slg_args": [
-                "c4230b8624bb",
+                "a61b93c22dfd",
                 0
               ],
               "start_step": "",
-              "steps": 1,
+              "steps": 20,
               "text_embeds": [
-                "13576927ee59",
+                "bedec5ef4115",
                 0
               ]
             }
           },
           {
-            "label": "d77ef51be2d9",
-            "class_type": "WanVideoSampler",
-            "inputs": {
-              "cache_args": [
-                "9d42edf24b46",
-                0
-              ],
-              "cfg": 4.000000000000001,
-              "experimental_args": [
-                "b1a9a43eacbd",
-                0
-              ],
-              "image_embeds": [
-                "bb133dd0cd9b",
-                0
-              ],
-              "model": [
-                "0bed7465da3e",
-                0
-              ],
-              "shift": 8.000000000000002,
-              "slg_args": [
-                "051d1608ae60",
-                0
-              ],
-              "start_step": "",
-              "steps": 1,
-              "text_embeds": [
-                "5f677d6253a5",
-                0
-              ]
-            }
-          },
-          {
-            "label": "104b9720400c",
+            "label": "30be0c1d2313",
             "class_type": "WanVideoTeaCache",
             "inputs": {
-              "rel_l1_thresh": 0.1,
+              "rel_l1_thresh": 0.10000000000000002,
               "start_step": 0,
               "use_coefficients": "true"
             }
           },
           {
-            "label": "1af869f8fbbf",
+            "label": "4147594920b5",
             "class_type": "WanVideoTeaCache",
             "inputs": {
-              "rel_l1_thresh": 0.1,
+              "rel_l1_thresh": 0.10000000000000002,
               "start_step": 0,
               "use_coefficients": "true"
             }
           },
           {
-            "label": "9d42edf24b46",
+            "label": "be08113108d3",
             "class_type": "WanVideoTeaCache",
             "inputs": {
-              "rel_l1_thresh": 0.1,
+              "rel_l1_thresh": 0.10000000000000002,
               "start_step": 0,
               "use_coefficients": "true"
             }
           },
           {
-            "label": "13576927ee59",
+            "label": "411a3ebf4c97",
             "class_type": "WanVideoTextEncode",
             "inputs": {
               "model_to_offload": [
-                "0bed7465da3e",
+                "544d6ac7156a",
                 0
               ],
               "negative_prompt": "bad quality, blurry, messy, chaotic",
               "positive_prompt": "robotic cybernetic wolf turning his head",
               "t5": [
-                "370ad549c2f9",
+                "ecffa44d7e8f",
                 0
               ]
             }
           },
           {
-            "label": "5f677d6253a5",
+            "label": "bedec5ef4115",
             "class_type": "WanVideoTextEncode",
             "inputs": {
               "model_to_offload": [
-                "0bed7465da3e",
+                "544d6ac7156a",
                 0
               ],
               "negative_prompt": "bad quality, blurry, messy, chaotic",
               "positive_prompt": "robotic cybernetic wolf turning his head",
               "t5": [
-                "370ad549c2f9",
+                "ecffa44d7e8f",
                 0
               ]
             }
           },
           {
-            "label": "a56600dfc8ad",
+            "label": "b1bd375c373d",
             "class_type": "WanVideoTextEncode",
             "inputs": {
               "model_to_offload": [
-                "0bed7465da3e",
+                "544d6ac7156a",
                 0
               ],
               "negative_prompt": "colorful, bad quality, blurry, messy, chaotic",
               "positive_prompt": "black and white cartoon character",
               "t5": [
-                "370ad549c2f9",
+                "ecffa44d7e8f",
                 0
               ]
             }
@@ -22334,30 +22383,34 @@
             "inputs": {}
           },
           {
-            "label": "bb133dd0cd9b",
+            "label": "a8a6cd46723b",
             "class_type": "WanVideoVACEEncode",
             "inputs": {
               "height": [
-                "05c0ae86f00f",
+                "2aa1ed5c935b",
                 2
               ],
               "input_frames": [
-                "05c0ae86f00f",
+                "2aa1ed5c935b",
                 0
               ],
               "input_masks": [
-                "8bd2e5d1408d",
+                "f2ae65d92f11",
                 1
               ],
               "num_frames": [
-                "05c0ae86f00f",
+                "2aa1ed5c935b",
                 3
+              ],
+              "ref_images": [
+                "1f6bd849b971",
+                0
               ],
               "strength": 0,
               "vace_end_percent": false,
               "vace_start_percent": 1,
               "vae": [
-                "21016dc5a415",
+                "c47be2df563b",
                 0
               ],
               "widget_0": 480,
@@ -22365,36 +22418,40 @@
               "widget_2": 29,
               "widget_3": 1.0000000000000002,
               "width": [
-                "05c0ae86f00f",
+                "2aa1ed5c935b",
                 1
               ]
             }
           },
           {
-            "label": "71fb96de212b",
+            "label": "c099da09ea72",
             "class_type": "WanVideoVACEEncode",
             "inputs": {
               "height": [
-                "31479bb561bb",
+                "80b6654c70c2",
                 2
               ],
               "input_frames": [
-                "31479bb561bb",
+                "80b6654c70c2",
                 0
               ],
               "input_masks": [
-                "ea97bb46869d",
+                "07ce769a1308",
                 1
               ],
               "num_frames": [
-                "31479bb561bb",
+                "80b6654c70c2",
                 3
+              ],
+              "ref_images": [
+                "3a8c31356a2b",
+                0
               ],
               "strength": 0,
               "vace_end_percent": false,
               "vace_start_percent": 1,
               "vae": [
-                "21016dc5a415",
+                "c47be2df563b",
                 0
               ],
               "widget_0": 480,
@@ -22402,36 +22459,36 @@
               "widget_2": 29,
               "widget_3": 1.0000000000000002,
               "width": [
-                "31479bb561bb",
+                "80b6654c70c2",
                 1
               ]
             }
           },
           {
-            "label": "5d351bb43eb7",
+            "label": "a531a77d8704",
             "class_type": "WanVideoVACEEncode",
             "inputs": {
               "height": [
-                "502e299dea4b",
+                "853e74f76a6c",
                 2
               ],
               "input_frames": [
-                "502e299dea4b",
+                "853e74f76a6c",
                 0
               ],
               "input_masks": [
-                "f8b74cfb0cb0",
+                "b9c0ee8676da",
                 1
               ],
               "num_frames": [
-                "502e299dea4b",
+                "853e74f76a6c",
                 3
               ],
               "strength": 0,
               "vace_end_percent": false,
               "vace_start_percent": 1,
               "vae": [
-                "21016dc5a415",
+                "c47be2df563b",
                 0
               ],
               "widget_0": 480,
@@ -22439,54 +22496,56 @@
               "widget_2": 29,
               "widget_3": 1.0000000000000002,
               "width": [
-                "502e299dea4b",
+                "853e74f76a6c",
                 1
               ]
             }
           },
           {
-            "label": "4db6a6ea0e5f",
+            "label": "bb855cff7008",
             "class_type": "WanVideoVACEModelSelect",
             "inputs": {
               "vace_model": "WanVideo\\Wan2_1-VACE_module_1_3B_bf16.safetensors"
             }
           },
           {
-            "label": "8bd2e5d1408d",
+            "label": "07ce769a1308",
             "class_type": "WanVideoVACEStartToEndFrame",
             "inputs": {
               "control_images": [
-                "3ed96b974dd8",
+                "c4f025fb7581",
                 0
               ],
+              "empty_frame_level": 0.5000000000000001,
               "num_frames": [
-                "436e79a5bf03",
+                "302785575a81",
                 1
               ],
               "start_image": [
-                "ddbc7db5351c",
+                "0d04816f8233",
                 0
               ],
               "widget_0": 33
             }
           },
           {
-            "label": "ea97bb46869d",
+            "label": "f2ae65d92f11",
             "class_type": "WanVideoVACEStartToEndFrame",
             "inputs": {
+              "empty_frame_level": 0.5000000000000001,
               "end_image": [
-                "7afdd519d421",
+                "389a78d3aec8",
                 0
               ],
               "num_frames": 33,
               "start_image": [
-                "25c0c61582f8",
+                "1f6bd849b971",
                 0
               ]
             }
           },
           {
-            "label": "21016dc5a415",
+            "label": "c47be2df563b",
             "class_type": "WanVideoVAELoader",
             "inputs": {
               "model_name": "wanvideo\\Wan2_1_VAE_bf16.safetensors"
@@ -23882,7 +23941,7 @@
     {
       "id": "video/wanvideo_wrapper_21_14b_t2v",
       "path": "ready_templates/video/wanvideo_wrapper_21_14b_t2v.py",
-      "sha256": "35305d5b028f7183eda89560f4f9c643671e6d8ede0ad7e41d8d798b52e147a5",
+      "sha256": "af7eb51a1345900457a58299f659a6a0893d2748ccceb263882c86bdb5251e29",
       "canonical_form": {
         "nodes": [
           {
@@ -23916,14 +23975,14 @@
             }
           },
           {
-            "label": "424f6b031a26",
+            "label": "5ee0ffa7cda3",
             "class_type": "LoadWanVideoT5TextEncoder",
             "inputs": {
               "model_name": "umt5-xxl-enc-bf16.safetensors"
             }
           },
           {
-            "label": "de6c4e734936",
+            "label": "6ffc6897962a",
             "class_type": "VHS_VideoCombine",
             "inputs": {
               "crf": 19,
@@ -23931,7 +23990,7 @@
               "format": "video/h264-mp4",
               "frame_rate": 16,
               "images": [
-                "f8c759c08f38",
+                "310d18a8e277",
                 0
               ],
               "pix_fmt": "yuv420p",
@@ -23940,27 +23999,27 @@
             }
           },
           {
-            "label": "a7a8afbd11a4",
+            "label": "76c1db3adcc6",
             "class_type": "WanVideoBlockSwap",
             "inputs": {}
           },
           {
-            "label": "f8c759c08f38",
+            "label": "310d18a8e277",
             "class_type": "WanVideoDecode",
             "inputs": {
               "normalization": "default",
               "samples": [
-                "5a2de85a435a",
+                "38e26197ce78",
                 0
               ],
               "vae": [
-                "205cebe9f3ae",
+                "1bb5d2f3a39e",
                 0
               ]
             }
           },
           {
-            "label": "bbc49e25243b",
+            "label": "c8fea11c19ed",
             "class_type": "WanVideoEmptyEmbeds",
             "inputs": {
               "height": 480,
@@ -23968,12 +24027,12 @@
             }
           },
           {
-            "label": "7304390b41dc",
+            "label": "11d76327da9c",
             "class_type": "WanVideoEnhanceAVideo",
             "inputs": {}
           },
           {
-            "label": "4d83d7b10870",
+            "label": "c4c95f03bed0",
             "class_type": "WanVideoLoraSelectMulti",
             "inputs": {
               "lora_0": "WanVideo\\Lightx2v\\lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16_.safetensors",
@@ -23981,7 +24040,7 @@
             }
           },
           {
-            "label": "15f5deb84c6e",
+            "label": "af48bb587fe0",
             "class_type": "WanVideoModelLoader",
             "inputs": {
               "base_precision": "fp16",
@@ -23990,56 +24049,56 @@
             }
           },
           {
-            "label": "5a2de85a435a",
+            "label": "38e26197ce78",
             "class_type": "WanVideoSampler",
             "inputs": {
               "cfg": 1,
               "feta_args": [
-                "7304390b41dc",
+                "11d76327da9c",
                 0
               ],
-              "flowedit_args": "",
               "image_embeds": [
-                "bbc49e25243b",
+                "c8fea11c19ed",
                 0
               ],
               "model": [
-                "b93f2b1b9b47",
+                "b8b5a06ce95d",
                 0
               ],
               "scheduler": "dpm++_sde",
               "seed": 42,
               "steps": 6,
               "text_embeds": [
-                "845e03fa121f",
+                "6f7ea07158f0",
                 0
-              ]
+              ],
+              "widget_14": ""
             }
           },
           {
-            "label": "b93f2b1b9b47",
+            "label": "b8b5a06ce95d",
             "class_type": "WanVideoSetBlockSwap",
             "inputs": {
               "block_swap_args": [
-                "a7a8afbd11a4",
+                "76c1db3adcc6",
                 0
               ],
               "model": [
-                "cc32a420fbce",
+                "97f98f5df442",
                 0
               ]
             }
           },
           {
-            "label": "cc32a420fbce",
+            "label": "97f98f5df442",
             "class_type": "WanVideoSetLoRAs",
             "inputs": {
               "lora": [
-                "4d83d7b10870",
+                "c4c95f03bed0",
                 0
               ],
               "model": [
-                "15f5deb84c6e",
+                "af48bb587fe0",
                 0
               ]
             }
@@ -24059,13 +24118,13 @@
             }
           },
           {
-            "label": "845e03fa121f",
+            "label": "6f7ea07158f0",
             "class_type": "WanVideoTextEncode",
             "inputs": {
               "negative_prompt": "\u8272\u8c03\u8273\u4e3d\uff0c\u8fc7\u66dd\uff0c\u9759\u6001\uff0c\u7ec6\u8282\u6a21\u7cca\u4e0d\u6e05\uff0c\u5b57\u5e55\uff0c\u98ce\u683c\uff0c\u4f5c\u54c1\uff0c\u753b\u4f5c\uff0c\u753b\u9762\uff0c\u9759\u6b62\uff0c\u6574\u4f53\u53d1\u7070\uff0c\u6700\u5dee\u8d28\u91cf\uff0c\u4f4e\u8d28\u91cf\uff0cJPEG\u538b\u7f29\u6b8b\u7559\uff0c\u4e11\u964b\u7684\uff0c\u6b8b\u7f3a\u7684\uff0c\u591a\u4f59\u7684\u624b\u6307\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u624b\u90e8\uff0c\u753b\u5f97\u4e0d\u597d\u7684\u8138\u90e8\uff0c\u7578\u5f62\u7684\uff0c\u6bc1\u5bb9\u7684\uff0c\u5f62\u6001\u7578\u5f62\u7684\u80a2\u4f53\uff0c\u624b\u6307\u878d\u5408\uff0c\u9759\u6b62\u4e0d\u52a8\u7684\u753b\u9762\uff0c\u6742\u4e71\u7684\u80cc\u666f\uff0c\u4e09\u6761\u817f\uff0c\u80cc\u666f\u4eba\u5f88\u591a\uff0c\u5012\u7740\u8d70",
               "positive_prompt": "high quality nature video featuring a red panda balancing on a bamboo stem while a bird lands on it's head, on the background there is a waterfall",
               "t5": [
-                "424f6b031a26",
+                "5ee0ffa7cda3",
                 0
               ]
             }
@@ -24076,7 +24135,7 @@
             "inputs": {}
           },
           {
-            "label": "205cebe9f3ae",
+            "label": "1bb5d2f3a39e",
             "class_type": "WanVideoVAELoader",
             "inputs": {
               "model_name": "wanvideo\\Wan2_1_VAE_bf16.safetensors"

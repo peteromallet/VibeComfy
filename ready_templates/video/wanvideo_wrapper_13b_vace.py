@@ -3,7 +3,7 @@
 """Auto-generated ready_template — use python -m vibecomfy.cli copy-to-recipe <id> for hand-editing."""
 from __future__ import annotations
 
-from vibecomfy.templates import InputSpec, ReadyMetadata, new_workflow
+from vibecomfy.templates import PublicInput, ready_template, ReadyMetadata
 from vibecomfy.nodes.core import EmptyImage, GetImageRangeFromBatch, LoadImage, MaskPreview, PreviewImage
 from vibecomfy.nodes.depthanythingv2 import DepthAnything_V2, DownloadAndLoadDepthAnythingV2Model
 from vibecomfy.nodes.kjnodes import AddLabel, GetImageSizeAndCount, ImageConcatMulti, ImagePadKJ, ImageResizeKJv2
@@ -11,8 +11,12 @@ from vibecomfy.nodes.videohelpersuite import VHS_LoadVideo, VHS_VideoCombine
 from vibecomfy.nodes.wanvideowrapper import LoadWanVideoT5TextEncoder, WanVideoBlockSwap, WanVideoDecode, WanVideoExperimentalArgs, WanVideoModelLoader, WanVideoSLG, WanVideoSampler, WanVideoTeaCache, WanVideoTextEncode, WanVideoTorchCompileSettings, WanVideoVACEEncode, WanVideoVACEModelSelect, WanVideoVACEStartToEndFrame, WanVideoVAELoader
 
 
+ANIMATEDIFF = 'AnimateDiff'
+BF16 = 'bf16'
 BLACK = 'black'
+CENTER = 'center'
 COLOR = 'color'
+COMFY = 'comfy'
 CONTROL_VIDEO = 'control_video'
 CROP = 'crop'
 DEFAULT_FRAMES = 1
@@ -20,11 +24,15 @@ DEFAULT_FRAMES_2 = 33
 DEFAULT_NEGATIVE_2 = 'bad quality, blurry, messy, chaotic'
 DEFAULT_PROMPT_2 = 'robotic cybernetic wolf turning his head'
 DEFAULT_SEED = 18
+DEFAULT_SEED_2 = 0
+DISABLED = 'disabled'
 DOWN = 'down'
 E = 'e'
 END_IMAGE = 'end_image'
+FIXED = 'fixed'
 FREEMONO_TTF = 'FreeMono.ttf'
 GUIDE_STRENGTH = 4.000000000000001
+IMAGE = 'image'
 INPUTVIDEO = 'InputVideo'
 LANCZOS = 'lanczos'
 LEFT = 'left'
@@ -33,8 +41,10 @@ PAD = 'pad'
 REFERENCE_IMAGE = 'reference_image'
 START_IMAGE = 'start_image'
 TRUE = 'true'
+UNIPC = 'unipc'
 UP = 'up'
 VALUE = ''
+VIDEO_H264_MP4 = 'video/h264-mp4'
 V_172_172_172 = '172,172,172'
 V_255_255_255 = '255,255,255'
 V_8 = '8'
@@ -43,19 +53,34 @@ WANTEXTENCODER = 'WanTextEncoder'
 WANVAE = 'WanVAE'
 WHITE = 'white'
 WOLF_INTERPOLATED_MP4 = 'wolf_interpolated.mp4'
+YUV420P = 'yuv420p'
 
 READY_METADATA = ReadyMetadata.build(
-    capability='vace_video_control',
-    requirements={'custom_nodes': ['ComfyUI-DepthAnythingV2', 'ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite', 'ComfyUI-WanVideoWrapper', 'rgthree-comfy'], 'custom_node_refs': [{'slug': 'ComfyUI-DepthAnythingV2', 'source': 'git', 'version': 'unknown', 'commit': '553187872eeb1d52e50dc53209fa57e569609a72', 'url': 'https://github.com/kijai/ComfyUI-DepthAnythingV2.git'}, {'slug': 'ComfyUI-KJNodes', 'source': 'git', 'version': 'unknown', 'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git'}, {'slug': 'ComfyUI-VideoHelperSuite', 'source': 'git', 'version': 'unknown', 'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git'}, {'slug': 'ComfyUI-WanVideoWrapper', 'source': 'git', 'version': 'unknown', 'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git'}, {'slug': 'rgthree-comfy', 'source': 'git', 'version': 'unknown', 'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git'}]},
-    custom_node_packs={'ComfyUI-DepthAnythingV2': {'commit': '553187872eeb1d52e50dc53209fa57e569609a72', 'url': 'https://github.com/kijai/ComfyUI-DepthAnythingV2.git', 'class_schema_sha256': 'f4e181ab42ca179eda161acba5121e999cb54b1dbee0dc087a22bd42af7241ae', 'classes_used': ['DepthAnything_V2', 'DownloadAndLoadDepthAnythingV2Model'], 'pip_packages': ['opencv-python-headless', 'transformers'], 'status': 'pinned'}, 'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageRangeFromBatch', 'GetImageSizeAndCount', 'ImageResizeKJv2'], 'pip_packages': ['matplotlib'], 'status': 'pinned'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_LoadVideo', 'VHS_VideoCombine'], 'pip_packages': [], 'status': 'pinned'}, 'ComfyUI-WanVideoWrapper': {'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git', 'class_schema_sha256': '80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f', 'classes_used': ['LoadWanVideoT5TextEncoder', 'WanVideoBlockSwap', 'WanVideoDecode', 'WanVideoExperimentalArgs', 'WanVideoModelLoader', 'WanVideoSLG', 'WanVideoSampler', 'WanVideoTextEncode', 'WanVideoTorchCompileSettings', 'WanVideoVACEEncode', 'WanVideoVACEModelSelect', 'WanVideoVACEStartToEndFrame', 'WanVideoVAELoader'], 'pip_packages': ['onnx', 'opencv-python-headless'], 'status': 'pinned'}, 'rgthree-comfy': {'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git', 'class_schema_sha256': '2b52072e02c59cb05ce83e5c45e1c7fd5b1273fee9b62eaaa0e66a81a4c07872', 'classes_used': ['GetNode', 'SetNode'], 'pip_packages': [], 'status': 'pinned'}},
-    smoke_resolution='256x256x5_frames',
-    approach='VACE control/edit workflow',
-    provenance={'source_workflow': 'workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json'},
+    capability='unknown',
+    requirements={'models': ['umt5-xxl-enc-bf16.safetensors', 'wanvideo\\Wan2_1_VAE_bf16.safetensors']},
+    custom_node_packs={'ComfyUI-DepthAnythingV2': {'commit': '553187872eeb1d52e50dc53209fa57e569609a72', 'url': 'https://github.com/kijai/ComfyUI-DepthAnythingV2.git', 'class_schema_sha256': 'f4e181ab42ca179eda161acba5121e999cb54b1dbee0dc087a22bd42af7241ae', 'classes_used': ['DepthAnything_V2', 'DownloadAndLoadDepthAnythingV2Model'], 'pip_packages': ['opencv-python-headless', 'transformers'], 'status': 'discovered'}, 'ComfyUI-KJNodes': {'commit': 'b7646ad70a7daa7aeb919ca542274758d26ba2df', 'url': 'https://github.com/kijai/ComfyUI-KJNodes.git', 'class_schema_sha256': '1beaf129c8fa26175d89a28f9ca10d08b5ac27c8fc9bff920263fcbba17cb691', 'classes_used': ['GetImageRangeFromBatch', 'GetImageSizeAndCount', 'ImageResizeKJv2'], 'pip_packages': ['matplotlib'], 'status': 'discovered'}, 'ComfyUI-VideoHelperSuite': {'commit': '4ee72c065db22c9d96c2427954dc69e7b908444b', 'url': 'https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git', 'class_schema_sha256': '8391e679554eecd5d324a3e34a713ff240e619e3a07476587845ba18c9fae310', 'classes_used': ['VHS_LoadVideo', 'VHS_VideoCombine'], 'pip_packages': [], 'status': 'discovered'}, 'ComfyUI-WanVideoWrapper': {'commit': 'df8f3e49daaad117cf3090cc916c83f3d001494c', 'url': 'https://github.com/kijai/ComfyUI-WanVideoWrapper.git', 'class_schema_sha256': '80187858cc6ec371c9860fd9ca5fcf5174324d75782046657e252492512d115f', 'classes_used': ['LoadWanVideoT5TextEncoder', 'WanVideoBlockSwap', 'WanVideoDecode', 'WanVideoExperimentalArgs', 'WanVideoModelLoader', 'WanVideoSLG', 'WanVideoSampler', 'WanVideoTextEncode', 'WanVideoTorchCompileSettings', 'WanVideoVACEEncode', 'WanVideoVACEModelSelect', 'WanVideoVACEStartToEndFrame', 'WanVideoVAELoader'], 'pip_packages': ['onnx', 'opencv-python-headless'], 'status': 'discovered'}, 'rgthree-comfy': {'commit': '738105af5fb14e96fbecaf406dc356e284797e8c', 'url': 'https://github.com/rgthree/rgthree-comfy.git', 'class_schema_sha256': '2b52072e02c59cb05ce83e5c45e1c7fd5b1273fee9b62eaaa0e66a81a4c07872', 'classes_used': ['GetNode', 'SetNode'], 'pip_packages': [], 'status': 'discovered'}},
+    provenance={'source_path': 'workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json', 'source_id': 'wan13b_vace', 'source_type': 'api', 'source_workflow_path': 'workflow_corpus/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json', 'output_mode': 'ready_template', 'ready_id': 'video/wanvideo_wrapper_13b_vace'},
 )
 
+PUBLIC_INPUTS = {
+    'image': PublicInput(node='image', field='image', default='replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
+    'seed': PublicInput(node='samples', field='seed', default=DEFAULT_SEED, type='INT'),
+    'width': PublicInput(node='emptyimage', field='width', default=8, type='INT'),
+    'height': PublicInput(node='image_image', field='height', default=512, type='INT'),
+}
+OUTPUT = dict(
+    node='previewimage',
+    output_type='PreviewImage',
+    name='image',
+    artifact_kind='image',
+    mime_type='image/png',
+    expected_cardinality='one',
+)
+
+
+@ready_template(READY_METADATA, source_path=__file__, inputs=PUBLIC_INPUTS, output=OUTPUT)
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
-    wf = new_workflow(READY_METADATA, source_path=__file__)
 
     loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(
         model_name='umt5-xxl-enc-bf16.safetensors',
@@ -74,7 +99,7 @@ def build() -> VibeWorkflow:
     )
 
     wanvideoteacache = WanVideoTeaCache(
-        rel_l1_thresh=0.1,
+        rel_l1_thresh=0.10000000000000002,
         start_step=0,
         use_coefficients='true',
     )
@@ -82,42 +107,67 @@ def build() -> VibeWorkflow:
     # Inputs
     image, mask = LoadImage(
         image='replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp',
+        unused_widget_1='image',
     )
 
     wanvideoexperimentalargs = WanVideoExperimentalArgs(cfg_zero_star=True)
-    wanvideoslg = WanVideoSLG(blocks='8', end_percent=0.7, start_percent=0.3)
+
+    wanvideoslg = WanVideoSLG(
+        blocks='8',
+        end_percent=0.7000000000000002,
+        start_percent=0.30000000000000004,
+    )
 
     image_load, mask_load = LoadImage(
         image='replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-3.webp',
+        unused_widget_1='image',
     )
 
     wanvideoteacache_2 = WanVideoTeaCache(
-        rel_l1_thresh=0.1,
+        rel_l1_thresh=0.10000000000000002,
         start_step=0,
         use_coefficients='true',
     )
 
-    wanvideoslg_2 = WanVideoSLG(blocks='8', end_percent=0.71, start_percent=0.3)
+    wanvideoslg_2 = WanVideoSLG(
+        blocks='8',
+        end_percent=0.7100000000000002,
+        start_percent=0.30000000000000004,
+    )
+
     wanvideoexperimentalargs_2 = WanVideoExperimentalArgs(cfg_zero_star=True)
-    image_load_2, mask_load_2 = LoadImage(image='hunhyuanwolf.png')
+
+    image_load_2, mask_load_2 = LoadImage(
+        image='hunhyuanwolf.png',
+        unused_widget_1='image',
+    )
 
     image_load_3, frame_count, audio, video_info = VHS_LoadVideo(
         video=WOLF_INTERPOLATED_MP4,
+        videopreview={'hidden': False, 'paused': False, 'params': {'filename': 'wolf_interpolated.mp4', 'type': 'input', 'format': 'video/mp4', 'force_rate': 0, 'custom_width': 0, 'custom_height': 0, 'frame_load_cap': 0, 'skip_first_frames': 0, 'select_every_nth': 1}},
+        **{'choose video to upload': IMAGE},
     )
 
     downloadandloaddepthanythingv2model = DownloadAndLoadDepthAnythingV2Model(
         model='depth_anything_v2_vitl_fp16.safetensors',
     )
 
-    wanvideoslg_3 = WanVideoSLG(blocks='8', end_percent=0.7, start_percent=0.3)
+    wanvideoslg_3 = WanVideoSLG(
+        blocks='8',
+        end_percent=0.7000000000000002,
+        start_percent=0.30000000000000004,
+    )
+
     wanvideoexperimentalargs_3 = WanVideoExperimentalArgs(cfg_zero_star=True)
 
     image_load_4, frame_count_load, audio_load, video_info_load = VHS_LoadVideo(
         video=WOLF_INTERPOLATED_MP4,
+        videopreview={'hidden': False, 'paused': False, 'params': {'filename': 'wolf_interpolated.mp4', 'type': 'input', 'format': 'video/mp4', 'force_rate': 0, 'custom_width': 0, 'custom_height': 0, 'frame_load_cap': 0, 'skip_first_frames': 0, 'select_every_nth': 1}},
+        **{'choose video to upload': IMAGE},
     )
 
     wanvideoteacache_3 = WanVideoTeaCache(
-        rel_l1_thresh=0.1,
+        rel_l1_thresh=0.10000000000000002,
         start_step=0,
         use_coefficients='true',
     )
@@ -144,8 +194,7 @@ def build() -> VibeWorkflow:
     )
 
     image_image, width_image, height_image, mask_image = ImageResizeKJv2(
-        width=256,
-        height=256,
+        height=512,
         upscale_method=LANCZOS,
         keep_proportion=CROP,
         pad_color=V_172_172_172,
@@ -153,8 +202,8 @@ def build() -> VibeWorkflow:
     )
 
     image_image_2, width_image_2, height_image_2, mask_image_2 = ImageResizeKJv2(
-        width=256,
-        height=256,
+        width=640,
+        height=640,
         upscale_method=LANCZOS,
         keep_proportion=CROP,
         pad_color=V_172_172_172,
@@ -163,8 +212,6 @@ def build() -> VibeWorkflow:
     )
 
     image_image_4, width_image_4, height_image_4, mask_image_4 = ImageResizeKJv2(
-        width=256,
-        height=256,
         upscale_method=LANCZOS,
         keep_proportion=CROP,
         pad_color=V_172_172_172,
@@ -253,6 +300,7 @@ def build() -> VibeWorkflow:
     )
 
     images, masks = WanVideoVACEStartToEndFrame(
+        empty_frame_level=0.5000000000000001,
         num_frames=DEFAULT_FRAMES_2,
         end_image=image_image_3,
         start_image=image_image_2,
@@ -298,7 +346,18 @@ def build() -> VibeWorkflow:
     )
 
     # Outputs
-    vhs_videocombine_3 = VHS_VideoCombine(images=depthanything_v2)
+    vhs_videocombine_3 = VHS_VideoCombine(
+        frame_rate=16,
+        filename_prefix='WanVideoWrapper_VACE_startendframe',
+        format=VIDEO_H264_MP4,
+        save_output=False,
+        crf=19,
+        pix_fmt=YUV420P,
+        save_metadata=True,
+        trim_to_audio=False,
+        videopreview={'hidden': False, 'paused': False, 'params': {'filename': 'WanVideoWrapper_VACE_startendframe_00001.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 16, 'workflow': 'WanVideoWrapper_VACE_startendframe_00001.png', 'fullpath': 'N:\\AI\\ComfyUI\\temp\\WanVideoWrapper_VACE_startendframe_00001.mp4'}},
+        images=depthanything_v2,
+    )
 
     addlabel_5 = AddLabel(
         widget_0=10,
@@ -321,6 +380,7 @@ def build() -> VibeWorkflow:
     image_get_8, mask_get_2 = GetImageRangeFromBatch(masks=masks_image_2)
 
     images_wan, masks_wan = WanVideoVACEStartToEndFrame(
+        empty_frame_level=0.5000000000000001,
         widget_0=33,
         control_images=depthanything_v2,
         num_frames=frame_count,
@@ -384,6 +444,7 @@ def build() -> VibeWorkflow:
         input_frames=image_get,
         input_masks=masks,
         num_frames=count,
+        ref_images=image_image_2,
         vae=wanvideovaeloader,
         width=width,
     )
@@ -402,16 +463,18 @@ def build() -> VibeWorkflow:
         input_frames=image_get_3,
         input_masks=masks_wan,
         num_frames=count_get_2,
+        ref_images=image_image_5,
         vae=wanvideovaeloader,
         width=width_get_2,
     )
 
     samples_wan_2, denoised_samples_wan_2 = WanVideoSampler(
-        steps=1,
+        steps=20,
         cfg=GUIDE_STRENGTH,
         shift=8.000000000000002,
         seed=DEFAULT_SEED,
         start_step='',
+        unused_widget_4=FIXED,
         cache_args=wanvideoteacache_3,
         experimental_args=wanvideoexperimentalargs_3,
         image_embeds=wanvideovaceencode_3,
@@ -421,11 +484,12 @@ def build() -> VibeWorkflow:
     )
 
     samples, denoised_samples = WanVideoSampler(
-        steps=1,
+        steps=20,
         cfg=GUIDE_STRENGTH,
         shift=8.000000000000002,
         seed=DEFAULT_SEED,
         start_step='',
+        unused_widget_4=FIXED,
         cache_args=wanvideoteacache,
         experimental_args=wanvideoexperimentalargs,
         image_embeds=wanvideovaceencode,
@@ -435,10 +499,11 @@ def build() -> VibeWorkflow:
     )
 
     samples_wan, denoised_samples_wan = WanVideoSampler(
-        steps=1,
+        steps=20,
         cfg=GUIDE_STRENGTH,
         shift=8.000000000000002,
         start_step='',
+        unused_widget_4=FIXED,
         cache_args=wanvideoteacache_2,
         experimental_args=wanvideoexperimentalargs_2,
         image_embeds=wanvideovaceencode_2,
@@ -497,16 +562,41 @@ def build() -> VibeWorkflow:
         image_3=imageconcatmulti_4,
     )
 
-    vhs_videocombine_4 = VHS_VideoCombine(images=imageconcatmulti_5)
-    vhs_videocombine = VHS_VideoCombine(images=imageconcatmulti)
-    vhs_videocombine_2 = VHS_VideoCombine(images=imageconcatmulti_3)
+    vhs_videocombine_4 = VHS_VideoCombine(
+        frame_rate=16,
+        filename_prefix='WanVideoWrapper_VACE_outpaint',
+        format=VIDEO_H264_MP4,
+        save_output=False,
+        crf=19,
+        pix_fmt=YUV420P,
+        save_metadata=True,
+        trim_to_audio=False,
+        videopreview={'hidden': False, 'paused': False, 'params': {'filename': 'WanVideoWrapper_VACE_outpaint_00002.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 16, 'workflow': 'WanVideoWrapper_VACE_outpaint_00002.png', 'fullpath': 'N:\\AI\\ComfyUI\\temp\\WanVideoWrapper_VACE_outpaint_00002.mp4'}},
+        images=imageconcatmulti_5,
+    )
 
+    vhs_videocombine = VHS_VideoCombine(
+        frame_rate=16,
+        filename_prefix='WanVideoWrapper_VACE_startendframe',
+        format=VIDEO_H264_MP4,
+        save_output=False,
+        crf=19,
+        pix_fmt=YUV420P,
+        save_metadata=True,
+        trim_to_audio=False,
+        videopreview={'hidden': False, 'paused': False, 'params': {'filename': 'WanVideoWrapper_VACE_startendframe_00005.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 16, 'workflow': 'WanVideoWrapper_VACE_startendframe_00005.png', 'fullpath': 'N:\\AI\\ComfyUI\\temp\\WanVideoWrapper_VACE_startendframe_00005.mp4'}},
+        images=imageconcatmulti,
+    )
 
-    PUBLIC_INPUTS = {
-        'image': InputSpec(node=image, field='image', default='replicate-prediction-5cvynz9d91rgg0cfsvqschdpww-0.webp', type='IMAGE', required=True, aliases=('input_image',), media_semantics='image'),
-        'seed': InputSpec(node=samples, field='seed', default=DEFAULT_SEED, type='INT'),
-        'width': InputSpec(node=emptyimage, field='width', default=8, type='INT'),
-        'height': InputSpec(node=image_image, field='height', default=256, type='INT'),
-    }
-    return wf.finalize(PUBLIC_INPUTS, output_node=previewimage, output_type='PreviewImage', name='image', artifact_kind='image', mime_type='image/png', expected_cardinality='one')
-
+    vhs_videocombine_2 = VHS_VideoCombine(
+        frame_rate=16,
+        filename_prefix='WanVideoWrapper_VACE_startendframe',
+        format=VIDEO_H264_MP4,
+        save_output=False,
+        crf=19,
+        pix_fmt=YUV420P,
+        save_metadata=True,
+        trim_to_audio=False,
+        videopreview={'hidden': False, 'paused': False, 'params': {'filename': 'WanVideoWrapper_VACE_startendframe_00011.mp4', 'subfolder': '', 'type': 'temp', 'format': 'video/h264-mp4', 'frame_rate': 16, 'workflow': 'WanVideoWrapper_VACE_startendframe_00011.png', 'fullpath': 'N:\\AI\\ComfyUI\\temp\\WanVideoWrapper_VACE_startendframe_00011.mp4'}},
+        images=imageconcatmulti_3,
+    )

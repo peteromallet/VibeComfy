@@ -475,6 +475,8 @@ v2.6.4 Fix 8 refines emission formatting: multi-line node calls are **surrounded
 
 The emitter resolves positional `widget_N` keys to their named fields via `object_info` input aliases and the `widget_aliases` module. During `port convert`, unresolved `widget_N` keys trigger a warning (or hard error under `--strict-ready-template`). The `_translate_widget_for_key()` function maps `widget_0` → `seed`, `widget_1` → `steps`, etc. for known class types. The `port inventory` command reports remaining `widget_N` occurrences across all ready templates.
 
+**Widget alias resolution precedence** (do not invert): (1) `input_aliases` metadata → (2) curated `WIDGET_SCHEMA` → (3) `WIDGET_SEMANTIC_NAMES` → (4) schema provider → (5) object_info cache (guarded by `_object_info_position_is_safe`) → (6) raw `widget_N` fallback. Object_info is consulted last because its snapshots include link-only sockets that shift widget positions relative to WIDGET_SCHEMA's widget-only ordering. Unresolved aliases reuse the existing `schema_backed_widget_alias_not_resolved` diagnostic — no new code is minted. See `docs/widget_alias_resolution.md` for the full precedence, dual-coverage analysis (112 classes, 64 deliberate divergences), and diagnostic reconciliation.
+
 ### New CLI commands (v2.7)
 
 ```bash
