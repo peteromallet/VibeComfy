@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-05-26T11:27:48+00:00",
+  "generated_at": "2026-05-26T13:37:59+00:00",
   "generated_from": "repo-only buildable non-protected ready_templates canonical compile output",
   "include_rule": "find ready_templates -type f -name '*.py' ! -name '_*' ! -name '__init__.py', exclude protected markers, and include templates whose build() compiles to API",
   "template_count": 59,
@@ -12287,7 +12287,7 @@
     {
       "id": "video/ltx2_3_runexx_lipsync_custom_audio",
       "path": "ready_templates/video/ltx2_3_runexx_lipsync_custom_audio.py",
-      "sha256": "a63e28e9af1cd6604c83bb455fb05f7b78a85524b60b6488d915a3df3d3334a9",
+      "sha256": "957f8661bfc3bfd359c813f7ec40f1a73e619cadf821d797e781f69dfc0d7c83",
       "canonical_form": {
         "nodes": [
           {
@@ -12304,33 +12304,14 @@
             }
           },
           {
-            "label": "259be04a7eb0",
+            "label": "d0692f681f6b",
             "class_type": "BlockifyMask",
             "inputs": {
               "block_size": 12,
+              "device": "cpu",
               "masks": [
-                "8d9e4c702914",
+                "25f8797f752c",
                 1
-              ],
-              "widget_1": "cpu"
-            }
-          },
-          {
-            "label": "0921b5e5de5b",
-            "class_type": "CFGGuider",
-            "inputs": {
-              "cfg": 2.5,
-              "model": [
-                "4da876b70369",
-                0
-              ],
-              "negative": [
-                "38a9bdf38bc6",
-                1
-              ],
-              "positive": [
-                "38a9bdf38bc6",
-                0
               ]
             }
           },
@@ -12349,6 +12330,25 @@
               ],
               "positive": [
                 "23090d406cc3",
+                0
+              ]
+            }
+          },
+          {
+            "label": "3fbd901b2e39",
+            "class_type": "CFGGuider",
+            "inputs": {
+              "cfg": 2.5,
+              "model": [
+                "4da876b70369",
+                0
+              ],
+              "negative": [
+                "b7f2c23b57a6",
+                1
+              ],
+              "positive": [
+                "b7f2c23b57a6",
                 0
               ]
             }
@@ -12395,18 +12395,18 @@
             "inputs": {
               "expression": "a",
               "values.a": [
-                "4ab0b6ba76c9",
+                "901921ee859b",
                 0
               ]
             }
           },
           {
-            "label": "7a85a9ac4750",
+            "label": "21d3a0d4e805",
             "class_type": "ComfyMathExpression",
             "inputs": {
               "expression": "a+b",
               "values.a": [
-                "6a17497a970f",
+                "22a988f3b538",
                 0
               ],
               "values.b": [
@@ -12416,16 +12416,16 @@
             }
           },
           {
-            "label": "6a17497a970f",
+            "label": "22a988f3b538",
             "class_type": "ComfyMathExpression",
             "inputs": {
               "expression": "a/b",
               "values.a": [
-                "f293035a08da",
+                "452addffa2e7",
                 3
               ],
               "values.b": [
-                "4ab0b6ba76c9",
+                "901921ee859b",
                 0
               ]
             }
@@ -12449,11 +12449,11 @@
             }
           },
           {
-            "label": "b60b5b6706b6",
+            "label": "cddcfd7f58f9",
             "class_type": "ComfySwitchNode",
             "inputs": {
               "on_false": [
-                "a4b0b76f77a2",
+                "a06505059544",
                 1
               ],
               "on_true": [
@@ -12498,11 +12498,11 @@
             }
           },
           {
-            "label": "8d9e4c702914",
+            "label": "25f8797f752c",
             "class_type": "FaceSegment",
             "inputs": {
               "images": [
-                "fb0fe2c2781d",
+                "add2ce31f8fc",
                 0
               ],
               "widget_0": true,
@@ -12529,62 +12529,62 @@
             }
           },
           {
-            "label": "ff59d414846b",
+            "label": "2913a0320885",
             "class_type": "GetImageRangeFromBatch",
             "inputs": {
               "images": [
-                "0bc6c13dac3c",
+                "0769dff99748",
+                0
+              ]
+            }
+          },
+          {
+            "label": "c5b68ea7e48d",
+            "class_type": "GetImageRangeFromBatch",
+            "inputs": {
+              "images": [
+                "2035c554aea8",
                 0
               ],
               "start_index": -1
             }
           },
           {
-            "label": "58816a3e880c",
+            "label": "1d1d3af69b69",
             "class_type": "GetImageRangeFromBatch",
             "inputs": {
               "images": [
-                "4825a2fa4bfe",
+                "227dff7a4d87",
                 0
               ]
             }
           },
           {
-            "label": "5c457b316ed7",
+            "label": "80783ba70b5c",
             "class_type": "GetImageRangeFromBatch",
             "inputs": {
               "images": [
-                "939a9b7847c0",
+                "add2ce31f8fc",
                 0
               ]
             }
           },
           {
-            "label": "1735aebf933f",
-            "class_type": "GetImageRangeFromBatch",
-            "inputs": {
-              "images": [
-                "fb0fe2c2781d",
-                0
-              ]
-            }
-          },
-          {
-            "label": "f293035a08da",
+            "label": "452addffa2e7",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "4825a2fa4bfe",
+                "0769dff99748",
                 0
               ]
             }
           },
           {
-            "label": "b1fe6d0e541f",
+            "label": "8527516c962b",
             "class_type": "GetImageSizeAndCount",
             "inputs": {
               "image": [
-                "76418d7cd221",
+                "b597249dbd94",
                 0
               ]
             }
@@ -12604,23 +12604,23 @@
             }
           },
           {
-            "label": "4825a2fa4bfe",
+            "label": "0769dff99748",
             "class_type": "ImageResizeKJv2",
             "inputs": {
               "device": "cpu",
               "divisible_by": 64,
               "height": [
-                "b1fe6d0e541f",
+                "8527516c962b",
                 2
               ],
               "image": [
-                "b1fe6d0e541f",
+                "8527516c962b",
                 0
               ],
               "keep_proportion": "crop",
               "upscale_method": "nearest-exact",
               "width": [
-                "b1fe6d0e541f",
+                "8527516c962b",
                 1
               ]
             }
@@ -12678,35 +12678,35 @@
             }
           },
           {
-            "label": "38a9bdf38bc6",
+            "label": "b7f2c23b57a6",
             "class_type": "LTXVAddLatentGuide",
             "inputs": {
               "guiding_latent": [
-                "dd270a55d072",
+                "a3875db4c5b8",
                 0
               ],
               "latent": [
-                "a4b0b76f77a2",
+                "a06505059544",
                 0
               ],
               "latent_idx": [
-                "f293035a08da",
+                "452addffa2e7",
                 3
               ],
               "negative": [
-                "b8549eecea5e",
+                "5c2bb2bf1905",
                 1
               ],
               "positive": [
-                "b8549eecea5e",
+                "5c2bb2bf1905",
                 0
               ],
               "strength": [
-                "25487d9ab918",
+                "6681238c5f48",
                 0
               ],
               "vae": [
-                "77ea2b99cf33",
+                "4e24be0e20fd",
                 0
               ],
               "widget_0": -1,
@@ -12749,32 +12749,32 @@
             }
           },
           {
-            "label": "a4b0b76f77a2",
+            "label": "a06505059544",
             "class_type": "LTXVAudioVideoMask",
             "inputs": {
               "audio_end_time": [
-                "7a85a9ac4750",
+                "21d3a0d4e805",
                 0
               ],
               "audio_latent": [
-                "2ea00e163983",
+                "b715551809b2",
                 0
               ],
               "max_length": "pad",
               "video_end_time": [
-                "7a85a9ac4750",
+                "21d3a0d4e805",
                 0
               ],
               "video_fps": [
-                "4ab0b6ba76c9",
+                "901921ee859b",
                 0
               ],
               "video_latent": [
-                "f6cdf911850b",
+                "069cf032af03",
                 0
               ],
               "video_start_time": [
-                "6a17497a970f",
+                "22a988f3b538",
                 0
               ],
               "widget_0": 24,
@@ -12795,7 +12795,7 @@
             }
           },
           {
-            "label": "aaa6742a8597",
+            "label": "8db12be7309d",
             "class_type": "LTXVConcatAVLatent",
             "inputs": {
               "audio_latent": [
@@ -12803,31 +12803,31 @@
                 1
               ],
               "video_latent": [
-                "4602f5c2a3d1",
+                "71025d30e88b",
                 0
               ]
             }
           },
           {
-            "label": "a56511032f64",
+            "label": "d03230cfc8eb",
             "class_type": "LTXVConcatAVLatent",
             "inputs": {
               "audio_latent": [
-                "b60b5b6706b6",
+                "cddcfd7f58f9",
                 0
               ],
               "video_latent": [
-                "9243ae36ed4d",
+                "2f8bb71df75e",
                 0
               ]
             }
           },
           {
-            "label": "b8549eecea5e",
+            "label": "5c2bb2bf1905",
             "class_type": "LTXVConditioning",
             "inputs": {
               "frame_rate": [
-                "4ab0b6ba76c9",
+                "901921ee859b",
                 0
               ],
               "negative": [
@@ -12841,7 +12841,7 @@
             }
           },
           {
-            "label": "d54b3e61df99",
+            "label": "b8d7af6f4a2e",
             "class_type": "LTXVCropGuides",
             "inputs": {
               "latent": [
@@ -12849,17 +12849,17 @@
                 0
               ],
               "negative": [
-                "38a9bdf38bc6",
+                "b7f2c23b57a6",
                 1
               ],
               "positive": [
-                "38a9bdf38bc6",
+                "b7f2c23b57a6",
                 0
               ]
             }
           },
           {
-            "label": "9a272fa1f5ad",
+            "label": "dab8d58a1653",
             "class_type": "LTXVCropGuides",
             "inputs": {
               "latent": [
@@ -12867,17 +12867,17 @@
                 0
               ],
               "negative": [
-                "38a9bdf38bc6",
+                "b7f2c23b57a6",
                 1
               ],
               "positive": [
-                "38a9bdf38bc6",
+                "b7f2c23b57a6",
                 0
               ]
             }
           },
           {
-            "label": "2ea00e163983",
+            "label": "b715551809b2",
             "class_type": "LTXVEmptyLatentAudio",
             "inputs": {
               "audio_vae": [
@@ -12889,47 +12889,47 @@
                 1
               ],
               "frames_number": [
-                "f293035a08da",
+                "452addffa2e7",
                 3
               ]
             }
           },
           {
-            "label": "9243ae36ed4d",
+            "label": "2f8bb71df75e",
             "class_type": "LTXVImgToVideoInplace",
             "inputs": {
               "bypass": false,
               "image": [
-                "281a473cea9d",
+                "6fd1bfb8da4b",
                 0
               ],
               "latent": [
-                "38a9bdf38bc6",
+                "b7f2c23b57a6",
                 2
               ],
               "strength": 0.7,
               "vae": [
-                "77ea2b99cf33",
+                "4e24be0e20fd",
                 0
               ]
             }
           },
           {
-            "label": "4602f5c2a3d1",
+            "label": "71025d30e88b",
             "class_type": "LTXVImgToVideoInplace",
             "inputs": {
               "bypass": false,
               "image": [
-                "281a473cea9d",
+                "6fd1bfb8da4b",
                 0
               ],
               "latent": [
-                "9a272fa1f5ad",
+                "dab8d58a1653",
                 2
               ],
               "strength": 1,
               "vae": [
-                "77ea2b99cf33",
+                "4e24be0e20fd",
                 0
               ]
             }
@@ -12939,22 +12939,22 @@
             "class_type": "LTXVPreprocess",
             "inputs": {
               "image": [
-                "281a473cea9d",
+                "6fd1bfb8da4b",
                 0
               ],
               "img_compression": 18
             }
           },
           {
-            "label": "795bd4c63b26",
+            "label": "4daa11377ed8",
             "class_type": "LTXVPreprocessMasks",
             "inputs": {
               "masks": [
-                "5fd55a541e95",
+                "c6e7fac0cd00",
                 0
               ],
               "vae": [
-                "77ea2b99cf33",
+                "4e24be0e20fd",
                 0
               ],
               "widget_0": false,
@@ -12987,15 +12987,15 @@
             }
           },
           {
-            "label": "f6cdf911850b",
+            "label": "069cf032af03",
             "class_type": "LTXVSetVideoLatentNoiseMasks",
             "inputs": {
               "masks": [
-                "795bd4c63b26",
+                "4daa11377ed8",
                 0
               ],
               "samples": [
-                "d715a3a7cf57",
+                "33e5967cdf42",
                 0
               ]
             }
@@ -13008,7 +13008,7 @@
             }
           },
           {
-            "label": "76418d7cd221",
+            "label": "b597249dbd94",
             "class_type": "LazySwitchKJ",
             "inputs": {
               "on_false": [
@@ -13059,11 +13059,11 @@
             }
           },
           {
-            "label": "939a9b7847c0",
+            "label": "227dff7a4d87",
             "class_type": "MaskToImage",
             "inputs": {
               "mask": [
-                "259be04a7eb0",
+                "d0692f681f6b",
                 0
               ]
             }
@@ -13122,11 +13122,11 @@
             }
           },
           {
-            "label": "9435988d904a",
+            "label": "617ee7d774f7",
             "class_type": "PreviewImage",
             "inputs": {
               "images": [
-                "5c457b316ed7",
+                "1d1d3af69b69",
                 0
               ]
             }
@@ -13139,14 +13139,14 @@
             }
           },
           {
-            "label": "25487d9ab918",
+            "label": "6681238c5f48",
             "class_type": "PrimitiveFloat",
             "inputs": {
               "value": 8
             }
           },
           {
-            "label": "4ab0b6ba76c9",
+            "label": "901921ee859b",
             "class_type": "PrimitiveFloat",
             "inputs": {
               "value": 8
@@ -13191,27 +13191,11 @@
             "inputs": {}
           },
           {
-            "label": "5fd55a541e95",
+            "label": "add2ce31f8fc",
             "class_type": "ResizeImageMaskNode",
             "inputs": {
               "input": [
-                "259be04a7eb0",
-                0
-              ],
-              "resize_type": "match size",
-              "resize_type.match": [
-                "1735aebf933f",
-                0
-              ],
-              "scale_method": "nearest-exact"
-            }
-          },
-          {
-            "label": "fb0fe2c2781d",
-            "class_type": "ResizeImageMaskNode",
-            "inputs": {
-              "input": [
-                "4825a2fa4bfe",
+                "0769dff99748",
                 0
               ],
               "resize_type": "scale by multiplier",
@@ -13219,14 +13203,30 @@
             }
           },
           {
-            "label": "0bc6c13dac3c",
+            "label": "2035c554aea8",
             "class_type": "ResizeImageMaskNode",
             "inputs": {
               "input": [
-                "4825a2fa4bfe",
+                "0769dff99748",
                 0
               ],
               "resize_type": "scale by multiplier"
+            }
+          },
+          {
+            "label": "c6e7fac0cd00",
+            "class_type": "ResizeImageMaskNode",
+            "inputs": {
+              "input": [
+                "d0692f681f6b",
+                0
+              ],
+              "resize_type": "match size",
+              "resize_type.match": [
+                "80783ba70b5c",
+                0
+              ],
+              "scale_method": "nearest-exact"
             }
           },
           {
@@ -13244,11 +13244,11 @@
             }
           },
           {
-            "label": "281a473cea9d",
+            "label": "6fd1bfb8da4b",
             "class_type": "ResizeImagesByLongerEdge",
             "inputs": {
               "images": [
-                "58816a3e880c",
+                "2913a0320885",
                 0
               ],
               "longer_edge": 1536
@@ -13259,11 +13259,11 @@
             "class_type": "SamplerCustomAdvanced",
             "inputs": {
               "guider": [
-                "0921b5e5de5b",
+                "3fbd901b2e39",
                 0
               ],
               "latent_image": [
-                "a56511032f64",
+                "d03230cfc8eb",
                 0
               ],
               "noise": [
@@ -13289,7 +13289,7 @@
                 0
               ],
               "latent_image": [
-                "aaa6742a8597",
+                "8db12be7309d",
                 0
               ],
               "noise": [
@@ -13311,7 +13311,7 @@
             "class_type": "SetLatentNoiseMask",
             "inputs": {
               "mask": [
-                "d754ba9a2a78",
+                "46055a6c982f",
                 0
               ],
               "samples": [
@@ -13349,7 +13349,7 @@
                 6
               ],
               "variables.b": [
-                "4ab0b6ba76c9",
+                "901921ee859b",
                 0
               ],
               "variables.c": [
@@ -13359,16 +13359,16 @@
             }
           },
           {
-            "label": "d754ba9a2a78",
+            "label": "46055a6c982f",
             "class_type": "SolidMask",
             "inputs": {
               "height": [
-                "f293035a08da",
+                "452addffa2e7",
                 2
               ],
               "value": 0,
               "width": [
-                "f293035a08da",
+                "452addffa2e7",
                 1
               ]
             }
@@ -13396,7 +13396,7 @@
                 0
               ],
               "image": [
-                "281a473cea9d",
+                "6fd1bfb8da4b",
                 0
               ],
               "max_length": 256,
@@ -13438,15 +13438,15 @@
             }
           },
           {
-            "label": "8f68dfc54245",
+            "label": "e63b8995866a",
             "class_type": "VAEDecode",
             "inputs": {
               "samples": [
-                "d54b3e61df99",
+                "b8d7af6f4a2e",
                 2
               ],
               "vae": [
-                "77ea2b99cf33",
+                "4e24be0e20fd",
                 0
               ]
             }
@@ -13459,35 +13459,35 @@
             }
           },
           {
-            "label": "d715a3a7cf57",
+            "label": "33e5967cdf42",
             "class_type": "VAEEncode",
             "inputs": {
               "pixels": [
-                "0bc6c13dac3c",
+                "2035c554aea8",
                 0
               ],
               "vae": [
-                "77ea2b99cf33",
+                "4e24be0e20fd",
                 0
               ]
             }
           },
           {
-            "label": "dd270a55d072",
+            "label": "a3875db4c5b8",
             "class_type": "VAEEncode",
             "inputs": {
               "pixels": [
-                "ff59d414846b",
+                "c5b68ea7e48d",
                 0
               ],
               "vae": [
-                "77ea2b99cf33",
+                "4e24be0e20fd",
                 0
               ]
             }
           },
           {
-            "label": "77ea2b99cf33",
+            "label": "4e24be0e20fd",
             "class_type": "VAELoader",
             "inputs": {
               "vae_name": "LTX23_video_vae_bf16.safetensors"
@@ -13505,13 +13505,13 @@
             "class_type": "VHS_LoadVideoFFmpeg",
             "inputs": {
               "force_rate": [
-                "4ab0b6ba76c9",
+                "901921ee859b",
                 0
               ]
             }
           },
           {
-            "label": "3713d11f3f89",
+            "label": "34e54e79df8b",
             "class_type": "VHS_VideoCombine",
             "inputs": {
               "audio": [
@@ -13519,11 +13519,11 @@
                 0
               ],
               "frame_rate": [
-                "4ab0b6ba76c9",
+                "901921ee859b",
                 0
               ],
               "images": [
-                "8f68dfc54245",
+                "e63b8995866a",
                 0
               ]
             }
