@@ -34,13 +34,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra runpod-launch
+        run: |
+          uv venv --seed
+          .venv/bin/python -m pip install -e ".[dev,runpod-launch]"
 
       - name: Dry-run E2E matrix (always)
-        run: uv run python3 scripts/runpod_e2e_matrix.py --dry-run
+        run: .venv/bin/python scripts/runpod_e2e_matrix.py --dry-run
 
       - name: Run E2E matrix (gated on secrets)
         run: |
@@ -49,4 +53,4 @@ jobs:
             echo "Real RunPod execution requires both secrets. Dry-run completed above."
             exit 0
           fi
-          uv run python3 scripts/runpod_e2e_matrix.py
+          .venv/bin/python scripts/runpod_e2e_matrix.py
