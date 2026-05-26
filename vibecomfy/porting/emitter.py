@@ -14,7 +14,10 @@ from typing import Any, Literal, Mapping
 
 from vibecomfy.errors import ConversionParityError, SchemaValidationError
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
-from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
+from vibecomfy.porting.widget_aliases import (
+    COMPILE_WIDGET_ALIAS_CLASS_TYPES,
+    resolve_widget_key_with_provenance,
+)
 from vibecomfy.porting.object_info import class_defaults, class_has_list_output, class_output_count
 from vibecomfy.porting.object_info import output_names as class_output_names
 from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
@@ -3668,15 +3671,43 @@ def _node_kwargs(
         elif key not in raw_inputs:
             raw_inputs[key] = value
 
+    # Mirror compile-time gating: drop widget_N duplicates only when compile
+    # would also drop them. compile applies positional alias translation only
+    # for classes in COMPILE_WIDGET_ALIAS_CLASS_TYPES or with explicit
+    # input_aliases metadata; otherwise widget_N stays in the API node.
+    drop_widget_duplicates = (
+        cls in COMPILE_WIDGET_ALIAS_CLASS_TYPES or input_aliases is not None
+    )
     static_inputs: dict[str, Any] = {}
     for key, value in raw_inputs.items():
+        # Drop UI-only positional widgets the schema has labelled `unused_*`.
+        # Mirrors compile-time `_drop_unused_positional_aliases` so generated
+        # templates do not leak placeholder keys (e.g. preview HTML widgets or
+        # seed `control_after_generate` slots) that have no runtime semantics.
+        if str(key).startswith("unused_"):
+            continue
         translated = _translate_widget(key)
         if translated is None:
             continue
-        if translated != key and translated not in raw_inputs and translated not in static_inputs and translated not in incoming:
-            static_inputs[translated] = value
-        else:
+        if translated == key:
             static_inputs[key] = value
+            continue
+        already_present = (
+            translated in raw_inputs
+            or translated in static_inputs
+            or translated in incoming
+        )
+        if not already_present:
+            static_inputs[translated] = value
+            continue
+        # translated name already occupied. When compile-time alias application
+        # would also fire (curated WIDGET_SCHEMA class or explicit input_aliases),
+        # drop the positional duplicate to keep generated templates readable.
+        # Otherwise keep the original widget_N key so emit / compile stay
+        # byte-equivalent for the classes the compile path leaves untouched.
+        if drop_widget_duplicates:
+            continue
+        static_inputs[key] = value
 
     # T8: emit diagnostic for unresolved widget_N keys remaining in static_inputs.
     # Only when input_aliases is None — the out-of-range input_aliases case is handled
