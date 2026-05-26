@@ -75,6 +75,27 @@ COMPILE_WIDGET_ALIAS_CLASS_TYPES: frozenset[str] = frozenset(
         "UnetLoaderGGUF",
         "TextEncodeAceStepAudio1.5",
         "VHS_VideoCombine",
+        # Classes added in widget_schema.py for decorator-shape widget_N cleanup.
+        # Inclusion here lets compile-time apply_positional_widget_aliases run
+        # so emit/compile parity holds when WIDGET_SCHEMA names are applied.
+        "ImageBlend",
+        "ImagePadForOutpaint",
+        "ImageStitch",
+        "LTXVImgToVideoInplace",
+        "LTXVTiledVAEDecode",
+        "SolidMask",
+        "StringConcatenate",
+        "TextGenerateLTX2Prompt",
+        "TrimAudioDuration",
+        "ComfySwitchNode",
+        "EmptyAudio",
+        "LazySwitchKJ",
+        "DepthAnythingPreprocessor",
+        "GetNode",
+        "SetNode",
+        "PrimitiveNode",
+        "LoadAudio",
+        "easy showAnything",
     }
 )
 

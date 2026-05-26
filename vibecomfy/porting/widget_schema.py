@@ -53,7 +53,12 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
         "return_with_leftover_noise",
     ],
     "KSamplerSelect": ["sampler_name"],
-    "LoadAudio": ["audio"],
+    # LoadAudio: object_info comfy_core@runpod-snapshot.json lists only ['audio'].
+    # Source workflows store two extra trailing widget slots (preview / upload UI)
+    # that have no runtime semantics. Recording them as None surfaces them as
+    # unused_widget_1 / unused_widget_2 in generated templates rather than as
+    # positional widget_N keys.
+    "LoadAudio": ["audio", None, None],
     "LoadImage": ["image", None],
     "LoraLoaderModelOnly": ["lora_name", "strength_model"],
     "LTX2AttentionTunerPatch": [
@@ -86,7 +91,18 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     "LTXVPreprocess": ["img_compression"],
     "LTXFloatToInt": ["rounding"],
     "LTXVScheduler": ["steps", "max_shift", "base_shift", "stretch", "terminal"],
-    "LTXVTiledVAEDecode": ["horizontal_tiles", "vertical_tiles", "overlap", "last_frame_fix", None, None],
+    # LTXVTiledVAEDecode: last two slots are working_device/working_dtype.
+    # Source: object_info cache ComfyUI-LTXVideo@runpod-snapshot.json
+    # (object_info_widget_order [None, None, 'horizontal_tiles', 'vertical_tiles',
+    # 'overlap', 'last_frame_fix', 'working_device', 'working_dtype']).
+    "LTXVTiledVAEDecode": [
+        "horizontal_tiles",
+        "vertical_tiles",
+        "overlap",
+        "last_frame_fix",
+        "working_device",
+        "working_dtype",
+    ],
     "LatentUpscaleModelLoader": ["model_name"],
     "ManualSigmas": ["sigmas"],
     "ModelSamplingAuraFlow": ["shift"],
@@ -106,7 +122,11 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     "SaveAudioMP3": ["filename_prefix", "quality"],
     "SaveImage": ["filename_prefix"],
     "SaveVideo": ["filename_prefix", "format", "codec"],
-    "SimpleCalculatorKJ": ["expression"],
+    # SimpleCalculatorKJ: object_info order is ['expression', 'variables']; some
+    # source workflows record a 3rd widget that holds the cached preview value.
+    # Slot 2 stays None so it surfaces as unused_widget_2 instead of inventing a
+    # name. Source: object_info ComfyUI-KJNodes@runpod-snapshot.json.
+    "SimpleCalculatorKJ": ["expression", "variables", None],
     "TextEncodeAceStepAudio1.5": [
         "tags",
         "lyrics",
@@ -304,6 +324,70 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     "PoseAndFaceDetection": ["width", "height", "face_padding"],
     "DrawViTPose": ["width", "height", "retarget_padding", "body_stick_width", "hand_stick_width", "draw_head"],
     "ResizeImageMaskNode": ["resize_type", None, "scale_method"],
+    # Widget-bearing utility / core nodes derived from object_info cache.
+    # Each entry follows the compact widget-only ordering (link sockets removed):
+    # the IR stores positional `widget_N` keys aligned to widgets_values, while
+    # object_info_widget_order interleaves None placeholders for link sockets.
+    # Sources are cited inline.
+    # Source: object_info comfy_core@runpod-snapshot.json (order [None, None,
+    # 'blend_factor', 'blend_mode'] -> compact ['blend_factor', 'blend_mode']).
+    "ImageBlend": ["blend_factor", "blend_mode"],
+    # Source: object_info comfy@runpod-snapshot.json (order [None, 'left', 'top',
+    # 'right', 'bottom', 'feathering']).
+    "ImagePadForOutpaint": ["left", "top", "right", "bottom", "feathering"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order [None, 'direction',
+    # 'match_image_size', 'spacing_width', 'spacing_color', None]).
+    "ImageStitch": ["direction", "match_image_size", "spacing_width", "spacing_color"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order [None, None, None,
+    # 'strength', 'bypass']).
+    "LTXVImgToVideoInplace": ["strength", "bypass"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order ['value', 'width',
+    # 'height']).
+    "SolidMask": ["value", "width", "height"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order ['string_a',
+    # 'string_b', 'delimiter']).
+    "StringConcatenate": ["string_a", "string_b", "delimiter"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order [None, 'prompt',
+    # 'max_length', 'sampling_mode', None, 'thinking']). Source workflow widgets_values
+    # have 5 entries -- the 5th is the StreamFix toggle which sits between sampling_mode
+    # and thinking in older Comfy builds. Recorded as None to surface as unused_widget_3
+    # rather than guessing a name.
+    "TextGenerateLTX2Prompt": ["prompt", "max_length", "sampling_mode", None, "thinking"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order [None, 'start_index',
+    # 'duration']).
+    "TrimAudioDuration": ["start_index", "duration"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order ['switch', 'on_false',
+    # 'on_true']).
+    "ComfySwitchNode": ["switch", "on_false", "on_true"],
+    # Source: object_info comfy_core@runpod-snapshot.json (order ['duration',
+    # 'sample_rate', 'channels']).
+    "EmptyAudio": ["duration", "sample_rate", "channels"],
+    # Source: object_info ComfyUI-KJNodes@runpod-snapshot.json (order ['switch',
+    # 'on_false', 'on_true']).
+    "LazySwitchKJ": ["switch", "on_false", "on_true"],
+    # DepthAnythingPreprocessor (comfyui_controlnet_aux pack). Source:
+    # comfyui_controlnet_aux/node_wrappers/depth_anything.py INPUT_TYPES
+    # ({required: {ckpt_name: (...)}, optional: {resolution: ('INT', ...)}}).
+    # object_info cache stub is empty so curated entry takes the slot.
+    "DepthAnythingPreprocessor": ["ckpt_name", "resolution"],
+    # 'easy showAnything' is a UI display node (ComfyUI-Easy-Use). widget_0
+    # stores the cached display string and has no committed input name from
+    # upstream metadata; recorded as None so it surfaces as unused_widget_0.
+    # TODO: schema unknown -- verify against ComfyUI-Easy-Use INPUT_TYPES if
+    # the pack ships an object_info entry.
+    "easy showAnything": [None],
+    # rgthree helper broadcast nodes: widget_0 holds the broadcast variable name.
+    # Source: rgthree-comfy node implementations (SetNode/GetNode store `name` as the
+    # single widget value). Resolved by emission-time helper pre-pass when paired;
+    # this entry only matters for the raw_call fallback when pairing cannot be
+    # established (e.g. subgraph boundaries).
+    "GetNode": ["name"],
+    "SetNode": ["name"],
+    # PrimitiveNode (ComfyUI UI primitive container): widget_0 is the cached value,
+    # widget_1 is the control_after_generate seed control. Source: comfy_core
+    # PrimitiveNode INPUT_TYPES schema -- it's a generic primitive that stores
+    # `value` and `control_after_generate` in widgets_values.
+    "PrimitiveNode": ["value", "control_after_generate"],
     "VHS_VideoCombine": [
         "frame_rate",
         "loop_count",
