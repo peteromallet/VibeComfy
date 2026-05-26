@@ -107,7 +107,10 @@ def collect_broadcast_sources(nodes: Mapping[str, Any], edges: Sequence[Any]) ->
         target_node = nodes.get(str(_edge_attr(edge, "to_node")))
         if target_node is None or _node_class_type(target_node) != "SetNode":
             continue
-        if _edge_attr(edge, "to_input") == "widget_0":
+        # Skip the broadcast-name slot (named `widget_0` in legacy ingest or
+        # `name` once WIDGET_SCHEMA has aliased it). Both are non-link widgets
+        # that hold the broadcast variable name, never a runtime link source.
+        if _edge_attr(edge, "to_input") in ("widget_0", "name"):
             continue
         from_output = _edge_attr(edge, "from_output")
         try:
@@ -131,17 +134,35 @@ def collect_broadcast_sources(nodes: Mapping[str, Any], edges: Sequence[Any]) ->
 
 
 def broadcast_name(node: Any) -> str | None:
+    """Return the broadcast variable name for a SetNode/GetNode helper.
+
+    The broadcast slot is the first positional widget in the source UI
+    workflow. Older ingests preserve it as ``widget_0``; once WIDGET_SCHEMA
+    names the slot (``name``) the alias-aware ingest path renames it,
+    so the resolver must look for both keys to remain byte-equivalent for
+    helper resolution regardless of whether schema-driven renaming has fired.
+    """
     inputs = _node_inputs(node)
     widgets = _node_widgets(node)
-    name = inputs.get("widget_0", widgets.get("widget_0"))
-    if name is None:
-        return None
-    return str(name)
+    for key in ("widget_0", "name"):
+        if key in inputs:
+            value = inputs[key]
+        elif key in widgets:
+            value = widgets[key]
+        else:
+            continue
+        if value is None:
+            continue
+        return str(value)
+    return None
 
 
 def first_link_input(inputs: Mapping[str, Any]) -> list[Any] | None:
     for key, value in inputs.items():
-        if key == "widget_0":
+        # Skip the broadcast-name slot (either positional widget_0 or its
+        # WIDGET_SCHEMA alias `name`); the runtime link source is always on
+        # a different input.
+        if key in ("widget_0", "name"):
             continue
         if is_api_link(value):
             return [str(value[0]), int(value[1])]
