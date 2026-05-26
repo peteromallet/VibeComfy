@@ -403,6 +403,7 @@ def test_compile_replaces_ltx_runtime_positional_widget_aliases() -> None:
         "vertical_tiles": 2,
         "overlap": 6,
         "last_frame_fix": False,
+        "working_device": "auto",
     }
 
 

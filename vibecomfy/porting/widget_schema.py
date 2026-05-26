@@ -9,10 +9,10 @@ link inputs.
 from __future__ import annotations
 
 WIDGET_SEMANTIC_NAMES: dict[str, dict[str, str]] = {
-    "PrimitiveInt": {"widget_0": "value", "widget_1": "control_after_generate"},
+    "PrimitiveInt": {"widget_0": "value"},
     "PrimitiveString": {"widget_0": "value"},
     "PrimitiveStringMultiline": {"widget_0": "value"},
-    "PrimitiveFloat": {"widget_0": "value", "widget_1": "control_after_generate"},
+    "PrimitiveFloat": {"widget_0": "value"},
     "PrimitiveBoolean": {"widget_0": "value"},
 }
 
@@ -385,11 +385,11 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     # established (e.g. subgraph boundaries).
     "GetNode": ["name"],
     "SetNode": ["name"],
-    # PrimitiveNode (ComfyUI UI primitive container): widget_0 is the cached value,
-    # widget_1 is the control_after_generate seed control. Source: comfy_core
-    # PrimitiveNode INPUT_TYPES schema -- it's a generic primitive that stores
-    # `value` and `control_after_generate` in widgets_values.
-    "PrimitiveNode": ["value", "control_after_generate"],
+    # PrimitiveNode (ComfyUI UI primitive container): widget_0 is the cached
+    # value. `control_after_generate` (widget_1) is a UI-only seed control
+    # that ComfyUI's own API submission omits; including it here breaks
+    # _normalize_ui_to_api parity. Helper-node elimination lives in Block A.
+    "PrimitiveNode": ["value"],
     "VHS_VideoCombine": [
         "frame_rate",
         "loop_count",
