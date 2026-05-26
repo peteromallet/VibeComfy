@@ -386,10 +386,12 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     "GetNode": ["name"],
     "SetNode": ["name"],
     # PrimitiveNode (ComfyUI UI primitive container): widget_0 is the cached
-    # value. `control_after_generate` (widget_1) is a UI-only seed control
-    # that ComfyUI's own API submission omits; including it here breaks
+    # value; widget_1 holds `control_after_generate`, a UI-only seed control
+    # that ComfyUI's own API submission omits. Schema length matches the
+    # JSON's widget count so length validation passes, but widget_1 is
+    # intentionally `None` to drop it from compile output and preserve
     # _normalize_ui_to_api parity. Helper-node elimination lives in Block A.
-    "PrimitiveNode": ["value"],
+    "PrimitiveNode": ["value", None],
     "VHS_VideoCombine": [
         "frame_rate",
         "loop_count",
