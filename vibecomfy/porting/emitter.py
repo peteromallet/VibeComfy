@@ -1457,8 +1457,9 @@ def _rewrite_to_decorator_shape(source: str) -> str:
     output_parts: list[str] = []
     output_parts.extend(head)
     output_parts.append("")
-    output_parts.extend(new_top_blocks)
-    output_parts.append("")
+    for _block in new_top_blocks:
+        output_parts.append(_block)
+        output_parts.append("")
     # middle may already have blank lines; keep as-is
     output_parts.extend(middle)
     if output_parts[-1].strip():
