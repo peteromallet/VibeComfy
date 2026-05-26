@@ -444,11 +444,15 @@ def test_compile_replaces_ltx_runtime_positional_widget_aliases() -> None:
         "ckpt_name": "ltx.safetensors",
         "device": "default",
     }
+    # WIDGET_SCHEMA now names slots 4/5 of LTXVTiledVAEDecode (working_device /
+    # working_dtype) per object_info evidence; widget_4='auto' therefore resolves
+    # to working_device rather than being dropped as an unused slot.
     assert api["3"]["inputs"] == {
         "horizontal_tiles": 2,
         "vertical_tiles": 2,
         "overlap": 6,
         "last_frame_fix": False,
+        "working_device": "auto",
     }
 
 

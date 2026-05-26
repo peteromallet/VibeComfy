@@ -55,7 +55,6 @@ def build() -> VibeWorkflow:
         steps=30,
         cfg=GUIDE_STRENGTH,
         sampler_name='uni_pc',
-        unused_widget_1='randomize',
         latent_image=emptyhunyuanlatentvideo,
         model=modelsamplingsd3,
         negative=negative,

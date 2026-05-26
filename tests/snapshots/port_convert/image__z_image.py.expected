@@ -43,7 +43,6 @@ def text_to_image_z_image_base(
     ksampler = KSampler(
         seed=770044821593082,
         sampler_name='res_multistep',
-        unused_widget_1='randomize',
         steps=steps,
         cfg=cfg,
         latent_image=emptysd3latentimage,

@@ -53,21 +53,21 @@ def build() -> VibeWorkflow:
     )
 
     comfyswitchnode_2 = ComfySwitchNode(
+        switch=primitiveboolean,
         on_false=primitiveint,
         on_true=primitiveint_2,
-        switch=primitiveboolean,
     )
 
     comfyswitchnode_3 = ComfySwitchNode(
+        switch=primitiveboolean,
         on_false=primitivefloat_2,
         on_true=primitivefloat,
-        switch=primitiveboolean,
     )
 
     comfyswitchnode = ComfySwitchNode(
+        switch=primitiveboolean,
         on_false=unetloader,
         on_true=loraloadermodelonly,
-        switch=primitiveboolean,
     )
 
     modelsamplingauraflow = ModelSamplingAuraFlow(

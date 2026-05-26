@@ -39,13 +39,13 @@ def calculate_frames(
     """Calculate Frames.
 
     Materialized from subgraph 63e8c999-0a69-4f62-af3f-8b77f0095971 in workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json.
-    # vibecomfy source hash: sha256:1b113811260bc21cf194456174f57f31f684d4797b7bf6e7b24d7f2e1cc9df56
+    # vibecomfy source hash: sha256:277b4a5842240893d7c7b1bd369cbc67d573bfc971af9817e46e0ebcaac7e753
     Inner nodes: Audio Duration (mtb), SimpleCalculatorKJx3, GetNodex2, LazySwitchKJ, MarkdownNote.
     """
 
     audio_duration__mtb_ = raw_call('Audio Duration (mtb)', '1864', _outputs=('duration_ms',), audio=audio)
-    getnode = raw_call('GetNode', '1871', _outputs=('FLOAT',), widget_0='fps')
-    getnode_2 = raw_call('GetNode', '1919', _outputs=('INT',), widget_0='frames_seconds')
+    getnode = raw_call('GetNode', '1871', _outputs=('FLOAT',), name='fps')
+    getnode_2 = raw_call('GetNode', '1919', _outputs=('INT',), name='frames_seconds')
 
     markdownnote = raw_call('MarkdownNote', '1921',
         widget_0='Simply calculate if the audio is longer than the given user input for seconds length, and if so override to use length of audio\n',
@@ -67,10 +67,9 @@ def calculate_frames(
     )
 
     lazyswitchkj = LazySwitchKJ(
-        widget_0=False,
+        switch=boolean_simple_2,
         on_false=getnode_2.out('INT'),
         on_true=int,
-        switch=boolean_simple_2,
     )
 
     return lazyswitchkj
@@ -86,7 +85,7 @@ def prompt_enhancer(
     """Prompt Enhancer - single-image variant.
 
     Materialized from subgraph a8d7fd9f-52aa-447a-9766-53cb91c0ef18 in workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json.
-    # vibecomfy source hash: sha256:82a0262ab01d18c8c6ccd1c203fb4703ab56ca60a7d39e3727213e844bbd7f7d
+    # vibecomfy source hash: sha256:c87f885270c5fdc38daa1e2f386a20e224c5de6455a41e3676a9a89d7856d2a2
     Inner nodes: TextGenerateLTX2Prompt, PrimitiveStringMultiline, LazySwitchKJ, StringConcatenate, Reroutex2.
     """
 
@@ -98,27 +97,21 @@ def prompt_enhancer(
     reroute_2 = raw_call('Reroute', '1933', _outputs=('',))
 
     stringconcatenate = StringConcatenate(
-        widget_0='',
-        widget_1='',
         string_a=primitivestringmultiline,
         string_b=reroute_2.out(0),
     )
 
     textgenerateltx2prompt = TextGenerateLTX2Prompt(
-        widget_0='',
-        widget_1=256,
-        widget_2='off',
-        widget_3=False,
+        sampling_mode='off',
+        prompt=stringconcatenate,
         clip=clip,
         image=image,
-        prompt=stringconcatenate,
     )
 
     lazyswitchkj = LazySwitchKJ(
-        widget_0=False,
+        switch=reroute.out(0),
         on_false=reroute_2.out(0),
         on_true=textgenerateltx2prompt,
-        switch=reroute.out(0),
     )
 
     return lazyswitchkj
@@ -183,8 +176,8 @@ def build() -> VibeWorkflow:
 
     primitiveboolean = raw_call('PrimitiveBoolean', '1862', value=False)
     reroute = raw_call('Reroute', '1865')
-    getnode = raw_call('GetNode', '1871', _outputs=('FLOAT',), widget_0='fps')
-    getnode_2 = raw_call('GetNode', '1919', _outputs=('INT',), widget_0='frames_seconds')
+    getnode = raw_call('GetNode', '1871', _outputs=('FLOAT',), name='fps')
+    getnode_2 = raw_call('GetNode', '1919', _outputs=('INT',), name='frames_seconds')
     primitiveboolean_2 = raw_call('PrimitiveBoolean', '1929', value=True)
     reroute_2 = raw_call('Reroute', '1932', _outputs=('',))
     reroute_3 = raw_call('Reroute', '1933', _outputs=('',))
@@ -227,13 +220,7 @@ def build() -> VibeWorkflow:
         clip=dualcliploader,
     )
 
-    solidmask = SolidMask(
-        value=0,
-        widget_1=512,
-        widget_2=512,
-        height=intconstant_2,
-        width=intconstant_3,
-    )
+    solidmask = SolidMask(value=0, width=intconstant_3, height=intconstant_2)
 
     ltxvaudiovaeencode = LTXVAudioVAEEncode(
         audio=reroute.out(0),
@@ -245,11 +232,9 @@ def build() -> VibeWorkflow:
         **{'variables.a': intconstant, 'variables.b': primitivefloat},
     )
 
-    trimaudioduration = TrimAudioDuration(widget_0=0, widget_1=15, audio=loadaudio)
+    trimaudioduration = TrimAudioDuration(duration=15, audio=loadaudio)
 
     stringconcatenate = StringConcatenate(
-        widget_0='',
-        widget_1='',
         string_a=primitivestringmultiline_4,
         string_b=reroute_3.out(0),
     )
@@ -284,13 +269,10 @@ def build() -> VibeWorkflow:
     )
 
     textgenerateltx2prompt = TextGenerateLTX2Prompt(
-        widget_0='',
-        widget_1=256,
-        widget_2='off',
-        widget_3=False,
+        sampling_mode='off',
+        prompt=stringconcatenate,
         clip=dualcliploader,
         image=resizeimagemasknode,
-        prompt=stringconcatenate,
     )
 
     ltxvchunkfeedforward = LTXVChunkFeedForward(model=pathchsageattentionkj)
@@ -322,10 +304,9 @@ def build() -> VibeWorkflow:
     )
 
     lazyswitchkj = LazySwitchKJ(
-        widget_0=False,
+        switch=reroute_2.out(0),
         on_false=reroute_3.out(0),
         on_true=textgenerateltx2prompt,
-        switch=reroute_2.out(0),
     )
 
     ltx2attentiontunerpatch = LTX2AttentionTunerPatch(
@@ -358,10 +339,9 @@ def build() -> VibeWorkflow:
     )
 
     lazyswitchkj_2 = LazySwitchKJ(
-        widget_0=False,
+        switch=boolean_simple_3,
         on_false=getnode_2.out('INT'),
         on_true=int_simple_2,
-        switch=boolean_simple_3,
     )
 
     cliptextencode_2 = CLIPTextEncode(text=lazyswitchkj, clip=dualcliploader)
@@ -381,8 +361,7 @@ def build() -> VibeWorkflow:
     previewaudio = PreviewAudio(audio=audioenhancementnode.out(0))
 
     ltxvimgtovideoinplace = LTXVImgToVideoInplace(
-        widget_0=0.7,
-        widget_1=False,
+        strength=0.7,
         bypass=primitiveboolean,
         image=ltxvpreprocess,
         latent=emptyltxvlatentvideo,
@@ -442,8 +421,6 @@ def build() -> VibeWorkflow:
     video_latent, audio_latent = LTXVSeparateAVLatent(av_latent=output)
 
     ltxvimgtovideoinplace_2 = LTXVImgToVideoInplace(
-        widget_0=1,
-        widget_1=False,
         bypass=primitiveboolean,
         image=image_image,
         latent=video_latent,

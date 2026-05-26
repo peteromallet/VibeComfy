@@ -34,8 +34,8 @@ def build() -> VibeWorkflow:
 
     primitivenode = raw_call('PrimitiveNode', '126',
         _outputs=('value',),
-        widget_0=561594583201063,
-        widget_1='randomize',
+        value=561594583201063,
+        control_after_generate='randomize',
     )
 
     modelsamplingauraflow = ModelSamplingAuraFlow(shift=3, model=unetloader)
@@ -48,7 +48,6 @@ def build() -> VibeWorkflow:
         language='en',
         keyscale='E minor',
         cfg_scale=1.5,
-        unused_widget_3='fixed',
         seed=primitivenode.out('value'),
         duration=primitivefloat,
         clip=dualcliploader,
@@ -60,7 +59,6 @@ def build() -> VibeWorkflow:
         steps=1,
         cfg=GUIDE_STRENGTH,
         sampler_name='euler',
-        unused_widget_1='fixed',
         seed=primitivenode.out('value'),
         latent_image=emptyacestep1_5latentaudio,
         model=modelsamplingauraflow,

@@ -33,10 +33,7 @@ def build() -> VibeWorkflow:
     clipvisionloader = CLIPVisionLoader(clip_name='clip_vision_h.safetensors')
 
     # Inputs
-    image, mask = LoadImage(
-        image='image_to_video_wan_start_image.png',
-        unused_widget_1='image',
-    )
+    image, mask = LoadImage(image='image_to_video_wan_start_image.png')
 
     # Conditioning
     cliptextencode = CLIPTextEncode(
@@ -72,7 +69,6 @@ def build() -> VibeWorkflow:
         seed=DEFAULT_SEED,
         cfg=GUIDE_STRENGTH,
         sampler_name='uni_pc',
-        unused_widget_1='randomize',
         latent_image=latent,
         model=modelsamplingsd3,
         negative=negative,
