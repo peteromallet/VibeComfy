@@ -281,7 +281,9 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     "INTConstant": ["value"],
     "FloatConstant": ["value"],
     "ImageConcatMulti": ["inputcount", "direction", "match_image_size", "unused_3"],
-    "BlockifyMask": ["block_size"],
+    # Source: object_info ComfyUI-KJNodes@runpod-snapshot.json
+    # (order [None, 'block_size', 'device']).
+    "BlockifyMask": ["block_size", "device"],
     "CannyEdgePreprocessor": ["low_threshold", "high_threshold", "resolution"],
     "DrawMaskOnImage": ["color"],
     "GrowMask": ["expand", "tapered_corners"],
@@ -396,6 +398,159 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
         "pingpong",
         "save_output",
     ],
+    # ── Audio tooling (ComfyUI-AudioTools, ComfyUI-MelBandRoformer) ──
+    # Source: object_info ComfyUI-MelBandRoformer stub (input_order_all ['model']).
+    "MelBandRoFormerModelLoader": ["model"],
+    # Source: ComfyUI-AudioTools (Urabewe) audio_normalize.py INPUT_TYPES
+    # (order [None, 'target_lufs', 'start_time', 'end_time', 'apply_to']).
+    "AudioNormalizeLUFS": ["target_lufs", "start_time", "end_time", "apply_to"],
+    # Source: ComfyUI-AudioTools (Urabewe) audio_enhance.py INPUT_TYPES
+    # (order [None, 'enhancement_mode', 'enhancement_strength', 'harmonic_intensity',
+    # 'stereo_width', 'dynamic_enhancement', 'bass_boost', 'presence_boost',
+    # 'warmth', 'target_sample_rate', 'enable_noise_reduction',
+    # 'noise_reduction_level', 'start_time', 'end_time', 'apply_to']).
+    "AudioEnhancementNode": [
+        "enhancement_mode",
+        "enhancement_strength",
+        "harmonic_intensity",
+        "stereo_width",
+        "dynamic_enhancement",
+        "bass_boost",
+        "presence_boost",
+        "warmth",
+        "target_sample_rate",
+        "enable_noise_reduction",
+        "noise_reduction_level",
+        "start_time",
+        "end_time",
+        "apply_to",
+    ],
+    # ── LTX Video (ComfyUI-LTXVideo) ──
+    # Source: object_info ComfyUI-LTXVideo@runpod-snapshot.json
+    # (order [None, None, 'invert_input_masks', 'ignore_first_mask', 'pooling_method',
+    # 'grow_mask', 'tapered_corners', 'clamp_min', 'clamp_max']).
+    "LTXVPreprocessMasks": [
+        "invert_input_masks",
+        "ignore_first_mask",
+        "pooling_method",
+        "grow_mask",
+        "tapered_corners",
+        "clamp_min",
+        "clamp_max",
+    ],
+    # Source: object_info ComfyUI-LTXVideo@runpod-snapshot.json
+    # (order [None, None, None, None, None, 'latent_idx', 'strength']).
+    "LTXVAddLatentGuide": ["latent_idx", "strength"],
+    # ── KJNodes ──
+    # Source: object_info ComfyUI-KJNodes@runpod-snapshot.json
+    # (order ['video_fps', 'video_start_time', 'video_end_time', 'audio_start_time',
+    # 'audio_end_time', 'max_length', None, None, 'existing_mask_mode']).
+    "LTXVAudioVideoMask": [
+        "video_fps",
+        "video_start_time",
+        "video_end_time",
+        "audio_start_time",
+        "audio_end_time",
+        "max_length",
+        "existing_mask_mode",
+    ],
+    # Source: object_info ComfyUI-KJNodes@runpod-snapshot.json
+    # (order [None, 'overlap', 'overlap_side', 'overlap_mode', None]).
+    "ImageBatchExtendWithOverlap": ["overlap", "overlap_side", "overlap_mode"],
+    # Source: object_info ComfyUI-KJNodes@runpod-snapshot.json (DynamicCombo node;
+    # widget_0=num_images selects dynamic inputs; for num_images='1' the dynamic
+    # widgets are strength_1 and index_1).
+    "LTXVImgToVideoInplaceKJ": ["num_images", "strength_1", "index_1"],
+    # Source: object_info ComfyUI-KJNodes@runpod-snapshot.json
+    # (order ['video', 'force_rate', 'custom_width', 'custom_height',
+    # 'frame_load_cap', 'skip_first_frames', 'select_every_nth', 'output_type',
+    # 'grid_max_columns', 'add_label']).
+    "LoadVideosFromFolder": [
+        "video",
+        "force_rate",
+        "custom_width",
+        "custom_height",
+        "frame_load_cap",
+        "skip_first_frames",
+        "select_every_nth",
+        "output_type",
+        "grid_max_columns",
+        "add_label",
+    ],
+    # ── Core / comfy_extras ──
+    # Source: object_info comfy_core@runpod-snapshot.json
+    # (order [None, None, 'direction']).
+    "AudioConcat": ["direction"],
+    # Source: object_info comfy_extras@runpod-snapshot.json
+    # (order ['start_index', 'num_frames', None, None]).
+    "GetImageRangeFromBatch": ["start_index", "num_frames"],
+    # ── VideoHelperSuite ──
+    # Source: object_info ComfyUI-VideoHelperSuite@runpod-snapshot.json
+    # (order ['video', 'force_rate', 'custom_width', 'custom_height',
+    # 'frame_load_cap', 'skip_first_frames', 'select_every_nth', 'meta_batch',
+    # None, 'format']).
+    "VHS_LoadVideo": [
+        "video",
+        "force_rate",
+        "custom_width",
+        "custom_height",
+        "frame_load_cap",
+        "skip_first_frames",
+        "select_every_nth",
+        "meta_batch",
+        "format",
+    ],
+    # ── WanVideoWrapper ──
+    # Source: object_info ComfyUI-WanVideoWrapper@runpod-snapshot.json
+    # (order [None, 'lufs']).
+    "NormalizeAudioLoudness": ["lufs"],
+    # ── AILab / Qwen TTS ──
+    # Source: object_info AILab_QwenTTS@runpod-snapshot.json
+    # (order ['target_text', 'model_size', 'language', None, 'reference_text',
+    # 'x_vector_only', 'voice', 'unload_models', 'seed']).
+    "AILab_Qwen3TTSVoiceClone": [
+        "target_text",
+        "model_size",
+        "language",
+        "reference_text",
+        "x_vector_only",
+        "voice",
+        "unload_models",
+        "seed",
+    ],
+    # ── ComfyUI-RMBG (1038lab) ──
+    # Source: ComfyUI-RMBG/1038lab AILab_FaceSegment.py INPUT_TYPES
+    # (15 face-class BOOLEAN toggles + process_res/mask_blur/mask_offset/
+    # invert_output/background/background_color).
+    "FaceSegment": [
+        "skin",
+        "nose",
+        "eyeglasses",
+        "left_eye",
+        "right_eye",
+        "left_eyebrow",
+        "right_eyebrow",
+        "left_ear",
+        "right_ear",
+        "mouth",
+        "upper_lip",
+        "lower_lip",
+        "hair",
+        "earring",
+        "neck",
+        "process_res",
+        "mask_blur",
+        "mask_offset",
+        "invert_output",
+        "background",
+        "background_color",
+    ],
+    # ── ComfyUI-Custom-Scripts (pythongosssss) ──
+    # TODO: schema unknown — MarkdownNote is a UI display node. widget_0 holds
+    # the cached markdown string but we cannot verify the field name because
+    # the node has no Python-side INPUT_TYPES definition (pure JavaScript).
+    # Using None so it surfaces as unused_widget_0 until source is confirmed.
+    "MarkdownNote": [None],
 }
 
 
