@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from vibecomfy.node_packs_lockfile import LockEntry
+
+
+@pytest.fixture(autouse=True)
+def _clear_node_pack_cache():
+    import vibecomfy.node_packs as node_packs
+
+    node_packs.clear_known_node_packs_cache()
+    yield
+    node_packs.clear_known_node_packs_cache()
 
 
 def test_resolve_node_packs_uses_rich_lock_class_sets(monkeypatch) -> None:
