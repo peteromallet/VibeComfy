@@ -43,9 +43,9 @@ models:
       filename: nested/model.bin
     min_size: 3
     targets:
-      - node_pack: pack
+      - node_pack: comfy_gguf
         path: checkpoints/model.bin
-      - node_pack: alt
+      - node_pack: comfy_core
         path: diffusion_models/model.bin
     aliases:
       - alias.bin
@@ -66,8 +66,8 @@ def test_load_registry_roundtrip_sample(tmp_path: Path) -> None:
         source=ModelSource(kind="huggingface", repo="example/repo", filename="nested/model.bin"),
         min_size=3,
         targets=(
-            ModelTarget(node_pack="pack", path="checkpoints/model.bin"),
-            ModelTarget(node_pack="alt", path="diffusion_models/model.bin"),
+            ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),
+            ModelTarget(node_pack="comfy_core", path="diffusion_models/model.bin"),
         ),
         aliases=("alias.bin",),
         tags=("phase:core",),
@@ -90,7 +90,7 @@ models:
     min_size: 1
     sha256: gated
     targets:
-      - node_pack: pack
+      - node_pack: comfy_gguf
         path: checkpoints/model.bin
 """,
     )
@@ -135,7 +135,7 @@ models:
     sha256: {digest}
     size_bytes: 11
     targets:
-      - node_pack: pack
+      - node_pack: comfy_gguf
         path: checkpoints/model.bin
 """,
     )
@@ -170,7 +170,7 @@ def test_stage_entry_passes_hf_revision_and_verifies_pins(monkeypatch: pytest.Mo
         id="pinned",
         source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin", revision="abc123"),
         min_size=1,
-        targets=(ModelTarget(node_pack="pack", path="checkpoints/model.bin"),),
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),),
         sha256=digest,
         size_bytes=len(payload),
     )
@@ -208,7 +208,7 @@ models:
         sha256: {second}
         size_bytes: 6
     targets:
-      - node_pack: pack
+      - node_pack: comfy_gguf
         path: diffusion_models/composite
 """,
     )
@@ -245,7 +245,7 @@ def test_stage_entry_stages_composite_child_files_and_verifies_pins(monkeypatch:
         id="composite",
         source=ModelSource(kind="huggingface", repo="example/repo", revision="abc123"),
         min_size=1,
-        targets=(ModelTarget(node_pack="pack", path="diffusion_models/composite"),),
+        targets=(ModelTarget(node_pack="comfy_gguf", path="diffusion_models/composite"),),
         files=files,
         composite_sha256=composite_sha256(files),
     )
@@ -272,7 +272,7 @@ def test_stage_entry_rejects_pinned_sha_or_size_mismatch(monkeypatch: pytest.Mon
         id="pinned",
         source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin"),
         min_size=1,
-        targets=(ModelTarget(node_pack="pack", path="checkpoints/model.bin"),),
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),),
         sha256="0" * 64,
         size_bytes=len(b"model-bytes") + 1,
     )
@@ -289,7 +289,7 @@ def test_stage_entry_rejects_small_staged_file(monkeypatch: pytest.MonkeyPatch, 
         id="small",
         source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin"),
         min_size=100,
-        targets=(ModelTarget(node_pack="pack", path="checkpoints/model.bin"),),
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),),
     )
 
     with pytest.raises(RuntimeError, match="small.*too small"):
@@ -307,7 +307,7 @@ def test_stage_entry_rejects_unrelated_existing_target(monkeypatch: pytest.Monke
         id="collision",
         source=ModelSource(kind="huggingface", repo="example/repo", filename="model.bin"),
         min_size=3,
-        targets=(ModelTarget(node_pack="pack", path="checkpoints/model.bin"),),
+        targets=(ModelTarget(node_pack="comfy_gguf", path="checkpoints/model.bin"),),
     )
 
     with pytest.raises(RuntimeError, match="refusing to overwrite unrelated existing file"):
@@ -318,7 +318,7 @@ def test_normalize_alias_hits_and_misses(tmp_path: Path) -> None:
     entries = load_registry(_sample_registry(tmp_path / "models.yaml"))
 
     assert normalize_alias("alias.bin", registry=entries) == "model.bin"
-    assert normalize_alias("alias.bin", registry=entries, node_pack="pack") == "model.bin"
+    assert normalize_alias("alias.bin", registry=entries, node_pack="comfy_gguf") == "model.bin"
     assert normalize_alias("alias.bin", registry=entries, node_pack="missing") is None
     assert normalize_alias("unknown.bin", registry=entries) is None
 
@@ -354,7 +354,7 @@ models:
       filename: model.bin
     min_size: 0
     targets:
-      - node_pack: pack
+      - node_pack: comfy_gguf
         path: '{bad_path}'
 """,
     )

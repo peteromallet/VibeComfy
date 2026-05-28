@@ -75,11 +75,11 @@ def before_after_demo() -> None:
     # ------------------------------------------------------------------
     # AFTER: typed wrapper from the generated module.
     # ------------------------------------------------------------------
-    from vibecomfy.nodes.rgthree_comfy import Context_rgthree  # noqa: PLC0415
+    from vibecomfy.nodes.rgthree import Context_rgthree  # noqa: PLC0415
 
     wf_after = VibeWorkflow("after", WorkflowSource(id="after", path="a.py", source_type="inline"))
-    ctx_a = Context_rgthree.add(wf_after)
-    # Caller now gets typed kwargs in their IDE/type-checker. The wf.node()
+    ctx_a = Context_rgthree(wf_after)
+    # Caller now gets typed kwargs in their IDE/type-checker. The node()
     # call inside the wrapper is the *single* place class_type appears as a
     # string — in template/scratchpad code there is no raw_call equivalent.
 

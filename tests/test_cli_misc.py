@@ -8,6 +8,7 @@ import pytest
 
 from vibecomfy.cli import build_parser
 from vibecomfy.commands import COMMANDS, CommandSpec, load_command
+from vibecomfy.commands.check import _cmd_check
 from vibecomfy.commands._workflow_path import resolve_workflow_path
 from vibecomfy.commands.copy_to_recipe import _cmd_copy_to_recipe
 from vibecomfy.commands.inspect import _cmd_inspect
@@ -36,6 +37,7 @@ def test_cli_command_registry_is_explicit_and_ordered() -> None:
         "runpod",
         "watchdog",
         "schemas",
+        "check",
         "agentic",
         "copy-to-recipe",
         "test",
@@ -200,6 +202,38 @@ def test_inspect_field_text_renders_chain(capsys: pytest.CaptureFixture[str]) ->
     assert "resolution chain" in text
     assert "bound to:" in text
 
+
+# ── check ───────────────────────────────────────────────────────────────
+
+
+def test_check_json_emits_structured_report(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from vibecomfy.checks import CheckReport, CheckResult
+
+    monkeypatch.setattr(
+        "vibecomfy.commands.check.run_checks",
+        lambda: CheckReport(
+            ok=False,
+            status="error",
+            schema_cache_class_count=12,
+            pack_file_count=3,
+            stub_pack_inventory=["kjnodes", "ltxvideo", "rgthree"],
+            checks=[
+                CheckResult(name="one", ok=True, status="pass", details={"a": 1}),
+                CheckResult(name="legacy_file_presence", ok=True, status="state", details={"present": [], "missing": []}),
+                CheckResult(name="two", ok=False, status="fail", details={"b": 2}),
+            ],
+        ),
+    )
+
+    code = _cmd_check(argparse.Namespace(json=True))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert payload["status"] == "error"
+    assert payload["schema_cache_class_count"] == 12
+    assert payload["pack_file_count"] == 3
+    assert payload["stub_pack_inventory"] == ["kjnodes", "ltxvideo", "rgthree"]
+    assert [check["status"] for check in payload["checks"]] == ["pass", "state", "fail"]
 
 # ── runtime eval-node ───────────────────────────────────────────────────
 

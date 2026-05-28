@@ -24,7 +24,7 @@ from vibecomfy.workflow import VibeWorkflow
 from .attempt import build_attempt_bundle, build_shared_fields, write_attempt_json
 from .client import ComfyClient
 from .drift import enforce_strict_drift
-from .model_policy import apply_model_preflight, normalized_models_root, resolve_model_preflight_policy
+from .model_policy import apply_model_preflight, resolve_model_preflight_policy
 from .watchdog import Watchdog, write_report
 
 logger = logging.getLogger(__name__)
@@ -66,10 +66,10 @@ def _schema_skipped_class_types(api_dict: Mapping[str, Any]) -> list[str]:
 
 
 def _node_packs_from_requirements(workflow: VibeWorkflow):
-    from vibecomfy.node_packs import KNOWN_NODE_PACKS, resolve_node_packs
+    from vibecomfy.node_packs import get_known_node_packs, resolve_node_packs
 
     required = set(workflow.requirements.custom_nodes)
-    packs = [pack for pack in KNOWN_NODE_PACKS if pack.name in required]
+    packs = [pack for pack in get_known_node_packs() if pack.name in required]
     if packs:
         return packs
     class_types = {node.class_type for node in workflow.nodes.values()}

@@ -3,7 +3,7 @@ import importlib.util, json, shutil, subprocess, sys
 from dataclasses import dataclass; from pathlib import Path
 from typing import Callable, Literal, Protocol, Sequence
 from urllib.parse import urlparse
-from vibecomfy.node_packs import CustomNodePack, KNOWN_NODE_PACKS, resolve_node_packs, unresolved_class_types
+from vibecomfy.node_packs import CustomNodePack, get_known_node_packs, resolve_node_packs, unresolved_class_types
 from vibecomfy.node_packs_lockfile import LockEntry, upsert_lockfile_entry
 from vibecomfy.registry.pack_resolver import PackNotFoundError, PackRef, resolve_pack
 from vibecomfy.utils import find_repo_root
@@ -164,7 +164,7 @@ def missing_packs_for_workflow(workflow: VibeWorkflow) -> tuple[list[CustomNodeP
 
 
 def _merge_declared_requirement_packs(workflow: VibeWorkflow, packs: list[CustomNodePack]) -> list[CustomNodePack]:
-    by_name = {pack.name: pack for pack in KNOWN_NODE_PACKS}
+    by_name = {pack.name: pack for pack in get_known_node_packs()}
     merged = {pack.name: pack for pack in packs}
     for name in workflow.requirements.custom_nodes:
         pack = by_name.get(name)
@@ -174,7 +174,7 @@ def _merge_declared_requirement_packs(workflow: VibeWorkflow, packs: list[Custom
 
 
 def missing_class_types_for_workflow(workflow: VibeWorkflow) -> set[str]: return {node.class_type for node in workflow.nodes.values()} - _known_schema_classes() - CORE_COMFY_CLASSES
-def _pack_by_name(name: str | None) -> CustomNodePack | None: return next((pack for pack in KNOWN_NODE_PACKS if pack.name == name), None)
+def _pack_by_name(name: str | None) -> CustomNodePack | None: return next((pack for pack in get_known_node_packs() if pack.name == name), None)
 def _lock_entry_for_pack(name: str, sha: str, repo_url: str, *, pack: CustomNodePack | None, pack_ref: PackRef | None = None) -> LockEntry | None:
     class_set = tuple(sorted(pack.classes)) if pack is not None and pack.classes else ()
     if pack_ref is not None and pack_ref.source == "comfy-registry" and not class_set:

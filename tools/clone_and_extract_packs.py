@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from vibecomfy.node_packs import KNOWN_NODE_PACKS, CustomNodePack
+from vibecomfy.node_packs import CustomNodePack, get_known_node_packs
 
 
 # TODO(repo-root): migrate to vibecomfy.utils.find_repo_root() once this tool's
@@ -78,7 +78,7 @@ def load_index() -> dict[str, str]:
 def missing_packs(index: dict[str, str]) -> list[CustomNodePack]:
     missing: list[CustomNodePack] = []
     known = set(index)
-    for pack in KNOWN_NODE_PACKS:
+    for pack in get_known_node_packs():
         if not set(pack.classes).issubset(known):
             missing.append(pack)
     return missing
@@ -504,7 +504,7 @@ def main() -> int:
     selected = missing_packs(index)
     if args.pack:
         wanted = set(args.pack)
-        selected = [pack for pack in KNOWN_NODE_PACKS if pack.name in wanted]
+        selected = [pack for pack in get_known_node_packs() if pack.name in wanted]
 
     print(f"Missing packs: {', '.join(pack.name for pack in selected) or '(none)'}")
     reports = [process_pack(pack, index) for pack in selected]

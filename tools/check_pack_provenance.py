@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 from tools.backfill_custom_node_refs import BackfillTarget, _extract_requirements, _select_targets
 from tools.validate_templates_against_packs import _is_comfy_core
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
-from vibecomfy.node_packs import KNOWN_NODE_PACKS
+from vibecomfy.node_packs import get_known_node_packs
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
 from vibecomfy.registry.static_contract import extract_ready_template_contract
 
@@ -233,7 +233,7 @@ def _pack_index(lock_entries: list[LockEntry]) -> PackIndex:
     entries_by_name = {entry.name: entry for entry in lock_entries}
     entries_by_slug = {entry.slug: entry for entry in lock_entries if entry.slug}
     pack_name_by_class: dict[str, str] = {}
-    for pack in KNOWN_NODE_PACKS:
+    for pack in get_known_node_packs():
         for class_type in pack.classes:
             pack_name_by_class[class_type] = pack.name
     for entry in lock_entries:

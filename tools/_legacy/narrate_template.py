@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from vibecomfy.templates import _derive_output_kind
-from vibecomfy.node_packs import KNOWN_NODE_PACKS
+from vibecomfy.node_packs import get_known_node_packs
 
 # TODO(repo-root): legacy script keeps direct path math; migrate to
 # vibecomfy.utils.find_repo_root() only if this path is revived.
@@ -6426,7 +6426,7 @@ def _get_comfy_core_info() -> dict[str, Any]:
 def _derive_custom_node_packs_from_source(source: str) -> list[str]:
     """Extract node class strings from source, map to known packs, return sorted pack names.
 
-    Only classes found in KNOWN_NODE_PACKS are included; Comfy core classes are excluded.
+    Only classes found in the node-pack catalog are included; Comfy core classes are excluded.
     """
     try:
         tree = ast.parse(source)
@@ -6434,7 +6434,7 @@ def _derive_custom_node_packs_from_source(source: str) -> list[str]:
         return []
     # Build class-to-pack map
     class_to_pack: dict[str, str] = {}
-    for pack in KNOWN_NODE_PACKS:
+    for pack in get_known_node_packs():
         for cls_name in pack.classes:
             class_to_pack[cls_name] = pack.name
     # Collect all class strings from node(wf, "ClassName", ...) calls
@@ -7972,7 +7972,7 @@ def _convert_restructure_to_v23(source: str) -> str:
         converted = _inline_private_knobs(converted, private_knobs)
     # Derive custom-node pack requirements from the converted source.
     # Only known pack names are emitted; bare class names that cannot be
-    # mapped to a KNOWN_NODE_PACKS entry are intentionally dropped.
+    # mapped to the node-pack catalog are intentionally dropped.
     custom_node_packs = _derive_custom_node_packs_from_source(converted)
     if custom_node_packs:
         req_extras = {**req_extras, "custom_nodes": custom_node_packs}

@@ -408,7 +408,7 @@ class TestSchemasEnsureWorkflow:
     def test_validate_coverage_identifies_missing(self) -> None:
         """validate-coverage should correctly identify missing classes."""
         from vibecomfy.commands.schemas import _extract_class_types_from_template
-        from vibecomfy.porting.object_info.consume import get_class, list_classes
+        from vibecomfy.porting.object_info.consume import list_classes
 
         # Create a template with a mix of cached and non-cached classes
         source = textwrap.dedent("""\
@@ -588,29 +588,29 @@ class TestCloneAndExtractPacks:
 
 
 class TestNodePacksMapping:
-    """Tests that KNOWN_NODE_PACKS has expected entries."""
+    """Tests that the node-pack catalog exposes expected entries."""
 
     def test_comfyui_controlnet_aux_in_registry(self) -> None:
-        """The comfyui_controlnet_aux pack should be in KNOWN_NODE_PACKS."""
-        from vibecomfy.node_packs import KNOWN_NODE_PACKS
+        """The comfyui_controlnet_aux pack should be present in the catalog."""
+        from vibecomfy.node_packs import get_known_node_packs
 
-        pack_names = {p.name for p in KNOWN_NODE_PACKS}
+        known_node_packs = get_known_node_packs()
         # Check for packs that contain CannyEdgePreprocessor or DWPreprocessor
         found = False
-        for pack in KNOWN_NODE_PACKS:
+        for pack in known_node_packs:
             if "CannyEdgePreprocessor" in pack.classes or "DWPreprocessor" in pack.classes:
                 found = True
                 break
         # If not found via class check, that's fine — the pack might not be registered yet
         # This test documents the expected state
         if not found:
-            pytest.skip("comfyui_controlnet_aux not yet in KNOWN_NODE_PACKS — will be added")
+            pytest.skip("comfyui_controlnet_aux not yet in the node-pack catalog — will be added")
 
     def test_known_packs_have_required_fields(self) -> None:
         """Every CustomNodePack should have name, repo, and classes."""
-        from vibecomfy.node_packs import KNOWN_NODE_PACKS
+        from vibecomfy.node_packs import get_known_node_packs
 
-        for pack in KNOWN_NODE_PACKS:
+        for pack in get_known_node_packs():
             assert pack.name, f"Pack {pack} has empty name"
             assert pack.repo.startswith("https://"), (
                 f"Pack {pack.name} repo should be HTTPS URL: {pack.repo}"

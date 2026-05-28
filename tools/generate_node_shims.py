@@ -249,8 +249,10 @@ _LOCAL_SCHEMA_ENTRIES: dict[str, dict[str, Any]] = {}
 
 def main() -> None:
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
-    target_modules = _target_modules()
-    classes_by_module = _select_classes(target_modules)
+    pack_files = _cache_pack_files()
+    target_modules = _target_modules(pack_files)
+    _prune_stale_thin_shims(target_modules, pack_files)
+    classes_by_module = _select_classes(target_modules, pack_files)
     all_exports: dict[str, list[str]] = {}
     for module in target_modules:
         exports = _write_module(module, sorted(classes_by_module.get(module, set())))
@@ -265,9 +267,9 @@ def main() -> None:
     print(f"generated {sum(len(v) for v in all_exports.values())} wrappers across {len(target_modules)} modules")
 
 
-def _target_modules() -> tuple[str, ...]:
+def _target_modules(pack_files: list[Path]) -> tuple[str, ...]:
     modules = list(BASE_TARGET_MODULES)
-    for path in _cache_pack_files():
+    for path in pack_files:
         module = _module_for_pack_file(path.name)
         if module not in modules:
             modules.append(module)
@@ -288,9 +290,9 @@ def _module_for_pack_file(filename: str) -> str:
     return PACK_FILE_MODULES.get(filename) or PACK_MODULES.get(pack_name) or _identifier(pack_name).lower()
 
 
-def _select_classes(target_modules: tuple[str, ...]) -> dict[str, set[str]]:
+def _select_classes(target_modules: tuple[str, ...], pack_files: list[Path]) -> dict[str, set[str]]:
     selected: dict[str, set[str]] = {module: set() for module in target_modules}
-    for path in _cache_pack_files():
+    for path in pack_files:
         module = _module_for_pack_file(path.name)
         if module not in selected:
             selected[module] = set()
@@ -307,6 +309,68 @@ def _select_classes(target_modules: tuple[str, ...]) -> dict[str, set[str]]:
             _LOCAL_SCHEMA_ENTRIES[class_type] = entry
             selected[module].add(class_type)
     return selected
+
+
+def _prune_stale_thin_shims(target_modules: tuple[str, ...], pack_files: list[Path]) -> None:
+    if not pack_files:
+        print("warning: object-info cache pack-file discovery returned zero pack files; skipping thin-shim pruning")
+        return
+    target_set = set(target_modules)
+    for path in _candidate_thin_shim_paths():
+        if path.stem in target_set:
+            continue
+        if _is_prunable_thin_shim(path):
+            path.unlink()
+
+
+def _candidate_thin_shim_paths() -> list[Path]:
+    candidates: list[Path] = []
+    for directory in (GENERATED_DIR, NODES_DIR):
+        for suffix in (".py", ".pyi"):
+            candidates.extend(sorted(directory.glob(f"*{suffix}")))
+    return candidates
+
+
+def _is_prunable_thin_shim(path: Path) -> bool:
+    if path.name == "__init__.py" or path.name == "__init__.pyi":
+        return False
+    if not path.is_file():
+        return False
+    if path.parent == GENERATED_DIR:
+        return _has_generated_thin_wrapper_marker(path)
+    if path.parent == NODES_DIR:
+        return _is_generated_reexport_shim(path)
+    return False
+
+
+def _has_generated_thin_wrapper_marker(path: Path) -> bool:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".py":
+        return text.startswith('"""Auto-generated thin wrappers for ComfyUI node classes.')
+    if path.suffix == ".pyi":
+        return text.startswith('"""Type stubs for generated ComfyUI node wrappers."""')
+    return False
+
+
+def _is_generated_reexport_shim(path: Path) -> bool:
+    text = path.read_text(encoding="utf-8").strip()
+    module = path.stem
+    if path.suffix == ".py":
+        expected = "\n".join([
+            f"from vibecomfy.nodes._generated import {module} as _generated",
+            f"from vibecomfy.nodes._generated.{module} import *",
+            "",
+            "__all__ = list(_generated.__all__)",
+        ])
+        return text == expected
+    if path.suffix == ".pyi":
+        expected = "\n".join([
+            f"from vibecomfy.nodes._generated.{module} import *",
+            "",
+            "__all__: list[str]",
+        ])
+        return text == expected
+    return False
 
 
 def _normalized_schema_entry(entry: Any, pack_name: str) -> dict[str, Any]:

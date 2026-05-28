@@ -252,7 +252,7 @@ def _cmd_schemas_ensure(args: argparse.Namespace) -> int:
         print("All class schemas already cached — nothing to do.")
         return 0
 
-    # --- Map missing classes to KNOWN_NODE_PACKS ---
+    # --- Map missing classes to the lazy node-pack catalog ---
     from vibecomfy.node_packs import resolve_node_packs
 
     packs_needed = resolve_node_packs(set(missing_classes))

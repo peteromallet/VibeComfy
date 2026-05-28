@@ -91,8 +91,10 @@ def build():
     )
     monkeypatch.setattr(
         provenance,
-        "KNOWN_NODE_PACKS",
-        (type("Pack", (), {"name": "StaticPack", "classes": frozenset({"StaticNode"})})(),),
+        "get_known_node_packs",
+        lambda: (
+            type("Pack", (), {"name": "StaticPack", "classes": frozenset({"StaticNode"})})(),
+        ),
     )
 
     diagnostics = provenance.diagnostics_for_template(

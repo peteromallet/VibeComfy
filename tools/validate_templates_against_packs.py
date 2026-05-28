@@ -164,11 +164,11 @@ _COMFY_CORE_PREFIXES: tuple[str, ...] = (
 
 def _load_known_packs() -> tuple[dict[str, str], set[str]]:
     """Return (class→pack_name dict, set of all known classes)."""
-    from vibecomfy.node_packs import KNOWN_NODE_PACKS
+    from vibecomfy.node_packs import get_known_node_packs
 
     class_to_pack: dict[str, str] = {}
     all_classes: set[str] = set()
-    for pack in KNOWN_NODE_PACKS:
+    for pack in get_known_node_packs():
         for cls in pack.classes:
             class_to_pack[cls] = pack.name
         all_classes |= pack.classes

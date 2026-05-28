@@ -45,9 +45,9 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Literal, Sequence
+from typing import Any, Literal, Sequence
 
-from vibecomfy.node_packs import KNOWN_NODE_PACKS, CustomNodePack
+from vibecomfy.node_packs import get_known_node_packs
 
 
 logger = logging.getLogger(__name__)
@@ -182,9 +182,9 @@ def discover_all(
 def known_pack_slug(class_type: str) -> str | None:
     """Return the registered pack slug for a class type, if known.
 
-    Walks ``KNOWN_NODE_PACKS`` and returns the first match.
+    Walks the lazy node-pack catalog and returns the first match.
     """
-    for pack in KNOWN_NODE_PACKS:
+    for pack in get_known_node_packs():
         if class_type in pack.classes:
             return pack.name
     return None

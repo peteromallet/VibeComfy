@@ -26,6 +26,13 @@ RESERVED_TAGS = {
 }
 LTX_LEAN_EXCLUDED_SCOPES = {"ltx_official", "ltx_official_public", "ltx_lightricks", "ltx_iclora", "ltx_iclora_public"}
 PUBLIC_SCOPES = {"ltx_official_public", "ltx_iclora_public"}
+NODE_PACK_ALIASES = {
+    "comfy_gguf": "ComfyUI-GGUF",
+    "ltx": "ComfyUI-LTXVideo",
+    "wan_wrapper": "ComfyUI-WanVideoWrapper",
+}
+DOCUMENTED_NODE_PACK_GAPS = frozenset({"ace_step", "comfy_core", "kijai_ltx"})
+CANONICAL_MODEL_NODE_PACKS = frozenset(NODE_PACK_ALIASES.values())
 
 
 @dataclass(frozen=True)
@@ -137,6 +144,12 @@ def canonical_filename(model_id: str, *, registry: Sequence[ModelEntry] | None =
                 return filename
             raise ValueError(f"{entry.id}: source filename could not be inferred")
     raise KeyError(f"unknown model id: {model_id}")
+
+
+def canonical_model_node_pack(name: str) -> str | None:
+    if name in CANONICAL_MODEL_NODE_PACKS:
+        return name
+    return NODE_PACK_ALIASES.get(name)
 
 
 def _clear_cache() -> None:
@@ -271,6 +284,21 @@ def _validate_registry(entries: Sequence[ModelEntry], *, registry_path: Path) ->
             if owner is not None:
                 raise ValueError(f"{entry.id}: duplicate alias {alias!r}; already used by {owner}")
             seen_aliases[alias] = entry.id
+        for target in entry.targets:
+            _validate_target_node_pack(target, entry_id=entry.id, registry_path=registry_path)
+
+
+def _validate_target_node_pack(target: ModelTarget, *, entry_id: str, registry_path: Path) -> None:
+    raw_name = target.node_pack
+    if canonical_model_node_pack(raw_name) is not None:
+        return
+    if raw_name in DOCUMENTED_NODE_PACK_GAPS:
+        return
+    allowed = sorted((*CANONICAL_MODEL_NODE_PACKS, *NODE_PACK_ALIASES, *DOCUMENTED_NODE_PACK_GAPS))
+    raise ValueError(
+        f"{registry_path}: {entry_id}: unknown target.node_pack {raw_name!r}; "
+        f"expected canonical names, transitional aliases, or documented gaps: {', '.join(allowed)}"
+    )
 
 
 def _validate_target_path(path: str, *, entry_id: str) -> None:
