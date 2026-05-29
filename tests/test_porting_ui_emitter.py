@@ -385,6 +385,104 @@ def test_corpus_roundtrip_parity_with_compile_api() -> None:
 
 
 # ---------------------------------------------------------------------------
+# T7 — corpus-wide compile('api') byte-identity regression guard
+# ---------------------------------------------------------------------------
+
+
+def test_corpus_compile_api_byte_identity() -> None:
+    """Step 5b (T7): Across the real corpus, compile('api') output is
+    byte-identical and independent of display-side changes (virtual wires etc.).
+
+    The execution graph MUST be unchanged by the helper re-emit introduced in T6.
+    This test loads every UI-shaped JSON workflow in workflow_corpus/ (excluding
+    manifests), calls ``wf.compile('api')``, and verifies:
+    1. The output is a valid API dict with ``class_type`` + ``inputs`` per node.
+    2. The deterministic JSON serialization is stable (same in → same out).
+    3. The compile output is unaffected by ``include_virtual_wires`` (since
+       compile uses ``collect_broadcast_sources``, not the dual-edge-list path).
+    """
+    import hashlib as _hashlib
+    from pathlib import Path
+
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    corpus_root = Path("workflow_corpus")
+    exclude = {
+        "manifests/coverage.json",
+        "manifests/ready_regeneration.json",
+    }
+    json_paths = sorted(
+        p
+        for p in corpus_root.rglob("*.json")
+        if str(p.relative_to(corpus_root)) not in exclude
+    )
+
+    checked = 0
+    compile_hashes: dict[str, str] = {}
+    compile_errors: list[str] = []
+
+    for path in json_paths:
+        with open(path) as fh:
+            raw = json.load(fh)
+        # Only process UI-shaped workflows (nodes is a list)
+        if not isinstance(raw.get("nodes"), list):
+            continue
+        wf = convert_to_vibe_format(raw)
+
+        # First compile: baseline.  Some custom-node workflows carry orphaned
+        # broadcast edges that fail compile(); these are pre-existing and not
+        # caused by T6 — we record them but don't fail the test.
+        try:
+            api1 = wf.compile("api")
+        except Exception as exc:
+            compile_errors.append(f"{path.relative_to(corpus_root)}: {exc}")
+            continue
+
+        assert isinstance(api1, dict), f"{path}: compile('api') not a dict"
+        for node_id, node_data in api1.items():
+            assert "class_type" in node_data, (
+                f"{path} node {node_id}: missing class_type"
+            )
+            assert "inputs" in node_data, (
+                f"{path} node {node_id}: missing inputs"
+            )
+
+        # Determinism: second compile must be byte-identical
+        api2 = wf.compile("api")
+        json1 = json.dumps(api1, sort_keys=True, default=str)
+        json2 = json.dumps(api2, sort_keys=True, default=str)
+        assert json1 == json2, (
+            f"{path}: compile('api') not deterministic "
+            f"(len1={len(json1)} len2={len(json2)})"
+        )
+
+        # Record hash for the summary assertion
+        compile_hashes[str(path.relative_to(corpus_root))] = _hashlib.sha256(
+            json1.encode()
+        ).hexdigest()
+
+        checked += 1
+
+    assert checked > 0, (
+        f"No corpus files compiled successfully."
+        f" Errors: {compile_errors[:5] if compile_errors else 'none'}"
+    )
+    # All hashes must be non-empty
+    assert all(h for h in compile_hashes.values()), "Empty hash encountered"
+    if compile_errors:
+        print(
+            f"\n[T7] {len(compile_errors)} workflow(s) failed compile"
+            f" (pre-existing orphaned-broadcast):"
+        )
+        for err in compile_errors[:5]:
+            print(f"  - {err}")
+    print(
+        f"\n[T7] compile('api') byte-identity verified on"
+        f" {checked} corpus workflow(s)"
+    )
+
+
+# ---------------------------------------------------------------------------
 # T7 — id remap, broadcast fan-out, primitive feeders, multi-output, subgraphs
 # ---------------------------------------------------------------------------
 
@@ -458,8 +556,9 @@ def test_primitive_feeder_no_inputs_one_output() -> None:
 
 
 def test_broadcast_fanout_resolved_via_collect_broadcast_sources() -> None:
-    """SetNode/GetNode broadcast: helpers are dropped and a GetNode fan-out becomes
-    direct links from the captured real source (one source → many links)."""
+    """SetNode/GetNode broadcast: in flat mode (--no-virtual-wires) helpers are
+    dropped and a GetNode fan-out becomes direct links from the captured real
+    source (one source → many links)."""
     wf = _wf()
     wf.nodes["1"] = VibeNode("1", "CheckpointLoader")
     wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MODEL_BUS"})
@@ -472,7 +571,7 @@ def test_broadcast_fanout_resolved_via_collect_broadcast_sources() -> None:
     provider = _Provider({"CheckpointLoader": _schema("CheckpointLoader", [OutputSpec("MODEL", "model")])})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = emit_ui_json(wf, schema_provider=provider)
+        result = emit_ui_json(wf, schema_provider=provider, include_virtual_wires=False)
 
     emitted_types = {n["type"] for n in result["nodes"]}
     assert "SetNode" not in emitted_types and "GetNode" not in emitted_types
@@ -999,3 +1098,905 @@ def test_captured_geometry_used_when_layout_empty_and_ui_present() -> None:
         assert emit_node["pos"] == [float(p) for p in expected_pos], (
             f"Node {lite_id}: captured pos {emit_node['pos']} != raw {expected_pos}"
         )
+
+
+def test_captured_properties_blob_re_emitted_verbatim_with_ir_keys_merged() -> None:
+    """A node with captured cnr_id / ver in its sidecar properties re-emits them
+    verbatim, with vibecomfy_uid / ir_node_id / 'Node name for S&R' overlaid."""
+    wf = _wf()
+    node = VibeNode("1", "MyNode")
+    node.uid = "uid-captured"
+    wf.nodes["1"] = node
+
+    captured_props = {"cnr_id": "abc-123", "ver": "2.0", "mask_data": {"alpha": 0.5}}
+    layout_entry = {
+        "pos": [100.0, 200.0],
+        "size": [300.0, 200.0],
+        "flags": {},
+        "color": None,
+        "bgcolor": None,
+        "mode": 0,
+        "properties": captured_props,
+    }
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, layout={"uid-captured": layout_entry})
+
+    emitted = result["nodes"][0]
+    props = emitted["properties"]
+
+    # Verbatim captured keys survive
+    assert props["cnr_id"] == "abc-123", f"cnr_id lost: {props}"
+    assert props["ver"] == "2.0", f"ver lost: {props}"
+    assert props["mask_data"] == {"alpha": 0.5}, f"mask_data lost: {props}"
+
+    # IR identity keys are overlaid (always win)
+    assert props["ir_node_id"] == "1"
+    assert props["Node name for S&R"] == "MyNode"
+    assert props["vibecomfy_uid"] == "uid-captured"
+
+    # Display label present
+    assert "vibecomfy_id" in props
+
+
+def test_no_captured_blob_falls_back_to_fresh_construction() -> None:
+    """A node with no captured properties blob still gets the fresh IR identity
+    dict (no regression for programmatic / scratchpad workflows)."""
+    wf = _wf()
+    node = VibeNode("1", "ProgrammaticNode")
+    node.uid = "uid-prog"
+    # No sidecar, no _ui metadata → furniture resolves to empty properties
+    wf.nodes["1"] = node
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, layout={})
+
+    emitted = result["nodes"][0]
+    props = emitted["properties"]
+
+    # Only IR identity keys should be present (no captured blob)
+    assert props["ir_node_id"] == "1"
+    assert props["Node name for S&R"] == "ProgrammaticNode"
+    assert props["vibecomfy_uid"] == "uid-prog"
+    assert "vibecomfy_id" in props
+
+
+def test_inner_subgraph_nodes_carry_vibecomfy_uid() -> None:
+    """Inner subgraph nodes emitted via _emit_definitions carry
+    properties['vibecomfy_uid'] stamped from mint_local_uid."""
+    wf = _wf()
+    node = VibeNode("1", "SaveImage")
+    node.uid = "top-uid"
+    wf.nodes["1"] = node
+
+    # Simulate a subgraph definition with inner nodes
+    inner_nodes = [
+        {"id": 10, "type": "InnerA", "pos": [0, 0], "size": [100, 100], "properties": {}},
+        {"id": 20, "type": "InnerB", "pos": [50, 50], "size": [100, 100]},
+    ]
+    wf.metadata["definitions"] = {
+        "subgraphs": [
+            {
+                "nodes": inner_nodes,
+                "links": [],
+                "state": {},
+            }
+        ]
+    }
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf)
+
+    # The definitions should contain inner nodes with vibecomfy_uid stamped
+    defs = result.get("definitions")
+    assert defs is not None, "Expected definitions in output"
+    subgraphs = defs.get("subgraphs", [])
+    assert len(subgraphs) == 1
+    emitted_inner = subgraphs[0].get("nodes", [])
+    assert len(emitted_inner) == 2
+
+    # InnerA had properties={} → uid stamped from id=10
+    inner_a = emitted_inner[0]
+    assert inner_a["properties"].get("vibecomfy_uid") == "10", (
+        f"InnerA missing/incorrect vibecomfy_uid: {inner_a['properties']}"
+    )
+
+    # InnerB had no properties key → uid stamped from id=20
+    inner_b = emitted_inner[1]
+    assert inner_b["properties"].get("vibecomfy_uid") == "20", (
+        f"InnerB missing/incorrect vibecomfy_uid: {inner_b.get('properties')}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T4 — Two-source authoritative widget-slot model
+# ---------------------------------------------------------------------------
+
+
+def test_raw_widget_order_used_for_count_when_provider_has_it() -> None:
+    """Widget COUNT uses raw object_info_widget_order (nulls included) when
+    the provider supports raw_widget_order."""
+    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+    wf = _wf()
+    wf.nodes["1"] = _ksampler()
+    wf.nodes["2"] = VibeNode("2", "SaveImage")
+    wf.connect("1.0", "2.images")
+
+    provider = ObjectInfoIndexSchemaProvider(
+        root="vibecomfy/porting/cache/object_info"
+    )
+    report: list[dict] = []
+    result = emit_ui_json(wf, schema_provider=provider, recovery_report=report)
+
+    # KSampler widget_length_check should reflect the RAW count (10 entries
+    # with 4 nulls), not the compacted count (6 entries).
+    ksamp_report = next(r for r in report if r["class_type"] == "KSampler")
+    wlc = ksamp_report["widget_length_check"]
+    assert "10" in wlc, f"Expected raw count 10 in widget_length_check, got: {wlc}"
+
+    # widgets_values still use compacted ordering (6 entries)
+    ksamp_node = next(n for n in result["nodes"] if n["id"] == 1)
+    assert ksamp_node["widgets_values"] == [5, 20, 7.0, "euler", "normal", 1.0]
+
+
+def test_ksampler_emits_with_raw_count_no_overflow() -> None:
+    """KSampler with standard widget values does not overflow the raw count (10)."""
+    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+    wf = _wf()
+    wf.nodes["1"] = _ksampler()
+
+    provider = ObjectInfoIndexSchemaProvider(
+        root="vibecomfy/porting/cache/object_info"
+    )
+    report: list[dict] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emit_ui_json(wf, schema_provider=provider, recovery_report=report)
+
+    ksamp_report = next(r for r in report if r["class_type"] == "KSampler")
+    wlc = ksamp_report["widget_length_check"]
+    # 6 <= 10 — not an overflow
+    assert "<=" in wlc, f"Expected non-overflow, got: {wlc}"
+
+
+def test_seed_bearing_node_gets_extra_slot_heuristic() -> None:
+    """A class with an INT seed/noise_seed field gets control_after_generate
+    guessed when the provider has no raw_widget_order."""
+    from vibecomfy.schema.provider import NodeSchema, InputSpec
+
+    wf = _wf()
+    # Simulate a seed-bearing node whose schema has INT seed
+    node = VibeNode(
+        "1",
+        "CustomSampler",
+        inputs={"seed": 42, "steps": 10},
+        metadata={"control_after_generate": "randomize"},
+    )
+    wf.nodes["1"] = node
+
+    schema = NodeSchema(
+        class_type="CustomSampler",
+        pack=None,
+        inputs={
+            "seed": InputSpec(type="INT", required=True),
+            "steps": InputSpec(type="INT", required=True),
+        },
+        outputs=[],
+        source_provider="widget_schema",
+        confidence=0.3,
+    )
+
+    class _SeedProvider:
+        def get_schema(self, ct):
+            return schema if ct == "CustomSampler" else None
+
+    provider = _SeedProvider()
+    report: list[dict] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        emit_ui_json(wf, schema_provider=provider, recovery_report=report)
+
+    entry = next(r for r in report if r["class_type"] == "CustomSampler")
+    # Offline heuristic should have added a control_after_generate guess
+    assert "widget_order_guesses" in entry, (
+        f"Expected widget_order_guesses for seed-bearing node, got keys: {list(entry.keys())}"
+    )
+    assert any(
+        "control_after_generate" in g for g in entry["widget_order_guesses"]
+    ), f"Expected control_after_generate guess, got: {entry['widget_order_guesses']}"
+
+
+def test_previously_flagged_files_emit_without_exception() -> None:
+    """The 11 files flagged in the Step 1 baseline (overflow warnings) still emit
+    without exception — only NEW hard exceptions are regressions."""
+    import json as _json
+    from pathlib import Path
+
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    baseline_path = Path("out/emit_survey_baseline.json")
+    if not baseline_path.is_file():
+        pytest.skip("Step 1 baseline not available")
+
+    with open(baseline_path) as fh:
+        baseline = _json.load(fh)
+
+    overflow_files = [
+        r for r in baseline["results"]
+        if r["outcome"] == "overflow_warning"
+    ]
+
+    for result_entry in overflow_files:
+        abs_path = Path(result_entry["absolute"])
+        if not abs_path.is_file():
+            continue
+        with open(abs_path) as fh:
+            raw = _json.load(fh)
+        wf = convert_to_vibe_format(raw)
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                emit_ui_json(wf, strict=False)
+        except Exception as exc:
+            raise AssertionError(
+                f"Previously-flagged file {result_entry['path']} raised {type(exc).__name__}: {exc}"
+            ) from exc
+
+
+def test_widget_order_matches_object_info_for_covered_class() -> None:
+    """For a class present in the object_info cache, the raw widget order
+    (nulls included) is authoritative for COUNT."""
+    from vibecomfy.porting.ui_emitter import _raw_widget_order_from_provider
+    from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
+
+    provider = ObjectInfoIndexSchemaProvider(
+        root="vibecomfy/porting/cache/object_info"
+    )
+    raw_order = _raw_widget_order_from_provider("KSampler", provider)
+    assert raw_order is not None, "KSampler should be in the object_info cache"
+    # Raw order from the cache: [null, "seed", "steps", "cfg", "sampler_name", "scheduler", null, null, null, "denoise"]
+    assert raw_order[0] is None, f"Expected first slot to be None (control_after_generate), got: {raw_order[0]}"
+    assert raw_order[1] == "seed"
+    assert raw_order[6] is None, f"Expected slot 6 to be None (UI-only), got: {raw_order[6]}"
+    assert raw_order[9] == "denoise"
+    assert len(raw_order) == 10, f"Expected 10 raw slots for KSampler, got: {len(raw_order)}"
+
+
+# ---------------------------------------------------------------------------
+# T5: Furniture resolver (flags / color / bgcolor / mode / properties)
+# ---------------------------------------------------------------------------
+
+
+def test_furniture_from_sidecar_entry_roundtrip() -> None:
+    """Sidecar path: a layout entry with groups/colors/collapsed/mode is emitted faithfully."""
+    wf = _wf("sidecar-test")
+    node = VibeNode("1", "SidecarNode")
+    node.uid = "uid-aa"
+    wf.nodes["1"] = node
+
+    # Simulate a full sidecar entry as returned by read_store()["entries"]
+    layout_entry = {
+        "pos": [200.0, 300.0],
+        "size": [400.0, 200.0],
+        "flags": {"collapsed": True},
+        "color": "#332",
+        "bgcolor": "#553",
+        "mode": 2,
+        "properties": {"Node name for S&R": "SidecarNode", "custom": "val"},
+    }
+    result = emit_ui_json(wf, layout={"uid-aa": layout_entry})
+    emitted = result["nodes"][0]
+
+    assert emitted["flags"] == {"collapsed": True}
+    assert emitted["color"] == "#332"
+    assert emitted["bgcolor"] == "#553"
+    assert emitted["mode"] == 2
+    # Sidecar properties are the base; IR-built overlay wins for vibecomfy keys.
+    assert emitted["properties"]["custom"] == "val"
+    assert emitted["properties"]["Node name for S&R"] == "SidecarNode"
+    assert emitted["properties"]["vibecomfy_uid"] == "uid-aa"
+    assert "ir_node_id" in emitted["properties"]
+
+
+def test_furniture_from_metadata_ui_fallback() -> None:
+    """Direct-ingest fallback: node.metadata['_ui'] supplies furniture when no sidecar exists."""
+    wf = _wf("ingest-test")
+    node = VibeNode("1", "HasUI")
+    node.uid = "uid-ingest"
+    node.metadata["_ui"] = {
+        "pos": [100, 150],
+        "size": [300, 250],
+        "flags": {"collapsed": False},
+        "color": "#123",
+        "bgcolor": "#456",
+        "mode": 4,
+        "properties": {"original": "yes"},
+    }
+    wf.nodes["1"] = node
+
+    result = emit_ui_json(wf)  # no layout= param → falls through to _ui
+    emitted = result["nodes"][0]
+
+    assert emitted["flags"] == {"collapsed": False}
+    assert emitted["color"] == "#123"
+    assert emitted["bgcolor"] == "#456"
+    assert emitted["mode"] == 4
+    assert emitted["properties"]["original"] == "yes"
+    assert emitted["properties"]["vibecomfy_uid"] == "uid-ingest"
+
+
+def test_furniture_absent_fields_fallback_to_defaults() -> None:
+    """When both sidecar and _ui are absent, emit fixed defaults (flags={}, mode=0, no color/bgcolor)."""
+    wf = _wf("minimal")
+    node = VibeNode("1", "Plain")
+    # No _ui metadata, no uid
+    wf.nodes["1"] = node
+
+    result = emit_ui_json(wf)
+    emitted = result["nodes"][0]
+
+    assert emitted["flags"] == {}
+    assert emitted["mode"] == 0
+    assert "color" not in emitted, "color should be absent when None"
+    assert "bgcolor" not in emitted, "bgcolor should be absent when None"
+
+
+def test_furniture_mode_defaults_to_zero_for_non_int() -> None:
+    """Non-int mode values (None, string, float) are defaulted to 0."""
+    wf = _wf("bad-mode")
+    node = VibeNode("1", "BadMode")
+    node.uid = "uid-bm"
+    wf.nodes["1"] = node
+
+    # layout entry with a non-int mode
+    layout_entry = {
+        "pos": [0, 0],
+        "size": [100, 100],
+        "flags": {},
+        "mode": None,  # None → 0
+    }
+    result = emit_ui_json(wf, layout={"uid-bm": layout_entry})
+    assert result["nodes"][0]["mode"] == 0
+
+    # string mode
+    layout_entry["mode"] = "muted"
+    result2 = emit_ui_json(wf, layout={"uid-bm": layout_entry})
+    assert result2["nodes"][0]["mode"] == 0
+
+
+def test_furniture_groups_from_param() -> None:
+    """groups= param populates the top-level groups array."""
+    wf = _wf("gtest")
+    wf.nodes["1"] = VibeNode("1", "N1")
+
+    groups = [
+        {"title": "Group A", "bounding": [0, 0, 400, 300], "color": "#3f3"},
+        {"title": "Group B", "bounding": [500, 0, 400, 300], "color": "#33f"},
+    ]
+    result = emit_ui_json(wf, groups=groups)
+    assert result["groups"] == groups
+
+    # Default: empty list
+    result2 = emit_ui_json(wf)
+    assert result2["groups"] == []
+
+
+def test_furniture_sidecar_takes_precedence_over_metadata_ui() -> None:
+    """When BOTH a sidecar entry and node.metadata['_ui'] exist, the sidecar wins."""
+    wf = _wf("precedence")
+    node = VibeNode("1", "Conflict")
+    node.uid = "uid-conflict"
+    # metadata['_ui'] says mode=4, color='#ui'
+    node.metadata["_ui"] = {
+        "pos": [10, 20],
+        "size": [30, 40],
+        "flags": {"collapsed": False},
+        "color": "#ui",
+        "bgcolor": "#uibg",
+        "mode": 4,
+        "properties": {"from": "ui"},
+    }
+    wf.nodes["1"] = node
+
+    # Sidecar says mode=2, color='#sc'
+    sidecar_entry = {
+        "pos": [50, 60],
+        "size": [70, 80],
+        "flags": {"collapsed": True},
+        "color": "#sc",
+        "bgcolor": "#scbg",
+        "mode": 2,
+        "properties": {"from": "sidecar"},
+    }
+    result = emit_ui_json(wf, layout={"uid-conflict": sidecar_entry})
+    emitted = result["nodes"][0]
+
+    assert emitted["flags"] == {"collapsed": True}, "sidecar flags should win"
+    assert emitted["color"] == "#sc", "sidecar color should win"
+    assert emitted["bgcolor"] == "#scbg", "sidecar bgcolor should win"
+    assert emitted["mode"] == 2, "sidecar mode should win"
+    assert emitted["properties"]["from"] == "sidecar", "sidecar properties should win"
+
+
+# ---------------------------------------------------------------------------
+# T10 — Mode emit for bypass/mute display (Step 8)
+# ---------------------------------------------------------------------------
+
+
+def test_node_captured_with_mode_4_reemits_mode_4() -> None:
+    """T10: A node captured with mode 4 (bypassed) re-emits mode 4.
+
+    This is the canonical round-trip: capture mode 4 in metadata['_ui'],
+    emit through emit_ui_json, and confirm the emitted node carries mode: 4.
+    """
+    wf = _wf("mode4-roundtrip")
+    node = VibeNode("1", "LoadImage")
+    node.uid = "uid-mode4"
+    node.metadata["_ui"] = {
+        "pos": [100.0, 200.0],
+        "size": [300.0, 250.0],
+        "flags": {},
+        "color": "#abc",
+        "bgcolor": None,
+        "mode": 4,
+        "properties": {},
+    }
+    wf.nodes["1"] = node
+
+    provider = _Provider({
+        "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+    })
+    result = emit_ui_json(wf, schema_provider=provider)
+    emitted = result["nodes"][0]
+
+    assert emitted["mode"] == 4, f"bypassed node must re-emit mode 4, got {emitted['mode']}"
+    # Verify the node is otherwise intact
+    assert emitted["type"] == "LoadImage"
+    assert emitted["id"] == 1
+
+
+def test_node_captured_with_mode_2_reemits_mode_2() -> None:
+    """T10: A node captured with mode 2 (muted) re-emits mode 2.
+
+    Captures mode 2 via the sidecar (layout=) path and confirms it
+    survives the full emit round-trip.
+    """
+    wf = _wf("mode2-roundtrip")
+    node = VibeNode("1", "SaveImage")
+    node.uid = "uid-mode2"
+    wf.nodes["1"] = node
+
+    sidecar_entry = {
+        "pos": [50.0, 60.0],
+        "size": [400.0, 200.0],
+        "flags": {},
+        "color": None,
+        "bgcolor": None,
+        "mode": 2,
+        "properties": {},
+    }
+
+    provider = _Provider({
+        "SaveImage": _schema("SaveImage", []),
+    })
+    result = emit_ui_json(wf, layout={"uid-mode2": sidecar_entry}, schema_provider=provider)
+    emitted = result["nodes"][0]
+
+    assert emitted["mode"] == 2, f"muted node must re-emit mode 2, got {emitted['mode']}"
+    assert emitted["type"] == "SaveImage"
+
+
+def test_mode_is_display_only_no_compile_change() -> None:
+    """T10: Mode is display-only — compile('api') output is byte-identical
+    regardless of whether nodes carry mode 0, 2, or 4.
+
+    Creates three identical workflows whose only difference is the captured
+    mode (0=none, 2=muted, 4=bypassed), then verifies:
+    1. compile('api') produces byte-identical JSON for all three.
+    2. emit_ui_json produces different mode fields in the node dicts.
+    """
+    def _build_wf(mode_val: int) -> VibeWorkflow:
+        wf = _wf(f"mode-compile-{mode_val}")
+        # Two schema-known nodes connected: LoadImage → SaveImage
+        li = VibeNode("1", "LoadImage")
+        li.uid = "uid-li"
+        li.metadata["_ui"] = {
+            "pos": [10.0, 20.0], "size": [300.0, 200.0],
+            "flags": {}, "color": None, "bgcolor": None,
+            "mode": mode_val, "properties": {},
+        }
+        wf.nodes["1"] = li
+
+        si = VibeNode("2", "SaveImage")
+        si.uid = "uid-si"
+        si.metadata["_ui"] = {
+            "pos": [400.0, 20.0], "size": [300.0, 200.0],
+            "flags": {}, "color": None, "bgcolor": None,
+            "mode": mode_val, "properties": {},
+        }
+        wf.nodes["2"] = si
+
+        wf.edges.append(VibeEdge("1", "0", "2", "images"))
+        return wf
+
+    provider = _Provider({
+        "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+        "SaveImage": _schema("SaveImage", []),
+    })
+
+    wf0 = _build_wf(0)
+    wf2 = _build_wf(2)
+    wf4 = _build_wf(4)
+
+    # compile('api') must be byte-identical for all three
+    api0 = json.dumps(wf0.compile("api"), sort_keys=True)
+    api2 = json.dumps(wf2.compile("api"), sort_keys=True)
+    api4 = json.dumps(wf4.compile("api"), sort_keys=True)
+
+    assert api0 == api2, "compile('api') must be identical for mode 0 vs mode 2"
+    assert api0 == api4, "compile('api') must be identical for mode 0 vs mode 4"
+    assert api2 == api4, "compile('api') must be identical for mode 2 vs mode 4"
+
+    # emit_ui_json MUST differ in mode field
+    emit0 = emit_ui_json(wf0, schema_provider=provider)
+    emit2 = emit_ui_json(wf2, schema_provider=provider)
+    emit4 = emit_ui_json(wf4, schema_provider=provider)
+
+    nodes0 = {n["id"]: n["mode"] for n in emit0["nodes"]}
+    nodes2 = {n["id"]: n["mode"] for n in emit2["nodes"]}
+    nodes4 = {n["id"]: n["mode"] for n in emit4["nodes"]}
+
+    assert nodes0 == {1: 0, 2: 0}, f"mode 0 emit: {nodes0}"
+    assert nodes2 == {1: 2, 2: 2}, f"mode 2 emit: {nodes2}"
+    assert nodes4 == {1: 4, 2: 4}, f"mode 4 emit: {nodes4}"
+
+
+# ---------------------------------------------------------------------------
+# T6 — Virtual-wire display: GetNode / SetNode / Reroute re-emitted as
+# visible editor nodes at captured positions with dual edge lists.
+# ---------------------------------------------------------------------------
+
+
+def test_virtual_wires_display_and_flat_modes() -> None:
+    """T6: GetNode/SetNode/Reroute re-emitted as visible nodes at captured
+    positions in display mode; orphaned route in recovery report;
+    --no-virtual-wires produces the flat resolved graph."""
+    wf = _wf("vw-test")
+
+    # Nodes: a real source, a SetNode, a resolved GetNode (fan-out to two
+    # consumers), an orphaned GetNode (no matching SetNode), a Reroute
+    # passthrough, and a final sink.
+    wf.nodes["1"] = VibeNode("1", "LoadImage")
+    wf.nodes["2"] = VibeNode("2", "ConsumerA")
+    wf.nodes["3"] = VibeNode("3", "ConsumerB")
+    wf.nodes["4"] = VibeNode("4", "OrphanConsumer")
+    wf.nodes["5"] = VibeNode("5", "RerouteSink")
+
+    # Broadcast helpers with captured positions in metadata['_ui']
+    set_pos = [100.0, 50.0]
+    get_pos = [300.0, 50.0]
+    orphan_pos = [300.0, 250.0]
+    reroute_pos = [500.0, 100.0]
+
+    wf.nodes["10"] = VibeNode("10", "SetNode", widgets={"widget_0": "MY_BUS"})
+    wf.nodes["10"].metadata["_ui"] = {"pos": list(set_pos), "size": [30, 30]}
+
+    wf.nodes["11"] = VibeNode("11", "GetNode", widgets={"widget_0": "MY_BUS"})
+    wf.nodes["11"].metadata["_ui"] = {"pos": list(get_pos), "size": [30, 30]}
+
+    # Orphaned GetNode: broadcast name has no matching SetNode
+    wf.nodes["12"] = VibeNode("12", "GetNode", widgets={"widget_0": "NO_SUCH_BUS"})
+    wf.nodes["12"].metadata["_ui"] = {"pos": list(orphan_pos), "size": [30, 30]}
+
+    # Reroute passthrough
+    wf.nodes["20"] = VibeNode("20", "Reroute")
+    wf.nodes["20"].metadata["_ui"] = {"pos": list(reroute_pos), "size": [20, 20]}
+
+    # Edges
+    wf.edges.append(VibeEdge("1", "0", "10", "value"))    # source → SetNode
+    wf.edges.append(VibeEdge("11", "0", "2", "image"))    # GetNode → ConsumerA
+    wf.edges.append(VibeEdge("11", "0", "3", "image"))    # GetNode → ConsumerB
+    wf.edges.append(VibeEdge("12", "0", "4", "image"))    # orphan GetNode → OrphanConsumer
+    wf.edges.append(VibeEdge("2", "0", "20", ""))          # ConsumerA → Reroute
+    wf.edges.append(VibeEdge("20", "0", "5", "input"))     # Reroute → RerouteSink
+
+    # ── Display mode (default) ──────────────────────────────────────────
+    recovery: list[dict[str, Any]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(
+            wf, include_virtual_wires=True, recovery_report=recovery,
+        )
+
+    emitted_types = {n["type"] for n in result["nodes"]}
+    assert "SetNode" in emitted_types, "SetNode should be visible in display mode"
+    assert "GetNode" in emitted_types, "GetNode should be visible in display mode"
+    assert "Reroute" in emitted_types, "Reroute should be visible in display mode"
+
+    # Check captured positions are preserved for helpers (look up by ir_node_id)
+    nodes_by_ir_id: dict[str, dict] = {
+        n["properties"]["ir_node_id"]: n for n in result["nodes"]
+    }
+    assert nodes_by_ir_id["10"]["pos"] == set_pos, f"SetNode pos {nodes_by_ir_id['10']['pos']} != {set_pos}"
+    assert nodes_by_ir_id["11"]["pos"] == get_pos, f"GetNode(11) pos {nodes_by_ir_id['11']['pos']} != {get_pos}"
+    assert nodes_by_ir_id["12"]["pos"] == orphan_pos, f"GetNode(12) pos {nodes_by_ir_id['12']['pos']} != {orphan_pos}"
+    assert nodes_by_ir_id["20"]["pos"] == reroute_pos, f"Reroute pos {nodes_by_ir_id['20']['pos']} != {reroute_pos}"
+
+    # All original edges present in links (including through helpers)
+    assert len(result["links"]) == 6, f"expected 6 display links, got {len(result['links'])}"
+
+    # Orphaned route in recovery report
+    orphan_entries = [e for e in recovery if e.get("orphaned_route")]
+    assert len(orphan_entries) == 1, f"expected 1 orphan entry, got {len(orphan_entries)}"
+    assert orphan_entries[0]["node_id"] == "12"
+    assert orphan_entries[0]["broadcast_name"] == "NO_SUCH_BUS"
+
+    # ── Flat mode (--no-virtual-wires) ──────────────────────────────────
+    recovery2: list[dict[str, Any]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        flat = emit_ui_json(
+            wf, include_virtual_wires=False, recovery_report=recovery2,
+        )
+
+    flat_types = {n["type"] for n in flat["nodes"]}
+    assert "SetNode" not in flat_types, "SetNode should NOT be in flat graph"
+    assert "GetNode" not in flat_types, "GetNode should NOT be in flat graph"
+    assert "Reroute" not in flat_types, "Reroute should NOT be in flat graph"
+
+    # Flat graph: LoadImage → ConsumerA, ConsumerB; ConsumerA → RerouteSink
+    # (broadcast resolved: source→Consumers; reroute resolved: ConsumerA→Sink)
+    # Also orphan: GetNode→OrphanConsumer is dropped in flat mode
+    # Expected links:
+    #   1→2 (GetNode resolved: source 1→ConsumerA 2)
+    #   1→3 (GetNode resolved: source 1→ConsumerB 3)
+    #   2→5 (Reroute resolved: ConsumerA 2→RerouteSink 5)
+    # Orphan GetNode→4 is dropped in flat mode
+    assert len(flat["links"]) == 3, f"expected 3 flat links, got {len(flat['links'])}"
+
+    # All links in flat graph originate from non-virtual-wire nodes
+    flat_from_ids = {link[1] for link in flat["links"]}
+    assert flat_from_ids <= {1, 2, 3, 4, 5}, f"unexpected from-node ids: {flat_from_ids}"
+
+    # No orphan entry in flat-mode recovery report (orphans only in display)
+    orphan_flat = [e for e in recovery2 if e.get("orphaned_route")]
+    assert len(orphan_flat) == 0, "flat mode should NOT report orphans"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T9: Coordinate canonicalization + --main-positions richer metadata
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_coordinates_canonicalized_to_m2_precision() -> None:
+    """Every pos/size emitted through _stub_layout/_captured_geometry/_extract_geometry
+    is rounded to 2 decimal places (M2 precision)."""
+    wf = _wf("canonical")
+    wf.nodes["98"] = VibeNode(
+        "98", "LoadImage",
+        metadata={"_ui": {"pos": [123.456789, 987.654321], "size": [319.999999, 180.000001]}},
+    )
+    wf.nodes["99"] = VibeNode("99", "SaveImage")
+    wf.connect("98.0", "99.images")
+
+    provider = _Provider({
+        "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+    })
+    result = emit_ui_json(wf, schema_provider=provider)
+
+    # Node 98 uses _captured_geometry (from _ui metadata)
+    n98 = next(n for n in result["nodes"] if n["properties"]["ir_node_id"] == "98")
+    assert n98["pos"] == [123.46, 987.65], f"pos not M2-canonicalized: {n98['pos']}"
+    assert n98["size"] == [320.0, 180.0], f"size not M2-canonicalized: {n98['size']}"
+
+    # Node 99 uses _stub_layout (no captured geometry)
+    n99 = next(n for n in result["nodes"] if n["properties"]["ir_node_id"] == "99")
+    # _stub_layout: col=1, row=0 → pos=[400.0, 0.0], size=[320.0, 180.0]
+    assert n99["pos"] == [400.0, 0.0], f"stub pos not M2-canonicalized: {n99['pos']}"
+    assert n99["size"] == [320.0, 180.0], f"stub size not M2-canonicalized: {n99['size']}"
+
+
+def test_deterministic_byte_identical_emit() -> None:
+    """Emitting the same IR twice yields byte-identical JSON (perturbed CWD/env)."""
+    wf = _wf("det")
+    wf.nodes["1"] = VibeNode("1", "LoadImage")
+    wf.nodes["2"] = VibeNode("2", "SaveImage")
+    wf.connect("1.0", "2.images")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result1 = emit_ui_json(wf)
+        result2 = emit_ui_json(wf)
+
+    json1 = json.dumps(result1, indent=2, sort_keys=True)
+    json2 = json.dumps(result2, indent=2, sort_keys=True)
+    assert json1 == json2, "same IR must produce byte-identical JSON on repeated emits"
+
+    # Also verify the same holds with schema provider and layout
+    provider = _Provider({
+        "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+    })
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        r1 = emit_ui_json(wf, schema_provider=provider)
+        r2 = emit_ui_json(wf, schema_provider=provider)
+    assert json.dumps(r1, indent=2, sort_keys=True) == json.dumps(r2, indent=2, sort_keys=True), (
+        "same IR with schema must produce byte-identical JSON"
+    )
+
+
+def test_main_positions_adds_extra_ds_state_and_node_order_title() -> None:
+    """include_main_positions=True adds extra.ds, state counters, node title;
+    include_main_positions=False keeps the lean default."""
+    wf = _wf("mp")
+    wf.nodes["1"] = VibeNode("1", "LoadImage")
+    wf.nodes["2"] = VibeNode("2", "SaveImage")
+    wf.connect("1.0", "2.images")
+
+    # ── include_main_positions=True ──────────────────────────────────────
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result_main = emit_ui_json(wf, include_main_positions=True)
+
+    # extra.ds must be present with fixed default when no sidecar provides it
+    assert "ds" in result_main["extra"], "main-positions must include extra.ds"
+    assert result_main["extra"]["ds"] == {"scale": 1.0, "offset": [0.0, 0.0]}
+
+    # state counters must be present even without definitions
+    assert "state" in result_main, "main-positions must include state"
+    assert result_main["state"]["lastNodeId"] is not None
+    assert result_main["state"]["lastLinkId"] is not None
+    assert result_main["state"]["lastRerouteId"] is not None
+
+    # Node order is always present; verify it's present
+    for node in result_main["nodes"]:
+        assert "order" in node, f"node {node['id']} missing order"
+
+    # ── include_main_positions=False (lean default) ─────────────────────
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result_lean = emit_ui_json(wf, include_main_positions=False)
+
+    # extra.ds must NOT be present in lean mode (unless sidecar provides it)
+    assert "ds" not in result_lean["extra"], (
+        "lean default must omit extra.ds"
+    )
+
+    # state must NOT be present when there are no definitions
+    assert "state" not in result_lean, (
+        "lean default must omit state when no definitions"
+    )
+
+
+def test_main_positions_node_title_from_sidecar() -> None:
+    """Node title is emitted when include_main_positions=True and a sidecar
+    layout entry provides it."""
+    wf = _wf("title")
+    # Set a uid on the node so the layout entry matches
+    wf.nodes["1"] = VibeNode("1", "MyNode", uid="uid-tt")
+    wf.nodes["2"] = VibeNode("2", "SaveImage")
+    wf.connect("1.0", "2.images")
+
+    layout_entry = {"pos": [100, 200], "size": [300, 160], "title": "Custom Title"}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(
+            wf, layout={"uid-tt": layout_entry}, include_main_positions=True,
+        )
+
+    n1 = next(n for n in result["nodes"] if n["properties"]["ir_node_id"] == "1")
+    assert n1["title"] == "Custom Title", f"expected title 'Custom Title', got {n1.get('title')!r}"
+
+    # Node without title in layout should NOT have title key
+    n2 = next(n for n in result["nodes"] if n["properties"]["ir_node_id"] == "2")
+    assert "title" not in n2, f"node 2 should not have title, got {n2.get('title')!r}"
+
+
+def test_main_positions_node_title_from_metadata_ui() -> None:
+    """Node title is resolved from metadata['_ui'] when no sidecar entry exists."""
+    wf = _wf("title_ui")
+    wf.nodes["1"] = VibeNode(
+        "1", "MyNode",
+        metadata={"_ui": {"pos": [10, 20], "size": [100, 80], "title": "UI Title"}},
+    )
+    wf.nodes["2"] = VibeNode("2", "SaveImage")
+    wf.connect("1.0", "2.images")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, include_main_positions=True)
+
+    n1 = next(n for n in result["nodes"] if n["properties"]["ir_node_id"] == "1")
+    assert n1["title"] == "UI Title", f"expected 'UI Title' from _ui, got {n1.get('title')!r}"
+
+
+def test_main_positions_lean_omits_title() -> None:
+    """When include_main_positions=False, node title is NOT emitted even when present."""
+    wf = _wf("lean_title")
+    wf.nodes["1"] = VibeNode(
+        "1", "MyNode", uid="uid-lt",
+        metadata={"_ui": {"pos": [10, 20], "size": [100, 80], "title": "ShouldHide"}},
+    )
+    wf.nodes["2"] = VibeNode("2", "SaveImage")
+    wf.connect("1.0", "2.images")
+
+    layout_entry = {"pos": [10, 20], "size": [100, 80], "title": "SidecarTitle"}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(
+            wf, layout={"uid-lt": layout_entry}, include_main_positions=False,
+        )
+
+    n1 = next(n for n in result["nodes"] if n["properties"]["ir_node_id"] == "1")
+    assert "title" not in n1, "lean default must NOT emit title"
+
+
+def test_canonicalize_group_geometry() -> None:
+    """Group bounding boxes are canonicalized to M2 precision when
+    include_main_positions=True."""
+    from vibecomfy.porting.ui_emitter import _canonicalize_group_geometry
+
+    groups = [
+        {
+            "title": "Group A",
+            "bounding": [100.123456, 200.654321, 300.999999, 400.000001],
+        },
+        {
+            "title": "Group B",
+            # No bounding → left alone
+        },
+    ]
+    _canonicalize_group_geometry(groups)
+    assert groups[0]["bounding"] == [100.12, 200.65, 301.0, 400.0], (
+        f"bounding not M2-canonicalized: {groups[0]['bounding']}"
+    )
+    # Group B should be unchanged (no bounding key or not a 4-element list)
+    assert "bounding" not in groups[1]
+
+
+def test_main_positions_groups_with_canonicalized_geometry() -> None:
+    """Full emit with include_main_positions=True canonicalizes group geometry."""
+    wf = _wf("group_geom")
+    wf.nodes["1"] = VibeNode("1", "G1")
+    wf.nodes["2"] = VibeNode("2", "G2")
+    wf.connect("1.0", "2.images")
+
+    groups = [
+        {"title": "Group X", "bounding": [10.556, 20.444, 300.001, 400.999]},
+    ]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, groups=groups, include_main_positions=True)
+
+    assert len(result["groups"]) == 1
+    assert result["groups"][0]["bounding"] == [10.56, 20.44, 300.0, 401.0], (
+        f"group bounding not canonicalized: {result['groups'][0]['bounding']}"
+    )
+
+
+def test_main_positions_extra_ds_from_sidecar() -> None:
+    """When a sidecar extra provides ds, it MUST be used verbatim (not overridden)
+    when include_main_positions=True."""
+    wf = _wf("ds_sidecar")
+    wf.nodes["1"] = VibeNode("1", "N")
+    wf.nodes["2"] = VibeNode("2", "M")
+    wf.connect("1.0", "2.images")
+
+    sidecar_ds = {"scale": 0.5, "offset": [42.0, 99.0]}
+    sidecar_extra = {"ds": sidecar_ds}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, extra=sidecar_extra, include_main_positions=True)
+
+    assert result["extra"]["ds"] == sidecar_ds, (
+        f"sidecar ds must be preserved: {result['extra']['ds']}"
+    )

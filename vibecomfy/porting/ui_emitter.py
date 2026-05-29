@@ -78,6 +78,7 @@ from vibecomfy._workflow_helpers import (
     collect_broadcast_sources,
     is_broadcast_helper_class_type,
 )
+from vibecomfy.porting.uid import mint_local_uid
 from vibecomfy.porting.widget_aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.workflow import VibeEdge
 
@@ -105,9 +106,47 @@ _STUB_ROW_HEIGHT = 200
 _STUB_COLUMNS = 4
 _STUB_NODE_SIZE = [320, 180]
 
+# M2 canonicalization precision (2 decimal places) for all emitted coordinates.
+# Every pos/size/group-bounding value is rounded through this precision so two
+# machines emit byte-identical JSON regardless of CWD, env, or float quirks.
+_M2_PRECISION = 2
+
+# Fixed default canvas drag/scale state for ``extra.ds`` when
+# ``include_main_positions=True`` and no sidecar ``extra`` provides overrides.
+_DEFAULT_DS = {"scale": 1.0, "offset": [0.0, 0.0]}
+
 # Confidence threshold at or below which a node is considered low-confidence.
 # widget_schema_fallback tier uses confidence=0.3; strict=True rejects it.
 _LOW_CONFIDENCE_THRESHOLD = 0.3
+
+
+def _canonicalize_coord(value: float) -> float:
+    """Round a coordinate value to M2 precision (2 decimal places).
+
+    Every pos/size/group-bounding value emitted by this module passes through this
+    helper so two machines produce byte-identical JSON regardless of CWD, env,
+    or minor float-representation differences.
+    """
+    return round(value, _M2_PRECISION)
+
+
+def _canonicalize_group_geometry(groups: list[dict[str, Any]]) -> None:
+    """Canonicalize ``bounding`` arrays in-place for every group in ``groups``.
+
+    Each group's ``bounding`` is ``[x, y, width, height]`` — all four values are
+    rounded to M2 precision.  Groups without a valid ``bounding`` are left alone.
+    This guarantees byte-identical group geometry across machines when
+    ``include_main_positions=True``.
+    """
+    for g in groups:
+        bbox = g.get("bounding")
+        if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+            g["bounding"] = [
+                _canonicalize_coord(float(bbox[0])),
+                _canonicalize_coord(float(bbox[1])),
+                _canonicalize_coord(float(bbox[2])),
+                _canonicalize_coord(float(bbox[3])),
+            ]
 
 
 def _stub_layout(order: int) -> dict[str, list[float]]:
@@ -120,8 +159,97 @@ def _stub_layout(order: int) -> dict[str, list[float]]:
     col = order % _STUB_COLUMNS
     row = order // _STUB_COLUMNS
     return {
-        "pos": [float(col * _STUB_COLUMN_WIDTH), float(row * _STUB_ROW_HEIGHT)],
-        "size": list(_STUB_NODE_SIZE),
+        "pos": [
+            _canonicalize_coord(float(col * _STUB_COLUMN_WIDTH)),
+            _canonicalize_coord(float(row * _STUB_ROW_HEIGHT)),
+        ],
+        "size": [_canonicalize_coord(s) for s in _STUB_NODE_SIZE],
+    }
+
+
+def _extract_geometry(layout_entry: dict | None) -> dict[str, list[float]] | None:
+    """Extract {pos, size} from a layout-store entry, or None.
+
+    This isolates the pos/size geometry chain from the furniture resolver so the
+    two paths never accidentally couple.  A layout entry that is ``None`` or
+    lacks a valid ``pos`` returns ``None``, letting the caller fall through to
+    ``_captured_geometry`` or ``_stub_layout``.
+    """
+    if not isinstance(layout_entry, dict):
+        return None
+    pos = layout_entry.get("pos")
+    size = layout_entry.get("size")
+    if not isinstance(pos, (list, tuple)) or len(pos) < 2:
+        return None
+    if not isinstance(size, (list, tuple)) or len(size) < 2:
+        return None
+    return {
+        "pos": [_canonicalize_coord(float(pos[0])), _canonicalize_coord(float(pos[1]))],
+        "size": [_canonicalize_coord(float(size[0])), _canonicalize_coord(float(size[1]))],
+    }
+
+
+def _resolve_furniture(
+    node: Any,
+    layout_entry: dict | None,
+) -> dict[str, Any]:
+    """Resolve furniture (flags, color, bgcolor, mode, properties, title) from sidecar or metadata.
+
+    This is a SEPARATE path from the pos/size geometry chain
+    (:func:`_captured_geometry`).  Precedence:
+
+    1. Sidecar entry (``layout_entry``) — the authoritative source when a
+       ``.layout.json`` sidecar exists.
+    2. ``node.metadata['_ui']`` — the raw litegraph node dict captured during
+       ingest (the direct-ingest / comfy-gate fallback).
+    3. Fixed defaults (``flags={}``, ``mode=0``, ``color=None``, ``bgcolor=None``,
+       ``properties={}``, ``title=None``).
+
+    Returns a dict with keys ``flags``, ``color``, ``bgcolor``, ``mode``,
+    ``properties``, ``title``.
+    """
+    # Source 1: sidecar entry (authoritative)
+    if layout_entry:
+        flags = layout_entry.get("flags")
+        color = layout_entry.get("color")
+        bgcolor = layout_entry.get("bgcolor")
+        mode = layout_entry.get("mode")
+        properties = layout_entry.get("properties")
+        title = layout_entry.get("title")
+    else:
+        # Source 2: node.metadata['_ui'] (direct-ingest fallback)
+        _ui = getattr(node, "metadata", {}).get("_ui")
+        if isinstance(_ui, dict):
+            flags = _ui.get("flags")
+            color = _ui.get("color")
+            bgcolor = _ui.get("bgcolor")
+            mode = _ui.get("mode")
+            properties = _ui.get("properties")
+            title = _ui.get("title")
+        else:
+            flags = None
+            color = None
+            bgcolor = None
+            mode = None
+            properties = None
+            title = None
+
+    # Source 3: fixed defaults
+    if not isinstance(flags, dict):
+        flags = {}
+    if mode is None or not isinstance(mode, int):
+        mode = 0
+    if not isinstance(properties, dict):
+        properties = {}
+    # title stays None for absent/default — the caller decides whether to emit it
+
+    return {
+        "flags": flags,
+        "color": color,
+        "bgcolor": bgcolor,
+        "mode": mode,
+        "properties": properties,
+        "title": title,
     }
 
 
@@ -141,7 +269,10 @@ def _captured_geometry(node: Any) -> dict[str, list[float]] | None:
         return None
     if not isinstance(size, (list, tuple)) or len(size) < 2:
         return None
-    return {"pos": [float(pos[0]), float(pos[1])], "size": [float(size[0]), float(size[1])]}
+    return {
+        "pos": [_canonicalize_coord(float(pos[0])), _canonicalize_coord(float(pos[1]))],
+        "size": [_canonicalize_coord(float(size[0])), _canonicalize_coord(float(size[1]))],
+    }
 
 
 def _envelope_id(wf: Any) -> str:
@@ -267,7 +398,15 @@ def _build_id_remap(order_list: list[str]) -> dict[str, int]:
     return remap
 
 
-def _resolve_broadcast_edges(wf: Any) -> tuple[list[Any], set[str]]:
+# ── Virtual-wire classification ────────────────────────────────────────────
+# Get/Set broadcast wires + Reroute passthrough are the virtual-wire nodes
+# whose stable channel name (not the edge) is the routing key.
+_VIRTUAL_WIRE_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
+
+
+def _resolve_broadcast_edges(
+    wf: Any,
+) -> tuple[list[Any], set[str], set[str]]:
     """Resolve SetNode/GetNode broadcast indirection into direct edges.
 
     Reuses :func:`collect_broadcast_sources` (porting/helpers.py) — the broadcast
@@ -278,9 +417,11 @@ def _resolve_broadcast_edges(wf: Any) -> tuple[list[Any], set[str]]:
     consumers becomes N direct links.  Edges feeding a helper are dropped; an unresolved
     ``GetNode`` reference drops its dangling edges.
 
-    Returns ``(effective_edges, helper_node_ids)``.  When the IR carries no helper nodes
-    (the common case) the original edge list is returned unchanged, so emission stays
-    byte-identical.
+    Returns ``(effective_edges, broadcast_helper_ids, orphaned_get_ids)`` where
+    *orphaned_get_ids* are GetNode IDs whose broadcast name could not be resolved
+    to a SetNode source (used for the recovery report in display mode).  When the
+    IR carries no broadcast helpers (the common case) the original edge list is
+    returned unchanged, so emission stays byte-identical.
     """
     helper_ids = {
         node_id
@@ -288,10 +429,11 @@ def _resolve_broadcast_edges(wf: Any) -> tuple[list[Any], set[str]]:
         if is_broadcast_helper_class_type(node.class_type)
     }
     if not helper_ids:
-        return list(wf.edges), helper_ids
+        return list(wf.edges), helper_ids, set()
 
     sources = collect_broadcast_sources(wf.nodes, wf.edges)
     get_source: dict[str, tuple[str, str]] = {}
+    orphaned: set[str] = set()
     for node_id in helper_ids:
         node = wf.nodes[node_id]
         if node.class_type != "GetNode":
@@ -300,6 +442,8 @@ def _resolve_broadcast_edges(wf: Any) -> tuple[list[Any], set[str]]:
         src = sources.get(name) if name else None
         if src is not None:
             get_source[node_id] = (str(src[0]), str(src[1]))
+        else:
+            orphaned.add(node_id)
 
     effective: list[Any] = []
     for edge in wf.edges:
@@ -312,7 +456,58 @@ def _resolve_broadcast_edges(wf: Any) -> tuple[list[Any], set[str]]:
             effective.append(VibeEdge(redirect[0], redirect[1], edge.to_node, edge.to_input))
         else:
             effective.append(edge)
-    return effective, helper_ids
+    return effective, helper_ids, orphaned
+
+
+def _resolve_reroute_edges(
+    edges: list[Any],
+    nodes: dict[str, Any],
+) -> list[Any]:
+    """Passthrough Reroute nodes: A→Reroute→B becomes A→B (transitive chains).
+
+    Returns a new edge list where every edge that originates from a Reroute is
+    rewritten to originate from the terminal non-Reroute source, and edges into
+    Reroutes are dropped.  When no Reroute nodes exist the list is returned
+    unchanged.
+    """
+    reroute_ids = {nid for nid, n in nodes.items() if n.class_type == "Reroute"}
+    if not reroute_ids:
+        return list(edges)
+
+    # Build inbound map: reroute_id → [(from_node, from_output), ...]
+    inbound: dict[str, list[tuple[str, str]]] = {}
+    for edge in edges:
+        if edge.to_node in reroute_ids:
+            inbound.setdefault(edge.to_node, []).append(
+                (edge.from_node, edge.from_output)
+            )
+
+    # Recursive terminal-source lookup (follows Reroute chains transitively)
+    def _terminal(nid: str, visited: frozenset[str]) -> tuple[str, str] | None:
+        if nid in visited:
+            return None
+        ins = inbound.get(nid, [])
+        if not ins:
+            return None
+        src_id, src_out = ins[0]
+        if src_id in reroute_ids:
+            return _terminal(src_id, visited | {nid})
+        return (src_id, src_out)
+
+    result: list[Any] = []
+    for edge in edges:
+        if edge.from_node in reroute_ids:
+            terminal = _terminal(edge.from_node, frozenset())
+            if terminal is None:
+                continue  # orphaned Reroute — drop
+            result.append(
+                VibeEdge(terminal[0], terminal[1], edge.to_node, edge.to_input)
+            )
+        elif edge.to_node in reroute_ids:
+            continue  # edge into a Reroute — dropped
+        else:
+            result.append(edge)
+    return result
 
 
 def _array_link_to_object(link: list[Any]) -> dict[str, Any]:
@@ -333,9 +528,13 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
     Subgraph links use the litegraph OBJECT shape (``id``/``origin_id``/``origin_slot``/
     ``target_id``/``target_slot``/``type``) rather than the 6-element arrays used at the
     top level; array-style links present in metadata are converted.  Each subgraph's
-    ``state.lastRerouteId`` is ensured (default ``0``).  Returns ``None`` when the IR
-    carries no definitions (the common post-ingest case), so the envelope omits both
-    ``definitions`` and the top-level ``state`` and stays byte-identical.
+    ``state.lastRerouteId`` is ensured (default ``0``).
+
+    Step 6 (T8): Every inner subgraph node has ``properties['vibecomfy_uid']`` stamped
+    via ``mint_local_uid`` (pre-existing uid wins, otherwise the inner integer id).
+    Returns ``None`` when the IR carries no definitions (the common post-ingest case),
+    so the envelope omits both ``definitions`` and the top-level ``state`` and stays
+    byte-identical.
     """
     metadata = getattr(wf, "metadata", None)
     defs = metadata.get("definitions") if isinstance(metadata, dict) else None
@@ -354,6 +553,20 @@ def _emit_definitions(wf: Any) -> dict[str, Any] | None:
         state = dict(sg.get("state") or {})
         state.setdefault("lastRerouteId", 0)
         sg["state"] = state
+        # ── T8: stamp vibecomfy_uid on every inner subgraph node ──
+        inner_nodes = sg.get("nodes")
+        if isinstance(inner_nodes, list):
+            for inner_node in inner_nodes:
+                if isinstance(inner_node, dict):
+                    props = inner_node.get("properties")
+                    if not isinstance(props, dict):
+                        props = {}
+                        inner_node["properties"] = props
+                    if "vibecomfy_uid" not in props:
+                        local_uid = mint_local_uid(
+                            inner_node, str(inner_node.get("id", ""))
+                        )
+                        props["vibecomfy_uid"] = local_uid
         out_subgraphs.append(sg)
     return {"subgraphs": out_subgraphs}
 
@@ -422,15 +635,131 @@ def _compacted_widget_names(class_type: str, schema: Any) -> list[str]:
     return [name for name in widget_names_from_schema(class_type, schema) if name is not None]
 
 
-def _full_widget_name_count(class_type: str, schema: Any) -> int | None:
+def _raw_widget_order_from_provider(
+    class_type: str,
+    schema_provider: Any | None,
+) -> list[str | None] | None:
+    """Return the raw ``object_info_widget_order`` including ``None`` entries.
+
+    Probes the provider for a ``raw_widget_order`` method (added to
+    ``ObjectInfoIndexSchemaProvider``) or, when the provider is a
+    ``ConversionSchemaProvider``, reaches into its ``_object_info_index``
+    delegate.  Returns ``None`` when no raw order is available.
+    """
+    if schema_provider is None:
+        return None
+    # Direct method (e.g. ObjectInfoIndexSchemaProvider.raw_widget_order)
+    raw_method = getattr(schema_provider, "raw_widget_order", None)
+    if callable(raw_method):
+        try:
+            result = raw_method(class_type)
+            if isinstance(result, list):
+                return result
+        except Exception:
+            pass
+    # ConversionSchemaProvider delegates to _object_info_index
+    obj_idx = getattr(schema_provider, "_object_info_index", None)
+    if obj_idx is not None:
+        raw_method = getattr(obj_idx, "raw_widget_order", None)
+        if callable(raw_method):
+            try:
+                result = raw_method(class_type)
+                if isinstance(result, list):
+                    return result
+            except Exception:
+                pass
+    return None
+
+
+# Schema inputs whose type suggests a seed-bearing INT field that ComfyUI
+# pairs with a ``control_after_generate`` widget slot.
+_SEED_INPUT_NAMES: frozenset[str] = frozenset({"seed", "noise_seed"})
+
+# Input-name suffixes that signal an upload widget slot.
+_UPLOAD_SUFFIXES: tuple[str, ...] = ("_upload",)
+
+
+def _extra_widgets_after(
+    class_type: str,
+    schema: Any | None,
+    schema_provider: Any | None = None,
+) -> list[str | None]:
+    """Offline heuristic: extra widget slots beyond the schema/widget table.
+
+    Only fires when the *snapshot* lacks the class (raw_widget_order is None
+    or empty).  Heuristics:
+
+    - ``control_after_generate`` (``None``-named UI-only slot) appended when
+      any input is an INT ``seed`` or ``noise_seed``.
+    - An upload slot (``None``-named) appended when any input name ends with
+      ``_upload`` and its type is ``IMAGE``, ``VIDEO``, or ``AUDIO``.
+
+    These are marked as informational ``guess`` entries in the recovery report
+    and do NOT trigger ``--strict`` failures.
+    """
+    raw = _raw_widget_order_from_provider(class_type, schema_provider)
+    if raw is not None and len(raw) > 0:
+        # Snapshot HAS the class — raw order is authoritative, no guessing.
+        return []
+
+    # Snapshot lacks the class — apply heuristics (informational only).
+    hints: list[str | None] = []
+
+    # control_after_generate for INT seed/noise_seed fields
+    has_seed = False
+    if schema is not None:
+        inputs = getattr(schema, "inputs", None)
+        if isinstance(inputs, dict):
+            for name, spec in inputs.items():
+                input_type = str(getattr(spec, "type", "") or "").upper()
+                if name in _SEED_INPUT_NAMES and input_type == "INT":
+                    has_seed = True
+                    break
+    if has_seed:
+        hints.append(None)  # control_after_generate is a None-named slot
+
+    # Upload slot for image/video/audio+_upload input names
+    upload_types = frozenset({"IMAGE", "VIDEO", "AUDIO"})
+    if schema is not None:
+        inputs = getattr(schema, "inputs", None)
+        if isinstance(inputs, dict):
+            for name, spec in inputs.items():
+                input_type = str(getattr(spec, "type", "") or "").upper()
+                if name.endswith(_UPLOAD_SUFFIXES) and input_type in upload_types:
+                    hints.append(None)  # upload is a None-named slot
+                    break
+
+    return hints
+
+
+def _full_widget_name_count(
+    class_type: str,
+    schema: Any,
+    *,
+    schema_provider: Any | None = None,
+) -> int | None:
     """Schema widget-slot count (including ``None`` UI-only slots), or ``None``.
 
-    ``None`` means the class is schema-less for widget purposes (no committed
-    table and no provider widget names) so the length assertion is skipped.
+    Precedence:
+    1. Raw ``object_info_widget_order`` from the provider (nulls included)
+       — the authoritative slot count when the snapshot has the class.
+    2. Committed ``WIDGET_SCHEMA`` table.
+    3. Provider schema (null-free by construction).
+
+    ``None`` means the class is schema-less for widget purposes so the
+    length assertion is skipped.
     """
+    # 1. Raw object_info_widget_order (authoritative, nulls included)
+    raw = _raw_widget_order_from_provider(class_type, schema_provider)
+    if raw is not None and len(raw) > 0:
+        return len(raw)
+
+    # 2. Committed table
     committed = widget_names_for_class(class_type)
     if committed is not None:
         return len(committed)
+
+    # 3. Provider schema (null-free)
     names = widget_names_from_schema(class_type, schema)
     return len(names) if names else None
 
@@ -482,6 +811,11 @@ def emit_ui_json(
     recovery_report: list[dict[str, Any]] | None = None,
     source_template: str | None = None,
     prior_path: str | None = None,
+    include_main_positions: bool = False,
+    include_virtual_wires: bool = True,
+    groups: list[dict[str, Any]] | None = None,
+    extra: dict[str, Any] | None = None,
+    definitions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render ``wf`` (a ``VibeWorkflow``) to a litegraph JSON envelope.
 
@@ -499,6 +833,16 @@ def emit_ui_json(
             ``provider``, ``confidence``, ``schema_less``.  This is the
             **authoritative** record of which schema tier supplied each node's
             output/input resolution.
+        groups: Optional graph-level groups list.  When provided (e.g. from a
+            ``.layout.json`` sidecar), emitted directly as the top-level
+            ``groups`` array; otherwise ``[]``.
+        extra: Optional ``extra`` dict (canvas drag/scale state under ``extra.ds``).
+            When provided, merged with the ``vibecomfy`` breadcrumb; otherwise
+            only the breadcrumb is emitted.
+        definitions: Optional subgraph definitions blob.  When provided from a
+            sidecar envelope, used directly instead of re-emitting from IR
+            metadata via ``_emit_definitions``.  The caller is responsible for
+            passing definitions as they appear in the sidecar's envelope.
 
     Returns:
         A litegraph envelope dict: ``version``, deterministic ``id``,
@@ -510,11 +854,33 @@ def emit_ui_json(
     """
     layout = layout or {}
 
-    # Resolve SetNode/GetNode broadcast indirection into direct edges and identify the
-    # helper nodes to omit from emission (no-op when the IR carries no helpers).
-    effective_edges, helper_ids = _resolve_broadcast_edges(wf)
+    # ── Resolve broadcast helpers (SetNode / GetNode) into direct edges ────
+    # effective_edges: direct links for the EXECUTION (flat) graph
+    # broadcast_ids: SetNode/GetNode node ids to drop from flat graph
+    # orphaned_get_ids: GetNode ids whose broadcast name has no SetNode source
+    effective_edges, broadcast_ids, orphaned_get_ids = _resolve_broadcast_edges(wf)
 
-    order_list = [nid for nid in _emission_order(wf) if nid not in helper_ids]
+    # Collect the full set of virtual-wire node ids (broadcast + Reroute)
+    reroute_ids = {
+        node_id
+        for node_id, node in wf.nodes.items()
+        if node.class_type == "Reroute"
+    }
+    virtual_wire_ids: set[str] = broadcast_ids | reroute_ids
+
+    # ── Choose edge list and node filter based on virtual-wire toggle ───────
+    if include_virtual_wires:
+        # DISPLAY mode: keep all nodes, use ALL original edges (helpers visible)
+        order_list = _emission_order(wf)
+        display_edges = list(wf.edges)
+    else:
+        # EXECUTION (flat) mode: drop virtual-wire nodes, resolve edges
+        order_list = [
+            nid for nid in _emission_order(wf) if nid not in virtual_wire_ids
+        ]
+        # First resolve broadcast indirection, then passthrough Reroutes
+        flat_edges = _resolve_reroute_edges(effective_edges, wf.nodes)
+        display_edges = flat_edges
 
     # Remap string node ids → litegraph integer ids (digit ids preserve their value).
     id_remap = _build_id_remap(order_list)
@@ -551,7 +917,7 @@ def emit_ui_json(
 
     # Sort edges deterministically (from_node asc, from_output, to_node, to_input)
     sorted_edges = sorted(
-        effective_edges,
+        display_edges,
         key=lambda e: (e.from_node.zfill(20), e.from_output, e.to_node.zfill(20), e.to_input),
     )
 
@@ -576,7 +942,15 @@ def emit_ui_json(
 
     for order, node_id in enumerate(order_list):
         node = wf.nodes[node_id]
-        geometry = layout.get(node.uid) or _captured_geometry(node) or _stub_layout(order)
+        # Geometry chain (pos/size only): sidecar entry -> captured _ui -> stub
+        layout_entry = layout.get(node.uid) if isinstance(layout, dict) else None
+        geometry = (
+            (_extract_geometry(layout_entry))
+            or _captured_geometry(node)
+            or _stub_layout(order)
+        )
+        # Furniture chain (flags/color/bgcolor/mode/properties): independent path
+        furniture = _resolve_furniture(node, layout_entry)
         schema = schema_cache.get(node.class_type)
         schema_outputs = list(getattr(schema, "outputs", None) or []) if schema else []
 
@@ -645,12 +1019,24 @@ def emit_ui_json(
             inputs.append(slot)
 
         # --- properties ---
+        # Step 6 (T8): re-stamp the verbatim captured properties blob as the base,
+        # then overlay the IR identity keys.  When no captured blob exists (e.g.
+        # programmatic workflows), fall back to fresh-construction — no regression.
         prov = node_prov[node_id]
-        properties: dict[str, Any] = {
-            "ir_node_id": node.id,
-            "vibecomfy_id": f"{node.class_type}_{order}",
-            "Node name for S&R": node.class_type,
-        }
+        captured_blob: dict[str, Any] | None = furniture.get("properties") if furniture else None
+        if captured_blob:
+            # Verbatim captured blob (cnr_id / ver / mask-data / etc.) from the
+            # layout-store entry (``_build_entry``) or ``node.metadata['_ui']``.
+            properties = dict(captured_blob)
+        else:
+            # No captured blob → fresh construction (programmatic / scratchpad path).
+            properties = {}
+
+        # ── IR identity keys ALWAYS win (merged ON TOP of any captured value) ──
+        properties["ir_node_id"] = node.id
+        properties["vibecomfy_id"] = f"{node.class_type}_{order}"
+        properties["Node name for S&R"] = node.class_type
+
         # Optional debug stamp (provider tier)
         if not prov["schema_less"]:
             properties["_vibecomfy_schema_provider"] = prov.get("provider", "unknown")
@@ -671,9 +1057,20 @@ def emit_ui_json(
             prov["control_after_generate"] = _CONTROL_AFTER_GENERATE_DEFAULT
             prov["control_after_generate_defaulted"] = True
 
-        # Length validation: assert against the schema widget-slot count when the
-        # class has a schema; skip + record for schema-less classes.
-        expected_widget_count = _full_widget_name_count(node.class_type, schema)
+        # Length validation: assert against the raw schema widget-slot count
+        # (nulls included from object_info_widget_order when available).
+        # Skip + record for schema-less classes.
+        expected_widget_count = _full_widget_name_count(
+            node.class_type, schema, schema_provider=schema_provider
+        )
+        extra_hints = _extra_widgets_after(
+            node.class_type, schema, schema_provider=schema_provider
+        )
+        if extra_hints:
+            prov["widget_order_guesses"] = [
+                "(control_after_generate)" if name is None else name
+                for name in extra_hints
+            ]
         if expected_widget_count is None:
             prov["widget_length_check"] = "skipped: schema-less"
         else:
@@ -685,21 +1082,35 @@ def emit_ui_json(
                     f"{len(widget_values)}<={expected_widget_count}"
                 )
 
-        nodes.append(
-            {
-                "id": id_remap[node_id],
-                "type": node.class_type,
-                "pos": geometry["pos"],
-                "size": geometry["size"],
-                "flags": {},
-                "order": order,
-                "mode": 0,
-                "inputs": inputs,
-                "outputs": outputs,
-                "properties": properties,
-                "widgets_values": widget_values,
-            }
-        )
+        # Properties are now built by re-stamping the verbatim captured blob
+        # (or fresh-construction fallback) with IR identity keys overlaid
+        # — see the properties-construction block above.  No separate merge needed.
+
+
+        node_dict: dict[str, Any] = {
+            "id": id_remap[node_id],
+            "type": node.class_type,
+            "pos": geometry["pos"],
+            "size": geometry["size"],
+            "flags": furniture["flags"],
+            "order": order,
+            "mode": furniture["mode"],
+            "inputs": inputs,
+            "outputs": outputs,
+            "properties": properties,
+            "widgets_values": widget_values,
+        }
+        # Emit color / bgcolor only when non-None (litegraph convention: absent = default)
+        if furniture["color"] is not None:
+            node_dict["color"] = furniture["color"]
+        if furniture["bgcolor"] is not None:
+            node_dict["bgcolor"] = furniture["bgcolor"]
+        # Node title: emit only when include_main_positions=True and non-None,
+        # so the lean default (include_main_positions=False) omits it entirely.
+        if include_main_positions and furniture["title"] is not None:
+            node_dict["title"] = furniture["title"]
+
+        nodes.append(node_dict)
 
     # Build global links array: [link_id, from_node, from_slot, to_node, to_slot, type]
     links: list[list[Any]] = []
@@ -739,11 +1150,33 @@ def emit_ui_json(
                 "control_after_generate_defaulted": p.get("control_after_generate_defaulted"),
                 "widget_length_check": p.get("widget_length_check"),
             }
+            if p.get("widget_order_guesses"):
+                entry["widget_order_guesses"] = p["widget_order_guesses"]
             if p["schema_less"]:
                 entry["diagnostic"] = "schema-less: emitting best-effort slots from link appearance order"
             elif p.get("confidence") is not None and p["confidence"] <= _LOW_CONFIDENCE_THRESHOLD:
                 entry["diagnostic"] = f"low-confidence ({p['confidence']}): widget_schema_fallback"
             recovery_report.append(entry)
+
+        # ── Orphaned virtual-wire routes (display mode) ─────────────────
+        if include_virtual_wires and orphaned_get_ids:
+            for gid in sorted(orphaned_get_ids):
+                node = wf.nodes.get(gid)
+                name = broadcast_name(node) if node else None
+                recovery_report.append({
+                    "node_id": gid,
+                    "class_type": "GetNode",
+                    "provider": None,
+                    "confidence": None,
+                    "schema_less": False,
+                    "diagnostic": (
+                        f"orphaned virtual-wire: GetNode {gid} "
+                        f"(broadcast name={name!r}) has no matching SetNode source — "
+                        "emitted as visible node with dangling links in display graph"
+                    ),
+                    "orphaned_route": True,
+                    "broadcast_name": name,
+                })
 
     # Warn for schema-less nodes when not strict
     if not strict:
@@ -757,27 +1190,51 @@ def emit_ui_json(
                 )
 
     breadcrumb = _breadcrumb(wf, source_template, prior_path)
+
+    # --- extra: merge caller-provided extra (e.g. sidecar ds) with vibecomfy breadcrumb ---
+    merged_extra: dict[str, Any] = dict(extra) if extra else {}
+    merged_extra["vibecomfy"] = dict(breadcrumb)
+
+    # When include_main_positions=True, ensure extra.ds (canvas drag/scale state) is
+    # present, falling back to a fixed machine-independent default.  The lean default
+    # (include_main_positions=False) omits ds entirely.
+    if include_main_positions and "ds" not in merged_extra:
+        merged_extra["ds"] = dict(_DEFAULT_DS)
+
+    # --- groups: canonicalize bounding geometry when include_main_positions=True ---
+    emitted_groups: list[dict[str, Any]] = list(groups) if groups is not None else []
+    if include_main_positions and emitted_groups:
+        _canonicalize_group_geometry(emitted_groups)
+
     envelope: dict[str, Any] = {
         "id": _envelope_id(wf),
         "version": _LITEGRAPH_VERSION,
         "last_node_id": last_node_id,
         "last_link_id": last_link_id,
-        "groups": [],
+        "groups": emitted_groups,
         "nodes": nodes,
         "links": links,
-        "extra": {"vibecomfy": dict(breadcrumb)},
+        "extra": merged_extra,
     }
 
-    # Subgraph definitions (object-style links + state.lastRerouteId), if the IR carries
-    # any.  When present, the top-level envelope also gains a state block carrying
-    # lastRerouteId alongside the node/link counters.
-    definitions = _emit_definitions(wf)
-    if definitions is not None:
-        for sg in definitions["subgraphs"]:
+    # Subgraph definitions: caller-provided `definitions` (from sidecar envelope)
+    # takes precedence over re-emitting from IR metadata.
+    effective_defs = definitions if definitions else _emit_definitions(wf)
+    if effective_defs is not None:
+        for sg in effective_defs.get("subgraphs", []):
             sg_extra = dict(sg.get("extra") or {})
             sg_extra["vibecomfy"] = dict(breadcrumb)
             sg["extra"] = sg_extra
-        envelope["definitions"] = definitions
+        envelope["definitions"] = effective_defs
+        envelope["state"] = {
+            "lastNodeId": last_node_id,
+            "lastLinkId": last_link_id,
+            "lastRerouteId": 0,
+        }
+
+    # When include_main_positions=True, always emit state counters even if there
+    # are no definitions (the lean default ties state to definitions presence).
+    if include_main_positions and "state" not in envelope:
         envelope["state"] = {
             "lastNodeId": last_node_id,
             "lastLinkId": last_link_id,
@@ -871,7 +1328,7 @@ def structural_validate(
     for node in envelope.get("nodes", []):
         class_type = node["type"]
         schema = _node_schema_for_structural(class_type, schema_provider, cache)
-        widget_count = _full_widget_name_count(class_type, schema)
+        widget_count = _full_widget_name_count(class_type, schema, schema_provider=schema_provider)
         schema_outputs = list(getattr(schema, "outputs", None) or []) if schema else None
 
         if widget_count is None and not schema_outputs:

@@ -52,7 +52,7 @@ STORE_VERSION = 2
 
 # Stable description of the envelope shape; hashed into ``schema_hash`` so a
 # reader can detect a schema drift independent of the version integer.
-_ENTRY_KEYS = ("pos", "size", "flags", "color", "bgcolor", "properties")
+_ENTRY_KEYS = ("pos", "size", "flags", "color", "bgcolor", "mode", "properties")
 _SECTION_KEYS = (
     "entries",
     "groups",
@@ -103,6 +103,8 @@ def _build_entry(ui: dict) -> dict[str, Any]:
     entry["flags"] = ui.get("flags")
     entry["color"] = ui.get("color")
     entry["bgcolor"] = ui.get("bgcolor")
+    mode = ui.get("mode")
+    entry["mode"] = mode if isinstance(mode, int) else 0
     properties = ui.get("properties")
     entry["properties"] = properties if isinstance(properties, dict) else {}
     return entry
@@ -262,12 +264,14 @@ def migrate_store(data: dict[str, Any]) -> dict[str, Any]:
             pos = node.get("pos")
             size = node.get("size")
             properties = node.get("properties")
+            mode = node.get("mode")
             entries[str(uid)] = {
                 "pos": snap_pos(pos) if pos is not None else None,
                 "size": snap_size(size) if size is not None else None,
                 "flags": node.get("flags"),
                 "color": node.get("color"),
                 "bgcolor": node.get("bgcolor"),
+                "mode": mode if isinstance(mode, int) else 0,
                 "properties": properties if isinstance(properties, dict) else {},
             }
 

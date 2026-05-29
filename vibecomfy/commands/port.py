@@ -15,7 +15,7 @@ from vibecomfy.porting.convert import (
     port_convert_and_write,
     port_convert_workflow,
 )
-from vibecomfy.porting.layout_store import read_layout, write_layout
+from vibecomfy.porting.layout_store import read_layout, read_store, write_layout
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.manual_repair import repair_manual_template
 from vibecomfy.porting.readability_inventory import build_readability_inventory
@@ -433,6 +433,87 @@ def _cmd_port_widgets(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_recovery_report(
+    recovery_report: list[dict[str, Any]],
+    *,
+    json_mode: bool = False,
+) -> None:
+    """Print a structured recovery report to stderr (text) or stdout (JSON).
+
+    The recovery report is populated by ``emit_ui_json`` only on the non-strict
+    warn-and-emit path.  It records per-node provenance for schema-less nodes,
+    low-confidence widget-schema-fallback nodes, and any widget-length-check
+    warnings encountered during emission.
+
+    Precedence note: ``--strict`` fails *before* the report is populated
+    (``emit_ui_json`` raises ``ValueError``) — the except-arm in
+    ``_cmd_port_export`` handles that path separately and the recovery report
+    is never printed.
+    """
+    if json_mode:
+        orphaned_count = sum(1 for e in recovery_report if e.get("orphaned_route"))
+        payload: dict[str, Any] = {
+            "recovery_report": {
+                "summary": {
+                    "total_nodes": len(recovery_report),
+                    "schema_less": sum(1 for e in recovery_report if e.get("schema_less")),
+                    "low_confidence": sum(
+                        1 for e in recovery_report
+                        if not e.get("schema_less") and e.get("confidence") is not None and e["confidence"] <= 0.3
+                    ),
+                    "widget_length_check_warnings": sum(
+                        1 for e in recovery_report if e.get("widget_length_check")
+                    ),
+                    "nodes_with_diagnostic": sum(1 for e in recovery_report if e.get("diagnostic")),
+                    "orphaned_routes": orphaned_count,
+                },
+                "entries": recovery_report,
+            },
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        lines: list[str] = ["[recovery-report]"]
+        schema_less_nodes = [e for e in recovery_report if e.get("schema_less")]
+        low_conf_nodes = [
+            e for e in recovery_report
+            if not e.get("schema_less") and e.get("confidence") is not None and e["confidence"] <= 0.3
+        ]
+        widget_warn_nodes = [e for e in recovery_report if e.get("widget_length_check")]
+        orphaned_nodes = [e for e in recovery_report if e.get("orphaned_route")]
+
+        if schema_less_nodes:
+            lines.append(f"  schema-less nodes ({len(schema_less_nodes)}):")
+            for e in schema_less_nodes:
+                lines.append(
+                    f"    {e['node_id']}({e['class_type']}): schema-less — "
+                    f"best-effort slots from link appearance order"
+                )
+        if low_conf_nodes:
+            lines.append(f"  low-confidence nodes ({len(low_conf_nodes)}):")
+            for e in low_conf_nodes:
+                lines.append(
+                    f"    {e['node_id']}({e['class_type']}): "
+                    f"confidence={e['confidence']} (widget_schema_fallback)"
+                )
+        if widget_warn_nodes:
+            lines.append(f"  widget-length-check warnings ({len(widget_warn_nodes)}):")
+            for e in widget_warn_nodes:
+                lines.append(
+                    f"    {e['node_id']}({e['class_type']}): {e.get('widget_length_check')}"
+                )
+        if orphaned_nodes:
+            lines.append(f"  orphaned virtual-wire routes ({len(orphaned_nodes)}):")
+            for e in orphaned_nodes:
+                lines.append(
+                    f"    {e['node_id']}({e['class_type']}): "
+                    f"broadcast name={e.get('broadcast_name')!r} — "
+                    f"no matching SetNode source"
+                )
+        if not schema_less_nodes and not low_conf_nodes and not widget_warn_nodes and not orphaned_nodes:
+            lines.append("  (no issues — all nodes resolved with high confidence)")
+        print("\n".join(lines), file=sys.stderr)
+
+
 def _cmd_port_export(args: argparse.Namespace) -> int:
     if args.to == "json":
         try:
@@ -459,8 +540,9 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
         return 0
 
     if args.to == "ui":
+        recovery_report: list[dict[str, Any]] = []
         try:
-            schema_provider = _build_authoring_provider(args)
+            schema_provider = _build_conversion_provider(args)
             workflow = load_workflow_reference(
                 args.workflow,
                 schema_provider=schema_provider,
@@ -468,11 +550,25 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 ready=getattr(args, "ready", False),
             )
             py_path = Path(args.workflow)
-            layout = read_layout(py_path)
+            store = read_store(py_path)
+            # Pass only the entries dict as ``layout`` so the per-uid lookup at
+            # emit_ui_json:769 (layout.get(node.uid)) works correctly.
+            # groups / extra / definitions ride through the new keyword params.
+            layout = store.get("entries", {}) if store else {}
+            sidecar_groups = store.get("groups") if store else None
+            sidecar_extra = store.get("extra") if store else None
+            sidecar_definitions = store.get("definitions") if store else None
             ui_payload = emit_ui_json(
                 workflow,
                 schema_provider=schema_provider,
                 layout=layout,
+                strict=getattr(args, "strict", False),
+                include_main_positions=getattr(args, "main_positions", False),
+                include_virtual_wires=not getattr(args, "no_virtual_wires", False),
+                recovery_report=recovery_report,
+                groups=sidecar_groups,
+                extra=sidecar_extra,
+                definitions=sidecar_definitions,
             )
             if args.out:
                 out_path = Path(args.out)
@@ -481,6 +577,16 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True))
             print(f"wrote {out_path}")
+
+            # --- Recovery report (non-strict path) ---
+            if recovery_report:
+                _print_recovery_report(recovery_report, json_mode=bool(getattr(args, "json", False)))
+        except ValueError as exc:
+            # Strict-mode failure: schema-less or low-confidence nodes.
+            # emit_ui_json raises ValueError BEFORE populating recovery_report,
+            # so we report the failure message directly.
+            print(f"port export strict failed: {exc}", file=sys.stderr)
+            return 2
         except Exception as exc:
             print(f"port export failed: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
@@ -1304,6 +1410,9 @@ def register(subparsers) -> None:
     export.add_argument("--json", action="store_true")
     export.add_argument("--object-info-cache")
     export.add_argument("--out", default=None, help="Output file path (required for --to ui).")
+    export.add_argument("--strict", action="store_true", help="Raise ValueError on schema-less or low-confidence node class types.")
+    export.add_argument("--main-positions", action="store_true", help="Include main positions in emitted UI JSON (no-op, wired for future use).")
+    export.add_argument("--no-virtual-wires", action="store_true", help="Omit SetNode/GetNode virtual wire resolution.")
     export.set_defaults(func=_cmd_port_export)
 
     validate_call = port_subparsers.add_parser("validate-call", help="Validate one node call against authoring schema.")

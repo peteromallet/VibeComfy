@@ -7,6 +7,10 @@ the red-team showed that framing is the single most dangerous thing in the plan.
 the spine (oracle-backed gates, foundation-first, "never grade your own homework") and fixes
 the framing and the mechanisms.
 
+> **If you just want the work plan, jump to [§0 — What we need to do](#0-what-we-need-to-do-the-concrete-build-plan).**
+> It is a five-step, file-level porting job whose hard parts are already proven in
+> `scripts/roundtrip_fidelity_spike.py`. Everything below §0 is the *why* behind it.
+
 > **Scope discipline (read first).** The red-team was calibrated to "FULL robustness," so it
 > returned a lot of *production-grade machinery*. This is still a prototype at single-digit-%
 > fidelity with no users. So **not all of §1–§13 is "now."** Load-bearing now: the bijection
@@ -19,6 +23,63 @@ the framing and the mechanisms.
 > taxonomy + execution ceremony (§5/§10 — keep the ratcheted CI gate + findings-as-tests, skip
 > the org process). The rest is the catalog of where robustness *eventually* lives, not a day-one
 > mandate.
+
+---
+
+## 0. What we need to do (the concrete build plan)
+
+**Read this section first.** §1–§13 are the *why* (the reframed goal, the robustness theory,
+the red-team findings). This section is the *what*: the next, ordered, file-level work — and
+it is no longer speculative. The hard part (does the architecture actually round-trip?) is
+**already proven in a committed harness** (`scripts/roundtrip_fidelity_spike.py` →
+`ALL PASS: True`, see §11.5). The remaining work is **wiring the proven mechanisms from the
+spike into the real `ingest/` + `porting/` code, behind the same oracle gate.** That is a
+porting job, not a research job.
+
+**The one-sentence bet (LOCKED, §11):** VibeComfy's Python/IR stays the source of truth;
+we make Python → ComfyUI-JSON *non-fragile* by **replaying untouched content verbatim and
+running only the agent's delta through a schema-derived codec, gated against ComfyUI's own
+`convert_ui_to_api`.** A round-trip of an unmodified graph becomes the identity function;
+the fragile surface shrinks from "every node" to "just what the agent changed."
+
+**What is already true (proven in the spike, not yet in the product):**
+- Preserve-replay of captured UI (per-node `_ui` + the envelope) is **lossless vs ComfyUI's
+  own converter** on z_image, qwen_image_edit, wan_t2v, and a 44-node community LTX graph —
+  *including recovering the subgraph bodies emit drops today.*
+- Editing an existing node lands **exactly** the intended widget change, nothing else moves.
+- The created-node widget bug (6-element `widgets_values`) and its fix (the injection-aware
+  7-element form) are both **measured** against the oracle.
+- The "never silently corrupt" detector **ALLOWs** a clean edit and **REFUSEs** a corrupting one.
+
+So the steps below are not "figure out if this works" — they are "move this exact, verified
+behavior out of the clean-room harness and into `normalize.py` / `ui_emitter.py` / `tests/`."
+
+| # | Step | Where (file) | What it does | Done when |
+|---|---|---|---|---|
+| **1** | **Envelope-aware capture on ingest** *(top priority — closes the one foundation hole)* | `vibecomfy/ingest/normalize.py` | Capture, verbatim, the workflow **envelope** — `definitions` (subgraph bodies), `groups`, `extra`, `config`, `version`, link table — into workflow-level metadata, alongside the per-node `_ui` already captured. Today subgraph `definitions` are dropped entirely, so modern official graphs (z_image/flux/qwen) round-trip with a vanished subgraph body (§11.5). | A loaded→emitted graph contains the `definitions` block byte-identical to source; spike **T1** passes through the *real* ingest path, not the harness's clean-room `capture()`. |
+| **2** | **Replay-from-`_ui` on emit** | `vibecomfy/porting/ui_emitter.py` (`emit_ui_json`) | For any node whose `vibecomfy_uid` was ingested and the agent did **not** touch, emit its captured `_ui` verbatim instead of regenerating it; replay the captured envelope verbatim. Only agent-created/edited nodes go through the regeneration codec. (Mechanism #1 — highest leverage.) | `convert_ui_to_api(original) == convert_ui_to_api(emit(ingest(original)))` for an **unmodified** graph across the corpus families (spike T1, through real code). |
+| **3** | **Injection-aware widget emit for *touched* nodes** | `vibecomfy/porting/ui_emitter.py` (widget-values builder / `_compacted_widget_names`) | When emitting a node that *was* changed (so it can't be replayed), build `widgets_values` in the editor's true order **including** frontend-injected control widgets (e.g. `control_after_generate` after a seed). Derive the order from the node schema + the injection rule, matching ComfyUI's frontend. This is the proven 6→7-element fix; it affects ~19% (141/742) of node classes. | Spike **T3** passes through the real emit path: a freshly created/edited KSampler is read back by the oracle with `steps`/`cfg`/etc. correct. |
+| **4** | **Promote the oracle gate to a real pytest** | `tests/parity/` (new test, behind the existing `comfy` marker) | Lift the four spike assertions into a marked, opt-in test: per-family differential `convert_ui_to_api(original) == convert_ui_to_api(emit(ingest(original)))`, existing-edit-exact, created-node-correct, corruption-detector. Runs against the *vendored, pinned* ComfyUI (§8) for reproducible numbers. | The test is in the suite, green on the pinned ComfyUI, runnable in CI behind `VIBECOMFY_COMFY_SMOKE=1`. The falsification numbers stop being a script and become a gate. |
+| **5** | **Corruption-detector as a runtime guard (the refusal spine)** | small new module on the emit/apply path | Before any APPLIED commit, diff the candidate's API output vs the original on **untouched** regions; abort to a typed **REFUSED** on any change outside the intended delta. Proven in spike T4. Makes "never silently corrupt" a mechanism, not a hope. | Clean edit → ALLOW; corrupting edit (e.g. dropped control slot) → REFUSE, with a machine-readable reason (§3). |
+
+**Sequencing:** 1 → 2 unlock the foundation (lossless on everything untouched, subgraphs
+included); 3 makes the agent's *own* edits correct; 4 turns the spike into a standing gate so
+the above can't regress; 5 is the safety net that holds on graphs we've never seen. Do **1+2+4
+together first** — that is the "lossless on everything the agent didn't touch + a gate that
+proves it" milestone (§11 "highest-leverage first build"), and it moves the measured baseline
+(§13) off single digits immediately.
+
+**Explicitly NOT now (kept out of scope on purpose):** the schema-derived *unified* codec
+(§11.2 — replay sidesteps it for the common case), the property-based/fuzz coverage harness
+(§7), the version-matrix + saved-graph migration (§8 — just pin one ComfyUI version), the Ops
+canary/flywheel (§4), and the L3–L5 agent/control-flow/UX layers. Those come after the codec
+actually works on real families.
+
+**One known minor cleanup (not blocking, currently shimmed):** `pyproject.toml` registers
+`vibecomfy.comfy_nodes` as a `comfyui.custom_nodes` *package*, but `comfy_nodes.py` is a
+*module* — so ComfyUI's catalog walk trips on the missing `__path__`. The spike works around
+it with a `__path__=[]` shim; the real oracle path (step 4) should not need the shim, so
+either drop the entry point or make `comfy_nodes` a package. Low risk, do it when wiring step 4.
 
 ---
 
@@ -244,12 +305,93 @@ nodes, plus the `convert_ui_to_api`-gated property test. That alone moves the ro
 single-digit % to *lossless on everything the agent didn't touch* (most of every workflow), and
 directly de-risks the committed Python→JSON path before any larger codec work.
 
+### 11.5 Empirical status (falsification spike, run against the live setup)
+
+Probes run against the installed package + live ComfyUI, designed to *break* the mechanisms:
+
+**VERIFIED — mechanism #1 works, confirmed by ComfyUI's own converter.** A clean-room
+envelope-aware replay prototype (capture per-node `_ui` + the envelope `definitions`/`groups`
+verbatim, replay them) achieves **lossless round-trip on z_image, qwen_image_edit, wan_t2v, and
+a 44-node community LTX graph** — including **recovering the subgraph bodies** that `emit_ui_json`
+drops (z_image 10 nodes/18 links, qwen 20/35). Confirmed *both* by structural diff *and* the
+external oracle: `convert_ui_to_api(original) == convert_ui_to_api(replay)` returned **True on
+all four** (custom LTX nodes the oracle doesn't know still matched — replay preserves them
+verbatim). A delta-edit touched **only the edited node**. So the foundation — lossless on
+*untouched/replayed* content — is **measured, not argued**, and the subgraph hole is closed by
+envelope capture. This is a clean-room prototype; the real work is wiring envelope-capture into
+`normalize.py` + replay-from-`_ui` into `ui_emitter.py`. (The run also confirmed the `pyproject`
+`comfy_nodes` packaging bug live; a `__path__=[]` shim worked around it — fix it for real per §12.)
+
+**Two follow-up spikes closed the remaining L0 unknowns (oracle-verified):**
+- **Editing an EXISTING node — ✅ works.** Setting KSampler `steps` 30→25 (widget located via the
+  schema+injection-derived index, rest preserve-replayed) produced an oracle diff of *exactly*
+  `{steps:(30,25)}` — change landed, nothing else moved. The common agent operation is proven
+  end-to-end.
+- **CREATING a new node through the current codec — ❌ broken (measured), fix proven.** A fresh
+  KSampler emits a **6-element** `widgets_values` (`emit_ui_json`/`_compacted_widget_names` strips
+  the `control_after_generate` slot); ComfyUI's own converter then reads it **shifted**
+  (`steps=4.5, cfg='dpmpp_2m'`). The 19%-injection-class bug, now confirmed on the *create* path.
+  **Fix verified directly on the create path:** injecting the `control_after_generate` slot at the
+  schema-derived index produces the **7-element** form `[999, 'randomize', 30, 4.5, …]`, which the
+  oracle reads correctly (`steps=30, cfg=4.5, …`). So the codec fix is "emit the injection-aware
+  7-element form" — confirmed working, not new research.
+- **The "never silently corrupt" spine — ✅ demonstrated.** An oracle-diff corruption-detector
+  (diff the candidate's API vs the original on untouched regions; refuse on any change outside the
+  intended delta) **ALLOWs** a clean edit (`{steps}` only) and **REFUSEs** a corrupting one (the
+  control-slot-drop shift — it catches the unintended `cfg`/`sampler_name`/`scheduler` changes).
+  The safety contract is mechanism, not aspiration.
+
+**Net after spikes:** the substrate (preserve-replay + editing existing nodes) is oracle-proven;
+the created-node codec is fixed-and-verified; and the refusal spine that makes the whole system
+trustworthy is demonstrated. L0 is effectively closed. The committed architecture holds.
+
+**Reproducible:** all of the above re-runs on demand via `scripts/roundtrip_fidelity_spike.py`
+(`PYENV_VERSION=3.11.11 python scripts/roundtrip_fidelity_spike.py` → `ALL PASS: True`) — the
+falsification harness is committed, not a chat rumor, and is the seed of the §11.3 oracle-gated
+property test.
+
+**De-risked (measured):**
+- **The replay data exists, on hard graphs too.** `metadata["_ui"]` holds the *full* raw node
+  (incl. `widgets_values`) for **100% of nodes** on every graph tested — including a 44-node
+  custom-node-heavy community LTX workflow (44/44) — and it **survives emit→re-ingest**. The
+  feared "slim `_ui` on the comfy-converter path" did *not* materialize. #1 is well-fed.
+- **Top-level edges round-trip well on flat graphs** (1/1, 3/3, 11/11, 59/60). The "edges
+  vanish" fear was localized, not pervasive.
+
+**New / refined wrinkles (these update the mechanisms):**
+- **[FOUNDATION HOLE] Subgraph definitions are dropped entirely.** z_image's subgraph body
+  (**10 internal nodes + 18 links**) is captured *nowhere* in the IR (`wf.metadata` is empty,
+  the instance node's `_ui` doesn't contain it) and is **absent from the emitted UI** (no
+  `definitions` key). A round-trip yields a subgraph *instance* pointing at a vanished
+  definition. Modern official workflows (z_image, flux, qwen) all use subgraphs. **→ Mechanism
+  #1 must capture-and-replay at the ENVELOPE level (`definitions`, `groups`, `extra`), not just
+  per-node `_ui`.** Same preserve-don't-regenerate principle, one level up: capture the
+  `definitions` block verbatim, replay it on emit — subgraph workflows then round-trip as
+  opaque blobs (not editable *inside* yet, but never lost). **This is the #1 priority fix.**
+- **The injection-rule wrinkle is 19% wide — 141 of 742 node classes** carry a
+  `control_after_generate`-flagged input (it's a *flag on the seed spec*, not an input, so it's
+  frontend-injected and absent from `object_info`'s input list). So mechanism #2 must replicate
+  ComfyUI's widget-injection rules or it mis-maps ~1 in 5 classes — which *reinforces #1 as the
+  workhorse* (replay sidesteps injection for every ingested node; #2's wrinkle is contained to
+  agent-*created* nodes of those classes).
+- **Oracle (#3) bootstrap:** `convert_ui_to_api` is reached via
+  `comfy_backend.ensure_nodes()` (puts `vendor/ComfyUI` on `sys.path`) → `import
+  comfy.component_model.workflow_convert`. Standable, but requires the vendored submodule
+  initialized (+ the `pyproject` entry-point fix from `python_on_the_graph.md` §12). Real but
+  bounded setup.
+
+**Net:** the failure surface is **localized and fixable**, not pervasive — the single-digit
+baseline is dominated by (a) widget re-derivation (replay fixes), and (b) dropped subgraph
+definitions (envelope-level capture fixes). The committed architecture holds; #1's scope just
+grew from "per-node" to "per-node + envelope-level definitions/groups."
+
 ## 12. Phases (revised)
 
 - **Phase 0 — The non-fragile foundation (decision §11 is locked).** Build the two highest-
-  leverage mechanisms together: **capture-and-replay untouched nodes (§11.1)** + the
-  **`convert_ui_to_api`-gated property test (§11.3)**. This is the not-fragile foundation and
-  the scoreboard in one.
+  leverage mechanisms together: **capture-and-replay untouched content (§11.1) — at BOTH the
+  per-node `_ui` level AND the envelope level (`definitions`/`groups`), since dropped subgraph
+  definitions are the top foundation hole (§11.5)** — plus the **`convert_ui_to_api`-gated
+  property test (§11.3)**. This is the not-fragile foundation and the scoreboard in one.
 - **Phase 1 — Pour the codec per-family.** The three repro'd emit fixes (subgraph edge-loss,
   Get/Set, KSampler), then the **schema-derived one-codec (§11.2)** + presentation sidecar
   (§11.4) + the runtime fence/refusal contract. Track V (z_image) goes vertical in parallel.
@@ -266,43 +408,7 @@ subgraph edge-loss (z_image 10→0) + KSampler widget-shift. Presentation fideli
 ~0% and was *untracked*. This is the gap — and the number is *only* meaningful as "vs the
 pinned ComfyUI," per §8.
 
-The plan is now legible: the order is forced by the stack, every layer has an *external-truth*
-gate, "done" is a *set* of per-family numbers, and an Ops track watches production from day one.
-The decision (§11) is locked; the risk has moved from "we don't know what's wrong" to "hold
-execution discipline against un-bypassable gates."
-
-## 14. Compatibility with the in-flight epic (6-way conflict check)
-
-A 6-agent investigation checked each not-fragile mechanism against the scratchpad-emitter epic
-+ shipped code. **No blockers — the decision sits on the epic's grain.** Two mechanisms are
-already COMPATIBLE; the rest are REFACTOR-NEEDED, and for three of those **the epic's own
-milestone idea files already prescribe the fix** — the conflict is shipped code lagging the
-plan, not the plan.
-
-| Mechanism | Verdict | Epic already plans it? | What must change |
-|---|---|---|---|
-| Readable Python ⟂ verbatim | **COMPATIBLE** | yes — 3 emit paths / 2 planes; narrate codemod retired | nothing |
-| #4 furniture sidecar | **COMPATIBLE** | yes — M2 `layout_store` captures all furniture uid-keyed; M4 = new-nodes-only | wire `read_store` into emit; stop hardcoding `mode:0`/`groups:[]`/`flags:{}` (M3/M5) |
-| #2 one object_info-derived codec | REFACTOR | **yes — M3 mandates `object_info_widget_order` as the authoritative model** | invert precedence (live schema beats frozen `WIDGET_SCHEMA`); collapse the Layer-1 duplicate. (ingest+emit already share one function) |
-| #3 oracle-gated parity | REFACTOR | **yes — M3 makes `convert_ui_to_api` the gate of record + a property/fuzz clause** | retire `test_parity_gate_never_imports_comfy`; stop swallowing the oracle's exceptions at ingest |
-| #1 keying for replay (uid) | REFACTOR | partly — M2 identity | mint uid in `add_node` + assert uniqueness; make `sg_key` name-independent (`scope.py:99`) |
-
-**The TWO genuinely-new items (beyond the epic's current scope):**
-
-1. **Delta-replay of node BODIES + edit-provenance.** The epic's M5 "preserve" is *furniture-only*
-   (`Δpos==0 ∧ Δsize==0`); replaying untouched node **bodies** verbatim, and a per-node
-   "untouched vs changed" signal (a uid-keyed structural diff vs the captured original, or a
-   dirty-bit through the mutators), **do not exist** and must be added. This is the core of
-   mechanism #1.
-2. **The one real DIRECTIONAL conflict — slim `_ui` capture.** The epic doubles down on the
-   comfy-converter ingest path (oracle-back), which stores a *slim* `_ui`
-   (`{id,pos,size,properties,mode,flags,color,bgcolor}`) — dropping `widgets_values`/`inputs`/
-   `outputs`/`title`, exactly the data verbatim body-replay needs. Mechanism #1 requires
-   `_merge_slim_ui` (`normalize.py`) to **retain the full raw node** (uid-keyed). This is the one
-   place the locked decision asks the epic to do something *different* from its current direction.
-   (Also: the parity gate proves *equivalence*, not *identity* — a canonicalized byte-identity
-   check on untouched nodes is needed to enforce "round-trip = identity.")
-
-**Bottom line:** buildable on the existing epic with **no redesign**. Four mechanisms are already
-on the epic's roadmap (just unshipped); the real net-new work is **delta-replay-of-bodies +
-edit-provenance + un-slimming `_ui`**.
+The plan is now legible: the order is forced by the stack + the fork, every layer has an
+*external-truth* gate, "done" is a *set* of per-family numbers, and an Ops track watches
+production from day one. The risk has moved from "we don't know what's wrong" to "make the
+fork decision, then hold execution discipline against un-bypassable gates."

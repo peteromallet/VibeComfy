@@ -712,6 +712,62 @@ def _write_flat_fixture_node_index(tmp_path: Path) -> None:
     )
 
 
+def test_port_export_to_ui_uses_conversion_schema_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """port export --to ui uses ConversionSchemaProvider, not AuthoringSchemaProvider."""
+    import shutil
+
+    from vibecomfy.commands.port import _build_authoring_provider, _build_conversion_provider
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+
+    out_emit = tmp_path / "flat_emit.json"
+    monkeypatch.chdir(tmp_path)
+
+    called_conversion = False
+    called_authoring = False
+    _orig_conversion = _build_conversion_provider
+    _orig_authoring = _build_authoring_provider
+
+    def _tracked_conversion(args):
+        nonlocal called_conversion
+        called_conversion = True
+        return _orig_conversion(args)
+
+    def _tracked_authoring(args):
+        nonlocal called_authoring
+        called_authoring = True
+        return _orig_authoring(args)
+
+    monkeypatch.setattr(
+        "vibecomfy.commands.port._build_conversion_provider", _tracked_conversion
+    )
+    monkeypatch.setattr(
+        "vibecomfy.commands.port._build_authoring_provider", _tracked_authoring
+    )
+
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.json",
+            ready=False,
+            to="ui",
+            json=True,
+            out=str(out_emit),
+            object_info_cache=None,
+        )
+    )
+
+    assert code == 0, f"port export --to ui failed with code {code}"
+    assert out_emit.exists(), f"flat_emit.json was not written at {out_emit}"
+    assert called_conversion, "_build_conversion_provider was NOT called for --to ui"
+    assert not called_authoring, "_build_authoring_provider was called (should be _build_conversion_provider)"
+
+
 def test_port_export_to_ui_roundtrip_pos_and_uid(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -786,3 +842,211 @@ def test_port_export_to_ui_roundtrip_pos_and_uid(
         assert emitted_node["pos"] == expected_pos, (
             f"uid {uid}: expected pos {expected_pos}, got {emitted_node['pos']}"
         )
+
+
+# ── T3: strict exit-code + recovery report ─────────────────────────────
+
+
+def test_port_export_strict_exits_distinct_code_on_schema_less(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--strict`` exits 2 (not 1) when any node is schema-less or low-confidence."""
+    # Write a minimal litegraph workflow with a class_type unknown to every
+    # tier of ConversionSchemaProvider (no node_index, no object_info cache,
+    # no source parser hit, not in WIDGET_SCHEMA).
+    unknown_json = tmp_path / "unknown.json"
+    unknown_json.write_text(
+        json.dumps(
+            {
+                "last_node_id": 1,
+                "last_link_id": 0,
+                "nodes": [
+                    {
+                        "id": 1,
+                        "type": "TotallyFakeNode_12345",
+                        "pos": [0, 0],
+                        "size": [200, 80],
+                        "flags": {},
+                        "order": 0,
+                        "mode": 0,
+                        "inputs": [],
+                        "outputs": [],
+                        "properties": {},
+                        "widgets_values": [],
+                    }
+                ],
+                "links": [],
+                "groups": [],
+                "config": {},
+                "extra": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="unknown.json",
+            ready=False,
+            to="ui",
+            json=True,
+            out=str(tmp_path / "unknown_emit.json"),
+            object_info_cache=None,
+            no_object_info_cache=True,
+            strict=True,
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2, f"--strict should exit 2 for schema-less corpus, got {code}"
+    assert "strict" in captured.err.lower(), (
+        f"Expected strict-failure message on stderr, got: {captured.err!r}"
+    )
+
+
+def test_port_export_recovery_report_text_and_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Non-strict export with schema-less nodes prints recovery report to stderr (text) and stdout (--json)."""
+    # Write a node_index covering only one known type (SaveImage).
+    # All other node types in the fixture will be schema-less.
+    _write_saveimage_only_node_index(tmp_path)
+
+    # Build a tiny workflow: one known node (SaveImage) + one unknown node.
+    mixed_json = tmp_path / "mixed.json"
+    mixed_json.write_text(
+        json.dumps(
+            {
+                "last_node_id": 2,
+                "last_link_id": 1,
+                "nodes": [
+                    {
+                        "id": 1,
+                        "type": "UnknownCustomNode_99999",
+                        "pos": [0, 0],
+                        "size": [200, 80],
+                        "flags": {},
+                        "order": 0,
+                        "mode": 0,
+                        "inputs": [],
+                        "outputs": [
+                            {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0}
+                        ],
+                        "properties": {},
+                        "widgets_values": [],
+                    },
+                    {
+                        "id": 2,
+                        "type": "SaveImage",
+                        "pos": [300, 0],
+                        "size": [200, 80],
+                        "flags": {},
+                        "order": 1,
+                        "mode": 0,
+                        "inputs": [
+                            {"name": "images", "type": "IMAGE", "link": 1}
+                        ],
+                        "outputs": [],
+                        "properties": {},
+                        "widgets_values": ["ComfyUI"],
+                    },
+                ],
+                "links": [
+                    [1, 1, 0, 2, 0, "IMAGE"],
+                ],
+                "groups": [],
+                "config": {},
+                "extra": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    # ── Text mode ────────────────────────────────────────────────────────
+    out_text = tmp_path / "mixed_emit_text.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="mixed.json",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_text),
+            object_info_cache=None,
+            no_object_info_cache=True,
+        )
+    )
+    captured_text = capsys.readouterr()
+    assert code == 0, f"non-strict export failed with code {code}"
+    assert out_text.exists(), f"mixed_emit_text.json not written at {out_text}"
+    assert "[recovery-report]" in captured_text.err, (
+        f"Expected [recovery-report] on stderr, got: {captured_text.err!r}"
+    )
+    assert "schema-less" in captured_text.err.lower(), (
+        f"Expected schema-less mention in stderr recovery report, got: {captured_text.err!r}"
+    )
+
+    # ── JSON mode ────────────────────────────────────────────────────────
+    out_json = tmp_path / "mixed_emit_json.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="mixed.json",
+            ready=False,
+            to="ui",
+            json=True,
+            out=str(out_json),
+            object_info_cache=None,
+            no_object_info_cache=True,
+        )
+    )
+    captured_json = capsys.readouterr()
+    assert code == 0, f"non-strict --json export failed with code {code}"
+    assert out_json.exists(), f"mixed_emit_json.json not written at {out_json}"
+
+    # The recovery report JSON block is printed to stdout AFTER the "wrote ..."
+    # message.  Extract it by finding the JSON object after the first newline.
+    out_text_all = captured_json.out.strip()
+    # Find the first '{' that starts the JSON block
+    brace_idx = out_text_all.find("{")
+    assert brace_idx >= 0, f"No JSON block found in stdout: {captured_json.out!r}"
+    recovery_json = json.loads(out_text_all[brace_idx:])
+    assert isinstance(recovery_json, dict) and "recovery_report" in recovery_json, (
+        f"Parsed JSON missing recovery_report key: {recovery_json!r}"
+    )
+    rr = recovery_json["recovery_report"]
+    assert "summary" in rr, "recovery_report JSON missing 'summary'"
+    assert "entries" in rr, "recovery_report JSON missing 'entries'"
+    assert rr["summary"]["total_nodes"] > 0, "recovery_report summary reports 0 nodes"
+    assert rr["summary"]["schema_less"] > 0, (
+        f"Expected at least one schema-less node in partial coverage, "
+        f"got schema_less={rr['summary']['schema_less']}"
+    )
+    # Every entry must have the canonical keys
+    for entry in rr["entries"]:
+        for key in ("node_id", "class_type", "provider", "confidence", "schema_less"):
+            assert key in entry, f"recovery_report entry missing key {key!r}: {entry}"
+
+
+def _write_saveimage_only_node_index(tmp_path: Path) -> None:
+    """Write a node_index.json covering ONLY SaveImage for recovery-report testing."""
+    (tmp_path / "node_index.json").write_text(
+        json.dumps(
+            [
+                {
+                    "class_type": "SaveImage",
+                    "pack": "core",
+                    "inputs": {
+                        "images": {"type": "IMAGE", "required": True},
+                        "filename_prefix": {"type": "STRING", "required": True},
+                    },
+                    "outputs": [],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )

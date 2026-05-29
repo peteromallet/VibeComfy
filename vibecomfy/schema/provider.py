@@ -254,6 +254,28 @@ class ObjectInfoIndexSchemaProvider:
             }
         return self._index
 
+    def raw_widget_order(self, class_type: str) -> list[str | None] | None:
+        """Return the raw ``object_info_widget_order`` including ``None``/null entries.
+
+        Returns ``None`` when the class is not found in the cache.
+        This is the authoritative slot-count source (nulls denote UI-only slots);
+        the compacted null-free list is for widget VALUES emission only.
+        """
+        filename = self._load_index().get(class_type)
+        if not filename:
+            return None
+        data = self._file_cache.get(filename)
+        if data is None:
+            data = load_object_info_cache(self.root / filename) or {}
+            self._file_cache[filename] = data
+        info = data.get(class_type)
+        if not isinstance(info, dict):
+            return None
+        raw_order = info.get("object_info_widget_order")
+        if isinstance(raw_order, list):
+            return [name if isinstance(name, str) else None for name in raw_order]
+        return None
+
     def _load_schema(self, class_type: str) -> NodeSchema | None:
         filename = self._load_index().get(class_type)
         if not filename:
