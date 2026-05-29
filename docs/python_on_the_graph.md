@@ -391,8 +391,16 @@ top. Phase 0 is new and gating.
    - **Parse-don't-exec:** an AST→IR reconstruction path for agent-authored Python; demote
      `exec` to a trusted-author boundary (principle 6). Spike: measure what fraction of
      `ready_templates/**` the emitter grammar can be reconstructed from AST alone.
-   - **Close coverage holes:** Get/Set-broadcast resolver (the ~35% hard-fail class), `mode`
-     (bypass/mute) preservation, `groups`.
+   - **Two repro'd bug-fixes (highest leverage, §12):** (i) the **Get/Set resolver key
+     mismatch** — ~3 lines, unblocks 33% of the corpus (currently producing no graph); (ii) the
+     **KSampler emit widget-shift** — `emit_ui_json` must keep the `control_after_generate` slot
+     so emitted `widgets_values` are 7-long, not 6 (today silently shifts steps/cfg/sampler).
+     Both have repros and verified-safe fixes.
+   - **Close coverage holes:** `mode` (bypass/mute) + `groups` + color/title preservation on
+     emit; the two divergent `UI_ONLY_CLASS_TYPES` sets; pin `WIDGET_SCHEMA` to the runtime
+     (schema-skew guard).
+   - **Agent-edit-loop integrity:** assert the mutable-IR invariants after each edit (§12);
+     gate runnability on `doctor` + warm-cache `validate` (compile ≠ runs).
    - **Cheap fixes:** browser-side atomic rollback (§7); the `vibecomfy_uid` spelling + the
      `vibecomfy.*` validation rule (§5.1); Kahn's-algorithm topo sort + a determinism CI
      gate (§6.1); the bad `pyproject.toml` entry point that crashes the oracle catalog walk.
@@ -502,3 +510,71 @@ finished M7**, not in the current epic's scope. So: the epic delivers the spine 
 surface; this doc's tier scheme + the agent frontend is the next thing that stands on it.
 Phase 0 (§8) is mostly "land the epic's own milestones correctly (oracle-backed, coverage
 closed, identity hardened) before building the layer above."
+
+---
+
+## 12. Second-pass VibeComfy-internal edge cases (10-agent sweep)
+
+A second sense-check swept the VibeComfy internals (runtime, schema source, virtual wires,
+models, packs, plugins, control-flow, mutable IR state). Tagged **[verified]** (repro'd /
+read in code) vs **[claimed]**. The two repro'd fidelity bugs are now top of Phase 0.
+
+**Round-trip fidelity defects:**
+- **[verified, repro'd — TOP FIX] Get/Set resolver key mismatch.** The normalizer maps a
+  GetNode's value to `inputs["name"]` (`normalize.py`, schema `["name"]` at
+  `_widget_aliases.py:537`) but the resolver `broadcast_name()` reads only `inputs["widget_0"]`
+  (`_workflow_helpers.py:176-182`) → `ConversionParityError: no broadcast name`. **17/52 corpus
+  files (33%) contain Get/Set and currently produce NO graph.** ~3-line fix (`name = inputs.get("name", inputs.get("widget_0", ...))`),
+  simulated 16→0 failures, back-compat preserved. The unit tests inject `widget_0` directly,
+  bypassing the normalizer — green suite, broken corpus. **Single highest-leverage fidelity fix.**
+- **[verified, repro'd — TOP FIX] KSampler widget-value shift on emit.** `emit_ui_json`
+  emits `widgets_values` against `_compacted_widget_names` (strips the `control_after_generate`
+  `None` slot → 6 elements), but ComfyUI/read-back expect 7. Result: a KSampler round-trips as
+  `steps=7.5, cfg='euler', sampler_name='simple'` — every value shifts one slot. Affects any
+  node with a `None` control slot in `WIDGET_SCHEMA` (KSampler/KSamplerAdvanced). The emit must
+  keep the control slot (emit 7, re-inserting the control value). `ui_emitter.py:411-422` vs
+  `normalize.py:328-331`.
+- **[verified] Schema skew, no version guard.** Widget mapping reads a hand-curated,
+  version-*frozen* `WIDGET_SCHEMA` (`_widget_aliases.py:133`, a static "runpod-snapshot"),
+  consulted first and short-circuiting the live schema. If the user's installed pack reorders a
+  widget, values silently land in the wrong slot. No check ties the schema to installed packs.
+- **[verified] UI furniture lost on emit.** node `color`/`bgcolor`/`title`, `groups`, `flags`,
+  `mode` are all ingested into metadata but **not re-emitted** (`ui_emitter.py` hardcodes
+  `groups:[]`/`flags:{}`/`mode:0`, omits color/title) — recoverable only from the `.layout.json`
+  sidecar. A human reopening a round-tripped graph sees it uncolored/untitled/ungrouped with
+  bypassed nodes reset to active. Annotation *nodes* (Note/MarkdownNote) survive. Also: two
+  divergent `UI_ONLY_CLASS_TYPES` sets — `Label`/`PreviewAny` leak into `compile("api")`.
+
+**Agent-edit-loop integrity (the IR-tools path's own sharp edges):**
+- **[verified] Mutable IR-state hazards.** `finalize_metadata` is idempotent ✅, but `connect`
+  is append-only (no dedupe → duplicate edges, compile last-writer-wins), `_next_node_id`
+  **reuses freed ids** (a dangling edge silently re-targets a new node), and `_id_map` goes
+  stale on delete. The agent loop must assert invariants after each edit (delete only via
+  `remove_node`; prune `_id_map`; no dangling/duplicate edges; `finalize_metadata` before
+  reading inputs/outputs). Dangling edges *are* caught at compile (safety net).
+
+**Run/resolve correctness:**
+- **[verified] compile ≠ runs.** `compile("api")` is class/model/schema-blind; real validation
+  is HiddenSwitch's `queue_prompt_api`. Missing models/nodes, unconnected-required, type-mismatch
+  degrade silently when the object_info cache is cold. `run_embedded_sync(wf)` from Python
+  defaults `ensure_models=False` (won't download). Cheapest gate: `doctor` + warm-cache `validate`.
+- **[verified] Agent can't safely change models.** Requirements inference only scans `*_name`
+  keys (`metadata.py`) while the runtime resolver covers more fields — scope mismatch; hidden
+  `widget_N` model filenames are diagnosed but **not** write-blocked; metadata `model_assets` and
+  the registry can diverge undetected.
+- **[verified] Custom packs: no alias resolution, no shadowing detection, drift tolerated.** An
+  agent-added pack node is installable only if the class name matches a known pack *verbatim*;
+  a renamed class → `unresolved_runtime_class`; a pack class shadowing a core class is silently
+  masked. Lock-vs-installed drift is observed but not blocked (unless `strict_drift`).
+- **[verified] Plugin surface not collision-safe / not deterministic.** Block & patch registries
+  silently overwrite on collision; routes silently duplicate; entry-point load order is
+  non-deterministic; **one malformed plugin throws and poisons the entire discovery pass** (no
+  try/except in `extras.py`).
+
+**Control-flow (Tier B/C) reverse path:**
+- **[verified] Python→IR is done by *executing* `build()`, not parsing it.** The only AST reader
+  (`source_map.py`) walks flat call-sites; there's no `For`/`If` handling. So Tier-B dynamic
+  loops are **not closed-form round-trippable** — you can round-trip the *intent* but can't
+  mechanically reconcile it against the N-node static expansion the (self-referential) parity
+  gate sees. Needs: an AST→IR reader, an **intent-equivalence** parity gate, and (Tier C) a new
+  **artifact-across-graph-boundary edge** that `VibeEdge` can't express today.
