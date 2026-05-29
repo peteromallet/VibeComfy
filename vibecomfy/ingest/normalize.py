@@ -32,7 +32,17 @@ def normalize_to_api(
     *,
     schema_provider: SchemaProvider | None = None,
     use_comfy_converter: bool = True,
+    comfy_converter_strict: bool = False,
 ) -> dict[str, Any]:
+    """Convert a raw workflow dict (UI or API shape) to ComfyUI API format.
+
+    ``comfy_converter_strict`` is only meaningful when ``use_comfy_converter=True``
+    AND the comfy package is importable.  When ``True``, any exception raised by
+    ``convert_ui_to_api`` propagates instead of silently falling back to the
+    offline converter.  When ``use_comfy_converter=False``, ``comfy_converter_strict``
+    is a no-op — the comfy converter is never attempted.  The offline default
+    (``comfy_converter_strict=False``) preserves the existing tolerant fallback.
+    """
     shape = detect_workflow_shape(raw)
     if shape == "api":
         return raw.get("prompt", raw)
@@ -48,7 +58,8 @@ def normalize_to_api(
             try:
                 converted = convert_ui_to_api(raw)
             except Exception:
-                pass
+                if comfy_converter_strict:
+                    raise
             else:
                 if not _has_unknown_widget_inputs(converted):
                     _merge_slim_ui(raw, converted)

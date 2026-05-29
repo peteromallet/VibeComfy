@@ -1,10 +1,34 @@
 name: Schema Freshness
 
+# Per-pack hash verification against the booted ComfyUI registry (T18 / Step 13b).
+#
+# OLD behavior (pre-T18): git diff of the pinned cache against itself after a
+#   no-op refresh — always green.
+# NEW behavior:
+#   1. Compute a per-pack SHA256 hash for every pack file in the pinned
+#      object_info cache (vibecomfy/porting/cache/object_info/*.json).
+#   2. When ComfyUI IS available (comfy_backend.ensure_nodes() returns True),
+#      enumerate the booted registry's node classes and build a per-pack hash
+#      of the live object_info.
+#   3. Compare per-pack hashes.  Booted-registry-wins: if the pinned hash
+#      differs from the booted hash for a pack, FAIL — the pinned cache is
+#      stale.
+#   4. When ComfyUI is NOT available, SKIP the hash-comparison step (non-comfy
+#      runners are a no-op).
+#   5. Custom packs that exist only in the pinned cache (un-importable by the
+#      booted ComfyUI) are "cache-only" — advisory, never trigger failure.
+#   6. Static-AST only: NEVER auto-install untrusted packs.  This job only
+#      reads cached data and the booted registry; it never runs pip install,
+#      git clone, or any node-pack installation.
+#
+# Conflict rule: booted-registry-wins.
+# Pinned snapshot is demoted to a cache for un-importable custom packs only.
+
 on:
   workflow_dispatch:
     inputs:
       object_info_source:
-        description: "Optional path to a committed object_info JSON/cache file in the checkout"
+        description: "Optional path to the pinned object_info cache directory"
         required: false
         default: "vibecomfy/porting/cache/object_info"
 
@@ -15,6 +39,7 @@ permissions:
 jobs:
   schema-freshness:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -27,22 +52,178 @@ jobs:
       - name: Install package
         run: python -m pip install -e .
 
-      - name: Refresh schema cache from local object_info source
+      # ------------------------------------------------------------------
+      # Guard: check ComfyUI availability.
+      #
+      # Exits 0 when ensure_nodes() returns True → proceed to hash check.
+      # Exits 1 when comfy is absent → skip the hash-check step.
+      # ------------------------------------------------------------------
+      - name: Check ComfyUI availability (env-gate)
+        id: comfy-gate
         run: |
-          mkdir -p out/schema-freshness
-          python -m vibecomfy.cli schemas refresh --source "${{ inputs.object_info_source }}" --json \
-            > out/schema-freshness/refresh.json
+          python -c "
+          from vibecomfy.comfy_backend import ensure_nodes
+          import sys
+          if ensure_nodes():
+              print('ComfyUI booted — will run per-pack hash check.')
+              sys.exit(0)
+          else:
+              print('ComfyUI NOT available — skipping per-pack hash check.')
+              sys.exit(1)
+          "
 
-      - name: Capture schema diff
+      # ------------------------------------------------------------------
+      # Per-pack hash verification (runs only when comfy is available).
+      #
+      # Algorithm:
+      #   1. Read pinned index.json → {class_type: pack_filename}.
+      #   2. For each pack file in the pinned cache, compute
+      #      SHA256(json.dumps(pack_data, sort_keys=True)).
+      #   3. Enumerate the booted ComfyUI registry (NODE_CLASS_MAPPINGS)
+      #      and group by the same pack_filename.
+      #   4. For each pack, compare pinned hash vs booted hash.
+      #   5. Booted-registry-wins: mismatch → FAIL.
+      #   6. Packs only in pinned cache → "cache-only" (advisory, never fail).
+      # ------------------------------------------------------------------
+      - name: Per-pack hash vs booted registry
+        id: hash-check
+        if: steps.comfy-gate.outcome == 'success'
         run: |
-          git diff -- vibecomfy/porting/cache/object_info > out/schema-freshness/schema.diff
-          if [ -s out/schema-freshness/schema.diff ]; then
-            echo "Schema cache changes detected. See uploaded schema.diff artifact."
-          else
-            echo "No schema cache changes detected." | tee out/schema-freshness/schema.diff
-          fi
+          python -c "
+          import hashlib, json, sys
+          from collections import defaultdict
+          from pathlib import Path
 
+          CACHE_ROOT = Path('${{ inputs.object_info_source }}')
+          INDEX_PATH = CACHE_ROOT / 'index.json'
+
+          if not INDEX_PATH.exists():
+              print(f'ERROR: index.json not found at {INDEX_PATH}')
+              sys.exit(1)
+
+          # --- 1. Pinned cache: per-pack hashes ---
+          pinned_index = json.loads(INDEX_PATH.read_text())
+          pinned_pack_hashes: dict[str, str] = {}
+          pinned_pack_classes: dict[str, set[str]] = defaultdict(set)
+
+          for ct, pf in pinned_index.items():
+              pinned_pack_classes[pf].add(ct)
+
+          for pack_file in sorted(pinned_pack_classes):
+              pack_path = CACHE_ROOT / pack_file
+              if not pack_path.exists():
+                  continue
+              pack_data = json.loads(pack_path.read_text())
+              pack_subset = {
+                  ct: pack_data[ct]
+                  for ct in pinned_pack_classes[pack_file]
+                  if ct in pack_data
+              }
+              pack_hash = hashlib.sha256(
+                  json.dumps(pack_subset, sort_keys=True, default=str).encode()
+              ).hexdigest()
+              pinned_pack_hashes[pack_file] = pack_hash
+
+          print(f'Pinned cache: {len(pinned_pack_hashes)} packs')
+
+          # --- 2. Booted registry: enumerate via NODE_CLASS_MAPPINGS ---
+          import comfy.nodes
+          from comfy.nodes import NODE_CLASS_MAPPINGS
+
+          booted_classes: dict[str, dict] = {}
+          for class_type, node_cls in NODE_CLASS_MAPPINGS.items():
+              entry: dict = {'class_type': class_type}
+              try:
+                  input_types = node_cls.INPUT_TYPES()
+                  entry['input'] = input_types
+              except Exception:
+                  entry['input'] = {}
+              try:
+                  entry['output_node'] = node_cls.OUTPUT_NODE
+              except Exception:
+                  entry['output_node'] = False
+              try:
+                  entry['output'] = node_cls.RETURN_TYPES
+              except Exception:
+                  entry['output'] = []
+              try:
+                  entry['category'] = getattr(node_cls, 'CATEGORY', '')
+              except Exception:
+                  entry['category'] = ''
+              booted_classes[class_type] = entry
+
+          print(f'Booted registry: {len(booted_classes)} classes')
+
+          # Group booted classes by pinned pack file
+          booted_by_pack: dict[str, dict] = defaultdict(dict)
+          for ct, info in booted_classes.items():
+              pf = pinned_index.get(ct)
+              if pf:
+                  booted_by_pack[pf][ct] = info
+
+          booted_pack_hashes: dict[str, str] = {}
+          for pack_file, classes in booted_by_pack.items():
+              booted_hash = hashlib.sha256(
+                  json.dumps(classes, sort_keys=True, default=str).encode()
+              ).hexdigest()
+              booted_pack_hashes[pack_file] = booted_hash
+
+          # --- 3. Compare ---
+          errors: list[str] = []
+          cache_only: list[str] = []
+          matched = 0
+
+          for pack_file in sorted(pinned_pack_hashes):
+              pinned_hash = pinned_pack_hashes[pack_file]
+              if pack_file not in booted_pack_hashes:
+                  cache_only.append(pack_file)
+                  continue
+              booted_hash = booted_pack_hashes[pack_file]
+              if pinned_hash == booted_hash:
+                  matched += 1
+              else:
+                  errors.append(
+                      f'{pack_file}: PINNED {pinned_hash[:16]} != BOOTED {booted_hash[:16]}'
+                  )
+
+          # --- 4. Report ---
+          output_dir = Path('out/schema-freshness')
+          output_dir.mkdir(parents=True, exist_ok=True)
+          report = {
+              'pinned_packs': len(pinned_pack_hashes),
+              'booted_classes': len(booted_classes),
+              'matched': matched,
+              'cache_only': len(cache_only),
+              'errors': len(errors),
+              'error_details': errors,
+              'cache_only_packs': cache_only,
+          }
+          (output_dir / 'freshness_report.json').write_text(
+              json.dumps(report, indent=2)
+          )
+
+          print(f'\\n=== Schema Freshness Report ===')
+          print(f'  Pinned packs: {report[\"pinned_packs\"]}')
+          print(f'  Booted classes: {report[\"booted_classes\"]}')
+          print(f'  Matched: {matched}')
+          print(f'  Cache-only: {len(cache_only)}')
+          print(f'  Errors (stale): {len(errors)}')
+
+          if errors:
+              print(f'\\n  STALE PACKS (booted-registry-wins):')
+              for e in errors:
+                  print(f'    {e}')
+              print(f'\\nFAIL: {len(errors)} pack(s) stale — pinned cache must be refreshed.')
+              sys.exit(1)
+
+          print(f'\\nPASS: All {matched} packs match the booted registry.')
+          "
+
+      # ------------------------------------------------------------------
+      # Upload the freshness report (always, if the step ran).
+      # ------------------------------------------------------------------
       - name: Upload schema freshness artifacts
+        if: always() && steps.hash-check.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: schema-freshness

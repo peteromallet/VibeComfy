@@ -89,7 +89,7 @@ _CONTROL_AFTER_GENERATE_DEFAULT = "fixed"
 _ENVELOPE_ID_NAMESPACE = uuid.UUID("6f1d2c3a-4b5e-4a6c-8d9e-0f1a2b3c4d5e")
 
 # Litegraph editor format version this emitter targets.
-_LITEGRAPH_VERSION = 0.4
+_LITEGRAPH_VERSION = 1.0
 
 # Layout-schema version stamped into the breadcrumb (extra.vibecomfy.layout_version).
 # M2 replaces _stub_layout with real layout and will bump this. M3 preserve-mode keys
@@ -1244,15 +1244,18 @@ def emit_ui_json(
     return envelope
 
 
-def offline_parity_check(
+def offline_emitter_normalizer_self_consistency_check(
     wf: Any,
     *,
     schema_provider: Any = None,
 ) -> tuple[bool, list[str]]:
-    """Offline wiring-parity gate: emit → normalize → compare against compile("api").
+    """Self-consistency check: emitter and normalizer agree on the same IR.
 
-    Runs ``_normalize_ui_to_api(emit_ui_json(wf))`` and compares it to
-    ``wf.compile("api")`` with :func:`parity.compile_equivalent` (node-id-agnostic).
+    Proves that ``emit_ui_json`` and ``_normalize_ui_to_api`` are inverses of
+    each other on the given workflow — NOT that the result is correct relative
+    to ComfyUI's own output.  After compile('api') drops muted/bypassed nodes,
+    the compare is against the potentially-smaller compiled graph.
+
     This NEVER imports ComfyUI — it calls the pure-Python ``_normalize_ui_to_api``
     fallback directly rather than ``normalize_to_api`` (which would try the comfy
     converter).  Returns ``(equivalent, diffs)``.
@@ -1370,7 +1373,7 @@ def structural_validate(
 
 __all__ = [
     "emit_ui_json",
-    "offline_parity_check",
+    "offline_emitter_normalizer_self_consistency_check",
     "structural_validate",
     "default_output_path",
 ]

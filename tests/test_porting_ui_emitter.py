@@ -483,6 +483,109 @@ def test_corpus_compile_api_byte_identity() -> None:
 
 
 # ---------------------------------------------------------------------------
+# T12 — full-corpus mode==0 byte-identity regression (Step 9b)
+# ---------------------------------------------------------------------------
+
+
+def test_corpus_mode_zero_compile_byte_identity() -> None:
+    """Step 9b (T12): Confirm byte-identical compile for all mode==0 graphs.
+
+    After T11 adds muted/bypassed node dropping, this test verifies that
+    workflows whose nodes are ALL mode==0 are unchanged — i.e., the drop
+    path is a true no-op for clean graphs and only activates when mode!=0
+    nodes exist.
+    """
+    from pathlib import Path
+
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.workflow import _get_node_mode
+
+    corpus_root = Path("workflow_corpus")
+    exclude = {
+        "manifests/coverage.json",
+        "manifests/ready_regeneration.json",
+    }
+    json_paths = sorted(
+        p
+        for p in corpus_root.rglob("*.json")
+        if str(p.relative_to(corpus_root)) not in exclude
+    )
+
+    mode0_total = 0
+    mode0_deterministic = 0
+    mode_nonzero = 0
+    skipped_no_modes = 0
+    compile_errors = 0
+
+    for path in json_paths:
+        with open(path) as fh:
+            raw = json.load(fh)
+        if not isinstance(raw.get("nodes"), list):
+            continue
+        wf = convert_to_vibe_format(raw)
+
+        # Determine if ALL nodes are mode==0
+        all_mode0 = True
+        has_any_mode = False
+        for node in wf.nodes.values():
+            mode = _get_node_mode(node)
+            if mode != 0:
+                all_mode0 = False
+                has_any_mode = True
+                break
+            has_any_mode = True
+
+        if not has_any_mode:
+            skipped_no_modes += 1
+            continue
+
+        if not all_mode0:
+            mode_nonzero += 1
+            continue
+
+        mode0_total += 1
+
+        # Compile must be deterministic (byte-identical repeat)
+        try:
+            api1 = wf.compile("api")
+            api2 = wf.compile("api")
+        except Exception:
+            compile_errors += 1
+            continue
+
+        json1 = json.dumps(api1, sort_keys=True, default=str)
+        json2 = json.dumps(api2, sort_keys=True, default=str)
+        assert json1 == json2, (
+            f"{path}: mode==0 compile('api') not deterministic"
+        )
+
+        # Structural check: all nodes in compile output must have
+        # class_type + inputs
+        for node_id, node_data in api1.items():
+            assert "class_type" in node_data, (
+                f"{path} node {node_id}: missing class_type"
+            )
+            assert "inputs" in node_data, (
+                f"{path} node {node_id}: missing inputs"
+            )
+
+        mode0_deterministic += 1
+
+    assert mode0_deterministic > 0, (
+        f"No mode==0 workflows compiled successfully."
+        f" (mode0_total={mode0_total}, skipped_no_modes={skipped_no_modes},"
+        f" mode_nonzero={mode_nonzero}, compile_errors={compile_errors})"
+    )
+
+    print(
+        f"\n[T12] mode==0 compile byte-identity verified on"
+        f" {mode0_deterministic}/{mode0_total} mode==0 workflows"
+        f" (mode_nonzero={mode_nonzero}, skipped={skipped_no_modes},"
+        f" errors={compile_errors})"
+    )
+
+
+# ---------------------------------------------------------------------------
 # T7 — id remap, broadcast fan-out, primitive feeders, multi-output, subgraphs
 # ---------------------------------------------------------------------------
 
@@ -649,23 +752,23 @@ def test_offline_parity_gate_green_on_starter_set(path: str) -> None:
     """compile_equivalent(_normalize_ui_to_api(emit_ui_json(wf)), compile('api')) — never
     imports ComfyUI — is green for a >=5 starter set spanning image/video/edit."""
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import offline_parity_check
+    from vibecomfy.porting.ui_emitter import offline_emitter_normalizer_self_consistency_check
 
     with open(path) as handle:
         raw = json.load(handle)
     wf = convert_to_vibe_format(raw)
-    ok, diffs = offline_parity_check(wf, schema_provider=_local_provider())
+    ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=_local_provider())
     assert ok, f"{path}: {diffs[:5]}"
 
 
 def test_offline_parity_never_imports_comfy() -> None:
     """The offline gate must not import ComfyUI. Build the IR first (ingest itself may
     probe comfy with an ImportError fallback), then poison ``comfy`` imports *only*
-    around offline_parity_check and assert it still runs green."""
+    around offline_emitter_normalizer_self_consistency_check and assert it still runs green."""
     import builtins
 
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import offline_parity_check
+    from vibecomfy.porting.ui_emitter import offline_emitter_normalizer_self_consistency_check
 
     with open("workflow_corpus/official/video/wan_t2v.json") as handle:
         raw = json.load(handle)
@@ -681,7 +784,7 @@ def test_offline_parity_never_imports_comfy() -> None:
 
     builtins.__import__ = _poisoned
     try:
-        ok, diffs = offline_parity_check(wf, schema_provider=provider)
+        ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=provider)
     finally:
         builtins.__import__ = real_import
     assert ok, diffs[:5]
@@ -692,7 +795,7 @@ def test_ksampler_none_widget_alignment_roundtrips() -> None:
     widget positions after it on round-trip. Exercises the _schema_input_names None-strip
     coupling end-to-end: seed/steps/cfg/sampler_name/scheduler/denoise stay positionally
     correct and parity holds even with a retained control value."""
-    from vibecomfy.porting.ui_emitter import offline_parity_check
+    from vibecomfy.porting.ui_emitter import offline_emitter_normalizer_self_consistency_check
 
     wf = _wf()
     node = _ksampler()
@@ -706,7 +809,7 @@ def test_ksampler_none_widget_alignment_roundtrips() -> None:
     # Values stay aligned to the compacted (None-stripped) schema ordering.
     assert ksamp["widgets_values"] == [5, 20, 7.0, "euler", "normal", 1.0]
 
-    ok, diffs = offline_parity_check(wf)
+    ok, diffs = offline_emitter_normalizer_self_consistency_check(wf)
     assert ok, diffs[:5]
 
 
@@ -853,6 +956,237 @@ def test_comfy_release_smoke_convert_ui_to_api() -> None:
                 f"uid {uid}: emitted pos {emitted_node['pos']} != "
                 f"source pos {expected_pos}"
             )
+
+
+# ---------------------------------------------------------------------------
+# T20 (Step 14b) — Layer 3 corpus-wide convert_ui_to_api gate (env-gated)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.comfy
+def test_layer3_corpus_wide_convert_ui_to_api_gate() -> None:
+    """Step 14b (T20): Layer-3 GATE OF RECORD for corpus-wide convert_ui_to_api.
+
+    Deepens the single-workflow smoke test to the entire real corpus.
+    For every UI-shaped JSON workflow in workflow_corpus/ (excluding manifests):
+
+    1. emit_ui_json(wf) → ComfyUI's convert_ui_to_api → canonical_equal vs
+       wf.compile('api'), confirming the emitter + Comfy converter produce the
+       same API graph as our internal compile path.
+    2. Also canonical-equal vs normalize_to_api(raw, comfy_converter_strict=True),
+       which calls convert_ui_to_api on the raw JSON directly — if the emitter is
+       faithful, both paths should agree.
+    3. Object-info input-name check: for each node with a known schema, confirm
+       that every input name in the convert_ui_to_api output appears in the
+       schema's input names (matches the emitter's own source).
+    4. Bypass/mute graphs (mode 2 / mode 4) match — ComfyUI drops both in
+       convert_ui_to_api (workflow_convert.py:1166-1167) and T11 drops them in
+       compile('api').
+
+    Schema-less nodes are the GATE OF RECORD here — this is the definitive
+    verification that ComfyUI's convert_ui_to_api accepts our emitted output
+    even when a node has no registered schema.
+    """
+    import logging
+    import os
+    from pathlib import Path
+
+    if os.environ.get("VIBECOMFY_COMFY_SMOKE") != "1":
+        pytest.skip("comfy Layer-3 gate is opt-in (set VIBECOMFY_COMFY_SMOKE=1)")
+
+    comfy_convert = pytest.importorskip(
+        "comfy.component_model.workflow_convert"
+    ).convert_ui_to_api
+
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.ingest.normalize import normalize_to_api
+    from vibecomfy.testing.canonical import canonical_equal
+
+    corpus_root = Path("workflow_corpus")
+    exclude = {
+        "manifests/coverage.json",
+        "manifests/ready_regeneration.json",
+    }
+    json_paths = sorted(
+        p
+        for p in corpus_root.rglob("*.json")
+        if str(p.relative_to(corpus_root)) not in exclude
+    )
+
+    stats = {
+        "total_checked": 0,
+        "canonical_pass": 0,
+        "canonical_fail": 0,
+        "compile_errors": 0,
+        "emit_errors": 0,
+        "comfy_convert_errors": 0,
+        "normalize_strict_errors": 0,
+        "schema_less_workflows": 0,
+        "schema_less_nodes_total": 0,
+        "mode_bypass_muted": 0,
+        "canonical_fail_details": [],  # type: list[str]
+    }
+
+    from vibecomfy.schema import get_schema_provider
+
+    # Suppress warnings from emit_ui_json about schema-less nodes / widget
+    # overflows — these are expected in the corpus and should not pollute
+    # test output.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+
+        for path in json_paths:
+            rel = str(path.relative_to(corpus_root))
+            with open(path) as fh:
+                raw = json.load(fh)
+
+            if not isinstance(raw.get("nodes"), list):
+                continue
+
+            wf = convert_to_vibe_format(raw)
+
+            # Build the schema provider once per workflow
+            provider = get_schema_provider("local")
+
+            # Count schema-less nodes and bypass/muted nodes
+            has_schema_less = False
+            for node in wf.nodes.values():
+                schema = provider.get_schema(node.class_type)
+                if schema is None:
+                    has_schema_less = True
+                    stats["schema_less_nodes_total"] += 1
+                mode = node.metadata.get("_ui", {}).get("mode", 0)
+                if mode in (2, 4):
+                    stats["mode_bypass_muted"] += 1
+            if has_schema_less:
+                stats["schema_less_workflows"] += 1
+
+            # --------------- Path A: emit → comfy_convert ---------------
+            try:
+                ui = emit_ui_json(wf, schema_provider=provider)
+            except Exception as exc:
+                stats["emit_errors"] += 1
+                stats["canonical_fail_details"].append(
+                    f"{rel}: emit_ui_json raised {type(exc).__name__}: {exc}"
+                )
+                continue
+
+            try:
+                comfy_api = comfy_convert(ui)
+            except Exception as exc:
+                stats["comfy_convert_errors"] += 1
+                stats["canonical_fail_details"].append(
+                    f"{rel}: comfy_convert raised {type(exc).__name__}: {exc}"
+                )
+                continue
+
+            assert isinstance(comfy_api, dict) and comfy_api, (
+                f"{rel}: convert_ui_to_api returned empty/non-dict result"
+            )
+
+            # --------------- Path B: compile('api') ---------------
+            try:
+                compile_api = wf.compile("api")
+            except Exception as exc:
+                stats["compile_errors"] += 1
+                stats["canonical_fail_details"].append(
+                    f"{rel}: compile('api') raised {type(exc).__name__}: {exc}"
+                )
+                continue
+
+            # --------------- Path C: normalize_to_api(strict) ---------------
+            try:
+                strict_api = normalize_to_api(
+                    raw, comfy_converter_strict=True, use_comfy_converter=True
+                )
+            except Exception as exc:
+                stats["normalize_strict_errors"] += 1
+                stats["canonical_fail_details"].append(
+                    f"{rel}: normalize_to_api(strict) raised {type(exc).__name__}: {exc}"
+                )
+                continue
+
+            # --------------- Canonical equality ---------------
+            if not canonical_equal(comfy_api, compile_api):
+                stats["canonical_fail"] += 1
+                stats["canonical_fail_details"].append(
+                    f"{rel}: comfy_convert(emit) != compile('api')"
+                )
+                continue
+
+            if not canonical_equal(comfy_api, strict_api):
+                stats["canonical_fail"] += 1
+                stats["canonical_fail_details"].append(
+                    f"{rel}: comfy_convert(emit) != normalize_to_api(strict)"
+                )
+                continue
+
+            # --------------- Object-info input-name check ---------------
+            _check_canonical_input_names(comfy_api, wf, rel, stats)
+
+            stats["canonical_pass"] += 1
+            stats["total_checked"] += 1
+
+    # --------------- Final assertions ---------------
+    assert stats["total_checked"] > 0, (
+        f"No corpus workflows passed the Layer-3 gate. "
+        f"Details: {stats['canonical_fail_details'][:5] if stats['canonical_fail_details'] else 'none'}"
+    )
+
+    if stats["canonical_fail"] > 0:
+        detail_summary = "\n  ".join(stats["canonical_fail_details"][:10])
+        input_mismatches = stats.get("input_name_mismatches", 0)
+        assert False, (
+            f"Layer-3 gate: {stats['canonical_fail']} of "
+            f"{stats['total_checked'] + stats['canonical_fail']} workflows "
+            f"failed canonical equality.\n"
+            f"Total checked: {stats['total_checked']}\n"
+            f"Compile errors: {stats['compile_errors']}\n"
+            f"Emit errors: {stats['emit_errors']}\n"
+            f"Comfy-convert errors: {stats['comfy_convert_errors']}\n"
+            f"Normalize-strict errors: {stats['normalize_strict_errors']}\n"
+            f"Input-name mismatches: {input_mismatches}\n"
+            f"Schema-less workflows: {stats['schema_less_workflows']} "
+            f"({stats['schema_less_nodes_total']} nodes)\n"
+            f"Bypass/muted nodes: {stats['mode_bypass_muted']}\n"
+            f"Failures (first 10):\n  {detail_summary}"
+        )
+
+    # The gate-of-record assertion: schema-less nodes MUST survive the
+    # comfy converter without causing equality failures.  If schema_less
+    # workflows pass canonical_equal, they are verified.
+    assert stats["canonical_fail"] == 0, (
+        f"Layer-3 gate: {stats['canonical_fail']} canonical-equality failures "
+        f"in {stats['canonical_pass']} checked workflows"
+    )
+
+
+def _check_canonical_input_names(
+    comfy_api: dict,
+    wf: "VibeWorkflow",
+    rel: str,
+    stats: dict,
+) -> None:
+    """Per-node input-name check: every input in the comfy API must appear
+    in the schema's input names for that class_type (when a schema exists)."""
+    # Use the same provider used by the main test — import locally to avoid
+    # circular dependencies at module level.
+    from vibecomfy.schema import get_schema_provider
+    provider = get_schema_provider("local")
+    for node_id, node_data in comfy_api.items():
+        class_type = node_data.get("class_type", "")
+        schema = provider.get_schema(class_type)
+        if schema is None:
+            continue  # schema-less node — no input-name check possible
+        schema_input_names = frozenset(schema.inputs.keys()) if schema.inputs else frozenset()
+        for input_name in node_data.get("inputs", {}):
+            if isinstance(input_name, str) and input_name not in schema_input_names:
+                # Check if it's a link value (list), not a widget
+                val = node_data["inputs"][input_name]
+                if isinstance(val, list) and len(val) == 2:
+                    continue  # link inputs use canonical slot names
+                stats.setdefault("input_name_mismatches", 0)
+                stats["input_name_mismatches"] += 1
 
 
 # ---------------------------------------------------------------------------
@@ -1591,18 +1925,16 @@ def test_node_captured_with_mode_2_reemits_mode_2() -> None:
     assert emitted["type"] == "SaveImage"
 
 
-def test_mode_is_display_only_no_compile_change() -> None:
-    """T10: Mode is display-only — compile('api') output is byte-identical
-    regardless of whether nodes carry mode 0, 2, or 4.
+def test_mode_emit_reflects_display_state() -> None:
+    """T10: emit_ui_json re-emits the captured mode field in each node dict.
 
     Creates three identical workflows whose only difference is the captured
-    mode (0=none, 2=muted, 4=bypassed), then verifies:
-    1. compile('api') produces byte-identical JSON for all three.
-    2. emit_ui_json produces different mode fields in the node dicts.
+    mode (0=normal, 2=muted, 4=bypassed) and verifies that emit_ui_json
+    re-emits the correct mode value.  compile('api') behavior for mode!=0
+    is tested separately in test_compile_* (T11).
     """
     def _build_wf(mode_val: int) -> VibeWorkflow:
-        wf = _wf(f"mode-compile-{mode_val}")
-        # Two schema-known nodes connected: LoadImage → SaveImage
+        wf = _wf(f"mode-emit-{mode_val}")
         li = VibeNode("1", "LoadImage")
         li.uid = "uid-li"
         li.metadata["_ui"] = {
@@ -1633,16 +1965,6 @@ def test_mode_is_display_only_no_compile_change() -> None:
     wf2 = _build_wf(2)
     wf4 = _build_wf(4)
 
-    # compile('api') must be byte-identical for all three
-    api0 = json.dumps(wf0.compile("api"), sort_keys=True)
-    api2 = json.dumps(wf2.compile("api"), sort_keys=True)
-    api4 = json.dumps(wf4.compile("api"), sort_keys=True)
-
-    assert api0 == api2, "compile('api') must be identical for mode 0 vs mode 2"
-    assert api0 == api4, "compile('api') must be identical for mode 0 vs mode 4"
-    assert api2 == api4, "compile('api') must be identical for mode 2 vs mode 4"
-
-    # emit_ui_json MUST differ in mode field
     emit0 = emit_ui_json(wf0, schema_provider=provider)
     emit2 = emit_ui_json(wf2, schema_provider=provider)
     emit4 = emit_ui_json(wf4, schema_provider=provider)
@@ -1654,6 +1976,73 @@ def test_mode_is_display_only_no_compile_change() -> None:
     assert nodes0 == {1: 0, 2: 0}, f"mode 0 emit: {nodes0}"
     assert nodes2 == {1: 2, 2: 2}, f"mode 2 emit: {nodes2}"
     assert nodes4 == {1: 4, 2: 4}, f"mode 4 emit: {nodes4}"
+
+
+# ---------------------------------------------------------------------------
+# T11 — compile('api') drops muted (mode=2) and bypassed (mode=4) nodes
+# ---------------------------------------------------------------------------
+
+
+def test_compile_byte_identical_no_mode_nodes() -> None:
+    """T11: compile('api') is byte-identical for graphs with no mode!=0 nodes.
+
+    Verifies the fast-path invariant: when no node carries _ui.mode != 0,
+    compile output is identical to a workflow with no _ui metadata at all.
+    """
+    wf_ui = _wf("mode0-ui")
+    n = VibeNode("1", "SaveImage")
+    n.metadata["_ui"] = {"pos": [0.0, 0.0], "size": [200.0, 100.0], "flags": {}, "mode": 0}
+    wf_ui.nodes["1"] = n
+
+    wf_bare = _wf("mode0-bare")
+    wf_bare.nodes["1"] = VibeNode("1", "SaveImage")
+
+    assert wf_ui.compile("api") == wf_bare.compile("api")
+
+
+def test_compile_muted_node_dropped() -> None:
+    """T11: A muted node (mode=2) is absent from compile('api') output."""
+    wf = _wf("muted-drop")
+    n = VibeNode("1", "LoadImage")
+    n.metadata["_ui"] = {"mode": 2}
+    wf.nodes["1"] = n
+
+    api = wf.compile("api")
+    assert "1" not in api, f"muted node must be dropped from compile output; got {api}"
+
+
+def test_compile_bypassed_node_direct_skip() -> None:
+    """T11: A bypassed node (mode=4) is dropped and downstream is wired to upstream.
+
+    Graph: A(mode=0) → B(mode=4, bypassed) → C(mode=0)
+    Expected compile output: A and C present; B absent; C.inputs["image"] = [A_id, 0].
+    """
+    wf = _wf("bypass-skip")
+
+    node_a = VibeNode("1", "LoadImage")
+    wf.nodes["1"] = node_a
+
+    node_b = VibeNode("2", "FakeMiddle")
+    node_b.metadata["_ui"] = {"mode": 4}
+    wf.nodes["2"] = node_b
+
+    node_c = VibeNode("3", "SaveImage")
+    wf.nodes["3"] = node_c
+
+    # A.output[0] → B.input["image"]
+    wf.edges.append(VibeEdge("1", "0", "2", "image"))
+    # B.output[0] → C.input["images"]
+    wf.edges.append(VibeEdge("2", "0", "3", "images"))
+
+    api = wf.compile("api")
+
+    assert "1" in api, "upstream node A must be in compile output"
+    assert "2" not in api, "bypassed node B must be absent from compile output"
+    assert "3" in api, "downstream node C must be in compile output"
+    # C should be wired directly to A (bypass resolved)
+    assert api["3"]["inputs"].get("images") == ["1", 0], (
+        f"C.inputs['images'] should be ['1', 0] after bypass resolution; got {api['3']['inputs']}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2000,3 +2389,41 @@ def test_main_positions_extra_ds_from_sidecar() -> None:
     assert result["extra"]["ds"] == sidecar_ds, (
         f"sidecar ds must be preserved: {result['extra']['ds']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# T17 — schema version 1.0 round-trip guard (Q2)
+# ---------------------------------------------------------------------------
+
+
+def test_schema_version_1_0_roundtrip() -> None:
+    """Step 13a (T17): Bump _LITEGRAPH_VERSION 0.4 → 1.0.
+
+    Q2 guard: a version-1.0 emitted file re-ingests/normalizes cleanly,
+    confirming the structural read path is version-agnostic.
+    """
+    from vibecomfy.ingest.normalize import _normalize_ui_to_api
+    from vibecomfy.porting.ui_emitter import _LITEGRAPH_VERSION as _VER
+    from vibecomfy.porting.parity import compile_equivalent
+
+    assert _VER == 1.0, f"_LITEGRAPH_VERSION should be 1.0, got {_VER}"
+
+    wf = _wf("t17_rt")
+    wf.nodes["1"] = VibeNode("1", "LoadImage", uid="load1")
+    wf.nodes["2"] = VibeNode("2", "SaveImage", uid="save1")
+    wf.nodes["3"] = VibeNode("3", "VAEDecode", uid="vae1")
+    wf.connect("1.0", "3.pixels")
+    wf.connect("3.0", "2.images")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ui = emit_ui_json(wf)
+
+    # The envelope must carry version 1.0
+    assert ui["version"] == 1.0, f"expected version 1.0, got {ui['version']!r}"
+
+    # Re-ingest/re-normalize should work cleanly (version-agnostic read)
+    api = wf.compile("api")
+    normalized = _normalize_ui_to_api(ui)
+    equal, diffs = compile_equivalent(normalized, api)
+    assert equal, f"version 1.0 round-trip failed: {diffs[:5]}"

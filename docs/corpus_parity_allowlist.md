@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-26  
 **Milestone:** M1 — Foundation (T12)  
-**Purpose:** Classify every `ready_templates/**/*.py` (64 files) and `workflow_corpus/**/*.json` (16 files) by their compatibility with the M1 offline parity gate (`offline_parity_check`). Produce the documented allowlist of entries the gate is permitted to skip, with per-entry reasons. All 80 entries are enumerated.
+**Purpose:** Classify every `ready_templates/**/*.py` (64 files) and `workflow_corpus/**/*.json` (16 files) by their compatibility with the M1 offline parity gate (`offline_emitter_normalizer_self_consistency_check`). Produce the documented allowlist of entries the gate is permitted to skip, with per-entry reasons. All 80 entries are enumerated.
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Bucket | Description |
 |---|---|
-| `clean` | `emit_ui_json` succeeds; `offline_parity_check` returns `(True, [])`. Gate runs and passes. |
+| `clean` | `emit_ui_json` succeeds; `offline_emitter_normalizer_self_consistency_check` returns `(True, [])`. Gate runs and passes. |
 | `subgraph_uuid` | Contains one or more UUID-typed opaque subgraph nodes. Gate runs and passes — UUID class types emit as-is and parity holds offline. |
 | `control_after_generate_default` | No schema-less nodes; CAG value absent from IR metadata (Python-authored or not captured at ingest) — emitter defaults to `fixed` and flags it, but CAG is UI-only so it does not enter `compile('api')`. Gate runs and passes. |
 | `schema_less` | One or more nodes have no schema entry in `widget_schema.py` or the object-info cache. Best-effort emission; parity may fail. |
@@ -83,7 +83,7 @@ These 25 entries use the parity gate without a skip.
 
 ## Allowlist — entries the parity gate is permitted to skip
 
-The gate MUST be skipped for these entries. Automated test harnesses asserting `offline_parity_check` passes should exclude them using this list.
+The gate MUST be skipped for these entries. Automated test harnesses asserting `offline_emitter_normalizer_self_consistency_check` passes should exclude them using this list.
 
 ### Reason codes
 
@@ -92,7 +92,7 @@ The gate MUST be skipped for these entries. Automated test harnesses asserting `
 | `EMIT_ERROR` | `emit_ui_json` raises before reaching the parity gate |
 | `NAMED_CAG_DIVERGENCE` | Named `control_after_generate` (or adjacent None-slot widget like `WanVideoSampler.force_offload`) survives `_normalize_ui_to_api` but is stripped by `compile('api')` via `_is_ui_only_prompt_input`. M1 offline oracle diverges from compile here; emitted UI JSON is correct for ComfyUI. |
 | `SCHEMA_LESS_WIDGET` | One or more schema-less nodes have widgets the emitter cannot reconstruct; round-trip widget values diverge from `compile('api')` output. |
-| `PARITY_FAIL_TOPOLOGY` | `offline_parity_check` returns `(False, [...])` with topology diffs (not just widget values); schema-less nodes cause API graph shape divergence. |
+| `PARITY_FAIL_TOPOLOGY` | `offline_emitter_normalizer_self_consistency_check` returns `(False, [...])` with topology diffs (not just widget values); schema-less nodes cause API graph shape divergence. |
 | `NOT_A_WORKFLOW` | File is not a workflow (manifest/config); `workflow_from_file` raises. |
 
 ---
@@ -228,7 +228,7 @@ Root cause: one or more nodes have no schema in `widget_schema.py` or the object
 
 ## Complete allowlist index
 
-The following 45 paths are on the parity gate allowlist. A test asserting `offline_parity_check(wf) == (True, [])` MUST skip these.
+The following 45 paths are on the parity gate allowlist. A test asserting `offline_emitter_normalizer_self_consistency_check(wf) == (True, [])` MUST skip these.
 
 ```
 # Manifests — NOT_A_WORKFLOW

@@ -581,13 +581,19 @@ class VibeWorkflow:
         if backend != "api":
             raise ValueError(f"Unknown compile backend: {backend}")
         broadcast_sources = workflow_helpers.collect_broadcast_sources(self.nodes, self.edges)
+        dropped_ids, bypassed_ids = _compute_dropped_bypassed_ids(self.nodes)
+        resolved_edges = _resolve_bypass_edges(self.edges, dropped_ids, bypassed_ids)
         api: dict[str, Any] = {}
         for node_id, node in self.nodes.items():
             if _is_ui_only_node(node):
                 continue
+            if str(node_id) in dropped_ids:
+                continue
             inputs = _rewrite_broadcast_links(_compile_node_inputs(node), self.nodes, broadcast_sources)
             api[str(node_id)] = {"class_type": node.class_type, "inputs": inputs}
-        edge_inputs = _compile_resolved_edge_inputs(self.nodes, self.edges, broadcast_sources)
+        edge_inputs = _compile_resolved_edge_inputs(
+            self.nodes, resolved_edges, broadcast_sources, dropped_ids=dropped_ids
+        )
         for target_node_id, inputs in edge_inputs.items():
             if target_node_id not in api:
                 continue
@@ -894,6 +900,97 @@ def _is_ui_only_node(node: VibeNode) -> bool:
     return workflow_helpers.is_helper_class_type(node.class_type)
 
 
+_MODE_MUTED: int = 2   # ComfyUI node.mode == 2 → muted (never executes)
+_MODE_BYPASS: int = 4  # ComfyUI node.mode == 4 → bypassed (dropped; edges rewired)
+
+
+def _get_node_mode(node: VibeNode) -> int:
+    """Read the litegraph mode (0/2/4) from _ui metadata; defaults to 0."""
+    ui = node.metadata.get("_ui")
+    if not isinstance(ui, dict):
+        return 0
+    mode = ui.get("mode", 0)
+    return mode if isinstance(mode, int) else 0
+
+
+def _compute_dropped_bypassed_ids(
+    nodes: dict[str, VibeNode],
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Return (dropped_ids, bypassed_ids) for compile(api) mode filtering.
+
+    dropped_ids: node ids with mode 2 (muted) or mode 4 (bypassed) — excluded from output.
+    bypassed_ids: subset of dropped_ids with mode 4 — edges are rewired around them.
+    """
+    dropped: set[str] = set()
+    bypassed: set[str] = set()
+    for node_id, node in nodes.items():
+        mode = _get_node_mode(node)
+        if mode in (_MODE_MUTED, _MODE_BYPASS):
+            dropped.add(str(node_id))
+        if mode == _MODE_BYPASS:
+            bypassed.add(str(node_id))
+    return frozenset(dropped), frozenset(bypassed)
+
+
+def _resolve_bypass_edges(
+    edges: list[VibeEdge],
+    dropped_ids: frozenset[str],
+    bypassed_ids: frozenset[str],
+) -> list[VibeEdge]:
+    """Rewrite the edge list to remove muted/bypassed nodes.
+
+    Mirrors ComfyUI workflow_convert.py _MODE_NEVER/_MODE_BYPASS semantics:
+    - Edges targeting any dropped node are removed.
+    - Edges sourcing from muted (mode=2) nodes are removed.
+    - Edges sourcing from bypassed (mode=4) nodes are resolved to their bypass
+      source using same-slot index matching (output slot N maps to the N-th
+      incoming edge, or slot 0 if N is out of range).
+
+    Returns edges unchanged when dropped_ids is empty (byte-identical fast path).
+    """
+    if not dropped_ids:
+        return edges
+
+    incoming: dict[str, list[VibeEdge]] = {}
+    for edge in edges:
+        incoming.setdefault(str(edge.to_node), []).append(edge)
+
+    def _follow(node_id: str, from_out: str, seen: frozenset[str]) -> tuple[str, str] | None:
+        if node_id in seen:
+            return None
+        if node_id not in dropped_ids:
+            return (node_id, from_out)
+        if node_id not in bypassed_ids:
+            return None  # muted: dead end
+        try:
+            slot = int(from_out)
+        except (TypeError, ValueError):
+            slot = 0
+        feeds = incoming.get(node_id, [])
+        if not feeds:
+            return None
+        feed = feeds[slot] if slot < len(feeds) else feeds[0]
+        return _follow(str(feed.from_node), feed.from_output, seen | {node_id})
+
+    result: list[VibeEdge] = []
+    for edge in edges:
+        from_id = str(edge.from_node)
+        to_id = str(edge.to_node)
+        if to_id in dropped_ids:
+            continue
+        if from_id in dropped_ids:
+            if from_id not in bypassed_ids:
+                continue
+            resolved = _follow(from_id, edge.from_output, frozenset())
+            if resolved is None:
+                continue
+            nf, no = resolved
+            result.append(VibeEdge(nf, no, edge.to_node, edge.to_input))
+        else:
+            result.append(edge)
+    return result
+
+
 def _rewrite_broadcast_links(
     inputs: dict[str, Any],
     nodes: dict[str, VibeNode],
@@ -917,13 +1014,15 @@ def _compile_resolved_edge_inputs(
     nodes: dict[str, VibeNode],
     edges: list[VibeEdge],
     broadcast_sources: dict[str, list[Any]],
+    *,
+    dropped_ids: frozenset[str] = frozenset(),
 ) -> dict[str, dict[str, list[Any]]]:
     """Build target->input resolved edge mapping shared by compile backends."""
     resolved: dict[str, dict[str, list[Any]]] = {}
     compiled_node_ids = {
         str(node_id)
         for node_id, node in nodes.items()
-        if not _is_ui_only_node(node)
+        if not _is_ui_only_node(node) and str(node_id) not in dropped_ids
     }
     for edge in edges:
         target_node_id = str(edge.to_node)

@@ -30,7 +30,7 @@ import pytest
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.ui_emitter import (
     emit_ui_json,
-    offline_parity_check,
+    offline_emitter_normalizer_self_consistency_check,
     structural_validate,
 )
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
@@ -108,7 +108,7 @@ def _ksampler(node_id: str = "1") -> VibeNode:
 def test_parity_starter_set(path: str) -> None:
     """>=5 starter workflows spanning image/video/edit pass the offline parity gate."""
     wf = _wf_from_json(path)
-    ok, diffs = offline_parity_check(wf, schema_provider=_local_provider())
+    ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=_local_provider())
     assert ok, f"{path}: {diffs[:5]}"
 
 
@@ -127,7 +127,7 @@ def test_parity_corpus_minus_allowlist(path: str) -> None:
     wf = _wf_from_json(path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        ok, diffs = offline_parity_check(wf, schema_provider=_local_provider())
+        ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=_local_provider())
     assert ok, f"{path}: {diffs[:5]}"
 
 
@@ -146,7 +146,7 @@ def test_parity_gate_never_imports_comfy() -> None:
 
     builtins.__import__ = _poisoned
     try:
-        ok, diffs = offline_parity_check(wf, schema_provider=provider)
+        ok, diffs = offline_emitter_normalizer_self_consistency_check(wf, schema_provider=provider)
     finally:
         builtins.__import__ = real_import
     assert ok, diffs[:5]
@@ -265,7 +265,7 @@ def test_ksampler_none_widget_roundtrip_alignment() -> None:
     ksamp = next(n for n in ui["nodes"] if n["type"] == "KSampler")
     assert ksamp["widgets_values"] == [5, 20, 7.0, "euler", "normal", 1.0]
 
-    ok, diffs = offline_parity_check(wf)
+    ok, diffs = offline_emitter_normalizer_self_consistency_check(wf)
     assert ok, diffs[:5]
 
 

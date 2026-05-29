@@ -280,3 +280,112 @@ def test_compile_api_byte_identical_with_and_without_mode() -> None:
     assert compiled_with == compiled_without, (
         "compile('api') output must not change when mode is present in metadata"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T19 — comfy_converter_strict parameter semantics (offline, no comfy needed)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Minimal UI-shaped workflow usable as a normalize_to_api input.
+_MINIMAL_UI_RAW: dict = {
+    "nodes": [{"id": 1, "type": "SaveImage", "inputs": [], "widgets_values": ["output"]}],
+    "links": [],
+}
+
+
+def test_comfy_converter_strict_absent_comfy_falls_through_to_offline() -> None:
+    """comfy_converter_strict=True with comfy absent: import guard skips cleanly.
+
+    When ``use_comfy_converter=True`` (default) but the comfy package cannot be
+    imported, the ImportError guard fires before strict mode is ever consulted.
+    The call must succeed by falling through to the offline converter — no
+    exception propagated, result is a valid API dict.
+    """
+    from unittest.mock import patch
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    # Simulate comfy being absent by making the import raise ImportError.
+    with patch.dict("sys.modules", {"comfy": None, "comfy.component_model": None,
+                                    "comfy.component_model.workflow_convert": None}):
+        result = normalize_to_api(_MINIMAL_UI_RAW, comfy_converter_strict=True)
+
+    assert isinstance(result, dict), "offline fallback must produce a dict"
+    assert "1" in result, "offline result must contain the single node"
+
+
+def test_comfy_converter_strict_no_op_when_use_comfy_converter_false() -> None:
+    """comfy_converter_strict is a no-op when use_comfy_converter=False.
+
+    When the comfy converter is disabled entirely (``use_comfy_converter=False``),
+    the strict flag must have no effect — the call succeeds using the offline
+    converter regardless of the flag value.
+    """
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    result_default = normalize_to_api(
+        _MINIMAL_UI_RAW, use_comfy_converter=False, comfy_converter_strict=False
+    )
+    result_strict = normalize_to_api(
+        _MINIMAL_UI_RAW, use_comfy_converter=False, comfy_converter_strict=True
+    )
+
+    import json
+    assert json.dumps(result_default, sort_keys=True) == json.dumps(result_strict, sort_keys=True), (
+        "comfy_converter_strict must be a no-op when use_comfy_converter=False — "
+        "both calls must produce identical output"
+    )
+
+
+def test_comfy_converter_strict_true_raises_when_converter_errors() -> None:
+    """comfy_converter_strict=True re-raises when convert_ui_to_api raises.
+
+    When comfy IS importable but ``convert_ui_to_api`` raises an exception,
+    ``comfy_converter_strict=True`` must propagate that exception rather than
+    silently falling back to the offline converter.
+    """
+    from unittest.mock import MagicMock, patch
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    failing_converter = MagicMock(side_effect=RuntimeError("converter_exploded"))
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = failing_converter
+
+    with patch.dict("sys.modules", {
+        "comfy": MagicMock(),
+        "comfy.component_model": MagicMock(),
+        "comfy.component_model.workflow_convert": fake_module,
+    }):
+        try:
+            normalize_to_api(_MINIMAL_UI_RAW, comfy_converter_strict=True)
+        except RuntimeError as exc:
+            assert "converter_exploded" in str(exc)
+        else:
+            raise AssertionError(
+                "Expected RuntimeError to propagate when comfy_converter_strict=True "
+                "and convert_ui_to_api raises"
+            )
+
+
+def test_comfy_converter_strict_false_tolerant_when_converter_errors() -> None:
+    """comfy_converter_strict=False (default) tolerates convert_ui_to_api failures.
+
+    When comfy IS importable but ``convert_ui_to_api`` raises, the default
+    (``comfy_converter_strict=False``) must silently fall through to the offline
+    converter — the existing tolerant behaviour is preserved.
+    """
+    from unittest.mock import MagicMock, patch
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    failing_converter = MagicMock(side_effect=RuntimeError("converter_exploded"))
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = failing_converter
+
+    with patch.dict("sys.modules", {
+        "comfy": MagicMock(),
+        "comfy.component_model": MagicMock(),
+        "comfy.component_model.workflow_convert": fake_module,
+    }):
+        result = normalize_to_api(_MINIMAL_UI_RAW, comfy_converter_strict=False)
+
+    assert isinstance(result, dict), "offline fallback must produce a dict"
+    assert "1" in result, "offline result must contain the single node"
