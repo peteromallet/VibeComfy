@@ -130,17 +130,29 @@ execute as one prompt, and (b) represent orchestration that *cannot*.
    build a second serializer.
 5. **One extension point.** A single reserved `vibecomfy.*` `class_type` namespace, not a
    sprawl of bespoke mechanisms.
-6. **Parse, don't exec — the agent's Python is data, never code we run.** **[verified]**
-   Every VibeComfy loader (`scratchpad_loader.py:24`, `registry/ready.py`, `porting/loader.py`,
-   and `convert.py` twice) does `spec.loader.exec_module()` then `build()` with **no sandbox,
-   timeout, or resource limit** — and `validate`/`doctor`/`inspect`/`run` all hit that path,
-   so "run validate first" *is* code execution. Fine for a human running their own templates
-   (the documented "trusted local Python" posture, `m7-plugin-verbs-release.md`); an RCE /
-   exfil / DoS channel the moment the *agent* writes the Python. The emitter's `build()` is
-   straight-line, closed-vocabulary node construction — an ideal target to reconstruct the IR
-   from the **AST without executing it**. The agent loop must parse, not exec; `exec` stays
-   behind an explicit trusted-author boundary. (This also resolves "is Python the right edit
-   medium?": Python-as-*data* is safe; Python-as-*code-we-run* is not.)
+6. **The agent edits the IR through structured tools — Python is for control-flow, not
+   surgery.** Two **[verified]** findings combine into the single most important interaction
+   decision:
+   - *Security:* every VibeComfy loader (`scratchpad_loader.py:24`, `registry/ready.py`,
+     `porting/loader.py`, `convert.py` twice) does `spec.loader.exec_module()` then `build()`
+     with **no sandbox, timeout, or resource limit** — and `validate`/`doctor`/`inspect`/`run`
+     all hit that path, so "run validate first" *is* code execution. Fine for a human running
+     their own templates; an RCE/exfil/DoS channel the moment the *agent* writes the Python.
+   - *Editability:* a capability probe (an agent editing real generated templates) found that
+     generated VibeComfy Python optimizes for round-trip fidelity, **not** editability —
+     non-local hoisted constants (a one-line change has graph-wide effect), literals with no
+     exposed param (a buried `seed`), invisible kwarg-as-edge wiring, manual `_id=` that
+     collide on duplication, and subgraph functions that hide the editable surface from
+     `build()`. Param tweaks on an obvious literal are safe; **add-node / duplicate-chain /
+     rewire are high-risk of "compiles but means the wrong thing."**
+   → **Rule:** the agent performs graph *structure* edits via the structured IR API
+   (`add_node`/`node()`/`connect`/`replace_edge`/`set_seed`/`finalize_metadata`) which owns id
+   allocation, edge integrity, and metadata rebuild — **not** by emitting Python text we parse
+   or (worse) exec. Python is reserved for **control-flow and composition** (loops, recipes,
+   the `vibecomfy.*` constructs); even there it is treated as **data — reconstructed from the
+   AST, never executed** — and `exec` stays behind an explicit trusted-author boundary. This
+   simultaneously closes the RCE surface and sidesteps most of the round-trip-fidelity risk
+   for the common (structural) edit, since the agent never round-trips edited text at all.
 7. **Verify against an independent oracle, not against ourselves.** **[verified]** The
    current parity gate compares VibeComfy's `compile("api")` to VibeComfy's `compile("api")`
    (§6) — it cannot catch a systematic ingest/compile error because both sides inherit it.
@@ -243,16 +255,91 @@ VibeComfy Python (build(): straight-line nodes + loop()/branch()/recipe calls)
    →  compile("api")  →  API JSON  →  runtime
 ```
 
-- **Lossless carriers:** node identity via a durable `vibecomfy.uid` (added by the emitter
-  epic); intent via `metadata`/`properties`; UI layout via the existing `.layout.json`
-  sidecar + `metadata.virtual_wires`.
+- **Lossless carriers:** node identity via a durable `vibecomfy_uid` (added by the emitter
+  epic, M2); intent via `metadata["_ui"]["properties"]`; UI layout via the existing
+  `.layout.json` sidecar + `metadata.virtual_wires`.
 - **What the emitter must learn:** today `build()` is straight-line and parity covers only
   the static DAG. Tiers B/C require the emitter to map a `vibecomfy.loop`/`branch`/
   `workflowref` node ⇄ a `loop(...)`/`branch(...)`/recipe-call. Tier A needs only an
   unroll/subgraph-wrap pass, which the emitter can already approximate.
-- **Validation:** every `vibecomfy.*` node keeps typed sockets, so the graph stays
-  checkable against `/api/object_info` (the independent oracle the emitter epic already
-  uses via the vendored ComfyUI `convert_ui_to_api`).
+
+### 6.1 Reality check — what the round-trip actually does today (measured)
+
+A harness was built that round-trips the corpus through VibeComfy and compares against
+ComfyUI's *own* `convert_ui_to_api` oracle (`vibecomfy/comfy_backend.py`) — the comparison
+the parity gate never makes. **[verified] findings, in priority order:**
+
+- **The parity gate is self-referential.** Both operands are VibeComfy's `compile("api")`
+  (`convert.py:333` source vs `:400-402` emitted), diffed by `compile_equivalent`
+  (`parity.py`). The ComfyUI oracle runs *only at ingest* (`normalize.py:44`), upstream of
+  both sides, so it cancels out. The gate proves **emit→reimport stability** (the Python
+  emitter is faithful to the IR), **not correctness vs ComfyUI**. It is blind to any
+  systematic ingest/IR/compile error, because both sides inherit it. → **Fix: feed
+  `convert_ui_to_api(original_ui)` as side A** so "parity passes" means "ComfyUI would
+  accept this." This is prerequisite #1 for trusting the loop.
+- **Fidelity against the real oracle is low on the curated corpus: ~29% exact** (7/48 exact
+  + 7 a *benign* convention diff where VibeComfy inlines a `PrimitiveInt` literal the oracle
+  keeps as a live node — semantically identical). The honest headline is **not** "corrupts
+  most workflows" — **no silent value corruption was observed**. Rather, **~35% (17/48) are
+  hard Get/Set-broadcast resolver failures** where VibeComfy raises `ConversionParityError`
+  and produces *no graph at all*; the rest are extra/missing-node diffs concentrated in
+  community Kijai/LTX graphs. Official image/video/edit families round-trip cleanly. Caveat:
+  this is the *curated* corpus, not the messy community long tail (which is likely worse).
+  → The agent must be fenced to the families that round-trip, and the Get/Set resolver is a
+  concrete, prioritized gap to close.
+- **Coverage holes the emitter drops:** bypassed/muted nodes lose `mode` (hardcoded `0` →
+  round-trip back *active*); node `groups` are dropped (`ui_emitter.py`); reroutes and
+  subgraph internals are resolved/stripped before parity so corruption inside them is
+  invisible. These are real fidelity bugs for an editor-facing tool.
+- **Identity: the diff keys on `vibecomfy_uid`, never the litegraph int id** (the ints are
+  unstable/renumbered). The uid scheme was tested against the *installed* code, not just
+  reasoned about — **[verified]** results:
+  - A *stamped* `vibecomfy_uid` is **deterministic** (same source → same uid),
+    **collision-immune** (distinct stamps stay distinct even at the same int id), and
+    **survives the editor `serialize/configure` round-trip** (even on unregistered nodes).
+    For stamped nodes, identity is solid.
+  - **Fresh editor- and agent-created nodes carry NO `vibecomfy_uid`** — `createNode` doesn't
+    stamp; only VibeComfy's emitter (`ui_emitter`) does, on the export hop. So a node has no
+    durable identity until it has round-tripped through VibeComfy once.
+  - Two *unstamped* nodes sharing an int id **collide** (both mint uid `"N"`). This does NOT
+    happen from in-session editor delete+add (this litegraph's ids are monotonic — verified),
+    but DOES happen across the round-trip/renumber boundary and across independent workflows —
+    which is exactly the diff's domain.
+  - `mint_local_uid` is **precedence-only** (properties → int id → fallback); it has **no
+    collision-proof generator**, so a brand-new node can't get a safe uid from it.
+  - **[verified — measured per channel]** the **editor channel (ingest → emit → re-ingest)
+    is uid-stable end to end**: durable uids survive a full round *and* a second round
+    (idempotent fixpoint), stamped at `ui_emitter.py:659-660`. The **API channel is uid-blind**:
+    `compile("api")` keys on the int id and re-derives uid from it (0/N durable uids survived in
+    test). → The editor channel must be IR ⇄ UI-JSON; an IR → API-JSON → editor path
+    regenerates uid and must be forbidden.
+  - **[verified — repro'd] subgraph rename breaks inner identity.** `sg_key` embeds the
+    user-editable subgraph *name* (`scope.py:99`: `f"{name}:{digest}"`), and that name is a
+    literal prefix of every contained node's `vibecomfy_uid`. Renaming a subgraph changes all
+    inner uids → the diff sees the whole subgraph body as removed+re-added. The M2 idea file is
+    self-contradictory here (specifies name-in-key, yet claims stability only vs UUID-regen).
+  - **→ Concrete build items, all milestone-mappable (§11):**
+    1. **Identity minting** *(mostly there).* `node()` already mints collision-proof,
+       prefix-namespaced uids (`_mint_uid`, `workflow.py:368`; `n{counter}`/`id:{...}` can't
+       collide with bare-integer ingested uids). Close the two gaps: hoist the mint into
+       `add_node` (the raw path leaves `uid=""`), and add a **uniqueness assertion** in
+       `finalize_metadata` — today *nothing* enforces uid uniqueness and explicit `uid=` is
+       written verbatim.
+    2. **Subgraph-scope fix:** make `sg_key` rename-stable — anchor it on a durable
+       subgraph-instance id (or the digest alone), not the name (`scope.py:99`).
+    3. **Patch re-stamp:** the diff/patch apply must write `vibecomfy_uid` into each newly
+       `createNode`'d live node so the next cycle matches.
+    4. **uid-bijection precondition:** if any node lacks a uid or a uid is duplicated, fall
+       back to wholesale replace.
+- **Schema-drift risk.** Ingest/emit hard-code the litegraph serialization shape (links as
+  6-element arrays — ComfyUI is migrating to objects; positional `widgets_values`; node
+  envelope fields). → Put one format-version-gated adapter in `vibecomfy/ingest/normalize.py`
+  (the sole external-JSON entry point) so a ComfyUI format change is a one-file fix.
+- **Perf.** `_topological_node_order` (`emitter.py`) is O(N²) (rebuilds `set(out)` per node
+  per iteration) and runs 3+ times per convert; convert does 5–7 full-graph passes. Replace
+  with Kahn's algorithm (O(N+E)) — ~50–80% emit speedup at 1k+ nodes; matters for live
+  in-editor latency. The emitter *is* byte-deterministic across `PYTHONHASHSEED`
+  **[verified]** but nothing gates it — add a cross-process determinism test.
 
 ---
 
@@ -269,19 +356,50 @@ testing against ComfyUI (see `ComfyUI/custom_nodes/nodes2_poc/README.md`):
   undo/redo round-trips, lossless for registered-node graphs.
 - **Scope:** operate on `app.rootGraph` and detect subgraph context — `app.graph` is the
   *active* graph and may be a subgraph.
-- **Atomicity:** snapshot → validate the candidate → `try { clear; configure; verify }
-  catch { configure(snapshot) }`; re-entrancy lock; refuse while a prompt is executing.
+- **Atomicity — specced but NOT yet implemented [verified].** The PoC `apply()` currently
+  does `clear()` → `configure()` with *no* try/catch/snapshot, so a mid-apply throw leaves
+  the editor **empty**. This recipe is the fix, not the current behavior: snapshot →
+  validate the candidate → `try { clear; configure; verify } catch { configure(snapshot) }`;
+  re-entrancy lock; operate on `app.rootGraph`; refuse while a prompt is executing. The
+  Python side already has the right pattern (`convert.py` atomic temp-file replace + gate) —
+  mirror it. Commit point = the browser apply+verify succeeds; the durable `.py` write goes
+  *last*, so a failure never leaves a half-written file **and** a half-cleared editor.
 - **Unregistered nodes** (incl. our `vibecomfy.*` types before the pack is installed):
-  detect against `LiteGraph.registered_node_types`; the frontend renders them from
-  metadata regardless, so they survive editing even on a vanilla ComfyUI.
+  detect against `LiteGraph.registered_node_types`; **[verified]** the editor preserves
+  their `properties` through serialize/configure, so they survive editing even on a vanilla
+  ComfyUI (they only fail when actually *queued* to a backend lacking the node).
+- **Write-back mechanism (forward-looking, viable).** Wholesale `clear()+configure()` is the
+  verified default. A **uid-keyed diff/patch** (match by `vibecomfy_uid`, mutate only deltas
+  via the live LiteGraph API, one undo bracket) is viable as a guarded optimization for large
+  graphs — gated behind preconditions (uid bijection, registered types, no group/primitive
+  constructs) and a live verification of `createNode/connect/disconnect`. Concurrency: the
+  agent reasons over a snapshot, so apply needs **optimistic drift detection** (uid-set + a
+  cheap content token) with a uid-keyed 3-way rebase and a hard tab-switch/execution guard.
+  Both designs are sound on paper but need the live-API and `changeCount` probes in §9.
 
 ---
 
 ## 8. Phased approach
 
+The sense-check **reordered this to foundation-first**: the round-trip and execution model
+are weaker than the tier work assumes, so harden them before building the agent layer on
+top. Phase 0 is new and gating.
+
+0. **Foundation hardening (gating — do before any tier/agent work).**
+   - **Oracle-back the parity gate:** make side A `convert_ui_to_api(original_ui)`, not a
+     second VibeComfy compile, so "round-trips" means "ComfyUI agrees" (§6.1).
+   - **Parse-don't-exec:** an AST→IR reconstruction path for agent-authored Python; demote
+     `exec` to a trusted-author boundary (principle 6). Spike: measure what fraction of
+     `ready_templates/**` the emitter grammar can be reconstructed from AST alone.
+   - **Close coverage holes:** Get/Set-broadcast resolver (the ~35% hard-fail class), `mode`
+     (bypass/mute) preservation, `groups`.
+   - **Cheap fixes:** browser-side atomic rollback (§7); the `vibecomfy_uid` spelling + the
+     `vibecomfy.*` validation rule (§5.1); Kahn's-algorithm topo sort + a determinism CI
+     gate (§6.1); the bad `pyproject.toml` entry point that crashes the oracle catalog walk.
+   - **Run the two empirical gates** (§9) and keep them as regression checks.
 1. **Spec the contract.** Write the `vibecomfy.*` node schema (V3) + the `metadata` keys
-   that round-trip. This is the missing IR piece both the emitter and a future `VibeFlow`
-   need. (Doc + small IR additions; no runtime risk.)
+   that round-trip (using the corrected `vibecomfy_uid` / `vibecomfy` blob, §5.1). The
+   missing IR piece both the emitter and a future `VibeFlow` need.
 2. **Tier A + `vibecomfy.code`.** Static unroll / native-subgraph wrapping, and a code
    node. Both round-trip through the existing emitter with minimal change and need no
    execution-inversion. Ship the Nodes 2.0 special rendering for these.
@@ -290,23 +408,52 @@ testing against ComfyUI (see `ComfyUI/custom_nodes/nodes2_poc/README.md`):
 4. **Tier C / `VibeFlow`.** The orchestration meta-graph + `workflowref`; this is also the
    moment to actually build the `VibeFlow` container the DSL plan specced.
 
-Sequencing tracks the emitter epic: Tier A/`code` align with M3–M5 (round-trip), the
-in-editor rendering is M7, and Tier C is the natural home for the long-deferred `VibeFlow`.
+Sequencing tracks the emitter epic: Phase 0 overlaps M3–M5 (the round-trip work), Tier A/
+`code` and the in-editor rendering are M7, and Tier C is the natural home for the
+long-deferred `VibeFlow`.
 
 ---
 
 ## 9. Open questions / risks
 
+**Empirical gates — still to run (these change decisions, so run them before Phase 1):**
+
+- **Full Open→Save-to-disk identity survival.** §2.2 verified the litegraph
+  serialize/configure round-trip; the remaining test is a real ComfyUI *save to file →
+  reload* on an unregistered `vibecomfy.*` node, to rule out any stripping in ComfyUI's save
+  pipeline (userdata).
+- **Corpus fidelity at scale, oracle-backed.** §6.1 measured the *curated* corpus (~29%);
+  the decision-grade number is the messy **community long tail** through the
+  `convert_ui_to_api` oracle, with the failure taxonomy driving which families the agent may
+  touch.
+- **Live diff/patch API surface.** Confirm `LiteGraph.createNode` / `graph.add/remove` /
+  `node.connect/disconnectInput` / `widget.value=` mutate the rendered graph and that one
+  `beforeChange/afterChange` bracket around raw mutations = exactly one undo step.
+- **`changeCount` for drift detection.** The optimistic-sync design wants a cheap version
+  token; confirm `ChangeTracker.changeCount` exists/monotonic in the pinned frontend, else
+  fall back to a content hash.
+- **AST-reconstruction coverage.** What fraction of `ready_templates/**` the parse-don't-exec
+  path can rebuild without the `exec` fallback (opaque subgraphs / `apply_ready_template_policy`
+  are the likely escape hatches).
+
+**Design risks:**
+
 - **Emitter ⇄ control-flow mapping fidelity.** Reconstructing a `for`/`if` from anchor
   nodes is harder than straight-line emission; needs its own parity gate (extend
-  `vibecomfy/porting/parity.py` beyond the static DAG).
+  `vibecomfy/porting/parity.py` beyond the static DAG — *and* make that gate oracle-backed,
+  not self-referential, §6.1).
 - **How much code is "arbitrary"?** A `vibecomfy.code` node that can run any Python is
   powerful but unverifiable and a trust/security surface — decide whether code runs in the
   build step, in-graph (execution-inversion), or only in the orchestration layer
-  (`docs/python_composition_dsl_plan.md` keeps arbitrary Python *out* of an active graph;
-  the only sanctioned in-graph path is the unbuilt `ExternalPythonNode`).
+  (`docs/python_composition_dsl_plan.md`'s SD-005 keeps arbitrary Python *out* of an active
+  graph; the only sanctioned in-graph path is the unbuilt `ExternalPythonNode`). Note SD-005
+  governs the *in-graph* boundary; principle 6 covers the *build-time* `exec` hole SD-005
+  never addresses.
 - **Native-subgraph stability.** Subgraphs are recent; serialization shape may drift —
   pin a tested frontend range and validate via the vendored ComfyUI oracle.
+- **Diff-noise from variable renumbering.** Inserting one node renumbers downstream emitted
+  var names (`KSampler_2`→`KSampler_3`) even though `vibecomfy_uid` is stable — text-keyed
+  diffs/caching will be noisy. Key diffs on uid, not source text.
 - **Two source-of-truth risk.** If both the graph and the Python are editable, define which
   wins on conflict. Proposal: the IR is canonical; the graph is a projection; edits flow
   graph → IR → Python via the emitter, never Python text-patched directly.
@@ -332,3 +479,26 @@ for seed in [1, 2, 3]:
 
 In every case the round-trip rule is identical: the node's `vibecomfy.intent` metadata is
 read back into the `for`/`loop(...)`/recipe call that produced it.
+
+---
+
+## 11. How this maps to the scratchpad-emitter epic
+
+This work is **not** a separate track — most of it *is* epic milestones. The mapping (and
+where the sense-check findings land):
+
+| Milestone | What it owns | This doc / findings that land on it |
+|---|---|---|
+| **M2 — identity-and-ingest** | the durable `vibecomfy_uid` | The diff *consumes* M2's uid as its join key, and the editor-channel round-trip is **[verified] uid-stable**. Two **M2 defects** surfaced (both with repros): (a) raw `add_node` leaves `uid=""` and *nothing* asserts uid uniqueness — hoist the existing `_mint_uid` into `add_node` + assert in `finalize_metadata`; (b) `sg_key` embeds the subgraph **name** (`scope.py:99`), so a rename nukes inner identity — the M2 idea file is self-contradictory on this. Both are **M2 hardening**, not new milestones. |
+| **M3 — emitter + oracle** *(in flight)* | `port export --to ui`, `convert_ui_to_api` as oracle | **Oracle-back the parity gate** (§6.1) — it's currently self-referential; this is an M3/M5 gate fix, not new work. |
+| **M4–M5 — layout + preserve-roundtrip** | faithful UI-JSON round-trip | Close the **Get/Set-broadcast resolver** (~35% hard-fail), **`mode`/bypass** and **`groups`** loss (§6.1). These are M5 fidelity bugs. |
+| **M7 — in-editor-surface** | the ComfyUI custom-node + **JS preview/diff** | The Nodes 2.0 plugin **and the diff/patch itself are M7.** Build items (2)+(3) in §6.1 and the atomic-rollback fix (§7) are M7 work. |
+
+**The clean boundary (the ambiguity worth stating plainly):** the epic ends at M7 = a
+faithful, editable, diff-able round-trip surface over one IR. Everything *above* M7 — the
+**LLM agent loop**, the **`vibecomfy.*` control-flow representation** (Tiers A–C), and the
+**parse-don't-exec / sandboxing** that the agent loop requires — is a **new layer built on a
+finished M7**, not in the current epic's scope. So: the epic delivers the spine and the
+surface; this doc's tier scheme + the agent frontend is the next thing that stands on it.
+Phase 0 (§8) is mostly "land the epic's own milestones correctly (oracle-backed, coverage
+closed, identity hardened) before building the layer above."
