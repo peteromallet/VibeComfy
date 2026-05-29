@@ -266,7 +266,43 @@ subgraph edge-loss (z_image 10→0) + KSampler widget-shift. Presentation fideli
 ~0% and was *untracked*. This is the gap — and the number is *only* meaningful as "vs the
 pinned ComfyUI," per §8.
 
-The plan is now legible: the order is forced by the stack + the fork, every layer has an
-*external-truth* gate, "done" is a *set* of per-family numbers, and an Ops track watches
-production from day one. The risk has moved from "we don't know what's wrong" to "make the
-fork decision, then hold execution discipline against un-bypassable gates."
+The plan is now legible: the order is forced by the stack, every layer has an *external-truth*
+gate, "done" is a *set* of per-family numbers, and an Ops track watches production from day one.
+The decision (§11) is locked; the risk has moved from "we don't know what's wrong" to "hold
+execution discipline against un-bypassable gates."
+
+## 14. Compatibility with the in-flight epic (6-way conflict check)
+
+A 6-agent investigation checked each not-fragile mechanism against the scratchpad-emitter epic
++ shipped code. **No blockers — the decision sits on the epic's grain.** Two mechanisms are
+already COMPATIBLE; the rest are REFACTOR-NEEDED, and for three of those **the epic's own
+milestone idea files already prescribe the fix** — the conflict is shipped code lagging the
+plan, not the plan.
+
+| Mechanism | Verdict | Epic already plans it? | What must change |
+|---|---|---|---|
+| Readable Python ⟂ verbatim | **COMPATIBLE** | yes — 3 emit paths / 2 planes; narrate codemod retired | nothing |
+| #4 furniture sidecar | **COMPATIBLE** | yes — M2 `layout_store` captures all furniture uid-keyed; M4 = new-nodes-only | wire `read_store` into emit; stop hardcoding `mode:0`/`groups:[]`/`flags:{}` (M3/M5) |
+| #2 one object_info-derived codec | REFACTOR | **yes — M3 mandates `object_info_widget_order` as the authoritative model** | invert precedence (live schema beats frozen `WIDGET_SCHEMA`); collapse the Layer-1 duplicate. (ingest+emit already share one function) |
+| #3 oracle-gated parity | REFACTOR | **yes — M3 makes `convert_ui_to_api` the gate of record + a property/fuzz clause** | retire `test_parity_gate_never_imports_comfy`; stop swallowing the oracle's exceptions at ingest |
+| #1 keying for replay (uid) | REFACTOR | partly — M2 identity | mint uid in `add_node` + assert uniqueness; make `sg_key` name-independent (`scope.py:99`) |
+
+**The TWO genuinely-new items (beyond the epic's current scope):**
+
+1. **Delta-replay of node BODIES + edit-provenance.** The epic's M5 "preserve" is *furniture-only*
+   (`Δpos==0 ∧ Δsize==0`); replaying untouched node **bodies** verbatim, and a per-node
+   "untouched vs changed" signal (a uid-keyed structural diff vs the captured original, or a
+   dirty-bit through the mutators), **do not exist** and must be added. This is the core of
+   mechanism #1.
+2. **The one real DIRECTIONAL conflict — slim `_ui` capture.** The epic doubles down on the
+   comfy-converter ingest path (oracle-back), which stores a *slim* `_ui`
+   (`{id,pos,size,properties,mode,flags,color,bgcolor}`) — dropping `widgets_values`/`inputs`/
+   `outputs`/`title`, exactly the data verbatim body-replay needs. Mechanism #1 requires
+   `_merge_slim_ui` (`normalize.py`) to **retain the full raw node** (uid-keyed). This is the one
+   place the locked decision asks the epic to do something *different* from its current direction.
+   (Also: the parity gate proves *equivalence*, not *identity* — a canonicalized byte-identity
+   check on untouched nodes is needed to enforce "round-trip = identity.")
+
+**Bottom line:** buildable on the existing epic with **no redesign**. Four mechanisms are already
+on the epic's roadmap (just unshipped); the real net-new work is **delta-replay-of-bodies +
+edit-provenance + un-slimming `_ui`**.
