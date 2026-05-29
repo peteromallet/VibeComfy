@@ -196,3 +196,87 @@ def test_flat_determinism_same_source_identical_uids() -> None:
         assert wf1.nodes[nid].uid == wf2.nodes[nid].uid, (
             f"node {nid}: non-deterministic uid {wf1.nodes[nid].uid!r} vs {wf2.nodes[nid].uid!r}"
         )
+
+
+# ── T4: mode/flags/color/bgcolor retention (K3 invariant) ────────────────────
+
+
+def _node_with_mode(mode: int = 4, **extra_vis: object) -> dict:
+    """API-format node with _ui carrying litegraph visual fields."""
+    _ui: dict = {"id": 1, "mode": mode}
+    for k, v in extra_vis.items():
+        _ui[k] = v
+    return {"class_type": "KSampler", "inputs": {"seed": 1}, "_ui": _ui}
+
+
+def _node_without_mode() -> dict:
+    return {"class_type": "KSampler", "inputs": {"seed": 1}}
+
+
+def test_mode_captured_from_pure_python_path() -> None:
+    """Pure-Python path: mode:4 lands in metadata['mode'] (via full _ui)."""
+    raw_ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 4,
+                "inputs": [],
+                "widgets_values": [42, "fixed", 20, 7.0, "euler", "normal", 1.0],
+            }
+        ],
+        "links": [],
+    }
+    from vibecomfy.ingest.normalize import normalize_to_api
+    api = normalize_to_api(raw_ui, use_comfy_converter=False)
+    wf = convert_to_vibe_format(api)
+    assert wf.nodes["1"].metadata.get("mode") == 4
+
+
+def test_mode_captured_from_comfy_converter_path() -> None:
+    """Comfy-converter path: mode:4 in _merge_slim_ui lands in metadata['mode']."""
+    # Simulate the result of convert_ui_to_api + _merge_slim_ui by providing
+    # an API-format node that already has a slim _ui with mode set.
+    api_node = _node_with_mode(mode=4)
+    wf = convert_to_vibe_format({"1": api_node})
+    assert wf.nodes["1"].metadata.get("mode") == 4
+
+
+def test_flags_color_bgcolor_captured() -> None:
+    """flags, color, bgcolor are also captured into metadata."""
+    api_node = _node_with_mode(mode=0, flags={"pinned": True}, color="#ff0000", bgcolor="#000000")
+    wf = convert_to_vibe_format({"1": api_node})
+    assert wf.nodes["1"].metadata.get("flags") == {"pinned": True}
+    assert wf.nodes["1"].metadata.get("color") == "#ff0000"
+    assert wf.nodes["1"].metadata.get("bgcolor") == "#000000"
+
+
+def test_mode_absent_leaves_metadata_unset() -> None:
+    """Nodes with no mode field do not get a metadata['mode'] key."""
+    wf = convert_to_vibe_format({"1": _node_without_mode()})
+    assert "mode" not in wf.nodes["1"].metadata
+
+
+def test_mode_does_not_enter_inputs_or_widgets() -> None:
+    """mode must never appear in node.inputs or node.widgets (K3 invariant)."""
+    api_node = _node_with_mode(mode=4)
+    wf = convert_to_vibe_format({"1": api_node})
+    node = wf.nodes["1"]
+    assert "mode" not in node.inputs
+    assert "mode" not in node.widgets
+
+
+def test_compile_api_byte_identical_with_and_without_mode() -> None:
+    """compile('api') output is identical regardless of mode in metadata."""
+    api_with_mode = _node_with_mode(mode=4)
+    api_without_mode = _node_without_mode()
+
+    wf_with = convert_to_vibe_format({"1": api_with_mode})
+    wf_without = convert_to_vibe_format({"1": api_without_mode})
+
+    import json
+    compiled_with = json.dumps(wf_with.compile(), sort_keys=True)
+    compiled_without = json.dumps(wf_without.compile(), sort_keys=True)
+    assert compiled_with == compiled_without, (
+        "compile('api') output must not change when mode is present in metadata"
+    )

@@ -1270,3 +1270,80 @@ class TestLookupId:
         assert info["source_line"] == 68
         assert "seed" in info["inputs"]
         assert "steps" in info["inputs"]
+
+
+# ── T2: Monotonic uid counter tests ──────────────────────────────────────────
+
+
+def _make_empty_wf() -> VibeWorkflow:
+    return VibeWorkflow(id="test", source=WorkflowSource(id="test"))
+
+
+def test_uid_counter_is_independent_of_next_node_id() -> None:
+    """_uid_counter increments monotonically; _next_node_id gap-fills int ids."""
+    wf = _make_empty_wf()
+    # node() mints uid via counter
+    b1 = wf.node("Foo")
+    assert wf._uid_counter == 1
+    b2 = wf.node("Bar")
+    assert wf._uid_counter == 2
+    # Both have distinct uids
+    assert b1.node.uid != b2.node.uid
+    # Int ids are gap-filled (start at 1)
+    assert b1.node.id == "1"
+    assert b2.node.id == "2"
+
+
+def test_add_delete_add_reuses_int_id_but_fresh_uid() -> None:
+    """add→delete→add reuses the lowest gap int id but mints a fresh non-colliding uid."""
+    wf = _make_empty_wf()
+    b1 = wf.node("Foo")
+    uid_first = b1.node.uid
+    node_id_first = b1.node.id  # e.g. "1"
+    # Delete the node
+    del wf.nodes[node_id_first]
+    # Add again — should get the same int id via gap-fill
+    b2 = wf.node("Bar")
+    assert b2.node.id == node_id_first, "expected gap-fill to reuse the vacated int id"
+    # But uid must be fresh and non-colliding
+    assert b2.node.uid != uid_first, "uid must not be reused after delete→add"
+
+
+def test_uid_survives_finalize_metadata() -> None:
+    """VibeNode.uid is preserved through finalize_metadata (not rebuilt)."""
+    wf = _make_empty_wf()
+    b = wf.node("SaveImage")
+    uid_before = b.node.uid
+    assert uid_before  # must have been minted
+    wf.finalize_metadata()
+    assert wf.nodes[b.node.id].uid == uid_before
+
+
+def test_add_node_uid_kwarg_sets_verbatim() -> None:
+    """add_node(uid=...) sets node.uid verbatim without minting."""
+    wf = _make_empty_wf()
+    counter_before = wf._uid_counter
+    node = wf.add_node("Foo", uid="explicit-uid-value")
+    assert node.uid == "explicit-uid-value"
+    # Counter unchanged — add_node does not mint
+    assert wf._uid_counter == counter_before
+
+
+def test_node_with_explicit_id_seeds_uid_from_id() -> None:
+    """node(_id=...) seeds the uid from the explicit id, not the counter value alone."""
+    wf = _make_empty_wf()
+    b = wf.node("Foo", _id="42")
+    assert b.node.id == "42"
+    # uid should encode the explicit id as seed
+    assert "42" in b.node.uid
+
+
+def test_uid_counter_monotonic_never_resets() -> None:
+    """_uid_counter never decreases; deletion does not reset it."""
+    wf = _make_empty_wf()
+    b1 = wf.node("A")
+    b2 = wf.node("B")
+    del wf.nodes[b1.node.id]
+    del wf.nodes[b2.node.id]
+    b3 = wf.node("C")
+    assert wf._uid_counter == 3  # monotonically incremented, not reset

@@ -662,3 +662,72 @@ def test_port_check_no_false_positive_for_non_ready_source(tmp_path: Path) -> No
 
     issues = _strict_template_style_diagnostics(loaded)
     assert len(issues) == 0, f"Should not flag for scratchpad sources"
+
+
+# ---------------------------------------------------------------------------
+# T14 (M2 Step 11): PNG/WebP embedded-workflow ingest
+# ---------------------------------------------------------------------------
+
+
+def _png_with_workflow(path: Path, chunk: str | None, key: str = "workflow") -> Path:
+    from PIL import Image
+    from PIL.PngImagePlugin import PngInfo
+
+    info = PngInfo()
+    if chunk is not None:
+        info.add_text(key, chunk)
+    Image.new("RGB", (4, 4), (0, 0, 0)).save(path, "PNG", pnginfo=info)
+    return path
+
+
+def test_load_port_source_png_ingests_same_as_json(tmp_path: Path) -> None:
+    from vibecomfy.porting.workbench import load_port_source
+
+    workflow_json = json.dumps(_api_workflow())
+
+    json_path = tmp_path / "flat.json"
+    json_path.write_text(workflow_json, encoding="utf-8")
+    png_path = _png_with_workflow(tmp_path / "flat.png", workflow_json)
+
+    from_json = load_port_source(str(json_path), schema_provider=_provider())
+    from_png = load_port_source(str(png_path), schema_provider=_provider())
+
+    assert set(from_png.workflow.nodes) == set(from_json.workflow.nodes)
+    assert {n.class_type for n in from_png.workflow.nodes.values()} == {
+        n.class_type for n in from_json.workflow.nodes.values()
+    }
+    assert from_png.raw_workflow == from_json.raw_workflow
+
+
+def test_load_port_source_png_prompt_fallback(tmp_path: Path) -> None:
+    from vibecomfy.porting.workbench import load_port_source
+
+    png_path = _png_with_workflow(
+        tmp_path / "p.png", json.dumps(_api_workflow()), key="prompt"
+    )
+    loaded = load_port_source(str(png_path), schema_provider=_provider())
+    assert len(loaded.workflow.nodes) == 4
+
+
+def test_load_port_source_png_missing_chunk_raises(tmp_path: Path) -> None:
+    import pytest
+
+    from vibecomfy.porting.workbench import load_port_source
+
+    png_path = _png_with_workflow(tmp_path / "empty.png", None)
+    with pytest.raises(ValueError, match="No embedded ComfyUI workflow"):
+        load_port_source(str(png_path), schema_provider=_provider())
+
+
+def test_load_port_source_png_without_pillow_raises(tmp_path: Path, monkeypatch) -> None:
+    import sys
+
+    import pytest
+
+    from vibecomfy.porting.workbench import load_port_source
+
+    png_path = _png_with_workflow(tmp_path / "x.png", json.dumps(_api_workflow()))
+    # Force `from PIL import Image` to fail inside _load_workflow_from_image.
+    monkeypatch.setitem(sys.modules, "PIL", None)
+    with pytest.raises(ImportError, match="Pillow"):
+        load_port_source(str(png_path), schema_provider=_provider())

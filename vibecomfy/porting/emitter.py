@@ -2536,6 +2536,11 @@ def _emit_build_function(
                 else:
                     ready_kwargs.append((key, expr))
 
+            # Durable node identity (M2, T13): carry _uid= through the
+            # ready-template emission paths (typed wrapper + raw_call), mirroring
+            # the scratchpad _node() mechanism. node()/raw_call apply it verbatim.
+            uid_arg = ("_uid", repr(node.uid)) if node.uid else None
+
             if use_wrapper:
                 all_args = []
                 if is_subgraph_function and node_id_prefix is not None:
@@ -2544,6 +2549,8 @@ def _emit_build_function(
                 elif not is_subgraph_function:
                     all_args.append(("_id", repr(str(nid))))
                 all_args.extend((_wrapper_kwarg_name(key), expr) for key, expr in ready_kwargs)
+                if uid_arg is not None:
+                    all_args.append(uid_arg)
                 # v2.6.4 Fix 3: drop _outputs= for schema-known typed wrappers.
                 # The wrapper class already knows its output names from the
                 # generated schema (vibecomfy/nodes/_generated/<pack>.py). Only
@@ -2561,6 +2568,8 @@ def _emit_build_function(
                 if outputs_expr is not None:
                     all_args.append(("_outputs", outputs_expr))
                 all_args.extend(ready_kwargs)
+                if uid_arg is not None:
+                    all_args.append(uid_arg)
                 if extras_expr is not None:
                     all_args.append(("_extras", extras_expr))
                 call_name = "node"

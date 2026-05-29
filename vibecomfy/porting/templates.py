@@ -29,15 +29,20 @@ GENERATED_MARKER_LINES = (
 
 
 NODE_HELPER_SOURCE = '''
-def _node(wf: VibeWorkflow, class_type: str, _id: str, _extras: dict | None = None, **kwargs):
+def _node(wf: VibeWorkflow, class_type: str, _id: str, _extras: dict | None = None, _uid: str | None = None, **kwargs):
     """Create a node, preserving the original node id from the source workflow.
 
     `_extras` carries kwargs whose names are not valid Python identifiers
     (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
     They are applied to the new node post-construction.
+
+    `_uid` carries the durable node identity (M2) and is applied verbatim so the
+    round-trip preserves uids.
     """
     from vibecomfy.handles import Handle
     builder = wf.node(class_type, **kwargs)
+    if _uid:
+        builder.node.uid = _uid
     if _extras:
         for key, value in _extras.items():
             if isinstance(value, Handle):

@@ -135,6 +135,7 @@ class VibeWorkflow:
     strict_types: bool = False
     _id_map: dict[str, str] = field(default_factory=dict, init=False, repr=False)
     _manual_input_names: set[str] = field(default_factory=set, init=False, repr=False)
+    _uid_counter: int = field(default=0, init=False, repr=False)
 
     def __enter__(self) -> "VibeWorkflow":
         from vibecomfy.workflow_context import active_workflow, bind_workflow
@@ -364,11 +365,31 @@ class VibeWorkflow:
         node = self.nodes.get(vibe_input.node_id)
         return node is not None and (vibe_input.field in node.inputs or vibe_input.field in node.widgets)
 
-    def add_node(self, class_type: str, _id: str | None = None, **inputs: Any) -> VibeNode:
+    def _mint_uid(self, seed: str | None = None) -> str:
+        """Mint a never-reused uid using the monotonic counter.
+
+        Counter always increments regardless of whether a seed is provided.
+        When seed is given it becomes the local uid component (extrinsic identity).
+        When omitted, the counter value provides authored creation-order identity.
+        """
+        from vibecomfy.porting.uid import make_uid
+        self._uid_counter += 1
+        local = seed if seed is not None else f"n{self._uid_counter}"
+        return make_uid("", local)
+
+    def add_node(self, class_type: str, _id: str | None = None, *, uid: str | None = None, **inputs: Any) -> VibeNode:
+        """Add a node to the workflow.
+
+        ``uid`` is keyword-only and sets node.uid verbatim when provided.
+        Extrinsic-seed minting via _mint_uid belongs in node()/raw_call callers,
+        not here, so add_node stays uid-neutral by default.
+        """
         node_id = str(_id) if _id is not None else self._next_node_id()
         if node_id in self.nodes:
             raise ValueError(f"Node id {node_id!r} already exists in workflow {self.id!r}")
         node = VibeNode(id=node_id, class_type=class_type, inputs=dict(inputs))
+        if uid is not None:
+            node.uid = uid
         self.nodes[node_id] = node
         return node
 
@@ -379,6 +400,9 @@ class VibeWorkflow:
 
         kwargs = coerce_node_kwargs(self, class_type, kwargs, pass_raw=pass_raw)
         node = self.add_node(class_type, _id=explicit_id)
+        # Mint extrinsic uid: seed from explicit id when provided, else creation order.
+        seed = f"id:{explicit_id}" if explicit_id is not None else None
+        node.uid = self._mint_uid(seed=seed)
         for key, value in kwargs.items():
             if isinstance(value, Handle):
                 self.connect(value, f"{node.id}.{key}")

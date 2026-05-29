@@ -1590,3 +1590,60 @@ def test_flat_scratchpad_reimport_yields_same_uids() -> None:
             f"node {nid}: uid mismatch {re_node.uid!r} != {orig_node.uid!r}"
         )
         assert re_node.uid, f"node {nid} has empty uid after reimport"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# T13 — _uid= threading through the ready-template emission path
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _flat_workflow_and_raw():
+    import json as _json
+
+    with open("tests/fixtures/walking_skeleton/flat.json") as fh:
+        raw = _json.load(fh)
+    api = normalize_to_api(raw, use_comfy_converter=False)
+    wf = convert_to_vibe_format(
+        api, source_path="tests/fixtures/walking_skeleton/flat.json", workflow_id="flat"
+    )
+    return wf, raw
+
+
+def _emit_flat_ready() -> tuple[Any, str]:
+    wf, raw = _flat_workflow_and_raw()
+    text = emit_ready_template_python(
+        wf,
+        ready_metadata={"ready_template": "image/flat", "capability": "image"},
+        ready_requirements={"models": [], "custom_nodes": []},
+        template_id="image/flat",
+        raw_workflow=raw,
+    )
+    return wf, text
+
+
+def test_flat_ready_template_contains_uid_in_node_calls() -> None:
+    """The ready-template emission path emits _uid= for every node (T13 gap closed)."""
+    import re
+
+    _wf, text = _emit_flat_ready()
+    uid_values = set(re.findall(r"_uid='([^']+)'", text))
+    assert uid_values == {str(i) for i in range(1, 8)}, (
+        f"Expected uids 1-7 in ready-template emission; got {uid_values}"
+    )
+
+
+def test_flat_ready_template_reimport_yields_same_uids() -> None:
+    """Re-loading the emitted ready template yields IDENTICAL uids (read-back proven)."""
+    wf, text = _emit_flat_ready()
+
+    namespace: dict[str, object] = {"__file__": "out/scratchpads/flat.py"}
+    exec(compile(text, "flat ready emitted", "exec"), namespace)  # noqa: S102
+    reimported_wf = namespace["build"]()
+
+    for nid, orig_node in wf.nodes.items():
+        assert nid in reimported_wf.nodes, f"node {nid} missing from reimported ready template"
+        re_node = reimported_wf.nodes[nid]
+        assert re_node.uid == orig_node.uid, (
+            f"node {nid}: uid mismatch {re_node.uid!r} != {orig_node.uid!r}"
+        )
+        assert re_node.uid, f"node {nid} has empty uid after ready-template reimport"

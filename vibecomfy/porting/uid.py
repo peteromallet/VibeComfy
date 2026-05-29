@@ -1,29 +1,43 @@
-"""Frozen uid helpers for M1.5. These signatures are frozen for M2.
+"""uid helpers. Signatures are frozen; the M1.5 ':' delimiter defect is fixed
+for M2 (SD3, callers-3).
 
 Identity is extrinsic only — NOT a content/WL hash and NOT uuid4.
+
+Separators (SD3): the scope<->local separator is ``#`` and the scope-chain join
+is ``/`` — both deliberately distinct from the ``:`` that may appear inside an
+``sg_key`` (see ``vibecomfy.porting.scope``).  Flat uids (scope_path == "")
+remain byte-identical to M1.5 with NO migration.
 """
 
 from __future__ import annotations
+
+# Scope<->local separator and scope-chain join. Distinct from ':' (sg_key) so a
+# chained scope_path round-trips without the M1.5 first-colon partition defect.
+SCOPE_LOCAL_SEP = "#"
+SCOPE_CHAIN_JOIN = "/"
 
 
 def make_uid(scope_path: str, local_uid: str) -> str:
     """Compose a fully-qualified uid from a scope path and local uid.
 
-    Returns local_uid when scope_path is empty, else f"{scope_path}:{local_uid}".
+    Returns local_uid verbatim when scope_path is empty (flat uids unchanged),
+    else f"{scope_path}{SCOPE_LOCAL_SEP}{local_uid}".
     """
     if scope_path == "":
         return local_uid
-    return f"{scope_path}:{local_uid}"
+    return f"{scope_path}{SCOPE_LOCAL_SEP}{local_uid}"
 
 
 def parse_uid(uid: str) -> tuple[str, str]:
     """Inverse of make_uid. Returns (scope_path, local_uid).
 
-    Returns ("", uid) for a bare scalar with no scope separator.
+    Splits on the RIGHTMOST scope<->local separator so a chained scope_path
+    (joined with ``/``) survives intact.  Returns ("", uid) for a bare scalar
+    with no separator.
     """
-    if ":" not in uid:
+    if SCOPE_LOCAL_SEP not in uid:
         return ("", uid)
-    scope_path, _, local_uid = uid.partition(":")
+    scope_path, _, local_uid = uid.rpartition(SCOPE_LOCAL_SEP)
     return (scope_path, local_uid)
 
 

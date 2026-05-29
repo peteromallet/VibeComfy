@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import difflib
 import importlib.util
 import logging
@@ -149,6 +150,53 @@ class PortConvertResult:
         }
 
 
+# Get/Set broadcast wires + Reroute passthrough are the virtual-wire nodes whose
+# stable channel name (not the edge) is the routing key. PrimitiveNode is a value
+# helper, not a wire, so it is intentionally excluded here.
+_VIRTUAL_WIRE_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
+
+
+def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
+    """Snapshot Get/Set/Reroute virtual-wire nodes BEFORE helper resolution.
+
+    Captures uid, type, channel name, pos/size, and the routed endpoints for each
+    virtual-wire node, keyed by uid. This must run before both
+    ``resolve_subgraph_helpers`` and ``resolve_helpers`` (which delete these nodes
+    in place). Returns ``{}`` when the graph has no virtual-wire nodes.
+    """
+    from vibecomfy._workflow_helpers import (
+        BROADCAST_HELPER_CLASS_TYPES,
+        broadcast_name,
+    )
+
+    captured: dict[str, dict[str, Any]] = {}
+    for node_id, node in workflow.nodes.items():
+        if node.class_type not in _VIRTUAL_WIRE_CLASS_TYPES:
+            continue
+        uid = node.uid or str(node_id)
+        ui = node.metadata.get("_ui") if isinstance(node.metadata, dict) else None
+        pos = ui.get("pos") if isinstance(ui, dict) else None
+        size = ui.get("size") if isinstance(ui, dict) else None
+        channel = (
+            broadcast_name(node)
+            if node.class_type in BROADCAST_HELPER_CLASS_TYPES
+            else None
+        )
+        endpoints = [
+            [edge.from_node, edge.from_output, edge.to_node, edge.to_input]
+            for edge in workflow.edges
+            if str(edge.from_node) == str(node_id) or str(edge.to_node) == str(node_id)
+        ]
+        captured[uid] = {
+            "type": node.class_type,
+            "channel": channel,
+            "pos": pos,
+            "size": size,
+            "endpoints": endpoints,
+        }
+    return captured
+
+
 def port_convert_workflow(
     workflow: VibeWorkflow,
     *,
@@ -179,11 +227,27 @@ def port_convert_workflow(
     from vibecomfy._workflow_helpers import collect_broadcast_sources as _collect_broadcasts
     _pre_resolve_broadcasts = _collect_broadcasts(workflow.nodes, workflow.edges)
 
+    # ── M2 Step 8: snapshot furniture BEFORE any helper resolution ──────
+    # resolve_subgraph_helpers (below) and resolve_helpers (further down)
+    # both delete Get/Set/Reroute and subgraph-inner nodes in place. Snapshot
+    # the data needed to reconstruct the editor view into workflow.metadata
+    # *before* that deletion. This is metadata-only — nothing reaches the
+    # execution API graph, so compile('api') stays byte-identical.
+    _virtual_wires = _capture_virtual_wires(workflow)
+    if _virtual_wires:
+        workflow.metadata["virtual_wires"] = _virtual_wires
+
     # Resolve helper nodes inside UUID subgraph definitions FIRST, using
     # the pre-resolve broadcast snapshot.  Subgraph helpers reference
     # top-level SetNode broadcasts; if we resolve top-level helpers first,
     # SetNode nodes are deleted and the subgraph resolver finds nothing.
     if raw_workflow is not None:
+        # Deep-copy the raw subgraph definitions before resolution mutates the
+        # graph. Graceful absence: store nothing when 'definitions' is missing.
+        _definitions = raw_workflow.get("definitions")
+        if _definitions is not None:
+            workflow.metadata["definitions"] = copy.deepcopy(_definitions)
+
         from vibecomfy.porting.subgraph_resolve import resolve_subgraph_helpers
         resolve_subgraph_helpers(
             raw_workflow,

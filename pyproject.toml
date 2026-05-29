@@ -24,6 +24,20 @@ dev = [
   "pytest-cov>=4",
   "pytest-rerunfailures>=14",
 ]
+comfy = [
+  # Optional adoption hook only (M2 Step 7 / SD2). No M2 feature depends on
+  # this; vibecomfy.comfy_backend.ensure_nodes() falls back to pure-Python when
+  # neither this extra nor the vendor/ComfyUI submodule is present. Mirrors the
+  # opt-in `comfy` pytest marker.
+  "comfyui>=0.3.0",
+]
+png = [
+  # Optional image-ingest hook (M2 Step 11): read a ComfyUI workflow chunk
+  # embedded in a PNG/WebP. Kept in its OWN group (NOT [comfy]) so neither
+  # depends on the other; load_port_source raises a clear ImportError when a
+  # PNG/WebP source is requested without Pillow installed.
+  "Pillow>=10.0",
+]
 runpod-local = [
   "python-dotenv>=1.0",
   "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle.git@v0.1.1",

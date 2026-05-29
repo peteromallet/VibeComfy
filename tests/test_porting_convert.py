@@ -1644,3 +1644,98 @@ def test_convert_flat_fixture_writes_layout_sidecar(tmp_path: Path) -> None:
         assert layout[uid]["pos"] == pos, (
             f"uid {uid}: expected pos {pos}, got {layout[uid]['pos']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# T10 — Step 8: snapshot furniture + definitions BEFORE helper resolution
+# ---------------------------------------------------------------------------
+
+
+def _broadcast_workflow_with_helpers() -> VibeWorkflow:
+    """LoadImage --SetNode(IMG)--> ... --GetNode(IMG)--> SaveImage, plus Reroute."""
+    wf = VibeWorkflow("vw", WorkflowSource("source/vw", path="workflow_corpus/vw.json", source_type="raw_json"))
+    wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "in.png"}, metadata={"_ui": {"pos": [0, 0]}})
+    wf.nodes["2"] = VibeNode("2", "SetNode", widgets={"widget_0": "IMG"}, metadata={"_ui": {"pos": [10, 20], "size": [120, 40]}})
+    wf.nodes["2"].uid = "2"
+    wf.nodes["3"] = VibeNode("3", "GetNode", widgets={"widget_0": "IMG"}, metadata={"_ui": {"pos": [30, 40]}})
+    wf.nodes["3"].uid = "3"
+    wf.nodes["4"] = VibeNode("4", "SaveImage", inputs={"filename_prefix": "out/vw"})
+    wf.nodes["5"] = VibeNode("5", "Reroute", metadata={"_ui": {"pos": [50, 60]}})
+    wf.nodes["5"].uid = "5"
+    wf.edges.append(VibeEdge("1", "0", "2", "input0"))
+    wf.edges.append(VibeEdge("3", "0", "4", "images"))
+    return wf
+
+
+def test_step8_captures_virtual_wires_before_resolution():
+    """Get/Set/Reroute virtual wires are snapshotted into metadata before the
+    resolvers delete those nodes."""
+    wf = _broadcast_workflow_with_helpers()
+    port_convert_workflow(wf, raw_workflow={"definitions": {}}, validate=False)
+
+    vw = wf.metadata["virtual_wires"]
+    assert vw["2"]["type"] == "SetNode"
+    assert vw["2"]["channel"] == "IMG"
+    assert vw["2"]["pos"] == [10, 20]
+    assert vw["2"]["size"] == [120, 40]
+    assert vw["3"]["type"] == "GetNode"
+    assert vw["3"]["channel"] == "IMG"
+    assert vw["5"]["type"] == "Reroute"
+    assert vw["5"]["channel"] is None
+    # Endpoints captured from the edges touching each wire node.
+    assert ["1", "0", "2", "input0"] in vw["2"]["endpoints"]
+    assert ["3", "0", "4", "images"] in vw["3"]["endpoints"]
+
+    # Proof capture preceded deletion: the resolvers removed Set/Get/Reroute
+    # from the live graph, yet the snapshot retains them.
+    assert "2" not in wf.nodes
+    assert "3" not in wf.nodes
+    assert "5" not in wf.nodes
+
+
+def test_step8_deepcopies_definitions_before_resolution():
+    """definitions are deep-copied via .get(); mutating the raw source afterward
+    does not affect the captured metadata payload."""
+    wf = _broadcast_workflow_with_helpers()
+    raw = {"definitions": {"sub": {"nodes": [{"id": 1, "pos": [7, 7]}]}}}
+    port_convert_workflow(wf, raw_workflow=raw, validate=False)
+
+    assert wf.metadata["definitions"] == {"sub": {"nodes": [{"id": 1, "pos": [7, 7]}]}}
+    # Mutate the raw source — the deep copy must be unaffected.
+    raw["definitions"]["sub"]["nodes"][0]["pos"] = [999, 999]
+    assert wf.metadata["definitions"]["sub"]["nodes"][0]["pos"] == [7, 7]
+
+
+def test_step8_graceful_absence_of_definitions():
+    """raw_workflow with no 'definitions' key stores nothing and does not crash."""
+    wf = _broadcast_workflow_with_helpers()
+    port_convert_workflow(wf, raw_workflow={"nodes": []}, validate=False)
+    assert "definitions" not in wf.metadata
+
+
+def test_step8_definitions_absent_when_raw_workflow_none():
+    wf = VibeWorkflow("vw2", WorkflowSource("source/vw2", path="workflow_corpus/vw2.json", source_type="raw_json"))
+    wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "in.png"})
+    wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "o"})
+    wf.edges.append(VibeEdge("1", "0", "2", "images"))
+    port_convert_workflow(wf, raw_workflow=None, validate=False)
+    assert "definitions" not in wf.metadata
+
+
+def test_step8_compile_api_byte_identical_only_metadata_changes():
+    """The capture payloads live only in metadata, which compile('api') excludes;
+    popping them yields a byte-identical compiled graph."""
+    wf = _broadcast_workflow_with_helpers()
+    port_convert_workflow(wf, raw_workflow={"definitions": {"sub": {}}}, validate=False)
+
+    api_with_capture = wf.compile("api")
+    # Capture payloads must be the only metadata additions.
+    assert "virtual_wires" in wf.metadata
+    assert "definitions" in wf.metadata
+    wf.metadata.pop("virtual_wires")
+    wf.metadata.pop("definitions")
+    api_without_capture = wf.compile("api")
+
+    assert api_with_capture == api_without_capture
+    # And the resolved execution graph carries no Get/Set/Reroute nodes.
+    assert all(spec["class_type"] not in {"SetNode", "GetNode", "Reroute"} for spec in api_with_capture.values())

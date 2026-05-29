@@ -19,18 +19,42 @@ def test_make_uid_scalar_collapse():
 
 
 def test_make_uid_scoped():
-    """Non-empty scope_path composes as scope:local."""
-    assert make_uid("myscope", "42") == "myscope:42"
+    """Non-empty scope_path composes as scope#local (SD3 separator)."""
+    assert make_uid("myscope", "42") == "myscope#42"
 
 
 def test_parse_uid_bare_scalar():
-    """Bare uid (no colon) returns ('', uid)."""
+    """Bare uid (no separator) returns ('', uid)."""
     assert parse_uid("42") == ("", "42")
 
 
 def test_parse_uid_scoped():
     """Scoped uid splits into (scope_path, local_uid)."""
-    assert parse_uid("scope:local") == ("scope", "local")
+    assert parse_uid("scope#local") == ("scope", "local")
+
+
+def test_parse_uid_splits_on_rightmost_separator():
+    """A chained scope_path (joined with '/') survives — split is rightmost '#'."""
+    assert parse_uid("a/b/c#5") == ("a/b/c", "5")
+
+
+def test_parse_uid_ignores_colon_inside_sg_key():
+    """':' inside an sg_key is not a separator and is preserved verbatim."""
+    assert parse_uid("name:abcd1234#7") == ("name:abcd1234", "7")
+
+
+def test_round_trip_multi_scope_chain():
+    """make_uid->parse_uid is identity for a multi-scope chain."""
+    scope = "outer:aa/inner:bb"
+    uid = make_uid(scope, "9")
+    assert parse_uid(uid) == (scope, "9")
+
+
+def test_flat_uid_unchanged_no_migration():
+    """Flat uids (scope_path == '') are byte-identical to M1.5 — no separator added."""
+    assert make_uid("", "42") == "42"
+    assert "#" not in make_uid("", "42")
+    assert parse_uid("42") == ("", "42")
 
 
 def test_round_trip_scalar():
@@ -46,9 +70,9 @@ def test_round_trip_scoped():
 
 
 def test_parse_uid_scope_local_label():
-    """scope:local form round-trips with no data loss."""
-    scope, local = parse_uid("scope:local")
-    assert make_uid(scope, local) == "scope:local"
+    """scope#local form round-trips with no data loss."""
+    scope, local = parse_uid("scope#local")
+    assert make_uid(scope, local) == "scope#local"
 
 
 # ---------------------------------------------------------------------------

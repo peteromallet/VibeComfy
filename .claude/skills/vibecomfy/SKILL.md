@@ -9,6 +9,14 @@ VibeComfy is a Python package at `/Users/peteromalley/Documents/reigh-workspace/
 
 This skill teaches an agent how to use it. The user wants to: **grab a template, write code on top, combine it with other templates / patches / custom Python, then execute** (locally or on RunPod).
 
+This file is the **core / basic usage**. For loops, batching, parameter sweeps,
+arbitrary non-Comfy Python in a template, and data-dependent iteration ("keep
+generating until the result is good enough"), read the advanced companion:
+[`advanced_usage.md`](advanced_usage.md). It explains the build-time vs. run-time
+boundary that answers almost every "can VibeComfy do X?" question, with runnable
+examples in [`examples/`](examples/). Reach for it whenever a task needs logic
+*around* a graph rather than just editing one graph.
+
 ## Repository rules
 
 - Work from the repository root: `/Users/peteromalley/Documents/reigh-workspace/vibecomfy`.

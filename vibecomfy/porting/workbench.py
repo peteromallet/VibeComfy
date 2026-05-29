@@ -655,6 +655,59 @@ def _is_relative_to(path: Path, root: Path) -> bool:
     return True
 
 
+def _load_workflow_from_image(path: Path) -> dict[str, Any]:
+    """Extract an embedded ComfyUI workflow chunk from a PNG/WebP image.
+
+    ComfyUI stores the litegraph/UI workflow JSON in a ``workflow`` metadata
+    chunk (with a legacy ``prompt`` API fallback). Returns the parsed dict, which
+    the caller feeds through the normal normalize pipeline. Raises an
+    ImportError-style message when Pillow is unavailable, and a clear error when
+    no embedded chunk is present or the chunk is not valid JSON.
+    """
+    try:
+        from PIL import Image
+    except ImportError as exc:  # Pillow is an optional [png] dependency.
+        raise ImportError(
+            "Reading a workflow embedded in a PNG/WebP image requires Pillow. "
+            "Install it with the optional dependency group: "
+            "pip install 'vibecomfy[png]'."
+        ) from exc
+
+    with Image.open(path) as img:
+        meta: dict[str, Any] = {}
+        text = getattr(img, "text", None)
+        if isinstance(text, dict):
+            meta.update(text)
+        info = getattr(img, "info", None)
+        if isinstance(info, dict):
+            for key, value in info.items():
+                meta.setdefault(key, value)
+        raw_chunk = meta.get("workflow")
+        if raw_chunk is None:
+            raw_chunk = meta.get("prompt")
+
+    if raw_chunk is None:
+        raise ValueError(
+            f"No embedded ComfyUI workflow found in {path} "
+            "(expected a 'workflow' or 'prompt' metadata chunk)."
+        )
+    if isinstance(raw_chunk, (bytes, bytearray)):
+        raw_chunk = raw_chunk.decode("utf-8", errors="replace")
+    if isinstance(raw_chunk, dict):
+        return raw_chunk
+    try:
+        data = json.loads(raw_chunk)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise ValueError(
+            f"Embedded workflow chunk in {path} is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Embedded workflow chunk in {path} did not decode to a JSON object."
+        )
+    return data
+
+
 def load_port_source(
     source: str,
     *,
@@ -704,6 +757,26 @@ def load_port_source(
             source_ref=source,
             source_kind="scratchpad",
             workflow=workflow,
+            source_path=str(resolved),
+            indexed_id=indexed_id,
+            source_hash=_hash_file(resolved),
+        )
+    if resolved.suffix.lower() in {".png", ".webp"}:
+        raw = _load_workflow_from_image(resolved)
+        api = normalize_to_api(
+            raw, schema_provider=schema_provider, use_comfy_converter=use_comfy_converter
+        )
+        workflow = convert_to_vibe_format(
+            api,
+            source_path=str(resolved),
+            workflow_id=indexed_id or resolved.stem,
+            schema_provider=schema_provider,
+        )
+        return LoadedPortSource(
+            source_ref=source,
+            source_kind="indexed_json" if indexed_id else "raw_json",
+            workflow=workflow,
+            raw_workflow=raw,
             source_path=str(resolved),
             indexed_id=indexed_id,
             source_hash=_hash_file(resolved),

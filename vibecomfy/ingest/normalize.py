@@ -142,12 +142,16 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                     matched = raw_node
                     break
             if matched is not None:
-                node_data["_ui"] = {
+                slim: dict = {
                     "id": matched.get("id"),
                     "pos": matched.get("pos"),
                     "size": matched.get("size"),
                     "properties": matched.get("properties", {}),
                 }
+                for _f in ("mode", "flags", "color", "bgcolor"):
+                    if _f in matched:
+                        slim[_f] = matched[_f]
+                node_data["_ui"] = slim
             else:
                 node_data["_ui"] = {}
     else:
@@ -156,12 +160,16 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                 continue
             raw_node = raw_nodes_by_id.get(node_id)
             if raw_node is not None:
-                node_data["_ui"] = {
+                slim = {
                     "id": raw_node.get("id"),
                     "pos": raw_node.get("pos"),
                     "size": raw_node.get("size"),
                     "properties": raw_node.get("properties", {}),
                 }
+                for _f in ("mode", "flags", "color", "bgcolor"):
+                    if _f in raw_node:
+                        slim[_f] = raw_node[_f]
+                node_data["_ui"] = slim
             else:
                 node_data["_ui"] = {}
 
@@ -222,6 +230,14 @@ def convert_to_vibe_format(
         control_value = _capture_control_after_generate(node, class_type)
         if control_value is not None:
             metadata.setdefault("control_after_generate", control_value)
+        # ── retain mode/flags/color/bgcolor from _ui into top-level metadata ──
+        # Both paths: pure-Python path stores the full raw node in _ui (line 99);
+        # comfy-converter path stores a slim _ui enriched by _merge_slim_ui.
+        # Captured as metadata DATA only — never enters inputs/widgets (K3 invariant).
+        _ui_node = metadata.get("_ui") or {}
+        for _vis_field in ("mode", "flags", "color", "bgcolor"):
+            if _vis_field in _ui_node:
+                metadata.setdefault(_vis_field, _ui_node[_vis_field])
         # ── enrich node metadata from schema ──
         output_names = _schema_output_names(schema_provider, class_type)
         if output_names:

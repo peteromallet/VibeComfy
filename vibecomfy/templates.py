@@ -165,12 +165,19 @@ def node(
         raise TypeError(f"node() got too many positional args: {len(rest)}")
 
     explicit_outputs = kwargs.pop("_outputs", None)
+    # Durable node identity (M2): a carried _uid is applied verbatim to the
+    # created node so the ready-template round-trip preserves uids. Popped before
+    # coercion so it never reaches the graph as an input/widget.
+    _uid = kwargs.pop("_uid", None)
     pass_raw = bool(kwargs.pop("pass_raw", False))
     outputs = tuple(explicit_outputs) if explicit_outputs is not None else _normalized_output_names(class_type)
     kwargs = coerce_node_kwargs(wf, class_type, kwargs, pass_raw=pass_raw)
     if pass_raw:
         kwargs["pass_raw"] = True
-    return ready_node(wf, class_type, source_id=str(_id) if _id is not None else None, outputs=outputs or None, extras=_extras, **kwargs)
+    builder = ready_node(wf, class_type, source_id=str(_id) if _id is not None else None, outputs=outputs or None, extras=_extras, **kwargs)
+    if _uid:
+        builder.node.uid = str(_uid)
+    return builder
 
 
 def coerce_node_kwargs(
