@@ -39,6 +39,41 @@ structural hash is only a one-time bridge for legacy/never-seen nodes.
 - **Latest editor layout wins:** since M2 refreshes the store from each ingested editor JSON, the user's
   most recent drags are what preserve restores.
 
+## [Sense-check 2026-05-30] REQUIRED before merge — semantic gate + refusal-spine + mechanism stance
+
+A 3-model review (Codex + Claude + DeepSeek) of this epic vs the hardened strategy
+(`docs/roadmap_agentic_comfyui.md` §0/§11, refined the same day) found that M5 preserves *furniture*
+but its acceptance gate is *geometric only* — which can score green while the codec silently re-mangles
+the structure of an UNTOUCHED node. These additions close that, and are **gate-blocking, not polish.**
+
+**Mechanism stance (endorsed, do not relitigate).** M5's preserve is **"regenerate structure from the IR
+through M3's one schema-codec + restore furniture from the uid-keyed store."** This is the chosen
+non-fragility approach — NOT byte-for-byte replay. It is correct *because* the IR is the source of truth
+(regeneration stays internally consistent even when a node's upstream changed, which verbatim replay gets
+wrong — stale links) **provided the two gates below hold.** Roadmap §11 mechanism #1 (verbatim replay) is
+demoted to an **optional fallback** for node classes the codec can't round-trip 100%; it is OUT of M5
+anti-scope unless a specific class forces it (it would require reopening M2's slim-`_ui` capture).
+
+1. **SEMANTIC acceptance gate on the preserved output (REQUIRED — not only the geometric layout-diff
+   oracle).** The geometric oracle (Phase-D, `max Δpos==0 ∧ Δsize==0`) proves *furniture* fidelity; it is
+   structurally blind to *semantic* drift on regenerated nodes. M5 must ALSO gate semantically: for the
+   preserve/round-trip path, assert **`convert_ui_to_api(original) == convert_ui_to_api(emit(ingest(original)))`**
+   on uid-matched (untouched) nodes, per-family. Reuse the existing M3 gate of record —
+   `test_layer3_corpus_wide_convert_ui_to_api_gate` (`tests/test_porting_ui_emitter.py:967`,
+   `canonical_equal` vs ComfyUI's own converter) — extended to run over the *preserved re-emit*, not just
+   fresh emit. Both gates green = done; geometric-only = NOT done.
+2. **Runtime corruption-detector / refusal-spine (REQUIRED — distinct from the change report).** The change
+   summary (preserved/new/removed) *names* changes; it does not *prevent* unintended ones. Add the
+   refusal-spine from roadmap §3 / §0 Step 5: before an APPLIED re-emit, diff `convert_ui_to_api(candidate)`
+   vs `convert_ui_to_api(original)` on untouched regions and **abort to a typed REFUSED** on any change
+   outside the intended delta (never ship it). Proven in `scripts/roundtrip_fidelity_spike.py` (T4:
+   ALLOWs a clean edit, REFUSEs a control-slot-drop corruption). If M5 is too full, this may land in M6,
+   but it must have a NAMED owner — today no milestone owns it.
+   - **It consumes the §0 Step 0 signal:** a **system-computed, uid-keyed touched/untouched delta**
+     (diff each node's current IR projection vs its ingest snapshot), **never agent-declared** (an
+     over-broad declaration turns the detector into a no-op). M5 already snapshots identity on ingest;
+     extend it to a field-level delta. This signal does not exist in the epic yet — assign it here.
+
 ## Polish (within this milestone, after preserve is correct)
 - Role-colored titled group boxes; consistent palette across all emitted workflows.
 - Optional deterministic crossing-reduction tie-break (positive-before-negative role precedence).
@@ -111,6 +146,12 @@ structural hash is only a one-time bridge for legacy/never-seen nodes.
   SECOND round-trip is exact; anything unmatched is named honestly in the report.
 - **`--fresh`** reproduces M4's deterministic clean layout; no-metadata input still produces clean layout.
 - Re-emit reports a change summary (preserved / new-auto-placed / removed, named).
+- **[Sense-check] Semantic round-trip gate (REQUIRED):** on the preserve path, `convert_ui_to_api(original)
+  == convert_ui_to_api(re-emit)` (canonical_equal) on uid-matched nodes, per-family — the M3 gate of
+  record extended over the preserved output. Geometric layout-diff alone does NOT satisfy this.
+- **[Sense-check] Refusal, not just report (REQUIRED, may defer owner to M6):** a synthetic unintended
+  SEMANTIC change on an untouched node (e.g. a dropped `control_after_generate` slot → widget shift) is
+  **REFUSED** before ship — proving the spine aborts, not merely names it. Land it RED first.
 
 ## Touchpoints
 - `vibecomfy/porting/ui_emitter.py` (merge path), `vibecomfy/porting/layout/reconcile.py` (new — match +
@@ -120,3 +161,5 @@ structural hash is only a one-time bridge for legacy/never-seen nodes.
 ## Anti-scope
 - No new ingest capture (M2). No new layout primitives beyond reconcile (M4 owns placement).
 - No productionization/docs (M6). Do not promise lossless preservation for the legacy hash bridge.
+- No byte-for-byte verbatim node replay (roadmap §11 #1) — it's a demoted fallback needing M2 capture
+  changes; M5 regenerates structure from IR and gates it semantically instead (see the Sense-check section).

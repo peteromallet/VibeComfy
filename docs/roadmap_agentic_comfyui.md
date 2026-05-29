@@ -36,11 +36,23 @@ it is no longer speculative. The hard part (does the architecture actually round
 spike into the real `ingest/` + `porting/` code, behind the same oracle gate.** That is a
 porting job, not a research job.
 
-**The one-sentence bet (LOCKED, §11):** VibeComfy's Python/IR stays the source of truth;
-we make Python → ComfyUI-JSON *non-fragile* by **replaying untouched content verbatim and
-running only the agent's delta through a schema-derived codec, gated against ComfyUI's own
-`convert_ui_to_api`.** A round-trip of an unmodified graph becomes the identity function;
-the fragile surface shrinks from "every node" to "just what the agent changed."
+**The one-sentence bet (LOCKED — refined 2026-05-30, see §11):** VibeComfy's Python/IR stays the
+source of truth; we make Python → ComfyUI-JSON *non-fragile* by **regenerating structure from the IR
+through one schema-derived codec and gating every emit against ComfyUI's own `convert_ui_to_api`,
+with a runtime refusal-spine that aborts rather than ship an unintended change** — furniture
+(pos/size/groups/…) is restored verbatim from a uid-keyed store. *Byte-for-byte replay of untouched
+nodes is an available optimization/fallback, NOT the foundation* (see the reconciliation note in §11).
+
+> **Why the refinement (3-model sense-check of the running epic, 2026-05-30).** The original bet
+> crowned *replay* ("emit untouched nodes verbatim, codec only on the delta") as the foundation. The
+> sweep showed that conflates the *safety property* (never silent corruption) with one *mechanism*.
+> Replay has its own corruption class — a node that's "untouched" but whose upstream/links changed,
+> replayed verbatim, carries **stale references** — and it freezes old-format node blobs that drift as
+> ComfyUI evolves. The **semantic oracle gate + refusal-spine** deliver the safety property for *any*
+> emit strategy, and the IR-as-source-of-truth means regenerating is internally consistent by
+> construction. So the load-bearing trio is **schema-codec + oracle-gate + refusal**; replay is a
+> bounded fallback for node classes the codec can't yet round-trip 100%. This matches what the running
+> `scratchpad-emitter` epic already builds (m3 emitter regenerates every node; m5 preserves furniture).
 
 **What is already true (proven in the spike, not yet in the product):**
 - Preserve-replay of captured UI (per-node `_ui` + the envelope) is **lossless vs ComfyUI's
@@ -309,13 +321,23 @@ place VibeComfy hand-maintains knowledge ComfyUI already owns (widget orders, li
 node input shapes) is a place it can disagree with reality. Kill the drift via four mechanisms,
 in leverage order:
 
-1. **Preserve-don't-regenerate — run only CHANGED nodes through the codec.** *(highest leverage)*
-   On ingest, capture every node verbatim keyed by `vibecomfy_uid`. On emit, **replay untouched
-   nodes byte-for-byte** and send only agent-created/edited nodes through Python→JSON. A
-   round-trip of an *unmodified* workflow becomes the **identity function**; most of the 3.2%
-   baseline failures (untouched nodes mangled on re-emit — e.g. the KSampler shift on nodes the
-   agent never touched) become *structurally impossible*. The fragility surface collapses from
-   "every node of every workflow" to "just the delta the agent made."
+> **⚠ RECONCILIATION (2026-05-30 sense-check of the running epic — re-ranks the four below).** Mechanism
+> #1 (replay) was originally crowned "highest leverage / the foundation." A 3-model review of the
+> `scratchpad-emitter` epic demoted it: the **load-bearing safety mechanism is #3 (oracle gate) + a
+> runtime refusal-spine** (§3), which deliver "never silent corruption" for *any* emit strategy. The
+> primary emit strategy is **regenerate structure from the IR through the one schema-codec (#2)** —
+> the IR is the source of truth, so regeneration is internally consistent and naturally correct when
+> a node's upstream changed (which verbatim replay gets *wrong* — stale links). **#1 replay is retained
+> only as a bounded OPTIMIZATION/FALLBACK:** emit a node verbatim *only* when the codec can't yet
+> round-trip its class 100% **and** the node + its inputs are untouched. Read #1 below in that light.
+
+1. **Preserve-don't-regenerate — replay untouched nodes verbatim.** *(DEMOTED to optional fallback —
+   see reconciliation above)* When kept, it captures every node verbatim keyed by `vibecomfy_uid` on
+   ingest and, on emit, replays untouched nodes byte-for-byte so codec bugs (e.g. the KSampler shift)
+   can't touch them. **The catch the review surfaced:** it requires full raw capture (the shipped
+   `_merge_slim_ui` stores furniture only — no `widgets_values`), and a node whose *upstream* changed
+   but is itself "untouched" becomes a silent-corruption vector if replayed verbatim (§0 Step 0
+   precondition b). Use it surgically for codec-incomplete classes, not as the whole-graph strategy.
 2. **One codec, derived from the node SCHEMA, used in both directions.** The widget-shift and
    Get/Set bugs exist because ingest-read and emit-write are *separate hand-written functions*
    over a *frozen* `WIDGET_SCHEMA` table. Replace that table with a mapping **derived from live
@@ -337,10 +359,12 @@ byte-preserved, the small delta is provably-correct-vs-ComfyUI, and the rare con
 can't handle is refused/passed-through (§3 contract) — never silently corrupted. Worst case is
 "I couldn't change that one node," never "I broke your graph."
 
-**Highest-leverage first build:** mechanisms **#1 + #3 together** — capture-and-replay untouched
-nodes, plus the `convert_ui_to_api`-gated property test. That alone moves the round-trip from
-single-digit % to *lossless on everything the agent didn't touch* (most of every workflow), and
-directly de-risks the committed Python→JSON path before any larger codec work.
+**Highest-leverage first build (revised 2026-05-30):** mechanisms **#3 + the refusal-spine + #2** —
+the `convert_ui_to_api`-gated property test as a *semantic* gate over the regenerated output, the
+runtime detector that aborts to REFUSED on any unintended change, and the schema-derived codec that
+makes regeneration correct. That trio delivers the safety contract (§1/§3) regardless of emit
+strategy. **#1 replay is layered on afterward, only for codec-incomplete node classes** — it is an
+optimization on top of a correct, gated codec, not the thing the foundation rests on.
 
 ### 11.5 Empirical status (falsification spike, run against the live setup)
 
