@@ -630,3 +630,159 @@ def test_port_convert_dry_run_diff_with_ready_template_shows_text(
         # Non-zero may happen if the ready template path can't be derived
         # Error output may be on stdout or stderr
         assert len(text) > 0, f"Expected some output, got empty. code={code}"
+
+def _write_flat_fixture_node_index(tmp_path: Path) -> None:
+    """Write a node_index.json covering every node type in the flat fixture."""
+    (tmp_path / "node_index.json").write_text(
+        json.dumps(
+            [
+                {
+                    "class_type": "CheckpointLoaderSimple",
+                    "pack": "core",
+                    "inputs": {
+                        "ckpt_name": {"type": "STRING", "required": True},
+                        "widget_1": {"type": "STRING", "required": False},
+                    },
+                    "outputs": [
+                        {"type": "MODEL", "name": "MODEL"},
+                        {"type": "CLIP", "name": "CLIP"},
+                        {"type": "VAE", "name": "VAE"},
+                    ],
+                },
+                {
+                    "class_type": "CLIPTextEncode",
+                    "pack": "core",
+                    "inputs": {
+                        "clip": {"type": "CLIP", "required": True},
+                        "text": {"type": "STRING", "required": True},
+                    },
+                    "outputs": [{"type": "CONDITIONING", "name": "CONDITIONING"}],
+                },
+                {
+                    "class_type": "EmptyLatentImage",
+                    "pack": "core",
+                    "inputs": {
+                        "width": {"type": "INT", "required": True},
+                        "height": {"type": "INT", "required": True},
+                        "batch_size": {"type": "INT", "required": True},
+                        "widget_0": {"type": "INT", "required": False},
+                        "widget_1": {"type": "INT", "required": False},
+                        "widget_2": {"type": "INT", "required": False},
+                    },
+                    "outputs": [{"type": "LATENT", "name": "LATENT"}],
+                },
+                {
+                    "class_type": "KSampler",
+                    "pack": "core",
+                    "inputs": {
+                        "model": {"type": "MODEL", "required": True},
+                        "positive": {"type": "CONDITIONING", "required": True},
+                        "negative": {"type": "CONDITIONING", "required": True},
+                        "latent_image": {"type": "LATENT", "required": True},
+                        "seed": {"type": "INT", "required": False},
+                        "steps": {"type": "INT", "required": False},
+                        "cfg": {"type": "FLOAT", "required": False},
+                        "sampler_name": {"type": "STRING", "required": False},
+                        "scheduler": {"type": "STRING", "required": False},
+                        "denoise": {"type": "FLOAT", "required": False},
+                    },
+                    "outputs": [{"type": "LATENT", "name": "LATENT"}],
+                },
+                {
+                    "class_type": "VAEDecode",
+                    "pack": "core",
+                    "inputs": {
+                        "samples": {"type": "LATENT", "required": True},
+                        "vae": {"type": "VAE", "required": True},
+                    },
+                    "outputs": [{"type": "IMAGE", "name": "IMAGE"}],
+                },
+                {
+                    "class_type": "SaveImage",
+                    "pack": "core",
+                    "inputs": {
+                        "images": {"type": "IMAGE", "required": True},
+                        "filename_prefix": {"type": "STRING", "required": True},
+                    },
+                    "outputs": [],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_port_export_to_ui_roundtrip_pos_and_uid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """port export --to ui writes a litegraph envelope with uid-matched pos and vibecomfy_uid."""
+    import shutil
+
+    # Write node_index covering all flat-fixture types
+    _write_flat_fixture_node_index(tmp_path)
+
+    # Copy flat fixture into tmp_path
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+
+    monkeypatch.chdir(tmp_path)
+
+    # Step 1: convert flat.json → flat.py
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+    assert (tmp_path / "flat.py").exists(), "flat.py was not written"
+    assert (tmp_path / "flat.layout.json").exists(), "sidecar flat.layout.json was not written"
+
+    # Step 2: export flat.py --to ui → flat_emit.json
+    out_emit = tmp_path / "flat_emit.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=True,
+            out=str(out_emit),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"port export --to ui failed with code {code}"
+    assert out_emit.exists(), f"flat_emit.json was not written at {out_emit}"
+
+    # Step 3: verify the emitted litegraph envelope
+    emit_data = json.loads(out_emit.read_text(encoding="utf-8"))
+    assert "nodes" in emit_data, "emitted envelope missing 'nodes'"
+    assert isinstance(emit_data["nodes"], list), "emitted nodes is not a list"
+
+    # Build uid→pos map from the SOURCE flat fixture
+    source_raw = json.loads(flat_json.read_text(encoding="utf-8"))
+    source_pos_by_uid: dict[str, list] = {
+        str(node["id"]): node["pos"] for node in source_raw["nodes"]
+    }
+
+    # Verify each emitted node has vibecomfy_uid and correct pos
+    for emitted_node in emit_data["nodes"]:
+        props = emitted_node.get("properties", {})
+        uid = props.get("vibecomfy_uid")
+        assert uid is not None, (
+            f"Emitted node id={emitted_node.get('id')} missing properties.vibecomfy_uid"
+        )
+        assert uid, f"Emitted node {emitted_node.get('id')} has empty vibecomfy_uid"
+        expected_pos = source_pos_by_uid.get(uid)
+        assert expected_pos is not None, f"uid {uid} not found in source fixture"
+        assert emitted_node["pos"] == expected_pos, (
+            f"uid {uid}: expected pos {expected_pos}, got {emitted_node['pos']}"
+        )

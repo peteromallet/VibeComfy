@@ -2634,7 +2634,8 @@ def _emit_build_function(
             else:
                 out_lines.append(single_line)
         else:
-            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}"
+            _uid_str = f", _uid={node.uid!r}" if node.uid else ""
+            head = f"    {var} = _node(wf, {node.class_type!r}, {nid!r}{_uid_str}"
             if not kwargs:
                 out_lines.append(f"{head})")
             else:
@@ -4297,6 +4298,7 @@ def _node(
     _id: str,
     _extras: dict | None = None,
     _outputs: tuple[str, ...] | None = None,
+    _uid: str | None = None,
     **kwargs,
 ):
     """Create a node, preserving the original node id from the source workflow.
@@ -4307,6 +4309,8 @@ def _node(
     """
     from vibecomfy.handles import Handle
     builder = wf.node(class_type, **kwargs)
+    if _uid:
+        builder.node.uid = _uid
     if _outputs is not None:
         builder.node.metadata["output_names"] = list(_outputs)
     if _extras:

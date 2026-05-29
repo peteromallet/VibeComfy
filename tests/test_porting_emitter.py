@@ -1535,3 +1535,58 @@ def test_generated_template_not_formatted_missing_section_comments() -> None:
         assert len(missing_section_diags) == 0, (
             f"Should not flag missing sections when sections are present: {missing_section_diags}"
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# T9 — _uid= threading through the .py emitter (scratchpad path)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_flat_scratchpad_contains_uid_in_node_calls() -> None:
+    """Converting the flat fixture writes a .py containing _uid= for every node."""
+    import json as _json
+
+    with open("tests/fixtures/walking_skeleton/flat.json") as fh:
+        raw = _json.load(fh)
+    wf = convert_to_vibe_format(raw)
+
+    text = emit_scratchpad_python(wf, source_path="tests/fixtures/walking_skeleton/flat.json")
+
+    # Every node with a resolvable identity (all in the flat fixture) should have _uid=
+    # The _NODE_HELPER_SOURCE itself contains "_uid: str" and "builder.node.uid = _uid"
+    # but those are string literals. The actual calls should be "_uid='<nid>'" etc.
+    import re
+    call_uids = re.findall(r"_uid='[^']+'", text)
+    assert len(call_uids) == 7, (
+        f"Expected 7 _uid= call args in flat fixture scratchpad; found {len(call_uids)}"
+    )
+    # Collect all emitted uid values and verify the set matches litegraph ids 1-7
+    uid_values = {re.search(r"_uid='([^']+)'", c).group(1) for c in call_uids}  # type: ignore[union-attr]
+    assert uid_values == {str(i) for i in range(1, 8)}, (
+        f"Expected uids 1-7; got {uid_values}"
+    )
+
+
+def test_flat_scratchpad_reimport_yields_same_uids() -> None:
+    """Re-importing the generated .py yields nodes carrying the same uid."""
+    import json as _json
+
+    with open("tests/fixtures/walking_skeleton/flat.json") as fh:
+        raw = _json.load(fh)
+    wf = convert_to_vibe_format(raw)
+
+    text = emit_scratchpad_python(wf, source_path="tests/fixtures/walking_skeleton/flat.json")
+
+    # Execute the generated code and call build()
+    namespace: dict[str, object] = {"__file__": "out/scratchpads/flat.py"}
+    exec(compile(text, "flat emitted", "exec"), namespace)  # noqa: S102
+    reimported_wf = namespace["build"]()
+
+    # Every node in the reimported workflow should have the same uid
+    for nid, orig_node in wf.nodes.items():
+        assert nid in reimported_wf.nodes, f"node {nid} missing from reimported workflow"
+        re_node = reimported_wf.nodes[nid]
+        assert re_node.uid == orig_node.uid, (
+            f"node {nid}: uid mismatch {re_node.uid!r} != {orig_node.uid!r}"
+        )
+        assert re_node.uid, f"node {nid} has empty uid after reimport"

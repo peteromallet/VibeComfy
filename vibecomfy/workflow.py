@@ -48,6 +48,7 @@ class VibeNode:
     inputs: dict[str, Any] = field(default_factory=dict)
     widgets: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    uid: str = ""
 
 
 @dataclass(slots=True)

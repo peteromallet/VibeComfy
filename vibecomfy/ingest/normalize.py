@@ -3,12 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import warnings
+
 from vibecomfy._graph_utils import is_api_link
 from vibecomfy.metadata import (
     OUTPUT_NODE_NAMES,
     _infer_requirements,
     _register_common_inputs,
 )
+from vibecomfy.porting.uid import make_uid, mint_local_uid
 from vibecomfy.porting.widget_aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
@@ -48,6 +51,7 @@ def normalize_to_api(
                 pass
             else:
                 if not _has_unknown_widget_inputs(converted):
+                    _merge_slim_ui(raw, converted)
                     return converted
                 return _normalize_ui_to_api(raw, schema_provider=schema_provider)
 
@@ -94,6 +98,72 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 inputs[name] = value
         api[node_id] = {"class_type": class_type, "inputs": inputs, "_ui": node}
     return api
+
+
+def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
+    """Merge slim _ui {id, pos, size, properties} from raw litegraph nodes onto converted API nodes.
+
+    Called after convert_ui_to_api so pos/properties survive on the comfy-converter path.
+    Verifies id preservation: if converted keys diverge from raw node ids, falls back to
+    class_type+position matching and emits a warning (correctness-2 gate).
+    """
+    raw_nodes_by_id: dict[str, dict] = {
+        str(node["id"]): node
+        for node in raw.get("nodes", [])
+        if isinstance(node, dict) and "id" in node
+    }
+    raw_ids = set(raw_nodes_by_id.keys())
+    converted_ids = set(converted.keys())
+    ids_diverge = bool(converted_ids - raw_ids)
+
+    if ids_diverge:
+        warnings.warn(
+            "convert_ui_to_api produced node ids not present in raw litegraph nodes; "
+            "falling back to class_type+order matching for _ui merge (correctness-2).",
+            stacklevel=4,
+        )
+        # Build a lookup by (class_type, order_index) as a best-effort fallback
+        raw_by_class_order: dict[tuple[str, int], dict] = {}
+        for node in raw.get("nodes", []):
+            if not isinstance(node, dict):
+                continue
+            class_type = str(node.get("type", ""))
+            order = int(node.get("order", -1))
+            raw_by_class_order[(class_type, order)] = node
+
+        for node_id, node_data in converted.items():
+            if not isinstance(node_data, dict) or "_ui" in node_data:
+                continue
+            class_type = str(node_data.get("class_type", ""))
+            # Try to find a match; use first class_type match as a last resort
+            matched = None
+            for (ct, _order), raw_node in raw_by_class_order.items():
+                if ct == class_type:
+                    matched = raw_node
+                    break
+            if matched is not None:
+                node_data["_ui"] = {
+                    "id": matched.get("id"),
+                    "pos": matched.get("pos"),
+                    "size": matched.get("size"),
+                    "properties": matched.get("properties", {}),
+                }
+            else:
+                node_data["_ui"] = {}
+    else:
+        for node_id, node_data in converted.items():
+            if not isinstance(node_data, dict) or "_ui" in node_data:
+                continue
+            raw_node = raw_nodes_by_id.get(node_id)
+            if raw_node is not None:
+                node_data["_ui"] = {
+                    "id": raw_node.get("id"),
+                    "pos": raw_node.get("pos"),
+                    "size": raw_node.get("size"),
+                    "properties": raw_node.get("properties", {}),
+                }
+            else:
+                node_data["_ui"] = {}
 
 
 def _has_unknown_widget_inputs(api: dict[str, Any]) -> bool:
@@ -171,6 +241,7 @@ def convert_to_vibe_format(
             inputs=inputs,
             widgets=widgets,
             metadata=metadata,
+            uid=make_uid("", mint_local_uid(metadata.get("_ui"), str(node_id))),
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
         if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:

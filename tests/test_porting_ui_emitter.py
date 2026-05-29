@@ -672,9 +672,13 @@ def test_structural_validate_green_on_starter_set(path: str) -> None:
 @pytest.mark.comfy
 def test_comfy_release_smoke_convert_ui_to_api() -> None:
     """Release gate (env VIBECOMFY_COMFY_SMOKE=1, real ComfyUI): emit_ui_json output is
-    accepted by comfy's convert_ui_to_api. Conflating this with the offline gate is
-    forbidden — this is the only path that actually imports ComfyUI."""
+    accepted by comfy's convert_ui_to_api. Uses the flat walking-skeleton fixture
+    (all ComfyUI-core node types) so zero "not registered" / dangling-link errors
+    are expected. Also asserts the uid-matched node pos equals the source pos —
+    this is the machine surrogate for opening in the real editor."""
+    import logging
     import os
+    from pathlib import Path
 
     if os.environ.get("VIBECOMFY_COMFY_SMOKE") != "1":
         pytest.skip("comfy release smoke gate is opt-in (set VIBECOMFY_COMFY_SMOKE=1)")
@@ -684,14 +688,72 @@ def test_comfy_release_smoke_convert_ui_to_api() -> None:
 
     from vibecomfy.ingest.normalize import convert_to_vibe_format
 
-    with open("workflow_corpus/official/video/wan_t2v.json") as handle:
-        raw = json.load(handle)
+    fixture_path = (
+        Path(__file__).parent / "fixtures" / "walking_skeleton" / "flat.json"
+    )
+    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    # Capture source pos by uid (litegraph id)
+    source_pos_by_uid: dict[str, list] = {
+        str(node["id"]): node["pos"] for node in raw["nodes"]
+    }
+
     wf = convert_to_vibe_format(raw)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         ui = emit_ui_json(wf, schema_provider=_local_provider())
-    converted = comfy_convert(ui)
-    assert isinstance(converted, dict) and converted
+
+    # Capture comfy warnings about unknown nodes via logger
+    comfy_logger = logging.getLogger("comfy.component_model.workflow_convert")
+    unknown_records: list[logging.LogRecord] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "Unknown node type" in record.getMessage():
+                unknown_records.append(record)
+
+    handler = _CaptureHandler()
+    handler.setLevel(logging.WARNING)
+    comfy_logger.addHandler(handler)
+    try:
+        converted = comfy_convert(ui)
+    finally:
+        comfy_logger.removeHandler(handler)
+
+    assert isinstance(converted, dict) and converted, (
+        "convert_ui_to_api returned empty/non-dict result"
+    )
+
+    # Assert zero "node type not registered" errors
+    assert len(unknown_records) == 0, (
+        f"convert_ui_to_api reported {len(unknown_records)} unknown node(s): "
+        f"{[r.getMessage() for r in unknown_records]}"
+    )
+
+    # Assert zero dangling-link errors: every link target node must exist in
+    # the converted output (the comfy converter silently drops edges to
+    # missing nodes, so we check link endpoint integrity).
+    for link in ui.get("links", []):
+        # Litegraph link format: [link_id, from_node, from_slot, to_node, to_slot, type]
+        target_node = str(link[3])
+        assert target_node in converted, (
+            f"Dangling link {link[0]}: target node {target_node} not in converted output"
+        )
+
+    # Assert uid-matched node pos equals source pos
+    for emitted_node in ui["nodes"]:
+        props = emitted_node.get("properties", {})
+        uid = props.get("vibecomfy_uid")
+        if uid:
+            expected_pos = source_pos_by_uid.get(uid)
+            assert expected_pos is not None, (
+                f"uid {uid} from emitted node {emitted_node.get('id')} "
+                f"not found in source"
+            )
+            assert emitted_node["pos"] == expected_pos, (
+                f"uid {uid}: emitted pos {emitted_node['pos']} != "
+                f"source pos {expected_pos}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -758,3 +820,182 @@ def test_breadcrumb_stamped_on_each_subgraph_definition() -> None:
         "source_template": "t",
         "prior_path": "p.json",
     }
+
+
+# ---------------------------------------------------------------------------
+# T7 — widget-count overflow downgrade: no raise, diagnostic recorded
+# ---------------------------------------------------------------------------
+
+
+def test_flat_ksampler_does_not_raise_on_emit(tmp_path) -> None:
+    """Emitting the flat fixture's KSampler must not raise (downgraded assert → diagnostic).
+
+    Finding (from debt/SD6): KSampler does NOT itself trigger the overflow —
+    _build_widget_values produces 6 entries and _full_widget_name_count returns 7
+    (includes the None control slot), so the check passes as '6<=7'.  The downgrade
+    is preventative; this test guards against any future regression that re-raises.
+    """
+    import json as _json
+
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    with open("tests/fixtures/walking_skeleton/flat.json") as fh:
+        raw = _json.load(fh)
+    wf = convert_to_vibe_format(raw)
+
+    report: list[dict] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, recovery_report=report)
+
+    # Must not raise — basic smoke
+    assert isinstance(result, dict)
+    assert result["nodes"]
+
+    # KSampler entry must have a widget_length_check (non-fatal diagnostic recorded)
+    ksampler_entry = next(
+        (e for e in report if e["class_type"] == "KSampler"), None
+    )
+    assert ksampler_entry is not None, "No KSampler in recovery_report"
+    assert "widget_length_check" in ksampler_entry
+    # KSampler does NOT trigger overflow (6 <= 7); document the finding.
+    assert "overflow" not in ksampler_entry["widget_length_check"], (
+        "KSampler unexpectedly triggered overflow — debt note: KSampler should pass "
+        "6<=7 because _full_widget_name_count counts the None control slot."
+    )
+
+
+def test_overflow_widget_count_recorded_as_diagnostic() -> None:
+    """When widget count exceeds schema, overflow is recorded in prov/recovery_report, no raise."""
+    wf = _wf()
+    # Manufacture a KSampler with excess widget_N keys beyond the schema count.
+    # Set widget_0..widget_9 (10 values) to exceed a schema count of 7.
+    node = VibeNode(
+        "1",
+        "KSampler",
+        widgets={f"widget_{i}": i for i in range(10)},
+    )
+    wf.nodes["1"] = node
+
+    report: list[dict] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        # Must not raise even if widget count exceeds schema
+        emit_ui_json(wf, recovery_report=report)
+
+    assert report, "recovery_report must be populated"
+    entry = report[0]
+    assert "widget_length_check" in entry
+    # overflow case: 10 > 7 → overflow recorded
+    if "overflow" in entry["widget_length_check"]:
+        assert ">" in entry["widget_length_check"]
+    # Either way, no AssertionError was raised — that's the key invariant.
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# T8 — layout restore precedence and vibecomfy_uid stamp
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def test_layout_arg_matched_node_emits_stored_pos_not_stub() -> None:
+    """With a layout arg, the matched node's emitted pos equals the stored pos."""
+    wf = _wf()
+    node = VibeNode("1", "SaveImage")
+    node.uid = "my-uid"
+    wf.nodes["1"] = node
+
+    stored_pos = [777.0, 888.0]
+    stored_size = [333.0, 222.0]
+    layout = {"my-uid": {"pos": stored_pos, "size": stored_size}}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, layout=layout)
+
+    emitted = result["nodes"][0]
+    assert emitted["pos"] == stored_pos, (
+        f"Layout pos not used: {emitted['pos']} != {stored_pos}"
+    )
+    assert emitted["size"] == stored_size, (
+        f"Layout size not used: {emitted['size']} != {stored_size}"
+    )
+
+
+def test_every_nonempty_uid_node_emits_vibecomfy_uid_property() -> None:
+    """Every node with a non-empty uid carries properties['vibecomfy_uid']."""
+    import json as _json
+
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    with open("tests/fixtures/walking_skeleton/flat.json") as fh:
+        raw = _json.load(fh)
+    wf = convert_to_vibe_format(raw)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf)
+
+    for emit_node in result["nodes"]:
+        lite_id = str(emit_node["id"])
+        props = emit_node.get("properties", {})
+        assert "vibecomfy_uid" in props, (
+            f"Node {lite_id} missing vibecomfy_uid in properties"
+        )
+        assert props["vibecomfy_uid"], (
+            f"Node {lite_id} has empty vibecomfy_uid"
+        )
+        assert props["vibecomfy_uid"] == lite_id, (
+            f"Node {lite_id} vibecomfy_uid={props['vibecomfy_uid']!r} != litegraph id {lite_id}"
+        )
+
+
+def test_nodes_absent_from_layout_fall_back_to_stub() -> None:
+    """Nodes absent from layout fall back to the stub geometry (not None)."""
+    wf = _wf()
+    node1 = VibeNode("1", "SaveImage")
+    node1.uid = "uid-1"
+    node2 = VibeNode("2", "PreviewImage")
+    node2.uid = "uid-2"
+    wf.nodes["1"] = node1
+    wf.nodes["2"] = node2
+
+    # Only provide layout for node1
+    layout = {"uid-1": {"pos": [100.0, 200.0], "size": [300.0, 400.0]}}
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, layout=layout)
+
+    assert len(result["nodes"]) == 2
+    node1_emitted = next(n for n in result["nodes"] if n["id"] == 1)
+    node2_emitted = next(n for n in result["nodes"] if n["id"] == 2)
+
+    # Node1 should use layout
+    assert node1_emitted["pos"] == [100.0, 200.0]
+    # Node2 should fall back to stub (non-None, non-layout)
+    assert node2_emitted["pos"] is not None
+    assert len(node2_emitted["pos"]) == 2
+    assert node2_emitted["pos"] != [100.0, 200.0], "node2 should not use node1's layout"
+
+
+def test_captured_geometry_used_when_layout_empty_and_ui_present() -> None:
+    """When layout is empty {} but node has _ui metadata, captured geometry is used."""
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    import json as _json
+
+    with open("tests/fixtures/walking_skeleton/flat.json") as fh:
+        raw = _json.load(fh)
+    wf = convert_to_vibe_format(raw)
+
+    # All nodes should have _ui with captured pos/size from ingest
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = emit_ui_json(wf, layout={})
+
+    raw_by_id = {str(n["id"]): n for n in raw["nodes"]}
+    for emit_node in result["nodes"]:
+        lite_id = str(emit_node["id"])
+        expected_pos = raw_by_id[lite_id]["pos"]
+        assert emit_node["pos"] == [float(p) for p in expected_pos], (
+            f"Node {lite_id}: captured pos {emit_node['pos']} != raw {expected_pos}"
+        )

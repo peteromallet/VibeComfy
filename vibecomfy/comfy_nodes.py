@@ -2,6 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
+WEB_DIRECTORY = "./web"
+
+try:
+    from server import PromptServer
+
+    @PromptServer.instance.routes.get("/vibecomfy/ping")
+    async def _vibecomfy_ping(request):  # type: ignore[no-untyped-def]
+        from aiohttp import web
+
+        return web.json_response({"status": "ok"})
+
+except ImportError:
+    pass
+
 
 def _strip_conditioning_keys(conditioning: list[Any], keys: set[str]) -> list[Any]:
     stripped: list[Any] = []

@@ -125,6 +125,25 @@ def _stub_layout(order: int) -> dict[str, list[float]]:
     }
 
 
+def _captured_geometry(node: Any) -> dict[str, list[float]] | None:
+    """Return {pos, size} from ``node.metadata['_ui']``, or None when absent.
+
+    The ``None`` fallthrough is intentional: callers should chain through to
+    ``_stub_layout`` when no captured geometry exists (e.g. programmatic nodes
+    or workflows loaded from a .py file without a sidecar).
+    """
+    _ui = getattr(node, "metadata", {}).get("_ui")
+    if not isinstance(_ui, dict):
+        return None
+    pos = _ui.get("pos")
+    size = _ui.get("size")
+    if not isinstance(pos, (list, tuple)) or len(pos) < 2:
+        return None
+    if not isinstance(size, (list, tuple)) or len(size) < 2:
+        return None
+    return {"pos": [float(pos[0]), float(pos[1])], "size": [float(size[0]), float(size[1])]}
+
+
 def _envelope_id(wf: Any) -> str:
     """Deterministic envelope id derived from the workflow id."""
     return str(uuid.uuid5(_ENVELOPE_ID_NAMESPACE, str(getattr(wf, "id", "workflow"))))
@@ -489,7 +508,7 @@ def emit_ui_json(
         unwired outputs).  The global ``links`` list holds 6-element arrays
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
-    del layout  # reserved for M2
+    layout = layout or {}
 
     # Resolve SetNode/GetNode broadcast indirection into direct edges and identify the
     # helper nodes to omit from emission (no-op when the IR carries no helpers).
@@ -557,7 +576,7 @@ def emit_ui_json(
 
     for order, node_id in enumerate(order_list):
         node = wf.nodes[node_id]
-        geometry = _stub_layout(order)
+        geometry = layout.get(node.uid) or _captured_geometry(node) or _stub_layout(order)
         schema = schema_cache.get(node.class_type)
         schema_outputs = list(getattr(schema, "outputs", None) or []) if schema else []
 
@@ -636,6 +655,10 @@ def emit_ui_json(
         if not prov["schema_less"]:
             properties["_vibecomfy_schema_provider"] = prov.get("provider", "unknown")
 
+        # ── uid stamp (M1.5): every node with a non-empty uid carries its frozen identity ──
+        if node.uid:
+            properties["vibecomfy_uid"] = node.uid
+
         # --- widgets_values (verified compacted-ordering rule; see module docstring) ---
         widget_values = _build_widget_values(node, compacted_names)
 
@@ -654,13 +677,13 @@ def emit_ui_json(
         if expected_widget_count is None:
             prov["widget_length_check"] = "skipped: schema-less"
         else:
-            assert len(widget_values) <= expected_widget_count, (
-                f"{node_id}({node.class_type}): widgets_values length "
-                f"{len(widget_values)} exceeds schema widget count {expected_widget_count}"
-            )
-            prov["widget_length_check"] = (
-                f"{len(widget_values)}<={expected_widget_count}"
-            )
+            if len(widget_values) > expected_widget_count:
+                overflow_msg = f"overflow {len(widget_values)}>{expected_widget_count}"
+                prov["widget_length_check"] = overflow_msg
+            else:
+                prov["widget_length_check"] = (
+                    f"{len(widget_values)}<={expected_widget_count}"
+                )
 
         nodes.append(
             {

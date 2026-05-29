@@ -1516,3 +1516,131 @@ def test_ready_template_uses_shared_helpers_and_passes_import_build_compile_pari
         f"Parity failed; diffs: {result.validation.parity_diffs}"
     )
     assert result.validation.parity_diffs == []
+
+
+# ---------------------------------------------------------------------------
+# T10 — Layout sidecar write on convert
+# ---------------------------------------------------------------------------
+
+
+def _flat_fixture_provider() -> FakeSchemaProvider:
+    """Schema provider covering all node types in the flat fixture.
+
+    Includes widget_* inputs that the normalization pipeline creates from
+    litegraph widgets_values (widgets beyond the first named input become
+    numbered widget_N entries in the API dict).
+    """
+    return FakeSchemaProvider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                class_type="CheckpointLoaderSimple",
+                pack=None,
+                inputs={
+                    "ckpt_name": InputSpec("STRING", required=True),
+                    "widget_1": InputSpec("STRING", required=False),  # second widgets_values entry
+                },
+                outputs=[OutputSpec("MODEL", "MODEL"), OutputSpec("CLIP", "CLIP"), OutputSpec("VAE", "VAE")],
+            ),
+            "CLIPTextEncode": NodeSchema(
+                class_type="CLIPTextEncode",
+                pack=None,
+                inputs={
+                    "clip": InputSpec("CLIP", required=True),
+                    "text": InputSpec("STRING", required=True),
+                },
+                outputs=[OutputSpec("CONDITIONING", "CONDITIONING")],
+            ),
+            "EmptyLatentImage": NodeSchema(
+                class_type="EmptyLatentImage",
+                pack=None,
+                inputs={
+                    "width": InputSpec("INT", required=True),
+                    "height": InputSpec("INT", required=True),
+                    "batch_size": InputSpec("INT", required=True),
+                    "widget_0": InputSpec("INT", required=False),
+                    "widget_1": InputSpec("INT", required=False),
+                    "widget_2": InputSpec("INT", required=False),
+                },
+                outputs=[OutputSpec("LATENT", "LATENT")],
+            ),
+            "KSampler": NodeSchema(
+                class_type="KSampler",
+                pack=None,
+                inputs={
+                    "model": InputSpec("MODEL", required=True),
+                    "positive": InputSpec("CONDITIONING", required=True),
+                    "negative": InputSpec("CONDITIONING", required=True),
+                    "latent_image": InputSpec("LATENT", required=True),
+                    "seed": InputSpec("INT", required=False),
+                    "steps": InputSpec("INT", required=False),
+                    "cfg": InputSpec("FLOAT", required=False),
+                    "sampler_name": InputSpec("STRING", required=False),
+                    "scheduler": InputSpec("STRING", required=False),
+                    "denoise": InputSpec("FLOAT", required=False),
+                },
+                outputs=[OutputSpec("LATENT", "LATENT")],
+            ),
+            "VAEDecode": NodeSchema(
+                class_type="VAEDecode",
+                pack=None,
+                inputs={"samples": InputSpec("LATENT", required=True), "vae": InputSpec("VAE", required=True)},
+                outputs=[OutputSpec("IMAGE", "IMAGE")],
+            ),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={"images": InputSpec("IMAGE", required=True), "filename_prefix": InputSpec("STRING", required=True)},
+                outputs=[],
+            ),
+        }
+    )
+
+
+def test_convert_flat_fixture_writes_layout_sidecar(tmp_path: Path) -> None:
+    """Converting the flat fixture writes flat.layout.json with uid→pos matching source."""
+    import json as json_mod
+
+    from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
+    from vibecomfy.porting.layout_store import read_layout, sidecar_path_for
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    raw = json_mod.loads(fixture.read_text(encoding="utf-8"))
+
+    # Build expected uid→pos from the source JSON
+    expected_pos: dict[str, list] = {}
+    for node in raw["nodes"]:
+        uid = str(node["id"])
+        expected_pos[uid] = node["pos"]
+
+    # Ingest flat fixture → VibeWorkflow (exercises capture path from T5)
+    api = normalize_to_api(raw)
+    wf = convert_to_vibe_format(api, source_path=str(fixture), workflow_id="flat")
+
+    # Convert to scratchpad .py
+    result = port_convert_workflow(
+        wf,
+        source_path=str(fixture),
+        schema_provider=_flat_fixture_provider(),
+    )
+
+    out_py = tmp_path / "flat.py"
+    port_convert_and_write(result, out_py, dry_run=False, diff=False)
+
+    # Simulate _cmd_port_convert sidecar write (post-write orchestration)
+    from vibecomfy.porting.layout_store import write_layout as wl
+    wl(out_py, wf)
+
+    # Sidecar must exist
+    sidecar = sidecar_path_for(out_py)
+    assert sidecar.exists(), f"Expected sidecar at {sidecar}"
+
+    # Read sidecar and verify uid→pos mapping
+    layout = read_layout(out_py)
+    assert len(layout) == len(expected_pos), (
+        f"Expected {len(expected_pos)} nodes in layout, got {len(layout)}"
+    )
+    for uid, pos in expected_pos.items():
+        assert uid in layout, f"uid {uid} missing from layout"
+        assert layout[uid]["pos"] == pos, (
+            f"uid {uid}: expected pos {pos}, got {layout[uid]['pos']}"
+        )

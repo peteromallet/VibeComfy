@@ -119,3 +119,80 @@ def test_compile_api_byte_identical_with_and_without_control_capture() -> None:
         "compile('api') output must be byte-for-byte identical with and without "
         "control_after_generate — the ingest metadata capture must not alter the compiled dict"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# T6 — Identity capture & determinism on the flat walking-skeleton fixture
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _load_flat_wf():
+    """Load the flat.json walking-skeleton fixture → VibeWorkflow (cached helper)."""
+    import json as _json
+
+    with open("tests/fixtures/walking_skeleton/flat.json") as fh:
+        raw = _json.load(fh)
+    return convert_to_vibe_format(raw)
+
+
+def test_flat_every_node_has_nonempty_uid_equal_to_litegraph_id() -> None:
+    """Every node gets a non-empty uid equal to its source litegraph id."""
+    wf = _load_flat_wf()
+    raw = json.load(open("tests/fixtures/walking_skeleton/flat.json"))
+    raw_ids = {str(n["id"]) for n in raw["nodes"]}
+
+    for nid, node in wf.nodes.items():
+        assert node.uid, f"node {nid} has empty uid"
+        assert node.uid in raw_ids, f"node {nid} uid {node.uid!r} not in raw ids {raw_ids}"
+        assert node.uid == nid, (
+            f"node {nid} uid {node.uid!r} does not equal its own litegraph id {nid}"
+        )
+
+
+def test_flat_pre_existing_vibecomfy_uid_read_back_not_fresh_mint() -> None:
+    """A node with pre-existing properties['vibecomfy_uid'] reads that value back."""
+    import json as _json
+
+    raw = _json.load(open("tests/fixtures/walking_skeleton/flat.json"))
+    # Stamp a synthetic vibecomfy_uid onto KSampler (id=5) properties
+    for node in raw["nodes"]:
+        if node["id"] == 5:
+            node.setdefault("properties", {})["vibecomfy_uid"] = "custom-ksampler-uuid"
+
+    wf = convert_to_vibe_format(raw)
+    ksampler = wf.nodes["5"]
+    assert ksampler.uid == "custom-ksampler-uuid", (
+        f"Pre-existing vitecomfy_uid not preserved: got {ksampler.uid!r}"
+    )
+
+
+def test_flat_pos_size_reachable_via_metadata_ui() -> None:
+    """Captured pos/size are reachable via metadata['_ui']."""
+    wf = _load_flat_wf()
+    raw = json.load(open("tests/fixtures/walking_skeleton/flat.json"))
+    raw_by_id = {str(n["id"]): n for n in raw["nodes"]}
+
+    for nid, node in wf.nodes.items():
+        _ui = node.metadata.get("_ui")
+        assert isinstance(_ui, dict), f"node {nid} missing _ui metadata"
+        assert "pos" in _ui, f"node {nid} _ui missing pos"
+        assert "size" in _ui, f"node {nid} _ui missing size"
+        expected = raw_by_id[nid]
+        assert _ui["pos"] == expected["pos"], (
+            f"node {nid} pos mismatch: {_ui['pos']} != {expected['pos']}"
+        )
+        assert _ui["size"] == expected["size"], (
+            f"node {nid} size mismatch: {_ui['size']} != {expected['size']}"
+        )
+
+
+def test_flat_determinism_same_source_identical_uids() -> None:
+    """Same source → identical uids across two ingests."""
+    wf1 = _load_flat_wf()
+    wf2 = _load_flat_wf()
+
+    for nid in sorted(wf1.nodes.keys(), key=lambda x: int(x) if x.isdigit() else 0):
+        assert nid in wf2.nodes, f"node {nid} missing from second ingest"
+        assert wf1.nodes[nid].uid == wf2.nodes[nid].uid, (
+            f"node {nid}: non-deterministic uid {wf1.nodes[nid].uid!r} vs {wf2.nodes[nid].uid!r}"
+        )

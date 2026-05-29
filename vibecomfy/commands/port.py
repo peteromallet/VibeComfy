@@ -15,6 +15,7 @@ from vibecomfy.porting.convert import (
     port_convert_and_write,
     port_convert_workflow,
 )
+from vibecomfy.porting.layout_store import read_layout, write_layout
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.manual_repair import repair_manual_template
 from vibecomfy.porting.readability_inventory import build_readability_inventory
@@ -223,6 +224,13 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
         _emit_convert_payload(payload, json_output=args.json)
         return 1
 
+    # Emit layout sidecar alongside the .py (skip in dry-run/diff)
+    if not dry_run and not diff_mode:
+        try:
+            write_layout(out, loaded.workflow)
+        except Exception:
+            pass  # Sidecar write is best-effort; never block the main convert
+
     payload = {
         "status": "ok" if write_result["written"] or write_result["dry_run"] else "error",
         "out": str(out),
@@ -426,31 +434,60 @@ def _cmd_port_widgets(args: argparse.Namespace) -> int:
 
 
 def _cmd_port_export(args: argparse.Namespace) -> int:
-    if args.to != "json":
-        print(f"unsupported export target: {args.to!r}; supported values: json", file=sys.stderr)
-        return 2
-    try:
-        schema_provider = _build_authoring_provider(args)
-        workflow = load_workflow_reference(
-            args.workflow,
-            schema_provider=schema_provider,
-            allow_scratchpad=True,
-            ready=getattr(args, "ready", False),
-        )
-        payload = {
-            "status": "ok",
-            "workflow": args.workflow,
-            "format": "api",
-            "api": workflow.export_to_json(format="api"),
-        }
-    except Exception as exc:
-        print(f"port export failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
-    if args.json:
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    else:
-        print(json.dumps(payload["api"], indent=2, sort_keys=True))
-    return 0
+    if args.to == "json":
+        try:
+            schema_provider = _build_authoring_provider(args)
+            workflow = load_workflow_reference(
+                args.workflow,
+                schema_provider=schema_provider,
+                allow_scratchpad=True,
+                ready=getattr(args, "ready", False),
+            )
+            payload = {
+                "status": "ok",
+                "workflow": args.workflow,
+                "format": "api",
+                "api": workflow.export_to_json(format="api"),
+            }
+        except Exception as exc:
+            print(f"port export failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(json.dumps(payload["api"], indent=2, sort_keys=True))
+        return 0
+
+    if args.to == "ui":
+        try:
+            schema_provider = _build_authoring_provider(args)
+            workflow = load_workflow_reference(
+                args.workflow,
+                schema_provider=schema_provider,
+                allow_scratchpad=True,
+                ready=getattr(args, "ready", False),
+            )
+            py_path = Path(args.workflow)
+            layout = read_layout(py_path)
+            ui_payload = emit_ui_json(
+                workflow,
+                schema_provider=schema_provider,
+                layout=layout,
+            )
+            if args.out:
+                out_path = Path(args.out)
+            else:
+                out_path = default_output_path(workflow, source_template=py_path.stem)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True))
+            print(f"wrote {out_path}")
+        except Exception as exc:
+            print(f"port export failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    print(f"unsupported export target: {args.to!r}; supported values: json, ui", file=sys.stderr)
+    return 2
 
 
 def _cmd_port_validate_call(args: argparse.Namespace) -> int:
@@ -1266,6 +1303,7 @@ def register(subparsers) -> None:
     export.add_argument("--to", default="json")
     export.add_argument("--json", action="store_true")
     export.add_argument("--object-info-cache")
+    export.add_argument("--out", default=None, help="Output file path (required for --to ui).")
     export.set_defaults(func=_cmd_port_export)
 
     validate_call = port_subparsers.add_parser("validate-call", help="Validate one node call against authoring schema.")
