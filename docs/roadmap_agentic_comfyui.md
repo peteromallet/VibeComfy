@@ -10,6 +10,10 @@ the framing and the mechanisms.
 > **If you just want the work plan, jump to [§0 — What we need to do](#0-what-we-need-to-do-the-concrete-build-plan).**
 > It is a five-step, file-level porting job whose hard parts are already proven in
 > `scripts/roundtrip_fidelity_spike.py`. Everything below §0 is the *why* behind it.
+>
+> **Before enabling any write-capable editor, read [§14's shipping tripwire](#14-frontier-risks--beyond-fidelity-5x2-agent-sweep-2026-05-30):**
+> the round-trip core proves *faithfulness*, not *correctness* or *safety* — so no write path ships
+> until an independent intent oracle + a node-capability fence exist.
 
 > **Scope discipline (read first).** The red-team was calibrated to "FULL robustness," so it
 > returned a lot of *production-grade machinery*. This is still a prototype at single-digit-%
@@ -484,3 +488,48 @@ The plan is now legible: the order is forced by the stack + the fork, every laye
 *external-truth* gate, "done" is a *set* of per-family numbers, and an Ops track watches
 production from day one. The risk has moved from "we don't know what's wrong" to "make the
 fork decision, then hold execution discipline against un-bypassable gates."
+
+## 14. Frontier risks — beyond fidelity (5×2-agent sweep, 2026-05-30)
+
+Ten independent agents (5 lenses × Claude + DeepSeek) stress-tested the strategy *assuming the
+round-trip core is sound*. Both families converged on the same `file:line` evidence for all five —
+high signal. **The organizing insight:** everything we've built proves **faithfulness** ("we changed
+exactly the delta, nothing else"). Faithfulness is orthogonal to **correctness**, **trust**,
+**expressibility**, **durability**, and **safety** — and every gremlin lives in those unmeasured axes.
+
+> ### ⛔ THE SHIPPING TRIPWIRE (the single load-bearing takeaway)
+> Two of these gremlins are **existential** (intent-correctness, security) and **the only thing
+> currently fencing them from users is that m7 is read-only** (`m7-in-editor-surface.md` — "never
+> writes a file"). **Do not ship a write-enabled editor until BOTH exist: (a) an *independent* intent
+> oracle — execution/render-diff, NOT `convert_ui_to_api` (which only judges faithfulness), and (b) a
+> capability fence on node additions.** The refusal-spine ALLOWs a wrong-but-intended *or*
+> malicious-but-intended edit *by construction* — that is literally the T4 spike's success criterion.
+
+| Lens | Danger | Verified anchor (both families) | Type |
+|---|---|---|---|
+| **Intent-correctness** | **Existential** | Intent judge is *vapor* — not in code, epic ends at read-only m7. Structured tools *launder* wrong intent into clean gate-passing graphs. An L3 gate built later will grab the only oracle present (`convert_ui_to_api`) → re-enters the self-reference §6.1 condemns. | **Challenge** |
+| **Security / confused-deputy** | **Existential** (on write) | Graph text (titles/widgets) ingested as agent context verbatim (`analysis/graph.py`) = injection channel. `add_node` (`workflow.py:380`) has **no class allowlist**. Three unsandboxed exec paths: `scratchpad_loader.py:24`, `registry/ready.py:97`, `node_packs_install.py:127`. | **Challenge** |
+| **Custom-node expressibility** | High (live silent bug) | `object_info` *lies* about dynamic nodes: rgthree Power Lora Loader snapshot = `[None,None]` (2) but real graphs carry ~8 dict-shaped rows → emitter records `overflow 8>2` and **nothing raises**. The §6 fence is **data-complete but gate-incomplete** — the recovery report already carries `schema_less`/`widget_length_check`; nothing consumes it as a refusal. | **Challenge** |
+| **Moving oracle / durability** | High (cheap fix) | `comfy_converter_strict=False` is the **default happy path** → an oracle bump silently falls back to our offline reimpl ("green while reality diverges"). The only real oracle gate (`test_layer3_corpus_wide_convert_ui_to_api_gate`) is **opt-in and never runs in CI** (`VIBECOMFY_COMFY_SMOKE` set nowhere). Our own widget-schema bumps can silently steal saved positions (no migration test). | **Enhance** |
+| **End-user trust** | High | The L2 trust surface is unbuilt: `porting/layout/__init__.py` `layout()` raises `NotImplementedError`; the "change report" is a `print`, not a previewable/approvable diff; **latency is gated nowhere**; ingest's many-to-one normalization silently rationalizes the user's organizational reroutes (felt-catastrophic, geometrically invisible). | **Enhance** |
+
+**Highest-value near-term actions (judgment-filtered — not the whole sweep):**
+1. **[cheap, do early] Make oracle drift loud, not silent.** Flip `comfy_converter_strict=True` at the
+   ingest boundary and wire the Layer-3 gate into required CI (`VIBECOMFY_COMFY_SMOKE=1`) with the
+   pinned ComfyUI commit recorded in a committed `version_matrix.json`. Converts the dangerous
+   "green-while-diverged" mode into a loud break the moment a bump lands. Pure enhancement.
+2. **[fence the live bug] Consume the signal we already capture.** The recovery report already carries
+   `widget_length_check`/`schema_less`/confidence per node; promote `overflow`/`schema_less` into a
+   **hard emit-path refusal** (the §6 fence as a real module, not a breadcrumb), keyed on *widget-shape
+   divergence*, not just class presence. Dict/row-shaped `widgets_values` (Power Lora Loader, etc.) need
+   a first-class IR representation, not positional flattening.
+3. **[sequencing change] Pull the intent oracle forward.** §4 lists L3 edit-correctness as a late row;
+   the sweep says co-develop the execution/render-diff oracle *now* and make it the gate that lets the
+   editor go write-enabled. It is the tripwire above, made concrete.
+
+**Deliberately not folded in** (real but lower-leverage today): the felt-delta/latency gate, exfil
+channel taxonomy, plugin-discovery foothold. They belong in the Ops/UX track once the editor writes.
+
+Falsification probes (runnable now, like the L0 spike): (1) 15 task-wrong-but-faithful edits → T4
+detector → predicted 100% ALLOW; (2) Power Lora Loader `ingest→emit→convert_ui_to_api` → predicted
+silent fail; (3) injection string in a node title → `analyze info` → predicted reaches agent verbatim.
