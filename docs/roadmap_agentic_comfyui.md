@@ -54,13 +54,50 @@ the fragile surface shrinks from "every node" to "just what the agent changed."
 So the steps below are not "figure out if this works" — they are "move this exact, verified
 behavior out of the clean-room harness and into `normalize.py` / `ui_emitter.py` / `tests/`."
 
+> **Honest caveat (from a 3-model review of this plan — Codex + Claude + DeepSeek, all
+> independently).** The spike proves the *architecture*, but it proves it in a **clean room**:
+> its `capture()/replay()` (`scripts/roundtrip_fidelity_spike.py:71-81`) grab the raw UI dict
+> directly and never run `normalize.py → IR → ui_emitter.py`. Wiring into the real pipeline
+> surfaces two things the spike sidestepped, so the steps below are a *porting job with two real
+> design decisions in it*, not a pure copy-paste:
+> - **The replay data is not always captured today.** On the comfy-converter ingest path (the one
+>   z_image / qwen / wan_t2v take), `_merge_slim_ui` (`normalize.py:156-165`) stores a **slim
+>   `_ui`** — `id/pos/size/properties/mode/flags/color/bgcolor`, **no `widgets_values`/`outputs`/
+>   `title`**. §11.5's "`_ui` holds the full raw node for 100% of nodes" is true only on the
+>   *fallback* path (unknown-widget graphs like the 44-node LTX). So **Step 1 must broaden capture
+>   to the full raw node on the comfy-converter path** before replay (Step 2) has anything to
+>   replay on the official graphs.
+> - **The "touched vs untouched" signal does not exist.** See Step 0 — three of the five steps
+>   silently depend on it.
+
+### Step 0 — the Replay & Delta Contract (write this first; the other steps depend on it)
+
+Steps 2, 3, and 5 all assume emit can answer *"did the agent change this node, and if so what?"*
+**That signal does not exist in the code today** — `VibeWorkflow` setters mutate the IR in place,
+there is no dirty-bit, and `emit_ui_json` has no notion of a change-set. So define it once, as
+data, before building anything that consumes it:
+
+- **`touched_uids` / intended-delta is system-computed, never agent-declared.** Derive it by
+  diffing each node's current IR projection against its captured-on-ingest snapshot, keyed by
+  durable `vibecomfy_uid` (an agent-declared delta can be made over-broad, which turns the
+  corruption-detector in Step 5 into a no-op). A node is *touched* iff its projection differs from
+  its snapshot; the *intended API delta* is the set of `(uid, field)` pairs that differ.
+- **One source of truth feeds both replay (Step 2) and refusal (Step 5).** `emit_ui_json` takes a
+  `touched_uids: set[str]` (or the IR carries a per-node dirty set); the corruption-detector's
+  "intended delta" is the *same* computed set, not a second hand-authored one.
+- **Replay has preconditions — it is not a binary touched/untouched switch.** Replay a node only
+  when (a) a *full* raw `_ui` exists for it, (b) no upstream structural change alters its
+  inputs/outputs, and (c) its `vibecomfy_uid` is present; otherwise regenerate through the codec
+  *with the detector guarding it*. Without (b), an "untouched but structurally affected" node
+  replayed verbatim becomes its own silent-corruption vector.
+
 | # | Step | Where (file) | What it does | Done when |
 |---|---|---|---|---|
-| **1** | **Envelope-aware capture on ingest** *(top priority — closes the one foundation hole)* | `vibecomfy/ingest/normalize.py` | Capture, verbatim, the workflow **envelope** — `definitions` (subgraph bodies), `groups`, `extra`, `config`, `version`, link table — into workflow-level metadata, alongside the per-node `_ui` already captured. Today subgraph `definitions` are dropped entirely, so modern official graphs (z_image/flux/qwen) round-trip with a vanished subgraph body (§11.5). | A loaded→emitted graph contains the `definitions` block byte-identical to source; spike **T1** passes through the *real* ingest path, not the harness's clean-room `capture()`. |
+| **1** | **Envelope-aware capture on ingest** *(top priority — closes the one foundation hole)* | `vibecomfy/ingest/normalize.py` | Capture, verbatim, the workflow **envelope** — `definitions` (subgraph bodies), `groups`, `extra`, `config`, `version`, link table — into workflow-level metadata. **AND** broaden per-node capture: today `_merge_slim_ui` (`normalize.py:156-165`) stores a *slim* `_ui` (no `widgets_values`) on the comfy-converter path the official graphs take, so the per-node replay data is NOT actually captured for them — capture the full raw node before `convert_ui_to_api` discards it. The `definitions` block has no capture site at all today (it lives only in the raw UI JSON, gone after the API conversion at `normalize.py:59`), so modern official graphs (z_image/flux/qwen) round-trip with a vanished subgraph body (§11.5). Name the exact hook: grab `raw['definitions']` + the full raw `nodes` in `normalize_to_api` *before* line 59. | A loaded→emitted graph contains the `definitions` block byte-identical to source; spike **T1** passes through the *real* ingest path, not the harness's clean-room `capture()`. |
 | **2** | **Replay-from-`_ui` on emit** | `vibecomfy/porting/ui_emitter.py` (`emit_ui_json`) | For any node whose `vibecomfy_uid` was ingested and the agent did **not** touch, emit its captured `_ui` verbatim instead of regenerating it; replay the captured envelope verbatim. Only agent-created/edited nodes go through the regeneration codec. (Mechanism #1 — highest leverage.) | `convert_ui_to_api(original) == convert_ui_to_api(emit(ingest(original)))` for an **unmodified** graph across the corpus families (spike T1, through real code). |
-| **3** | **Injection-aware widget emit for *touched* nodes** | `vibecomfy/porting/ui_emitter.py` (widget-values builder / `_compacted_widget_names`) | When emitting a node that *was* changed (so it can't be replayed), build `widgets_values` in the editor's true order **including** frontend-injected control widgets (e.g. `control_after_generate` after a seed). Derive the order from the node schema + the injection rule, matching ComfyUI's frontend. This is the proven 6→7-element fix; it affects ~19% (141/742) of node classes. | Spike **T3** passes through the real emit path: a freshly created/edited KSampler is read back by the oracle with `steps`/`cfg`/etc. correct. |
+| **3** | **Injection-aware widget emit for *touched* nodes** | `vibecomfy/porting/ui_emitter.py` (widget-values builder / `_compacted_widget_names`) | When emitting a node that *was* changed (so it can't be replayed), build `widgets_values` in the editor's true order **including** frontend-injected control widgets (e.g. `control_after_generate` after a seed). Derive the order from the node schema + the injection rule, matching ComfyUI's frontend. **Note (review):** this is a *fork* in the widget-values builder, not a one-liner — `_compacted_widget_names` (`ui_emitter.py:624`) deliberately *strips* the slot for replay parity, so the builder needs two modes (`compacted` for replayed nodes, `injection_aware` for touched ones). Pick the authoritative widget-order provider explicitly (schema precedence: `node_index.json` vs live `object_info`, `schema/provider.py:374-389`). This is the proven 6→7-element fix; it affects ~19% (141/742) of node classes. | Spike **T3** passes through the real emit path: a freshly created/edited KSampler is read back by the oracle with `steps`/`cfg`/etc. correct. |
 | **4** | **Promote the oracle gate to a real pytest** | `tests/parity/` (new test, behind the existing `comfy` marker) | Lift the four spike assertions into a marked, opt-in test: per-family differential `convert_ui_to_api(original) == convert_ui_to_api(emit(ingest(original)))`, existing-edit-exact, created-node-correct, corruption-detector. Runs against the *vendored, pinned* ComfyUI (§8) for reproducible numbers. | The test is in the suite, green on the pinned ComfyUI, runnable in CI behind `VIBECOMFY_COMFY_SMOKE=1`. The falsification numbers stop being a script and become a gate. |
-| **5** | **Corruption-detector as a runtime guard (the refusal spine)** | small new module on the emit/apply path | Before any APPLIED commit, diff the candidate's API output vs the original on **untouched** regions; abort to a typed **REFUSED** on any change outside the intended delta. Proven in spike T4. Makes "never silently corrupt" a mechanism, not a hope. | Clean edit → ALLOW; corrupting edit (e.g. dropped control slot) → REFUSE, with a machine-readable reason (§3). |
+| **5** | **Corruption-detector as a runtime guard (the refusal spine)** | small new module on the emit/apply path | Before any APPLIED commit, diff the candidate's API output vs the original on **untouched** regions; abort to a typed **REFUSED** on any change outside the intended delta. The intended delta is the **system-computed** set from Step 0 — *never* agent-declared (an over-broad declaration turns the detector into a no-op). Proven in spike T4 (which hand-passed the delta; production derives it). Makes "never silently corrupt" a mechanism, not a hope. | Clean edit → ALLOW; corrupting edit (e.g. dropped control slot) → REFUSE, with a machine-readable reason (§3). |
 
 **Sequencing:** 1 → 2 unlock the foundation (lossless on everything untouched, subgraphs
 included); 3 makes the agent's *own* edits correct; 4 turns the spike into a standing gate so
@@ -343,7 +380,12 @@ envelope capture. This is a clean-room prototype; the real work is wiring envelo
 
 **Net after spikes:** the substrate (preserve-replay + editing existing nodes) is oracle-proven;
 the created-node codec is fixed-and-verified; and the refusal spine that makes the whole system
-trustworthy is demonstrated. L0 is effectively closed. The committed architecture holds.
+trustworthy is demonstrated. **L0's *architectural* risk is falsified** — but L0 is NOT "closed"
+as a product: every result above was measured in the spike's clean room, which bypasses
+`normalize.py`/`ui_emitter.py` (its `capture()`/`replay()` operate on the raw UI dict, not the IR).
+*Product* L0 closes when these same results hold *through the real pipeline* — i.e. when §0's
+Steps 0–4 land (notably the slim-`_ui` capture gap and the touched/untouched signal, neither of
+which the spike exercised). The committed architecture holds; the engineering is the open part.
 
 **Reproducible:** all of the above re-runs on demand via `scripts/roundtrip_fidelity_spike.py`
 (`PYENV_VERSION=3.11.11 python scripts/roundtrip_fidelity_spike.py` → `ALL PASS: True`) — the
@@ -351,10 +393,16 @@ falsification harness is committed, not a chat rumor, and is the seed of the §1
 property test.
 
 **De-risked (measured):**
-- **The replay data exists, on hard graphs too.** `metadata["_ui"]` holds the *full* raw node
-  (incl. `widgets_values`) for **100% of nodes** on every graph tested — including a 44-node
-  custom-node-heavy community LTX workflow (44/44) — and it **survives emit→re-ingest**. The
-  feared "slim `_ui` on the comfy-converter path" did *not* materialize. #1 is well-fed.
+- **The replay data exists on the FALLBACK ingest path.** `metadata["_ui"]` holds the *full* raw
+  node (incl. `widgets_values`) for **100% of nodes** on graphs that take the unknown-widget
+  fallback (`_normalize_ui_to_api`, `normalize.py:110` stores the whole node) — including the
+  44-node custom-node-heavy community LTX workflow (44/44) — and it **survives emit→re-ingest**.
+  **CORRECTION (3-model review):** this does *not* hold on the **comfy-converter path** that the
+  official graphs (z_image / qwen / wan_t2v) take — there `_merge_slim_ui` (`normalize.py:156-165`)
+  stores a *slim* `_ui` with **no `widgets_values`**. So "#1 is well-fed" is true for unknown-widget
+  graphs and **false for the official ones** until Step 1 broadens capture. The spike's clean-room
+  `capture()` masked this by grabbing raw nodes directly. This is the highest-value correction the
+  review surfaced.
 - **Top-level edges round-trip well on flat graphs** (1/1, 3/3, 11/11, 59/60). The "edges
   vanish" fear was localized, not pervasive.
 
