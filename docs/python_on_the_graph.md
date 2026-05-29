@@ -7,6 +7,14 @@ in-editor surface.
 (in-editor-surface)** — the ComfyUI custom-node + JS preview/diff surface. It depends
 on the IR↔UI-JSON round-trip that the scratchpad-emitter epic is building (M2–M5) and
 on the IR contract hardened by the excellence epic (M3 seams + IR purity).
+**Validation provenance:** this doc was pressure-tested by a 10-agent technical
+sense-check (identity, emitter determinism, diff/patch, state-sync, sandboxing,
+metadata-carriage, transactionality, schema-drift, perf, parity-gate) plus two empirical
+gates run against the live ComfyUI + the vendored ComfyUI oracle. Findings are woven in
+below and tagged **[verified]** (checked in code or a live run) vs **[claimed]** (asserted
+by an agent, not yet independently confirmed). The two load-bearing surprises — the parity
+gate is self-referential, and build-time `exec` is an RCE channel — are both **[verified]**
+and reorder the build (see §8).
 
 ---
 
@@ -50,6 +58,18 @@ store *intent*. On the editor side, litegraph node `properties` and the workflow
 bag survive a `serialize()`/`configure()` round-trip untouched even though ComfyUI's
 backend ignores them. **Metadata is the lossless carrier for everything the static graph
 can't natively express.**
+
+**[verified]** A live test against the running ComfyUI confirmed the load-bearing case:
+a node of an *unregistered* type (`vibecomfy.code`, absent from all 742 registered
+classes) both **survived** in the live graph and **retained its full `properties`** — a
+`vibecomfy_uid` and a nested intent blob (a multi-line `for`-loop string) — across two
+`configure → serialize` cycles. So the carrier holds even before the node pack is
+installed. On the IR side the carrier is concretely `VibeNode.metadata["_ui"]["properties"]`
+(`vibecomfy/ingest/normalize.py`), preserved through ingest and `finalize_metadata`, and
+correctly dropped at `compile("api")` so the backend never sees intent. Residual gap: the
+full ComfyUI *Open→Save-to-disk* path (menu/userdata), not just the litegraph
+serialize/configure round-trip, is not yet auto-tested — but `serialize()` is what
+ComfyUI saves, so this is strong.
 
 ### 2.3 There is already an escape hatch for "not a real Comfy node"
 `vibecomfy.blocks.subgraph.opaque()` inserts a node whose `class_type` is an *arbitrary*
@@ -100,13 +120,32 @@ execute as one prompt, and (b) represent orchestration that *cannot*.
    ComfyUI nodes (static unroll, compile-time conditional, native subgraph), do that —
    it executes today, renders natively, and needs no custom node installed.
 3. **Always keep I/O typed.** Even a black-box node exposes typed input/output sockets so
-   upstream/downstream wiring stays sound and validatable against `object_info`.
+   upstream/downstream wiring stays sound and *could* be validated against `object_info`.
+   (Note **[verified]**: `compile("api")` does **not** consult `object_info` today and
+   emits an unregistered `vibecomfy.*` class with zero error — the graph only fails when
+   actually queued. Schema validation is a target to add, not a property we have.)
 4. **Build on the round-trip engine, don't fork it.** The plugin exports the edited graph
    as API/UI JSON; the existing emitter/`port export --to ui` (emitter epic) turns it into
    editable Python and back. We add IR + emitter support for the new node kinds; we do not
    build a second serializer.
 5. **One extension point.** A single reserved `vibecomfy.*` `class_type` namespace, not a
    sprawl of bespoke mechanisms.
+6. **Parse, don't exec — the agent's Python is data, never code we run.** **[verified]**
+   Every VibeComfy loader (`scratchpad_loader.py:24`, `registry/ready.py`, `porting/loader.py`,
+   and `convert.py` twice) does `spec.loader.exec_module()` then `build()` with **no sandbox,
+   timeout, or resource limit** — and `validate`/`doctor`/`inspect`/`run` all hit that path,
+   so "run validate first" *is* code execution. Fine for a human running their own templates
+   (the documented "trusted local Python" posture, `m7-plugin-verbs-release.md`); an RCE /
+   exfil / DoS channel the moment the *agent* writes the Python. The emitter's `build()` is
+   straight-line, closed-vocabulary node construction — an ideal target to reconstruct the IR
+   from the **AST without executing it**. The agent loop must parse, not exec; `exec` stays
+   behind an explicit trusted-author boundary. (This also resolves "is Python the right edit
+   medium?": Python-as-*data* is safe; Python-as-*code-we-run* is not.)
+7. **Verify against an independent oracle, not against ourselves.** **[verified]** The
+   current parity gate compares VibeComfy's `compile("api")` to VibeComfy's `compile("api")`
+   (§6) — it cannot catch a systematic ingest/compile error because both sides inherit it.
+   Any "this round-trips" claim must be gated by ComfyUI's *own* `convert_ui_to_api`
+   (`vibecomfy/comfy_backend.py`), not by VibeComfy agreeing with itself.
 
 ---
 
@@ -127,17 +166,31 @@ Each is a V3-schema node (`define_schema() -> io.Schema`, ComfyUI's "Nodes 2.0" 
 model) with **typed sockets** plus a `metadata`/`properties` blob:
 
 ```jsonc
-// node.properties (survives editor round-trip; mirrored into VibeNode.metadata)
+// node.properties (verified to survive the editor serialize/configure round-trip)
 {
-  "vibecomfy.kind": "code" | "loop" | "branch" | "workflowref",
-  "vibecomfy.uid": "stable-id-for-roundtrip",
-  "vibecomfy.intent": { /* kind-specific: source / loop spec / predicate / ready_id */ },
-  "vibecomfy.io": { "inputs": [["name","TYPE"]...], "outputs": [["name","TYPE"]...] }
+  "vibecomfy_uid": "stable-id-for-roundtrip",   // NOTE the underscore — see below
+  "vibecomfy": {
+    "kind": "code" | "loop" | "branch" | "workflowref",
+    "intent": { /* kind-specific: source / loop spec / predicate / ready_id */ },
+    "io": { "inputs": [["name","TYPE"]...], "outputs": [["name","TYPE"]...] }
+  }
 }
 ```
 
 This is the `opaque()` mechanism (§2.3) with a reserved namespace and a documented
-metadata contract — nothing structurally new in the IR.
+metadata contract — nothing structurally new in the IR. Two **[verified]** corrections to
+an earlier draft of this contract:
+
+- **uid key spelling.** Ingest reads identity from `properties["vibecomfy_uid"]`
+  (underscore — `vibecomfy/porting/uid.py:mint_local_uid`). A dotted `vibecomfy.uid` would
+  silently *not* match and fall back to minting from the litegraph int id, breaking
+  round-trip identity. Use the underscore key; keep the rest of the intent under a single
+  `vibecomfy` sub-object.
+- **validation rule needed.** `OPAQUE_COMPONENT_CLASS_RE` (`vibecomfy/contracts/validation.py`)
+  only matches subgraph UUIDs, so dotted `vibecomfy.*` nodes currently pass validation
+  **unflagged** (more tolerant than this doc implied). The reserved namespace needs its own
+  rule: warn "inline/lower before runtime" and assert the typed-socket + `vibecomfy.kind`
+  contract is present.
 
 ### 5.2 Tier A — static → plain nodes / native subgraphs (no custom node needed)
 When a count or condition is known at build time, **lower it to ordinary nodes**:
