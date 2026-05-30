@@ -144,6 +144,7 @@ milestones:
     profile: partnered        # tier 3 — Phase-D: the round-trip reaches its PRIMARY user (editor-first, never runs a CLI).
     robustness: full          # custom-node + server route + JS preview/diff over the SAME engine; the biggest scope add.
     depth: high               # after M5 (nothing to show in-editor until positions survive); seed the live entry point in M1.5.
+    phase_model: [execute=claude:claude-sonnet-4-6]  # deepseek execute frozen-SSE-wedged 3x reliably on M7 (blocking); pin execute to claude/shannon (no wedge). Other phases stay partnered.
 
 on_failure:
   abort: stop_chain

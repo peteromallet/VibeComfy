@@ -13,6 +13,8 @@ try:
 
         return web.json_response({"status": "ok"})
 
+    from . import routes  # noqa: F401
+
 except ImportError:
     pass
 
