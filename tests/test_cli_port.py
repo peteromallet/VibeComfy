@@ -18,6 +18,34 @@ from tests._cli_helpers import (
 )
 
 
+def _comfy_available() -> bool:
+    """True when the vendored ComfyUI ``convert_ui_to_api`` oracle is importable.
+
+    The refusal-spine driven export paths (``--from`` / breadcrumb-recovered
+    re-emit) run the candidate through the vendored ComfyUI backend. When the
+    ``[comfy]`` extra / vendored dependency closure is not installed, those tests
+    skip rather than fail — matching the convention in ``tests/test_refuse.py``.
+    """
+    try:
+        from vibecomfy.comfy_backend import ensure_nodes
+
+        if not ensure_nodes():
+            return False
+        from comfy.component_model.workflow_convert import convert_ui_to_api  # noqa: F401
+        from comfy.nodes_context import get_nodes
+
+        nodes = get_nodes()
+        return "KSampler" in nodes.NODE_CLASS_MAPPINGS
+    except Exception:
+        return False
+
+
+_requires_comfy_oracle = pytest.mark.skipif(
+    not _comfy_available(),
+    reason="vendored ComfyUI convert_ui_to_api not available for refusal-spine export",
+)
+
+
 def test_port_help_explains_check_convert_and_related_commands(capsys: pytest.CaptureFixture[str]) -> None:
     parser = build_parser()
 
@@ -1068,6 +1096,7 @@ def _write_saveimage_only_node_index(tmp_path: Path) -> None:
 # ── T12: --fresh / --from flags + preserve-by-default matrix ────────────────
 
 
+@_requires_comfy_oracle
 def test_export_from_flag_loads_ui_json_as_preserve_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1271,6 +1300,7 @@ def test_export_fresh_overrides_from_flag(
         )
 
 
+@_requires_comfy_oracle
 def test_export_breadcrumb_auto_discovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
