@@ -1161,16 +1161,35 @@ def test_real_fixture_parity_evidence_populated() -> None:
     assert isinstance(v.emitted_topology_snapshot, int)
 
 
-def test_real_fixture_talking_avatar_conversion_failure_is_loud() -> None:
-    """The talking-avatar fixture currently fails during helper resolution, not silently."""
-    from vibecomfy.errors import ConversionParityError
+def test_real_fixture_talking_avatar_getnode_resolves_to_named_broadcast() -> None:
+    """GetNode '413' (Get_vae) resolves to its named broadcast source, not a failure.
+
+    Previously this fixture raised ``ConversionParityError: GetNode '413' has no
+    broadcast name`` because ``broadcast_name`` only read the positional
+    ``widget_0`` slot and missed the ``name=``-keyed channel that GetNode/SetNode
+    carry. Node 413 has an unambiguous channel name ("vae", title "Get_vae") that
+    is published by SetNode 1557 → source node 1559 slot 0, so the correct
+    behavior is to inline it as a direct edge. This asserts the resolution is real
+    (the consumer is rewired to the true source), not a silent drop.
+    """
     from vibecomfy.porting.workbench import load_port_source
 
     fixture_path = "workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json"
     loaded = load_port_source(fixture_path)
+    workflow = loaded.workflow
 
-    with pytest.raises(ConversionParityError, match="GetNode '413' has no broadcast name"):
-        port_convert_workflow(loaded.workflow)
+    # Resolution must not raise and must eliminate the GetNode helper.
+    port_convert_workflow(workflow)
+    assert "413" not in workflow.nodes
+
+    # The "vae" consumer (node 1934) is rewired to the broadcast's true source
+    # (node 1559 slot 0), i.e. the GetNode was inlined, not dropped.
+    vae_edges = [
+        e for e in workflow.edges if str(e.to_node) == "1934" and str(e.to_input) == "vae"
+    ]
+    assert len(vae_edges) == 1
+    assert str(vae_edges[0].from_node) == "1559"
+    assert str(vae_edges[0].from_output) == "0"
 
 
 # ---------------------------------------------------------------------------

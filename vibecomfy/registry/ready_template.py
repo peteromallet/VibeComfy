@@ -265,6 +265,26 @@ def ready_node(
                 builder.node.inputs[key] = value
     if source_id is not None and builder.node.id != source_id:
         old_id = builder.node.id
+        # If ``source_id`` is already occupied by a *different* node (e.g. an
+        # auto-id-allocated node such as a subgraph-materialized VAEDecode that
+        # happened to claim the numeric id this node wants to reclaim from its
+        # source), relocate that occupant to a fresh id first instead of
+        # silently overwriting it. Overwriting would drop a real node and leave
+        # dangling/self-referential edges.
+        occupant = wf.nodes.get(source_id)
+        if occupant is not None and occupant is not builder.node:
+            relocated_id = wf._next_node_id()
+            wf.nodes.pop(source_id)
+            occupant.id = relocated_id
+            wf.nodes[relocated_id] = occupant
+            for edge in wf.edges:
+                if edge.to_node == source_id:
+                    edge.to_node = relocated_id
+                if edge.from_node == source_id:
+                    edge.from_node = relocated_id
+            for key, mapped in list(wf.metadata.get("id_map", {}).items()):
+                if mapped == source_id:
+                    wf.metadata["id_map"][key] = relocated_id
         node = wf.nodes.pop(old_id)
         node.id = source_id
         wf.nodes[source_id] = node

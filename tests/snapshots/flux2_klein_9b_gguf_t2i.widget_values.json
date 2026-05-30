@@ -30,12 +30,6 @@
     1
   ],
   [
-    "PrimitiveInt",
-    "value",
-    "1024",
-    2
-  ],
-  [
     "RandomNoise",
     "noise_seed",
     "653844576367526",

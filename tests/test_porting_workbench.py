@@ -670,6 +670,13 @@ def test_port_check_no_false_positive_for_non_ready_source(tmp_path: Path) -> No
 
 
 def _png_with_workflow(path: Path, chunk: str | None, key: str = "workflow") -> Path:
+    # Building the PNG fixture needs Pillow (the optional ``[png]`` extra). Skip
+    # rather than fail when it is absent — matching the optional-dependency test
+    # convention. (``test_load_port_source_png_without_pillow_raises`` still needs
+    # PIL here to create the fixture before monkeypatching it away.)
+    import pytest
+
+    pytest.importorskip("PIL")
     from PIL import Image
     from PIL.PngImagePlugin import PngInfo
 

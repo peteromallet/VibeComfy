@@ -60,12 +60,6 @@
     1
   ],
   [
-    "KSampler",
-    "steps",
-    "20",
-    1
-  ],
-  [
     "LoadImage",
     "image",
     "'image_to_video_wan_start_image.png'",
@@ -91,20 +85,26 @@
   ],
   [
     "WanImageToVideo",
-    "height",
+    "widget_0",
     "512",
     1
   ],
   [
     "WanImageToVideo",
-    "length",
+    "widget_1",
+    "512",
+    1
+  ],
+  [
+    "WanImageToVideo",
+    "widget_2",
     "33",
     1
   ],
   [
     "WanImageToVideo",
-    "width",
-    "512",
+    "widget_3",
+    "1",
     1
   ]
 ]

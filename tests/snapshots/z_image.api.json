@@ -1,21 +1,21 @@
 {
   "1": {
-    "class_type": "UNETLoader",
-    "inputs": {
-      "unet_name": "z_image_bf16.safetensors"
-    }
-  },
-  "2": {
     "class_type": "CLIPLoader",
     "inputs": {
       "clip_name": "qwen_3_4b.safetensors",
       "type": "lumina2"
     }
   },
-  "3": {
+  "2": {
     "class_type": "VAELoader",
     "inputs": {
       "vae_name": "ae.safetensors"
+    }
+  },
+  "3": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "z_image_bf16.safetensors"
     }
   },
   "4": {
@@ -26,21 +26,21 @@
     }
   },
   "5": {
-    "class_type": "ModelSamplingAuraFlow",
+    "class_type": "CLIPTextEncode",
     "inputs": {
-      "shift": 3,
-      "model": [
+      "text": "A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.",
+      "clip": [
         "1",
         0
       ]
     }
   },
   "6": {
-    "class_type": "CLIPTextEncode",
+    "class_type": "ModelSamplingAuraFlow",
     "inputs": {
-      "text": "A fashion photography work full of surreal romanticism, using a low-angle upward shooting composition, with a clear light blue sky as the background, and the visual focus concentrated on the fantasy blue vegetation and the model walking through it.\n\nThe vegetation in the picture is processed into varying shades of blue, from light ice blue to deep cobalt blue. The textures of the leaves and branches are delicate and realistic. The warm brown tree trunks form a sharp contrast with the cool blue leaves, resembling a dreamy forest from another world. An African-American model wearing a yellow and white vertical striped long dress walks slowly on the sand. The warm tones of the dress echo with the surrounding cool blue vegetation. The noon sun casts clear shadows on the sand, enhancing the sense of space and reality in the picture.\n\nThe entire scene, with its clean and transparent colors and fantasy settings, not only exudes the vastness of the natural wilderness but also presents a quiet and poetic high-fashion sense due to the surreal vegetation.",
-      "clip": [
-        "2",
+      "shift": 3,
+      "model": [
+        "3",
         0
       ]
     }
@@ -50,7 +50,7 @@
     "inputs": {
       "text": "",
       "clip": [
-        "2",
+        "1",
         0
       ]
     }
@@ -60,14 +60,14 @@
     "inputs": {
       "seed": 770044821593082,
       "steps": 25,
-      "cfg": 4.0,
+      "cfg": 4,
       "sampler_name": "res_multistep",
       "model": [
-        "5",
+        "6",
         0
       ],
       "positive": [
-        "6",
+        "5",
         0
       ],
       "negative": [
@@ -80,7 +80,7 @@
       ]
     }
   },
-  "9": {
+  "11": {
     "class_type": "VAEDecode",
     "inputs": {
       "samples": [
@@ -88,17 +88,17 @@
         0
       ],
       "vae": [
-        "3",
+        "2",
         0
       ]
     }
   },
-  "10": {
+  "9": {
     "class_type": "SaveImage",
     "inputs": {
       "filename_prefix": "z-image",
       "images": [
-        "9",
+        "11",
         0
       ]
     }

@@ -6,8 +6,6 @@
   "EmptyFlux2LatentImage",
   "Flux2Scheduler",
   "KSamplerSelect",
-  "PrimitiveInt",
-  "PrimitiveInt",
   "RandomNoise",
   "SamplerCustomAdvanced",
   "SaveImage",

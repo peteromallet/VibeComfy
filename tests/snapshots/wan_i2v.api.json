@@ -1,30 +1,30 @@
 {
-  "1": {
+  "37": {
     "class_type": "UNETLoader",
     "inputs": {
       "unet_name": "wan2.1_i2v_480p_14B_fp16.safetensors"
     }
   },
-  "2": {
+  "38": {
     "class_type": "CLIPLoader",
     "inputs": {
       "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
       "type": "wan"
     }
   },
-  "3": {
+  "39": {
     "class_type": "VAELoader",
     "inputs": {
       "vae_name": "wan_2.1_vae.safetensors"
     }
   },
-  "4": {
+  "49": {
     "class_type": "CLIPVisionLoader",
     "inputs": {
       "clip_name": "clip_vision_h.safetensors"
     }
   },
-  "5": {
+  "52": {
     "class_type": "LoadImage",
     "inputs": {
       "image": "image_to_video_wan_start_image.png"
@@ -35,7 +35,7 @@
     "inputs": {
       "text": "a cute anime girl with massive fennec ears and a big fluffy tail wearing a maid outfit turning around",
       "clip": [
-        "2",
+        "38",
         0
       ]
     }
@@ -45,41 +45,42 @@
     "inputs": {
       "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
       "clip": [
-        "2",
+        "38",
         0
       ]
     }
   },
-  "8": {
+  "51": {
     "class_type": "CLIPVisionEncode",
     "inputs": {
       "crop": "none",
       "clip_vision": [
-        "4",
+        "49",
         0
       ],
       "image": [
-        "5",
+        "52",
         0
       ]
     }
   },
-  "9": {
+  "54": {
     "class_type": "ModelSamplingSD3",
     "inputs": {
       "shift": 8,
       "model": [
-        "1",
+        "37",
         0
       ]
     }
   },
-  "10": {
+  "50": {
     "class_type": "WanImageToVideo",
     "inputs": {
-      "width": 512,
-      "height": 512,
-      "length": 33,
+      "widget_0": 512,
+      "widget_1": 512,
+      "widget_2": 33,
+      "widget_3": 1,
       "positive": [
         "6",
         0
@@ -89,72 +90,71 @@
         0
       ],
       "vae": [
-        "3",
+        "39",
         0
       ],
       "clip_vision_output": [
-        "8",
+        "51",
         0
       ],
       "start_image": [
-        "5",
+        "52",
         0
       ]
     }
   },
-  "11": {
+  "3": {
     "class_type": "KSampler",
     "inputs": {
       "seed": 987948718394761,
-      "steps": 20,
       "cfg": 6,
       "sampler_name": "uni_pc",
       "model": [
-        "9",
+        "54",
         0
       ],
       "positive": [
-        "10",
+        "50",
         0
       ],
       "negative": [
-        "10",
+        "50",
         1
       ],
       "latent_image": [
-        "10",
+        "50",
         2
       ]
     }
   },
-  "12": {
+  "8": {
     "class_type": "VAEDecode",
     "inputs": {
       "samples": [
-        "11",
+        "3",
         0
       ],
       "vae": [
-        "3",
+        "39",
         0
       ]
     }
   },
-  "13": {
+  "55": {
     "class_type": "CreateVideo",
     "inputs": {
       "fps": 16,
       "images": [
-        "12",
+        "8",
         0
       ]
     }
   },
-  "14": {
+  "56": {
     "class_type": "SaveVideo",
     "inputs": {
       "video": [
-        "13",
+        "55",
         0
       ]
     }

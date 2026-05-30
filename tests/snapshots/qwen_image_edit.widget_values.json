@@ -1,5 +1,11 @@
 [
   [
+    "CFGNorm",
+    "widget_0",
+    "1",
+    1
+  ],
+  [
     "CLIPLoader",
     "clip_name",
     "'qwen_2.5_vl_7b_fp8_scaled.safetensors'",
@@ -12,16 +18,10 @@
     1
   ],
   [
-    "ImageScaleToTotalPixels",
-    "megapixels",
-    "1.5",
-    1
-  ],
-  [
-    "ImageScaleToTotalPixels",
-    "upscale_method",
-    "'lanczos'",
-    1
+    "ComfySwitchNode",
+    "switch",
+    "False",
+    3
   ],
   [
     "KSampler",
@@ -51,36 +51,6 @@
     "ModelSamplingAuraFlow",
     "shift",
     "3",
-    1
-  ],
-  [
-    "PrimitiveBoolean",
-    "value",
-    "False",
-    1
-  ],
-  [
-    "PrimitiveFloat",
-    "value",
-    "1",
-    1
-  ],
-  [
-    "PrimitiveFloat",
-    "value",
-    "2.5",
-    1
-  ],
-  [
-    "PrimitiveInt",
-    "value",
-    "20",
-    1
-  ],
-  [
-    "PrimitiveInt",
-    "value",
-    "4",
     1
   ],
   [

@@ -1,68 +1,39 @@
 {
-  "1": {
+  "78": {
     "class_type": "LoadImage",
     "inputs": {
       "image": "image_qwen_image_edit_input_image.png"
     }
   },
-  "2": {
+  "1": {
     "class_type": "UNETLoader",
     "inputs": {
       "unet_name": "qwen_image_edit_fp8_e4m3fn.safetensors"
     }
   },
-  "3": {
+  "2": {
     "class_type": "CLIPLoader",
     "inputs": {
       "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
       "type": "qwen_image"
     }
   },
-  "4": {
+  "3": {
     "class_type": "VAELoader",
     "inputs": {
       "vae_name": "qwen_image_vae.safetensors"
     }
   },
-  "102:103": {
-    "class_type": "PrimitiveInt",
+  "4": {
+    "class_type": "ComfySwitchNode",
     "inputs": {
-      "value": 4
-    }
-  },
-  "102:105": {
-    "class_type": "PrimitiveFloat",
-    "inputs": {
-      "value": 1
-    }
-  },
-  "102:106": {
-    "class_type": "PrimitiveInt",
-    "inputs": {
-      "value": 20
-    }
-  },
-  "102:107": {
-    "class_type": "PrimitiveFloat",
-    "inputs": {
-      "value": 2.5
-    }
-  },
-  "102:111": {
-    "class_type": "PrimitiveBoolean",
-    "inputs": {
-      "value": false
+      "switch": false
     }
   },
   "5": {
-    "class_type": "ImageScaleToTotalPixels",
+    "class_type": "ComfySwitchNode",
     "inputs": {
-      "upscale_method": "lanczos",
-      "megapixels": 1.5,
-      "image": [
-        "1",
-        0
-      ]
+      "switch": false
     }
   },
   "6": {
@@ -70,15 +41,15 @@
     "inputs": {
       "prompt": "Remove all UI text elements from the image. Keep the feeling that the characters and scene are in water. Also, remove the green UI elements at the bottom.",
       "clip": [
-        "3",
+        "2",
         0
       ],
       "vae": [
-        "4",
+        "3",
         0
       ],
       "image": [
-        "1",
+        "78",
         0
       ]
     }
@@ -88,15 +59,15 @@
     "inputs": {
       "prompt": "",
       "clip": [
-        "3",
+        "2",
         0
       ],
       "vae": [
-        "4",
+        "3",
         0
       ],
       "image": [
-        "1",
+        "78",
         0
       ]
     }
@@ -105,11 +76,11 @@
     "class_type": "VAEEncode",
     "inputs": {
       "pixels": [
-        "1",
+        "78",
         0
       ],
       "vae": [
-        "4",
+        "3",
         0
       ]
     }
@@ -119,7 +90,7 @@
     "inputs": {
       "lora_name": "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors",
       "model": [
-        "2",
+        "1",
         0
       ]
     }
@@ -127,46 +98,9 @@
   "10": {
     "class_type": "ComfySwitchNode",
     "inputs": {
-      "switch": [
-        "102:111",
-        0
-      ],
+      "switch": false,
       "on_false": [
-        "102:107",
-        0
-      ],
-      "on_true": [
-        "102:105",
-        0
-      ]
-    }
-  },
-  "11": {
-    "class_type": "ComfySwitchNode",
-    "inputs": {
-      "switch": [
-        "102:111",
-        0
-      ],
-      "on_false": [
-        "102:106",
-        0
-      ],
-      "on_true": [
-        "102:103",
-        0
-      ]
-    }
-  },
-  "12": {
-    "class_type": "ComfySwitchNode",
-    "inputs": {
-      "switch": [
-        "102:111",
-        0
-      ],
-      "on_false": [
-        "2",
+        "1",
         0
       ],
       "on_true": [
@@ -175,40 +109,41 @@
       ]
     }
   },
-  "13": {
+  "11": {
     "class_type": "ModelSamplingAuraFlow",
     "inputs": {
       "shift": 3,
       "model": [
-        "12",
+        "10",
         0
       ]
     }
   },
-  "14": {
+  "12": {
     "class_type": "CFGNorm",
     "inputs": {
+      "widget_0": 1,
       "model": [
-        "13",
+        "11",
         0
       ]
     }
   },
-  "15": {
+  "13": {
     "class_type": "KSampler",
     "inputs": {
       "seed": 344147753686358,
       "sampler_name": "euler",
       "model": [
-        "14",
+        "12",
         0
       ],
       "steps": [
-        "11",
+        "5",
         0
       ],
       "cfg": [
-        "10",
+        "4",
         0
       ],
       "positive": [
@@ -225,24 +160,24 @@
       ]
     }
   },
-  "16": {
+  "14": {
     "class_type": "VAEDecode",
     "inputs": {
       "samples": [
-        "15",
+        "13",
         0
       ],
       "vae": [
-        "4",
+        "3",
         0
       ]
     }
   },
-  "17": {
+  "60": {
     "class_type": "SaveImage",
     "inputs": {
       "images": [
-        "16",
+        "14",
         0
       ]
     }

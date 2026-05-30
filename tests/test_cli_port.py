@@ -1514,3 +1514,108 @@ def test_export_from_flag_takes_priority_over_sidecar(
                 f"uid {uid}: --from did NOT override sidecar: "
                 f"expected shifted {shifted_pos_by_uid[uid]}, got {node['pos']}"
             )
+
+
+# ---------------------------------------------------------------------------
+# M6 T14 — --help self-checks
+# ---------------------------------------------------------------------------
+
+
+def test_port_export_help_lists_all_flags() -> None:
+    """``port export --help`` must contain every expected flag string."""
+    result = subprocess.run(
+        [sys.executable, "-m", "vibecomfy.cli", "port", "export", "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"port export --help failed: {result.stderr}"
+    stdout = result.stdout
+    for flag in (
+        "--to",
+        "--fresh",
+        "--from",
+        "--out",
+        "--strict",
+        "--main-positions",
+        "--dry-run",
+        "--force-drop",
+        "--no-virtual-wires",
+    ):
+        assert flag in stdout, f"Missing flag '{flag}' in port export --help output"
+
+
+def test_port_convert_help_lists_keep_virtual_wires() -> None:
+    """``port convert --help`` must list ``--keep-virtual-wires``."""
+    result = subprocess.run(
+        [sys.executable, "-m", "vibecomfy.cli", "port", "convert", "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"port convert --help failed: {result.stderr}"
+    assert "--keep-virtual-wires" in result.stdout, (
+        "Missing --keep-virtual-wires in port convert --help output"
+    )
+
+
+def test_port_convert_keep_virtual_wires_integration(tmp_path: Path) -> None:
+    """Synthetic fixture: ``--keep-virtual-wires`` produces .py with GetNode/SetNode
+    literals; without the flag, those literals are absent."""
+    from vibecomfy.porting.convert import port_convert_workflow
+    from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+
+    # Build a minimal synthetic workflow with one SetNode and one GetNode.
+    wf = VibeWorkflow(
+        "help-vw-test",
+        WorkflowSource("help-vw-test", path="test/help_vw.json", source_type="raw_json"),
+    )
+    wf.nodes["1"] = VibeNode("1", "EmptyImage", inputs={"width": 64, "height": 64, "batch_size": 1, "color": 0})
+    wf.nodes["2"] = VibeNode("2", "SetNode", inputs={"widget_0": "TEST_SIG"})
+    wf.nodes["3"] = VibeNode("3", "GetNode", inputs={"widget_0": "TEST_SIG"})
+    wf.nodes["4"] = VibeNode("4", "SaveImage", inputs={"filename_prefix": "out/help"})
+    wf.nodes["1"].uid = "1"
+    wf.nodes["2"].uid = "2"
+    wf.nodes["3"].uid = "3"
+    wf.nodes["4"].uid = "4"
+    wf.edges.append(VibeEdge("1", "0", "2", "broadcast_in"))
+    wf.edges.append(VibeEdge("2", "0", "3", "broadcast_out"))
+    wf.edges.append(VibeEdge("3", "0", "4", "images"))
+
+    def _convert_and_get_text(keep: bool) -> str:
+        wf_copy = VibeWorkflow(
+            "help-vw-test",
+            WorkflowSource("help-vw-test", path="test/help_vw.json", source_type="raw_json"),
+        )
+        for nid in ("1", "2", "3", "4"):
+            orig = wf.nodes[nid]
+            nn = VibeNode(orig.id, orig.class_type, inputs=dict(orig.inputs), metadata=dict(orig.metadata))
+            nn.uid = orig.uid
+            wf_copy.nodes[nid] = nn
+        for e in wf.edges:
+            wf_copy.edges.append(VibeEdge(e.from_node, e.from_output, e.to_node, e.to_input))
+        result = port_convert_workflow(
+            wf_copy,
+            keep_virtual_wires=keep,
+            source_path="test/help_vw.json",
+            validate=False,
+        )
+        return result.text
+
+    # Without --keep-virtual-wires: helpers are resolved, no GetNode/SetNode literals.
+    text_default = _convert_and_get_text(keep=False)
+    assert "GetNode" not in text_default, (
+        "Default convert should NOT contain GetNode literal"
+    )
+    assert "SetNode" not in text_default, (
+        "Default convert should NOT contain SetNode literal"
+    )
+
+    # With --keep-virtual-wires: helpers survive, .py carries explicit literals.
+    text_keep = _convert_and_get_text(keep=True)
+    assert "GetNode" in text_keep, (
+        "--keep-virtual-wires convert should contain GetNode literal"
+    )
+    assert "SetNode" in text_keep, (
+        "--keep-virtual-wires convert should contain SetNode literal"
+    )

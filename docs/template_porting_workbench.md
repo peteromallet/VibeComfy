@@ -196,3 +196,82 @@ Remaining work belongs in later batches:
 - expand docs and agent guidance as new failure modes land;
 - keep improving schema/object-info coverage for custom nodes;
 - promote recurring RunPod failures into deterministic local checks where possible.
+
+## Emit a UI view / round-trip
+
+`port export --to ui` emits a litegraph-compatible UI JSON envelope from a Python workflow. It preserves positions and furniture by default: when a prior UI JSON or layout-store sidecar exists, matched nodes keep their exact positions, and groups/notes/reroutes/bypass/subgraphs are carried forward. Pass `--fresh` to skip preservation and re-layout from scratch.
+
+The identity scheme uses the `vibecomfy_uid` stamped in each node's `properties` plus the layout-store sidecar. A node whose uid appears in both the prior store and the current IR keeps its prior position byte-for-byte. New nodes receive engine-placed positions via the M4 layout engine.
+
+Furniture coverage: groups, notes (via `extra.notes`), reroutes, GetNode/SetNode broadcast pairs, bypass edges, and subgraph inner-node definitions are all preserved through the sidecar envelope and re-emitted in the UI JSON.
+
+Gate guarantees: the offline gate (wiring + object_info) catches structural problems; the ComfyUI/RunPod gate validates editor-faithfulness by round-tripping the emitted UI JSON through the vendored ComfyUI converter. When the converter produces a byte-different result, the refusal-spine raises `RefusedEmit` and the CLI prints the diff to stderr (exit code 3).
+
+Caveats: the round-trip depends on uid stability. If a node's uid changes between emits (e.g., after a hand-edit that regenerated the graph), its prior position is lost and the node receives a new engine-placed position.
+
+## Canonical loop and conflict-merge
+
+The round-trip operates in three states:
+
+1. **In-sync.** The prior UI JSON and the Python IR agree — all uids present in one are present in the other. Positions are preserved exactly.
+2. **Python-ahead.** The Python IR has nodes the UI JSON does not (new nodes added via `wf.node(...)` or `wf.add_node(...)`). New nodes receive auto-placed positions; existing nodes keep their positions. The change report lists them under `new_auto_placed`.
+3. **Editor-ahead (REFUSE).** The prior UI JSON has nodes the Python IR does not (someone edited in ComfyUI after the last `port export`). VibeComfy refuses with:
+
+  ```
+  port export refused: editor is ahead — N node(s) exist in the prior UI JSON but not in the Python IR: uid=<uid> class=<class>[, uid=<uid> class=<class>]. Re-run `port convert <prior.json>` to import them, or pass --force-drop to discard explicitly.
+  ```
+
+The canonical loop:
+
+```
+editor .json → port convert → Python (.py + uid=) → edit structure → port export --to ui → editor
+```
+
+The K3 plane-separation rule: the editor owns layout (positions, groups, notes, reroutes); Python owns structure (nodes, edges, widgets). The round-trip preserves layout plane data across structure edits and re-lays out cleanly when no prior layout exists.
+
+Divergence rules: when a uid is present in the prior store but absent from the IR, VibeComfy checks whether the uid was authored by a prior VibeComfy emit (via the breadcrumb `extra.vibecomfy.prior_path`). If yes, the node was deleted in Python — it appears in the change report's `removed` list. If no (the prior_path differs or is absent), the node is conservatively treated as editor-added, and `EditorAheadError` is raised.
+
+Two escape hatches for the editor-ahead state:
+- `port convert <prior.json>` — import the editor-only nodes into Python, then re-export.
+- `--force-drop` — explicitly discard the editor-only nodes and proceed with emission. The dropped nodes appear in the change report's `removed_named` list with their class types.
+
+## Covered vs deferred (v1)
+
+**Covered:**
+- `.json` ↔ Python round-trip with positions and furniture preserved.
+- Widget and wiring edits keep positions for unchanged nodes.
+- New nodes receive auto-placed, non-colliding positions.
+- JSON-only collaboration: export UI JSON, edit in ComfyUI, re-import.
+- Fresh layout for authored code that has no prior UI JSON.
+
+**Deferred:**
+- PNG-embedded workflows (the image carries its own JSON; extraction is not yet wired).
+- Simultaneous conflicting edits beyond the three documented states (in-sync, Python-ahead, editor-ahead).
+- Workflows hand-edited outside ComfyUI that stripped the `vibecomfy_uid` from `properties` — M5 legacy-hash matching provides best-effort recovery only.
+
+## `port convert --keep-virtual-wires`
+
+By default, `port convert` resolves GetNode/SetNode/Reroute helpers into direct edges, producing clean Python with only execution nodes. This is the right choice for most authored code — the Python representation stays minimal and the editor view is reconstructed from the layout sidecar at emit time.
+
+Pass `--keep-virtual-wires` to emit explicit `wf.node("GetNode"…)` / `wf.node("SetNode"…)` / `wf.node("Reroute"…)` calls in the generated `.py`. Use this when editor-faithfulness requires those nodes to survive in the Python source (e.g., for collaborative workflows where the Python representation must stay structurally identical to the editor view). The trade-off: the Python source becomes larger and carries UI-only nodes, but the IR-level round-trip is invariant — the flat execution graph emitted from both paths is structurally equivalent.
+
+## Loud preserve
+
+Every `port export --to ui` prints a change summary to stderr:
+
+```
+[change-report]
+  content: preserved=5 edited=2 new=1 removed=1 virtual_wires_degraded=0
+  removed_named: 1 entry/ies
+    uid=6 class=CLIPTextEncode
+  stripped_helpers: 3
+```
+
+- **preserved** — uids that existed before and still exist, with byte-identical positions.
+- **edited** — uids that existed before but whose fields changed (widget values, edges).
+- **new-auto-placed** — uids that are new in this emit (engine-placed).
+- **removed** — uids present before but absent now.
+- **removed_named** — per-removed-uid breakdown with `class_type`.
+- **stripped_helpers** — count of virtual-wire helper nodes (GetNode/SetNode/Reroute) stripped during emission.
+
+Pass `--dry-run` to preview the report and position deltas without writing any files. The CLI prints `[dry-run] would write to <path>` to stderr and exits 0 on clean success.

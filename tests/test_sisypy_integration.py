@@ -6,6 +6,12 @@ from pathlib import Path
 
 import pytest
 
+# These tests exercise the optional sibling ``sisypy`` package (an editable
+# install of the neighbouring ``../sisypy`` checkout). When it is not installed,
+# the module skips rather than fails — matching VibeComfy's optional-dependency
+# test convention (the ``[comfy]`` / ``[png]`` extras).
+pytest.importorskip("sisypy")
+
 
 def test_vibecomfy_loads_sibling_sisypy_package_layout():
     import sisypy

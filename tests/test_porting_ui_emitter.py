@@ -140,14 +140,23 @@ def test_recovery_report_populated_for_all_nodes() -> None:
     report: list[dict] = []
     emit_ui_json(wf, schema_provider=provider, recovery_report=report)
 
-    node_ids = {e["node_id"] for e in report}
+    # The recovery_report is heterogeneous (T7): per-node provenance entries
+    # carry "node_id"; a single trailing summary entry carries "stripped_helpers"
+    # (consumed by the CLI's _print_recovery_report). Filter to per-node entries.
+    per_node = [e for e in report if "node_id" in e]
+    node_ids = {e["node_id"] for e in per_node}
     assert "1" in node_ids
     assert "2" in node_ids
-    for entry in report:
+    for entry in per_node:
         assert "class_type" in entry
         assert "provider" in entry
         assert "confidence" in entry
         assert "schema_less" in entry
+
+    # Exactly one stripped-helpers summary entry is appended (zero-count here).
+    summary = [e for e in report if "stripped_helpers" in e]
+    assert len(summary) == 1
+    assert summary[0]["count"] == 0
 
 
 def test_recovery_report_schema_less_entry_has_diagnostic() -> None:
@@ -160,10 +169,16 @@ def test_recovery_report_schema_less_entry_has_diagnostic() -> None:
         warnings.simplefilter("ignore")
         emit_ui_json(wf, schema_provider=None, recovery_report=report)
 
-    assert len(report) == 1
-    assert report[0]["schema_less"] is True
-    assert report[0]["provider"] is None
-    assert "diagnostic" in report[0]
+    # One per-node provenance entry plus the trailing stripped-helpers summary (T7).
+    per_node = [e for e in report if "node_id" in e]
+    assert len(per_node) == 1
+    assert per_node[0]["schema_less"] is True
+    assert per_node[0]["provider"] is None
+    assert "diagnostic" in per_node[0]
+
+    summary = [e for e in report if "stripped_helpers" in e]
+    assert len(summary) == 1
+    assert summary[0]["count"] == 0
 
 
 def test_recovery_report_widget_schema_fallback_has_diagnostic() -> None:

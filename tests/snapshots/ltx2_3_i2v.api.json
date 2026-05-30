@@ -5,6 +5,24 @@
       "image": "example.png"
     }
   },
+  "3059": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": {
+      "width": 384,
+      "height": 256,
+      "length": 9
+    }
+  },
+  "3940": {
+    "class_type": "LowVRAMCheckpointLoader",
+    "inputs": {
+      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors",
+      "dependencies": [
+        "4960",
+        0
+      ]
+    }
+  },
   "4010": {
     "class_type": "LowVRAMAudioVAELoader",
     "inputs": {
@@ -40,13 +58,19 @@
   "4963": {
     "class_type": "GuiderParameters",
     "inputs": {
-      "UNKNOWN": true
+      "modality": "AUDIO",
+      "cfg": 7,
+      "modality_scale": 3
     }
   },
   "4967": {
     "class_type": "ClownSampler_Beta",
     "inputs": {
-      "UNKNOWN": true
+      "widget_0": 0.25,
+      "widget_1": "exponential/res_2s",
+      "widget_2": 94,
+      "widget_3": "fixed",
+      "widget_4": true
     }
   },
   "4971": {
@@ -55,25 +79,11 @@
       "sigmas": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
     }
   },
-  "4977": {
-    "class_type": "PrimitiveBoolean",
+  "4985": {
+    "class_type": "LTXFloatToInt",
     "inputs": {
-      "widget_0": false,
-      "value": true
-    }
-  },
-  "4978": {
-    "class_type": "PrimitiveFloat",
-    "inputs": {
-      "widget_0": 8,
-      "value": 24
-    }
-  },
-  "4979": {
-    "class_type": "PrimitiveInt",
-    "inputs": {
-      "widget_0": 9,
-      "value": 121
+      "a": 24.0,
+      "rounding": 0
     }
   },
   "2483": {
@@ -96,93 +106,10 @@
       ]
     }
   },
-  "3059": {
-    "class_type": "EmptyLTXVLatentVideo",
-    "inputs": {
-      "width": 384,
-      "height": 256,
-      "length": [
-        "4979",
-        0
-      ]
-    }
-  },
-  "3940": {
-    "class_type": "LowVRAMCheckpointLoader",
-    "inputs": {
-      "ckpt_name": "ltx-2.3-22b-dev-fp8.safetensors",
-      "dependencies": [
-        "4960",
-        0
-      ]
-    }
-  },
-  "4964": {
-    "class_type": "GuiderParameters",
-    "inputs": {
-      "UNKNOWN": true,
-      "parameters": [
-        "4963",
-        0
-      ]
-    }
-  },
-  "4981": {
-    "class_type": "ResizeImageMaskNode",
-    "inputs": {
-      "resize_type": "scale longer dimension",
-      "scale_method": "lanczos",
-      "resize_type.longer_size": 1536,
-      "input": [
-        "2004",
-        0
-      ]
-    }
-  },
-  "4985": {
-    "class_type": "LTXFloatToInt",
-    "inputs": {
-      "UNKNOWN": 0,
-      "a": [
-        "4978",
-        0
-      ]
-    }
-  },
-  "1241": {
-    "class_type": "LTXVConditioning",
-    "inputs": {
-      "frame_rate": [
-        "4978",
-        0
-      ],
-      "positive": [
-        "2483",
-        0
-      ],
-      "negative": [
-        "2612",
-        0
-      ]
-    }
-  },
-  "3336": {
-    "class_type": "LTXVPreprocess",
-    "inputs": {
-      "img_compression": 18,
-      "image": [
-        "4981",
-        0
-      ]
-    }
-  },
   "3980": {
     "class_type": "LTXVEmptyLatentAudio",
     "inputs": {
-      "frames_number": [
-        "4979",
-        0
-      ],
+      "frames_number": 121,
       "frame_rate": [
         "4985",
         0
@@ -204,6 +131,18 @@
       ]
     }
   },
+  "4964": {
+    "class_type": "GuiderParameters",
+    "inputs": {
+      "cfg": 3,
+      "rescale": 0.9,
+      "modality_scale": 3,
+      "parameters": [
+        "4963",
+        0
+      ]
+    }
+  },
   "4968": {
     "class_type": "LoraLoaderModelOnly",
     "inputs": {
@@ -215,10 +154,46 @@
       ]
     }
   },
+  "4981": {
+    "class_type": "ResizeImageMaskNode",
+    "inputs": {
+      "resize_type": "scale longer dimension",
+      "scale_method": "lanczos",
+      "input": [
+        "2004",
+        0
+      ]
+    }
+  },
+  "1241": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "frame_rate": 24.0,
+      "positive": [
+        "2483",
+        0
+      ],
+      "negative": [
+        "2612",
+        0
+      ]
+    }
+  },
+  "3336": {
+    "class_type": "LTXVPreprocess",
+    "inputs": {
+      "img_compression": 18,
+      "image": [
+        "4981",
+        0
+      ]
+    }
+  },
   "3159": {
     "class_type": "LTXVImgToVideoConditionOnly",
     "inputs": {
-      "UNKNOWN": false,
+      "strength": 0.7,
+      "bypass": true,
       "vae": [
         "3940",
         2
@@ -230,17 +205,13 @@
       "latent": [
         "3059",
         0
-      ],
-      "bypass": [
-        "4977",
-        0
       ]
     }
   },
   "4808": {
     "class_type": "MultimodalGuider",
     "inputs": {
-      "UNKNOWN": "28",
+      "widget_0": "28",
       "model": [
         "4968",
         0
@@ -384,7 +355,9 @@
   "4982": {
     "class_type": "LTXVTiledVAEDecode",
     "inputs": {
-      "UNKNOWN": "auto",
+      "horizontal_tiles": 2,
+      "vertical_tiles": 2,
+      "overlap": 6,
       "vae": [
         "3940",
         2
@@ -411,12 +384,9 @@
   "4849": {
     "class_type": "CreateVideo",
     "inputs": {
+      "fps": 24.0,
       "images": [
         "4982",
-        0
-      ],
-      "fps": [
-        "4978",
         0
       ],
       "audio": [
@@ -428,7 +398,9 @@
   "4983": {
     "class_type": "LTXVTiledVAEDecode",
     "inputs": {
-      "UNKNOWN": "auto",
+      "horizontal_tiles": 2,
+      "vertical_tiles": 2,
+      "overlap": 6,
       "vae": [
         "3940",
         2
@@ -442,12 +414,9 @@
   "4819": {
     "class_type": "CreateVideo",
     "inputs": {
+      "fps": 24.0,
       "images": [
         "4983",
-        0
-      ],
-      "fps": [
-        "4978",
         0
       ],
       "audio": [

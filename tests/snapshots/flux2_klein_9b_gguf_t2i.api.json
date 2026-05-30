@@ -5,116 +5,76 @@
       "sampler_name": "euler"
     }
   },
-  "68": {
-    "class_type": "PrimitiveInt",
-    "inputs": {
-      "value": 1024
-    }
+  "2": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {}
   },
-  "69": {
-    "class_type": "PrimitiveInt",
-    "inputs": {
-      "value": 1024
-    }
+  "3": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {}
   },
-  "70": {
+  "4": {
     "class_type": "UNETLoader",
     "inputs": {
       "unet_name": "flux-2-klein-base-9b-fp8.safetensors"
     }
   },
-  "71": {
+  "5": {
     "class_type": "CLIPLoader",
     "inputs": {
       "clip_name": "qwen_3_8b_fp8mixed.safetensors",
       "type": "flux2"
     }
   },
-  "72": {
+  "6": {
     "class_type": "VAELoader",
     "inputs": {
       "vae_name": "full_encoder_small_decoder.safetensors"
     }
   },
-  "73": {
+  "7": {
     "class_type": "RandomNoise",
     "inputs": {
       "noise_seed": 653844576367526
     }
   },
-  "74": {
-    "class_type": "Flux2Scheduler",
-    "inputs": {
-      "width": [
-        "68",
-        0
-      ],
-      "height": [
-        "69",
-        0
-      ]
-    }
-  },
-  "75": {
-    "class_type": "EmptyFlux2LatentImage",
-    "inputs": {
-      "width": [
-        "68",
-        0
-      ],
-      "height": [
-        "69",
-        0
-      ]
-    }
-  },
-  "76": {
+  "8": {
     "class_type": "CLIPTextEncode",
     "inputs": {
       "text": "",
       "clip": [
-        "71",
+        "5",
         0
       ]
     }
   },
-  "77": {
-    "class_type": "CLIPTextEncode",
-    "inputs": {
-      "text": "",
-      "clip": [
-        "71",
-        0
-      ]
-    }
-  },
-  "78": {
+  "10": {
     "class_type": "CFGGuider",
     "inputs": {
       "cfg": 5,
       "model": [
-        "70",
+        "4",
         0
       ],
       "positive": [
-        "77",
+        "14",
         0
       ],
       "negative": [
-        "76",
+        "8",
         0
       ]
     }
   },
-  "79": {
+  "11": {
     "class_type": "SamplerCustomAdvanced",
     "inputs": {
       "noise": [
-        "73",
+        "7",
         0
       ],
       "guider": [
-        "78",
+        "10",
         0
       ],
       "sampler": [
@@ -122,34 +82,44 @@
         0
       ],
       "sigmas": [
-        "74",
+        "2",
         0
       ],
       "latent_image": [
-        "75",
+        "3",
         0
       ]
     }
   },
-  "80": {
+  "12": {
     "class_type": "VAEDecode",
     "inputs": {
       "samples": [
-        "79",
+        "11",
         0
       ],
       "vae": [
-        "72",
+        "6",
         0
       ]
     }
   },
-  "81": {
+  "14": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "",
+      "clip": [
+        "5",
+        0
+      ]
+    }
+  },
+  "9": {
     "class_type": "SaveImage",
     "inputs": {
       "filename_prefix": "Flux2-Klein",
       "images": [
-        "80",
+        "12",
         0
       ]
     }

@@ -177,6 +177,10 @@ def broadcast_name(node: Any) -> str | None:
     inputs = _node_inputs(node)
     widgets = _node_widgets(node)
     name = inputs.get("widget_0", widgets.get("widget_0"))
+    # Fall back to ``name`` — the emitter writes SetNode/GetNode channel names
+    # as ``name=`` kwargs (e.g. ``_node(wf, 'SetNode', ..., name='LATENT')``).
+    if name is None:
+        name = inputs.get("name")
     if name is None:
         return None
     return str(name)

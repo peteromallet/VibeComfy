@@ -19,14 +19,50 @@
   ],
   [
     "ClownSampler_Beta",
-    "UNKNOWN",
+    "widget_0",
+    "0.25",
+    1
+  ],
+  [
+    "ClownSampler_Beta",
+    "widget_1",
+    "'exponential/res_2s'",
+    1
+  ],
+  [
+    "ClownSampler_Beta",
+    "widget_2",
+    "94",
+    1
+  ],
+  [
+    "ClownSampler_Beta",
+    "widget_3",
+    "'fixed'",
+    1
+  ],
+  [
+    "ClownSampler_Beta",
+    "widget_4",
     "True",
     1
+  ],
+  [
+    "CreateVideo",
+    "fps",
+    "24.0",
+    2
   ],
   [
     "EmptyLTXVLatentVideo",
     "height",
     "256",
+    1
+  ],
+  [
+    "EmptyLTXVLatentVideo",
+    "length",
+    "9",
     1
   ],
   [
@@ -37,9 +73,33 @@
   ],
   [
     "GuiderParameters",
-    "UNKNOWN",
-    "True",
+    "cfg",
+    "3",
+    1
+  ],
+  [
+    "GuiderParameters",
+    "cfg",
+    "7",
+    1
+  ],
+  [
+    "GuiderParameters",
+    "modality",
+    "'AUDIO'",
+    1
+  ],
+  [
+    "GuiderParameters",
+    "modality_scale",
+    "3",
     2
+  ],
+  [
+    "GuiderParameters",
+    "rescale",
+    "0.9",
+    1
   ],
   [
     "KSamplerSelect",
@@ -67,14 +127,38 @@
   ],
   [
     "LTXFloatToInt",
-    "UNKNOWN",
+    "a",
+    "24.0",
+    1
+  ],
+  [
+    "LTXFloatToInt",
+    "rounding",
     "0",
     1
   ],
   [
+    "LTXVConditioning",
+    "frame_rate",
+    "24.0",
+    1
+  ],
+  [
+    "LTXVEmptyLatentAudio",
+    "frames_number",
+    "121",
+    1
+  ],
+  [
     "LTXVImgToVideoConditionOnly",
-    "UNKNOWN",
-    "False",
+    "bypass",
+    "True",
+    1
+  ],
+  [
+    "LTXVImgToVideoConditionOnly",
+    "strength",
+    "0.7",
     1
   ],
   [
@@ -91,8 +175,20 @@
   ],
   [
     "LTXVTiledVAEDecode",
-    "UNKNOWN",
-    "'auto'",
+    "horizontal_tiles",
+    "2",
+    2
+  ],
+  [
+    "LTXVTiledVAEDecode",
+    "overlap",
+    "6",
+    2
+  ],
+  [
+    "LTXVTiledVAEDecode",
+    "vertical_tiles",
+    "2",
     2
   ],
   [
@@ -139,44 +235,8 @@
   ],
   [
     "MultimodalGuider",
-    "UNKNOWN",
+    "widget_0",
     "'28'",
-    1
-  ],
-  [
-    "PrimitiveBoolean",
-    "value",
-    "True",
-    1
-  ],
-  [
-    "PrimitiveBoolean",
-    "widget_0",
-    "False",
-    1
-  ],
-  [
-    "PrimitiveFloat",
-    "value",
-    "24",
-    1
-  ],
-  [
-    "PrimitiveFloat",
-    "widget_0",
-    "8",
-    1
-  ],
-  [
-    "PrimitiveInt",
-    "value",
-    "121",
-    1
-  ],
-  [
-    "PrimitiveInt",
-    "widget_0",
-    "9",
     1
   ],
   [
@@ -195,12 +255,6 @@
     "ResizeImageMaskNode",
     "resize_type",
     "'scale longer dimension'",
-    1
-  ],
-  [
-    "ResizeImageMaskNode",
-    "resize_type.longer_size",
-    "1536",
     1
   ],
   [

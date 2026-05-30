@@ -147,6 +147,52 @@ Policy:
 
 ## Watch Items
 
+### `_meta` annotation: ComfyUI adds per-node display metadata, vibecomfy does not
+
+Status: `Watch`
+
+Root cause: `fork_behavior`
+Detected by: `test_bypass_equivalence_against_convert_ui_to_api` (T14c, `VIBECOMFY_COMFY_SMOKE=1`)
+
+Family: `_meta_field`
+
+Issue:
+
+- ComfyUI's `convert_ui_to_api` adds a `_meta: {"title": "<node_display_name>"}` field to every
+  node in the API JSON output. This field is used by the ComfyUI frontend to display node titles
+  in the history/queue panel.
+- vibecomfy's `compile('api')` does not add `_meta`. The API contract enforced by
+  `queue_prompt` ignores unknown top-level keys per node, so this has **no effect on execution
+  semantics**.
+
+Minimal repro:
+
+```python
+import json, sys
+sys.path.insert(0, "vendor/ComfyUI")
+from vibecomfy.comfy_backend import ensure_nodes; ensure_nodes()
+from comfy.component_model.workflow_convert import convert_ui_to_api
+from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+raw = json.loads(open("workflow_corpus/official/image/z_image.json").read())
+wf = convert_to_vibe_format(raw)
+vc_node = wf.compile("api")["6"]
+comfy_node = convert_ui_to_api(raw)["6"]
+print("vibecomfy keys:", sorted(vc_node.keys()))   # no _meta
+print("comfy keys:    ", sorted(comfy_node.keys()))  # includes _meta
+```
+
+Policy:
+
+- `_meta` is purely cosmetic. VibeComfy does not need to emit it for correctness.
+- If a downstream consumer requires `_meta` (e.g. a custom frontend panel), add it in a
+  separate post-processing step outside `compile('api')`.
+- `test_bypass_equivalence_against_convert_ui_to_api` strips `_meta` before comparing; the
+  divergence is listed in `_KNOWN_XFAIL_FAMILIES["_meta_field"]` in
+  `tests/test_compile_invariance.py`.
+
+
+
 ### HiddenSwitch pip fork and official Comfy template drift
 
 Status: `Watch + partial validator guard`

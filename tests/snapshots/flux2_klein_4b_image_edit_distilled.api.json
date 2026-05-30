@@ -1,4 +1,16 @@
 {
+  "76": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "handbag_white.png"
+    }
+  },
+  "81": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "comfy_logo_blue.png"
+    }
+  },
   "1": {
     "class_type": "KSamplerSelect",
     "inputs": {
@@ -31,18 +43,16 @@
     }
   },
   "6": {
-    "class_type": "LoadImage",
+    "class_type": "ImageScaleToTotalPixels",
     "inputs": {
-      "image": "handbag_white.png"
+      "upscale_method": "nearest-exact",
+      "image": [
+        "76",
+        0
+      ]
     }
   },
   "7": {
-    "class_type": "LoadImage",
-    "inputs": {
-      "image": "comfy_logo_blue.png"
-    }
-  },
-  "8": {
     "class_type": "CLIPTextEncode",
     "inputs": {
       "text": "Change the bag color to blue.",
@@ -52,10 +62,9 @@
       ]
     }
   },
-  "9": {
-    "class_type": "ImageScaleToTotalPixels",
+  "8": {
+    "class_type": "GetImageSize",
     "inputs": {
-      "upscale_method": "nearest-exact",
       "image": [
         "6",
         0
@@ -63,90 +72,68 @@
     }
   },
   "10": {
-    "class_type": "ConditioningZeroOut",
+    "class_type": "Flux2Scheduler",
     "inputs": {
-      "conditioning": [
+      "steps": 4,
+      "width": [
         "8",
         0
+      ],
+      "height": [
+        "8",
+        1
       ]
     }
   },
   "11": {
-    "class_type": "GetImageSize",
+    "class_type": "EmptyFlux2LatentImage",
     "inputs": {
-      "image": [
-        "9",
+      "width": [
+        "8",
         0
+      ],
+      "height": [
+        "8",
+        1
       ]
     }
   },
   "12": {
-    "class_type": "VAEEncode",
+    "class_type": "ConditioningZeroOut",
     "inputs": {
-      "pixels": [
-        "9",
-        0
-      ],
-      "vae": [
-        "4",
+      "conditioning": [
+        "7",
         0
       ]
     }
   },
   "13": {
-    "class_type": "Flux2Scheduler",
+    "class_type": "ReferenceLatent",
     "inputs": {
-      "steps": 4,
-      "width": [
-        "11",
+      "conditioning": [
+        "7",
         0
       ],
-      "height": [
-        "11",
-        1
+      "latent": [
+        "40",
+        0
       ]
     }
   },
   "14": {
-    "class_type": "EmptyFlux2LatentImage",
+    "class_type": "ReferenceLatent",
     "inputs": {
-      "width": [
-        "11",
+      "conditioning": [
+        "12",
         0
       ],
-      "height": [
-        "11",
-        1
+      "latent": [
+        "40",
+        0
       ]
     }
   },
   "15": {
-    "class_type": "ReferenceLatent",
-    "inputs": {
-      "conditioning": [
-        "10",
-        0
-      ],
-      "latent": [
-        "12",
-        0
-      ]
-    }
-  },
-  "16": {
-    "class_type": "ReferenceLatent",
-    "inputs": {
-      "conditioning": [
-        "8",
-        0
-      ],
-      "latent": [
-        "12",
-        0
-      ]
-    }
-  },
-  "17": {
     "class_type": "CFGGuider",
     "inputs": {
       "cfg": 1,
@@ -155,16 +142,16 @@
         0
       ],
       "positive": [
-        "16",
+        "13",
         0
       ],
       "negative": [
-        "15",
+        "14",
         0
       ]
     }
   },
-  "18": {
+  "16": {
     "class_type": "SamplerCustomAdvanced",
     "inputs": {
       "noise": [
@@ -172,7 +159,7 @@
         0
       ],
       "guider": [
-        "17",
+        "15",
         0
       ],
       "sampler": [
@@ -180,20 +167,20 @@
         0
       ],
       "sigmas": [
-        "13",
+        "10",
         0
       ],
       "latent_image": [
-        "14",
+        "11",
         0
       ]
     }
   },
-  "19": {
+  "17": {
     "class_type": "VAEDecode",
     "inputs": {
       "samples": [
-        "18",
+        "16",
         0
       ],
       "vae": [
@@ -202,12 +189,275 @@
       ]
     }
   },
+  "18": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "image": [
+        "81",
+        0
+      ]
+    }
+  },
+  "19": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
   "20": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 786795143695419
+    }
+  },
+  "21": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b-fp8.safetensors"
+    }
+  },
+  "22": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "flux2"
+    }
+  },
+  "23": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    }
+  },
+  "24": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "image": [
+        "76",
+        0
+      ]
+    }
+  },
+  "25": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "stylize the handbag in image1 with the colours and logo from image 2",
+      "clip": [
+        "22",
+        0
+      ]
+    }
+  },
+  "26": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "24",
+        0
+      ]
+    }
+  },
+  "27": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "25",
+        0
+      ]
+    }
+  },
+  "28": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 4,
+      "width": [
+        "26",
+        0
+      ],
+      "height": [
+        "26",
+        1
+      ]
+    }
+  },
+  "29": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": [
+        "26",
+        0
+      ],
+      "height": [
+        "26",
+        1
+      ]
+    }
+  },
+  "30": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "24",
+        0
+      ],
+      "vae": [
+        "23",
+        0
+      ]
+    }
+  },
+  "31": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "27",
+        0
+      ],
+      "latent": [
+        "30",
+        0
+      ]
+    }
+  },
+  "32": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "25",
+        0
+      ],
+      "latent": [
+        "30",
+        0
+      ]
+    }
+  },
+  "33": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "18",
+        0
+      ],
+      "vae": [
+        "23",
+        0
+      ]
+    }
+  },
+  "34": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "31",
+        0
+      ],
+      "latent": [
+        "33",
+        0
+      ]
+    }
+  },
+  "35": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "32",
+        0
+      ],
+      "latent": [
+        "33",
+        0
+      ]
+    }
+  },
+  "36": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "21",
+        0
+      ],
+      "positive": [
+        "35",
+        0
+      ],
+      "negative": [
+        "34",
+        0
+      ]
+    }
+  },
+  "37": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "20",
+        0
+      ],
+      "guider": [
+        "36",
+        0
+      ],
+      "sampler": [
+        "19",
+        0
+      ],
+      "sigmas": [
+        "28",
+        0
+      ],
+      "latent_image": [
+        "29",
+        0
+      ]
+    }
+  },
+  "38": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "37",
+        0
+      ],
+      "vae": [
+        "23",
+        0
+      ]
+    }
+  },
+  "40": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "6",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    }
+  },
+  "9": {
     "class_type": "SaveImage",
     "inputs": {
       "filename_prefix": "Flux2-Klein",
       "images": [
-        "19",
+        "17",
+        0
+      ]
+    }
+  },
+  "94": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "Flux2-Klein",
+      "images": [
+        "38",
         0
       ]
     }

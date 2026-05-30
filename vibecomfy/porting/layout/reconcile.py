@@ -508,7 +508,21 @@ def reconcile(
         Store keys that could not be matched by any method.
     """
     entries: dict[str, dict[str, Any]] = prior_store.get("entries", {})
-    virtual_wires: list[dict[str, Any]] = prior_store.get("virtual_wires", [])
+    _raw_vw = prior_store.get("virtual_wires", [])
+    # The store encodes virtual_wires as a dict keyed by uid (store_from_ui_json)
+    # or a list of {source, target} descriptors.  Normalise to the list form here.
+    if isinstance(_raw_vw, dict):
+        virtual_wires: list[dict[str, Any]] = []
+        for _vw_uid, _vw_entry in _raw_vw.items():
+            if isinstance(_vw_entry, dict):
+                _ep = _vw_entry.get("endpoints")
+                if isinstance(_ep, list):
+                    for _ep_uid in _ep:
+                        virtual_wires.append({"source": _vw_uid, "target": str(_ep_uid)})
+    elif isinstance(_raw_vw, list):
+        virtual_wires = _raw_vw
+    else:
+        virtual_wires = []
 
     # Build current uid set from the live IR.
     current_uids: set[str] = {

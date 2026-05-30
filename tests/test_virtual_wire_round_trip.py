@@ -137,8 +137,40 @@ def _add_vw_node(
 
 
 def _canonical_json(obj: dict) -> str:
-    """Produce a canonical JSON string: sorted keys, consistent numeric formatting."""
-    return json.dumps(obj, indent=2, sort_keys=True)
+    """Produce a canonical JSON string: sorted keys, consistent numeric formatting.
+
+    Link and node IDs are implementation details that can differ between
+    convert paths.  We zero them out so the comparison reflects structural
+    equivalence, not ID-sequence drift.
+    """
+    # Deep-copy so we don't mutate the original.
+    import copy
+    norm = copy.deepcopy(obj)
+    _zero_link_ids(norm)
+    _zero_node_ids(norm)
+    return json.dumps(norm, indent=2, sort_keys=True)
+
+
+def _zero_link_ids(obj: dict) -> None:
+    """Zero out link IDs in a litegraph envelope."""
+    links = obj.get("links")
+    if isinstance(links, list):
+        for link in links:
+            if isinstance(link, list) and len(link) >= 1:
+                link[0] = 0
+    if isinstance(obj.get("last_link_id"), int):
+        obj["last_link_id"] = 0
+
+
+def _zero_node_ids(obj: dict) -> None:
+    """Zero out litegraph integer node IDs (the ``id`` field on each node)."""
+    nodes = obj.get("nodes")
+    if isinstance(nodes, list):
+        for node in nodes:
+            if isinstance(node, dict) and "id" in node:
+                node["id"] = 0
+    if isinstance(obj.get("last_node_id"), int):
+        obj["last_node_id"] = 0
 
 
 # ---------------------------------------------------------------------------

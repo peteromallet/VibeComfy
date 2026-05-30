@@ -463,13 +463,14 @@ def _print_change_report(
         stripped = getattr(ce, "stripped_helpers", None) or []
         if stripped:
             lines.append(f"  stripped_helpers: {len(stripped)}")
-        # no prior layout found marker
-        _has_any_populated = any(
-            getattr(ce, a, None)
-            for a in ("preserved", "edited", "new_auto_placed", "removed",
-                       "virtual_wires_degraded", "removed_named", "stripped_helpers")
-        )
-        if not _has_any_populated and prior_store_existed is False:
+        # no prior layout found marker — fires on a genuine fresh layout:
+        # prior store absent, nodes were placed, and no named removals or stripped helpers.
+        if (
+            prior_store_existed is False
+            and ce.new_auto_placed
+            and not removed_named
+            and not stripped
+        ):
             lines.append("  no prior layout found — fresh layout applied")
         if ids.bridge_minted:
             lines.append(f"  identity: bridge_minted={len(ids.bridge_minted)}")
@@ -707,7 +708,14 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 allow_scratchpad=True,
                 ready=getattr(args, "ready", False),
             )
-            py_path = Path(args.workflow)
+            # Prefer the real on-disk .py path from the loaded workflow so the
+            # layout-store sidecar is written next to the actual template file.
+            _src = getattr(workflow, "source", None)
+            _src_path = getattr(_src, "path", None) if _src else None
+            if _src_path and Path(_src_path).suffix == ".py" and Path(_src_path).exists():
+                py_path = Path(_src_path)
+            else:
+                py_path = Path(args.workflow)
             store, prior_path_str, from_overrides = _resolve_preserve_source(args, py_path, workflow)
 
             # M5 Step 16: when the preserve source is a UI JSON on disk (--from

@@ -17,7 +17,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_VENDOR_COMFY = Path("vendor") / "ComfyUI"
+# Anchor the vendored-checkout lookup to the repo root (the package's parent),
+# NOT the process CWD. ``vibecomfy/comfy_backend.py`` lives one level below the
+# repo root, so ``parent.parent`` is the checkout that holds ``vendor/ComfyUI``.
+# A CWD-relative path silently failed whenever a caller (e.g. the ``port export``
+# CLI subprocess) ran from a tmp dir, which tripped the refuse.py hard import
+# check. We keep the CWD-relative path as a fallback for unusual layouts.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_VENDOR_COMFY_CANDIDATES = (
+    _REPO_ROOT / "vendor" / "ComfyUI",
+    Path("vendor") / "ComfyUI",
+)
 
 # Memoized result of ensure_nodes(); ``None`` means "not yet computed".
 _ENSURE_CACHE: bool | None = None
@@ -29,11 +39,13 @@ def _vendor_on_path() -> None:
     No-op when the submodule directory is absent (uninitialized submodule), so
     the subsequent import simply fails and the caller falls back.
     """
-    if not _VENDOR_COMFY.is_dir():
+    for candidate in _VENDOR_COMFY_CANDIDATES:
+        if not candidate.is_dir():
+            continue
+        resolved = str(candidate.resolve())
+        if resolved not in sys.path:
+            sys.path.insert(0, resolved)
         return
-    resolved = str(_VENDOR_COMFY.resolve())
-    if resolved not in sys.path:
-        sys.path.insert(0, resolved)
 
 
 def ensure_nodes() -> bool:

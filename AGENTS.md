@@ -157,9 +157,38 @@ Decision map:
 | Curating a checked-in template | `port convert <workflow> --ready-id <kind>/<name> --out ready_templates/<kind>/<name>.py --json` |
 | Unknown runtime classes | `port check`, then `nodes install-plan` |
 | Missing model files or asset URLs | `port check`, then `fetch`; add `--head-check-models` only for URL reachability |
+| Emit a UI JSON view of a Python workflow | `port export <wf> --to ui --out out/<wf>.ui.json` |
 | RunPod validation | `port check --strict-ready-template` first, then focused matrix only after hard porting errors are handled |
 
-### 1d. Working with the codemod
+### 1d. Port Export (UI JSON round-trip)
+
+**Bidirectional framing.** The editor owns layout; Python owns structure. The round-trip preserves positions and furniture (groups, notes, reroutes, get/set, bypass, subgraphs) when present, and lays out cleanly when not.
+
+```bash
+python -m vibecomfy.cli port export <wf> --to ui --out out/<wf>.ui.json
+```
+
+**Flags:**
+
+| Flag | Effect |
+|---|---|
+| `--to ui` | Emit a litegraph UI JSON envelope (the default is `--to json` for API JSON). |
+| `--fresh` | Ignore any prior store (sidecar, `--from`, breadcrumb) and emit a fresh layout. |
+| `--from <path>` | Use a prior emitted UI JSON as the preserve source. |
+| `--out <path>` | Output file path (required for `--to ui`). |
+| `--strict` | Raise `ValueError` on schema-less or low-confidence node class types. |
+| `--main-positions` | Include main positions in emitted UI JSON (wired for future use). |
+| `--dry-run` | Preview the recovery report and change summary without writing files. |
+| `--force-drop` | Explicitly drop editor-only nodes detected in the prior UI JSON. |
+| `--no-virtual-wires` | Omit SetNode/GetNode virtual wire resolution (emit the raw graph). |
+
+**Gate split.** The offline gate (wiring + object_info) catches structural problems without a GPU. The ComfyUI/RunPod gate validates editor-faithfulness: does the emitted UI JSON round-trip through the vendored ComfyUI converter without corruption?
+
+**`port convert --keep-virtual-wires`.** By default, `port convert` resolves GetNode/SetNode/Reroute helpers into direct edges, producing clean Python with only execution nodes. Pass `--keep-virtual-wires` to emit explicit `wf.node("GetNode"…)` / `wf.node("SetNode"…)` / `wf.node("Reroute"…)` calls instead. Use this when editor-faithfulness requires those nodes to survive the Python representation.
+
+**Covered vs deferred (v1).** Covered: `.json` ↔ Python with positions and furniture; widget/wiring edits keep positions; new nodes auto-placed; JSON-only collaboration; fresh layout for authored code. Deferred: PNG-embedded workflows; simultaneous conflicting edits beyond the documented three states; workflows hand-edited outside ComfyUI that stripped the uid → M5 legacy-hash best-effort only. For the full porting workbench reference see `docs/template_porting_workbench.md`.
+
+### 1e. Working with the codemod
 
 When iterating on the codemod itself or debugging why a conversion
 produced unexpected output:
