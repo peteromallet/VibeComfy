@@ -15,7 +15,7 @@ from vibecomfy.porting.convert import (
     port_convert_and_write,
     port_convert_workflow,
 )
-from vibecomfy.porting.layout_store import read_layout, read_store, write_layout
+from vibecomfy.porting.layout_store import read_layout, read_store, store_from_ui_json, write_layout, write_store
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.manual_repair import repair_manual_template
 from vibecomfy.porting.readability_inventory import build_readability_inventory
@@ -433,6 +433,53 @@ def _cmd_port_widgets(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_change_report(
+    report: Any,
+    *,
+    json_mode: bool = False,
+) -> None:
+    """Print a ChangeReport to stderr (text) or stdout (JSON)."""
+    from dataclasses import asdict  # noqa: PLC0415
+    if json_mode:
+        print(json.dumps({"change_report": asdict(report)}, indent=2, sort_keys=True))
+    else:
+        ce = report.content_edits
+        ids = report.identity_stabilization
+        lines = ["[change-report]"]
+        lines.append(
+            f"  content: preserved={len(ce.preserved)} edited={len(ce.edited)}"
+            f" new={len(ce.new_auto_placed)} removed={len(ce.removed)}"
+            f" virtual_wires_degraded={len(ce.virtual_wires_degraded)}"
+        )
+        if ids.bridge_minted:
+            lines.append(f"  identity: bridge_minted={len(ids.bridge_minted)}")
+        if ids.unmatched_legacy:
+            lines.append(f"  identity: unmatched_legacy={len(ids.unmatched_legacy)}")
+        if ids.definition_relayout:
+            lines.append(f"  identity: definition_relayout={ids.definition_relayout}")
+        print("\n".join(lines), file=sys.stderr)
+
+
+def _print_from_overrides(
+    overrides: dict[str, Any],
+    *,
+    json_mode: bool = False,
+) -> None:
+    """Print ``--from`` overrides (conflict resolution) to stderr or stdout.
+
+    Called when both a sidecar and ``--from`` exist and ``--from`` entries
+    override specific UIDs.  The sidecar is the base; ``--from`` provides
+    explicit per-uid overrides.
+    """
+    if json_mode:
+        print(json.dumps({"from_overrides": sorted(overrides.keys())}, indent=2, sort_keys=True))
+    else:
+        lines = [f"[from-overrides] {len(overrides)} uid(s) overridden from --from:"]
+        for uid in sorted(overrides):
+            lines.append(f"  {uid}")
+        print("\n".join(lines), file=sys.stderr)
+
+
 def _print_recovery_report(
     recovery_report: list[dict[str, Any]],
     *,
@@ -514,6 +561,89 @@ def _print_recovery_report(
         print("\n".join(lines), file=sys.stderr)
 
 
+def _resolve_preserve_source(
+    args: argparse.Namespace,
+    py_path: Path,
+    workflow: Any,
+) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None]:
+    """Resolve the preserve source for ``port export --to ui``.
+
+    Precedence (highest first):
+    1. ``--fresh`` → no preserve (returns ``None, None, None``).
+    2. ``--from <path>`` + sidecar conflict → sidecar wins as base;
+       ``--from`` entries are per-uid overrides surfaced in the change report.
+    3. ``--from <path>`` only → load via ``store_from_ui_json``.
+    4. Sidecar only → ``read_store(py_path)``.
+    5. Breadcrumb auto-discovery → look for a prior emitted UI JSON at the
+       default output path, check ``extra.vibecomfy.prior_path`` matches
+       ``py_path``, and if so load it via ``store_from_ui_json``.
+    6. No source → fresh (returns ``None, None, None``).
+
+    Returns ``(store_envelope | None, prior_path_str | None, from_overrides | None)``.
+    ``from_overrides`` is a dict ``{uid: entry}`` listing UIDs explicitly
+    overridden from ``--from`` when both sidecar and ``--from`` exist, else ``None``.
+    """
+    # 1. --fresh overrides everything
+    if getattr(args, "fresh", False):
+        return None, None, None
+
+    # 2. Check for both --from and sidecar (conflict case)
+    from_path = getattr(args, "from_path", None)
+    sidecar_store = read_store(py_path)
+
+    if from_path and sidecar_store:
+        # Conflict policy: sidecar wins as base; --from provides per-uid overrides
+        from_store = store_from_ui_json(from_path)
+        from_entries = from_store.get("entries", {})
+        base_entries = sidecar_store.get("entries", {})
+
+        # Identify overridden UIDs: keys present in both that differ
+        overrides: dict[str, Any] = {}
+        for uid, from_entry in from_entries.items():
+            if uid in base_entries and from_entry != base_entries[uid]:
+                overrides[uid] = from_entry
+            elif uid not in base_entries:
+                # New UIDs from --from that aren't in sidecar are also overrides
+                overrides[uid] = from_entry
+
+        if overrides:
+            # Merge: base = sidecar, apply --from overrides on top
+            merged = dict(sidecar_store)
+            merged_entries = dict(base_entries)
+            merged_entries.update(overrides)
+            merged["entries"] = merged_entries
+            return merged, str(py_path), overrides
+        else:
+            # No differences — sidecar is authoritative
+            return sidecar_store, str(py_path), None
+
+    # 3. --from <path> only
+    if from_path:
+        store = store_from_ui_json(from_path)
+        return store, str(from_path), None
+
+    # 4. Sidecar only
+    if sidecar_store:
+        return sidecar_store, str(py_path), None
+
+    # 5. Breadcrumb auto-discovery: look for a prior emitted UI JSON at the
+    #    default output path and check its extra.vibecomfy.prior_path.
+    candidate_path = default_output_path(workflow, source_template=py_path.stem)
+    if candidate_path.exists():
+        try:
+            candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+            extra_vc = candidate.get("extra", {}).get("vibecomfy", {})
+            breadcrumb_prior = extra_vc.get("prior_path")
+            if breadcrumb_prior and Path(breadcrumb_prior).resolve() == py_path.resolve():
+                store = store_from_ui_json(candidate_path)
+                return store, str(candidate_path), None
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # 6. No source → fresh
+    return None, None, None
+
+
 def _cmd_port_export(args: argparse.Namespace) -> int:
     if args.to == "json":
         try:
@@ -541,6 +671,7 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
 
     if args.to == "ui":
         recovery_report: list[dict[str, Any]] = []
+        change_report_out: list = []
         try:
             schema_provider = _build_conversion_provider(args)
             workflow = load_workflow_reference(
@@ -550,18 +681,30 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 ready=getattr(args, "ready", False),
             )
             py_path = Path(args.workflow)
-            store = read_store(py_path)
-            # Pass only the entries dict as ``layout`` so the per-uid lookup at
-            # emit_ui_json:769 (layout.get(node.uid)) works correctly.
-            # groups / extra / definitions ride through the new keyword params.
-            layout = store.get("entries", {}) if store else {}
+            store, prior_path_str, from_overrides = _resolve_preserve_source(args, py_path, workflow)
+
+            # M5 Step 16: when the preserve source is a UI JSON on disk (--from
+            # or breadcrumb auto-discovery), load it as the guard's "original"
+            # so refuse.guard_emit can refuse a corrupted re-emit.
+            guard_original_ui: dict[str, Any] | None = None
+            if prior_path_str and prior_path_str != str(py_path):
+                try:
+                    _prior_text = Path(prior_path_str).read_text(encoding="utf-8")
+                    _candidate = json.loads(_prior_text)
+                    if isinstance(_candidate, dict) and isinstance(_candidate.get("nodes"), list):
+                        guard_original_ui = _candidate
+                except Exception:
+                    guard_original_ui = None
+
+            # Extract sidecar sections for explicit kwargs (for callers that pre-resolved them)
             sidecar_groups = store.get("groups") if store else None
             sidecar_extra = store.get("extra") if store else None
             sidecar_definitions = store.get("definitions") if store else None
             ui_payload = emit_ui_json(
                 workflow,
                 schema_provider=schema_provider,
-                layout=layout,
+                prior_store=store,
+                prior_path=prior_path_str,
                 strict=getattr(args, "strict", False),
                 include_main_positions=getattr(args, "main_positions", False),
                 include_virtual_wires=not getattr(args, "no_virtual_wires", False),
@@ -569,6 +712,8 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 groups=sidecar_groups,
                 extra=sidecar_extra,
                 definitions=sidecar_definitions,
+                change_report_out=change_report_out,
+                guard_original_ui=guard_original_ui,
             )
             if args.out:
                 out_path = Path(args.out)
@@ -577,6 +722,25 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True))
             print(f"wrote {out_path}")
+
+            # Emit layout sidecar alongside the UI JSON (best-effort).
+            # Build the store from the freshly-emitted ui_payload (which carries
+            # correct positions in properties['vibecomfy_uid']).  Do NOT call
+            # write_layout(py_path, workflow) here: a workflow loaded from a .py
+            # file has no _ui metadata so write_layout would overwrite the valid
+            # convert-time sidecar with empty entries.
+            try:
+                write_store(py_path, store_from_ui_json(ui_payload))
+            except Exception:
+                pass  # Sidecar write is best-effort; never block the main export
+
+            # --- Change report ---
+            if change_report_out:
+                _print_change_report(change_report_out[0], json_mode=bool(getattr(args, "json", False)))
+
+            # --- From-overrides report (conflict: --from over sidecar) ---
+            if from_overrides:
+                _print_from_overrides(from_overrides, json_mode=bool(getattr(args, "json", False)))
 
             # --- Recovery report (non-strict path) ---
             if recovery_report:
@@ -588,6 +752,20 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             print(f"port export strict failed: {exc}", file=sys.stderr)
             return 2
         except Exception as exc:
+            # M5 Step 16: refusal-spine surfaces RefusedEmit as a typed failure.
+            # Detect by class name to avoid an import cycle on the cold path.
+            if type(exc).__name__ == "RefusedEmit":
+                diff = getattr(exc, "diff", {})
+                print(
+                    f"port export refused: {exc}",
+                    file=sys.stderr,
+                )
+                if diff:
+                    print(
+                        json.dumps({"refused_emit": diff}, indent=2, sort_keys=True, default=repr),
+                        file=sys.stderr,
+                    )
+                return 3
             print(f"port export failed: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
         return 0
@@ -1413,6 +1591,17 @@ def register(subparsers) -> None:
     export.add_argument("--strict", action="store_true", help="Raise ValueError on schema-less or low-confidence node class types.")
     export.add_argument("--main-positions", action="store_true", help="Include main positions in emitted UI JSON (no-op, wired for future use).")
     export.add_argument("--no-virtual-wires", action="store_true", help="Omit SetNode/GetNode virtual wire resolution.")
+    export.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Ignore any prior store (sidecar, --from, breadcrumb) and emit a fresh layout.",
+    )
+    export.add_argument(
+        "--from",
+        dest="from_path",
+        default=None,
+        help="Path to a prior emitted UI JSON to use as the preserve source (loaded via store_from_ui_json).",
+    )
     export.set_defaults(func=_cmd_port_export)
 
     validate_call = port_subparsers.add_parser("validate-call", help="Validate one node call against authoring schema.")

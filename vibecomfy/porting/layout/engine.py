@@ -28,7 +28,8 @@ from vibecomfy.porting.layout.lanes import (
     _ROW_PITCH_PX,
     assign_lanes,
 )
-from vibecomfy.porting.layout.layering import compute_layers
+from vibecomfy.porting.layout import layering as _layering_mod
+from vibecomfy.porting.layout.layering import _role_precedence_rank, compute_layers
 from vibecomfy.porting.layout.placement import place_constrained
 from vibecomfy.porting.layout.sizing import _DEFAULT_NODE_WIDTH, estimate_node_size
 from vibecomfy.porting.layout.types import LayoutResult
@@ -166,6 +167,11 @@ def layout(
             layer = layers.get(uid, 0)
             _cell_nodes.setdefault((band, layer), []).append(uid)
 
+        # Build uid → class_type map for role-precedence tie-break.
+        _uid_class_type: dict[str, str] = {
+            n.uid: n.class_type for n in wf.nodes.values()
+        }
+
         # Process each cell in deterministic order.
         for (band, layer) in sorted(_cell_nodes.keys()):
             cell_uids = _cell_nodes[(band, layer)]
@@ -186,8 +192,19 @@ def layout(
                 else:
                     _bary_scores[uid] = current_sub_lane
 
-            # Sort by (bary_score, uid.zfill(20)) and rewrite sub-lane indices.
-            cell_uids.sort(key=lambda u: (_bary_scores[u], u.zfill(20)))
+            # Sort key: (bary_score, [role_rank], uid.zfill(20)).
+            # Role-rank tie-break is gated by _ROLE_CROSSING_REDUCTION_TIEBREAK
+            # (accessed via module ref so runtime toggle changes take effect).
+            if _layering_mod._ROLE_CROSSING_REDUCTION_TIEBREAK:
+                cell_uids.sort(
+                    key=lambda u: (
+                        _bary_scores[u],
+                        _role_precedence_rank(_uid_class_type.get(u, "")),
+                        u.zfill(20),
+                    )
+                )
+            else:
+                cell_uids.sort(key=lambda u: (_bary_scores[u], u.zfill(20)))
             for new_sub_lane, uid in enumerate(cell_uids):
                 lane_indices[uid] = (band, new_sub_lane)
 

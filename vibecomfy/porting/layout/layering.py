@@ -16,6 +16,62 @@ from typing import Any, Dict, List, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Role precedence for deterministic crossing-reduction tie-break  (T21)
+# ---------------------------------------------------------------------------
+
+# Toggle gate: when True the barycenter sweep adds a role-precedence rank
+# between bary_score and uid in the sort key (positive-before-negative).
+_ROLE_CROSSING_REDUCTION_TIEBREAK = True
+
+# Node class-type families that are treated as "positive" (source / input).
+_POSITIVE_ROLE_FAMILIES: frozenset[str] = frozenset({
+    "LoadImage",
+    "LoadImageMask",
+    "LoadAudio",
+    "LoadVideo",
+    "VHS_LoadVideo",
+    "PrimitiveNode",
+    "PrimitiveString",
+    "PrimitiveInt",
+    "PrimitiveFloat",
+    "IntegerPrimitive",
+    "StringConstant",
+    "FloatConstant",
+    "Note",
+    "MarkdownNote",
+})
+
+# Node class-type families that are treated as "negative" (output / sink).
+_NEGATIVE_ROLE_FAMILIES: frozenset[str] = frozenset({
+    "SaveImage",
+    "SaveImageWebsocket",
+    "PreviewImage",
+    "PreviewVideo",
+    "VHS_VideoCombine",
+    "SaveVideo",
+    "SaveAnimatedWEBP",
+    "SaveAnimatedPNG",
+    "SaveAudio",
+    "UploadImage",
+    "UploadVideo",
+    "UploadAudio",
+})
+
+
+def _role_precedence_rank(class_type: str) -> int:
+    """Return 0 for positive (source), 2 for negative (sink), 1 for neutral.
+
+    This is used as a deterministic tie-break in the barycenter sweep:
+    nodes with equal barycentre scores are ordered positive-first,
+    then neutral, then negative, then by uid.
+    """
+    if class_type in _POSITIVE_ROLE_FAMILIES:
+        return 0
+    if class_type in _NEGATIVE_ROLE_FAMILIES:
+        return 2
+    return 1
+
 
 def compute_layers(wf: Any) -> dict[str, int]:
     """Return ``{uid: layer, ...}`` for every node in *wf*.

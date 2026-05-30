@@ -510,7 +510,9 @@ class TestSubgraphBoxBounds:
         assert by == -24.0
         assert bw == 1008.0
         assert bh == 624.0
-        assert g["color"] in ("#3f7e7e", "#7e3f7e", "#7e7e3f", "#3f3f7e", "#7e3f3f")
+        assert isinstance(g["color"], str) and g["color"].startswith("#"), (
+            f"Expected hex colour string, got {g['color']!r}"
+        )
 
 
 class TestNoSubgraphsReturnsEmpty:
@@ -585,6 +587,110 @@ class TestSubgraphPartialMatch:
         assert by == 176.0
         assert bw == 468.0
         assert bh == 344.0
+
+
+# ===========================================================================
+# T21 — Role-colored groups tests
+# ===========================================================================
+
+
+class TestRoleColorConsistentAcrossWorkflows:
+    """Same subgraph name → same colour regardless of ordering or workflow."""
+
+    def test_same_subgraph_name_gets_same_color(self):
+        from vibecomfy.porting.layout.groups import build_subgraph_groups
+
+        def _make_wf_with_subgraph(name: str):
+            wf = _FakeWF({}, [])
+            wf.metadata = {
+                "definitions": {
+                    "subgraphs": [
+                        {
+                            "id": "sg1",
+                            "name": name,
+                            "nodes": [
+                                {
+                                    "id": 1,
+                                    "properties": {"vibecomfy_uid": "uid_a"},
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+            return wf
+
+        positions = {"uid_a": {"pos": [10.0, 20.0]}}
+        sizes = {"uid_a": (320, 96)}
+
+        # Same name in two different workflow instances → same colour.
+        wf_a = _make_wf_with_subgraph("MySubgraph")
+        wf_b = _make_wf_with_subgraph("MySubgraph")
+        groups_a = build_subgraph_groups(wf_a, positions=positions, sizes=sizes)
+        groups_b = build_subgraph_groups(wf_b, positions=positions, sizes=sizes)
+        assert groups_a[0]["color"] == groups_b[0]["color"], (
+            "Same subgraph name must produce the same colour across workflows"
+        )
+
+    def test_different_subgraph_names_may_differ(self):
+        from vibecomfy.porting.layout.groups import build_subgraph_groups
+
+        def _make_wf_with_subgraph(name: str):
+            wf = _FakeWF({}, [])
+            wf.metadata = {
+                "definitions": {
+                    "subgraphs": [
+                        {
+                            "id": "sg1",
+                            "name": name,
+                            "nodes": [
+                                {
+                                    "id": 1,
+                                    "properties": {"vibecomfy_uid": "uid_a"},
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+            return wf
+
+        positions = {"uid_a": {"pos": [10.0, 20.0]}}
+        sizes = {"uid_a": (320, 96)}
+
+        wf_a = _make_wf_with_subgraph("AlphaSubgraph")
+        wf_b = _make_wf_with_subgraph("BetaSubgraph")
+        groups_a = build_subgraph_groups(wf_a, positions=positions, sizes=sizes)
+        groups_b = build_subgraph_groups(wf_b, positions=positions, sizes=sizes)
+        # They *may* differ (hash-based).  The important property is that each
+        # is a valid colour string.
+        for g in groups_a + groups_b:
+            assert isinstance(g["color"], str) and g["color"].startswith("#"), (
+                f"Expected hex colour string, got {g['color']!r}"
+            )
+
+    def test_known_role_subgraph_gets_mapped_color(self):
+        """Subgraph names containing 'uuid' get the UUID role colour."""
+        from vibecomfy.porting.layout.groups import (
+            _role_color_for_subgraph,
+            _ROLE_COLOR_MAP,
+        )
+
+        colour = _role_color_for_subgraph("UUID-abc-123-def")
+        assert colour == _ROLE_COLOR_MAP["uuid"], (
+            f"UUID subgraph should get teal (#3f7e7e), got {colour}"
+        )
+
+    def test_vhs_subgraph_gets_plum(self):
+        from vibecomfy.porting.layout.groups import (
+            _role_color_for_subgraph,
+            _ROLE_COLOR_MAP,
+        )
+
+        colour = _role_color_for_subgraph("VHS_VideoCombine")
+        assert colour == _ROLE_COLOR_MAP["vhs"], (
+            f"VHS subgraph should get plum (#7e3f7e), got {colour}"
+        )
 
 
 # ===========================================================================
@@ -1183,6 +1289,106 @@ class TestEngineBarycenterPositionsReflectSweep:
         # Also verify all five nodes have positions.
         for uid in ("root", "src_a", "src_b", "node_x", "node_y"):
             assert uid in result.positions, f"Missing position for {uid}"
+
+
+# ===========================================================================
+# T21 — Role-precedence crossing-reduction tie-break tests
+# ===========================================================================
+
+
+class TestRoleCrossingReductionTiebreak:
+    """When barycentre scores are equal, positive-before-negative role precedence
+    determines sub-lane ordering (gated by _ROLE_CROSSING_REDUCTION_TIEBREAK)."""
+
+    def test_role_tiebreak_toggle_on_positive_before_negative(self):
+        """With toggle ON: LoadImage (positive) sorts before SaveImage (negative)."""
+        import vibecomfy.porting.layout.engine as _eng
+        import vibecomfy.porting.layout.layering as _lay
+
+        assert _eng._BARYCENTER_SWEEP is True
+        assert _lay._ROLE_CROSSING_REDUCTION_TIEBREAK is True
+
+        # Build a graph where two nodes at the same layer have identical
+        # barycentre scores (same single predecessor), but one is a positive
+        # role (LoadImage-like) and the other is negative (SaveImage-like).
+        #
+        # Layer 0: src (uid="src")
+        # Layer 1: pos_node (uid="positive", class_type="LoadImage")
+        #          neg_node (uid="negative", class_type="SaveImage")
+        # Edges: src → pos_node, src → neg_node
+        #
+        # Both barycentre to sub_lane(src) = 0.0.
+        # Role tie-break: LoadImage (rank 0) before SaveImage (rank 2).
+        n_src = _make_node("0", "src")
+        n_src.class_type = "Ctrl"
+        n_pos = _make_node("1", "positive")
+        n_pos.class_type = "LoadImage"
+        n_neg = _make_node("2", "negative")
+        n_neg.class_type = "SaveImage"
+
+        wf = _FakeWF(
+            {"0": n_src, "1": n_pos, "2": n_neg},
+            [
+                _make_edge("0", "1"),  # src → positive
+                _make_edge("0", "2"),  # src → negative
+            ],
+        )
+
+        from vibecomfy.porting.layout import layout
+        result = layout(wf)
+
+        pos_y = result.positions["positive"]["pos"][1]
+        neg_y = result.positions["negative"]["pos"][1]
+
+        # Positive role (LoadImage) should sort before negative (SaveImage) →
+        # lower Y (higher on canvas).
+        assert pos_y < neg_y, (
+            f"Role tie-break: LoadImage (positive) should sort ABOVE SaveImage "
+            f"(negative); got pos_y={pos_y}, neg_y={neg_y}"
+        )
+
+    def test_role_tiebreak_toggle_off_no_role_effect(self):
+        """With toggle OFF: sort falls back to uid-only tie-break, no role effect."""
+        import vibecomfy.porting.layout.engine as _eng
+        import vibecomfy.porting.layout.layering as _lay
+
+        assert _eng._BARYCENTER_SWEEP is True
+
+        # Temporarily disable the role tie-break toggle.
+        old_toggle = _lay._ROLE_CROSSING_REDUCTION_TIEBREAK
+        _lay._ROLE_CROSSING_REDUCTION_TIEBREAK = False
+        try:
+            n_src = _make_node("0", "src")
+            n_src.class_type = "Ctrl"
+            n_pos = _make_node("1", "positive")
+            n_pos.class_type = "LoadImage"
+            n_neg = _make_node("2", "negative")
+            n_neg.class_type = "SaveImage"
+
+            wf = _FakeWF(
+                {"0": n_src, "1": n_pos, "2": n_neg},
+                [
+                    _make_edge("0", "1"),
+                    _make_edge("0", "2"),
+                ],
+            )
+
+            from vibecomfy.porting.layout import layout
+            result = layout(wf)
+
+            pos_y = result.positions["positive"]["pos"][1]
+            neg_y = result.positions["negative"]["pos"][1]
+
+            # Without role tie-break, sort is by (bary_score, uid.zfill(20)).
+            # "negative".zfill(20) < "positive".zfill(20) → negative sorts first
+            # → lower Y.
+            assert neg_y < pos_y, (
+                f"Without role tie-break, uid-based sort should put 'negative' "
+                f"(lexicographically first) above 'positive'; "
+                f"got pos_y={pos_y}, neg_y={neg_y}"
+            )
+        finally:
+            _lay._ROLE_CROSSING_REDUCTION_TIEBREAK = old_toggle
 
 
 # ---------------------------------------------------------------------------

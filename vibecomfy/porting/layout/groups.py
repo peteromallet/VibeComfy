@@ -23,14 +23,55 @@ logger = logging.getLogger(__name__)
 # Padding added to each side of the bounding box (pixels).
 _GROUP_PAD_PX = 24
 
-# Fixed palette of 5 hues (repeating via modulo).
-_GROUP_PALETTE: tuple[str, ...] = (
+# Role-color palette: named roles get consistent colors across workflows.
+# Subgraph names without a named role fall through to a deterministic hash-
+# based selection from the extended fallback palette.
+_ROLE_COLOR_MAP: dict[str, str] = {
+    # UUID subgraphs — teal
+    "uuid": "#3f7e7e",
+    # Video combine / output subgraphs — plum
+    "vhs": "#7e3f7e",
+    "videocombine": "#7e3f7e",
+    # Audio subgraphs — olive
+    "audio": "#7e7e3f",
+    # Image-processing subgraphs — navy
+    "image": "#3f3f7e",
+    # Misc / generic subgraphs — rust
+    "default": "#7e3f3f",
+}
+
+# Fallback palette for hash-based assignment when no named role matches.
+_FALLBACK_PALETTE: tuple[str, ...] = (
     "#3f7e7e",
     "#7e3f7e",
     "#7e7e3f",
     "#3f3f7e",
     "#7e3f3f",
+    "#5f9f9f",
+    "#9f5f9f",
+    "#9f9f5f",
+    "#5f5f9f",
+    "#9f5f5f",
+    "#4f8f8f",
+    "#8f4f8f",
 )
+
+
+def _role_color_for_subgraph(name: str) -> str:
+    """Return a consistent colour for *name* based on its role.
+
+    If *name* matches a known role key (case-insensitive substring match
+    against ``_ROLE_COLOR_MAP``), the mapped colour is returned.  Otherwise
+    a deterministic hash of *name* modulo ``len(_FALLBACK_PALETTE)`` is used
+    so the same name always maps to the same colour across workflows.
+    """
+    name_lower = name.lower()
+    for role_key, colour in _ROLE_COLOR_MAP.items():
+        if role_key in name_lower:
+            return colour
+    # Deterministic hash fallback.
+    h = hash(name) & 0x7FFFFFFF
+    return _FALLBACK_PALETTE[h % len(_FALLBACK_PALETTE)]
 
 
 def build_subgraph_groups(
@@ -177,7 +218,7 @@ def build_subgraph_groups(
         gw = _canonicalize_coord(gw)
         gh = _canonicalize_coord(gh)
 
-        color = _GROUP_PALETTE[i % len(_GROUP_PALETTE)]
+        color = _role_color_for_subgraph(title)
 
         groups.append(
             {

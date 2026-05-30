@@ -8,19 +8,19 @@ byte-for-byte identical and only ever produces the runtime API dict.
 
 Identity preservation is **best-effort**, not lossless:
 
-- ``properties["ir_node_id"]`` is the primary preserve key. It is stable for
-  source-derived / raw-call nodes whose ids are explicit in the source graph (e.g.
-  ``"98"``). It is NOT stable for typed-wrapper nodes whose ids are minted by
-  ``VibeWorkflow._next_node_id`` — those renumber whenever a node is inserted ahead of
-  them, so a round-trip can assign a different ``ir_node_id`` to the same logical node.
+- ``properties["vibecomfy_uid"]`` is the stable identity key for nodes that carry a uid
+  (source-derived nodes ingested from litegraph JSON). Use this for round-trip lookup.
 - ``properties["vibecomfy_id"]`` is a display-only forward label (the emitter's
-  variable / role name). It renumbers on edits and must NEVER be used as a match key.
+  variable / role name, ``{class_type}_{order}``). It renumbers on edits and must NEVER
+  be used as a match key. Always present as a fallback when uid is absent.
 - ``properties["Node name for S&R"]`` is the litegraph node type, as the editor expects.
+- ``properties["ir_node_id"]`` is **no longer emitted** (demoted in M5). Any stale
+  ``ir_node_id`` value from a captured properties blob is scrubbed before emission.
+  Use :func:`vibecomfy.porting.ui_keys.node_lookup_key` to obtain the canonical key.
 
 Node ids in the litegraph envelope are integers (the editor format requires it): digit
 VibeNode ids keep their numeric value (``"98"`` → ``98``); non-digit ids are assigned
-fresh integers above the highest digit id. ``properties["ir_node_id"]`` retains the
-original string id as the preserve key, and parity is unaffected because the normalizer
+fresh integers above the highest digit id. Parity is unaffected because the normalizer
 ``str()``-coerces every node id on read-back. The top-level ``links[]`` are 6-element
 arrays ``[link_id, from_node, from_slot, to_node, to_slot, type]`` over those integer
 ids; ``definitions.subgraphs[].links[]`` (emitted only when the IR carries definitions)
@@ -71,6 +71,7 @@ import uuid
 import warnings
 from collections import defaultdict
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from vibecomfy._workflow_helpers import (
@@ -375,8 +376,7 @@ def _build_id_remap(order_list: list[str]) -> dict[str, int]:
     Digit ids keep their numeric value (so source-derived ``"98"`` stays ``98`` and the
     envelope matches the litegraph reference field-for-field).  Non-digit ids (e.g.
     typed-wrapper labels) are assigned fresh integers above the highest digit id, never
-    colliding with a preserved value.  ``properties["ir_node_id"]`` retains the original
-    string id as the preserve key; this mapping only governs the litegraph ``id`` field
+    colliding with a preserved value.  This mapping only governs the litegraph ``id`` field
     and the node-id slots inside ``links[]``.
     """
     remap: dict[str, int] = {}
@@ -806,6 +806,7 @@ def emit_ui_json(
     wf: Any,
     *,
     schema_provider: Any = None,
+    prior_store: Mapping[str, Any] | None = None,
     layout: Any = None,
     anchors: dict[str, Any] | None = None,
     strict: bool = False,
@@ -817,6 +818,8 @@ def emit_ui_json(
     groups: list[dict[str, Any]] | None = None,
     extra: dict[str, Any] | None = None,
     definitions: dict[str, Any] | None = None,
+    change_report_out: list | None = None,
+    guard_original_ui: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render ``wf`` (a ``VibeWorkflow``) to a litegraph JSON envelope.
 
@@ -825,9 +828,14 @@ def emit_ui_json(
         schema_provider: Schema source used for slot/type resolution.  Consulted
             via ``get_schema(class_type)`` for each node.  Pass ``None`` to skip
             schema resolution (all edges emit with slot 0 and empty type).
-        layout: Sidecar layout entries keyed by node uid.  Entries in this dict
-            are passed as ``pinned`` to the layout engine and win over engine
-            geometry for those nodes.
+        prior_store: Full prior-store envelope (``{entries, groups, extra,
+            definitions, virtual_wires}``) from a previously written sidecar.
+            ``entries`` (keyed by node uid) feeds the legacy
+            ``_resolve_furniture`` precedence chain and is passed as ``pinned``
+            to the layout engine.  The full envelope is also handed to
+            :func:`reconcile` once at the top of the function; the resulting
+            ``ReconcileResult`` is exposed to the per-node loop as a local
+            (``reconcile_result``) for later steps (Step 9b+).
         anchors: New-node placement hints ``{new_uid: anchor_uid, ...}``.
             Routed to :func:`~vibecomfy.porting.layout.placement.place_constrained`
             in the engine (Phase 8) as a dedicated kwarg.  Passing ``None`` or
@@ -859,8 +867,29 @@ def emit_ui_json(
         unwired outputs).  The global ``links`` list holds 6-element arrays
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
-    layout = layout or {}
+    # T9a: prior_store is the full envelope ({entries, groups, extra, definitions,
+    # virtual_wires}); reconcile() is called once at top and the result exposed to
+    # the per-node loop as a local. The legacy ``_resolve_furniture`` chain still
+    # reads from ``layout`` (= prior_store['entries']) for this batch — Step 9b
+    # will replace that precedence chain with ``reconcile_result.matched``.
+    from vibecomfy.porting.layout.reconcile import reconcile as _reconcile  # noqa: PLC0415
+    _prior_store: dict[str, Any] = dict(prior_store) if prior_store else {}
+    # Back-compat: callers that still pass the flat ``layout=`` kwarg are wrapped
+    # into a minimal envelope so reconcile() sees the entries. Step 9b retires
+    # ``layout`` entirely once all call sites migrate to prior_store.
+    if layout is not None and not _prior_store:
+        _prior_store = {"entries": dict(layout) if isinstance(layout, dict) else {}}
+    reconcile_result = _reconcile(wf, _prior_store)
+    layout = _prior_store.get("entries", {}) or {}
     anchors = anchors or {}
+
+    # Build ChangeReport if the caller requested it via change_report_out.
+    if change_report_out is not None:
+        from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
+        from vibecomfy.porting.layout.reconcile import build_change_report  # noqa: PLC0415
+        _snapshot = (wf.metadata or {}).get("_ingest_snapshot", {})
+        _field_delta = compute_field_delta(_snapshot, wf) if _snapshot else {}
+        change_report_out.append(build_change_report(reconcile_result, _field_delta))
 
     # ── Resolve broadcast helpers (SetNode / GetNode) into direct edges ────
     # effective_edges: direct links for the EXECUTION (flat) graph
@@ -902,15 +931,50 @@ def emit_ui_json(
                 schema_cache[ct] = schema_provider.get_schema(ct)
 
     # ── Layout engine: compute fresh positions for every node ───────────────
-    # layout dict (sidecar/pinned), anchors, and schema_cache are passed through
-    # so the engine reuses schema lookups already performed above.
+    # T9b: reconcile-driven merge.
+    #   pinned   = {uid: {pos,size} for uid in reconcile_result.matched}
+    #              → engine never re-positions matched nodes.
+    #   anchors  = caller-supplied anchors ∪ computed_anchors, where
+    #              computed_anchors[new_uid] = nearest_wired_neighbor_uid(new_node, matched).
+    #              unmatched_legacy / removed-then-readded nodes (i.e. nodes whose
+    #              key is neither matched nor in reconcile_result.new but were once
+    #              in the store) route through the engine WITHOUT anchors.
     from vibecomfy.porting.layout import layout as _compute_layout  # noqa: PLC0415
+    from vibecomfy.porting.layout.reconcile import (  # noqa: PLC0415
+        nearest_wired_neighbor_uid as _nearest_wired_neighbor_uid,
+    )
+
+    matched_entries: dict[str, dict[str, Any]] = reconcile_result.matched
+
+    def _node_key(node_id: str) -> str:
+        n = wf.nodes.get(node_id)
+        return (n.uid or node_id) if n is not None else node_id
+
+    pinned_for_engine: dict[str, dict[str, Any]] = {}
+    for uid_key, m_entry in matched_entries.items():
+        if isinstance(m_entry, dict) and "pos" in m_entry and "size" in m_entry:
+            pinned_for_engine[uid_key] = {"pos": m_entry["pos"], "size": m_entry["size"]}
+
+    computed_anchors: dict[str, Any] = {}
+    new_keys_set: set[str] = set(reconcile_result.new)
+    for node_id in order_list:
+        key = _node_key(node_id)
+        if key not in new_keys_set:
+            continue
+        anchor = _nearest_wired_neighbor_uid(node_id, wf, matched_entries)
+        if anchor is not None:
+            computed_anchors[key] = anchor
+
+    effective_anchors: dict[str, Any] = dict(anchors) if anchors else {}
+    for k, v in computed_anchors.items():
+        effective_anchors.setdefault(k, v)
+
     _engine_result = _compute_layout(
         wf,
         schema_provider=schema_provider,
         schema_cache=schema_cache,
-        pinned=layout if isinstance(layout, dict) else {},
-        anchors=anchors,
+        pinned=pinned_for_engine,
+        anchors=effective_anchors,
     )
     engine_positions: dict[str, Any] = _engine_result.positions
     engine_groups: list[dict[str, Any]] = _engine_result.groups  # used in T8 group merge
@@ -964,16 +1028,29 @@ def emit_ui_json(
 
     for order, node_id in enumerate(order_list):
         node = wf.nodes[node_id]
-        # Geometry chain (pos/size only): sidecar entry -> captured _ui -> engine -> stub
-        layout_entry = layout.get(node.uid) if isinstance(layout, dict) else None
-        geometry = (
-            _extract_geometry(layout_entry)
-            or _captured_geometry(node)
-            or engine_positions.get(node.uid)
-            or _stub_layout(order)
-        )
-        # Furniture chain (flags/color/bgcolor/mode/properties): independent path
-        furniture = _resolve_furniture(node, layout_entry)
+        key = _node_key(node_id)
+        matched_entry = matched_entries.get(key)
+        # T9b: reconcile-driven merge.
+        #   matched → verbatim pos/size/mode/flags/color/properties/group/title from the entry.
+        #   else    → engine_positions (already incorporates anchors / pinning), else _stub.
+        if matched_entry is not None:
+            geometry = (
+                _extract_geometry(matched_entry)
+                or engine_positions.get(node.uid)
+                or _stub_layout(order)
+            )
+            furniture = _resolve_furniture(node, matched_entry)
+        else:
+            # Unmatched (new / unmatched_legacy / removed-then-readded).
+            # The captured _ui inline on the node (direct-ingest fallback) is the
+            # source of truth when present; the engine owns geometry only when
+            # no captured _ui exists (programmatic / scratchpad path).
+            geometry = (
+                _captured_geometry(node)
+                or engine_positions.get(node.uid)
+                or _stub_layout(order)
+            )
+            furniture = _resolve_furniture(node, None)
         schema = schema_cache.get(node.class_type)
         schema_outputs = list(getattr(schema, "outputs", None) or []) if schema else []
 
@@ -1056,7 +1133,8 @@ def emit_ui_json(
             properties = {}
 
         # ── IR identity keys ALWAYS win (merged ON TOP of any captured value) ──
-        properties["ir_node_id"] = node.id
+        # Scrub stale ir_node_id from captured blobs (demoted in M5).
+        properties.pop("ir_node_id", None)
         properties["vibecomfy_id"] = f"{node.class_type}_{order}"
         properties["Node name for S&R"] = node.class_type
 
@@ -1271,6 +1349,19 @@ def emit_ui_json(
             "lastLinkId": last_link_id,
             "lastRerouteId": 0,
         }
+
+    # M5 Step 16: refusal-spine on APPLIED re-emit. When the caller supplies the
+    # pre-edit UI JSON as guard_original_ui, run convert_ui_to_api over both
+    # original and candidate (this envelope) and refuse if any uid-matched,
+    # snapshot-present node diverges outside snapshot_delta. RefusedEmit bubbles
+    # up so the caller can abort the write.
+    if guard_original_ui is not None:
+        from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
+        from vibecomfy.porting.refuse import guard_emit as _guard_emit  # noqa: PLC0415
+
+        _snap = (wf.metadata or {}).get("_ingest_snapshot", {})
+        _delta = compute_field_delta(_snap, wf) if _snap else {}
+        _guard_emit(guard_original_ui, envelope, _delta)
 
     return envelope
 

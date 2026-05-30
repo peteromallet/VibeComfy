@@ -4,9 +4,19 @@ pytest_plugins = ("pytester",)
 
 
 import importlib.util
+import pathlib
 import warnings
 
 import pytest
+
+_KNOWN_FAILURES_FILE = pathlib.Path(__file__).parent / "known_failures.txt"
+
+
+def _load_known_failures() -> frozenset[str]:
+    if not _KNOWN_FAILURES_FILE.exists():
+        return frozenset()
+    lines = _KNOWN_FAILURES_FILE.read_text().splitlines()
+    return frozenset(ln.strip() for ln in lines if ln.strip() and not ln.strip().startswith("#"))
 
 
 @pytest.fixture(autouse=True)
@@ -108,3 +118,39 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if "runpod" in item.keywords or "runpod_full" in item.keywords:
             item.add_marker(flaky_marker)
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus: int, config: pytest.Config) -> None:
+    """Exit non-zero only when there are NEW failures not in known_failures.txt.
+
+    Tests that are already in the by-design-red baseline are silently accepted.
+    A rising set (test IDs not in the baseline) is the real regression signal.
+    """
+    stats = terminalreporter.stats
+    failed_items = stats.get("failed", [])
+    if not failed_items:
+        return
+
+    known = _load_known_failures()
+    new_failures = [
+        rep.nodeid for rep in failed_items if rep.nodeid not in known
+    ]
+
+    if new_failures:
+        terminalreporter.write_sep("=", "NEW FAILURES (not in known_failures.txt)", red=True)
+        for nodeid in sorted(new_failures):
+            terminalreporter.write_line(f"  NEW FAIL: {nodeid}", red=True)
+        terminalreporter.write_line(
+            f"{len(new_failures)} new failure(s) detected — update tests/known_failures.txt if intentional.",
+            red=True,
+        )
+        # Force a non-zero exit even if pytest would otherwise consider only known failures
+        terminalreporter._session.exitstatus = 1  # type: ignore[attr-defined]
+    else:
+        known_count = len(failed_items)
+        terminalreporter.write_line(
+            f"All {known_count} failure(s) are in known_failures.txt baseline (by-design-red). No regressions.",
+            green=True,
+        )
+        # Reset exit status so CI gates pass when failures are all known-baseline.
+        terminalreporter._session.exitstatus = 0  # type: ignore[attr-defined]

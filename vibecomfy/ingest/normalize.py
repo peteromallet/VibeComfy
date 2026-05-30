@@ -289,6 +289,12 @@ def convert_to_vibe_format(
                 workflow.edges.append(VibeEdge(str(value[0]), str(value[1]), str(node_id), name))
 
     workflow.requirements = _infer_requirements(workflow)
+
+    # Stash an ingest-time snapshot immediately after uid minting and edge setup.
+    # Captured once here so downstream delta computation can detect edits.
+    from vibecomfy.ingest.snapshot import capture_ingest_snapshot  # local to avoid circular at module level
+    workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(api_workflow, workflow)
+
     return workflow
 
 

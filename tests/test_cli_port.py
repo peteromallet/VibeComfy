@@ -1008,13 +1008,26 @@ def test_port_export_recovery_report_text_and_json(
     assert code == 0, f"non-strict --json export failed with code {code}"
     assert out_json.exists(), f"mixed_emit_json.json not written at {out_json}"
 
-    # The recovery report JSON block is printed to stdout AFTER the "wrote ..."
-    # message.  Extract it by finding the JSON object after the first newline.
+    # The recovery report JSON block is printed to stdout alongside any other
+    # JSON blocks (e.g. change_report from T11).  Scan all JSON objects in
+    # stdout and pick the one containing "recovery_report".
     out_text_all = captured_json.out.strip()
-    # Find the first '{' that starts the JSON block
-    brace_idx = out_text_all.find("{")
-    assert brace_idx >= 0, f"No JSON block found in stdout: {captured_json.out!r}"
-    recovery_json = json.loads(out_text_all[brace_idx:])
+    recovery_json: dict | None = None
+    decoder = json.JSONDecoder()
+    scan_pos = 0
+    while scan_pos < len(out_text_all):
+        brace_idx = out_text_all.find("{", scan_pos)
+        if brace_idx < 0:
+            break
+        try:
+            obj, end_pos = decoder.raw_decode(out_text_all, brace_idx)
+            if isinstance(obj, dict) and "recovery_report" in obj:
+                recovery_json = obj
+                break
+            scan_pos = end_pos
+        except json.JSONDecodeError:
+            scan_pos = brace_idx + 1
+    assert recovery_json is not None, f"No recovery_report JSON block found in stdout: {captured_json.out!r}"
     assert isinstance(recovery_json, dict) and "recovery_report" in recovery_json, (
         f"Parsed JSON missing recovery_report key: {recovery_json!r}"
     )
@@ -1050,3 +1063,424 @@ def _write_saveimage_only_node_index(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+# ── T12: --fresh / --from flags + preserve-by-default matrix ────────────────
+
+
+def test_export_from_flag_loads_ui_json_as_preserve_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--from <path>`` loads a prior emitted UI JSON via store_from_ui_json."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+
+    # First, emit a UI JSON from flat.json to use as the --from source.
+    out_prior = tmp_path / "flat_prior_emit.json"
+    monkeypatch.chdir(tmp_path)
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.json",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_prior),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"prior export failed with code {code}"
+    assert out_prior.exists(), f"flat_prior_emit.json not written at {out_prior}"
+
+    # Now convert flat.json → flat.py to get a fresh workflow.
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+
+    # Remove the sidecar so only --from is available.
+    sidecar = tmp_path / "flat.layout.json"
+    if sidecar.exists():
+        sidecar.unlink()
+
+    # Export with --from pointing at the prior emission.
+    out_emit = tmp_path / "flat_emit_from.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            from_path=str(out_prior),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"port export --from failed with code {code}"
+    assert out_emit.exists(), f"flat_emit_from.json not written at {out_emit}"
+
+    # Verify positions are preserved from the prior emission.
+    prior_data = json.loads(out_prior.read_text(encoding="utf-8"))
+    emit_data = json.loads(out_emit.read_text(encoding="utf-8"))
+    prior_pos_by_uid: dict[str, list] = {}
+    for node in prior_data["nodes"]:
+        uid = node.get("properties", {}).get("vibecomfy_uid")
+        if uid:
+            prior_pos_by_uid[uid] = node["pos"]
+    for node in emit_data["nodes"]:
+        uid = node.get("properties", {}).get("vibecomfy_uid")
+        if uid and uid in prior_pos_by_uid:
+            assert node["pos"] == prior_pos_by_uid[uid], (
+                f"uid {uid}: --from did not preserve pos: expected {prior_pos_by_uid[uid]}, got {node['pos']}"
+            )
+
+
+def test_export_fresh_overrides_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--fresh`` ignores an existing sidecar and emits a fresh layout."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Convert to get a sidecar.
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+    assert (tmp_path / "flat.layout.json").exists(), "sidecar was not written"
+
+    out_emit = tmp_path / "flat_emit_fresh.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            fresh=True,
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"port export --fresh failed with code {code}"
+    assert out_emit.exists(), f"flat_emit_fresh.json not written at {out_emit}"
+
+    # Verify the emitted nodes have positions (fresh layout still places nodes).
+    emit_data = json.loads(out_emit.read_text(encoding="utf-8"))
+    for node in emit_data["nodes"]:
+        assert isinstance(node["pos"], list) and len(node["pos"]) == 2, (
+            f"Node id={node['id']} missing position in fresh layout"
+        )
+
+
+def test_export_fresh_overrides_from_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--fresh`` beats ``--from`` — no preserve, fresh layout emitted."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Emit a prior UI JSON.
+    out_prior = tmp_path / "flat_prior_emit.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.json",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_prior),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0
+
+    # Convert to .py
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0
+
+    # Remove sidecar.
+    sidecar = tmp_path / "flat.layout.json"
+    if sidecar.exists():
+        sidecar.unlink()
+
+    out_emit = tmp_path / "flat_emit_fresh_over_from.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            fresh=True,
+            from_path=str(out_prior),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"port export --fresh --from failed with code {code}"
+    emit_data = json.loads(out_emit.read_text(encoding="utf-8"))
+    for node in emit_data["nodes"]:
+        assert isinstance(node["pos"], list) and len(node["pos"]) == 2, (
+            f"Node id={node['id']} missing position with --fresh --from"
+        )
+
+
+def test_export_breadcrumb_auto_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Breadcrumb auto-discovery: prior emitted UI JSON found at default output path."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Step 1: convert flat.json → flat.py (creates sidecar)
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+
+    # Step 2: export flat.py --to ui (writes breadcrumb to default output path)
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=None,
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"first export failed with code {code}"
+
+    # The default output path should now exist with a breadcrumb.
+    from vibecomfy.porting.ui_emitter import default_output_path
+    default_out = default_output_path(
+        type("WF", (), {"nodes": {}, "edges": []})(), source_template="flat"
+    )
+    # Actually compute with the real workflow by importing it...
+    # The default output is out/ui_export/flat.json
+    candidate = tmp_path / "out" / "ui_export" / "flat.json"
+    assert candidate.exists(), f"Default output not found at {candidate}"
+    candidate_data = json.loads(candidate.read_text(encoding="utf-8"))
+    prior_path = candidate_data.get("extra", {}).get("vibecomfy", {}).get("prior_path")
+    assert prior_path is not None, "Breadcrumb prior_path missing"
+
+    # Step 3: remove the sidecar, re-export — should auto-discover via breadcrumb.
+    sidecar = tmp_path / "flat.layout.json"
+    if sidecar.exists():
+        sidecar.unlink()
+
+    out_emit2 = tmp_path / "flat_emit_breadcrumb.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit2),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"breadcrumb-recovered export failed with code {code}"
+    emit_data = json.loads(out_emit2.read_text(encoding="utf-8"))
+    prior_data = json.loads(candidate.read_text(encoding="utf-8"))
+    prior_pos_by_uid = {
+        node["properties"]["vibecomfy_uid"]: node["pos"]
+        for node in prior_data["nodes"]
+        if node.get("properties", {}).get("vibecomfy_uid")
+    }
+    for node in emit_data["nodes"]:
+        uid = node.get("properties", {}).get("vibecomfy_uid")
+        if uid and uid in prior_pos_by_uid:
+            assert node["pos"] == prior_pos_by_uid[uid], (
+                f"uid {uid}: breadcrumb did not preserve pos: "
+                f"expected {prior_pos_by_uid[uid]}, got {node['pos']}"
+            )
+
+
+def test_export_no_source_is_fresh(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No sidecar, no --from, no breadcrumb → fresh layout (non-zero positions)."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Convert to .py
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+
+    # Remove sidecar so there is no preserve source.
+    sidecar = tmp_path / "flat.layout.json"
+    if sidecar.exists():
+        sidecar.unlink()
+
+    # Ensure no default output exists (breadcrumb path).
+    default_out = tmp_path / "out" / "ui_export" / "flat.json"
+    if default_out.exists():
+        default_out.unlink()
+
+    out_emit = tmp_path / "flat_emit_no_source.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"no-source export failed with code {code}"
+    emit_data = json.loads(out_emit.read_text(encoding="utf-8"))
+    for node in emit_data["nodes"]:
+        assert isinstance(node["pos"], list) and len(node["pos"]) == 2, (
+            f"Node id={node['id']} missing position in no-source fresh layout"
+        )
+
+
+def test_export_from_flag_takes_priority_over_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When both sidecar and --from exist, --from takes priority."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Emit a prior UI JSON with DIFFERENT positions (shifted by +100,+100).
+    prior_data = json.loads(flat_json.read_text(encoding="utf-8"))
+    for node in prior_data["nodes"]:
+        node["pos"] = [node["pos"][0] + 100, node["pos"][1] + 100]
+    out_prior = tmp_path / "flat_shifted.json"
+    out_prior.write_text(json.dumps(prior_data), encoding="utf-8")
+
+    # Convert to .py (creates sidecar with ORIGINAL positions).
+    # Need to use the un-shifted fixture.
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    shutil.copy(fixture, flat_json)
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+    assert (tmp_path / "flat.layout.json").exists(), "sidecar not written"
+
+    # Export with --from pointing at the SHIFTED prior emission.
+    out_emit = tmp_path / "flat_emit_from_over_sidecar.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            from_path=str(out_prior),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"port export --from (conflict) failed with code {code}"
+    emit_data = json.loads(out_emit.read_text(encoding="utf-8"))
+    shifted_pos_by_uid = {
+        node.get("properties", {}).get("vibecomfy_uid"): node["pos"]
+        for node in prior_data["nodes"]
+        if node.get("properties", {}).get("vibecomfy_uid")
+    }
+    for node in emit_data["nodes"]:
+        uid = node.get("properties", {}).get("vibecomfy_uid")
+        if uid and uid in shifted_pos_by_uid:
+            assert node["pos"] == shifted_pos_by_uid[uid], (
+                f"uid {uid}: --from did NOT override sidecar: "
+                f"expected shifted {shifted_pos_by_uid[uid]}, got {node['pos']}"
+            )

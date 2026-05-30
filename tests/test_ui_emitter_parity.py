@@ -9,8 +9,7 @@ It covers, in one file:
   the full ``workflow_corpus`` minus the T12 documented allowlist
   (``docs/corpus_parity_allowlist.md``);
 - (b) structural-validation green corpus-wide (schema-less assertions skipped + reported);
-- (c) both identity keys present on every node, and ``ir_node_id == VibeNode.id`` for
-  source-derived nodes;
+- (c) uid or display-id present on every node (ir_node_id demoted in M5);
 - (d) same-IR -> byte-identical JSON on re-emit;
 - (e) the KSampler ``None``-widget round-trip alignment case (Step 7.2);
 - schema-less nodes warn-and-emit by default and hard-fail under ``strict=True``.
@@ -195,14 +194,14 @@ def test_structural_validation_reports_schema_less_skip() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (c) Identity keys — both present on every node; ir_node_id == VibeNode.id
+# (c) uid or display-id present on every node (ir_node_id demoted in M5)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("path", _STARTER_SET)
-def test_both_identity_keys_present_on_every_node(path: str) -> None:
-    """Every emitted node carries both ir_node_id and vibecomfy_id, plus the litegraph
-    S&R type key."""
+def test_uid_or_display_id_present_on_every_node(path: str) -> None:
+    """Every emitted node carries vibecomfy_uid (when uid was captured) or vibecomfy_id
+    (always), plus the litegraph S&R type key.  ir_node_id must NOT appear."""
     wf = _wf_from_json(path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -210,22 +209,14 @@ def test_both_identity_keys_present_on_every_node(path: str) -> None:
     assert ui["nodes"], f"{path}: no nodes emitted"
     for node in ui["nodes"]:
         props = node["properties"]
-        assert "ir_node_id" in props, f"{path}: node {node['id']} missing ir_node_id"
-        assert "vibecomfy_id" in props, f"{path}: node {node['id']} missing vibecomfy_id"
+        assert "ir_node_id" not in props, (
+            f"{path}: node {node['id']} still emits ir_node_id (demoted in M5)"
+        )
+        has_key = "vibecomfy_uid" in props or "vibecomfy_id" in props
+        assert has_key, (
+            f"{path}: node {node['id']} missing both vibecomfy_uid and vibecomfy_id"
+        )
         assert props["Node name for S&R"] == node["type"]
-
-
-def test_ir_node_id_matches_vibenode_id_for_source_derived() -> None:
-    """For source-derived nodes (explicit ids in JSON), ir_node_id == VibeNode.id."""
-    wf = _wf_from_json("workflow_corpus/official/image/flux2_klein_4b_t2i.json")
-    provider = _local_provider()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        ui = emit_ui_json(wf, schema_provider=provider)
-    emitted_ir_ids = {n["properties"]["ir_node_id"] for n in ui["nodes"]}
-    # Every IR node id appears verbatim as an ir_node_id on exactly one emitted node.
-    for node_id in wf.nodes:
-        assert node_id in emitted_ir_ids, f"node {node_id} lost its ir_node_id"
 
 
 # ---------------------------------------------------------------------------

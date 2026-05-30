@@ -238,6 +238,21 @@ def write_layout(py_path: Path, wf: VibeWorkflow) -> Path:
     return sidecar
 
 
+def write_store(py_path: Path, store_envelope: dict[str, Any]) -> Path:
+    """Write a pre-built store envelope to the sidecar alongside ``py_path``.
+
+    Use this when the envelope was built from an already-emitted UI JSON
+    (e.g. via ``store_from_ui_json``) rather than from a live ``VibeWorkflow``.
+    Skips writing if ``store_envelope`` contains no entries (prevents silently
+    overwriting a valid sidecar with an empty one).  Returns the sidecar path.
+    """
+    if not store_envelope.get("entries"):
+        return sidecar_path_for(py_path)
+    sidecar = sidecar_path_for(py_path)
+    sidecar.write_text(json.dumps(store_envelope, indent=2), encoding="utf-8")
+    return sidecar
+
+
 def migrate_store(data: dict[str, Any]) -> dict[str, Any]:
     """Upgrade a legacy v1 flat layout schema to the current M2 envelope.
 
@@ -344,6 +359,137 @@ def read_layout(py_path: Path) -> dict[str, dict]:
     return entries if isinstance(entries, dict) else {}
 
 
+def store_from_ui_json(ui_json_or_path: Any) -> dict[str, Any]:
+    """Build a full M2 store envelope from a raw LiteGraph UI JSON.
+
+    Accepts either a parsed dict or a path-like/str pointing to a JSON file.
+
+    Pass 1 — node entries
+    ~~~~~~~~~~~~~~~~~~~~~~
+    Iterates ``nodes[]``.  Nodes that carry ``properties['vibecomfy_uid']`` are
+    keyed by that uid in ``entries``; nodes without a uid are collected into
+    ``unkeyed`` (a list of their litegraph integer ids as strings) and also used
+    to build the interim ``lit_id -> uid`` reverse map for Pass 2.
+
+    Pass 2 — re-key endpoints
+    ~~~~~~~~~~~~~~~~~~~~~~~~~
+    Walks ``groups[]``, ``extra.virtual_wires``, and ``definitions``, resolving
+    any litegraph-integer node references through the Pass 1 ``lit_id -> uid``
+    map.  Endpoint integers that cannot be resolved are accumulated into
+    ``extra['unkeyed_endpoints']`` (never silently dropped).
+
+    Returns a full envelope dict with the same shape as :func:`write_layout`
+    produces:  ``store_version``, ``vibecomfy_version``, ``schema_hash``,
+    ``entries``, ``groups``, ``extra``, ``lastRerouteId``, ``definitions``,
+    ``virtual_wires``, and ``unkeyed`` / ``extra.unkeyed_endpoints`` for
+    diagnostics.
+    """
+    # Accept path or pre-parsed dict.
+    if not isinstance(ui_json_or_path, dict):
+        raw = Path(ui_json_or_path).read_text(encoding="utf-8")
+        ui: dict[str, Any] = json.loads(raw)
+    else:
+        ui = ui_json_or_path
+
+    # ── Pass 1: node entries ──────────────────────────────────────────────────
+    entries: dict[str, dict] = {}
+    unkeyed: list[str] = []          # lit_ids of uidless nodes
+    lit_to_uid: dict[str, str] = {}  # lit_id (str) -> vibecomfy_uid
+
+    for node in ui.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        lit_id = str(node.get("id", ""))
+        props = node.get("properties") or {}
+        uid = props.get("vibecomfy_uid", "")
+        if uid:
+            lit_to_uid[lit_id] = uid
+            entries[uid] = _build_entry(node)
+        else:
+            unkeyed.append(lit_id)
+
+    # ── Pass 2: re-key endpoint integers in groups, virtual_wires, definitions ─
+    unkeyed_endpoints: list[Any] = []
+
+    def _rekey(ref: Any) -> Any:
+        """Resolve a litegraph integer endpoint to its uid, or flag unresolved."""
+        if isinstance(ref, int):
+            key = str(ref)
+            uid = lit_to_uid.get(key)
+            if uid:
+                return uid
+            unkeyed_endpoints.append(ref)
+            return ref
+        return ref
+
+    # groups — each group may carry a ``nodes`` list of integer node ids
+    raw_groups = ui.get("groups") or []
+    groups: list[Any] = []
+    for grp in raw_groups:
+        if not isinstance(grp, dict):
+            groups.append(grp)
+            continue
+        grp_copy = dict(grp)
+        if isinstance(grp_copy.get("nodes"), list):
+            grp_copy["nodes"] = [_rekey(n) for n in grp_copy["nodes"]]
+        groups.append(grp_copy)
+
+    # extra — carry forward as-is but re-key virtual_wires endpoints
+    raw_extra = ui.get("extra")
+    extra: dict[str, Any] = dict(raw_extra) if isinstance(raw_extra, dict) else {}
+
+    raw_vw = extra.pop("virtual_wires", None) or {}
+    virtual_wires: dict[str, Any] = {}
+    for vw_key, vw_val in (raw_vw.items() if isinstance(raw_vw, dict) else []):
+        if not isinstance(vw_val, dict):
+            virtual_wires[vw_key] = vw_val
+            continue
+        vw_copy = dict(vw_val)
+        if isinstance(vw_copy.get("endpoints"), list):
+            vw_copy["endpoints"] = [_rekey(ep) for ep in vw_copy["endpoints"]]
+        virtual_wires[vw_key] = vw_copy
+
+    if unkeyed_endpoints:
+        extra["unkeyed_endpoints"] = unkeyed_endpoints
+
+    # definitions — re-key any integer node ids within subgraph definitions
+    raw_defs = ui.get("definitions") or {}
+
+    def _rekey_definitions(defs: Any) -> Any:
+        if isinstance(defs, dict):
+            return {k: _rekey_definitions(v) for k, v in defs.items()}
+        if isinstance(defs, list):
+            result = []
+            for item in defs:
+                if isinstance(item, dict):
+                    item_copy = dict(item)
+                    if isinstance(item_copy.get("nodes"), list):
+                        item_copy["nodes"] = [
+                            dict(n, id=_rekey(n.get("id"))) if isinstance(n, dict) else n
+                            for n in item_copy["nodes"]
+                        ]
+                    result.append(item_copy)
+                else:
+                    result.append(item)
+            return result
+        return defs
+
+    definitions = _rekey_definitions(raw_defs)
+
+    return {
+        "store_version": STORE_VERSION,
+        "vibecomfy_version": _vibecomfy_version(),
+        "schema_hash": _schema_hash(),
+        "entries": entries,
+        "groups": groups,
+        "extra": extra,
+        "lastRerouteId": ui.get("lastRerouteId"),
+        "definitions": definitions,
+        "virtual_wires": virtual_wires,
+        "unkeyed": unkeyed,
+    }
+
+
 __all__ = [
     "STORE_VERSION",
     "gc",
@@ -351,5 +497,6 @@ __all__ = [
     "read_layout",
     "read_store",
     "sidecar_path_for",
+    "store_from_ui_json",
     "write_layout",
 ]
