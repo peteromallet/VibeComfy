@@ -150,6 +150,7 @@ def _cmd_port_convert(args: argparse.Namespace) -> int:
             workflow_shape=report.workflow_shape,
             schema_provider=schema_provider,
             raw_workflow=loaded.raw_workflow,
+            keep_virtual_wires=bool(getattr(args, "keep_virtual_wires", False)),
         )
     except Exception as exc:
         return _emit_strict_ready_load_failure(
@@ -437,6 +438,7 @@ def _print_change_report(
     report: Any,
     *,
     json_mode: bool = False,
+    prior_store_existed: bool | None = None,
 ) -> None:
     """Print a ChangeReport to stderr (text) or stdout (JSON)."""
     from dataclasses import asdict  # noqa: PLC0415
@@ -451,6 +453,24 @@ def _print_change_report(
             f" new={len(ce.new_auto_placed)} removed={len(ce.removed)}"
             f" virtual_wires_degraded={len(ce.virtual_wires_degraded)}"
         )
+        # removed_named entries (uid + class_type per removed node)
+        removed_named = getattr(ce, "removed_named", None) or []
+        if removed_named:
+            lines.append(f"  removed_named: {len(removed_named)} entry/ies")
+            for rn in removed_named:
+                lines.append(f"    uid={rn['uid']} class={rn.get('class_type', 'unknown')}")
+        # stripped_helpers count
+        stripped = getattr(ce, "stripped_helpers", None) or []
+        if stripped:
+            lines.append(f"  stripped_helpers: {len(stripped)}")
+        # no prior layout found marker
+        _has_any_populated = any(
+            getattr(ce, a, None)
+            for a in ("preserved", "edited", "new_auto_placed", "removed",
+                       "virtual_wires_degraded", "removed_named", "stripped_helpers")
+        )
+        if not _has_any_populated and prior_store_existed is False:
+            lines.append("  no prior layout found — fresh layout applied")
         if ids.bridge_minted:
             lines.append(f"  identity: bridge_minted={len(ids.bridge_minted)}")
         if ids.unmatched_legacy:
@@ -556,6 +576,13 @@ def _print_recovery_report(
                     f"broadcast name={e.get('broadcast_name')!r} — "
                     f"no matching SetNode source"
                 )
+        stripped_entries = [e for e in recovery_report if "stripped_helpers" in e]
+        if stripped_entries:
+            _stripped_entry = stripped_entries[0]
+            _stripped_count = _stripped_entry.get("count", 0)
+            if _stripped_count > 0:
+                _stripped_ids = _stripped_entry.get("stripped_helpers", [])
+                lines.append(f"  stripped virtual-wire helpers ({_stripped_count}): {', '.join(_stripped_ids)}")
         if not schema_less_nodes and not low_conf_nodes and not widget_warn_nodes and not orphaned_nodes:
             lines.append("  (no issues — all nodes resolved with high confidence)")
         print("\n".join(lines), file=sys.stderr)
@@ -700,9 +727,9 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             sidecar_groups = store.get("groups") if store else None
             sidecar_extra = store.get("extra") if store else None
             sidecar_definitions = store.get("definitions") if store else None
-            ui_payload = emit_ui_json(
-                workflow,
-                schema_provider=schema_provider,
+            _force_drop = bool(getattr(args, "force_drop", False))
+            # Wrap emit_ui_json so we can retry with --force-drop on EditorAheadError.
+            _emit_kwargs: dict[str, Any] = dict(
                 prior_store=store,
                 prior_path=prior_path_str,
                 strict=getattr(args, "strict", False),
@@ -715,13 +742,35 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 change_report_out=change_report_out,
                 guard_original_ui=guard_original_ui,
             )
+            try:
+                ui_payload = emit_ui_json(
+                    workflow,
+                    schema_provider=schema_provider,
+                    force_drop_editor_only=False,
+                    **_emit_kwargs,
+                )
+            except Exception as _emit_exc:
+                if type(_emit_exc).__name__ == "EditorAheadError" and _force_drop:
+                    ui_payload = emit_ui_json(
+                        workflow,
+                        schema_provider=schema_provider,
+                        force_drop_editor_only=True,
+                        **_emit_kwargs,
+                    )
+                else:
+                    raise
             if args.out:
                 out_path = Path(args.out)
             else:
                 out_path = default_output_path(workflow, source_template=py_path.stem)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True))
-            print(f"wrote {out_path}")
+
+            dry_run = getattr(args, "dry_run", False)
+            if dry_run:
+                print(f"[dry-run] would write to {out_path}", file=sys.stderr)
+            else:
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True))
+                print(f"wrote {out_path}")
 
             # Emit layout sidecar alongside the UI JSON (best-effort).
             # Build the store from the freshly-emitted ui_payload (which carries
@@ -729,14 +778,19 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             # write_layout(py_path, workflow) here: a workflow loaded from a .py
             # file has no _ui metadata so write_layout would overwrite the valid
             # convert-time sidecar with empty entries.
-            try:
-                write_store(py_path, store_from_ui_json(ui_payload))
-            except Exception:
-                pass  # Sidecar write is best-effort; never block the main export
+            if not dry_run:
+                try:
+                    write_store(py_path, store_from_ui_json(ui_payload))
+                except Exception:
+                    pass  # Sidecar write is best-effort; never block the main export
 
             # --- Change report ---
             if change_report_out:
-                _print_change_report(change_report_out[0], json_mode=bool(getattr(args, "json", False)))
+                _print_change_report(
+                    change_report_out[0],
+                    json_mode=bool(getattr(args, "json", False)),
+                    prior_store_existed=store is not None,
+                )
 
             # --- From-overrides report (conflict: --from over sidecar) ---
             if from_overrides:
@@ -766,6 +820,20 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                         file=sys.stderr,
                     )
                 return 3
+            # EditorAheadError: editor-only nodes detected in prior UI JSON.
+            if type(exc).__name__ == "EditorAheadError":
+                editor_only = getattr(exc, "editor_only_uids", [])
+                uid_list = ", ".join(
+                    f"uid={e['uid']} class={e['class_type']}" for e in editor_only
+                )
+                print(
+                    f"port export refused: editor is ahead — {len(editor_only)} node(s) "
+                    f"exist in the prior UI JSON but not in the Python IR: {uid_list}. "
+                    f"Re-run `port convert <prior.json>` to import them, "
+                    f"or pass --force-drop to discard explicitly.",
+                    file=sys.stderr,
+                )
+                return 4
             print(f"port export failed: {type(exc).__name__}: {exc}", file=sys.stderr)
             return 1
         return 0
@@ -1567,6 +1635,11 @@ def register(subparsers) -> None:
         "--server-url",
         help="ComfyUI server URL for live /object_info (requires --runtime-object-info).",
     )
+    convert.add_argument(
+        "--keep-virtual-wires",
+        action="store_true",
+        help="Emit GetNode/SetNode/Reroute as explicit wf.node(...) calls instead of resolving them.",
+    )
     convert.set_defaults(func=_cmd_port_convert)
 
     widgets = port_subparsers.add_parser(
@@ -1601,6 +1674,16 @@ def register(subparsers) -> None:
         dest="from_path",
         default=None,
         help="Path to a prior emitted UI JSON to use as the preserve source (loaded via store_from_ui_json).",
+    )
+    export.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the recovery report and change summary without writing files.",
+    )
+    export.add_argument(
+        "--force-drop",
+        action="store_true",
+        help="Explicitly drop editor-only nodes detected in the prior UI JSON.",
     )
     export.set_defaults(func=_cmd_port_export)
 

@@ -1619,9 +1619,12 @@ def emit_scratchpad_python(
     registered_inputs: dict[str, tuple[str, str]] | None = None,
     apply_overrides: dict[str, Any] | None = None,
     diagnostics: list[EmissionDiagnostic] | None = None,
+    keep_virtual_wires: bool = False,
 ) -> str:
     workflow_id = workflow_id or getattr(workflow, "id", "scratchpad")
-    prepared = _prepare_workflow_for_emit(workflow, apply_overrides=apply_overrides)
+    prepared = _prepare_workflow_for_emit(
+        workflow, apply_overrides=apply_overrides, keep_virtual_wires=keep_virtual_wires
+    )
     source_path_expr = repr(source_path) if source_path is not None else "__file__"
 
     out_lines: list[str] = []
@@ -1650,16 +1653,25 @@ def emit_scratchpad_python(
     return "\n".join(out_lines) + "\n"
 
 
+_VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
+
+
 def _prepare_workflow_for_emit(
     workflow: Any,
     *,
     apply_overrides: dict[str, Any] | None,
     template_id: str | None = None,
+    keep_virtual_wires: bool = False,
 ) -> dict[str, Any]:
     # Defensive assertion: resolver MUST have eliminated all helper nodes before emission.
     # If any RESOLVABLE_HELPER_CLASS_TYPES node survives, the resolver has a bug.
+    # Exception: when keep_virtual_wires=True, GetNode/SetNode/Reroute are intentionally
+    # kept and emitted as explicit wf.node(...) calls — they pass through the assertion.
+    # VALUE_HELPER_CLASS_TYPES (PrimitiveBoolean, etc.) still raise unconditionally.
     for nid, node in getattr(workflow, 'nodes', {}).items():
         if node.class_type in RESOLVABLE_HELPER_CLASS_TYPES:
+            if keep_virtual_wires and node.class_type in _VIRTUAL_WIRE_EMITTER_CLASS_TYPES:
+                continue
             raise ConversionParityError(
                 f"Resolver bug: unresolved helper node {nid} "
                 f"(class_type={node.class_type!r}) survived to emission. "

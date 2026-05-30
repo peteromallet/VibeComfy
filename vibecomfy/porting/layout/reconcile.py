@@ -91,6 +91,8 @@ class ContentEdits:
     new_auto_placed: list[str] # uids in new (engine-placed)
     removed: list[str]         # uids absent from current wf (deleted)
     virtual_wires_degraded: list[dict[str, Any]]  # degraded virtual wire descriptors
+    removed_named: list[dict[str, str]] = field(default_factory=list)
+    stripped_helpers: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -117,6 +119,7 @@ class ChangeReport:
 def build_change_report(
     reconcile_result: "ReconcileResult",
     field_delta: "dict[str, dict[str, tuple]]",
+    prior_store_entries: "dict[str, dict] | None" = None,
 ) -> "ChangeReport":
     """Build a :class:`ChangeReport` from a reconcile result and field delta.
 
@@ -128,10 +131,28 @@ def build_change_report(
         Output of ``compute_field_delta`` — ``{uid: {field: (old, new)}}`` for
         nodes whose content changed since ingest.  Pass ``{}`` when no snapshot
         is available (all matched nodes are treated as preserved).
+    prior_store_entries:
+        Prior store ``entries`` dict (keyed by uid).  When supplied, each
+        removed uid is annotated with its class_type from the prior entry
+        (looked up via ``properties["Node name for S&R"]``).  Optional;
+        ``removed_named`` stays empty when ``None``.
     """
     matched_uids = set(reconcile_result.matched)
     edited_uids = matched_uids & set(field_delta)
     preserved_uids = matched_uids - edited_uids
+
+    # ── Build removed_named when prior entries are available ──────────────
+    removed_named: list[dict[str, str]] = []
+    if prior_store_entries:
+        for uid in reconcile_result.removed:
+            entry = prior_store_entries.get(uid) or {}
+            # Prefer an explicit class_type key; fall back to the litegraph
+            # "Node name for S&R" property when the entry carries properties.
+            ct = entry.get("class_type", "")
+            if not ct:
+                props = entry.get("properties", {}) or {}
+                ct = props.get("Node name for S&R", "") if isinstance(props, dict) else ""
+            removed_named.append({"uid": uid, "class_type": ct or "unknown"})
 
     return ChangeReport(
         content_edits=ContentEdits(
@@ -140,6 +161,7 @@ def build_change_report(
             new_auto_placed=list(reconcile_result.new),
             removed=list(reconcile_result.removed),
             virtual_wires_degraded=list(reconcile_result.degraded_virtual_wires),
+            removed_named=removed_named,
         ),
         identity_stabilization=IdentityStabilization(
             bridge_minted=list(reconcile_result.bridge_minted),

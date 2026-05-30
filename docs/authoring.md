@@ -20,6 +20,26 @@ See [template_porting_workbench.md](template_porting_workbench.md) for the full 
 
 The canonical promotion path is raw workflow source -> `port check` -> optional scratchpad -> `port convert --ready-id` or hand-authored Python ready template -> `tools.refresh_template_index` -> `validate`/`doctor`/strict-ready checks. Raw JSON and compiled API dictionaries are source/runtime material, not the reusable authoring surface.
 
+## Emitting a UI view
+
+`port export --to ui` produces a litegraph JSON envelope that the ComfyUI editor can load. It uses the M4 layout engine to compute positions so the graph is readable without manual arrangement. Run it against any workflow (source JSON, scratchpad, or ready template):
+
+```bash
+python -m vibecomfy.cli port export my_workflow.json --to ui --out out/my_workflow.ui.json
+```
+
+**Fresh layout (no prior store).** When no prior UI JSON or layout sidecar exists, `port export --to ui` produces a clean fresh layout via the M4 engine. Every node gets an engine-computed position; the change report marks `no prior layout found — fresh layout applied`.
+
+**When to commit the emitted `.json`.** Authors of code-first templates (ready templates, scratchpads) typically should **not** commit the emitted `.json`. The `.json` is regenerated on demand from the Python source and the layout sidecar (`.layout.json`), which IS committed. The sidecar records the preserved positions so subsequent exports are stable.
+
+**When to version a layout.** When you DO want to share or version a specific layout — for example, to freeze the editor arrangement for sharing with a ComfyUI user — commit the emitted `.json`. The preserve-by-default loop (`--from` or sidecar auto-discovery) then keeps the committed positions stable across subsequent `port export` runs.
+
+**Dry-run preview.** Pass `--dry-run` to preview the recovery report, change summary, and output path without writing any files:
+
+```bash
+python -m vibecomfy.cli port export my_workflow.json --to ui --dry-run
+```
+
 ## v2.6 Ready Template Surface
 
 New ready templates declare data first and build the graph second:

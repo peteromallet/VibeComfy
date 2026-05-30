@@ -209,6 +209,7 @@ def port_convert_workflow(
     schema_provider: Any | None = None,
     validate: bool = True,
     raw_workflow: dict[str, Any] | None = None,
+    keep_virtual_wires: bool = False,
 ) -> PortConvertResult:
     emission_diagnostics: list[EmissionDiagnostic] = []
 
@@ -263,7 +264,13 @@ def port_convert_workflow(
     # validates emission fidelity of the resolved graph, not semantic
     # preservation against the raw source.  Resolver-vs-source correctness
     # is guaranteed by the Step 3.6 hard error and the Step 9 runexx oracle.
-    resolve_diagnostics: ResolveDiagnostics = resolve_helpers(workflow, registered_inputs)
+    #
+    # When keep_virtual_wires=True, skip resolution so GetNode/SetNode/Reroute
+    # pass through to the emitter as explicit wf.node(...) calls.
+    if keep_virtual_wires:
+        resolve_diagnostics: ResolveDiagnostics = ResolveDiagnostics()
+    else:
+        resolve_diagnostics = resolve_helpers(workflow, registered_inputs)
 
     # Surface ResolveDiagnostics into the existing emission_diagnostics
     # channel (FG-005): convert each HelperDiagnostic into an
@@ -305,6 +312,7 @@ def port_convert_workflow(
             provenance=complete_provenance,
             registered_inputs=registered_inputs,
             diagnostics=emission_diagnostics,
+            keep_virtual_wires=keep_virtual_wires,
         )
         mode: PortConvertMode = "scratchpad"
     else:

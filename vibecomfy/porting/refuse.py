@@ -56,6 +56,28 @@ class RefusedEmit(Exception):
         self.diff = dict(diff)
 
 
+class EditorAheadError(Exception):
+    """Raised when ``emit_ui_json`` detects editor-only uids in the prior store.
+
+    An editor-only uid is one that exists in the prior store but is absent from
+    the IR and was not authored by a prior VibeComfy emit (i.e. the node was
+    added directly in the ComfyUI editor after the last VibeComfy export).
+
+    Attributes
+    ----------
+    editor_only_uids:
+        List of ``{uid, class_type}`` dicts for each editor-only uid detected,
+        sorted by uid for deterministic output.
+    """
+
+    def __init__(self, editor_only_uids: list[dict[str, str]]):
+        super().__init__(
+            f"editor_ahead: {len(editor_only_uids)} uid(s) in the prior store "
+            "were not authored by VibeComfy — use --force-drop to allow dropping them"
+        )
+        self.editor_only_uids = list(editor_only_uids)
+
+
 def _uid_to_litegraph_id(ui_json: Mapping[str, Any]) -> dict[str, str]:
     """Build a ``{vibecomfy_uid: str(litegraph_id)}`` map from a UI JSON."""
     out: dict[str, str] = {}
@@ -191,4 +213,4 @@ def guard_emit(
         )
 
 
-__all__ = ["RefusedEmit", "guard_emit"]
+__all__ = ["EditorAheadError", "RefusedEmit", "guard_emit"]

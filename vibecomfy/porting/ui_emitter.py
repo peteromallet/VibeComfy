@@ -820,6 +820,7 @@ def emit_ui_json(
     definitions: dict[str, Any] | None = None,
     change_report_out: list | None = None,
     guard_original_ui: Mapping[str, Any] | None = None,
+    force_drop_editor_only: bool = False,
 ) -> dict[str, Any]:
     """Render ``wf`` (a ``VibeWorkflow``) to a litegraph JSON envelope.
 
@@ -883,13 +884,63 @@ def emit_ui_json(
     layout = _prior_store.get("entries", {}) or {}
     anchors = anchors or {}
 
+    # ── Editor-ahead detection (T3) ───────────────────────────────────────────
+    # When guard_original_ui is supplied, detect editor-only uids early (before
+    # expensive emission) and raise EditorAheadError so the caller can abort.
+    # An editor-only uid is in the prior store, absent from the IR, and NOT in
+    # the VibeComfy-authored set.
+    #
+    # Authored-uid heuristic: if the prior-store breadcrumb's prior_path matches
+    # the current workflow's source path, all prior-store uids were authored by a
+    # previous VibeComfy emit of this file → treat them all as authored.
+    # If no breadcrumb or path mismatch → authored set is EMPTY so every
+    # prior-only uid is conservatively flagged as editor-added.
+    if guard_original_ui is not None:
+        _prior_store_uids: set[str] = set(_prior_store.get("entries", {}).keys())
+        _ir_uids: set[str] = set(wf.nodes.keys())
+        _prior_breadcrumb: dict = (_prior_store.get("extra") or {}).get("vibecomfy") or {}
+        _bc_prior_path = _prior_breadcrumb.get("prior_path")
+        _wf_source_path = _source_prior_path(wf)
+        if (
+            _bc_prior_path is not None
+            and _wf_source_path is not None
+            and _bc_prior_path == _wf_source_path
+        ):
+            _vibecomfy_authored: set[str] = set(_prior_store_uids)
+        else:
+            _vibecomfy_authored = set()
+        _editor_only: set[str] = _prior_store_uids - _ir_uids - _vibecomfy_authored
+        if _editor_only:
+            _entries = _prior_store.get("entries", {})
+            if force_drop_editor_only:
+                # Suppress the editor-ahead error: fold editor-only uids into
+                # reconcile_result.removed so build_change_report can populate
+                # removed_named with class_type information.
+                _sorted_editor_only = sorted(_editor_only)
+                reconcile_result.removed.extend(_sorted_editor_only)
+            else:
+                from vibecomfy.porting.refuse import EditorAheadError as _EditorAheadError  # noqa: PLC0415
+                raise _EditorAheadError(
+                    [
+                        {"uid": u, "class_type": _entries.get(u, {}).get("class_type", "")}
+                        for u in sorted(_editor_only)
+                    ]
+                )
+
     # Build ChangeReport if the caller requested it via change_report_out.
+    _change_report_ref: list = []  # mutable container so we can set stripped_helpers later
     if change_report_out is not None:
         from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
         from vibecomfy.porting.layout.reconcile import build_change_report  # noqa: PLC0415
         _snapshot = (wf.metadata or {}).get("_ingest_snapshot", {})
         _field_delta = compute_field_delta(_snapshot, wf) if _snapshot else {}
-        change_report_out.append(build_change_report(reconcile_result, _field_delta))
+        _report = build_change_report(
+            reconcile_result,
+            _field_delta,
+            prior_store_entries=_prior_store.get("entries"),
+        )
+        change_report_out.append(_report)
+        _change_report_ref.append(_report)
 
     # ── Resolve broadcast helpers (SetNode / GetNode) into direct edges ────
     # effective_edges: direct links for the EXECUTION (flat) graph
@@ -904,6 +955,10 @@ def emit_ui_json(
         if node.class_type == "Reroute"
     }
     virtual_wire_ids: set[str] = broadcast_ids | reroute_ids
+
+    # Populate stripped_helpers on the change report (now that virtual_wire_ids is computed).
+    if _change_report_ref:
+        _change_report_ref[0].content_edits.stripped_helpers = sorted(virtual_wire_ids) if virtual_wire_ids else []
 
     # ── Choose edge list and node filter based on virtual-wire toggle ───────
     if include_virtual_wires:
@@ -1278,6 +1333,14 @@ def emit_ui_json(
                     "orphaned_route": True,
                     "broadcast_name": name,
                 })
+
+        # ── Stripped virtual-wire helpers summary (T7) ───────────────────
+        # Always append this entry (zero-count or non-zero) so JSON-mode
+        # consumers can detect the emit-mode. Text mode prints only when N > 0.
+        recovery_report.append({
+            "stripped_helpers": sorted(virtual_wire_ids),
+            "count": len(virtual_wire_ids),
+        })
 
     # Warn for schema-less nodes when not strict
     if not strict:
