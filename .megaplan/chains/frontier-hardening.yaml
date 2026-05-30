@@ -1,0 +1,82 @@
+# Epic: frontier-hardening — robustness BEYOND round-trip fidelity
+#
+# PROVENANCE: docs/roadmap_agentic_comfyui.md §14 ("Frontier risks — beyond fidelity"), a 5×2-agent
+# sweep (Claude + DeepSeek, 2026-05-30). The scratchpad-emitter epic proves FAITHFULNESS ("we changed
+# exactly the delta, nothing else"). This epic addresses the axes faithfulness does NOT cover —
+# correctness, durability, expressibility, safety, felt-trust — one milestone per axis.
+#
+# THE SHIPPING TRIPWIRE (the spine of this epic): two of these (s3 intent-oracle, s4 capability-fence)
+# are EXISTENTIAL and gate a future write-enabled editor. Today the only thing fencing them is that
+# scratchpad-emitter's m7 is READ-ONLY. No write path to a user's canvas ships until BOTH s3 and s4 land.
+#
+# RELATIONSHIP TO scratchpad-emitter: that epic owns L0-L2 (the codec, identity, preserve). This epic
+# is additive and mostly independent — the codec it builds on (m2 ingest + m3 emitter) is already on
+# `main`. Two coordination points, NOT hard blockers:
+#   - s2 (dynamic-widget-fence) shares the refusal surface with scratchpad-emitter m5's corruption-detector
+#     (m5 owns the GENERIC detector; s2 owns the widget-SHAPE fence + a dict-widget IR type). Integrate.
+#   - s5 (felt-fidelity-gate) consumes m5's system-computed touched/untouched delta (§0 Step 0). s5 is
+#     ordered LAST so m5 has maximal time to land it on main; if absent, s5 computes a minimal delta itself.
+#
+# Ordering is mostly linear. s1 first: it makes every later sprint's oracle gate trustworthy. The two
+# existential gates (s3, s4) come before the trust polish (s5). Each sprint's handoff is a written
+# artifact the next can cite (version_matrix.json; the fence module interface; the intent-oracle metric;
+# the capability taxonomy).
+#
+# DIAL RATIONALE (driver tier tracks decision DIFFICULTY; stakes raise the GATE, not the driver):
+#   s1 directed  — premium PLAN (the strict=True flip re-sequences every ingest call site), cheap execute.
+#   s2 partnered — novel cross-cutting design (new dict-widget IR repr + shape fence), real judgment.
+#   s3 partnered/thorough — keystone correctness gate, no prior art in repo; thorough buys prep + deep critique.
+#   s4 premium/thorough   — security-critical + cross-cutting; thorough is the canonical security case.
+#   s5 directed  — a measurement gate + metric; mostly wiring atop the Step-0 signal.
+
+base_branch: main           # codec foundation (m2 ingest + m3 emitter + the Layer-3 oracle gate) is merged here
+
+milestones:
+  - label: s1-oracle-durability
+    idea: .megaplan/ideas/frontier-hardening/s1-oracle-durability.md
+    branch: epic/frontier-hardening-s1-oracle
+    profile: directed         # tier 2 — premium plan sequences the strict-flip migration; DeepSeek executes the wiring.
+    robustness: full          # behavior-changing across ingest call sites, but objective gates (CI + tests) backstop it.
+    depth: low
+
+  - label: s2-dynamic-widget-fence
+    idea: .megaplan/ideas/frontier-hardening/s2-dynamic-widget-fence.md
+    branch: epic/frontier-hardening-s2-widget-fence
+    profile: partnered        # tier 3 — novel: a dict/row-shaped widgets_values IR type + a widget-SHAPE refusal fence.
+    robustness: full          # cross-cutting (ingest + emit + schema); coordinates with scratchpad-emitter m5's detector.
+    depth: medium
+
+  - label: s3-intent-oracle
+    idea: .megaplan/ideas/frontier-hardening/s3-intent-oracle.md
+    branch: epic/frontier-hardening-s3-intent-oracle
+    profile: partnered        # tier 3 — EXISTENTIAL gate #1: an INDEPENDENT judge of "did the edit do what was asked".
+    robustness: thorough      # keystone correctness gate, no prior art; thorough buys the prep phase + deep critique.
+    depth: high
+    critic: cross             # second mind on the oracle design before anything depends on its verdicts
+
+  - label: s4-capability-fence
+    idea: .megaplan/ideas/frontier-hardening/s4-capability-fence.md
+    branch: epic/frontier-hardening-s4-capability-fence
+    profile: premium          # tier 4 — EXISTENTIAL gate #2: security. Taint/provenance + side-effect allowlist + confirm.
+    robustness: thorough      # security-critical: a regression here = a confused-deputy exec/exfil incident.
+    depth: high
+    critic: cross
+
+  - label: s5-felt-fidelity-gate
+    idea: .megaplan/ideas/frontier-hardening/s5-felt-fidelity-gate.md
+    branch: epic/frontier-hardening-s5-felt-fidelity
+    profile: directed         # tier 2 — a felt-delta metric + latency budget gate; mostly wiring atop m5's Step-0 signal.
+    robustness: full          # the preview/undo UX itself belongs to the write-enabled editor (future m8), NOT here.
+    depth: low
+
+on_failure:
+  abort: stop_chain
+on_escalate:
+  abort: stop_chain
+merge_policy: auto            # auto-merge each milestone's PR; the chain self-drives
+
+driver:
+  robustness: standard
+  auto_approve: true
+  max_iterations: 60
+  poll_sleep: 8.0
