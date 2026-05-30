@@ -94,7 +94,7 @@ _LITEGRAPH_VERSION = 1.0
 # Layout-schema version stamped into the breadcrumb (extra.vibecomfy.layout_version).
 # M2 replaces _stub_layout with real layout and will bump this. M3 preserve-mode keys
 # off the breadcrumb, so the version travels with the file.
-_LAYOUT_VERSION = "m1"
+_LAYOUT_VERSION = "m4"
 
 # Default directory and subdirectory for emitted UI exports.
 _DEFAULT_OUT_DIR = "out"
@@ -807,6 +807,7 @@ def emit_ui_json(
     *,
     schema_provider: Any = None,
     layout: Any = None,
+    anchors: dict[str, Any] | None = None,
     strict: bool = False,
     recovery_report: list[dict[str, Any]] | None = None,
     source_template: str | None = None,
@@ -824,7 +825,13 @@ def emit_ui_json(
         schema_provider: Schema source used for slot/type resolution.  Consulted
             via ``get_schema(class_type)`` for each node.  Pass ``None`` to skip
             schema resolution (all edges emit with slot 0 and empty type).
-        layout: Reserved layout hook for M2. Ignored by the stub geometry.
+        layout: Sidecar layout entries keyed by node uid.  Entries in this dict
+            are passed as ``pinned`` to the layout engine and win over engine
+            geometry for those nodes.
+        anchors: New-node placement hints ``{new_uid: anchor_uid, ...}``.
+            Routed to :func:`~vibecomfy.porting.layout.placement.place_constrained`
+            in the engine (Phase 8) as a dedicated kwarg.  Passing ``None`` or
+            ``{}`` leaves existing behavior unchanged.
         strict: When ``True``, raises ``ValueError`` if any node has a schema-less
             class type (``get_schema() == None``) or a low-confidence schema
             (``confidence <= 0.3``, i.e. the ``widget_schema_fallback`` tier).
@@ -853,6 +860,7 @@ def emit_ui_json(
         ``[link_id, from_node, from_slot, to_node, to_slot, type]``.
     """
     layout = layout or {}
+    anchors = anchors or {}
 
     # ── Resolve broadcast helpers (SetNode / GetNode) into direct edges ────
     # effective_edges: direct links for the EXECUTION (flat) graph
@@ -892,6 +900,20 @@ def emit_ui_json(
             ct = wf.nodes[node_id].class_type
             if ct not in schema_cache:
                 schema_cache[ct] = schema_provider.get_schema(ct)
+
+    # ── Layout engine: compute fresh positions for every node ───────────────
+    # layout dict (sidecar/pinned), anchors, and schema_cache are passed through
+    # so the engine reuses schema lookups already performed above.
+    from vibecomfy.porting.layout import layout as _compute_layout  # noqa: PLC0415
+    _engine_result = _compute_layout(
+        wf,
+        schema_provider=schema_provider,
+        schema_cache=schema_cache,
+        pinned=layout if isinstance(layout, dict) else {},
+        anchors=anchors,
+    )
+    engine_positions: dict[str, Any] = _engine_result.positions
+    engine_groups: list[dict[str, Any]] = _engine_result.groups  # used in T8 group merge
 
     # Per-node provenance (keyed by node_id)
     node_prov: dict[str, dict[str, Any]] = {}
@@ -942,11 +964,12 @@ def emit_ui_json(
 
     for order, node_id in enumerate(order_list):
         node = wf.nodes[node_id]
-        # Geometry chain (pos/size only): sidecar entry -> captured _ui -> stub
+        # Geometry chain (pos/size only): sidecar entry -> captured _ui -> engine -> stub
         layout_entry = layout.get(node.uid) if isinstance(layout, dict) else None
         geometry = (
-            (_extract_geometry(layout_entry))
+            _extract_geometry(layout_entry)
             or _captured_geometry(node)
+            or engine_positions.get(node.uid)
             or _stub_layout(order)
         )
         # Furniture chain (flags/color/bgcolor/mode/properties): independent path
@@ -1201,8 +1224,16 @@ def emit_ui_json(
     if include_main_positions and "ds" not in merged_extra:
         merged_extra["ds"] = dict(_DEFAULT_DS)
 
-    # --- groups: canonicalize bounding geometry when include_main_positions=True ---
-    emitted_groups: list[dict[str, Any]] = list(groups) if groups is not None else []
+    # --- groups: merge caller-passed groups with engine-generated subgraph groups ---
+    #   Order: caller-passed groups first, then engine_groups (suppressing duplicates
+    #   whose ``title`` matches a caller-passed group title).  All groups are
+    #   canonicalized when ``include_main_positions=True``.
+    caller_groups: list[dict[str, Any]] = list(groups) if groups is not None else []
+    caller_titles: set[str] = {g.get("title", "") for g in caller_groups if g.get("title")}
+    emitted_groups: list[dict[str, Any]] = list(caller_groups)
+    for eg in engine_groups:
+        if eg.get("title", "") not in caller_titles:
+            emitted_groups.append(eg)
     if include_main_positions and emitted_groups:
         _canonicalize_group_geometry(emitted_groups)
 

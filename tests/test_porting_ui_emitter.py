@@ -1233,7 +1233,7 @@ def test_breadcrumb_stamped_at_top_level_extra() -> None:
     ui = emit_ui_json(wf, schema_provider=provider, source_template="image/z_image", prior_path="orig/path.json")
     crumb = ui["extra"]["vibecomfy"]
     assert crumb == {
-        "layout_version": "m1",
+        "layout_version": "m4",
         "source_template": "image/z_image",
         "prior_path": "orig/path.json",
     }
@@ -1249,7 +1249,7 @@ def test_breadcrumb_stamped_on_each_subgraph_definition() -> None:
     ui = emit_ui_json(wf, schema_provider=provider, source_template="t", prior_path="p.json")
     sg = ui["definitions"]["subgraphs"][0]
     assert sg["extra"]["vibecomfy"] == {
-        "layout_version": "m1",
+        "layout_version": "m4",
         "source_template": "t",
         "prior_path": "p.json",
     }
@@ -2183,11 +2183,15 @@ def test_coordinates_canonicalized_to_m2_precision() -> None:
     assert n98["pos"] == [123.46, 987.65], f"pos not M2-canonicalized: {n98['pos']}"
     assert n98["size"] == [320.0, 180.0], f"size not M2-canonicalized: {n98['size']}"
 
-    # Node 99 uses _stub_layout (no captured geometry)
+    # Node 99: no captured geometry → engine or stub provides coords.
+    # Invariant: whatever source wins, values are rounded to 2 decimal places.
     n99 = next(n for n in result["nodes"] if n["properties"]["ir_node_id"] == "99")
-    # _stub_layout: col=1, row=0 → pos=[400.0, 0.0], size=[320.0, 180.0]
-    assert n99["pos"] == [400.0, 0.0], f"stub pos not M2-canonicalized: {n99['pos']}"
-    assert n99["size"] == [320.0, 180.0], f"stub size not M2-canonicalized: {n99['size']}"
+    pos99 = n99["pos"]
+    size99 = n99["size"]
+    assert isinstance(pos99, list) and len(pos99) == 2, f"pos must be [x, y]: {pos99}"
+    assert isinstance(size99, list) and len(size99) == 2, f"size must be [w, h]: {size99}"
+    assert all(round(v, 2) == v for v in pos99), f"pos not M2-canonicalized: {pos99}"
+    assert all(round(v, 2) == v for v in size99), f"size not M2-canonicalized: {size99}"
 
 
 def test_deterministic_byte_identical_emit() -> None:
