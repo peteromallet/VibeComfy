@@ -6,10 +6,10 @@ ComfyUI ``convert_ui_to_api`` and refuses the emit whenever the *candidate*
 diverges from the *original* on a uid-matched, snapshot-present node in any
 field NOT named in ``snapshot_delta``.
 
-A *hard import check* runs at module load — if the vendored ComfyUI is not
-importable (e.g. ``vendor/ComfyUI`` submodule uninitialized), the failure is
-captured and re-raised from the first ``guard_emit`` call with a clear
-diagnostic, rather than silently degrading to a no-op gate.
+The ComfyUI converter is resolved lazily on the first ``guard_emit`` call.  If
+the vendored ComfyUI is not importable (e.g. ``vendor/ComfyUI`` submodule
+uninitialized), the failure is captured and re-raised from that ``guard_emit``
+call with a clear diagnostic, rather than silently degrading to a no-op gate.
 
 Spec: ``vibecomfy/porting/refuse.py`` is torch-free, no Node, no HTTP. All
 schema needs are served from the vendored ComfyUI on ``sys.path`` (via
@@ -17,25 +17,42 @@ schema needs are served from the vendored ComfyUI on ``sys.path`` (via
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+from enum import Enum
 from typing import Any, Mapping
 
-# ─── Hard import check (module init) ──────────────────────────────────────
-# Fail loudly at first use rather than silently degrading: importing this
-# module always attempts to bring the vendored ComfyUI onto sys.path and
-# import ``convert_ui_to_api``.  On failure, ``_IMPORT_ERROR`` is set and the
-# first ``guard_emit`` call re-raises it as ImportError.
-from vibecomfy.comfy_backend import ensure_nodes as _ensure_nodes
+_ConvertUiToApi = Callable[[dict[str, Any]], Mapping[str, Any]]
+_convert_ui_to_api: _ConvertUiToApi | None = None
+_IMPORT_ERROR: BaseException | None = None
 
-_ensure_nodes()
-try:  # noqa: SIM105
-    from comfy.component_model.workflow_convert import (
-        convert_ui_to_api as _convert_ui_to_api,
-    )
-except Exception as _imp_err:  # pragma: no cover - exercised when vendor absent
-    _convert_ui_to_api = None  # type: ignore[assignment]
-    _IMPORT_ERROR: BaseException | None = _imp_err
-else:
-    _IMPORT_ERROR = None
+
+def _load_convert_ui_to_api() -> _ConvertUiToApi:
+    """Load the ComfyUI converter only when a non-empty guard scope needs it."""
+    global _IMPORT_ERROR, _convert_ui_to_api
+    if _convert_ui_to_api is not None:
+        return _convert_ui_to_api
+    if _IMPORT_ERROR is not None:
+        raise ImportError(
+            "vibecomfy.porting.refuse: vendored ComfyUI convert_ui_to_api is "
+            f"unavailable ({_IMPORT_ERROR!r}). Ensure the vendor/ComfyUI "
+            "submodule is initialized and importable."
+        )
+    from vibecomfy.comfy_backend import ensure_nodes as _ensure_nodes
+
+    try:
+        _ensure_nodes()
+        from comfy.component_model.workflow_convert import (
+            convert_ui_to_api as _loaded_convert_ui_to_api,
+        )
+    except Exception as exc:  # pragma: no cover - exercised when vendor absent
+        _IMPORT_ERROR = exc
+        raise ImportError(
+            "vibecomfy.porting.refuse: vendored ComfyUI convert_ui_to_api is "
+            f"unavailable ({exc!r}). Ensure the vendor/ComfyUI submodule is "
+            "initialized and importable."
+        ) from exc
+    _convert_ui_to_api = _loaded_convert_ui_to_api
+    return _convert_ui_to_api
 
 
 class RefusedEmit(Exception):
@@ -54,6 +71,97 @@ class RefusedEmit(Exception):
         super().__init__(reason)
         self.reason = reason
         self.diff = dict(diff)
+
+
+def widget_shape_refusal_diff(verdicts: Iterable[Any]) -> dict[str, dict[str, Any]]:
+    """Build a node-keyed ``RefusedEmit.diff`` mapping for widget-shape refusals.
+
+    The helper accepts verdict-like objects instead of importing the verdict
+    class.  That keeps the refusal spine side-effect-light and lets tests build
+    small stand-ins without touching ComfyUI conversion machinery.
+    """
+    diff: dict[str, dict[str, Any]] = {}
+    for verdict in verdicts:
+        node_id = str(_read_attr(verdict, "node_id"))
+        details = _widget_shape_details(verdict)
+        reasons = details.pop("reasons")
+        diff[node_id] = {
+            "axis": "widget_shape",
+            "node_id": node_id,
+            "class_type": str(_read_attr(verdict, "class_type", "")),
+            "reason": reasons[0] if reasons else "unknown",
+            "reasons": reasons,
+            "details": details,
+        }
+    return diff
+
+
+def refused_widget_shape(verdicts: Iterable[Any]) -> RefusedEmit:
+    """Return a ``RefusedEmit`` carrying node-keyed widget-shape details."""
+    diff = widget_shape_refusal_diff(verdicts)
+    return RefusedEmit(
+        f"widget shape refused: {len(diff)} node(s) cannot be emitted safely",
+        diff,
+    )
+
+
+def _read_attr(obj: Any, name: str, default: Any = None) -> Any:
+    if isinstance(obj, Mapping):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, tuple):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, list):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return repr(value)
+
+
+def _widget_shape_details(verdict: Any) -> dict[str, Any]:
+    reasons = [_jsonable(reason) for reason in (_read_attr(verdict, "reasons", ()) or ())]
+    evidence = _read_attr(verdict, "evidence")
+    details: dict[str, Any] = {
+        "decision": _jsonable(_read_attr(verdict, "decision")),
+        "reasons": reasons,
+        "safe_to_regenerate": bool(_read_attr(verdict, "safe_to_regenerate", False)),
+        "pin_opaque": bool(_read_attr(verdict, "pin_opaque", False)),
+        "refuse": bool(_read_attr(verdict, "refuse", True)),
+        "evidence": _jsonable(_evidence_summary(evidence)),
+    }
+    field_delta = _read_attr(verdict, "field_delta", None)
+    link_delta = _read_attr(verdict, "link_delta", None)
+    if field_delta:
+        details["field_delta"] = _jsonable(field_delta)
+    if link_delta:
+        details["link_delta"] = _jsonable(link_delta)
+    return details
+
+
+def _evidence_summary(evidence: Any) -> dict[str, Any]:
+    if evidence is None:
+        return {}
+    fields = (
+        "node_id",
+        "class_type",
+        "schema_less",
+        "confidence",
+        "raw_widget_count",
+        "candidate_widget_count",
+        "schema_widget_count",
+        "raw_widget_shape",
+        "has_dict_rows",
+        "overflow",
+        "provider",
+    )
+    return {field: _read_attr(evidence, field) for field in fields}
 
 
 class EditorAheadError(Exception):
@@ -150,13 +258,6 @@ def guard_emit(
     ImportError
         When the vendored ComfyUI ``convert_ui_to_api`` is unavailable.
     """
-    if _convert_ui_to_api is None:  # pragma: no cover - exercised when vendor absent
-        raise ImportError(
-            "vibecomfy.porting.refuse: vendored ComfyUI convert_ui_to_api is "
-            f"unavailable ({_IMPORT_ERROR!r}). Ensure the vendor/ComfyUI "
-            "submodule is initialized and importable."
-        )
-
     delta: Mapping[str, Mapping[str, tuple]] = snapshot_delta or {}
 
     orig_uid_to_id = _uid_to_litegraph_id(original_ui)
@@ -165,8 +266,9 @@ def guard_emit(
     if not scope_uids:
         return
 
-    orig_api = _convert_ui_to_api(dict(original_ui))
-    cand_api = _convert_ui_to_api(dict(candidate_ui))
+    convert_ui_to_api = _load_convert_ui_to_api()
+    orig_api = convert_ui_to_api(dict(original_ui))
+    cand_api = convert_ui_to_api(dict(candidate_ui))
 
     diff: dict[str, dict[str, Any]] = {}
     for uid in scope_uids:
@@ -213,4 +315,10 @@ def guard_emit(
         )
 
 
-__all__ = ["EditorAheadError", "RefusedEmit", "guard_emit"]
+__all__ = [
+    "EditorAheadError",
+    "RefusedEmit",
+    "guard_emit",
+    "refused_widget_shape",
+    "widget_shape_refusal_diff",
+]

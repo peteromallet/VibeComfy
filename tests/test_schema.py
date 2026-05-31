@@ -6,6 +6,7 @@ import json
 import pytest
 
 from vibecomfy.ingest.normalize import (
+    _merge_slim_ui,
     convert_to_vibe_format,
     normalize_to_api,
     _schema_input_aliases,
@@ -383,6 +384,139 @@ def test_normalize_to_api_preserves_dict_widget_values() -> None:
     assert api["1"]["inputs"]["custom_width"] == ["2", 0]
     assert api["1"]["inputs"]["custom_height"] == 480
     assert api["1"]["inputs"]["save_output"] is True
+
+
+def test_normalize_to_api_preserves_raw_widget_payload_for_mixed_rows() -> None:
+    rows = [
+        {"lora": "detail.safetensors", "strength": 0.45},
+        "enabled",
+        {"lora": "style.safetensors", "strength": 0.2},
+    ]
+    raw = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "DynamicRowsForRawWidgetTest",
+                "widgets_values": rows,
+                "inputs": [],
+            }
+        ],
+        "links": [],
+    }
+
+    api = normalize_to_api(raw)
+
+    assert api["1"]["_raw_widgets"] == {
+        "values": rows,
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "has_dict_rows": True,
+        "length": 3,
+    }
+    assert api["1"]["_ui"]["widgets_values"] == rows
+
+
+def test_convert_to_vibe_format_carries_raw_widgets_without_compile_leak() -> None:
+    rows = [{"lora": "detail.safetensors", "strength": 0.45}, "enabled"]
+    wf = convert_to_vibe_format(
+        {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "DynamicRowsForRawWidgetTest",
+                    "widgets_values": rows,
+                    "inputs": [],
+                }
+            ],
+            "links": [],
+        }
+    )
+
+    node = wf.nodes["1"]
+    assert node.raw_widgets is not None
+    assert node.raw_widgets.values == rows
+    assert node.raw_widgets.shape == "list"
+    assert node.raw_widgets.source == "ui.widgets_values"
+    assert node.raw_widgets.has_dict_rows is True
+    assert node.raw_widgets.length == 2
+    assert node.metadata["_ui"]["widgets_values"] == rows
+    assert "_raw_widgets" not in node.metadata
+    assert wf.compile("api") == {
+        "1": {
+            "class_type": "DynamicRowsForRawWidgetTest",
+            "inputs": {
+                "widget_0": {"lora": "detail.safetensors", "strength": 0.45},
+                "widget_1": "enabled",
+            },
+        }
+    }
+
+
+def test_convert_to_vibe_format_static_compile_unchanged_with_raw_widgets() -> None:
+    api = {
+        "1": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": 123,
+                "steps": 30,
+                "cfg": 6,
+                "sampler_name": "uni_pc",
+                "scheduler": "simple",
+                "denoise": 1,
+            },
+            "_ui": {
+                "id": 1,
+                "type": "KSampler",
+                "widgets_values": [123, "randomize", 30, 6, "uni_pc", "simple", 1],
+                "inputs": [],
+            },
+        }
+    }
+
+    wf = convert_to_vibe_format(api)
+
+    assert wf.nodes["1"].raw_widgets is not None
+    assert wf.nodes["1"].raw_widgets.length == 7
+    assert wf.compile("api") == {
+        "1": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": 123,
+                "steps": 30,
+                "cfg": 6,
+                "sampler_name": "uni_pc",
+                "scheduler": "simple",
+                "denoise": 1,
+            },
+        }
+    }
+
+
+def test_merge_slim_ui_retains_widgets_values_and_raw_payload() -> None:
+    raw = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "DynamicRows",
+                "pos": [10, 20],
+                "size": [300, 100],
+                "properties": {"vibecomfy_uid": "dyn"},
+                "widgets_values": [{"name": "row"}],
+            }
+        ]
+    }
+    converted = {"1": {"class_type": "DynamicRows", "inputs": {"widget_0": {"name": "row"}}}}
+
+    _merge_slim_ui(raw, converted)
+
+    assert converted["1"]["_ui"]["widgets_values"] == [{"name": "row"}]
+    assert converted["1"]["_raw_widgets"] == {
+        "values": [{"name": "row"}],
+        "shape": "list",
+        "source": "ui.widgets_values",
+        "has_dict_rows": True,
+        "length": 1,
+    }
 
 
 def test_local_schema_provider_missing_index_is_empty(tmp_path) -> None:

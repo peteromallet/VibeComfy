@@ -261,11 +261,11 @@ def test_fuzz_emitter_l1_readback_isomorphism() -> None:
 
 
 def test_fuzz_widget_count_invariants() -> None:
-    """Invariant: emitted widgets_values count matches raw widget order count.
+    """Invariant: safe regenerated widgets_values do not exceed raw widget order count.
 
-    For known classes, the number of widget values emitted MUST match the
-    raw object_info_widget_order length (including None entries for UI-only
-    slots).
+    Pinned dynamic nodes may preserve opaque raw widget payloads. The count
+    invariant applies only to nodes the widget-shape fence marked safe to
+    regenerate.
     """
     obj_provider = ObjectInfoIndexSchemaProvider(
         "vibecomfy/porting/cache/object_info"
@@ -276,11 +276,20 @@ def test_fuzz_widget_count_invariants() -> None:
         node_count = _RNG.randint(3, 8)
         wf = _generate_random_workflow(node_count)
 
+        report: list[dict[str, Any]] = []
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            envelope = emit_ui_json(wf)
+            envelope = emit_ui_json(wf, recovery_report=report)
+
+        verdict_by_node = {
+            int(entry["node_id"]): entry.get("widget_shape_verdict")
+            for entry in report
+            if "node_id" in entry
+        }
 
         for node in envelope.get("nodes", []):
+            if verdict_by_node.get(int(node["id"])) != "safe_to_regenerate":
+                continue
             class_type = str(node.get("type", ""))
             raw_order = obj_provider.raw_widget_order(class_type)
             if raw_order is None:

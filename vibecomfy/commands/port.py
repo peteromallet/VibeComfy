@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import json
 import sys
 import time
@@ -15,7 +16,7 @@ from vibecomfy.porting.convert import (
     port_convert_and_write,
     port_convert_workflow,
 )
-from vibecomfy.porting.layout_store import read_layout, read_store, store_from_ui_json, write_layout, write_store
+from vibecomfy.porting.layout_store import read_store, store_from_ui_json, write_layout, write_store
 from vibecomfy.porting.lint import lint_ready_template
 from vibecomfy.porting.manual_repair import repair_manual_template
 from vibecomfy.porting.readability_inventory import build_readability_inventory
@@ -35,6 +36,8 @@ from vibecomfy.porting.strict_ready import (
     StrictReadyContext,
     apply_strict_ready_exceptions,
 )
+from vibecomfy.porting.layout import evaluate_felt_delta
+from vibecomfy.porting.latency import FALLBACK_LATENCY_BUDGET_MS
 from vibecomfy.porting.widget_aliases import widget_alias_analysis
 from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
 from vibecomfy.porting.ui_emitter import default_output_path, emit_ui_json
@@ -518,36 +521,48 @@ def _print_recovery_report(
     ``_cmd_port_export`` handles that path separately and the recovery report
     is never printed.
     """
+    node_entries = [e for e in recovery_report if "node_id" in e]
+    widget_shape_counts = _widget_shape_verdict_counts(node_entries)
     if json_mode:
-        orphaned_count = sum(1 for e in recovery_report if e.get("orphaned_route"))
+        orphaned_count = sum(1 for e in node_entries if e.get("orphaned_route"))
         payload: dict[str, Any] = {
             "recovery_report": {
                 "summary": {
-                    "total_nodes": len(recovery_report),
-                    "schema_less": sum(1 for e in recovery_report if e.get("schema_less")),
+                    "total_nodes": len(node_entries),
+                    "schema_less": sum(1 for e in node_entries if e.get("schema_less")),
                     "low_confidence": sum(
-                        1 for e in recovery_report
+                        1 for e in node_entries
                         if not e.get("schema_less") and e.get("confidence") is not None and e["confidence"] <= 0.3
                     ),
                     "widget_length_check_warnings": sum(
-                        1 for e in recovery_report if e.get("widget_length_check")
+                        1 for e in node_entries if e.get("widget_length_check")
                     ),
-                    "nodes_with_diagnostic": sum(1 for e in recovery_report if e.get("diagnostic")),
+                    "nodes_with_diagnostic": sum(1 for e in node_entries if e.get("diagnostic")),
                     "orphaned_routes": orphaned_count,
+                    "widget_shape": widget_shape_counts,
                 },
-                "entries": recovery_report,
+                "entries": node_entries,
             },
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         lines: list[str] = ["[recovery-report]"]
-        schema_less_nodes = [e for e in recovery_report if e.get("schema_less")]
+        schema_less_nodes = [e for e in node_entries if e.get("schema_less")]
         low_conf_nodes = [
-            e for e in recovery_report
+            e for e in node_entries
             if not e.get("schema_less") and e.get("confidence") is not None and e["confidence"] <= 0.3
         ]
-        widget_warn_nodes = [e for e in recovery_report if e.get("widget_length_check")]
-        orphaned_nodes = [e for e in recovery_report if e.get("orphaned_route")]
+        widget_warn_nodes = [e for e in node_entries if e.get("widget_length_check")]
+        orphaned_nodes = [e for e in node_entries if e.get("orphaned_route")]
+        pinned_nodes = [e for e in node_entries if e.get("widget_shape_verdict") == "pin_opaque"]
+        refused_nodes = [e for e in node_entries if e.get("widget_shape_verdict") == "refuse"]
+
+        lines.append(
+            "  widget-shape verdicts: "
+            f"safe={widget_shape_counts['safe_to_regenerate']}, "
+            f"pinned={widget_shape_counts['pin_opaque']}, "
+            f"refused={widget_shape_counts['refuse']}"
+        )
 
         if schema_less_nodes:
             lines.append(f"  schema-less nodes ({len(schema_less_nodes)}):")
@@ -569,6 +584,14 @@ def _print_recovery_report(
                 lines.append(
                     f"    {e['node_id']}({e['class_type']}): {e.get('widget_length_check')}"
                 )
+        if pinned_nodes:
+            lines.append(f"  pinned widget-shape nodes ({len(pinned_nodes)}):")
+            for e in pinned_nodes:
+                lines.append(f"    {_format_widget_shape_node_line(e)}")
+        if refused_nodes:
+            lines.append(f"  refused widget-shape nodes ({len(refused_nodes)}):")
+            for e in refused_nodes:
+                lines.append(f"    {_format_widget_shape_node_line(e)}")
         if orphaned_nodes:
             lines.append(f"  orphaned virtual-wire routes ({len(orphaned_nodes)}):")
             for e in orphaned_nodes:
@@ -584,16 +607,126 @@ def _print_recovery_report(
             if _stripped_count > 0:
                 _stripped_ids = _stripped_entry.get("stripped_helpers", [])
                 lines.append(f"  stripped virtual-wire helpers ({_stripped_count}): {', '.join(_stripped_ids)}")
-        if not schema_less_nodes and not low_conf_nodes and not widget_warn_nodes and not orphaned_nodes:
+        if (
+            not schema_less_nodes
+            and not low_conf_nodes
+            and not widget_warn_nodes
+            and not pinned_nodes
+            and not refused_nodes
+            and not orphaned_nodes
+        ):
             lines.append("  (no issues — all nodes resolved with high confidence)")
         print("\n".join(lines), file=sys.stderr)
+
+def _widget_shape_verdict_counts(recovery_report: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {
+        "safe_to_regenerate": 0,
+        "pin_opaque": 0,
+        "refuse": 0,
+    }
+    for entry in recovery_report:
+        verdict = entry.get("widget_shape_verdict")
+        if verdict in counts:
+            counts[verdict] += 1
+    return counts
+
+
+def _format_widget_shape_node_line(entry: dict[str, Any]) -> str:
+    reasons = entry.get("widget_shape_reasons")
+    if not reasons:
+        details = entry.get("widget_shape_details")
+        if isinstance(details, dict):
+            reasons = details.get("reasons")
+    reason_text = ",".join(str(reason) for reason in reasons) if reasons else "unknown"
+    return f"{entry['node_id']}({entry['class_type']}): reasons={reason_text}"
+
+
+def _emit_refused_emit(
+    exc: Exception,
+    *,
+    json_mode: bool,
+) -> None:
+    diff = getattr(exc, "diff", {})
+    if json_mode:
+        payload = {
+            "status": "refused",
+            "reason": str(exc),
+            "refused_emit": diff,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True, default=repr))
+        return
+
+    print(
+        f"port export refused: {exc}",
+        file=sys.stderr,
+    )
+    if diff:
+        print(
+            json.dumps({"refused_emit": diff}, indent=2, sort_keys=True, default=repr),
+            file=sys.stderr,
+        )
+
+
+def _default_change_report_path(out_path: Path) -> Path:
+    """Return the default sibling artifact path for a UI export."""
+    if out_path.suffix == ".json":
+        return out_path.with_suffix(".change-report.json")
+    return out_path.with_name(f"{out_path.name}.change-report.json")
+
+
+def _reroute_uids_for_workflow(workflow: Any) -> frozenset[str]:
+    """Return preserve-identity keys for reroute nodes in *workflow*."""
+    return frozenset(
+        (node.uid or node_id)
+        for node_id, node in workflow.nodes.items()
+        if node.class_type == "Reroute"
+    )
+
+
+def _artifact_payload(
+    *,
+    change_report: Any,
+    felt_report: Any,
+) -> dict[str, Any]:
+    """Build the structured change-report artifact payload."""
+    latency = dataclasses.asdict(felt_report.latency) if getattr(felt_report, "latency", None) else None
+    return {
+        "change_report": dataclasses.asdict(change_report),
+        "felt": dataclasses.asdict(felt_report),
+        "latency": latency,
+        "version": 1,
+    }
+
+
+def _print_felt_violation_summary(
+    felt_report: Any,
+    *,
+    artifact_path: Path | None = None,
+) -> None:
+    """Emit a concise stderr summary for a felt-gate failure."""
+    lines = [felt_report.summary]
+    for violation in felt_report.violations:
+        lines.append(
+            "  "
+            f"uid={violation.uid} reason={violation.reason}"
+            f" prior_pos={violation.prior_pos}"
+            f" current_pos={violation.current_pos}"
+            f" delta_px={violation.delta_px}"
+        )
+    if artifact_path is not None:
+        lines.append(f"  artifact={artifact_path}")
+    if getattr(felt_report, "latency", None) is None:
+        lines.append(
+            f"  latency=not_measured fallback_budget_ms={int(FALLBACK_LATENCY_BUDGET_MS)}"
+        )
+    print("\n".join(lines), file=sys.stderr)
 
 
 def _resolve_preserve_source(
     args: argparse.Namespace,
     py_path: Path,
     workflow: Any,
-) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None]:
+) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None, dict[str, Any] | None]:
     """Resolve the preserve source for ``port export --to ui``.
 
     Precedence (highest first):
@@ -607,13 +740,16 @@ def _resolve_preserve_source(
        ``py_path``, and if so load it via ``store_from_ui_json``.
     6. No source → fresh (returns ``None, None, None``).
 
-    Returns ``(store_envelope | None, prior_path_str | None, from_overrides | None)``.
+    Returns ``(store_envelope | None, prior_path_str | None,
+    from_overrides | None, prior_ui_payload | None)``.
     ``from_overrides`` is a dict ``{uid: entry}`` listing UIDs explicitly
     overridden from ``--from`` when both sidecar and ``--from`` exist, else ``None``.
+    ``prior_ui_payload`` is only populated from a real UI JSON source; sidecar
+    stores remain furniture-only.
     """
     # 1. --fresh overrides everything
     if getattr(args, "fresh", False):
-        return None, None, None
+        return None, None, None, None
 
     # 2. Check for both --from and sidecar (conflict case)
     from_path = getattr(args, "from_path", None)
@@ -622,6 +758,7 @@ def _resolve_preserve_source(
     if from_path and sidecar_store:
         # Conflict policy: sidecar wins as base; --from provides per-uid overrides
         from_store = store_from_ui_json(from_path)
+        from_ui_payload = _read_ui_payload(from_path)
         from_entries = from_store.get("entries", {})
         base_entries = sidecar_store.get("entries", {})
 
@@ -640,19 +777,19 @@ def _resolve_preserve_source(
             merged_entries = dict(base_entries)
             merged_entries.update(overrides)
             merged["entries"] = merged_entries
-            return merged, str(py_path), overrides
+            return merged, str(py_path), overrides, from_ui_payload
         else:
             # No differences — sidecar is authoritative
-            return sidecar_store, str(py_path), None
+            return sidecar_store, str(py_path), None, None
 
     # 3. --from <path> only
     if from_path:
         store = store_from_ui_json(from_path)
-        return store, str(from_path), None
+        return store, str(from_path), None, _read_ui_payload(from_path)
 
     # 4. Sidecar only
     if sidecar_store:
-        return sidecar_store, str(py_path), None
+        return sidecar_store, str(py_path), None, None
 
     # 5. Breadcrumb auto-discovery: look for a prior emitted UI JSON at the
     #    default output path and check its extra.vibecomfy.prior_path.
@@ -664,12 +801,22 @@ def _resolve_preserve_source(
             breadcrumb_prior = extra_vc.get("prior_path")
             if breadcrumb_prior and Path(breadcrumb_prior).resolve() == py_path.resolve():
                 store = store_from_ui_json(candidate_path)
-                return store, str(candidate_path), None
+                return store, str(candidate_path), None, candidate
         except (json.JSONDecodeError, OSError):
             pass
 
     # 6. No source → fresh
-    return None, None, None
+    return None, None, None, None
+
+
+def _read_ui_payload(path: str | Path) -> dict[str, Any] | None:
+    try:
+        candidate = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, TypeError):
+        return None
+    if isinstance(candidate, dict) and isinstance(candidate.get("nodes"), list):
+        return candidate
+    return None
 
 
 def _cmd_port_export(args: argparse.Namespace) -> int:
@@ -716,7 +863,7 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 py_path = Path(_src_path)
             else:
                 py_path = Path(args.workflow)
-            store, prior_path_str, from_overrides = _resolve_preserve_source(args, py_path, workflow)
+            store, prior_path_str, from_overrides, prior_ui_payload = _resolve_preserve_source(args, py_path, workflow)
 
             # M5 Step 16: when the preserve source is a UI JSON on disk (--from
             # or breadcrumb auto-discovery), load it as the guard's "original"
@@ -749,6 +896,7 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 definitions=sidecar_definitions,
                 change_report_out=change_report_out,
                 guard_original_ui=guard_original_ui,
+                prior_ui_payload=prior_ui_payload,
             )
             try:
                 ui_payload = emit_ui_json(
@@ -771,14 +919,52 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 out_path = Path(args.out)
             else:
                 out_path = default_output_path(workflow, source_template=py_path.stem)
+            change_report_path = Path(
+                getattr(args, "change_report_out", "") or _default_change_report_path(out_path)
+            )
+            include_virtual_wires = not getattr(args, "no_virtual_wires", False)
+            reroute_uids = (
+                frozenset()
+                if getattr(args, "fresh", False) or not include_virtual_wires
+                else _reroute_uids_for_workflow(workflow)
+            )
+            felt_report = (
+                evaluate_felt_delta(
+                    store,
+                    ui_payload,
+                    change_report_out[0],
+                    reroute_uids=reroute_uids,
+                )
+                if change_report_out
+                else None
+            )
+            artifact_payload = (
+                _artifact_payload(change_report=change_report_out[0], felt_report=felt_report)
+                if change_report_out and felt_report is not None
+                else None
+            )
 
             dry_run = getattr(args, "dry_run", False)
             if dry_run:
                 print(f"[dry-run] would write to {out_path}", file=sys.stderr)
+                if artifact_payload is not None:
+                    print(f"[dry-run] would write to {change_report_path}", file=sys.stderr)
             else:
+                if artifact_payload is not None:
+                    change_report_path.parent.mkdir(parents=True, exist_ok=True)
+                    change_report_path.write_text(
+                        json.dumps(artifact_payload, indent=2, sort_keys=True),
+                        encoding="utf-8",
+                    )
+                if felt_report is not None and not felt_report.ok and not felt_report.skipped_snapshot_absent:
+                    _print_felt_violation_summary(felt_report, artifact_path=change_report_path)
+                    return 5
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True))
+                out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True), encoding="utf-8")
                 print(f"wrote {out_path}")
+            if dry_run and felt_report is not None and not felt_report.ok and not felt_report.skipped_snapshot_absent:
+                _print_felt_violation_summary(felt_report, artifact_path=change_report_path)
+                return 5
 
             # Emit layout sidecar alongside the UI JSON (best-effort).
             # Build the store from the freshly-emitted ui_payload (which carries
@@ -817,16 +1003,9 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
             # M5 Step 16: refusal-spine surfaces RefusedEmit as a typed failure.
             # Detect by class name to avoid an import cycle on the cold path.
             if type(exc).__name__ == "RefusedEmit":
-                diff = getattr(exc, "diff", {})
-                print(
-                    f"port export refused: {exc}",
-                    file=sys.stderr,
-                )
-                if diff:
-                    print(
-                        json.dumps({"refused_emit": diff}, indent=2, sort_keys=True, default=repr),
-                        file=sys.stderr,
-                    )
+                if recovery_report:
+                    _print_recovery_report(recovery_report, json_mode=bool(getattr(args, "json", False)))
+                _emit_refused_emit(exc, json_mode=bool(getattr(args, "json", False)))
                 return 3
             # EditorAheadError: editor-only nodes detected in prior UI JSON.
             if type(exc).__name__ == "EditorAheadError":
@@ -948,7 +1127,13 @@ def _doctor_all_section(name: str, func) -> dict[str, Any]:
     stderr = StringIO()
     try:
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            payload, exit_code = func()
+            from vibecomfy.security import GateContext, set_gate_context  # noqa: PLC0415
+
+            token = set_gate_context(GateContext(non_interactive=True, assume_yes=True))
+            try:
+                payload, exit_code = func()
+            finally:
+                token.var.reset(token)
         status = "ok" if exit_code == 0 else "error"
         if isinstance(payload, dict) and payload.get("status") == "warning":
             status = "warning"
@@ -1692,6 +1877,11 @@ def register(subparsers) -> None:
         "--force-drop",
         action="store_true",
         help="Explicitly drop editor-only nodes detected in the prior UI JSON.",
+    )
+    export.add_argument(
+        "--change-report-out",
+        default=None,
+        help="Override path for the structured change-report artifact (default: <output>.change-report.json).",
     )
     export.set_defaults(func=_cmd_port_export)
 

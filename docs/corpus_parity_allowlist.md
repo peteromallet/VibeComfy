@@ -1,7 +1,7 @@
 # Corpus Compatibility Audit and Parity Gate Allowlist
 
 **Date:** 2026-05-26  
-**Milestone:** M1 — Foundation (T12)  
+**Milestone:** M1 — Foundation (T12), updated 2026-05-31 for S2 dynamic-widget fence taxonomy  
 **Purpose:** Classify every `ready_templates/**/*.py` (64 files) and `workflow_corpus/**/*.json` (16 files) by their compatibility with the M1 offline parity gate (`offline_emitter_normalizer_self_consistency_check`). Produce the documented allowlist of entries the gate is permitted to skip, with per-entry reasons. All 80 entries are enumerated.
 
 ---
@@ -14,7 +14,7 @@
 | `subgraph_uuid` | Contains one or more UUID-typed opaque subgraph nodes. Gate runs and passes — UUID class types emit as-is and parity holds offline. |
 | `control_after_generate_default` | No schema-less nodes; CAG value absent from IR metadata (Python-authored or not captured at ingest) — emitter defaults to `fixed` and flags it, but CAG is UI-only so it does not enter `compile('api')`. Gate runs and passes. |
 | `schema_less` | One or more nodes have no schema entry in `widget_schema.py` or the object-info cache. Best-effort emission; parity may fail. |
-| `emit_error` | `emit_ui_json` raises `AssertionError` (widgets_values length exceeds schema widget count). Root cause: stale `widget_schema.py` count vs actual IR. Gate cannot run. |
+| `widget_shape_fence` | A dynamic or otherwise opaque widget surface has more raw/candidate `widgets_values` than schema-derived regeneration can prove. The S2 fence accepts only typed pin/refusal outcomes. |
 | `not_a_workflow` | File is not a workflow; `workflow_from_file` raises "Unsupported workflow shape". |
 
 ---
@@ -27,7 +27,7 @@
 | `subgraph_uuid` | — | — | — | No — gate passes (see §Gate-passable bucket notes) |
 | `control_after_generate_default` | — | — | — | No — gate passes |
 | `schema_less` | 32 | 1 | 33 | Yes — parity unreliable |
-| `emit_error` | 10 | 0 | 10 | Yes — gate cannot run |
+| `widget_shape_fence` | 10 | 0 | 10 | Yes — dynamic widgets pin or refuse before unsafe regeneration |
 | `not_a_workflow` | 0 | 2 | 2 | Yes — not a workflow |
 | **Total** | **64** | **16** | **80** | **45** |
 
@@ -89,7 +89,8 @@ The gate MUST be skipped for these entries. Automated test harnesses asserting `
 
 | Code | Meaning |
 |---|---|
-| `EMIT_ERROR` | `emit_ui_json` raises before reaching the parity gate |
+| `PIN_OPAQUE_WIDGET_SHAPE` | `emit_ui_json` detected dynamic widget-shape divergence and preserved the unchanged full raw LiteGraph node payload instead of regenerating `widgets_values`. |
+| `REFUSED_WIDGET_SHAPE` | `emit_ui_json` detected dynamic widget-shape divergence but could not safely pin the node, usually because no full raw UI payload exists or the widget/link surface was edited. |
 | `NAMED_CAG_DIVERGENCE` | Named `control_after_generate` (or adjacent None-slot widget like `WanVideoSampler.force_offload`) survives `_normalize_ui_to_api` but is stripped by `compile('api')` via `_is_ui_only_prompt_input`. M1 offline oracle diverges from compile here; emitted UI JSON is correct for ComfyUI. |
 | `SCHEMA_LESS_WIDGET` | One or more schema-less nodes have widgets the emitter cannot reconstruct; round-trip widget values diverge from `compile('api')` output. |
 | `PARITY_FAIL_TOPOLOGY` | `offline_emitter_normalizer_self_consistency_check` returns `(False, [...])` with topology diffs (not just widget values); schema-less nodes cause API graph shape divergence. |
@@ -114,24 +115,27 @@ The gate MUST be skipped for these entries. Automated test harnesses asserting `
 
 ---
 
-### C. Ready templates — emit error (10)
+### C. Ready templates — widget-shape fence (10)
 
-`emit_ui_json` raises `AssertionError: widgets_values length exceeds schema widget count`. Root cause: the `widget_schema.py` entry for the offending node class has fewer widget slots than the actual IR contains. This indicates the schema entry is stale relative to the installed custom node pack version. Gate cannot run at all.
+These entries were previously classified as overflow `EMIT_ERROR`. Under the S2 dynamic-widget fence, schema-count overflow is not a schema-maintenance-only condition. It is a per-node widget-shape decision:
 
-| Entry | Offending node | Stale schema count | Actual count |
-|---|---|---|---|
-| `ready_templates/video/ltx2_3_iamccs_audio_extend_low_ram.py` | `ResizeImageMaskNode` | 3 | 5 |
-| `ready_templates/video/ltx2_3_lightricks_iclora_motion_track.py` | `PrimitiveInt` | 1 | 2 |
-| `ready_templates/video/ltx2_3_lightricks_two_stage.py` | `PrimitiveInt` | 1 | 2 |
-| `ready_templates/video/ltx2_3_runexx_lipsync_custom_audio.py` | `BlockifyMask` | 1 | 2 |
-| `ready_templates/video/ltx2_3_runexx_music_video_low_ram.py` | `Power Lora Loader (rgthree)` | 4 | 8 |
-| `ready_templates/video/ltx2_3_runexx_talking_avatar_qwen_tts.py` | `Power Lora Loader (rgthree)` | 4 | 5 |
-| `ready_templates/video/wanvideo_wrapper_21_14b_fun_control.py` | `LoadImage` | 2 | 3 |
-| `ready_templates/video/wanvideo_wrapper_21_14b_t2v.py` | `WanVideoSampler` | 14 | 15 |
-| `ready_templates/video/wanvideo_wrapper_21_14b_wanmove_i2v.py` | `WanVideoVAELoader` | 2 | 3 |
-| `ready_templates/video/wanvideo_wrapper_wan_animate.py` | `PointsEditor` | 9 | 10 |
+- unchanged full raw UI payload available: `PIN_OPAQUE_WIDGET_SHAPE`
+- no full payload, widget edit, class edit, or touched link surface: `REFUSED_WIDGET_SHAPE`
 
-All 10 reason code: `EMIT_ERROR`.
+The parity gate is still skipped for these entries, but a returned envelope may not contain an overflow recovery entry with `widget_shape_verdict == "safe_to_regenerate"`.
+
+| Entry | Offending node | Schema count | Raw/candidate count | Accepted reason code(s) |
+|---|---|---:|---:|---|
+| `ready_templates/video/ltx2_3_iamccs_audio_extend_low_ram.py` | `ResizeImageMaskNode` | 3 | 5 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/ltx2_3_lightricks_iclora_motion_track.py` | `PrimitiveInt` | 1 | 2 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/ltx2_3_lightricks_two_stage.py` | `PrimitiveInt` | 1 | 2 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/ltx2_3_runexx_lipsync_custom_audio.py` | `BlockifyMask` | 1 | 2 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/ltx2_3_runexx_music_video_low_ram.py` | `Power Lora Loader (rgthree)` | 4 | 8 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/ltx2_3_runexx_talking_avatar_qwen_tts.py` | `Power Lora Loader (rgthree)` | 4 | 5 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/wanvideo_wrapper_21_14b_fun_control.py` | `LoadImage` | 2 | 3 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/wanvideo_wrapper_21_14b_t2v.py` | `WanVideoSampler` | 14 | 15 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/wanvideo_wrapper_21_14b_wanmove_i2v.py` | `WanVideoVAELoader` | 2 | 3 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
+| `ready_templates/video/wanvideo_wrapper_wan_animate.py` | `PointsEditor` | 9 | 10 | `PIN_OPAQUE_WIDGET_SHAPE` or `REFUSED_WIDGET_SHAPE` |
 
 ---
 
@@ -238,7 +242,7 @@ workflow_corpus/manifests/ready_regeneration.json
 # Corpus JSON — PARITY_FAIL_TOPOLOGY
 workflow_corpus/official/image/qwen_image_2512.json
 
-# Ready templates — EMIT_ERROR
+# Ready templates — PIN_OPAQUE_WIDGET_SHAPE / REFUSED_WIDGET_SHAPE
 ready_templates/video/ltx2_3_iamccs_audio_extend_low_ram.py
 ready_templates/video/ltx2_3_lightricks_iclora_motion_track.py
 ready_templates/video/ltx2_3_lightricks_two_stage.py
@@ -307,6 +311,6 @@ The allowlist is not permanent. The following issues are fixable in M2:
 
 | Issue | Affected entries | Fix |
 |---|---|---|
-| `EMIT_ERROR` — stale `widget_schema.py` counts | 10 ready templates | Update `widget_schema.py` entry for each offending node class to match the installed pack version. |
+| `PIN_OPAQUE_WIDGET_SHAPE` / `REFUSED_WIDGET_SHAPE` — dynamic widget-shape overflow | 10 ready templates | Keep the S2 fence active. Add row-aware schema/object-info coverage only when regeneration can be proven; otherwise preserve unchanged raw UI payloads or refuse with typed node details. |
 | `NAMED_CAG_DIVERGENCE` — named CAG slots in offline oracle | 24 ready templates | Extend `_normalize_ui_to_api` (or the parity comparator) to apply `_is_ui_only_prompt_input` stripping on named CAG/force_offload slots, OR teach the emitter not to emit CAG in `widgets_values` for nodes where it survives the normalizer. |
-| `SCHEMA_LESS_WIDGET` | 18 ready templates + 1 corpus JSON | Add schema entries for missing custom node classes (LowVRAMCheckpointLoader, LTXVAudioVAELoader, WanImageToVideo, WanAnimateToVideo, EmptyAceStep1.5LatentAudio, AILab_Qwen3TTS*, CFGNorm, EmptyImage, VHS_LoadVideo, VHS_VideoCombine, BlockifyMask, ResizeImageMaskNode, Power Lora Loader). |
+| `SCHEMA_LESS_WIDGET` | 18 ready templates + 1 corpus JSON | Add schema entries for missing custom node classes (LowVRAMCheckpointLoader, LTXVAudioVAELoader, WanImageToVideo, WanAnimateToVideo, EmptyAceStep1.5LatentAudio, AILab_Qwen3TTS*, CFGNorm, EmptyImage, VHS_LoadVideo, VHS_VideoCombine). Dynamic row widgets such as Power Lora remain under the widget-shape fence until row-aware regeneration is proven. |

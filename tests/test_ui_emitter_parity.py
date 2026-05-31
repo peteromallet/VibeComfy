@@ -23,6 +23,7 @@ from __future__ import annotations
 import glob
 import json
 import warnings
+from pathlib import Path
 
 import pytest
 
@@ -54,8 +55,8 @@ _STARTER_SET = [
 # index"). The parity gate is permitted to skip these. For workflow_corpus/**/*.json
 # the relevant entries are the two manifests (NOT_A_WORKFLOW) and the one corpus JSON
 # with a confirmed parity failure (PARITY_FAIL_TOPOLOGY). The remaining 45 allowlist
-# paths are ready_templates/*.py (EMIT_ERROR / NAMED_CAG_DIVERGENCE / SCHEMA_LESS),
-# which this corpus-glob gate does not enumerate.
+# paths are ready_templates/*.py (widget-shape pin/refusal, NAMED_CAG_DIVERGENCE,
+# SCHEMA_LESS), which this corpus-glob gate does not enumerate.
 _PARITY_ALLOWLIST = {
     "workflow_corpus/manifests/coverage.json",
     "workflow_corpus/manifests/ready_regeneration.json",
@@ -116,6 +117,18 @@ def test_parity_starter_set_spans_media() -> None:
     medias = {p.split("/")[2] for p in _STARTER_SET}
     assert {"image", "video", "edit"} <= medias
     assert len(_STARTER_SET) >= 5
+
+
+def test_allowlist_documents_widget_shape_taxonomy() -> None:
+    """The parity allowlist must describe dynamic overflow as typed pin/refusal."""
+    text = Path("docs/corpus_parity_allowlist.md").read_text(encoding="utf-8")
+
+    assert "PIN_OPAQUE_WIDGET_SHAPE" in text
+    assert "REFUSED_WIDGET_SHAPE" in text
+    assert "Power Lora Loader (rgthree)" in text
+    assert "widget_shape_verdict == \"safe_to_regenerate\"" in text
+    assert "Ready templates — EMIT_ERROR" not in text
+    assert "stale `widget_schema.py` counts | 10 ready templates" not in text
 
 
 @pytest.mark.parametrize(

@@ -26,7 +26,7 @@ def build():
         encoding="utf-8",
     )
 
-    workflow = load_scratchpad(scratchpad)
+    workflow = load_scratchpad(scratchpad, provenance_override="user_confirmed")
     assert workflow.id == "x"
     assert workflow.validate().ok
 
@@ -43,7 +43,7 @@ def build():
     )
 
     with pytest.raises(errors.WorkflowBuildError) as exc_info:
-        load_scratchpad(scratchpad)
+        load_scratchpad(scratchpad, provenance_override="user_confirmed")
 
     assert exc_info.value.next_action
     assert "VibeWorkflow" in str(exc_info.value)
@@ -60,4 +60,4 @@ def build():
     )
 
     with pytest.raises(TypeError, match="user code exploded"):
-        load_scratchpad(scratchpad)
+        load_scratchpad(scratchpad, provenance_override="user_confirmed")
