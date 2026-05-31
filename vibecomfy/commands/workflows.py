@@ -212,7 +212,19 @@ def _enrich_target(
     try:
         source_info = ready_template_source_info(template_id).to_dict()
         workflow = workflow_from_ready(template_id)
-        validation_report = workflow.validate()
+        validation_issues: list[Any] = []
+        try:
+            validation_report = workflow.validate()
+            validation_issues = list(validation_report.issues)
+        except Exception as exc:  # noqa: BLE001 - validation errors belong in the report
+            issues.append(
+                {
+                    "group": "schema",
+                    "code": "validation_failed",
+                    "severity": "error",
+                    "message": str(exc),
+                }
+            )
         try:
             api = workflow.compile("api")
             schema_summary = {
@@ -238,7 +250,7 @@ def _enrich_target(
         assets = [_asset_metadata(entry, models_root=models_root) for entry in _model_assets_from_workflow(workflow)]
         for diagnostic in source_info.get("diagnostics", []):
             issues.append({"group": "workflow_source", **diagnostic})
-        for issue in validation_report.issues:
+        for issue in validation_issues:
             issues.append(
                 {
                     "group": "schema",
