@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import vibecomfy.commands.port as port_commands
 from vibecomfy.cli import build_parser
 from vibecomfy.commands.port import _cmd_port_check, _cmd_port_convert, _cmd_port_doctor_all, _cmd_port_export, _cmd_port_lint, _cmd_port_rules, _cmd_port_simulate, _cmd_port_validate_call, _cmd_port_widgets
 
@@ -1018,6 +1019,9 @@ def test_port_export_recovery_report_text_and_json(
     assert "schema-less" in captured_text.err.lower(), (
         f"Expected schema-less mention in stderr recovery report, got: {captured_text.err!r}"
     )
+    assert "widget-shape verdicts:" in captured_text.err, (
+        f"Expected widget-shape verdict counters in stderr recovery report, got: {captured_text.err!r}"
+    )
 
     # ── JSON mode ────────────────────────────────────────────────────────
     out_json = tmp_path / "mixed_emit_json.json"
@@ -1067,10 +1071,124 @@ def test_port_export_recovery_report_text_and_json(
         f"Expected at least one schema-less node in partial coverage, "
         f"got schema_less={rr['summary']['schema_less']}"
     )
+    assert rr["summary"]["widget_shape"]["safe_to_regenerate"] > 0, (
+        f"Expected safe widget-shape count in recovery summary, got: {rr['summary']!r}"
+    )
+    assert rr["summary"]["widget_shape"]["pin_opaque"] == 0
+    assert rr["summary"]["widget_shape"]["refuse"] == 0
     # Every entry must have the canonical keys
     for entry in rr["entries"]:
+        if "node_id" not in entry:
+            continue
         for key in ("node_id", "class_type", "provider", "confidence", "schema_less"):
             assert key in entry, f"recovery_report entry missing key {key!r}: {entry}"
+
+
+def test_port_export_refused_widget_shape_reports_text_json_and_exit_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from vibecomfy.porting.refuse import RefusedEmit
+
+    workflow_path = tmp_path / "refusing.py"
+    workflow_path.write_text("# scratchpad\n", encoding="utf-8")
+
+    class _Source:
+        path = workflow_path
+
+    class _Workflow:
+        source = _Source()
+
+    def _fake_emit_ui_json(*args: object, recovery_report: list[dict[str, object]], **kwargs: object) -> dict[str, object]:
+        recovery_report.append(
+            {
+                "node_id": "7",
+                "class_type": "Power Lora Loader",
+                "provider": "test",
+                "confidence": 1.0,
+                "schema_less": False,
+                "widget_shape_verdict": "refuse",
+                "widget_shape_reasons": ["overflow"],
+                "widget_shape_details": {
+                    "reasons": ["overflow"],
+                    "evidence": {
+                        "node_id": "7",
+                        "class_type": "Power Lora Loader",
+                        "overflow": True,
+                    },
+                },
+            }
+        )
+        raise RefusedEmit(
+            "widget shape refused: 1 node(s) cannot be emitted safely",
+            {
+                "7": {
+                    "axis": "widget_shape",
+                    "node_id": "7",
+                    "class_type": "Power Lora Loader",
+                    "reason": "overflow",
+                    "reasons": ["overflow"],
+                    "details": {"decision": "refuse"},
+                }
+            },
+        )
+
+    monkeypatch.setattr(port_commands, "_build_conversion_provider", lambda args: object())
+    monkeypatch.setattr(port_commands, "load_workflow_reference", lambda *args, **kwargs: _Workflow())
+    monkeypatch.setattr(port_commands, "emit_ui_json", _fake_emit_ui_json)
+
+    common_args = dict(
+        workflow=str(workflow_path),
+        ready=False,
+        to="ui",
+        out=str(tmp_path / "out.json"),
+        object_info_cache=None,
+        no_object_info_cache=True,
+        from_path=None,
+        fresh=True,
+        strict=False,
+        main_positions=False,
+        no_virtual_wires=False,
+        force_drop=False,
+        dry_run=False,
+    )
+
+    text_code = _cmd_port_export(argparse.Namespace(json=False, **common_args))
+    text_captured = capsys.readouterr()
+    assert text_code == 3
+    assert "widget-shape verdicts: safe=0, pinned=0, refused=1" in text_captured.err
+    assert "refused widget-shape nodes (1):" in text_captured.err
+    assert "7(Power Lora Loader): reasons=overflow" in text_captured.err
+    assert '"node_id": "7"' in text_captured.err
+    assert '"class_type": "Power Lora Loader"' in text_captured.err
+    assert '"reason": "overflow"' in text_captured.err
+
+    json_code = _cmd_port_export(argparse.Namespace(json=True, **common_args))
+    json_captured = capsys.readouterr()
+    assert json_code == 3
+
+    decoder = json.JSONDecoder()
+    objects: list[dict[str, object]] = []
+    scan_pos = 0
+    while scan_pos < len(json_captured.out):
+        brace_idx = json_captured.out.find("{", scan_pos)
+        if brace_idx < 0:
+            break
+        obj, end_pos = decoder.raw_decode(json_captured.out, brace_idx)
+        if isinstance(obj, dict):
+            objects.append(obj)
+        scan_pos = end_pos
+
+    recovery_json = next(obj for obj in objects if "recovery_report" in obj)
+    refusal_json = next(obj for obj in objects if "refused_emit" in obj)
+    summary = recovery_json["recovery_report"]["summary"]  # type: ignore[index]
+    assert summary["widget_shape"]["refuse"] == 1  # type: ignore[index]
+    assert refusal_json["status"] == "refused"
+    refused = refusal_json["refused_emit"]["7"]  # type: ignore[index]
+    assert refused["node_id"] == "7"
+    assert refused["class_type"] == "Power Lora Loader"
+    assert refused["reason"] == "overflow"
 
 
 def _write_saveimage_only_node_index(tmp_path: Path) -> None:

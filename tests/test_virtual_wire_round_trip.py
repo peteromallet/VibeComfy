@@ -221,7 +221,7 @@ def test_default_convert_round_trip(tmp_path: Path):
 
     # ── Write .py and reload ─────────────────────────────────────────────
     py_path.write_text(result.text, encoding="utf-8")
-    wf_reloaded = load_scratchpad(py_path)
+    wf_reloaded = load_scratchpad(py_path, provenance_override="user_confirmed")
 
     # Virtual wire nodes should NOT be in the reloaded workflow
     # (they were resolved during conversion)
@@ -293,7 +293,7 @@ def test_keep_virtual_wires_round_trip(tmp_path: Path):
     py_path.write_text(result.text, encoding="utf-8")
 
     # ── Reload ───────────────────────────────────────────────────────────
-    wf_reloaded = load_scratchpad(py_path)
+    wf_reloaded = load_scratchpad(py_path, provenance_override="user_confirmed")
 
     # Virtual wire nodes SHOULD be in the reloaded workflow (kept)
     vw_count_after = sum(1 for n in wf_reloaded.nodes.values() if n.class_type in _VW_TYPES)
@@ -338,7 +338,7 @@ def test_keep_virtual_wires_round_trip(tmp_path: Path):
     py_a2 = tmp_path / "vw_test_a_cmp.py"
     write_layout(py_a2, wf_a2)
     py_a2.write_text(result_a.text, encoding="utf-8")
-    wf_a2_reloaded = load_scratchpad(py_a2)
+    wf_a2_reloaded = load_scratchpad(py_a2, provenance_override="user_confirmed")
     store_a2 = read_store(py_a2)
     ui_a_flat = emit_ui_json(
         wf_a2_reloaded,

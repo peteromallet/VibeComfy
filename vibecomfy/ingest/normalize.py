@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,7 @@ from vibecomfy.porting.widget_aliases import widget_names_for_class, widget_name
 from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.security.gate import untrusted_scope
 from vibecomfy.security.provenance import PROVENANCE_KEY
-from vibecomfy.workflow import VibeEdge, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
@@ -100,6 +101,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                     # names — use a stable generated key to preserve the edge.
                     name = f"_un{link_id}"
                 inputs[name] = [link_map[link_id][0], link_map[link_id][1]]
+        widgets_present = "widgets_values" in node
         widgets = node.get("widgets_values", [])
         if isinstance(widgets, dict):
             for name, value in widgets.items():
@@ -118,8 +120,52 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
                 if name in inputs:
                     continue
                 inputs[name] = value
-        api[node_id] = {"class_type": class_type, "inputs": inputs, "_ui": node}
+        api_node = {"class_type": class_type, "inputs": inputs, "_ui": node}
+        if widgets_present:
+            api_node["_raw_widgets"] = _raw_widget_payload_dict(widgets, source="ui.widgets_values")
+        api[node_id] = api_node
     return api
+
+
+def _raw_widget_payload_dict(values: Any, *, source: str) -> dict[str, Any]:
+    if values is None:
+        shape = "none"
+        length = 0
+    elif isinstance(values, dict):
+        shape = "dict"
+        length = len(values)
+    elif isinstance(values, list):
+        shape = "list"
+        length = len(values)
+    else:
+        shape = "scalar"
+        length = 1
+    has_dict_rows = isinstance(values, dict) or (
+        isinstance(values, list) and any(isinstance(item, dict) for item in values)
+    )
+    return {
+        "values": deepcopy(values),
+        "shape": shape,
+        "source": source,
+        "has_dict_rows": has_dict_rows,
+        "length": length,
+    }
+
+
+def _coerce_raw_widget_payload(raw: Any) -> RawWidgetPayload | None:
+    if isinstance(raw, RawWidgetPayload):
+        return raw
+    if not isinstance(raw, dict):
+        return None
+    if not {"values", "shape", "source", "has_dict_rows", "length"} <= set(raw):
+        return None
+    return RawWidgetPayload(
+        values=deepcopy(raw["values"]),
+        shape=str(raw["shape"]),
+        source=str(raw["source"]),
+        has_dict_rows=bool(raw["has_dict_rows"]),
+        length=int(raw["length"]),
+    )
 
 
 def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
@@ -170,6 +216,12 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                     "size": matched.get("size"),
                     "properties": matched.get("properties", {}),
                 }
+                if "widgets_values" in matched:
+                    slim["widgets_values"] = deepcopy(matched["widgets_values"])
+                    node_data.setdefault(
+                        "_raw_widgets",
+                        _raw_widget_payload_dict(matched["widgets_values"], source="ui.widgets_values"),
+                    )
                 for _f in ("mode", "flags", "color", "bgcolor"):
                     if _f in matched:
                         slim[_f] = matched[_f]
@@ -188,6 +240,12 @@ def _merge_slim_ui(raw: dict[str, Any], converted: dict[str, Any]) -> None:
                     "size": raw_node.get("size"),
                     "properties": raw_node.get("properties", {}),
                 }
+                if "widgets_values" in raw_node:
+                    slim["widgets_values"] = deepcopy(raw_node["widgets_values"])
+                    node_data.setdefault(
+                        "_raw_widgets",
+                        _raw_widget_payload_dict(raw_node["widgets_values"], source="ui.widgets_values"),
+                    )
                 for _f in ("mode", "flags", "color", "bgcolor"):
                     if _f in raw_node:
                         slim[_f] = raw_node[_f]
@@ -257,7 +315,14 @@ def _convert_to_vibe_format_impl(
             else:
                 inputs[key] = value
         class_type = str(node.get("class_type", "Unknown"))
-        metadata = {key: value for key, value in node.items() if key not in {"class_type", "inputs"}}
+        raw_widgets = _coerce_raw_widget_payload(node.get("_raw_widgets"))
+        if raw_widgets is None:
+            raw_ui = node.get("_ui")
+            if isinstance(raw_ui, dict) and "widgets_values" in raw_ui:
+                raw_widgets = _coerce_raw_widget_payload(
+                    _raw_widget_payload_dict(raw_ui["widgets_values"], source="ui.widgets_values")
+                )
+        metadata = {key: value for key, value in node.items() if key not in {"class_type", "inputs", "_raw_widgets"}}
         # ── retain control_after_generate (UI-only) into metadata ──
         # Captured here, before the compile-time `_is_ui_only_prompt_input` filter
         # (workflow.py:471) drops it from the compiled API dict, so the emitter can
@@ -300,6 +365,7 @@ def _convert_to_vibe_format_impl(
             widgets=widgets,
             metadata=metadata,
             uid=make_uid("", mint_local_uid(metadata.get("_ui"), str(node_id))),
+            raw_widgets=raw_widgets,
         )
         _register_common_inputs(workflow, str(node_id), workflow.nodes[str(node_id)])
         if workflow.nodes[str(node_id)].class_type in OUTPUT_NODE_NAMES:

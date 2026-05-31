@@ -41,6 +41,15 @@ class WorkflowRequirements:
 
 
 @dataclass(slots=True)
+class RawWidgetPayload:
+    values: Any
+    shape: str
+    source: str
+    has_dict_rows: bool
+    length: int
+
+
+@dataclass(slots=True)
 class VibeNode:
     id: str
     class_type: str
@@ -49,6 +58,7 @@ class VibeNode:
     widgets: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     uid: str = ""
+    raw_widgets: RawWidgetPayload | None = None
 
     @property
     def provenance(self) -> str:
@@ -1273,6 +1283,7 @@ def _drop_unused_positional_aliases(inputs: dict[str, Any]) -> None:
 
 __all__ = [
     "OPAQUE_COMPONENT_CLASS_RE",
+    "RawWidgetPayload",
     "ValidationIssue",
     "ValidationReport",
     "VibeEdge",

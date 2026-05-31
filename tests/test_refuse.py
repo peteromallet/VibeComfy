@@ -12,7 +12,31 @@ skips rather than fails — matching the existing convention used by the M3
 """
 from __future__ import annotations
 
+import builtins
+import importlib
+import json
+import sys
+from enum import Enum
+from types import SimpleNamespace
+
 import pytest
+
+
+def _drop_vibecomfy_modules() -> dict[str, object]:
+    removed: dict[str, object] = {}
+    for module_name in list(sys.modules):
+        if module_name == "vibecomfy" or module_name.startswith("vibecomfy."):
+            module = sys.modules.pop(module_name, None)
+            if module is not None:
+                removed[module_name] = module
+    return removed
+
+
+def _restore_vibecomfy_modules(removed: dict[str, object]) -> None:
+    for module_name in list(sys.modules):
+        if module_name == "vibecomfy" or module_name.startswith("vibecomfy."):
+            sys.modules.pop(module_name, None)
+    sys.modules.update(removed)
 
 
 def _comfy_available() -> bool:
@@ -30,10 +54,105 @@ def _comfy_available() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _comfy_available(),
-    reason="vendored ComfyUI nodes not available for guard_emit oracle",
-)
+def _require_comfy() -> None:
+    if not _comfy_available():
+        pytest.skip("vendored ComfyUI nodes not available for guard_emit oracle")
+
+
+def test_refused_emit_import_and_construction_are_side_effect_light(monkeypatch) -> None:
+    """Importing/constructing RefusedEmit must not adopt ComfyUI or load converter."""
+    repo_root = str(__file__).split("/tests/test_refuse.py", maxsplit=1)[0]
+    monkeypatch.syspath_prepend(repo_root)
+    removed_modules = _drop_vibecomfy_modules()
+
+    real_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "vibecomfy.comfy_backend" or name.startswith("comfy."):
+            raise AssertionError(f"unexpected refusal import side effect: {name}")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    try:
+        module = importlib.import_module("vibecomfy.porting.refuse")
+        exc = module.RefusedEmit("widget-shape refusal", {"uid": {"axis": "diff"}})
+
+        assert exc.reason == "widget-shape refusal"
+        assert exc.diff == {"uid": {"axis": "diff"}}
+        assert "vibecomfy.comfy_backend" not in sys.modules
+    finally:
+        _restore_vibecomfy_modules(removed_modules)
+
+
+def test_widget_shape_refusal_diff_is_node_keyed_and_json_tolerant(monkeypatch) -> None:
+    """Widget-shape refusal details are machine-readable without ComfyUI imports."""
+    repo_root = str(__file__).split("/tests/test_refuse.py", maxsplit=1)[0]
+    monkeypatch.syspath_prepend(repo_root)
+    removed_modules = _drop_vibecomfy_modules()
+
+    real_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "vibecomfy.comfy_backend" or name.startswith("comfy."):
+            raise AssertionError(f"unexpected widget-shape refusal import side effect: {name}")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    class _Decision(str, Enum):
+        REFUSE = "refuse"
+
+    class _Reason(str, Enum):
+        OVERFLOW = "overflow"
+        WIDGET_DELTA = "widget_delta"
+
+    evidence = SimpleNamespace(
+        node_id="7",
+        class_type="DynamicRows",
+        schema_less=False,
+        confidence=1.0,
+        raw_widget_count=4,
+        candidate_widget_count=4,
+        schema_widget_count=2,
+        raw_widget_shape="list",
+        has_dict_rows=False,
+        overflow=True,
+        provider="test_provider",
+    )
+    verdict = SimpleNamespace(
+        node_id="7",
+        class_type="DynamicRows",
+        decision=_Decision.REFUSE,
+        reasons=(_Reason.OVERFLOW, _Reason.WIDGET_DELTA),
+        safe_to_regenerate=False,
+        pin_opaque=False,
+        refuse=True,
+        evidence=evidence,
+        field_delta={"widget_1": ("old", "new")},
+        link_delta={},
+    )
+
+    try:
+        module = importlib.import_module("vibecomfy.porting.refuse")
+        exc = module.refused_widget_shape([verdict])
+
+        assert exc.reason == "widget shape refused: 1 node(s) cannot be emitted safely"
+        assert exc.diff["7"]["axis"] == "widget_shape"
+        assert exc.diff["7"]["node_id"] == "7"
+        assert exc.diff["7"]["class_type"] == "DynamicRows"
+        assert exc.diff["7"]["reason"] == "overflow"
+        assert exc.diff["7"]["reasons"] == ["overflow", "widget_delta"]
+        assert exc.diff["7"]["details"]["decision"] == "refuse"
+        assert exc.diff["7"]["details"]["evidence"]["schema_widget_count"] == 2
+        assert exc.diff["7"]["details"]["field_delta"]["widget_1"] == ["old", "new"]
+        assert json.loads(json.dumps({"refused_emit": exc.diff}))["refused_emit"]["7"][
+            "reason"
+        ] == "overflow"
+        assert str(exc) == exc.reason
+        assert "vibecomfy.comfy_backend" not in sys.modules
+    finally:
+        _restore_vibecomfy_modules(removed_modules)
 
 
 def _ksampler_ui(widgets_values: list) -> dict:
@@ -141,6 +260,8 @@ def test_refuses_control_after_generate_slot_drop() -> None:
     KSampler widgets_values shifts every following widget by one position,
     corrupting steps/cfg/sampler/scheduler/denoise. guard_emit must refuse.
     """
+    _require_comfy()
+
     from vibecomfy.porting.refuse import RefusedEmit, guard_emit
 
     # 7-slot UI form: [seed, control_after_generate, steps, cfg, sampler, scheduler, denoise]
@@ -160,6 +281,8 @@ def test_refuses_control_after_generate_slot_drop() -> None:
 
 def test_allows_clean_widget_edit_inside_delta() -> None:
     """A widget edit named in snapshot_delta is allowed through."""
+    _require_comfy()
+
     from vibecomfy.porting.refuse import guard_emit
 
     original = _ksampler_ui([42, "fixed", 20, 8.0, "euler", "normal", 1.0])
@@ -186,6 +309,8 @@ def test_allows_change_on_snapshot_absent_node() -> None:
     intersection scope set) are always allowed — the equivalent of being
     snapshot-absent from the guard's perspective.
     """
+    _require_comfy()
+
     from vibecomfy.porting.refuse import guard_emit
 
     original = _ksampler_ui([42, "fixed", 20, 8.0, "euler", "normal", 1.0])

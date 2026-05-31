@@ -6,8 +6,9 @@ import warnings
 
 import pytest
 
+from vibecomfy.porting.refuse import RefusedEmit
 from vibecomfy.porting.ui_emitter import emit_ui_json
-from vibecomfy.schema.provider import NodeSchema, OutputSpec
+from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -1413,8 +1414,8 @@ def test_flat_ksampler_does_not_raise_on_emit(tmp_path) -> None:
     )
 
 
-def test_overflow_widget_count_recorded_as_diagnostic() -> None:
-    """When widget count exceeds schema, overflow is recorded in prov/recovery_report, no raise."""
+def test_programmatic_overflow_without_prior_raw_payload_refuses() -> None:
+    """Programmatic overflow is refused unless a trusted full raw UI payload can pin it."""
     wf = _wf()
     # Manufacture a KSampler with excess widget_N keys beyond the schema count.
     # Set widget_0..widget_9 (10 values) to exceed a schema count of 7.
@@ -1426,18 +1427,30 @@ def test_overflow_widget_count_recorded_as_diagnostic() -> None:
     wf.nodes["1"] = node
 
     report: list[dict] = []
-    with warnings.catch_warnings():
+    provider = _Provider(
+        {
+            "KSampler": NodeSchema(
+                class_type="KSampler",
+                pack=None,
+                inputs={"seed": InputSpec("INT")},
+                outputs=[],
+                source_provider="test_provider",
+                confidence=1.0,
+            )
+        }
+    )
+    with warnings.catch_warnings(), pytest.raises(RefusedEmit) as exc_info:
         warnings.simplefilter("ignore")
-        # Must not raise even if widget count exceeds schema
-        emit_ui_json(wf, recovery_report=report)
+        emit_ui_json(wf, schema_provider=provider, recovery_report=report)
 
     assert report, "recovery_report must be populated"
     entry = report[0]
     assert "widget_length_check" in entry
-    # overflow case: 10 > 7 → overflow recorded
-    if "overflow" in entry["widget_length_check"]:
-        assert ">" in entry["widget_length_check"]
-    # Either way, no AssertionError was raised — that's the key invariant.
+    assert "overflow" in entry["widget_length_check"]
+    assert entry["widget_shape_verdict"] == "refuse"
+    assert "overflow" in entry["widget_shape_reasons"]
+    assert exc_info.value.diff["1"]["axis"] == "widget_shape"
+    assert exc_info.value.diff["1"]["reason"] == "overflow"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1760,9 +1773,9 @@ def test_seed_bearing_node_gets_extra_slot_heuristic() -> None:
     ), f"Expected control_after_generate guess, got: {entry['widget_order_guesses']}"
 
 
-def test_previously_flagged_files_emit_without_exception() -> None:
+def test_previously_flagged_files_pin_or_refuse_without_safe_overflow() -> None:
     """The 11 files flagged in the Step 1 baseline (overflow warnings) still emit
-    without exception — only NEW hard exceptions are regressions."""
+    as either trusted pins or typed refusals, never safe regenerated overflow."""
     import json as _json
     from pathlib import Path
 
@@ -1787,14 +1800,38 @@ def test_previously_flagged_files_emit_without_exception() -> None:
         with open(abs_path) as fh:
             raw = _json.load(fh)
         wf = convert_to_vibe_format(raw)
+        report: list[dict] = []
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                emit_ui_json(wf, strict=False)
+                emit_ui_json(
+                    wf,
+                    strict=False,
+                    prior_store=None,
+                    prior_ui_payload=raw,
+                    recovery_report=report,
+                )
+        except RefusedEmit as exc:
+            assert exc.diff, f"{result_entry['path']}: refusal must carry typed details"
+            assert all(
+                detail.get("axis") == "widget_shape"
+                for detail in exc.diff.values()
+            ), f"{result_entry['path']}: unexpected refusal diff {exc.diff}"
         except Exception as exc:
             raise AssertionError(
                 f"Previously-flagged file {result_entry['path']} raised {type(exc).__name__}: {exc}"
             ) from exc
+        else:
+            assert report, f"{result_entry['path']}: recovery_report must be populated"
+            unsafe_overflow = [
+                item
+                for item in report
+                if item.get("widget_shape_verdict") == "safe_to_regenerate"
+                and "overflow" in str(item.get("widget_length_check", ""))
+            ]
+            assert not unsafe_overflow, (
+                f"{result_entry['path']}: overflow entries cannot be safe_to_regenerate"
+            )
 
 
 def test_widget_order_matches_object_info_for_covered_class() -> None:

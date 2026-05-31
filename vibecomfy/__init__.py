@@ -1,5 +1,6 @@
 from .handles import Handle
 from .workflow import (
+    RawWidgetPayload,
     ValidationIssue,
     ValidationReport,
     VibeEdge,
@@ -51,6 +52,7 @@ __all__ = [
     "Mask",
     "Handle",
     "VibeWorkflow",
+    "RawWidgetPayload",
     "VibeNode",
     "VibeEdge",
     "VibeInput",

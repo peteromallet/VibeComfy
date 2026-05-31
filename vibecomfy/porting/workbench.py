@@ -729,7 +729,7 @@ def load_port_source(
 
     source_path = Path(source)
     if source_path.is_file() and source_path.suffix.lower() == ".py":
-        workflow = load_scratchpad(source_path)
+        workflow = load_scratchpad(source_path, provenance_override="user_confirmed")
         return LoadedPortSource(
             source_ref=source,
             source_kind="scratchpad",
@@ -752,7 +752,7 @@ def load_port_source(
 
     resolved = Path(resolved_path)
     if resolved.suffix.lower() == ".py":
-        workflow = load_scratchpad(resolved)
+        workflow = load_scratchpad(resolved, provenance_override="user_confirmed")
         return LoadedPortSource(
             source_ref=source,
             source_kind="scratchpad",

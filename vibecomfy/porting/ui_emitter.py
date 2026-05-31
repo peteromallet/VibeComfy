@@ -70,8 +70,10 @@ import re
 import uuid
 import warnings
 from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from vibecomfy._workflow_helpers import (
@@ -119,6 +121,26 @@ _DEFAULT_DS = {"scale": 1.0, "offset": [0.0, 0.0]}
 # Confidence threshold at or below which a node is considered low-confidence.
 # widget_schema_fallback tier uses confidence=0.3; strict=True rejects it.
 _LOW_CONFIDENCE_THRESHOLD = 0.3
+_STATIC_WIDGET_OVERFLOW_TOLERANCE = 4
+_STATIC_RAW_WIDGET_SLACK_CLASSES = frozenset(
+    {"CheckpointLoaderSimple", "KSampler", "KSamplerAdvanced"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class WidgetShapeEvidence:
+    node_id: str
+    class_type: str
+    schema_less: bool
+    confidence: float | None
+    raw_widget_count: int | None
+    candidate_widget_count: int
+    schema_widget_count: int | None
+    compacted_widget_names: tuple[str, ...]
+    raw_widget_shape: str | None
+    has_dict_rows: bool
+    overflow: bool
+    provider: str | None
 
 
 def _canonicalize_coord(value: float) -> float:
@@ -802,6 +824,515 @@ def _build_widget_values(node: Any, compacted_names: list[str]) -> list[Any]:
     return values
 
 
+def _schema_for_provider(schema_provider: Any | None, class_type: str) -> Any | None:
+    if schema_provider is None:
+        return None
+    getter = getattr(schema_provider, "get_schema", None) or getattr(schema_provider, "get", None)
+    if not callable(getter):
+        return None
+    return getter(class_type)
+
+
+def _raw_widget_shape_from_value(values: Any) -> tuple[int, str, bool]:
+    if values is None:
+        return 0, "none", False
+    if isinstance(values, dict):
+        return len(values), "dict", True
+    if isinstance(values, list):
+        return len(values), "list", any(isinstance(item, dict) for item in values)
+    return 1, "scalar", False
+
+
+def _raw_widget_shape_from_node(node: Any) -> tuple[int | None, str | None, bool]:
+    raw_widgets = getattr(node, "raw_widgets", None)
+    if raw_widgets is not None:
+        return (
+            int(getattr(raw_widgets, "length", 0)),
+            str(getattr(raw_widgets, "shape", "unknown")),
+            bool(getattr(raw_widgets, "has_dict_rows", False)),
+        )
+
+    raw_ui = getattr(node, "metadata", {}).get("_ui")
+    if isinstance(raw_ui, dict) and "widgets_values" in raw_ui:
+        count, shape, has_dict_rows = _raw_widget_shape_from_value(raw_ui.get("widgets_values"))
+        return count, shape, has_dict_rows
+
+    return None, None, False
+
+
+def extract_raw_ui_node_map(
+    ui_payload: Mapping[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    """Return full raw LiteGraph node payloads keyed by stable lookup ids.
+
+    This is deliberately separate from ``prior_store``.  The layout store is a
+    furniture/identity envelope built by :func:`store_from_ui_json`; it must not
+    become evidence that a dynamic widget node can be preserved opaque.  Pinning
+    decisions need the original full node dict from an actual UI JSON payload.
+    """
+    if not isinstance(ui_payload, Mapping):
+        return {}
+    nodes = ui_payload.get("nodes")
+    if not isinstance(nodes, list):
+        return {}
+
+    out: dict[str, dict[str, Any]] = {}
+    for raw_node in nodes:
+        if not isinstance(raw_node, dict):
+            continue
+        node_copy = dict(raw_node)
+        node_id = raw_node.get("id")
+        if node_id is not None:
+            out[str(node_id)] = node_copy
+        props = raw_node.get("properties")
+        if isinstance(props, Mapping):
+            uid = props.get("vibecomfy_uid")
+            if uid:
+                out[str(uid)] = node_copy
+    return out
+
+
+def _raw_ui_node_for_node(
+    node_id: str,
+    node: Any,
+    raw_ui_node_map: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    uid = getattr(node, "uid", "")
+    if raw_ui_node_map:
+        if uid and uid in raw_ui_node_map:
+            return raw_ui_node_map[uid]
+        if node_id in raw_ui_node_map:
+            return raw_ui_node_map[node_id]
+    raw_ui = getattr(node, "metadata", {}).get("_ui")
+    if isinstance(raw_ui, Mapping) and "widgets_values" in raw_ui:
+        return raw_ui
+    return None
+
+
+def _layout_entry_for_widget_shape(
+    node_id: str,
+    node: Any,
+    matched_entries: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    uid = getattr(node, "uid", "")
+    key = uid or node_id
+    entry = matched_entries.get(key)
+    if entry is not None:
+        return entry
+    raw_ui = getattr(node, "metadata", {}).get("_ui")
+    if isinstance(raw_ui, Mapping):
+        return raw_ui
+    return None
+
+
+def _jsonable_widget_shape_value(value: Any) -> Any:
+    raw_value = getattr(value, "value", value)
+    if isinstance(raw_value, Mapping):
+        return {str(k): _jsonable_widget_shape_value(v) for k, v in raw_value.items()}
+    if isinstance(raw_value, tuple):
+        return [_jsonable_widget_shape_value(v) for v in raw_value]
+    if isinstance(raw_value, list):
+        return [_jsonable_widget_shape_value(v) for v in raw_value]
+    if isinstance(raw_value, (str, int, float, bool)) or raw_value is None:
+        return raw_value
+    return repr(raw_value)
+
+
+def _widget_shape_evidence_summary(evidence: WidgetShapeEvidence) -> dict[str, Any]:
+    return {
+        "node_id": evidence.node_id,
+        "class_type": evidence.class_type,
+        "schema_less": evidence.schema_less,
+        "confidence": evidence.confidence,
+        "raw_widget_count": evidence.raw_widget_count,
+        "candidate_widget_count": evidence.candidate_widget_count,
+        "schema_widget_count": evidence.schema_widget_count,
+        "raw_widget_shape": evidence.raw_widget_shape,
+        "has_dict_rows": evidence.has_dict_rows,
+        "overflow": evidence.overflow,
+        "provider": evidence.provider,
+    }
+
+
+def _widget_shape_report_fields(verdict: Any) -> dict[str, Any]:
+    reasons = [_jsonable_widget_shape_value(reason) for reason in getattr(verdict, "reasons", ())]
+    fields: dict[str, Any] = {
+        "widget_shape_verdict": _jsonable_widget_shape_value(getattr(verdict, "decision", None)),
+    }
+    if reasons:
+        fields["widget_shape_reasons"] = reasons
+    if getattr(verdict, "pin_opaque", False) or getattr(verdict, "refuse", False):
+        details: dict[str, Any] = {
+            "reasons": reasons,
+            "evidence": _widget_shape_evidence_summary(verdict.evidence),
+        }
+        if getattr(verdict, "field_delta", None):
+            details["field_delta"] = _jsonable_widget_shape_value(verdict.field_delta)
+        if getattr(verdict, "link_delta", None):
+            details["link_delta"] = _jsonable_widget_shape_value(verdict.link_delta)
+        fields["widget_shape_details"] = details
+    return fields
+
+
+def _node_delta(
+    deltas: Mapping[str, Mapping[str, Any]],
+    node_id: str,
+    node: Any,
+) -> Mapping[str, Any]:
+    uid = getattr(node, "uid", "")
+    if uid and uid in deltas:
+        return deltas[uid]
+    return deltas.get(node_id, {})
+
+
+def _split_widget_shape_deltas(
+    deltas: Mapping[str, Mapping[str, Any]],
+    node_id: str,
+    node: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    delta = dict(_node_delta(deltas, node_id, node))
+    field_delta: dict[str, Any] = {}
+    link_delta: dict[str, Any] = {}
+    if "widget_values_sig" in delta:
+        field_delta["widgets_values"] = delta["widget_values_sig"]
+    if "public_input_binding" in delta:
+        field_delta["public_input_binding"] = delta["public_input_binding"]
+    for key in ("incoming_edge_sig", "outgoing_edge_sig"):
+        if key in delta:
+            link_delta[key] = delta[key]
+    for key, value in delta.items():
+        if key not in {
+            "widget_values_sig",
+            "public_input_binding",
+            "incoming_edge_sig",
+            "outgoing_edge_sig",
+        }:
+            field_delta[key] = value
+    return field_delta, link_delta
+
+
+def _build_recovery_entry(
+    p: Mapping[str, Any],
+    verdict: Any,
+    *,
+    has_raw_ui_payload: bool,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "node_id": p["node_id"],
+        "class_type": p["class_type"],
+        "provider": p.get("provider"),
+        "confidence": p.get("confidence"),
+        "schema_less": p["schema_less"],
+        "control_after_generate": p.get("control_after_generate"),
+        "control_after_generate_defaulted": p.get("control_after_generate_defaulted"),
+        "widget_length_check": p.get("widget_length_check"),
+        "has_raw_ui_payload": has_raw_ui_payload,
+    }
+    entry.update(_widget_shape_report_fields(verdict))
+    if p.get("widget_order_guesses"):
+        entry["widget_order_guesses"] = p["widget_order_guesses"]
+    if p["schema_less"]:
+        entry["diagnostic"] = "schema-less: emitting best-effort slots from link appearance order"
+    elif p.get("confidence") is not None and p["confidence"] <= _LOW_CONFIDENCE_THRESHOLD:
+        entry["diagnostic"] = f"low-confidence ({p['confidence']}): widget_schema_fallback"
+    return entry
+
+
+def _pinned_link_ref_refusal(
+    node_id: str,
+    class_type: str,
+    reason: str,
+    *,
+    details: Mapping[str, Any],
+) -> None:
+    from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
+    typed_reason = (
+        "pinned_link_id_mismatch"
+        if reason
+        in {
+            "unmappable_input_link",
+            "ambiguous_input_link",
+            "missing_raw_input_link",
+            "unmappable_output_links",
+            "output_link_count_mismatch",
+            "missing_raw_output_links",
+            "missing_raw_output_slot",
+        }
+        else "pinned_link_surface_changed"
+    )
+
+    raise RefusedEmit(
+        f"Refusing to emit pinned raw UI node {node_id}: {typed_reason}",
+        diff={
+            str(node_id): {
+                "axis": "pinned_link_refs",
+                "node_id": str(node_id),
+                "class_type": class_type,
+                "reason": typed_reason,
+                "details": {**dict(details), "original_reason": reason},
+            }
+        },
+    )
+
+
+def _coerce_link_refs(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def _normalize_pinned_node_link_refs(
+    node_dict: dict[str, Any],
+    *,
+    node_id: str,
+    class_type: str,
+    incoming_link_ids_by_input: Mapping[str, list[int]],
+    outgoing_link_ids_by_slot: Mapping[int, list[int]],
+) -> dict[str, Any]:
+    """Rewrite copied pinned-node link refs to the emitted global ``links[]`` ids."""
+    raw_inputs = node_dict.get("inputs") or []
+    if not isinstance(raw_inputs, list):
+        _pinned_link_ref_refusal(
+            node_id,
+            class_type,
+            "invalid_raw_inputs",
+            details={"raw_inputs_type": type(raw_inputs).__name__},
+        )
+
+    seen_linked_inputs: set[str] = set()
+    for idx, raw_input in enumerate(raw_inputs):
+        if not isinstance(raw_input, dict) or raw_input.get("link") is None:
+            continue
+        input_name = raw_input.get("name")
+        if input_name is None:
+            _pinned_link_ref_refusal(
+                node_id,
+                class_type,
+                "unmappable_input_link",
+                details={"input_index": idx, "raw_link": raw_input.get("link")},
+            )
+        input_key = str(input_name)
+        if input_key in seen_linked_inputs:
+            _pinned_link_ref_refusal(
+                node_id,
+                class_type,
+                "ambiguous_input_link",
+                details={"input_name": input_key},
+            )
+        current_link_ids = list(incoming_link_ids_by_input.get(input_key, []))
+        if len(current_link_ids) != 1:
+            _pinned_link_ref_refusal(
+                node_id,
+                class_type,
+                "unmappable_input_link",
+                details={
+                    "input_name": input_key,
+                    "raw_link": raw_input.get("link"),
+                    "current_link_ids": current_link_ids,
+                },
+            )
+        raw_input["link"] = current_link_ids[0]
+        seen_linked_inputs.add(input_key)
+
+    missing_inputs = sorted(
+        input_name
+        for input_name, link_ids in incoming_link_ids_by_input.items()
+        if link_ids and input_name not in seen_linked_inputs
+    )
+    if missing_inputs:
+        _pinned_link_ref_refusal(
+            node_id,
+            class_type,
+            "missing_raw_input_link",
+            details={"input_names": missing_inputs},
+        )
+
+    raw_outputs = node_dict.get("outputs") or []
+    if not isinstance(raw_outputs, list):
+        _pinned_link_ref_refusal(
+            node_id,
+            class_type,
+            "invalid_raw_outputs",
+            details={"raw_outputs_type": type(raw_outputs).__name__},
+        )
+
+    seen_output_slots: set[int] = set()
+    for idx, raw_output in enumerate(raw_outputs):
+        if not isinstance(raw_output, dict):
+            continue
+        try:
+            slot = int(raw_output.get("slot_index", idx))
+        except (TypeError, ValueError):
+            _pinned_link_ref_refusal(
+                node_id,
+                class_type,
+                "unmappable_output_links",
+                details={"output_index": idx, "slot_index": raw_output.get("slot_index")},
+            )
+        raw_link_refs = _coerce_link_refs(raw_output.get("links"))
+        current_link_ids = sorted(outgoing_link_ids_by_slot.get(slot, []))
+        if raw_link_refs:
+            if not current_link_ids:
+                _pinned_link_ref_refusal(
+                    node_id,
+                    class_type,
+                    "unmappable_output_links",
+                    details={"slot_index": slot, "raw_links": raw_link_refs},
+                )
+            if len(raw_link_refs) != len(current_link_ids):
+                _pinned_link_ref_refusal(
+                    node_id,
+                    class_type,
+                    "output_link_count_mismatch",
+                    details={
+                        "slot_index": slot,
+                        "raw_links": raw_link_refs,
+                        "current_link_ids": current_link_ids,
+                    },
+                )
+            raw_output["links"] = current_link_ids
+            seen_output_slots.add(slot)
+        elif current_link_ids:
+            _pinned_link_ref_refusal(
+                node_id,
+                class_type,
+                "missing_raw_output_links",
+                details={"slot_index": slot, "current_link_ids": current_link_ids},
+            )
+
+    missing_output_slots = sorted(
+        slot
+        for slot, link_ids in outgoing_link_ids_by_slot.items()
+        if link_ids and slot not in seen_output_slots
+    )
+    if missing_output_slots:
+        _pinned_link_ref_refusal(
+            node_id,
+            class_type,
+            "missing_raw_output_slot",
+            details={"slot_indexes": missing_output_slots},
+        )
+    return node_dict
+
+
+def _raw_ui_payload_for_pin(
+    raw_ui_node: Mapping[str, Any],
+    *,
+    node_id: str,
+    class_type: str,
+    litegraph_node_id: int,
+    order: int,
+    incoming_link_ids_by_input: Mapping[str, list[int]],
+    outgoing_link_ids_by_slot: Mapping[int, list[int]],
+) -> dict[str, Any]:
+    node_dict = deepcopy(dict(raw_ui_node))
+    _normalize_pinned_node_link_refs(
+        node_dict,
+        node_id=node_id,
+        class_type=class_type,
+        incoming_link_ids_by_input=incoming_link_ids_by_input,
+        outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
+    )
+    node_dict["id"] = litegraph_node_id
+    node_dict["order"] = order
+    return node_dict
+
+
+def derive_widget_shape_evidence(
+    node: Any,
+    schema_provider: Any | None,
+) -> WidgetShapeEvidence:
+    """Derive widget-shape proof for one node before UI widget regeneration.
+
+    The candidate count intentionally goes through the same compacted-name vector
+    and ``_build_widget_values`` logic that emission uses, so fresh programmatic
+    ``widget_N`` overflow is visible even when no raw UI payload exists.
+    """
+    schema = _schema_for_provider(schema_provider, node.class_type)
+    provenance = _get_node_schema_provenance(node.class_type, schema)
+    compacted_names = _compacted_widget_names(node.class_type, schema)
+    candidate_widget_count = len(_build_widget_values(node, compacted_names))
+    schema_widget_count = _full_widget_name_count(
+        node.class_type,
+        schema,
+        schema_provider=schema_provider,
+    )
+    raw_widget_count, raw_widget_shape, has_dict_rows = _raw_widget_shape_from_node(node)
+    schema_inputs = getattr(schema, "inputs", None)
+    provider_widget_count = len(schema_inputs) if isinstance(schema_inputs, dict) else None
+    if (
+        has_dict_rows
+        and provider_widget_count is not None
+        and schema_widget_count is not None
+        and _raw_widget_order_from_provider(node.class_type, schema_provider) is None
+    ):
+        schema_widget_count = min(schema_widget_count, provider_widget_count)
+    elif (
+        provider_widget_count is not None
+        and schema_widget_count is not None
+        and _raw_widget_order_from_provider(node.class_type, schema_provider) is None
+    ):
+        schema_widget_count = max(schema_widget_count, provider_widget_count)
+    largest_observed_count = candidate_widget_count
+    if raw_widget_count is not None:
+        largest_observed_count = max(largest_observed_count, raw_widget_count)
+    programmatic_widget_count = 0
+    node_widgets = getattr(node, "widgets", None)
+    if isinstance(node_widgets, dict):
+        widget_idxs: list[int] = []
+        for key in node_widgets:
+            if str(key).startswith("widget_"):
+                try:
+                    widget_idxs.append(int(str(key).split("_", 1)[1]))
+                except ValueError:
+                    continue
+        if widget_idxs:
+            programmatic_widget_count = max(widget_idxs) + 1
+    overflow = False
+    if schema_widget_count is not None and not provenance["schema_less"]:
+        if has_dict_rows:
+            overflow = largest_observed_count > schema_widget_count
+        elif (
+            node.class_type in _STATIC_RAW_WIDGET_SLACK_CLASSES
+            and candidate_widget_count <= schema_widget_count + _STATIC_WIDGET_OVERFLOW_TOLERANCE
+            and (
+                raw_widget_count is not None
+                or programmatic_widget_count <= schema_widget_count
+            )
+            and (
+                raw_widget_count is None
+                or programmatic_widget_count <= raw_widget_count
+            )
+        ):
+            overflow = False
+        elif (
+            programmatic_widget_count > schema_widget_count
+            and not (raw_widget_count is not None and programmatic_widget_count <= raw_widget_count)
+        ):
+            overflow = True
+        else:
+            overflow = largest_observed_count > schema_widget_count
+
+    return WidgetShapeEvidence(
+        node_id=str(node.id),
+        class_type=str(node.class_type),
+        schema_less=bool(provenance["schema_less"]),
+        confidence=provenance.get("confidence"),
+        raw_widget_count=raw_widget_count,
+        candidate_widget_count=candidate_widget_count,
+        schema_widget_count=schema_widget_count,
+        compacted_widget_names=tuple(compacted_names),
+        raw_widget_shape=raw_widget_shape,
+        has_dict_rows=has_dict_rows,
+        overflow=overflow,
+        provider=provenance.get("provider"),
+    )
+
+
 def emit_ui_json(
     wf: Any,
     *,
@@ -820,6 +1351,7 @@ def emit_ui_json(
     definitions: dict[str, Any] | None = None,
     change_report_out: list | None = None,
     guard_original_ui: Mapping[str, Any] | None = None,
+    prior_ui_payload: Mapping[str, Any] | None = None,
     force_drop_editor_only: bool = False,
 ) -> dict[str, Any]:
     """Render ``wf`` (a ``VibeWorkflow``) to a litegraph JSON envelope.
@@ -859,6 +1391,10 @@ def emit_ui_json(
             sidecar envelope, used directly instead of re-emitting from IR
             metadata via ``_emit_definitions``.  The caller is responsible for
             passing definitions as they appear in the sidecar's envelope.
+        prior_ui_payload: Optional full raw LiteGraph UI JSON used only as raw
+            node evidence for future dynamic widget pin/refuse decisions.
+            ``prior_store`` remains furniture-only and is not treated as a raw
+            node payload source.
 
     Returns:
         A litegraph envelope dict: ``version``, deterministic ``id``,
@@ -875,6 +1411,7 @@ def emit_ui_json(
     # will replace that precedence chain with ``reconcile_result.matched``.
     from vibecomfy.porting.layout.reconcile import reconcile as _reconcile  # noqa: PLC0415
     _prior_store: dict[str, Any] = dict(prior_store) if prior_store else {}
+    raw_ui_node_map = extract_raw_ui_node_map(prior_ui_payload)
     # Back-compat: callers that still pass the flat ``layout=`` kwarg are wrapped
     # into a minimal envelope so reconcile() sees the entries. Step 9b retires
     # ``layout`` entirely once all call sites migrate to prior_store.
@@ -1056,6 +1593,82 @@ def emit_ui_json(
         if failures:
             raise ValueError(f"strict=True: low-confidence or schema-less nodes: {failures}")
 
+    # Widget-shape fence pre-pass: evidence -> verdict happens before any node is
+    # emitted. Refusals abort before ``nodes.append(...)`` can return a partial
+    # invalid envelope; safe nodes regenerate widgets inside the node loop; pinned
+    # nodes copy their raw LiteGraph payload without rebuilding widgets.
+    from vibecomfy.porting.layout.delta import compute_field_delta  # noqa: PLC0415
+    from vibecomfy.porting.refuse import refused_widget_shape as _refused_widget_shape  # noqa: PLC0415
+    from vibecomfy.porting.widget_shape_fence import decide_widget_shape as _decide_widget_shape  # noqa: PLC0415
+
+    _snapshot = (wf.metadata or {}).get("_ingest_snapshot", {})
+    _field_delta_by_uid = compute_field_delta(_snapshot, wf) if _snapshot else {}
+    widget_shape_verdicts: dict[str, Any] = {}
+    widget_shape_raw_payloads: dict[str, Mapping[str, Any] | None] = {}
+    for node_id in order_list:
+        node = wf.nodes[node_id]
+        schema = schema_cache.get(node.class_type)
+        prov = node_prov[node_id]
+
+        retained_control = node.metadata.get("control_after_generate")
+        if isinstance(retained_control, str):
+            prov["control_after_generate"] = retained_control
+            prov["control_after_generate_defaulted"] = False
+        else:
+            prov["control_after_generate"] = _CONTROL_AFTER_GENERATE_DEFAULT
+            prov["control_after_generate_defaulted"] = True
+
+        expected_widget_count = _full_widget_name_count(
+            node.class_type, schema, schema_provider=schema_provider
+        )
+        extra_hints = _extra_widgets_after(
+            node.class_type, schema, schema_provider=schema_provider
+        )
+        if extra_hints:
+            prov["widget_order_guesses"] = [
+                "(control_after_generate)" if name is None else name
+                for name in extra_hints
+            ]
+
+        evidence = derive_widget_shape_evidence(node, schema_provider)
+        if expected_widget_count is None:
+            prov["widget_length_check"] = "skipped: schema-less"
+        elif evidence.overflow:
+            prov["widget_length_check"] = (
+                f"overflow {evidence.candidate_widget_count}>{expected_widget_count}"
+            )
+        else:
+            prov["widget_length_check"] = (
+                f"{evidence.candidate_widget_count}<={expected_widget_count}"
+            )
+
+        raw_ui_node = _raw_ui_node_for_node(node_id, node, raw_ui_node_map)
+        widget_shape_raw_payloads[node_id] = raw_ui_node
+        field_delta, link_delta = _split_widget_shape_deltas(_field_delta_by_uid, node_id, node)
+        layout_entry = _layout_entry_for_widget_shape(node_id, node, matched_entries)
+        verdict = _decide_widget_shape(
+            evidence,
+            raw_widget_payloads={node_id: getattr(node, "raw_widgets", None)},
+            raw_payloads={node_id: raw_ui_node} if raw_ui_node is not None else {},
+            layout_entries={node_id: layout_entry} if layout_entry is not None else {},
+            field_deltas={node_id: field_delta} if field_delta else {},
+            link_deltas={node_id: link_delta} if link_delta else {},
+        )
+        widget_shape_verdicts[node_id] = verdict
+
+    refused_verdicts = [verdict for verdict in widget_shape_verdicts.values() if verdict.refuse]
+    if refused_verdicts:
+        if recovery_report is not None:
+            for node_id in order_list:
+                recovery_report.append(
+                    _build_recovery_entry(
+                        node_prov[node_id],
+                        widget_shape_verdicts[node_id],
+                        has_raw_ui_payload=widget_shape_raw_payloads[node_id] is not None,
+                    )
+                )
+        raise _refused_widget_shape(refused_verdicts)
+
     # Sort edges deterministically (from_node asc, from_output, to_node, to_input)
     sorted_edges = sorted(
         display_edges,
@@ -1084,6 +1697,29 @@ def emit_ui_json(
     for order, node_id in enumerate(order_list):
         node = wf.nodes[node_id]
         key = _node_key(node_id)
+        verdict = widget_shape_verdicts[node_id]
+        if verdict.pin_opaque:
+            incoming_link_ids_by_input: dict[str, list[int]] = defaultdict(list)
+            for edge in edges_to[node_id]:
+                lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
+                incoming_link_ids_by_input[edge.to_input].append(lid)
+            outgoing_link_ids_by_slot: dict[int, list[int]] = defaultdict(list)
+            for edge in edges_from[node_id]:
+                slot, _ = _resolve_output_slot_and_type(edge.from_output, node.class_type, schema_cache)
+                lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
+                outgoing_link_ids_by_slot[slot].append(lid)
+            nodes.append(
+                _raw_ui_payload_for_pin(
+                    verdict.raw_ui_node or {},
+                    node_id=node_id,
+                    class_type=node.class_type,
+                    litegraph_node_id=id_remap[node_id],
+                    order=order,
+                    incoming_link_ids_by_input=incoming_link_ids_by_input,
+                    outgoing_link_ids_by_slot=outgoing_link_ids_by_slot,
+                )
+            )
+            continue
         matched_entry = matched_entries.get(key)
         # T9b: reconcile-driven merge.
         #   matched → verbatim pos/size/mode/flags/color/properties/group/title from the entry.
@@ -1204,40 +1840,6 @@ def emit_ui_json(
         # --- widgets_values (verified compacted-ordering rule; see module docstring) ---
         widget_values = _build_widget_values(node, compacted_names)
 
-        # control_after_generate: retain from metadata or document the `fixed` default.
-        retained_control = node.metadata.get("control_after_generate")
-        if isinstance(retained_control, str):
-            prov["control_after_generate"] = retained_control
-            prov["control_after_generate_defaulted"] = False
-        else:
-            prov["control_after_generate"] = _CONTROL_AFTER_GENERATE_DEFAULT
-            prov["control_after_generate_defaulted"] = True
-
-        # Length validation: assert against the raw schema widget-slot count
-        # (nulls included from object_info_widget_order when available).
-        # Skip + record for schema-less classes.
-        expected_widget_count = _full_widget_name_count(
-            node.class_type, schema, schema_provider=schema_provider
-        )
-        extra_hints = _extra_widgets_after(
-            node.class_type, schema, schema_provider=schema_provider
-        )
-        if extra_hints:
-            prov["widget_order_guesses"] = [
-                "(control_after_generate)" if name is None else name
-                for name in extra_hints
-            ]
-        if expected_widget_count is None:
-            prov["widget_length_check"] = "skipped: schema-less"
-        else:
-            if len(widget_values) > expected_widget_count:
-                overflow_msg = f"overflow {len(widget_values)}>{expected_widget_count}"
-                prov["widget_length_check"] = overflow_msg
-            else:
-                prov["widget_length_check"] = (
-                    f"{len(widget_values)}<={expected_widget_count}"
-                )
-
         # Properties are now built by re-stamping the verbatim captured blob
         # (or fresh-construction fallback) with IR identity keys overlaid
         # — see the properties-construction block above.  No separate merge needed.
@@ -1295,24 +1897,13 @@ def emit_ui_json(
     # Populate recovery_report
     if recovery_report is not None:
         for node_id in order_list:
-            p = node_prov[node_id]
-            entry: dict[str, Any] = {
-                "node_id": node_id,
-                "class_type": p["class_type"],
-                "provider": p.get("provider"),
-                "confidence": p.get("confidence"),
-                "schema_less": p["schema_less"],
-                "control_after_generate": p.get("control_after_generate"),
-                "control_after_generate_defaulted": p.get("control_after_generate_defaulted"),
-                "widget_length_check": p.get("widget_length_check"),
-            }
-            if p.get("widget_order_guesses"):
-                entry["widget_order_guesses"] = p["widget_order_guesses"]
-            if p["schema_less"]:
-                entry["diagnostic"] = "schema-less: emitting best-effort slots from link appearance order"
-            elif p.get("confidence") is not None and p["confidence"] <= _LOW_CONFIDENCE_THRESHOLD:
-                entry["diagnostic"] = f"low-confidence ({p['confidence']}): widget_schema_fallback"
-            recovery_report.append(entry)
+            recovery_report.append(
+                _build_recovery_entry(
+                    node_prov[node_id],
+                    widget_shape_verdicts[node_id],
+                    has_raw_ui_payload=widget_shape_raw_payloads[node_id] is not None,
+                )
+            )
 
         # ── Orphaned virtual-wire routes (display mode) ─────────────────
         if include_virtual_wires and orphaned_get_ids:
@@ -1332,6 +1923,7 @@ def emit_ui_json(
                     ),
                     "orphaned_route": True,
                     "broadcast_name": name,
+                    "widget_shape_verdict": "not_applicable",
                 })
 
         # ── Stripped virtual-wire helpers summary (T7) ───────────────────
@@ -1340,6 +1932,7 @@ def emit_ui_json(
         recovery_report.append({
             "stripped_helpers": sorted(virtual_wire_ids),
             "count": len(virtual_wire_ids),
+            "widget_shape_verdict": "not_applicable",
         })
 
     # Warn for schema-less nodes when not strict
@@ -1557,6 +2150,11 @@ def structural_validate(
 
 
 __all__ = [
+    "WidgetShapeEvidence",
+    "derive_widget_shape_evidence",
+    "extract_raw_ui_node_map",
+    "_normalize_pinned_node_link_refs",
+    "_raw_ui_payload_for_pin",
     "emit_ui_json",
     "offline_emitter_normalizer_self_consistency_check",
     "structural_validate",
