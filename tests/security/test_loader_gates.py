@@ -246,11 +246,11 @@ def test_provenance_for_path_returns_only_valid_provenance(tmp_path, monkeypatch
         ext.unlink(missing_ok=True)
 
 
-def test_scratchpad_loader_default_provenance_is_not_agent_generated():
+def test_scratchpad_loader_default_provenance_is_path_classified_not_agent_generated():
     """The scratchpad loader's default provenance_override is None, which
-    maps to user_confirmed, not agent_generated. This test documents the
-    contract that the public scratchpad loader API default does not mint
-    agent_generated."""
+    means provenance comes from resolved path classification. This test
+    documents the contract that the public scratchpad loader API default does
+    not mint agent_generated."""
     from vibecomfy.scratchpad_loader import load_scratchpad
     import inspect
 
@@ -258,9 +258,21 @@ def test_scratchpad_loader_default_provenance_is_not_agent_generated():
     param = sig.parameters.get("provenance_override")
     assert param is not None, "load_scratchpad must have provenance_override parameter"
     assert param.default is None, (
-        "provenance_override default must be None so the loader defaults "
-        "to user_confirmed, not agent_generated"
+        "provenance_override default must be None so the loader uses path "
+        "classification, not agent_generated"
     )
+
+
+def test_scratchpad_loader_rejects_agent_generated_override(tmp_path):
+    """agent_generated must only be minted by the restricted AST-scanned
+    loader, never by the public scratchpad loader's override escape hatch."""
+    from vibecomfy import scratchpad_loader
+
+    sp = tmp_path / "generated.py"
+    _write_trivial_scratchpad(sp)
+
+    with pytest.raises(ValueError, match="agent_generated provenance is reserved"):
+        scratchpad_loader.load_scratchpad(sp, provenance_override="agent_generated")
 
 
 def test_ready_template_load_does_not_mint_agent_generated():
