@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 import warnings
 
 import pytest
@@ -63,7 +65,55 @@ def _require_comfy_import():
             f"Cannot import comfy.component_model.workflow_convert. "
             f"Is vendor/ComfyUI initialised? ({info})"
         ) from exc
+    _install_comfy_nodes_context_stub()
     return convert_ui_to_api
+
+
+def _install_comfy_nodes_context_stub() -> None:
+    """Provide Comfy's converter with node INPUT_TYPES from authoring schemas.
+
+    ``workflow_convert.convert_ui_to_api`` imports ``comfy.nodes_context`` lazily
+    at call time. Booting Comfy's real node workspace drags in runtime packages
+    such as torch and OpenTelemetry, but this oracle gate is about the pinned
+    converter's graph semantics. A local registry backed by the same object-info
+    snapshots used for porting keeps the gate deterministic and focused.
+    """
+
+    from vibecomfy.schema import get_authoring_schema_provider
+    from vibecomfy.schema.provider import InputSpec, NodeSchema
+
+    def _entry_for_input(spec: InputSpec):
+        opts: dict[str, object] = {}
+        if spec.default is not None:
+            opts["default"] = spec.default
+        if spec.min is not None:
+            opts["min"] = spec.min
+        if spec.max is not None:
+            opts["max"] = spec.max
+        if spec.choices is not None:
+            return (list(spec.choices), opts)
+        return (spec.type or "STRING", opts)
+
+    def _class_for_schema(schema: NodeSchema):
+        def input_types(schema: NodeSchema = schema):
+            required: dict[str, object] = {}
+            optional: dict[str, object] = {}
+            for name, spec in schema.inputs.items():
+                target = required if spec.required else optional
+                target[name] = _entry_for_input(spec)
+            return {"required": required, "optional": optional}
+
+        safe_name = "".join(ch if ch.isalnum() else "_" for ch in schema.class_type)
+        return type(f"_VibeComfyStub_{safe_name}", (), {"INPUT_TYPES": staticmethod(input_types)})
+
+    def get_nodes():
+        provider = get_authoring_schema_provider()
+        schemas = provider.schemas()
+        return {class_type: _class_for_schema(schema) for class_type, schema in schemas.items()}
+
+    module = types.ModuleType("comfy.nodes_context")
+    module.get_nodes = get_nodes
+    sys.modules["comfy.nodes_context"] = module
 
 
 # ---------------------------------------------------------------------------
