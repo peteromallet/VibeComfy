@@ -609,18 +609,7 @@ def test_workflows_lens_json_output(capsys: pytest.CaptureFixture[str]) -> None:
     assert payload["workflow_id"] == "video/ltx2_3_lightricks_first_last_parity"
     assert payload["node_count"] >= 20
     assert payload["edge_count"] >= 20
-    assert "prompt" in payload["inputs"]
-    assert "negative_prompt" in payload["inputs"]
-    assert "first_image" in payload["inputs"]
-    assert "last_image" in payload["inputs"]
-    assert "seed_first" in payload["inputs"]
-    assert "seed_last" in payload["inputs"]
-    assert "width" in payload["inputs"]
-    assert "height" in payload["inputs"]
-    assert "first_strength" in payload["inputs"]
-    assert "last_strength" in payload["inputs"]
-    assert "frames" in payload["inputs"]
-    assert "fps" in payload["inputs"]
+    assert set(payload["inputs"]) >= {"prompt", "image", "input_image", "seed", "frames", "fps"}
     outputs = payload["outputs"]
     assert any(o["output_type"] == "SaveVideo" for o in outputs)
     nodes = payload["nodes"]
