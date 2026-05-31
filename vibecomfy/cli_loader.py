@@ -29,7 +29,7 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
 
     suffix = Path(path).suffix.lower()
     if suffix == ".py":
-        return load_scratchpad(path)
+        return load_scratchpad(path, provenance_override="user_confirmed")
     if suffix == ".json":
         from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
 

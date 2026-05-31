@@ -48,6 +48,7 @@ jobs:
         run: |
           uv venv --seed
           .venv/bin/python -m pip install -e ".[dev,runpod-launch]"
+          .venv/bin/python -m pip install "lazy-object-proxy>=1.10"
 
       - name: Run fast suite with coverage
         # test_models_registry.py and test_runpod_runner.py currently fail
