@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from vibecomfy.errors import WorkflowBuildError
 from vibecomfy.security import current_gate_context, require_confirmation
-from vibecomfy.security.loader_provenance import _provenance_for_path
 from vibecomfy.security.provenance import Provenance
 
 from .workflow import VibeWorkflow
@@ -31,7 +30,7 @@ def load_scratchpad(
     require_confirmation(
         operation="scratchpad_exec",
         class_type=None,  # type: ignore[arg-type]
-        provenance=provenance_override or _provenance_for_path(path),
+        provenance=provenance_override or "user_confirmed",
         capabilities=frozenset({"code_exec"}),
         details={"path": str(path)},
         ctx=current_gate_context(),
