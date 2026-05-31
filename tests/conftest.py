@@ -47,8 +47,13 @@ def pytest_configure(config: pytest.Config) -> None:
     try:
         from tests.smoke import _runpod_helpers as _rh
     except Exception:
-        return
-    _rh.set_pytest_config(config)
+        pass
+    else:
+        _rh.set_pytest_config(config)
+    config.addinivalue_line(
+        "markers",
+        "info: informational baseline tests that may skip when prerequisites are unavailable",
+    )
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:

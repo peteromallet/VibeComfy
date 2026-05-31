@@ -26,8 +26,8 @@ _convert_ui_to_api: _ConvertUiToApi | None = None
 _IMPORT_ERROR: BaseException | None = None
 
 
-def _converter_or_raise() -> _ConvertUiToApi:
-    """Resolve the vendored ComfyUI UI->API converter at first guard use."""
+def _load_convert_ui_to_api() -> _ConvertUiToApi:
+    """Load the ComfyUI converter only when a non-empty guard scope needs it."""
     global _IMPORT_ERROR, _convert_ui_to_api
     if _convert_ui_to_api is not None:
         return _convert_ui_to_api
@@ -37,20 +37,20 @@ def _converter_or_raise() -> _ConvertUiToApi:
             f"unavailable ({_IMPORT_ERROR!r}). Ensure the vendor/ComfyUI "
             "submodule is initialized and importable."
         )
-    try:
-        from vibecomfy.comfy_backend import ensure_nodes as _ensure_nodes
+    from vibecomfy.comfy_backend import ensure_nodes as _ensure_nodes
 
+    try:
         _ensure_nodes()
         from comfy.component_model.workflow_convert import (
             convert_ui_to_api as _loaded_convert_ui_to_api,
         )
-    except Exception as imp_err:  # pragma: no cover - exercised when vendor absent
-        _IMPORT_ERROR = imp_err
+    except Exception as exc:  # pragma: no cover - exercised when vendor absent
+        _IMPORT_ERROR = exc
         raise ImportError(
             "vibecomfy.porting.refuse: vendored ComfyUI convert_ui_to_api is "
-            f"unavailable ({_IMPORT_ERROR!r}). Ensure the vendor/ComfyUI "
-            "submodule is initialized and importable."
-        ) from imp_err
+            f"unavailable ({exc!r}). Ensure the vendor/ComfyUI submodule is "
+            "initialized and importable."
+        ) from exc
     _convert_ui_to_api = _loaded_convert_ui_to_api
     return _convert_ui_to_api
 
@@ -266,7 +266,7 @@ def guard_emit(
     if not scope_uids:
         return
 
-    convert_ui_to_api = _converter_or_raise()
+    convert_ui_to_api = _load_convert_ui_to_api()
     orig_api = convert_ui_to_api(dict(original_ui))
     cand_api = convert_ui_to_api(dict(candidate_ui))
 
