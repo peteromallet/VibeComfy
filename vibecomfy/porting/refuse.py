@@ -19,23 +19,32 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-# ─── Hard import check (module init) ──────────────────────────────────────
-# Fail loudly at first use rather than silently degrading: importing this
-# module always attempts to bring the vendored ComfyUI onto sys.path and
-# import ``convert_ui_to_api``.  On failure, ``_IMPORT_ERROR`` is set and the
-# first ``guard_emit`` call re-raises it as ImportError.
-from vibecomfy.comfy_backend import ensure_nodes as _ensure_nodes
+_convert_ui_to_api = None
+_IMPORT_ERROR: BaseException | None = None
 
-_ensure_nodes()
-try:  # noqa: SIM105
-    from comfy.component_model.workflow_convert import (
-        convert_ui_to_api as _convert_ui_to_api,
-    )
-except Exception as _imp_err:  # pragma: no cover - exercised when vendor absent
-    _convert_ui_to_api = None  # type: ignore[assignment]
-    _IMPORT_ERROR: BaseException | None = _imp_err
-else:
+
+def _load_convert_ui_to_api():
+    """Load the ComfyUI converter only when a non-empty guard scope needs it."""
+    global _convert_ui_to_api, _IMPORT_ERROR
+    if _convert_ui_to_api is not None:
+        return _convert_ui_to_api
+    from vibecomfy.comfy_backend import ensure_nodes as _ensure_nodes
+
+    try:
+        _ensure_nodes()
+        from comfy.component_model.workflow_convert import (
+            convert_ui_to_api as _loaded_convert_ui_to_api,
+        )
+    except Exception as exc:  # pragma: no cover - exercised when vendor absent
+        _IMPORT_ERROR = exc
+        raise ImportError(
+            "vibecomfy.porting.refuse: vendored ComfyUI convert_ui_to_api is "
+            f"unavailable ({exc!r}). Ensure the vendor/ComfyUI submodule is "
+            "initialized and importable."
+        ) from exc
+    _convert_ui_to_api = _loaded_convert_ui_to_api
     _IMPORT_ERROR = None
+    return _loaded_convert_ui_to_api
 
 
 class RefusedEmit(Exception):
@@ -150,13 +159,6 @@ def guard_emit(
     ImportError
         When the vendored ComfyUI ``convert_ui_to_api`` is unavailable.
     """
-    if _convert_ui_to_api is None:  # pragma: no cover - exercised when vendor absent
-        raise ImportError(
-            "vibecomfy.porting.refuse: vendored ComfyUI convert_ui_to_api is "
-            f"unavailable ({_IMPORT_ERROR!r}). Ensure the vendor/ComfyUI "
-            "submodule is initialized and importable."
-        )
-
     delta: Mapping[str, Mapping[str, tuple]] = snapshot_delta or {}
 
     orig_uid_to_id = _uid_to_litegraph_id(original_ui)
@@ -165,8 +167,9 @@ def guard_emit(
     if not scope_uids:
         return
 
-    orig_api = _convert_ui_to_api(dict(original_ui))
-    cand_api = _convert_ui_to_api(dict(candidate_ui))
+    convert_ui_to_api = _load_convert_ui_to_api()
+    orig_api = convert_ui_to_api(dict(original_ui))
+    cand_api = convert_ui_to_api(dict(candidate_ui))
 
     diff: dict[str, dict[str, Any]] = {}
     for uid in scope_uids:

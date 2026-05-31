@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import dataclasses
 import json
 import sys
 import time
@@ -35,6 +36,8 @@ from vibecomfy.porting.strict_ready import (
     StrictReadyContext,
     apply_strict_ready_exceptions,
 )
+from vibecomfy.porting.layout import evaluate_felt_delta
+from vibecomfy.porting.latency import FALLBACK_LATENCY_BUDGET_MS
 from vibecomfy.porting.widget_aliases import widget_alias_analysis
 from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
 from vibecomfy.porting.ui_emitter import default_output_path, emit_ui_json
@@ -518,36 +521,37 @@ def _print_recovery_report(
     ``_cmd_port_export`` handles that path separately and the recovery report
     is never printed.
     """
+    node_entries = [e for e in recovery_report if "node_id" in e]
     if json_mode:
-        orphaned_count = sum(1 for e in recovery_report if e.get("orphaned_route"))
+        orphaned_count = sum(1 for e in node_entries if e.get("orphaned_route"))
         payload: dict[str, Any] = {
             "recovery_report": {
                 "summary": {
-                    "total_nodes": len(recovery_report),
-                    "schema_less": sum(1 for e in recovery_report if e.get("schema_less")),
+                    "total_nodes": len(node_entries),
+                    "schema_less": sum(1 for e in node_entries if e.get("schema_less")),
                     "low_confidence": sum(
-                        1 for e in recovery_report
+                        1 for e in node_entries
                         if not e.get("schema_less") and e.get("confidence") is not None and e["confidence"] <= 0.3
                     ),
                     "widget_length_check_warnings": sum(
-                        1 for e in recovery_report if e.get("widget_length_check")
+                        1 for e in node_entries if e.get("widget_length_check")
                     ),
-                    "nodes_with_diagnostic": sum(1 for e in recovery_report if e.get("diagnostic")),
+                    "nodes_with_diagnostic": sum(1 for e in node_entries if e.get("diagnostic")),
                     "orphaned_routes": orphaned_count,
                 },
-                "entries": recovery_report,
+                "entries": node_entries,
             },
         }
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         lines: list[str] = ["[recovery-report]"]
-        schema_less_nodes = [e for e in recovery_report if e.get("schema_less")]
+        schema_less_nodes = [e for e in node_entries if e.get("schema_less")]
         low_conf_nodes = [
-            e for e in recovery_report
+            e for e in node_entries
             if not e.get("schema_less") and e.get("confidence") is not None and e["confidence"] <= 0.3
         ]
-        widget_warn_nodes = [e for e in recovery_report if e.get("widget_length_check")]
-        orphaned_nodes = [e for e in recovery_report if e.get("orphaned_route")]
+        widget_warn_nodes = [e for e in node_entries if e.get("widget_length_check")]
+        orphaned_nodes = [e for e in node_entries if e.get("orphaned_route")]
 
         if schema_less_nodes:
             lines.append(f"  schema-less nodes ({len(schema_less_nodes)}):")
@@ -587,6 +591,61 @@ def _print_recovery_report(
         if not schema_less_nodes and not low_conf_nodes and not widget_warn_nodes and not orphaned_nodes:
             lines.append("  (no issues — all nodes resolved with high confidence)")
         print("\n".join(lines), file=sys.stderr)
+
+
+def _default_change_report_path(out_path: Path) -> Path:
+    """Return the default sibling artifact path for a UI export."""
+    if out_path.suffix == ".json":
+        return out_path.with_suffix(".change-report.json")
+    return out_path.with_name(f"{out_path.name}.change-report.json")
+
+
+def _reroute_uids_for_workflow(workflow: Any) -> frozenset[str]:
+    """Return preserve-identity keys for reroute nodes in *workflow*."""
+    return frozenset(
+        (node.uid or node_id)
+        for node_id, node in workflow.nodes.items()
+        if node.class_type == "Reroute"
+    )
+
+
+def _artifact_payload(
+    *,
+    change_report: Any,
+    felt_report: Any,
+) -> dict[str, Any]:
+    """Build the structured change-report artifact payload."""
+    latency = dataclasses.asdict(felt_report.latency) if getattr(felt_report, "latency", None) else None
+    return {
+        "change_report": dataclasses.asdict(change_report),
+        "felt": dataclasses.asdict(felt_report),
+        "latency": latency,
+        "version": 1,
+    }
+
+
+def _print_felt_violation_summary(
+    felt_report: Any,
+    *,
+    artifact_path: Path | None = None,
+) -> None:
+    """Emit a concise stderr summary for a felt-gate failure."""
+    lines = [felt_report.summary]
+    for violation in felt_report.violations:
+        lines.append(
+            "  "
+            f"uid={violation.uid} reason={violation.reason}"
+            f" prior_pos={violation.prior_pos}"
+            f" current_pos={violation.current_pos}"
+            f" delta_px={violation.delta_px}"
+        )
+    if artifact_path is not None:
+        lines.append(f"  artifact={artifact_path}")
+    if getattr(felt_report, "latency", None) is None:
+        lines.append(
+            f"  latency=not_measured fallback_budget_ms={int(FALLBACK_LATENCY_BUDGET_MS)}"
+        )
+    print("\n".join(lines), file=sys.stderr)
 
 
 def _resolve_preserve_source(
@@ -771,14 +830,52 @@ def _cmd_port_export(args: argparse.Namespace) -> int:
                 out_path = Path(args.out)
             else:
                 out_path = default_output_path(workflow, source_template=py_path.stem)
+            change_report_path = Path(
+                getattr(args, "change_report_out", "") or _default_change_report_path(out_path)
+            )
+            include_virtual_wires = not getattr(args, "no_virtual_wires", False)
+            reroute_uids = (
+                frozenset()
+                if getattr(args, "fresh", False) or not include_virtual_wires
+                else _reroute_uids_for_workflow(workflow)
+            )
+            felt_report = (
+                evaluate_felt_delta(
+                    store,
+                    ui_payload,
+                    change_report_out[0],
+                    reroute_uids=reroute_uids,
+                )
+                if change_report_out
+                else None
+            )
+            artifact_payload = (
+                _artifact_payload(change_report=change_report_out[0], felt_report=felt_report)
+                if change_report_out and felt_report is not None
+                else None
+            )
 
             dry_run = getattr(args, "dry_run", False)
             if dry_run:
                 print(f"[dry-run] would write to {out_path}", file=sys.stderr)
+                if artifact_payload is not None:
+                    print(f"[dry-run] would write to {change_report_path}", file=sys.stderr)
             else:
+                if artifact_payload is not None:
+                    change_report_path.parent.mkdir(parents=True, exist_ok=True)
+                    change_report_path.write_text(
+                        json.dumps(artifact_payload, indent=2, sort_keys=True),
+                        encoding="utf-8",
+                    )
+                if felt_report is not None and not felt_report.ok and not felt_report.skipped_snapshot_absent:
+                    _print_felt_violation_summary(felt_report, artifact_path=change_report_path)
+                    return 5
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True))
+                out_path.write_text(json.dumps(ui_payload, indent=2, sort_keys=True), encoding="utf-8")
                 print(f"wrote {out_path}")
+            if dry_run and felt_report is not None and not felt_report.ok and not felt_report.skipped_snapshot_absent:
+                _print_felt_violation_summary(felt_report, artifact_path=change_report_path)
+                return 5
 
             # Emit layout sidecar alongside the UI JSON (best-effort).
             # Build the store from the freshly-emitted ui_payload (which carries
@@ -1692,6 +1789,11 @@ def register(subparsers) -> None:
         "--force-drop",
         action="store_true",
         help="Explicitly drop editor-only nodes detected in the prior UI JSON.",
+    )
+    export.add_argument(
+        "--change-report-out",
+        default=None,
+        help="Override path for the structured change-report artifact (default: <output>.change-report.json).",
     )
     export.set_defaults(func=_cmd_port_export)
 

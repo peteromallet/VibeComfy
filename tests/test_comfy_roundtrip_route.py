@@ -37,7 +37,7 @@ def schema_provider():
 
 
 def test_response_envelope_shape(flat_fixture, schema_provider):
-    """Route returns {graph, report: {change, recovery}, version: 1}."""
+    """Route returns {graph, report: {change, recovery, felt}, version: 1}."""
     from vibecomfy.comfy_nodes.routes import _handle_roundtrip
 
     result = _handle_roundtrip({"graph": flat_fixture}, schema_provider=schema_provider)
@@ -49,12 +49,14 @@ def test_response_envelope_shape(flat_fixture, schema_provider):
     report = result["report"]
     assert "change" in report, f"expected 'change' in report, got {list(report)}"
     assert "recovery" in report, f"expected 'recovery' in report, got {list(report)}"
+    assert "felt" in report, f"expected 'felt' in report, got {list(report)}"
 
     change = report["change"]
     assert "content_edits" in change, (
         f"expected 'content_edits' in change, got {list(change)}"
     )
     assert "identity_stabilization" in change
+    assert report["felt"]["ok"] is True
 
 
 # ---------------------------------------------------------------------------

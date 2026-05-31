@@ -257,7 +257,13 @@ def build():
         encoding="utf-8",
     )
 
-    code = _cmd_port_doctor_all(argparse.Namespace(workflow=str(scratchpad), ready=False, json=True, object_info_cache=None))
+    from vibecomfy.security import GateContext, set_gate_context
+
+    token = set_gate_context(GateContext(non_interactive=True, assume_yes=True))
+    try:
+        code = _cmd_port_doctor_all(argparse.Namespace(workflow=str(scratchpad), ready=False, json=True, object_info_cache=None))
+    finally:
+        token.var.reset(token)
 
     payload = json.loads(capsys.readouterr().out)
     sections = {section["name"]: section for section in payload["sections"]}
@@ -1516,6 +1522,242 @@ def test_export_from_flag_takes_priority_over_sidecar(
             )
 
 
+# ── S5 T5: felt-fidelity CLI integration tests ───────────────────────────
+
+
+@_requires_comfy_oracle
+def test_port_export_to_ui_persists_change_report_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``port export --to ui`` persists a .change-report.json artifact
+    carrying ``change_report``, ``felt``, ``latency``, and ``version``."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Convert to create a sidecar (preserve source for the gate).
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+
+    out_emit = tmp_path / "flat_emit_felt.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"port export failed with code {code}"
+    assert out_emit.exists(), f"UI output not written at {out_emit}"
+
+    # The artifact must exist at <output>.change-report.json
+    artifact_path = out_emit.with_suffix(".change-report.json")
+    assert artifact_path.exists(), (
+        f"change-report artifact not written at {artifact_path}"
+    )
+
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert "change_report" in artifact, "artifact missing change_report"
+    assert "felt" in artifact, "artifact missing felt"
+    assert "latency" in artifact, "artifact missing latency"
+    assert "version" in artifact, "artifact missing version"
+    assert artifact["version"] == 1
+
+
+@_requires_comfy_oracle
+def test_port_export_felt_violation_exits_code_5(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preserved-node felt violation exits with code 5."""
+    import shutil
+
+    from vibecomfy.porting.layout import (
+        FeltDeltaReport,
+        FeltDeltaViolation,
+    )
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Convert to get a sidecar.
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+
+    # Inject a synthetic felt failure: +50px on the first preserved node.
+    def _failing_evaluate(
+        prior_store, emitted_ui, change_report, *,
+        reroute_uids=frozenset(),
+        position_tolerance_px=0.0,
+        latency_report=None,
+    ):
+        return FeltDeltaReport(
+            ok=False,
+            violations=[
+                FeltDeltaViolation(
+                    uid="injected",
+                    reason="position_moved",
+                    prior_pos=[100.0, 200.0],
+                    current_pos=[150.0, 200.0],
+                    delta_px=50.0,
+                )
+            ],
+            summary="felt gate failed: 1 preserved-node fidelity violation(s)",
+            skipped_snapshot_absent=False,
+        )
+
+    monkeypatch.setattr(
+        "vibecomfy.commands.port.evaluate_felt_delta",
+        _failing_evaluate,
+    )
+
+    out_emit = tmp_path / "flat_emit_violation.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            object_info_cache=None,
+        )
+    )
+    assert code == 5, f"Expected exit code 5 for felt violation, got {code}"
+
+    # The artifact should still be written even when the gate fails.
+    artifact_path = out_emit.with_suffix(".change-report.json")
+    assert artifact_path.exists(), (
+        "change-report artifact must be written even on felt violation"
+    )
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact["felt"]["ok"] is False
+
+
+@_requires_comfy_oracle
+def test_port_export_fresh_skips_felt_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--fresh`` exits 0 and skips the felt gate (no preserve source)."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Convert to create sidecar (which --fresh will ignore).
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+
+    out_emit = tmp_path / "flat_emit_fresh_gate.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            fresh=True,
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"--fresh export should exit 0, got {code}"
+
+
+@_requires_comfy_oracle
+def test_port_export_no_virtual_wires_exits_zero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``--no-virtual-wires`` exits 0 for intentional reroute collapse."""
+    import shutil
+
+    _write_flat_fixture_node_index(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "walking_skeleton" / "flat.json"
+    flat_json = tmp_path / "flat.json"
+    shutil.copy(fixture, flat_json)
+    monkeypatch.chdir(tmp_path)
+
+    # Convert to get a sidecar.
+    code = _cmd_port_convert(
+        argparse.Namespace(
+            workflow="flat.json",
+            out="flat.py",
+            json=True,
+            head_check_models=False,
+            ready_id=None,
+            strict_ready_template=False,
+            dry_run=False,
+            diff=False,
+            all=False,
+        )
+    )
+    assert code == 0, f"port convert failed with code {code}"
+
+    out_emit = tmp_path / "flat_emit_no_vw.json"
+    code = _cmd_port_export(
+        argparse.Namespace(
+            workflow="flat.py",
+            ready=False,
+            to="ui",
+            json=False,
+            out=str(out_emit),
+            no_virtual_wires=True,
+            object_info_cache=None,
+        )
+    )
+    assert code == 0, f"--no-virtual-wires export should exit 0, got {code}"
+
+
 # ---------------------------------------------------------------------------
 # M6 T14 — --help self-checks
 # ---------------------------------------------------------------------------
@@ -1536,6 +1778,7 @@ def test_port_export_help_lists_all_flags() -> None:
         "--fresh",
         "--from",
         "--out",
+        "--change-report-out",
         "--strict",
         "--main-positions",
         "--dry-run",

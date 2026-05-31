@@ -11,6 +11,7 @@ of position data in raw UI JSON, keyed by canonical node identity.
 from __future__ import annotations
 
 from vibecomfy.porting.layout.engine import layout
+from vibecomfy.porting.layout.felt import FeltDeltaReport, FeltDeltaViolation, LatencyBudgetReport, evaluate_felt_delta
 from vibecomfy.porting.layout.layout_vector import LayoutDriftReport, layout_drift, layout_vector
 from vibecomfy.porting.layout.reconcile import ChangeReport, ContentEdits, IdentityStabilization, build_change_report, inner_node_uid
 from vibecomfy.porting.layout.types import LayoutResult
@@ -18,10 +19,14 @@ from vibecomfy.porting.layout.types import LayoutResult
 __all__ = [
     "ChangeReport",
     "ContentEdits",
+    "FeltDeltaReport",
+    "FeltDeltaViolation",
     "IdentityStabilization",
+    "LatencyBudgetReport",
     "LayoutDriftReport",
     "LayoutResult",
     "build_change_report",
+    "evaluate_felt_delta",
     "inner_node_uid",
     "layout",
     "layout_drift",

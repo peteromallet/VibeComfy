@@ -13,6 +13,7 @@ def _handle_roundtrip(
     Call from tests directly; the aiohttp wrapper below delegates to this.
     """
     from vibecomfy.ingest.normalize import convert_to_vibe_format  # noqa: PLC0415
+    from vibecomfy.porting.layout import evaluate_felt_delta  # noqa: PLC0415
     from vibecomfy.porting.ui_emitter import emit_ui_json  # noqa: PLC0415
     from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
 
@@ -30,9 +31,28 @@ def _handle_roundtrip(
             guard_original_ui=payload["graph"],
         )
         change_dict = dataclasses.asdict(change_report_out[0]) if change_report_out else {}
+        reroute_uids = frozenset(
+            (node.uid or node_id)
+            for node_id, node in wf.nodes.items()
+            if node.class_type == "Reroute"
+        )
+        felt_report = (
+            evaluate_felt_delta(
+                None,
+                emitted_ui,
+                change_report_out[0],
+                reroute_uids=reroute_uids,
+            )
+            if change_report_out
+            else None
+        )
         return {
             "graph": emitted_ui,
-            "report": {"change": change_dict, "recovery": recovery_report},
+            "report": {
+                "change": change_dict,
+                "recovery": recovery_report,
+                "felt": dataclasses.asdict(felt_report) if felt_report is not None else {},
+            },
             "version": 1,
         }
     except Exception as exc:
