@@ -62,6 +62,17 @@ def _literal_kwargs(inputs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _node_payload(node: Any) -> dict[str, Any]:
+    """Return the execution-relevant API payload for canonical comparison."""
+    if not isinstance(node, dict):
+        return {}
+    return {
+        key: value
+        for key, value in node.items()
+        if key in {"class_type", "inputs"}
+    }
+
+
 def canonical_form(api: dict) -> dict:
     """Return a normalized representation of an api dict.
 
@@ -87,7 +98,7 @@ def canonical_form(api: dict) -> dict:
     upstream: dict[str, list[tuple[str, str, int]]] = {nid: [] for nid in node_ids}
 
     for nid in node_ids:
-        node = api[nid]
+        node = _node_payload(api[nid])
         inputs = node.get("inputs", {})
         for key, value in sorted(inputs.items()):
             if _is_link(value):
@@ -99,7 +110,7 @@ def canonical_form(api: dict) -> dict:
 
     # Initial label: hash of (class_type, stable_json of literal kwargs)
     def _initial_label(nid: str) -> str:
-        node = api[nid]
+        node = _node_payload(api[nid])
         class_type = str(node.get("class_type", ""))
         literals = _literal_kwargs(node.get("inputs", {}))
         raw = _stable_json({"class_type": class_type, "kwargs": literals})
@@ -143,7 +154,7 @@ def canonical_form(api: dict) -> dict:
     # is a complete graph-isomorphism solver.
     result_nodes: list[dict[str, Any]] = []
     for nid in node_ids:
-        node = api[nid]
+        node = _node_payload(api[nid])
         new_inputs: dict[str, Any] = {}
         for key, value in sorted(node.get("inputs", {}).items()):
             if _is_link(value):

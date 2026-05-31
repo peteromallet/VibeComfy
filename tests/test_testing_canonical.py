@@ -17,6 +17,24 @@ def test_canonical_form_treats_id_renumbered_graphs_as_equal() -> None:
     assert canonical_form(left) == canonical_form(left)
 
 
+def test_canonical_form_ignores_comfy_meta_annotations() -> None:
+    left = {
+        "1": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "model.safetensors"},
+            "_meta": {"title": "CheckpointLoaderSimple"},
+        }
+    }
+    right = {
+        "loader": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "model.safetensors"},
+        }
+    }
+
+    assert canonical_equal(left, right)
+
+
 def test_parallel_vaedecode_nodes_are_distinguished_by_downstream_consumers() -> None:
     left = {
         "1": {"class_type": "KSampler", "inputs": {}},
@@ -61,4 +79,3 @@ def test_symmetric_interchangeable_branches_preserve_multiplicity() -> None:
     }
 
     assert canonical_equal(left, renumbered)
-

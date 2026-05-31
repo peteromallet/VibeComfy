@@ -32,29 +32,18 @@ given IR: same IR in → same JSON out. All node geometry is stubbed and isolate
 single :func:`_stub_layout` helper, which M2 will replace with real layout; this module
 carries no layout-quality logic of its own.
 
-``widgets_values`` emission rule (verified empirically against the parity oracle)
----------------------------------------------------------------------------------
-The offline parity gate is ``_normalize_ui_to_api(emit_ui_json(wf))`` ==
-``compile("api")`` (modulo node-id remapping, via ``parity.compile_equivalent``).
-``_normalize_ui_to_api`` reads ``widgets_values`` *positionally* against the
-**compacted** widget-name list ``_schema_input_names(provider, class_type)``, which
-strips ``None``-named schema slots (the UI-only ``control_after_generate`` position).
-Therefore the only array that round-trips is one laid out against that **same compacted
-ordering**: position ``idx`` holds the value the node carries under
-``compacted_names[idx]``, and any positions past the schema are filled from the node's
-``widget_<N>`` keys at index ``N``. Trailing ``None`` is trimmed. Verified to reach
-parity on every UI-shaped ``workflow_corpus/official`` workflow (13/13) and to match the
-``flux2_klein_4b_t2i`` reference shape field-for-field for the round-tripping nodes.
+``widgets_values`` emission rule (verified empirically against the Comfy oracle)
+-------------------------------------------------------------------------------
+ComfyUI's ``convert_ui_to_api`` reads ``widgets_values`` *positionally* against the
+raw object-info widget order, including ``None``-named UI-only slots such as
+KSampler's ``control_after_generate`` position. Therefore the emitted array is laid
+out against that raw order: named positions take the node's current value, ``None``
+positions preserve the captured source value when available, and seed control slots
+fall back to the documented ``"fixed"`` value. Trailing ``None`` is trimmed.
 
-``control_after_generate`` is **not** injected as a distinct positional element. The
-normalizer's ``None``-strip means inserting it would shift every later read-back index
-by one and break parity (confirmed empirically for a clean KSampler IR). When the source
-graph carried a control value in its litegraph ``widgets_values``, ingest already folds
-it into the compacted slot it occupied, so it rides back out at the correct litegraph
-position automatically (e.g. wan_t2v KSampler ``'randomize'`` at index 1). The retained
-``VibeNode.metadata["control_after_generate"]`` (T2) — or the documented ``"fixed"``
-default when absent — is recorded in the recovery report under ``control_after_generate``
-with a ``control_after_generate_defaulted`` flag, never silently guessed.
+The retained ``VibeNode.metadata["control_after_generate"]`` — or the documented
+``"fixed"`` default when absent — is recorded in the recovery report under
+``control_after_generate`` with a ``control_after_generate_defaulted`` flag.
 
 Input-slot ``widget`` objects: only inputs that are actually LINKED get an entry in the
 node ``inputs`` array; an entry whose name is a widget-type input additionally carries
@@ -621,18 +610,18 @@ def _get_node_schema_provenance(
     }
 
 
-def _compacted_widget_names(class_type: str, schema: Any) -> list[str]:
-    """Return the compacted widget-name list the normalizer reads back.
+def _widget_names_for_emission(class_type: str, schema: Any) -> list[str | None]:
+    """Return the raw widget-name list ComfyUI reads positionally.
 
-    Identical to ``_schema_input_names`` (committed table first, else provider
-    schema, ``None``-named slots stripped).  Going through the same function the
-    normalizer uses guarantees the emitted ``widgets_values`` ordering matches the
-    read-back exactly.
+    ComfyUI's ``convert_ui_to_api`` consumes ``widgets_values`` against the raw
+    object-info widget order, including ``None`` UI-only positions such as
+    KSampler's control-after-generate slot.  Emitting a compacted list shifts
+    later values into the wrong fields.
     """
     committed = widget_names_for_class(class_type)
     if committed is not None:
-        return [name for name in committed if name is not None]
-    return [name for name in widget_names_from_schema(class_type, schema) if name is not None]
+        return list(committed)
+    return list(widget_names_from_schema(class_type, schema))
 
 
 def _raw_widget_order_from_provider(
@@ -764,15 +753,17 @@ def _full_widget_name_count(
     return len(names) if names else None
 
 
-def _build_widget_values(node: Any, compacted_names: list[str]) -> list[Any]:
+def _build_widget_values(node: Any, widget_names: list[str | None]) -> list[Any]:
     """Reverse the normalizer's positional widget read-back.
 
     The value pool is the node's widget-sourced data: ``node.widgets`` (``widget_<N>``
     carriers) plus ``node.inputs`` (non-link named values; link inputs never land
     here — ingest routes them to edges).  Position ``idx`` takes the value under
-    ``compacted_names[idx]`` when present, else the ``widget_<idx>`` carrier; positions
-    past the schema come straight from ``widget_<idx>``.  Trailing ``None`` is trimmed
-    so the array matches the litegraph reference length.
+    ``widget_names[idx]`` when present, else the captured raw widget value at that
+    position, else the ``widget_<idx>`` carrier.  ``None`` slots are UI-only widget
+    positions; preserve their captured value, or emit the retained/default
+    control-after-generate value when available.  Trailing ``None`` is trimmed so
+    the array matches the litegraph reference length.
     """
     pool: dict[str, Any] = {}
     pool.update(node.widgets)
@@ -787,13 +778,29 @@ def _build_widget_values(node: Any, compacted_names: list[str]) -> list[Any]:
                 continue
     max_widget = (max(widget_idxs) + 1) if widget_idxs else 0
 
-    length = max(len(compacted_names), max_widget)
+    raw_ui = getattr(node, "metadata", {}).get("_ui", {})
+    raw_widgets = raw_ui.get("widgets_values") if isinstance(raw_ui, dict) else None
+    if not isinstance(raw_widgets, list):
+        raw_widgets = []
+
+    has_seed_control_slot = any(
+        isinstance(name, str) and name in _SEED_INPUT_NAMES
+        for name in widget_names
+    )
+    length = max(len(widget_names), max_widget, len(raw_widgets))
     values: list[Any] = []
     for idx in range(length):
-        if idx < len(compacted_names) and compacted_names[idx] in pool:
-            values.append(pool[compacted_names[idx]])
+        name = widget_names[idx] if idx < len(widget_names) else None
+        if isinstance(name, str) and name in pool:
+            values.append(pool[name])
         elif f"widget_{idx}" in pool:
             values.append(pool[f"widget_{idx}"])
+        elif idx < len(raw_widgets):
+            values.append(raw_widgets[idx])
+        elif name is None and isinstance(node.metadata.get("control_after_generate"), str):
+            values.append(node.metadata["control_after_generate"])
+        elif name is None and has_seed_control_slot:
+            values.append(_CONTROL_AFTER_GENERATE_DEFAULT)
         else:
             values.append(None)
 
@@ -1149,8 +1156,8 @@ def emit_ui_json(
                 pass  # appended after the loop; diagnostic is in the provenance entry
 
         # --- widget metadata for this class ---
-        compacted_names = _compacted_widget_names(node.class_type, schema)
-        widget_name_set = set(compacted_names)
+        widget_names = _widget_names_for_emission(node.class_type, schema)
+        widget_name_set = {name for name in widget_names if name is not None}
         full_committed = widget_names_for_class(node.class_type)
         if full_committed is not None:
             widget_name_set.update(n for n in full_committed if n is not None)
@@ -1201,8 +1208,8 @@ def emit_ui_json(
         if node.uid:
             properties["vibecomfy_uid"] = node.uid
 
-        # --- widgets_values (verified compacted-ordering rule; see module docstring) ---
-        widget_values = _build_widget_values(node, compacted_names)
+        # --- widgets_values (verified raw ComfyUI ordering; see module docstring) ---
+        widget_values = _build_widget_values(node, widget_names)
 
         # control_after_generate: retain from metadata or document the `fixed` default.
         retained_control = node.metadata.get("control_after_generate")
