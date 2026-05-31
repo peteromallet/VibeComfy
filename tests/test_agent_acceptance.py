@@ -164,7 +164,10 @@ def test_acceptance_set_public_input_and_compile_z_image_to_api() -> None:
     assert isinstance(api, dict)
     assert workflow.inputs["prompt"].value == prompt
     assert api[workflow.inputs["prompt"].node_id]["inputs"][workflow.inputs["prompt"].field] == prompt
-    assert api["10"]["inputs"]["images"] == ["9", 0]
+    output = workflow.outputs[0]
+    save_node = api[output.node_id]
+    assert save_node["class_type"] == "SaveImage"
+    assert save_node["inputs"]["images"] == ["11", 0]
 
 
 def test_acceptance_dry_run_ready_conversion_reports_strict_evidence_without_writing(

@@ -96,10 +96,13 @@ def workflow_from_ready(template_id: str) -> VibeWorkflow:
     if spec is None or spec.loader is None:
         raise ValueError(f"Could not import ready template {path}")
     module = importlib.util.module_from_spec(spec)
+    provenance = _provenance_for_path(path)
+    if provenance == "untrusted_source" and _path_is_dynamic_ready_template(path):
+        provenance = "user_confirmed"
     require_confirmation(
         operation="scratchpad_exec",
         class_type=None,  # type: ignore[arg-type]
-        provenance=_provenance_for_path(path),
+        provenance=provenance,
         capabilities=frozenset({"code_exec"}),
         details={"path": str(path)},
         ctx=current_gate_context(),
@@ -280,6 +283,17 @@ def _template_id_for_path(path: Path) -> str:
         except ValueError:
             continue
     return path.with_suffix("").name
+
+
+def _path_is_dynamic_ready_template(path: Path) -> bool:
+    resolved = path.expanduser().resolve()
+    for root in _dynamic_ready_roots():
+        try:
+            if resolved.is_relative_to(root.resolve()):
+                return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 
 def _ready_roots() -> list[Path]:

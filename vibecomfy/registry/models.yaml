@@ -59,6 +59,28 @@ models:
         path: text_encoders/qwen_3_4b.safetensors
     tags: [phase:core]
 
+  - id: z_image_bf16_diffusion
+    source:
+      kind: huggingface
+      repo: Comfy-Org/z_image
+      filename: split_files/diffusion_models/z_image_bf16.safetensors
+    min_size: 1_000_000_000
+    targets:
+      - node_pack: comfy_core
+        path: diffusion_models/z_image_bf16.safetensors
+    tags: [phase:core]
+
+  - id: z_image_turbo_ae_vae
+    source:
+      kind: huggingface
+      repo: Comfy-Org/z_image_turbo
+      filename: split_files/vae/ae.safetensors
+    min_size: 10_000_000
+    targets:
+      - node_pack: comfy_core
+        path: vae/ae.safetensors
+    tags: [phase:core]
+
   - id: flux2_vae_from_klein_4b
     source:
       kind: huggingface
