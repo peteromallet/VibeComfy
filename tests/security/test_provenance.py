@@ -48,7 +48,7 @@ def test_read_no_metadata_attr_returns_untrusted_source():
 
 
 @pytest.mark.parametrize(
-    "value", ["untrusted_source", "agent_authored", "user_confirmed"]
+    "value", ["untrusted_source", "agent_authored", "agent_generated", "user_confirmed"]
 )
 def test_tag_then_read_roundtrip(value):
     node = _node()
@@ -84,6 +84,12 @@ def test_confirm_idempotent_on_agent_authored():
     assert provenance.read(node) == "agent_authored"
 
 
+def test_confirm_idempotent_on_agent_generated():
+    node = _node(provenance="agent_generated")
+    provenance.confirm(node)
+    assert provenance.read(node) == "agent_generated"
+
+
 def test_confirm_promotes_missing_key():
     """Fresh node with no provenance reads as untrusted_source — confirm promotes it."""
     node = _node()
@@ -116,6 +122,11 @@ def test_vibenode_provenance_property_reads_through():
     assert node.provenance == "agent_authored"
 
 
+def test_vibenode_provenance_property_reads_agent_generated():
+    node = _node(provenance="agent_generated")
+    assert node.provenance == "agent_generated"
+
+
 def test_vibeworkflow_confirm_node_promotes():
     node = _node(provenance="untrusted_source")
     wf = _wf(node)
@@ -131,7 +142,72 @@ def test_vibeworkflow_confirm_node_idempotent_on_trusted():
     assert wf.nodes["n1"].provenance == "user_confirmed"
 
 
+def test_vibeworkflow_confirm_node_leaves_agent_generated_unpromoted():
+    node = _node(provenance="agent_generated")
+    wf = _wf(node)
+    wf.confirm_node("n1")
+    assert wf.nodes["n1"].provenance == "agent_generated"
+
+
 def test_vibeworkflow_confirm_node_unknown_raises_keyerror():
     wf = _wf(_node(provenance="untrusted_source"))
     with pytest.raises(KeyError):
         wf.confirm_node("missing")
+
+
+# --- agent_generated non-promotion boundary ---------------------------------
+
+@pytest.mark.parametrize(
+    "start, expected",
+    [
+        ("agent_generated", "agent_generated"),
+        ("untrusted_source", "user_confirmed"),
+        ("user_confirmed", "user_confirmed"),
+        ("agent_authored", "agent_authored"),
+    ],
+)
+def test_confirm_promotion_boundary_table(start, expected):
+    """Full promotion table: only untrusted_source promotes to user_confirmed;
+    agent_generated, agent_authored, and user_confirmed remain unchanged."""
+    node = _node(provenance=start)
+    provenance.confirm(node)
+    assert provenance.read(node) == expected
+
+
+def test_agent_generated_survives_multiple_confirm_calls():
+    """Multiple confirm() calls must not accumulate into a promotion."""
+    node = _node(provenance="agent_generated")
+    for _ in range(5):
+        provenance.confirm(node)
+    assert provenance.read(node) == "agent_generated"
+
+
+def test_agent_generated_survives_confirm_node_multiple_calls():
+    """Multiple VibeWorkflow.confirm_node() calls must not promote agent_generated."""
+    node = _node(provenance="agent_generated")
+    wf = _wf(node)
+    for _ in range(5):
+        wf.confirm_node("n1")
+    assert wf.nodes["n1"].provenance == "agent_generated"
+
+
+def test_agent_generated_node_tagged_after_confirm_stays_agent_generated():
+    """A node tagged agent_generated after a prior confirm() must not be
+    promoted by a subsequent confirm() — the tag itself determines the outcome."""
+    node = _node()
+    provenance.confirm(node)  # promotes missing → user_confirmed
+    assert provenance.read(node) == "user_confirmed"
+    provenance.tag(node, "agent_generated")
+    assert provenance.read(node) == "agent_generated"
+    provenance.confirm(node)
+    assert provenance.read(node) == "agent_generated"
+
+
+def test_provenance_literal_includes_agent_generated():
+    """The agent_generated literal is in the Provenance type's valid set."""
+    from vibecomfy.security.provenance import Provenance
+    from typing import get_args
+
+    valid = set(get_args(Provenance))
+    assert "agent_generated" in valid
+    assert "agent_generated" in provenance._VALID

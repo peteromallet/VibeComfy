@@ -62,6 +62,18 @@ def test_explicit_user_confirmed_succeeds(headless_ctx):
     assert "_provenance" not in node.inputs
 
 
+def test_explicit_agent_generated_succeeds(headless_ctx):
+    wf = _wf()
+    with untrusted_scope():
+        node = wf.add_node(
+            "SaveImage",
+            filename_prefix="ok/",
+            _provenance="agent_generated",
+        )
+    assert node.metadata[PROVENANCE_KEY] == "agent_generated"
+    assert "_provenance" not in node.inputs
+
+
 def test_passthrough_class_never_prompts(headless_ctx):
     wf = _wf()
     with untrusted_scope():

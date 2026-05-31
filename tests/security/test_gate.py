@@ -55,11 +55,19 @@ def test_trusted_provenance_never_prompts():
     require_confirmation(
         operation="add_node",
         class_type="SaveImage",
+        provenance="agent_generated",
+        capabilities=["filesystem_write"],
+        ctx=ctx,
+    )
+    require_confirmation(
+        operation="add_node",
+        class_type="SaveImage",
         provenance="user_confirmed",
         capabilities=["filesystem_write"],
         ctx=ctx,
     )
     assert [e["reason"] for e in ctx.audit] == [
+        "trusted_provenance",
         "trusted_provenance",
         "trusted_provenance",
     ]
@@ -251,3 +259,96 @@ def test_cli_parser_accepts_yes_and_non_interactive_after_subcommand_on_all():
         seen.add(name)
     expected = {spec.name for spec in COMMANDS}
     assert expected <= seen
+
+
+# --- agent_generated gate boundary tests -----------------------------------
+
+
+@pytest.mark.parametrize(
+    "provenance,capabilities,should_allow",
+    [
+        ("agent_generated", ["filesystem_write"], True),
+        ("agent_generated", ["network"], True),
+        ("agent_generated", ["filesystem_write", "network", "code_exec"], True),
+        ("agent_generated", ["passthrough"], True),
+        ("agent_generated", [], True),
+        ("untrusted_source", ["filesystem_write"], False),
+        ("untrusted_source", ["network"], False),
+        ("untrusted_source", ["code_exec"], False),
+        ("agent_authored", ["filesystem_write"], True),
+        ("user_confirmed", ["filesystem_write"], True),
+    ],
+)
+def test_agent_generated_gate_boundary_table(provenance, capabilities, should_allow):
+    """agent_generated passes the headless gate for ALL capability sets,
+    same as agent_authored and user_confirmed. untrusted_source is refused
+    for side-effecting capabilities. This proves the gate treats
+    agent_generated as trusted post-scan provenance."""
+    ctx = _ctx(non_interactive=True)
+    if should_allow:
+        result = require_confirmation(
+            operation="add_node",
+            class_type="SaveImage",
+            provenance=provenance,
+            capabilities=capabilities,
+            ctx=ctx,
+        )
+        assert result == "allow"
+        assert ctx.audit[-1]["reason"] == "trusted_provenance"
+        assert ctx.audit[-1]["provenance"] == provenance
+    else:
+        with pytest.raises(CapabilityFenceError) as exc:
+            require_confirmation(
+                operation="add_node",
+                class_type="SaveImage",
+                provenance=provenance,
+                capabilities=capabilities,
+                ctx=ctx,
+            )
+        assert exc.value.detail["provenance"] == provenance
+
+
+def test_agent_generated_audit_preserves_exact_provenance_string():
+    """The gate audit entry records 'agent_generated' exactly, not a
+    promoted or normalized form."""
+    ctx = _ctx(non_interactive=True)
+    require_confirmation(
+        operation="add_node",
+        class_type="PreviewImage",
+        provenance="agent_generated",
+        capabilities=["filesystem_write"],
+        ctx=ctx,
+    )
+    entry = ctx.audit[-1]
+    assert entry["provenance"] == "agent_generated"
+    assert entry["decision"] == "allow"
+    assert entry["reason"] == "trusted_provenance"
+
+
+def test_untrusted_source_rejected_for_same_op_agent_generated_allows():
+    """Contrast: the same operation/class/capabilities is rejected for
+    untrusted_source but allowed for agent_generated. This is the key
+    trust-boundary distinction."""
+    op = "add_node"
+    cls = "SaveImage"
+    caps = ["filesystem_write"]
+
+    ctx_untrusted = _ctx(non_interactive=True)
+    with pytest.raises(CapabilityFenceError):
+        require_confirmation(
+            operation=op,
+            class_type=cls,
+            provenance="untrusted_source",
+            capabilities=caps,
+            ctx=ctx_untrusted,
+        )
+
+    ctx_agent = _ctx(non_interactive=True)
+    result = require_confirmation(
+        operation=op,
+        class_type=cls,
+        provenance="agent_generated",
+        capabilities=caps,
+        ctx=ctx_agent,
+    )
+    assert result == "allow"

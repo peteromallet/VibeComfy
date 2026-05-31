@@ -16,7 +16,12 @@ from __future__ import annotations
 
 from typing import Any, Literal, get_args
 
-Provenance = Literal["untrusted_source", "agent_authored", "user_confirmed"]
+Provenance = Literal[
+    "untrusted_source",
+    "agent_authored",
+    "agent_generated",
+    "user_confirmed",
+]
 
 PROVENANCE_KEY = "provenance"
 
@@ -58,14 +63,15 @@ def tag(node: Any, value: Provenance) -> None:
 def confirm(node: Any) -> None:
     """Promote ``untrusted_source`` → ``user_confirmed``; never raises.
 
-    Idempotent no-op on ``user_confirmed`` and ``agent_authored``. A node
-    whose metadata is missing or non-dict is left untouched.
+    Idempotent no-op on trusted or restricted-loader tags that must not be
+    silently promoted by confirmation helpers. A node whose metadata is missing
+    or non-dict is left untouched.
     """
     metadata = getattr(node, "metadata", None)
     if not isinstance(metadata, dict):
         return
     current = metadata.get(PROVENANCE_KEY)
-    if current in ("user_confirmed", "agent_authored"):
+    if current in ("user_confirmed", "agent_authored", "agent_generated"):
         return
     metadata[PROVENANCE_KEY] = "user_confirmed"
 

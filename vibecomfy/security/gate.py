@@ -14,6 +14,8 @@ This module provides two complementary surfaces:
    IR-mutating surface that is about to install untrusted, side-effecting
    capability into the workflow. Returns the literal string ``"allow"`` on
    success, raises ``CapabilityFenceError`` (carrying ``.detail``) on refusal.
+   ``agent_generated`` is allowed here for headless execution, but only the
+   restricted generated-Python loader is allowed to mint that provenance.
 
 The dependency direction stays one-way: ``security/`` never imports from
 ``ingest``/``workflow``/``porting``/``registry``; those packages import this
@@ -150,7 +152,8 @@ def require_confirmation(
     """Gate a potentially-deputy operation.
 
     Allow rules (in order):
-      - ``provenance`` ∈ {agent_authored, user_confirmed}              → allow
+      - ``provenance`` ∈ {agent_authored, agent_generated, user_confirmed}
+                                                                     → allow
       - effective capabilities ⊆ {passthrough}                          → allow
       - ``ctx.assume_yes``                                              → audit + allow
       - ``ctx.non_interactive`` or ``not stream.isatty()``              → raise
@@ -161,7 +164,10 @@ def require_confirmation(
     caps = frozenset(str(c) for c in capabilities)
     details = dict(details or {})
 
-    if provenance in ("agent_authored", "user_confirmed"):
+    # Trusted or restricted-loader provenance. `agent_generated` must remain
+    # mintable only by the restricted loader; the gate merely recognizes that
+    # provenance once present so headless execution can proceed.
+    if provenance in ("agent_authored", "agent_generated", "user_confirmed"):
         _record(
             ctx,
             decision="allow",

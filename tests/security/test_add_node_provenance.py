@@ -49,6 +49,11 @@ def test_explicit_provenance_overrides_contextvar():
     assert node2.metadata[PROVENANCE_KEY] == "untrusted_source"
     assert "_provenance" not in node2.inputs
 
+    wf3 = _new_wf()
+    node3 = wf3.add_node("CLIPTextEncode", _provenance="agent_generated")
+    assert node3.metadata[PROVENANCE_KEY] == "agent_generated"
+    assert "_provenance" not in node3.inputs
+
 
 def test_add_node_does_not_leak_provenance_into_inputs():
     wf = _new_wf()

@@ -175,3 +175,111 @@ def test_load_scratchpad_traversal_attempt_raises_headless(tmp_path, monkeypatch
             outside_dir.rmdir()
         except OSError:
             pass
+
+
+# ---- agent_generated minting boundary tests ---------------------------------
+
+
+def test_provenance_for_path_never_returns_agent_generated():
+    """_provenance_for_path only returns agent_authored or untrusted_source;
+    agent_generated must never be returned from path-based classification.
+    This proves loaders that rely on path classification cannot accidentally
+    mint agent_generated."""
+    from vibecomfy.security.provenance import Provenance
+    from vibecomfy.utils import find_repo_root
+
+    repo = find_repo_root()
+    trusted = repo / "ready_templates"
+    assert trusted.exists(), "ready_templates directory required for this test"
+
+    # Test a real built-in ready template path
+    from vibecomfy.registry.ready import repo_ready_template_paths
+    paths = repo_ready_template_paths()
+    assert paths, "expected built-in ready templates"
+    for p in paths[:5]:  # sample a few
+        result = lp._provenance_for_path(p)
+        assert result in ("agent_authored", "untrusted_source"), (
+            f"_provenance_for_path({p}) returned {result!r}; "
+            f"expected only agent_authored or untrusted_source"
+        )
+        assert result != "agent_generated", (
+            f"_provenance_for_path unexpectedly returned agent_generated for {p}"
+        )
+
+    # Test an external path
+    external = repo.parent / "external_never_ag_probe.py"
+    external.write_text("# probe\n")
+    try:
+        result = lp._provenance_for_path(external)
+        assert result != "agent_generated", (
+            f"_provenance_for_path returned agent_generated for external path"
+        )
+    finally:
+        external.unlink(missing_ok=True)
+
+
+def test_provenance_for_path_returns_only_valid_provenance(tmp_path, monkeypatch):
+    """Every return from _provenance_for_path must be in the Provenance literal,
+    but must never be agent_generated."""
+    from vibecomfy.security.provenance import Provenance
+    from typing import get_args
+
+    valid = frozenset(get_args(Provenance))
+    monkeypatch.setattr(lp, "find_repo_root", lambda: tmp_path)
+
+    # trusted path
+    (tmp_path / "out" / "scratchpads").mkdir(parents=True)
+    trusted = tmp_path / "out" / "scratchpads" / "t.py"
+    trusted.write_text("# ok\n")
+    r1 = lp._provenance_for_path(trusted)
+    assert r1 in valid, f"{r1!r} not in Provenance literal"
+    assert r1 != "agent_generated"
+
+    # external path
+    ext = tmp_path.parent / "ext_probe.py"
+    ext.write_text("# ext\n")
+    try:
+        r2 = lp._provenance_for_path(ext)
+        assert r2 in valid, f"{r2!r} not in Provenance literal"
+        assert r2 != "agent_generated"
+    finally:
+        ext.unlink(missing_ok=True)
+
+
+def test_scratchpad_loader_default_provenance_is_not_agent_generated():
+    """The scratchpad loader's default provenance_override is None, which
+    maps to user_confirmed, not agent_generated. This test documents the
+    contract that the public scratchpad loader API default does not mint
+    agent_generated."""
+    from vibecomfy.scratchpad_loader import load_scratchpad
+    import inspect
+
+    sig = inspect.signature(load_scratchpad)
+    param = sig.parameters.get("provenance_override")
+    assert param is not None, "load_scratchpad must have provenance_override parameter"
+    assert param.default is None, (
+        "provenance_override default must be None so the loader defaults "
+        "to user_confirmed, not agent_generated"
+    )
+
+
+def test_ready_template_load_does_not_mint_agent_generated():
+    """Loading a built-in ready template via workflow_from_ready must not
+    produce nodes with agent_generated provenance. The _provenance_for_path
+    classifier returns agent_authored for built-in templates, and
+    agent_generated is reserved for the restricted AST-scanned loader."""
+    from vibecomfy.registry.ready import workflow_from_ready
+    from vibecomfy.registry.ready import repo_ready_template_ids
+
+    ids = repo_ready_template_ids()
+    assert ids, "expected built-in ready templates"
+    # Use a small, fast-loading template
+    template_id = "image/z_image"
+    if template_id in ids:
+        wf = workflow_from_ready(template_id)
+        for node in wf.nodes.values():
+            prov = node.metadata.get("provenance")
+            assert prov != "agent_generated", (
+                f"node {node.id} ({node.class_type}) has agent_generated "
+                f"provenance from ready-template loader — this must not happen"
+            )
