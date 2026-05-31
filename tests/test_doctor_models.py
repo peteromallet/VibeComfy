@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 from pathlib import Path
 
+from vibecomfy.cli import build_parser
 from vibecomfy.commands.doctor import _cmd_doctor, _video_frame_cap_warnings
+from vibecomfy.errors import MissingModelAssetError
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -130,6 +133,59 @@ def test_doctor_passes_when_model_exists(
     captured = capsys.readouterr()
     assert "Missing models:" not in captured.out
     assert "missing model" not in captured.out
+
+
+def test_doctor_models_flag_reports_unset_models_root(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    scratchpad = _write_scratchpad(tmp_path / "scratch.py")
+    monkeypatch.delenv("VIBECOMFY_MODELS_ROOT", raising=False)
+    monkeypatch.setattr("vibecomfy.commands.doctor.read_lockfile", lambda: [])
+
+    code = _cmd_doctor(
+        argparse.Namespace(
+            path=str(scratchpad),
+            models=True,
+            json=False,
+            allow_drift=False,
+            lint=False,
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "VIBECOMFY_MODELS_ROOT not set; cannot check model presence" in captured.out
+
+    code = _cmd_doctor(
+        argparse.Namespace(
+            path=str(scratchpad),
+            models=True,
+            json=True,
+            allow_drift=False,
+            lint=False,
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 1
+    assert payload["status"] == "error"
+    assert payload["layer"] == "model asset diagnostics"
+    assert "VIBECOMFY_MODELS_ROOT not set; cannot check model presence" in payload["errors"][0]
+
+
+def test_doctor_models_next_action_uses_registered_flag() -> None:
+    action = MissingModelAssetError.default_next_action
+    parts = shlex.split(action)
+    workflow_arg = parts.index("<workflow>")
+    parts[workflow_arg] = "image/z_image"
+
+    args = build_parser().parse_args(parts[1:])
+
+    assert parts[:2] == ["vibecomfy", "doctor"]
+    assert args.cmd == "doctor"
+    assert args.path == "image/z_image"
+    assert args.models is True
 
 
 def test_doctor_warns_when_bounded_video_generation_has_uncapped_loadvideo() -> None:

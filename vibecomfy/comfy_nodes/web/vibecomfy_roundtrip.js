@@ -51,6 +51,61 @@ async function openRoundtrip() {
   renderDiffModal({ graph: result.graph, report: result.report });
 }
 
+function openAgentEdit() {
+  let graph;
+  try {
+    graph = app.canvas.graph.serialize();
+  } catch (e) {
+    return errorModal({ kind: "SerializeError", message: String(e) });
+  }
+
+  const overlay = makeOverlay();
+  const box = makeBox(overlay);
+  box.appendChild(el("h3", "Edit with DeepSeek"));
+
+  const textarea = document.createElement("textarea");
+  textarea.placeholder = "Describe the workflow change...";
+  Object.assign(textarea.style, {
+    width: "520px",
+    height: "140px",
+    display: "block",
+    background: "#111",
+    color: "#eee",
+    border: "1px solid #555",
+    borderRadius: "4px",
+    padding: "8px",
+    fontFamily: "monospace",
+  });
+  box.appendChild(textarea);
+
+  const runBtn = button("Run", async () => {
+    const task = textarea.value.trim();
+    if (!task) return;
+    runBtn.disabled = true;
+    runBtn.textContent = "Working...";
+    let result;
+    try {
+      const res = await fetch("/vibecomfy/agent-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ graph, task }),
+      });
+      result = await res.json();
+      if (!res.ok || result?.error) {
+        overlay.remove();
+        return errorModal({ kind: result?.kind, message: result?.error || res.statusText });
+      }
+    } catch (e) {
+      overlay.remove();
+      return errorModal({ kind: "NetworkError", message: String(e) });
+    }
+    overlay.remove();
+    renderDiffModal({ graph: result.graph, report: result.report, message: result.message });
+  });
+  box.appendChild(runBtn);
+  box.appendChild(button("Cancel", () => overlay.remove()));
+}
+
 // ── DOM helpers ───────────────────────────────────────────────────────────
 function el(tag, text) { const n = document.createElement(tag); if (text != null) n.textContent = text; return n; }
 function button(label, onClick) { const b = el("button", label); b.onclick = onClick; b.style.margin = "4px"; return b; }
@@ -74,7 +129,7 @@ function row(uid, color, label, tooltip) {
 }
 
 // ── Diff modal (pure function of report) ──────────────────────────────────
-function renderDiffModal({ graph, report }) {
+function renderDiffModal({ graph, report, message = null }) {
   const ce = report?.change?.content_edits || {};
   const preserved = ce.preserved || [];
   const edited = ce.edited || [];
@@ -90,6 +145,12 @@ function renderDiffModal({ graph, report }) {
   const overlay = makeOverlay();
   const box = makeBox(overlay);
   box.appendChild(el("h3", "Round-trip (VibeComfy)"));
+  if (message) {
+    const msg = el("p", message);
+    msg.style.whiteSpace = "pre-wrap";
+    msg.style.maxWidth = "640px";
+    box.appendChild(msg);
+  }
 
   for (const u of preserved) box.appendChild(row(u, "#4caf50", "preserved", null));
   for (const u of edited) box.appendChild(row(u, "#ffc107", "edited", null));
@@ -130,8 +191,11 @@ function toast(msg) {
 
 app.registerExtension({
   name: "VibeComfy.Roundtrip",
-  commands: [{ id: "VibeComfy.Roundtrip", label: "Round-trip (VibeComfy)", function: openRoundtrip }],
-  menuCommands: [{ path: ["Extensions", "VibeComfy"], commands: ["VibeComfy.Roundtrip"] }],
+  commands: [
+    { id: "VibeComfy.Roundtrip", label: "Round-trip (VibeComfy)", function: openRoundtrip },
+    { id: "VibeComfy.AgentEdit", label: "Edit with DeepSeek (VibeComfy)", function: openAgentEdit },
+  ],
+  menuCommands: [{ path: ["Extensions", "VibeComfy"], commands: ["VibeComfy.Roundtrip", "VibeComfy.AgentEdit"] }],
   async setup() {
     await checkFrontendVersion();
     const proto = window.LiteGraph?.LGraphCanvas?.prototype;
@@ -141,6 +205,7 @@ app.registerExtension({
       proto.getCanvasMenuOptions = function () {
         const opts = orig ? orig.apply(this, arguments) : [];
         opts.push({ content: "Round-trip (VibeComfy)", callback: openRoundtrip });
+        opts.push({ content: "Edit with DeepSeek (VibeComfy)", callback: openAgentEdit });
         return opts;
       };
     }

@@ -136,10 +136,13 @@ class RuntimeStartupError(VibeComfyError):
 # ---------------------------------------------------------------------------
 
 
+MODEL_DOCTOR_NEXT_ACTION = "vibecomfy doctor <workflow> --models"
+
+
 class MissingModelAssetError(ModelAssetError):
     """A model asset referenced by the workflow is missing and unresolved."""
 
-    default_next_action = "vibecomfy doctor --models"
+    default_next_action = MODEL_DOCTOR_NEXT_ACTION
 
 
 class SchemaMismatchError(SchemaValidationError):

@@ -34,12 +34,17 @@ from vibecomfy.node_packs import resolve_node_packs, unresolved_class_types
 from vibecomfy.patches.registry import find_applicable
 
 _RAW_REF_RE = re.compile(r"^\w+\.\w+$")
+_MODELS_ROOT_UNSET_MESSAGE = (
+    "VIBECOMFY_MODELS_ROOT not set; cannot check model presence - "
+    "set it to your ComfyUI models dir"
+)
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     lint = getattr(args, "lint", False)
     allow_drift = getattr(args, "allow_drift", False)
     json_output = getattr(args, "json", False)
+    check_models = getattr(args, "models", False)
     schema_provider = get_schema_provider("auto")
     try:
         workflow = load_workflow_any(args.path)
@@ -125,6 +130,16 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                 print("Unmapped node classes:")
                 for class_type in unresolved:
                     print(f"- {class_type}")
+        return 1
+    if check_models and "VIBECOMFY_MODELS_ROOT" not in os.environ:
+        payload = {
+            "status": "error",
+            "layer": "model asset diagnostics",
+            "errors": [_MODELS_ROOT_UNSET_MESSAGE],
+            "nodepack_warnings": drift_warnings,
+            "suggested_patches": suggested_patches,
+        }
+        emit(payload, json=json_output, text_renderer=_render_doctor_error)
         return 1
     missing_models = finding_messages(_missing_model_findings(workflow, args.path))
     if missing_models:
@@ -596,5 +611,6 @@ def register(subparsers) -> None:
     doctor.add_argument("path")
     doctor.add_argument("--lint", action="store_true", default=False)
     doctor.add_argument("--allow-drift", action="store_true", default=False)
+    doctor.add_argument("--models", action="store_true", default=False)
     doctor.add_argument("--json", action="store_true")
     doctor.set_defaults(func=_cmd_doctor)

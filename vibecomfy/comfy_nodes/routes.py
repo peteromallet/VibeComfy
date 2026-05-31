@@ -3,6 +3,8 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
+from .agent_edit import handle_agent_edit
+
 
 def _handle_roundtrip(
     payload: dict[str, Any], *, schema_provider: Any = None
@@ -74,6 +76,22 @@ try:
         result = _handle_roundtrip(payload)
         if "error" in result:
             return _web.json_response(result, status=400)
+        return _web.json_response(result)
+
+    @_PromptServer.instance.routes.post("/vibecomfy/agent-edit")
+    async def agent_edit_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _web.json_response(
+                {"error": str(exc), "kind": type(exc).__name__}, status=400
+            )
+        try:
+            result = handle_agent_edit(payload)
+        except Exception as exc:
+            return _web.json_response(
+                {"error": str(exc), "kind": type(exc).__name__}, status=400
+            )
         return _web.json_response(result)
 
 except ImportError:

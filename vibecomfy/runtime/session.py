@@ -16,7 +16,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 from vibecomfy.comfy_command import comfyui_command
-from vibecomfy.errors import ModelAssetError, QueueError, SchemaValidationError, VibeComfyError
+from vibecomfy.errors import (
+    MODEL_DOCTOR_NEXT_ACTION,
+    ModelAssetError,
+    QueueError,
+    SchemaValidationError,
+    VibeComfyError,
+)
 from vibecomfy.memory_profile import MemoryProfile, apply_memory_profile_overrides
 from vibecomfy.utils import atomic_write_json, find_repo_root
 from vibecomfy.workflow import VibeWorkflow
@@ -109,7 +115,10 @@ def _model_assets_from_workflow(workflow: VibeWorkflow) -> list[dict[str, str]]:
             for item in unresolved[:8]
         )
         more = "" if len(unresolved) <= 8 else f" (+{len(unresolved) - 8} more)"
-        raise ModelAssetError(f"unresolved workflow model assets: {summary}{more}", next_action="vibecomfy doctor --models")
+        raise ModelAssetError(
+            f"unresolved workflow model assets: {summary}{more}",
+            next_action=MODEL_DOCTOR_NEXT_ACTION,
+        )
     entries: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for entry in [*authored, *resolved]:

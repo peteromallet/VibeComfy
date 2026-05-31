@@ -10,7 +10,7 @@ from vibecomfy.security.agent_generated_loader import (
     scan_agent_generated_python,
 )
 from vibecomfy.security.gate import GateContext, _gate_context_var, set_gate_context
-from vibecomfy.security.provenance import PROVENANCE_KEY
+from vibecomfy.security.provenance import PROVENANCE_KEY, read as read_provenance
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "agent_generated_loader"
 
@@ -151,6 +151,48 @@ def test_module_side_effect_canary_is_rejected_before_exec(
 
 
 @pytest.mark.parametrize(
+    "fixture_name,expected_codes,max_bytes",
+    [
+        ("command_execution.py", {"forbidden_call"}, None),
+        ("hidden_import.py", {"forbidden_import"}, None),
+        ("encoded_import_trick.py", {"forbidden_call", "forbidden_name"}, None),
+        ("dunder_traversal.py", {"dunder_access"}, None),
+        ("file_read.py", {"forbidden_call"}, None),
+        ("network_call.py", {"forbidden_import"}, None),
+        ("socket_call.py", {"forbidden_import"}, None),
+        ("subprocess_call.py", {"forbidden_import"}, None),
+        ("env_read.py", {"forbidden_import"}, None),
+        ("dynamic_attribute_access.py", {"forbidden_call"}, None),
+        ("huge_payload.py", {"source_too_large"}, 128),
+        ("malformed_syntax.txt", {"syntax_error"}, None),
+    ],
+)
+def test_hostile_fixture_load_rejects_before_exec_and_before_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _headless_gate_context: GateContext,
+    fixture_name: str,
+    expected_codes: set[str],
+    max_bytes: int | None,
+) -> None:
+    if max_bytes is not None:
+        monkeypatch.setattr(
+            "vibecomfy.security.agent_generated_loader.MAX_AGENT_GENERATED_SOURCE_BYTES",
+            max_bytes,
+        )
+    path = _materialize_fixture(tmp_path, fixture_name)
+
+    with pytest.raises(AgentGeneratedLoadError) as exc_info:
+        load_agent_generated_scratchpad(path)
+
+    report = exc_info.value.report
+    assert not report.ok
+    assert {failure.phase for failure in report.failures} == {"load_python"}
+    assert expected_codes <= {failure.code for failure in report.failures}
+    assert _headless_gate_context.audit == []
+
+
+@pytest.mark.parametrize(
     "fixture_name,expected_codes",
     [
         ("command_execution.py", {"forbidden_call"}),
@@ -174,3 +216,111 @@ def test_hostile_fixture_scan_rejects_bypass_classes(
     assert not report.ok
     assert {failure.phase for failure in report.failures} == {"load_python"}
     assert expected_codes <= {failure.code for failure in report.failures}
+
+
+# ── T5: Benign generated scratchpad fixture + provenance tests ────────────
+
+
+def test_benign_fixture_scan_passes() -> None:
+    """The representative benign fixture passes the AST policy scan."""
+    source = _fixture_source("benign_scratchpad.py")
+    report = scan_agent_generated_python(source)
+
+    assert report.ok
+    assert report.failures == ()
+
+
+def test_benign_fixture_load_returns_validating_workflow(
+    tmp_path: Path,
+    _headless_gate_context: GateContext,
+) -> None:
+    """Loading the benign fixture produces a VibeWorkflow that validates."""
+    path = _materialize_fixture(tmp_path, "benign_scratchpad.py")
+
+    workflow = load_agent_generated_scratchpad(path)
+
+    # Must be a VibeWorkflow with the expected identity.
+    assert workflow.id == "agent-scratchpad-fixture"
+
+    # Validation must pass (no error-severity issues).
+    report = workflow.validate()
+    assert report.ok, f"Validation failed: {[i.message for i in report.issues if i.severity == 'error']}"
+
+
+def test_benign_fixture_nodes_carry_agent_generated_provenance(
+    tmp_path: Path,
+    _headless_gate_context: GateContext,
+) -> None:
+    """Every node created during agent-generated loading carries agent_generated provenance."""
+    path = _materialize_fixture(tmp_path, "benign_scratchpad.py")
+
+    workflow = load_agent_generated_scratchpad(path)
+
+    assert len(workflow.nodes) >= 3, "Expected at least 3 nodes in the fixture"
+    for node_id, node in workflow.nodes.items():
+        prov = read_provenance(node)
+        assert prov == "agent_generated", (
+            f"Node {node_id} ({node.class_type}) has provenance {prov!r}, "
+            f"expected 'agent_generated'"
+        )
+
+
+def test_confirm_node_does_not_promote_agent_generated(
+    tmp_path: Path,
+    _headless_gate_context: GateContext,
+) -> None:
+    """VibeWorkflow.confirm_node() must leave agent_generated nodes unchanged."""
+    path = _materialize_fixture(tmp_path, "benign_scratchpad.py")
+
+    workflow = load_agent_generated_scratchpad(path)
+
+    # Record provenance before confirmation.
+    before = {nid: read_provenance(node) for nid, node in workflow.nodes.items()}
+    for nid in before:
+        assert before[nid] == "agent_generated"
+
+    # Confirm every node — this should be a no-op for agent_generated.
+    for nid in workflow.nodes:
+        workflow.confirm_node(nid)
+
+    # After confirmation, every node must still carry agent_generated.
+    for nid, node in workflow.nodes.items():
+        after = read_provenance(node)
+        assert after == "agent_generated", (
+            f"confirm_node({nid!r}) promoted {before[nid]!r} → {after!r}; "
+            f"agent_generated must remain non-promoted"
+        )
+
+
+def test_benign_fixture_gate_audit_shape(
+    tmp_path: Path,
+    _headless_gate_context: GateContext,
+) -> None:
+    """The gate audit log shows agent_generated provenance for the scratchpad_exec
+    operation and any side-effecting node additions."""
+    path = _materialize_fixture(tmp_path, "benign_scratchpad.py")
+
+    _headless_gate_context.audit.clear()
+    workflow = load_agent_generated_scratchpad(path)  # noqa: F841
+
+    # The scratchpad_exec gate entry must be present.
+    exec_entries = [
+        e for e in _headless_gate_context.audit
+        if e["operation"] == "scratchpad_exec"
+    ]
+    assert len(exec_entries) == 1
+    assert exec_entries[0]["provenance"] == "agent_generated"
+    assert exec_entries[0]["decision"] == "allow"
+    assert "code_exec" in exec_entries[0]["capabilities"]
+
+    # Every add_node entry for side-effecting nodes must carry agent_generated.
+    add_node_entries = [
+        e for e in _headless_gate_context.audit
+        if e["operation"] == "add_node"
+    ]
+    for entry in add_node_entries:
+        assert entry["provenance"] == "agent_generated", (
+            f"add_node for {entry['class_type']} has provenance "
+            f"{entry['provenance']!r}, expected 'agent_generated'"
+        )
+        assert entry["decision"] == "allow"
