@@ -16,7 +16,10 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        # Use the checked-in lockfile. A fresh resolve spans every declared
+        # Python version and currently trips over the optional ComfyUI extra
+        # on Python 3.14 even though this parity job only needs dev deps.
+        run: uv sync --frozen --extra dev
 
       - name: Check canonical ready-template parity
         run: uv run python -m tools.check_canonical_parity --all
