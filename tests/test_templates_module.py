@@ -154,6 +154,25 @@ def test_workflow_finalize_method_accepts_output_node_handle() -> None:
     assert wf.outputs[0].node_id == "2"
 
 
+def test_finalize_prunes_auto_input_shadowed_by_explicit_public_input() -> None:
+    wf = _workflow("image/explicit_negative")
+    text = node(wf, "CLIPTextEncode", "1", text="low quality")
+    saved = node(wf, "SaveImage", "2", filename_prefix="out")
+    inputs = {"negative_prompt": InputSpec(text.node.id, "text", "low quality", "STRING")}
+    metadata = ReadyMetadata.build(
+        template_id="image/explicit_negative",
+        capability="text_to_image",
+        inputs=inputs,
+        models={},
+        output_prefix="out",
+    )
+
+    wf.finalize(inputs, metadata=metadata, output_node=saved, output_type="SaveImage", name="image")
+
+    assert "negative_prompt" in wf.inputs
+    assert "prompt" not in wf.inputs
+
+
 def test_workflow_finalize_method_rejects_ambiguous_terminal_outputs() -> None:
     wf = _workflow("image/ambiguous")
     node(wf, "PrimitiveString", "1", value="current")

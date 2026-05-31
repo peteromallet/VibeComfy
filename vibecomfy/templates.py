@@ -615,6 +615,7 @@ def _finalize_impl(
     for name, spec in inputs.items():
         spec.register(wf, name, namespace=caller_locals)
 
+    _drop_shadowed_auto_inputs(wf, inputs, namespace=caller_locals)
     _assert_public_input_invariant(wf, inputs, namespace=caller_locals)
 
     if output_node_id is not None:
@@ -943,6 +944,28 @@ def _assert_public_input_invariant(
             "registered inputs target PUBLIC_INPUTS nodes but are not declared: "
             + ", ".join(sorted(unexpected))
         )
+
+
+def _drop_shadowed_auto_inputs(
+    wf: VibeWorkflow,
+    inputs: Mapping[str, InputSpec],
+    namespace: Mapping[str, Any] | None = None,
+) -> None:
+    specs = {
+        name: (spec.resolve_node_id(wf, namespace=namespace), spec.field)
+        for name, spec in inputs.items()
+    }
+    alias_names = {
+        str(alias)
+        for spec in inputs.values()
+        for alias in spec.aliases
+    }
+    explicit_targets = set(specs.values())
+    for name, registered in list(wf.inputs.items()):
+        if name in specs or name in alias_names:
+            continue
+        if (str(registered.node_id), registered.field) in explicit_targets:
+            del wf.inputs[name]
 
 
 __all__ = [
