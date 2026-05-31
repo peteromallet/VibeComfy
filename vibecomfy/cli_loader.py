@@ -35,7 +35,7 @@ def load_workflow_any(path_or_id: str) -> VibeWorkflow:
 
         schema_provider = get_schema_provider("auto")
         raw = load_workflow_json(path)
-        api = normalize_to_api(raw, schema_provider=schema_provider)
+        api = normalize_to_api(raw, schema_provider=schema_provider, comfy_converter_strict=True)
         return convert_to_vibe_format(api, source_path=path, schema_provider=schema_provider)
     raise FileNotFoundError(path)
 

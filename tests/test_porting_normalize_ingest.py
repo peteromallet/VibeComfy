@@ -10,6 +10,7 @@ Proves:
 from __future__ import annotations
 
 import json
+import pytest
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 
@@ -336,42 +337,50 @@ def test_comfy_converter_strict_no_op_when_use_comfy_converter_false() -> None:
     )
 
 
-def test_comfy_converter_strict_true_raises_when_converter_errors() -> None:
-    """comfy_converter_strict=True re-raises when convert_ui_to_api raises.
+def test_comfy_converter_default_raises_when_converter_errors() -> None:
+    """Default normalize_to_api() is strict when convert_ui_to_api raises.
 
-    When comfy IS importable but ``convert_ui_to_api`` raises an exception,
-    ``comfy_converter_strict=True`` must propagate that exception rather than
-    silently falling back to the offline converter.
+    When comfy IS importable but ``convert_ui_to_api`` raises an exception, the
+    default call must propagate that exception rather than silently falling back
+    to the offline converter.
     """
     from unittest.mock import MagicMock, patch
+    from vibecomfy.comfy_backend import ComfyCompatibility
     from vibecomfy.ingest.normalize import normalize_to_api
 
     failing_converter = MagicMock(side_effect=RuntimeError("converter_exploded"))
     fake_module = MagicMock()
     fake_module.convert_ui_to_api = failing_converter
+    compatible = ComfyCompatibility(
+        ok=True,
+        reason_code="ok",
+        expected={"commit": "expected", "version": "pinned"},
+        actual={"commit": "expected", "version": None},
+        safe_families=[],
+    )
 
     with patch.dict("sys.modules", {
         "comfy": MagicMock(),
         "comfy.component_model": MagicMock(),
         "comfy.component_model.workflow_convert": fake_module,
-    }):
+    }), patch("vibecomfy.ingest.normalize.check_comfy_compatibility", return_value=compatible):
         try:
-            normalize_to_api(_MINIMAL_UI_RAW, comfy_converter_strict=True)
+            normalize_to_api(_MINIMAL_UI_RAW)
         except RuntimeError as exc:
             assert "converter_exploded" in str(exc)
         else:
             raise AssertionError(
-                "Expected RuntimeError to propagate when comfy_converter_strict=True "
-                "and convert_ui_to_api raises"
+                "Expected RuntimeError to propagate by default when "
+                "convert_ui_to_api raises"
             )
 
 
 def test_comfy_converter_strict_false_tolerant_when_converter_errors() -> None:
-    """comfy_converter_strict=False (default) tolerates convert_ui_to_api failures.
+    """comfy_converter_strict=False keeps the explicit tolerant fallback path.
 
-    When comfy IS importable but ``convert_ui_to_api`` raises, the default
-    (``comfy_converter_strict=False``) must silently fall through to the offline
-    converter — the existing tolerant behaviour is preserved.
+    When comfy IS importable but ``convert_ui_to_api`` raises, the explicit
+    ``comfy_converter_strict=False`` opt-out must still fall through to the
+    offline converter.
     """
     from unittest.mock import MagicMock, patch
     from vibecomfy.ingest.normalize import normalize_to_api
@@ -384,8 +393,70 @@ def test_comfy_converter_strict_false_tolerant_when_converter_errors() -> None:
         "comfy": MagicMock(),
         "comfy.component_model": MagicMock(),
         "comfy.component_model.workflow_convert": fake_module,
-    }):
+    }), pytest.warns(UserWarning, match="falling back to the offline normalizer"):
         result = normalize_to_api(_MINIMAL_UI_RAW, comfy_converter_strict=False)
 
     assert isinstance(result, dict), "offline fallback must produce a dict"
     assert "1" in result, "offline result must contain the single node"
+
+
+def test_comfy_converter_strict_surfaces_version_skew_before_converter_exec() -> None:
+    """Strict live-converter paths fence on skew before calling convert_ui_to_api."""
+    from unittest.mock import MagicMock, patch
+
+    from vibecomfy.comfy_backend import ComfyCompatibility, ComfyCompatibilityError
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    converter = MagicMock(side_effect=RuntimeError("raw_traceback_should_not_escape"))
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = converter
+    mismatch = ComfyCompatibility(
+        ok=False,
+        reason_code="comfyui_version_skew",
+        expected={"commit": "expected", "version": "pinned"},
+        actual={"commit": "actual", "version": "other"},
+        safe_families=[],
+    )
+
+    with patch.dict("sys.modules", {
+        "comfy": MagicMock(),
+        "comfy.component_model": MagicMock(),
+        "comfy.component_model.workflow_convert": fake_module,
+    }), patch("vibecomfy.ingest.normalize.check_comfy_compatibility", return_value=mismatch):
+        with pytest.raises(ComfyCompatibilityError, match="comfyui_version_skew") as excinfo:
+            normalize_to_api(_MINIMAL_UI_RAW, comfy_converter_strict=True)
+
+    converter.assert_not_called()
+    assert excinfo.value.compatibility == mismatch
+
+
+def test_comfy_converter_lenient_skew_falls_back_offline_without_converter_exec() -> None:
+    """Lenient live-converter paths still skip converter execution on version skew."""
+    from unittest.mock import MagicMock, patch
+
+    from vibecomfy.comfy_backend import ComfyCompatibility
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    converter = MagicMock(side_effect=RuntimeError("raw_traceback_should_not_escape"))
+    fake_module = MagicMock()
+    fake_module.convert_ui_to_api = converter
+    mismatch = ComfyCompatibility(
+        ok=False,
+        reason_code="comfyui_version_skew",
+        expected={"commit": "expected", "version": "pinned"},
+        actual={"commit": "actual", "version": "other"},
+        safe_families=[],
+    )
+
+    with patch.dict("sys.modules", {
+        "comfy": MagicMock(),
+        "comfy.component_model": MagicMock(),
+        "comfy.component_model.workflow_convert": fake_module,
+    }), patch("vibecomfy.ingest.normalize.check_comfy_compatibility", return_value=mismatch), pytest.warns(
+        UserWarning, match="comfyui_version_skew"
+    ):
+        result = normalize_to_api(_MINIMAL_UI_RAW, comfy_converter_strict=False)
+
+    converter.assert_not_called()
+    assert isinstance(result, dict)
+    assert "1" in result

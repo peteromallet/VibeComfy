@@ -764,7 +764,10 @@ def load_port_source(
     if resolved.suffix.lower() in {".png", ".webp"}:
         raw = _load_workflow_from_image(resolved)
         api = normalize_to_api(
-            raw, schema_provider=schema_provider, use_comfy_converter=use_comfy_converter
+            raw,
+            schema_provider=schema_provider,
+            use_comfy_converter=use_comfy_converter,
+            comfy_converter_strict=True,
         )
         workflow = convert_to_vibe_format(
             api,
@@ -785,7 +788,12 @@ def load_port_source(
         raise FileNotFoundError(source)
 
     raw = load_workflow_json(resolved)
-    api = normalize_to_api(raw, schema_provider=schema_provider, use_comfy_converter=use_comfy_converter)
+    api = normalize_to_api(
+        raw,
+        schema_provider=schema_provider,
+        use_comfy_converter=use_comfy_converter,
+        comfy_converter_strict=True,
+    )
     workflow = convert_to_vibe_format(
         api,
         source_path=str(resolved),

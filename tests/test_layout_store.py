@@ -314,6 +314,185 @@ def test_read_store_migrates_v1_sidecar_on_load(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
+# migrate_store: v1 flat fixture with stable vibecomfy_uid keys (T6)
+# ---------------------------------------------------------------------------
+
+
+def _v1_flat_fixture_with_stable_uids() -> dict:
+    """A v1 flat layout where node keys are stable vibecomfy_uid values.
+
+    Unlike the simple integer-string fixture above, these keys mimic the
+    scoped uid shape that ``make_uid`` produces for subgraph-inner nodes
+    (e.g. ``scope_key#local_id``).  This exercises the migration path for a
+    v1 sidecar that was already keyed by vibecomfy_uid identities rather than
+    raw litegraph integer ids.
+    """
+    return {
+        "layout_version": 1,
+        "nodes": {
+            "Upscale@sha256abc123#7": {
+                "pos": [12, 34],
+                "size": [200, 100],
+                "flags": {"collapsed": False},
+                "color": "#ff0000",
+                "bgcolor": "#000000",
+                "properties": {"vibecomfy_uid": "Upscale@sha256abc123#7", "cnr_id": "SomeNode"},
+            },
+            "Upscale@sha256abc123#9": {
+                "pos": [56, 78],
+                "size": [150, 80],
+                "mode": 4,
+            },
+            "flat_root_node": {
+                "pos": [100, 200],
+                "size": [300, 120],
+                "properties": {"vibecomfy_uid": "flat_root_node", "extra_key": "survives"},
+            },
+        },
+    }
+
+
+def test_migrate_v1_with_stable_uids_preserves_positions():
+    """A v1 flat fixture with stable vibecomfy_uid keys migrates to v2
+    with positions attached to the exact same uid strings."""
+    migrated = migrate_store(_v1_flat_fixture_with_stable_uids())
+
+    assert migrated["store_version"] == STORE_VERSION == 2
+    assert "layout_version" not in migrated
+    for key in ("entries", "groups", "extra", "lastRerouteId", "definitions", "virtual_wires"):
+        assert key in migrated
+
+    entries = migrated["entries"]
+    # Every uid from the v1 fixture is present.
+    assert set(entries) == {"Upscale@sha256abc123#7", "Upscale@sha256abc123#9", "flat_root_node"}
+
+    # Positions remain attached to the same uids.
+    assert entries["Upscale@sha256abc123#7"]["pos"] == [12, 34]
+    assert entries["Upscale@sha256abc123#7"]["size"] == [200, 100]
+    assert entries["Upscale@sha256abc123#9"]["pos"] == [56, 78]
+    assert entries["Upscale@sha256abc123#9"]["size"] == [150, 80]
+    assert entries["flat_root_node"]["pos"] == [100, 200]
+    assert entries["flat_root_node"]["size"] == [300, 120]
+
+    # Ancillary fields survive migration.
+    assert entries["Upscale@sha256abc123#7"]["flags"] == {"collapsed": False}
+    assert entries["Upscale@sha256abc123#7"]["color"] == "#ff0000"
+    assert entries["Upscale@sha256abc123#7"]["bgcolor"] == "#000000"
+    assert entries["Upscale@sha256abc123#7"]["properties"] == {
+        "vibecomfy_uid": "Upscale@sha256abc123#7",
+        "cnr_id": "SomeNode",
+    }
+    assert entries["Upscale@sha256abc123#9"]["mode"] == 4
+    assert entries["flat_root_node"]["properties"] == {
+        "vibecomfy_uid": "flat_root_node",
+        "extra_key": "survives",
+    }
+
+
+def test_v1_stable_uids_read_store_write_store_roundtrip(tmp_path: Path):
+    """Full round-trip: v1 sidecar on disk → read_store (migrate) →
+    write_store → read_store → positions still attached to same uids."""
+    from vibecomfy.porting.layout_store import write_store
+
+    py_path = tmp_path / "roundtrip.py"
+
+    # Write the v1 fixture to the sidecar path.
+    sidecar_path_for(py_path).write_text(
+        json.dumps(_v1_flat_fixture_with_stable_uids()), encoding="utf-8"
+    )
+
+    # read_store migrates the v1 data to a v2 envelope.
+    store_after_migrate = read_store(py_path)
+    assert store_after_migrate["store_version"] == 2
+    assert (
+        store_after_migrate["entries"]["Upscale@sha256abc123#7"]["pos"] == [12, 34]
+    )
+    assert (
+        store_after_migrate["entries"]["flat_root_node"]["pos"] == [100, 200]
+    )
+
+    # Write the migrated envelope back to disk.
+    written_path = write_store(py_path, store_after_migrate)
+    assert written_path == sidecar_path_for(py_path)
+    assert written_path.exists()
+
+    # Read the written v2 envelope back.
+    store_after_roundtrip = read_store(py_path)
+    entries = store_after_roundtrip["entries"]
+
+    # Every uid and its position survive the full round-trip.
+    assert set(entries) == {"Upscale@sha256abc123#7", "Upscale@sha256abc123#9", "flat_root_node"}
+    assert entries["Upscale@sha256abc123#7"]["pos"] == [12, 34]
+    assert entries["Upscale@sha256abc123#7"]["size"] == [200, 100]
+    assert entries["Upscale@sha256abc123#9"]["pos"] == [56, 78]
+    assert entries["Upscale@sha256abc123#9"]["size"] == [150, 80]
+    assert entries["flat_root_node"]["pos"] == [100, 200]
+    assert entries["flat_root_node"]["size"] == [300, 120]
+
+    # Properties blob survives the full write→read cycle too.
+    assert entries["flat_root_node"]["properties"] == {
+        "vibecomfy_uid": "flat_root_node",
+        "extra_key": "survives",
+    }
+
+
+def test_v2_envelope_schema_hash_noop_migration_path(tmp_path: Path):
+    """A v2 envelope with the current schema_hash passes through migrate_store
+    unchanged (identity no-op), and a write→read round-trip preserves every
+    uid→position attachment.
+
+    This test documents the **expected** no-op schema-hash migration path:
+    ``migrate_store`` currently gates on ``store_version`` and
+    ``layout_version`` only — it does **not** inspect ``schema_hash``.
+    If a future schema-shape change alters ``schema_hash`` without bumping
+    ``STORE_VERSION``, this test documents that the current contract is
+    *no migration* (the envelope round-trips verbatim).  That posture may
+    need to change when a real schema drift is introduced; until then this
+    test locks the baseline.
+    """
+    from vibecomfy.porting.layout_store import _schema_hash, write_store
+
+    py_path = tmp_path / "v2_noop.py"
+
+    # Build a v2 envelope directly with the current schema_hash.
+    envelope = {
+        "store_version": STORE_VERSION,
+        "vibecomfy_version": "0",
+        "schema_hash": _schema_hash(),
+        "entries": {
+            "scope_a#7": {"pos": [10, 20], "size": [100, 200], "flags": None,
+                          "color": None, "bgcolor": None, "mode": 0, "properties": {}},
+            "scope_b#3": {"pos": [30, 40], "size": [150, 250], "flags": None,
+                          "color": None, "bgcolor": None, "mode": 0, "properties": {}},
+        },
+        "groups": [],
+        "extra": {},
+        "lastRerouteId": None,
+        "definitions": {},
+        "virtual_wires": {},
+    }
+
+    # migrate_store must return the identical object (no-op).
+    assert migrate_store(envelope) is envelope
+
+    # Write the envelope to disk and read it back.
+    write_store(py_path, envelope)
+    store = read_store(py_path)
+
+    assert store["store_version"] == 2
+    assert store["schema_hash"] == _schema_hash()
+    entries = store["entries"]
+    assert set(entries) == {"scope_a#7", "scope_b#3"}
+    assert entries["scope_a#7"]["pos"] == [10, 20]
+    assert entries["scope_b#3"]["pos"] == [30, 40]
+
+    # read_layout sees the same entries.
+    layout = read_layout(py_path)
+    assert layout["scope_a#7"]["pos"] == [10, 20]
+    assert layout["scope_b#3"]["size"] == [150, 250]
+
+
+# ---------------------------------------------------------------------------
 # gc (T7): prune dead-uid entries
 # ---------------------------------------------------------------------------
 

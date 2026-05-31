@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "supported_comfyui_version": "hiddenswitch-pinned",
+  "pinned_comfyui_commit": "f7b38d2eb97207cd834bcc3eb2e8b1d447b96c68",
+  "vendor_path": "vendor/ComfyUI",
+  "object_info_fingerprint": null
+}

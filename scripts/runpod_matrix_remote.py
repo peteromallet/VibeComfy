@@ -38,7 +38,7 @@ def resolve_attention_profile(raw: str | None = None) -> str:
 
 
 def prepare_workflow(workflow_id: str, source: Path, output: Path) -> Path:
-    api = normalize_to_api(load_workflow_json(source))
+    api = normalize_to_api(load_workflow_json(source), comfy_converter_strict=True)
     if not patch_workflow_api(workflow_id, api):
         return source
     output.parent.mkdir(parents=True, exist_ok=True)

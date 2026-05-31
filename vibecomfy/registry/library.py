@@ -20,7 +20,7 @@ from vibecomfy.scratchpad_loader import load_scratchpad
 
 def workflow_from_file(path: str, *, schema_provider: SchemaProvider | None = None) -> VibeWorkflow:
     raw = load_workflow_json(path)
-    api = normalize_to_api(raw, schema_provider=schema_provider)
+    api = normalize_to_api(raw, schema_provider=schema_provider, comfy_converter_strict=True)
     return convert_to_vibe_format(api, source_path=path, schema_provider=schema_provider)
 
 
@@ -46,7 +46,7 @@ def workflow_from_id(workflow_id: str, *, schema_provider: SchemaProvider | None
     if not match:
         raise KeyError(f"Workflow not found: {workflow_id}")
     raw = load_workflow_json(match["path"])
-    api = normalize_to_api(raw, schema_provider=schema_provider)
+    api = normalize_to_api(raw, schema_provider=schema_provider, comfy_converter_strict=True)
     return convert_to_vibe_format(api, source_path=match["path"], workflow_id=match["id"], schema_provider=schema_provider)
 
 

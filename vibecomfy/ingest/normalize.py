@@ -6,6 +6,7 @@ from typing import Any
 import warnings
 
 from vibecomfy._graph_utils import is_api_link
+from vibecomfy.comfy_backend import check_comfy_compatibility, require_comfy_compatibility
 from vibecomfy.metadata import (
     OUTPUT_NODE_NAMES,
     _infer_requirements,
@@ -34,16 +35,16 @@ def normalize_to_api(
     *,
     schema_provider: SchemaProvider | None = None,
     use_comfy_converter: bool = True,
-    comfy_converter_strict: bool = False,
+    comfy_converter_strict: bool = True,
 ) -> dict[str, Any]:
     """Convert a raw workflow dict (UI or API shape) to ComfyUI API format.
 
-    ``comfy_converter_strict`` is only meaningful when ``use_comfy_converter=True``
-    AND the comfy package is importable.  When ``True``, any exception raised by
-    ``convert_ui_to_api`` propagates instead of silently falling back to the
-    offline converter.  When ``use_comfy_converter=False``, ``comfy_converter_strict``
-    is a no-op — the comfy converter is never attempted.  The offline default
-    (``comfy_converter_strict=False``) preserves the existing tolerant fallback.
+    By default this prefers the live ComfyUI converter and raises if
+    ``convert_ui_to_api`` fails. Pass ``comfy_converter_strict=False`` to keep the
+    legacy lenient fallback path when the converter is importable but errors. Pass
+    ``use_comfy_converter=False`` for explicit offline normalization that never
+    imports or calls the ComfyUI converter; in that mode
+    ``comfy_converter_strict`` is ignored.
     """
     shape = detect_workflow_shape(raw)
     if shape == "api":
@@ -57,11 +58,28 @@ def normalize_to_api(
         except ImportError:
             pass
         else:
+            compatibility = check_comfy_compatibility()
+            if not compatibility.ok:
+                if comfy_converter_strict:
+                    require_comfy_compatibility(compatibility)
+                warnings.warn(
+                    "normalize_to_api(): live ComfyUI compatibility check failed "
+                    f"({compatibility.reason_code}); falling back to the offline "
+                    "normalizer because comfy_converter_strict=False.",
+                    stacklevel=2,
+                )
+                return _normalize_ui_to_api(raw, schema_provider=schema_provider)
             try:
                 converted = convert_ui_to_api(raw)
             except Exception:
                 if comfy_converter_strict:
                     raise
+                warnings.warn(
+                    "normalize_to_api(): ComfyUI convert_ui_to_api raised; "
+                    "falling back to the offline normalizer because "
+                    "comfy_converter_strict=False.",
+                    stacklevel=2,
+                )
             else:
                 if not _has_unknown_widget_inputs(converted):
                     _merge_slim_ui(raw, converted)
@@ -230,7 +248,11 @@ def _convert_to_vibe_format_impl(
     schema_provider: SchemaProvider | None = None,
 ) -> VibeWorkflow:
     if detect_workflow_shape(api_workflow) != "api":
-        api_workflow = normalize_to_api(api_workflow, schema_provider=schema_provider)
+        api_workflow = normalize_to_api(
+            api_workflow,
+            schema_provider=schema_provider,
+            comfy_converter_strict=True,
+        )
     source = WorkflowSource(
         id=workflow_id or (Path(source_path).stem if source_path else "workflow"),
         path=source_path,

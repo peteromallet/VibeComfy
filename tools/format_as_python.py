@@ -680,7 +680,7 @@ def _build_workflow_for(
         if has_uuid:
             source_path = REPO_ROOT / metadata["source_workflow"]
             ui = json.loads(source_path.read_text())
-            api = normalize_to_api(ui)
+            api = normalize_to_api(ui, use_comfy_converter=False)
             wf = convert_to_vibe_format(api, source_path=str(template_path), workflow_id=template_id)
         else:
             # No UUID — just rebuild via authored path; this gives us a working

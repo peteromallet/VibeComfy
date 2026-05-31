@@ -41,6 +41,31 @@ def _schema(class_type: str, outputs: list[OutputSpec], *, confidence: float = 1
     )
 
 
+def _require_comfy_import():
+    """Set up the vendored ComfyUI path and hard-import the converter.
+
+    When ``VIBECOMFY_COMFY_SMOKE=1`` the oracle gate MUST NOT silently skip
+    if the submodule is absent — return the converter callable on success or
+    raise a loud diagnostic on failure.
+    """
+    from vibecomfy.comfy_backend import _find_vendored_comfy_dir, _vendor_on_path
+
+    _vendor_on_path()
+    vendored_dir = _find_vendored_comfy_dir()
+    try:
+        from comfy.component_model.workflow_convert import convert_ui_to_api  # noqa: F811
+    except ImportError as exc:
+        info = (
+            f"vendor/ComfyUI dir {'found at ' + str(vendored_dir) if vendored_dir else 'NOT FOUND'}; "
+            f"sys.path prefix: {[p for p in __import__('sys').path if 'Comfy' in str(p)]}"
+        )
+        raise ImportError(
+            f"Cannot import comfy.component_model.workflow_convert. "
+            f"Is vendor/ComfyUI initialised? ({info})"
+        ) from exc
+    return convert_ui_to_api
+
+
 # ---------------------------------------------------------------------------
 # Numeric slot pass-through (from_output is a digit string)
 # ---------------------------------------------------------------------------
@@ -900,9 +925,7 @@ def test_comfy_release_smoke_convert_ui_to_api() -> None:
 
     if os.environ.get("VIBECOMFY_COMFY_SMOKE") != "1":
         pytest.skip("comfy release smoke gate is opt-in (set VIBECOMFY_COMFY_SMOKE=1)")
-    comfy_convert = pytest.importorskip(
-        "comfy.component_model.workflow_convert"
-    ).convert_ui_to_api
+    comfy_convert = _require_comfy_import()
 
     from vibecomfy.ingest.normalize import convert_to_vibe_format
 
@@ -1033,9 +1056,7 @@ def test_layer3_corpus_wide_convert_ui_to_api_gate() -> None:
     if os.environ.get("VIBECOMFY_COMFY_SMOKE") != "1":
         pytest.skip("comfy Layer-3 gate is opt-in (set VIBECOMFY_COMFY_SMOKE=1)")
 
-    comfy_convert = pytest.importorskip(
-        "comfy.component_model.workflow_convert"
-    ).convert_ui_to_api
+    comfy_convert = _require_comfy_import()
 
     from vibecomfy.ingest.normalize import convert_to_vibe_format
     from vibecomfy.ingest.normalize import normalize_to_api
@@ -1274,6 +1295,72 @@ def test_layer3_corpus_wide_convert_ui_to_api_gate() -> None:
         f"Layer-3 preserve gate: {stats['preserve_fail']} failures "
         f"in {stats['total_checked']} checked workflows"
     )
+
+
+def test_oracle_gate_rejects_incompatible_converter(monkeypatch) -> None:
+    """Prove: a deliberately incompatible converter fails the oracle comparison.
+
+    When ``convert_ui_to_api`` raises (simulating a version-skewed or
+    incompatible ComfyUI build), the strict ``normalize_to_api`` path must
+    propagate the error loudly rather than silently falling back to the
+    offline normalizer.  This test mocks the comfy module hierarchy so it
+    runs without ``VIBECOMFY_COMFY_SMOKE=1`` and without a real ComfyUI
+    checkout.
+    """
+    import sys
+    from pathlib import Path
+    from types import ModuleType
+
+    from vibecomfy.comfy_backend import ComfyCompatibility
+    from vibecomfy.ingest.normalize import normalize_to_api
+
+    fixture_path = (
+        Path(__file__).parent / "fixtures" / "walking_skeleton" / "flat.json"
+    )
+    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    # Inject a mock comfy module chain so the lazy import inside
+    # normalize_to_api succeeds but convert_ui_to_api raises when called.
+    mock_convert = ModuleType("comfy.component_model.workflow_convert")
+    mock_convert.convert_ui_to_api = lambda _: (_ for _ in ()).throw(
+        RuntimeError("simulated converter incompatibility — object_info skew")
+    )
+    monkeypatch.setitem(sys.modules, "comfy", ModuleType("comfy"))
+    monkeypatch.setitem(
+        sys.modules, "comfy.component_model", ModuleType("comfy.component_model")
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "comfy.component_model.workflow_convert",
+        mock_convert,
+    )
+
+    # Make the compatibility check pass so we reach the converter call
+    # instead of being blocked by the skew fence first.
+    fake_ok = ComfyCompatibility(
+        ok=True,
+        reason_code="ok",
+        expected={"commit": "abc", "version": "1.0"},
+        actual={"commit": "abc", "version": "1.0"},
+        safe_families=[],
+    )
+    monkeypatch.setattr(
+        "vibecomfy.ingest.normalize.check_comfy_compatibility",
+        lambda: fake_ok,
+    )
+
+    # The strict path must raise — proving the oracle detects incompatibility.
+    with pytest.raises(RuntimeError, match="simulated converter incompatibility"):
+        normalize_to_api(raw, comfy_converter_strict=True)
+
+    # The lenient path must fall back to the offline normalizer.
+    result = normalize_to_api(raw, comfy_converter_strict=False)
+    assert isinstance(result, dict)
+    assert result
+    assert any(
+        node.get("class_type") for node in result.values()
+        if isinstance(node, dict)
+    ), "offline normalizer produced empty result"
 
 
 def _check_canonical_input_names(
