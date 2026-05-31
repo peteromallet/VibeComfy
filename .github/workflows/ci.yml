@@ -54,7 +54,7 @@ jobs:
         run: |
           uv venv --seed
           .venv/bin/python -m pip install -e ".[dev,runpod-launch]"
-          .venv/bin/python -m pip install "lazy-object-proxy>=1.10" "frozendict>=2.4" "pillow>=10"
+          .venv/bin/python -m pip install "lazy-object-proxy>=1.10" "frozendict>=2.4" "pillow>=10" "ConfigArgParse>=1.7.1"
 
       - name: Run fast suite with coverage
         # The repository contains broad aspirational and retired suites that are
