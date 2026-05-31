@@ -121,7 +121,7 @@ def test_oversized_source_is_load_python_failure(monkeypatch: pytest.MonkeyPatch
 
 
 def test_malformed_fixture_is_load_python_failure() -> None:
-    report = scan_agent_generated_python(_fixture_source("malformed_syntax.py"))
+    report = scan_agent_generated_python(_fixture_source("malformed_syntax.txt"))
 
     assert not report.ok
     assert report.failures[0].phase == "load_python"
