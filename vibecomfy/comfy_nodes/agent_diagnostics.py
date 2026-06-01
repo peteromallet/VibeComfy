@@ -132,29 +132,53 @@ def _queue_issue(
 def _intent_node_runtime_flags(
     class_type: str,
     entry: dict[str, Any],
-) -> tuple[bool | None, bool | None]:
+) -> tuple[bool | None, bool | None, bool | None]:
     lowered = entry.get("lowered")
     runtime_backed = entry.get("runtime_backed")
-    if isinstance(lowered, bool) and isinstance(runtime_backed, bool):
-        return lowered, runtime_backed
+    class_runtime_backed = None
     try:
         from vibecomfy.comfy_nodes import NODE_CLASS_MAPPINGS
     except Exception:
         return (
             lowered if isinstance(lowered, bool) else None,
             runtime_backed if isinstance(runtime_backed, bool) else None,
+            class_runtime_backed,
         )
     node_cls = NODE_CLASS_MAPPINGS.get(class_type)
-    if node_cls is None:
-        return (
-            lowered if isinstance(lowered, bool) else None,
-            runtime_backed if isinstance(runtime_backed, bool) else None,
-        )
+    if node_cls is not None:
+        class_runtime_backed = getattr(node_cls, "VIBECOMFY_RUNTIME_BACKED", None)
     return (
-        lowered if isinstance(lowered, bool) else getattr(node_cls, "VIBECOMFY_LOWERED", None),
+        lowered
+        if isinstance(lowered, bool)
+        else (getattr(node_cls, "VIBECOMFY_LOWERED", None) if node_cls is not None else None),
         runtime_backed
         if isinstance(runtime_backed, bool)
-        else getattr(node_cls, "VIBECOMFY_RUNTIME_BACKED", None),
+        else class_runtime_backed,
+        class_runtime_backed if isinstance(class_runtime_backed, bool) else None,
+    )
+
+
+def _intent_node_queue_ready(
+    *,
+    class_type: str,
+    entry: dict[str, Any],
+    lowered: bool | None,
+    runtime_backed: bool | None,
+    class_runtime_backed: bool | None,
+    confidence: Any,
+) -> bool:
+    if lowered is True:
+        return True
+    if class_type != "vibecomfy.code":
+        return False
+    return (
+        runtime_backed is True
+        and class_runtime_backed is True
+        and entry.get("runtime_contract_valid") is True
+        and entry.get("intent_contract_valid") is True
+        and entry.get("schema_less") is not True
+        and isinstance(confidence, (int, float))
+        and confidence > 0.3
     )
 
 
@@ -267,8 +291,15 @@ def queue_stage_diagnostics(
         class_type = str(entry.get("class_type"))
         confidence = entry.get("confidence")
         if is_intent_class_type(class_type):
-            lowered, runtime_backed = _intent_node_runtime_flags(class_type, entry)
-            if lowered is True:
+            lowered, runtime_backed, class_runtime_backed = _intent_node_runtime_flags(class_type, entry)
+            if _intent_node_queue_ready(
+                class_type=class_type,
+                entry=entry,
+                lowered=lowered,
+                runtime_backed=runtime_backed,
+                class_runtime_backed=class_runtime_backed,
+                confidence=confidence,
+            ):
                 continue
             issues.append(
                 _queue_issue(
@@ -283,6 +314,10 @@ def queue_stage_diagnostics(
                         "uid": entry.get("uid"),
                         "lowered": lowered,
                         "runtime_backed": runtime_backed,
+                        "class_runtime_backed": class_runtime_backed,
+                        "runtime_contract_valid": entry.get("runtime_contract_valid"),
+                        "intent_contract_valid": entry.get("intent_contract_valid"),
+                        "contract_problem_codes": entry.get("contract_problem_codes"),
                         "provider": entry.get("provider"),
                         "confidence": confidence,
                         "diagnostic": entry.get("diagnostic"),

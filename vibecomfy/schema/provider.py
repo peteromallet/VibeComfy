@@ -105,12 +105,55 @@ class SchemaProvider(Protocol):
 
 
 def schema_for(provider: object | None, class_type: str) -> object | None:
+    builtin = _builtin_schema(class_type)
+    if builtin is not None:
+        return builtin
     if provider is None:
         return None
     getter = getattr(provider, "get_schema", None) or getattr(provider, "get", None)
     if not callable(getter):
         return None
     return getter(class_type)
+
+
+def _builtin_schema(class_type: str) -> NodeSchema | None:
+    if class_type == "vibecomfy.code":
+        return NodeSchema(
+            class_type="vibecomfy.code",
+            pack="vibecomfy",
+            inputs={
+                "value": InputSpec("*", required=False),
+                "runtime_backed": InputSpec("BOOLEAN", required=False),
+                "runtime_contract_version": InputSpec("STRING", required=False),
+                "execution_mode": InputSpec("STRING", required=False),
+                "timeout_ms": InputSpec("INT", required=False),
+                "max_source_bytes": InputSpec("INT", required=False),
+                "allowed_builtins": InputSpec("JSON", required=False),
+                "redaction_policy": InputSpec("JSON", required=False),
+                "policy_version": InputSpec("STRING", required=False),
+                "passthrough_on_non_json": InputSpec("BOOLEAN", required=False),
+                "vibecomfy_uid": InputSpec("STRING", required=False),
+                "kind": InputSpec("STRING", required=False),
+                "io": InputSpec("DICT", required=False),
+                "source": InputSpec("STRING", required=False),
+                "spec": InputSpec("STRING", required=False),
+            },
+            outputs=[OutputSpec("*", "value")],
+            source_provider="vibecomfy_builtin",
+            source_package="vibecomfy",
+            confidence=1.0,
+        )
+    if class_type == "vibecomfy.loop":
+        return NodeSchema(
+            class_type="vibecomfy.loop",
+            pack="vibecomfy",
+            inputs={"value": InputSpec("*", required=False)},
+            outputs=[OutputSpec("*", "value")],
+            source_provider="vibecomfy_builtin",
+            source_package="vibecomfy",
+            confidence=1.0,
+        )
+    return None
 
 
 def schema_registry_empty(provider: object | None) -> bool:

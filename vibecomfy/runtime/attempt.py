@@ -48,8 +48,17 @@ def build_attempt_bundle(
             Optional :class:`~vibecomfy.runtime.session.SessionConfig` for
             model-root resolution (used when computing *actual_sha256*).
     """
+    from vibecomfy.comfy_nodes.agent_audit import (
+        redact_audit_metadata,
+        runtime_intent_metadata_from_api,
+    )
+
+    redaction_categories: set[str] = set()
+
     # --- compiled_prompt ----------------------------------------------------
-    compiled_prompt: dict[str, Any] = dict(api_dict)
+    compiled_redacted = redact_audit_metadata(dict(api_dict))
+    redaction_categories.update(compiled_redacted.categories)
+    compiled_prompt: dict[str, Any] = compiled_redacted.value if isinstance(compiled_redacted.value, dict) else {}
 
     # --- id_map --------------------------------------------------------------
     id_map: dict[str, str] = workflow.id_map()
@@ -57,10 +66,19 @@ def build_attempt_bundle(
     # --- full node reverse-lookup map ---------------------------------------
     node_lookups: dict[str, dict[str, Any]] = {}
     for node_id in workflow.nodes:
-        node_lookups[str(node_id)] = workflow.lookup_id(node_id)
+        redacted_lookup = redact_audit_metadata(workflow.lookup_id(node_id))
+        redaction_categories.update(redacted_lookup.categories)
+        node_lookups[str(node_id)] = redacted_lookup.value if isinstance(redacted_lookup.value, dict) else {}
 
     # --- source_workflow metadata -------------------------------------------
-    source_workflow: dict[str, Any] = dict(workflow.metadata) if isinstance(workflow.metadata, dict) else {}
+    source_redacted = redact_audit_metadata(dict(workflow.metadata) if isinstance(workflow.metadata, dict) else {})
+    redaction_categories.update(source_redacted.categories)
+    source_workflow: dict[str, Any] = source_redacted.value if isinstance(source_redacted.value, dict) else {}
+
+    # --- runtime-backed intent metadata -------------------------------------
+    runtime_intent_nodes = runtime_intent_metadata_from_api(api_dict)
+    if runtime_intent_nodes:
+        redaction_categories.add("runtime_source")
 
     # --- model asset manifest -----------------------------------------------
     model_manifest = _build_model_manifest(workflow, config=config)
@@ -91,6 +109,8 @@ def build_attempt_bundle(
         "id_map": id_map,
         "node_lookups": node_lookups,
         "source_workflow": source_workflow,
+        "runtime_intent_nodes": runtime_intent_nodes,
+        "redactions": sorted(redaction_categories),
         "model_manifest": model_manifest,
         "lockfile_snapshot": lockfile_snapshot,
         "runtime_version": runtime_version,
@@ -219,6 +239,8 @@ def build_shared_fields(
         "id_map": bundle["id_map"],
         "node_lookups": bundle["node_lookups"],
         "source_workflow": bundle["source_workflow"],
+        "runtime_intent_nodes": bundle["runtime_intent_nodes"],
+        "redactions": bundle["redactions"],
         "model_manifest": bundle["model_manifest"],
         "lockfile_snapshot": bundle["lockfile_snapshot"],
         "runtime_version": bundle["runtime_version"],

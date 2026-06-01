@@ -20,8 +20,13 @@ __all__ = [
     "IR_CONTRACT_VERSION",
     "IRContractAnchor",
     "LTXFirstLastTwoStageContract",
+    "NormalizedRuntimeCodeContract",
     "PUBLIC_INPUT_STALE_TARGET",
     "PUBLIC_INPUT_UNREGISTERED",
+    "RUNTIME_CODE_CONTRACT_VERSION",
+    "RUNTIME_CODE_EXECUTION_MODE",
+    "RUNTIME_CODE_POLICY_VERSION",
+    "RuntimeCodeContractValidationResult",
     "VALIDATION_OK_COMPILES_API",
     "VALIDATION_REPORT_OK_FIELD",
     "WorkflowRuntimeContract",
@@ -35,6 +40,7 @@ __all__ = [
     "is_ir_contract_code",
     "require_ir_contract_code",
     "validate_intent_node_contract",
+    "validate_runtime_code_contract",
     "validate_typed_io_spec",
 ]
 
@@ -59,8 +65,13 @@ _LAZY_ATTRS = {
     "IR_CONTRACT_VERSION": ("vibecomfy.contracts.ir", "IR_CONTRACT_VERSION"),
     "IRContractAnchor": ("vibecomfy.contracts.ir", "IRContractAnchor"),
     "LTXFirstLastTwoStageContract": ("vibecomfy.contracts.ltx_first_last", "LTXFirstLastTwoStageContract"),
+    "NormalizedRuntimeCodeContract": ("vibecomfy.contracts.intent_nodes", "NormalizedRuntimeCodeContract"),
     "PUBLIC_INPUT_STALE_TARGET": ("vibecomfy.contracts.ir", "PUBLIC_INPUT_STALE_TARGET"),
     "PUBLIC_INPUT_UNREGISTERED": ("vibecomfy.contracts.ir", "PUBLIC_INPUT_UNREGISTERED"),
+    "RUNTIME_CODE_CONTRACT_VERSION": ("vibecomfy.contracts.intent_nodes", "RUNTIME_CODE_CONTRACT_VERSION"),
+    "RUNTIME_CODE_EXECUTION_MODE": ("vibecomfy.contracts.intent_nodes", "RUNTIME_CODE_EXECUTION_MODE"),
+    "RUNTIME_CODE_POLICY_VERSION": ("vibecomfy.contracts.intent_nodes", "RUNTIME_CODE_POLICY_VERSION"),
+    "RuntimeCodeContractValidationResult": ("vibecomfy.contracts.intent_nodes", "RuntimeCodeContractValidationResult"),
     "VALIDATION_OK_COMPILES_API": ("vibecomfy.contracts.ir", "VALIDATION_OK_COMPILES_API"),
     "VALIDATION_REPORT_OK_FIELD": ("vibecomfy.contracts.ir", "VALIDATION_REPORT_OK_FIELD"),
     "WorkflowRuntimeContract": ("vibecomfy.contracts.model", "WorkflowRuntimeContract"),
@@ -74,6 +85,7 @@ _LAZY_ATTRS = {
     "is_ir_contract_code": ("vibecomfy.contracts.ir", "is_ir_contract_code"),
     "require_ir_contract_code": ("vibecomfy.contracts.ir", "require_ir_contract_code"),
     "validate_intent_node_contract": ("vibecomfy.contracts.intent_nodes", "validate_intent_node_contract"),
+    "validate_runtime_code_contract": ("vibecomfy.contracts.intent_nodes", "validate_runtime_code_contract"),
     "validate_typed_io_spec": ("vibecomfy.contracts.intent_nodes", "validate_typed_io_spec"),
 }
 

@@ -70,7 +70,14 @@ from vibecomfy._workflow_helpers import (
     collect_broadcast_sources,
     is_broadcast_helper_class_type,
 )
-from vibecomfy.contracts.intent_nodes import CLASS_TYPE_TO_KIND, is_intent_class_type
+from vibecomfy.contracts.intent_nodes import (
+    CLASS_TYPE_TO_KIND,
+    KIND_TO_CLASS_TYPE,
+    is_intent_class_type,
+    intent_node_payload_from_metadata,
+    validate_intent_node_contract,
+    validate_runtime_code_contract,
+)
 from vibecomfy.porting.uid import mint_local_uid
 from vibecomfy.porting.widget_aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.workflow import VibeEdge
@@ -107,6 +114,37 @@ _M2_PRECISION = 2
 # Fixed default canvas drag/scale state for ``extra.ds`` when
 # ``include_main_positions=True`` and no sidecar ``extra`` provides overrides.
 _DEFAULT_DS = {"scale": 1.0, "offset": [0.0, 0.0]}
+
+
+def _intent_recovery_fields(node: Any) -> dict[str, Any]:
+    class_type = str(getattr(node, "class_type", ""))
+    payload = intent_node_payload_from_metadata(getattr(node, "metadata", None))
+    intent_result = validate_intent_node_contract(
+        node_id=str(getattr(node, "id", "")),
+        class_type=class_type,
+        metadata=getattr(node, "metadata", None),
+    )
+    runtime_result = validate_runtime_code_contract(
+        class_type=class_type,
+        payload=payload,
+        require_runtime=True,
+    )
+    runtime_backed = (
+        class_type == KIND_TO_CLASS_TYPE["code"]
+        and intent_result.ok
+        and runtime_result.ok
+    )
+    return {
+        "uid": getattr(node, "uid", None) or intent_result.vibecomfy_uid,
+        "kind": intent_result.kind or CLASS_TYPE_TO_KIND.get(class_type),
+        "lowered": False,
+        "runtime_backed": runtime_backed,
+        "runtime_contract_valid": runtime_result.ok,
+        "intent_contract_valid": intent_result.ok,
+        "contract_problem_codes": [
+            problem.code for problem in (*intent_result.problems, *runtime_result.problems)
+        ],
+    }
 
 # Confidence threshold at or below which a node is considered low-confidence.
 # widget_schema_fallback tier uses confidence=0.3; strict=True rejects it.
@@ -1913,10 +1951,7 @@ def emit_ui_json(
             )
             node = wf.nodes.get(node_id)
             if node is not None and is_intent_class_type(node.class_type):
-                entry["uid"] = node.uid or None
-                entry["kind"] = CLASS_TYPE_TO_KIND.get(node.class_type)
-                entry["lowered"] = False
-                entry["runtime_backed"] = False
+                entry.update(_intent_recovery_fields(node))
             recovery_report.append(entry)
 
         # ── Orphaned virtual-wire routes (display mode) ─────────────────

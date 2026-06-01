@@ -77,12 +77,103 @@ def redact_closed_set(value: Any) -> RedactionResult:
     return RedactionResult(value=_redact(value), categories=tuple(sorted(categories)))
 
 
+def _source_digest(source: str) -> dict[str, Any]:
+    return {
+        "sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        "byte_count": len(source.encode("utf-8")),
+        "redacted": True,
+    }
+
+
+def _redact_runtime_source(item: Any) -> Any:
+    if isinstance(item, Mapping):
+        result = {str(key): _redact_runtime_source(child) for key, child in item.items()}
+        class_type = result.get("class_type")
+        inputs = result.get("inputs")
+        if class_type == "vibecomfy.code" and isinstance(inputs, dict) and isinstance(inputs.get("source"), str):
+            inputs["source"] = _source_digest(inputs["source"])
+        properties = result.get("properties")
+        if isinstance(properties, dict):
+            _redact_runtime_properties(properties)
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict):
+            _redact_runtime_source(metadata)
+        ui = result.get("_ui")
+        if isinstance(ui, dict):
+            ui_properties = ui.get("properties")
+            if isinstance(ui_properties, dict):
+                _redact_runtime_properties(ui_properties)
+        return result
+    if isinstance(item, list):
+        return [_redact_runtime_source(child) for child in item]
+    if isinstance(item, tuple):
+        return [_redact_runtime_source(child) for child in item]
+    return item
+
+
+def _redact_runtime_properties(properties: dict[str, Any]) -> None:
+    vibecomfy = properties.get("vibecomfy")
+    if not isinstance(vibecomfy, dict):
+        return
+    runtime = vibecomfy.get("runtime")
+    intent = vibecomfy.get("intent")
+    if not isinstance(runtime, dict) or runtime.get("runtime_backed") is not True:
+        return
+    if isinstance(intent, dict) and isinstance(intent.get("source"), str):
+        intent["source"] = _source_digest(intent["source"])
+
+
+def redact_audit_metadata(value: Any) -> RedactionResult:
+    """Redact secret-like fields and runtime code source from persisted metadata."""
+
+    return redact_closed_set(_redact_runtime_source(value))
+
+
+def runtime_intent_metadata_from_api(api_dict: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Return source-free runtime-backed intent metadata for audit/run records."""
+
+    entries: list[dict[str, Any]] = []
+    for node_id, node in sorted(api_dict.items(), key=lambda item: str(item[0])):
+        if not isinstance(node, Mapping) or node.get("class_type") != "vibecomfy.code":
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, Mapping) or inputs.get("runtime_backed") is not True:
+            continue
+        source = inputs.get("source")
+        source_hash = _source_digest(source) if isinstance(source, str) else None
+        entries.append(
+            {
+                "node_id": str(node_id),
+                "class_type": "vibecomfy.code",
+                "vibecomfy_uid": inputs.get("vibecomfy_uid"),
+                "kind": inputs.get("kind"),
+                "runtime_backed": True,
+                "runtime_contract_version": inputs.get("runtime_contract_version"),
+                "execution_mode": inputs.get("execution_mode"),
+                "policy_version": inputs.get("policy_version"),
+                "io": _redact_runtime_source(inputs.get("io")),
+                "source_hash": source_hash["sha256"] if source_hash else None,
+                "source_byte_count": source_hash["byte_count"] if source_hash else None,
+                "source_redacted": source_hash is not None,
+                "resource_limits": {
+                    "timeout_ms": inputs.get("timeout_ms"),
+                    "max_source_bytes": inputs.get("max_source_bytes"),
+                },
+                "redaction": {
+                    "policy": list(inputs.get("redaction_policy") or []),
+                    "status": "source_hash_only" if source_hash else "no_source",
+                },
+            }
+        )
+    return entries
+
+
 def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False).encode("utf-8")
 
 
 def write_json_artifact(path: Path, value: Any) -> ArtifactRef:
-    redacted = redact_closed_set(value)
+    redacted = redact_audit_metadata(value)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(_json_bytes(redacted.value) + b"\n")
     return artifact_ref_for_path(path)
@@ -152,30 +243,30 @@ def write_audit(
         elif isinstance(artifact, Path):
             artifact_payload[name] = artifact_entry(artifact)
         else:
-            redacted = redact_closed_set(dict(artifact))
+            redacted = redact_audit_metadata(dict(artifact))
             redactions.update(redacted.categories)
             artifact_payload[name] = redacted.value
 
     response_ref = None
     if response is not None:
-        redacted_response = redact_closed_set(dict(response))
+        redacted_response = redact_audit_metadata(dict(response))
         redactions.update(redacted_response.categories)
         response_path = audit_dir / "response.json"
         response_path.write_bytes(_json_bytes(redacted_response.value) + b"\n")
         response_ref = artifact_ref_for_path(response_path).to_dict()
 
     if isinstance(failure, FailureEnvelope):
-        redacted_failure = redact_closed_set(failure.to_dict())
+        redacted_failure = redact_audit_metadata(failure.to_dict())
         redactions.update(redacted_failure.categories)
         failure_payload: dict[str, Any] | None = redacted_failure.value
     elif failure is not None:
-        redacted_failure = redact_closed_set(dict(failure))
+        redacted_failure = redact_audit_metadata(dict(failure))
         redactions.update(redacted_failure.categories)
         failure_payload = redacted_failure.value
     else:
         failure_payload = None
 
-    redacted_metadata = redact_closed_set(dict(metadata or {}))
+    redacted_metadata = redact_audit_metadata(dict(metadata or {}))
     redactions.update(redacted_metadata.categories)
     audit_payload = {
         "schema_version": 1,
@@ -229,6 +320,8 @@ __all__ = [
     "artifact_entry",
     "artifact_ref_for_path",
     "redact_closed_set",
+    "redact_audit_metadata",
+    "runtime_intent_metadata_from_api",
     "write_allocation_failure_audit",
     "write_audit",
     "write_json_artifact",

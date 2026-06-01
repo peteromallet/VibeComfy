@@ -8,6 +8,13 @@ from typing import Any
 import pytest
 
 import vibecomfy.runtime.session as session_module
+from vibecomfy.contracts import (
+    INTENT_CODE_MAX_BYTES,
+    RUNTIME_CODE_CONTRACT_VERSION,
+    RUNTIME_CODE_EXECUTION_MODE,
+    RUNTIME_CODE_POLICY_VERSION,
+    intent_node_properties,
+)
 from vibecomfy.errors import SchemaValidationError
 from vibecomfy.runtime.session import (
     EmbeddedSession,
@@ -17,6 +24,7 @@ from vibecomfy.runtime.session import (
     _warm_schema_provider,
 )
 from vibecomfy.schema import InputSpec, NodeSchema
+from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 from tests._runtime_session_helpers import (
     WarmProvider,
@@ -181,6 +189,66 @@ def test_server_session_validates_against_started_url(
 
     assert built_for == ["http://127.0.0.1:8200"]
     assert len(prepared_with) == 1
+
+
+def test_prepare_prompt_async_preserves_runtime_code_with_local_builtin_schema() -> None:
+    provider = _StrictProvider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                "CheckpointLoaderSimple",
+                None,
+                {"ckpt_name": InputSpec("STRING")},
+                [],
+            )
+        }
+    )
+    workflow = VibeWorkflow("runtime-intent", WorkflowSource("runtime-intent"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.code",
+        inputs={"value": 41},
+        metadata={
+            "_ui": {
+                "properties": intent_node_properties(
+                    kind="code",
+                    uid="runtime-code",
+                    intent={"source": "value + 1", "spec": "increment"},
+                    inputs=[("value", "INT")],
+                    outputs=[("result", "JSON")],
+                    extra_vibecomfy={
+                        "runtime": {
+                            "runtime_backed": True,
+                            "runtime_contract_version": RUNTIME_CODE_CONTRACT_VERSION,
+                            "execution_mode": RUNTIME_CODE_EXECUTION_MODE,
+                            "timeout_ms": 250,
+                            "max_source_bytes": INTENT_CODE_MAX_BYTES,
+                            "allowed_builtins": ["abs", "len", "min", "max", "round"],
+                            "redaction_policy": ["source_hash_only", "closed_set_redaction"],
+                            "policy_version": RUNTIME_CODE_POLICY_VERSION,
+                            "passthrough_on_non_json": False,
+                        }
+                    },
+                )
+            }
+        },
+    )
+
+    async def run_prepare() -> dict:
+        return await _prepare_prompt_async(
+            workflow,
+            backend="api",
+            schema_provider=provider,
+            on_unavailable=lambda msg: (_ for _ in ()).throw(AssertionError(msg)),
+        )
+
+    api = asyncio.run(run_prepare())
+
+    assert api["1"]["class_type"] == "vibecomfy.code"
+    assert api["1"]["inputs"]["value"] == 41
+    assert api["1"]["inputs"]["source"] == "value + 1"
+    assert api["1"]["inputs"]["spec"] == "increment"
+    assert api["1"]["inputs"]["io"] == {"inputs": [["value", "INT"]], "outputs": [["result", "JSON"]]}
+    assert api["1"]["inputs"]["execution_mode"] == RUNTIME_CODE_EXECUTION_MODE
 
 
 def test_env_var_disables_gate(

@@ -740,11 +740,12 @@ class VibeWorkflow:
         resolved_edges = _resolve_bypass_edges(self.edges, dropped_ids, bypassed_ids)
         api: dict[str, Any] = {}
         for node_id, node in self.nodes.items():
-            if _is_ui_only_node(node):
+            if _is_compile_stripped_node(node):
                 continue
             if str(node_id) in dropped_ids:
                 continue
             inputs = _rewrite_broadcast_links(_compile_node_inputs(node), self.nodes, broadcast_sources)
+            inputs.update(_compile_intent_runtime_inputs(node))
             api[str(node_id)] = {"class_type": node.class_type, "inputs": inputs}
         edge_inputs = _compile_resolved_edge_inputs(
             self.nodes, resolved_edges, broadcast_sources, dropped_ids=dropped_ids
@@ -888,9 +889,10 @@ class VibeWorkflow:
 
         builder = GraphBuilder(prefix="")
         for node_id, node in self.nodes.items():
-            if _is_ui_only_node(node):
+            if _is_compile_stripped_node(node):
                 continue
             inputs = _rewrite_broadcast_links(_compile_node_inputs(node), self.nodes, broadcast_sources)
+            inputs.update(_compile_intent_runtime_inputs(node))
             inputs.update(edge_inputs.get(str(node_id), {}))
             builder.node(node.class_type, id=str(node_id), **inputs)
         return builder.finalize()
@@ -1055,6 +1057,86 @@ def _is_ui_only_node(node: VibeNode) -> bool:
     return workflow_helpers.is_helper_class_type(node.class_type)
 
 
+def _is_compile_stripped_node(node: VibeNode) -> bool:
+    if _is_ui_only_node(node):
+        return True
+    if not _is_intent_node_class_type(node.class_type):
+        return False
+    return not _is_runtime_backed_code_intent_node(node)
+
+
+def _is_intent_node_class_type(class_type: str) -> bool:
+    try:
+        from vibecomfy.contracts.intent_nodes import is_intent_class_type
+
+        return is_intent_class_type(class_type)
+    except Exception:
+        return str(class_type).startswith("vibecomfy.")
+
+
+def _is_runtime_backed_code_intent_node(node: VibeNode) -> bool:
+    try:
+        from vibecomfy.contracts.intent_nodes import (
+            KIND_TO_CLASS_TYPE,
+            intent_node_payload_from_metadata,
+            validate_runtime_code_contract,
+        )
+    except Exception:
+        return False
+    if node.class_type != KIND_TO_CLASS_TYPE["code"]:
+        return False
+    payload = intent_node_payload_from_metadata(node.metadata)
+    runtime_result = validate_runtime_code_contract(
+        class_type=node.class_type,
+        payload=payload,
+        require_runtime=True,
+    )
+    return runtime_result.ok
+
+
+def _compile_intent_runtime_inputs(node: VibeNode) -> dict[str, Any]:
+    try:
+        from vibecomfy.contracts.intent_nodes import (
+            KIND_TO_CLASS_TYPE,
+            intent_node_payload_from_metadata,
+            validate_intent_node_contract,
+            validate_runtime_code_contract,
+        )
+    except Exception:
+        return {}
+    if node.class_type != KIND_TO_CLASS_TYPE["code"]:
+        return {}
+    payload = intent_node_payload_from_metadata(node.metadata)
+    runtime_result = validate_runtime_code_contract(
+        class_type=node.class_type,
+        payload=payload,
+        require_runtime=True,
+    )
+    if not runtime_result.ok or payload is None or runtime_result.normalized is None:
+        return {}
+    intent_result = validate_intent_node_contract(
+        node_id=node.id,
+        class_type=node.class_type,
+        metadata=node.metadata,
+    )
+    intent = payload.get("intent")
+    intent = intent if isinstance(intent, dict) else {}
+    compiled: dict[str, Any] = {
+        "runtime_backed": True,
+        **runtime_result.normalized.as_dict(),
+        "vibecomfy_uid": node.uid or intent_result.vibecomfy_uid,
+        "kind": payload.get("kind"),
+        "io": payload.get("io"),
+    }
+    source = intent.get("source")
+    spec = intent.get("spec")
+    if isinstance(source, str):
+        compiled["source"] = source
+    if isinstance(spec, str):
+        compiled["spec"] = spec
+    return compiled
+
+
 _MODE_MUTED: int = 2   # ComfyUI node.mode == 2 → muted (never executes)
 _MODE_BYPASS: int = 4  # ComfyUI node.mode == 4 → bypassed (dropped; edges rewired)
 
@@ -1177,7 +1259,7 @@ def _compile_resolved_edge_inputs(
     compiled_node_ids = {
         str(node_id)
         for node_id, node in nodes.items()
-        if not _is_ui_only_node(node) and str(node_id) not in dropped_ids
+        if not _is_compile_stripped_node(node) and str(node_id) not in dropped_ids
     }
     for edge in edges:
         target_node_id = str(edge.to_node)

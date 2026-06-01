@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import ast
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 import re
 from typing import Any, Final
 
-from vibecomfy.security.agent_generated_loader import scan_python_source_with_policy
+from vibecomfy.security.agent_generated_loader import ScanFailure, ScanReport, scan_python_source_with_policy
 
 VIBECOMFY_INTENT_CLASS_RE = re.compile(r"^vibecomfy\.[a-z]+$")
 
@@ -22,6 +23,135 @@ INTENT_SPEC_MAX_BYTES: Final[int] = 16 * 1024
 INTENT_LOOP_MAX_ITERATIONS: Final[int] = 128
 
 INTENT_NODE_VALIDATION_PHASE: Final[str] = "intent_node_validate"
+RUNTIME_CODE_CONTRACT_VERSION: Final[str] = "runtime_code_v1"
+RUNTIME_CODE_EXECUTION_MODE: Final[str] = "expression_v1"
+RUNTIME_CODE_POLICY_VERSION: Final[str] = "runtime_code_policy_v1"
+RUNTIME_CODE_TIMEOUT_MS_MIN: Final[int] = 1
+RUNTIME_CODE_TIMEOUT_MS_MAX: Final[int] = 10_000
+RUNTIME_CODE_ALLOWED_IO_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "BOOLEAN",
+        "BOOL",
+        "FLOAT",
+        "INT",
+        "INTEGER",
+        "JSON",
+        "NUMBER",
+        "STRING",
+    }
+)
+RUNTIME_CODE_SAFE_BUILTINS: Final[frozenset[str]] = frozenset(
+    {
+        "abs",
+        "all",
+        "any",
+        "bool",
+        "dict",
+        "float",
+        "int",
+        "len",
+        "list",
+        "max",
+        "min",
+        "round",
+        "sorted",
+        "str",
+        "sum",
+        "tuple",
+    }
+)
+RUNTIME_CODE_FORBIDDEN_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "__builtins__",
+        "__import__",
+        "breakpoint",
+        "compile",
+        "delattr",
+        "dir",
+        "eval",
+        "exec",
+        "getattr",
+        "globals",
+        "locals",
+        "open",
+        "setattr",
+        "vars",
+        "os",
+        "sys",
+        "subprocess",
+        "socket",
+        "requests",
+        "urllib",
+        "http",
+        "pathlib",
+        "importlib",
+        "inspect",
+    }
+)
+RUNTIME_CODE_ALLOWED_EXPRESSION_NODES: Final[tuple[type[ast.AST], ...]] = (
+    ast.Expression,
+    ast.BoolOp,
+    ast.BinOp,
+    ast.UnaryOp,
+    ast.IfExp,
+    ast.Dict,
+    ast.Set,
+    ast.Compare,
+    ast.Call,
+    ast.FormattedValue,
+    ast.JoinedStr,
+    ast.Constant,
+    ast.Attribute,
+    ast.Subscript,
+    ast.Name,
+    ast.List,
+    ast.Tuple,
+    ast.Slice,
+    ast.Load,
+    ast.And,
+    ast.Or,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.Pow,
+    ast.LShift,
+    ast.RShift,
+    ast.BitOr,
+    ast.BitXor,
+    ast.BitAnd,
+    ast.MatMult,
+    ast.Invert,
+    ast.Not,
+    ast.UAdd,
+    ast.USub,
+    ast.Eq,
+    ast.NotEq,
+    ast.Lt,
+    ast.LtE,
+    ast.Gt,
+    ast.GtE,
+    ast.Is,
+    ast.IsNot,
+    ast.In,
+    ast.NotIn,
+    ast.comprehension,
+)
+RUNTIME_CODE_REJECTED_IO_TYPES: Final[frozenset[str]] = frozenset(
+    {
+        "*",
+        "ANY",
+        "CONDITIONING",
+        "IMAGE",
+        "LATENT",
+        "MASK",
+        "MODEL",
+        "TENSOR",
+        "VAE",
+    }
+)
 
 KIND_TO_CLASS_TYPE: Final[dict[str, str]] = {
     "code": "vibecomfy.code",
@@ -46,6 +176,42 @@ class IntentNodeValidationResult:
     kind: str | None
     properties: dict[str, Any]
     payload: dict[str, Any] | None
+    problems: tuple[IntentNodeProblem, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+@dataclass(frozen=True, slots=True)
+class NormalizedRuntimeCodeContract:
+    runtime_backed: bool
+    runtime_contract_version: str
+    execution_mode: str
+    timeout_ms: int
+    max_source_bytes: int
+    allowed_builtins: tuple[str, ...]
+    redaction_policy: tuple[str, ...]
+    policy_version: str
+    passthrough_on_non_json: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "runtime_backed": self.runtime_backed,
+            "runtime_contract_version": self.runtime_contract_version,
+            "execution_mode": self.execution_mode,
+            "timeout_ms": self.timeout_ms,
+            "max_source_bytes": self.max_source_bytes,
+            "allowed_builtins": list(self.allowed_builtins),
+            "redaction_policy": list(self.redaction_policy),
+            "policy_version": self.policy_version,
+            "passthrough_on_non_json": self.passthrough_on_non_json,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCodeContractValidationResult:
+    normalized: NormalizedRuntimeCodeContract | None
     problems: tuple[IntentNodeProblem, ...] = ()
 
     @property
@@ -199,6 +365,12 @@ def validate_intent_node_contract(
             )
         elif kind == "code":
             problems.extend(_validate_code_intent(node_id=node_id, class_type=class_type, intent=intent))
+            runtime_result = validate_runtime_code_contract(
+                class_type=class_type,
+                payload=payload,
+                require_runtime=False,
+            )
+            problems.extend(runtime_result.problems)
         elif kind == "loop":
             problems.extend(_validate_loop_intent(node_id=node_id, class_type=class_type, intent=intent))
 
@@ -210,6 +382,325 @@ def validate_intent_node_contract(
         payload=payload,
         problems=tuple(problems),
     )
+
+
+def validate_runtime_code_contract(
+    *,
+    class_type: str,
+    payload: Mapping[str, Any] | None,
+    require_runtime: bool = True,
+) -> RuntimeCodeContractValidationResult:
+    if payload is None:
+        return RuntimeCodeContractValidationResult(
+            normalized=None,
+            problems=(IntentNodeProblem("missing_payload", "Runtime-backed code requires properties.vibecomfy metadata."),),
+        )
+
+    runtime = payload.get("runtime")
+    if runtime is None:
+        if require_runtime:
+            return RuntimeCodeContractValidationResult(
+                normalized=None,
+                problems=(
+                    IntentNodeProblem(
+                        "missing_runtime_contract",
+                        "Runtime-backed vibecomfy.code requires properties.vibecomfy.runtime.",
+                    ),
+                ),
+            )
+        return RuntimeCodeContractValidationResult(normalized=None)
+    if not isinstance(runtime, Mapping):
+        return RuntimeCodeContractValidationResult(
+            normalized=None,
+            problems=(
+                IntentNodeProblem(
+                    "runtime_contract_shape",
+                    "properties.vibecomfy.runtime must be a mapping.",
+                ),
+            ),
+        )
+
+    runtime_backed = runtime.get("runtime_backed")
+    if runtime_backed is not True:
+        if runtime_backed is False and not require_runtime:
+            return RuntimeCodeContractValidationResult(normalized=None)
+        return RuntimeCodeContractValidationResult(
+            normalized=None,
+            problems=(
+                IntentNodeProblem(
+                    "runtime_backed_required",
+                    "Runtime code contracts must set runtime_backed=true.",
+                    detail={"runtime_backed": runtime_backed},
+                ),
+            ),
+        )
+
+    problems: list[IntentNodeProblem] = []
+    if class_type != KIND_TO_CLASS_TYPE["code"]:
+        problems.append(
+            IntentNodeProblem(
+                "runtime_kind_unsupported",
+                "Only vibecomfy.code can declare a runtime-backed contract.",
+                detail={"class_type": class_type, "supported_class_type": KIND_TO_CLASS_TYPE["code"]},
+            )
+        )
+
+    intent = payload.get("intent")
+    if not isinstance(intent, Mapping):
+        problems.append(IntentNodeProblem("missing_intent", "Runtime-backed code requires properties.vibecomfy.intent."))
+    else:
+        if not isinstance(intent.get("source"), str) and not isinstance(intent.get("spec"), str):
+            problems.append(
+                IntentNodeProblem(
+                    "missing_code_payload",
+                    "Runtime-backed code requires queue-visible intent.source or intent.spec.",
+                )
+            )
+
+    _, io_problems = validate_typed_io_spec(payload.get("io"))
+    problems.extend(io_problems)
+    if isinstance(payload.get("io"), Mapping):
+        problems.extend(_validate_runtime_json_io(payload["io"]))
+
+    runtime_contract_version = _required_string(runtime, "runtime_contract_version", problems)
+    execution_mode = _required_string(runtime, "execution_mode", problems)
+    policy_version = _required_string(runtime, "policy_version", problems)
+    timeout_ms = _required_int(runtime, "timeout_ms", problems)
+    max_source_bytes = _required_int(runtime, "max_source_bytes", problems)
+    allowed_builtins = _required_string_sequence(runtime, "allowed_builtins", problems)
+    redaction_policy = _required_string_sequence(runtime, "redaction_policy", problems)
+    passthrough_on_non_json = runtime.get("passthrough_on_non_json", False)
+    source = intent.get("source") if isinstance(intent, Mapping) else None
+
+    if runtime_contract_version is not None and runtime_contract_version != RUNTIME_CODE_CONTRACT_VERSION:
+        problems.append(
+            IntentNodeProblem(
+                "unsupported_runtime_contract_version",
+                f"Unsupported runtime contract version {runtime_contract_version!r}.",
+                detail={"supported": RUNTIME_CODE_CONTRACT_VERSION, "actual": runtime_contract_version},
+            )
+        )
+    if execution_mode is not None and execution_mode != RUNTIME_CODE_EXECUTION_MODE:
+        problems.append(
+            IntentNodeProblem(
+                "unsupported_execution_mode",
+                f"Unsupported runtime code execution mode {execution_mode!r}.",
+                detail={"supported": RUNTIME_CODE_EXECUTION_MODE, "actual": execution_mode},
+            )
+        )
+    if policy_version is not None and policy_version != RUNTIME_CODE_POLICY_VERSION:
+        problems.append(
+            IntentNodeProblem(
+                "unsupported_policy_version",
+                f"Unsupported runtime code policy version {policy_version!r}.",
+                detail={"supported": RUNTIME_CODE_POLICY_VERSION, "actual": policy_version},
+            )
+        )
+    if allowed_builtins is not None:
+        unsupported_builtins = sorted(set(allowed_builtins) - RUNTIME_CODE_SAFE_BUILTINS)
+        if unsupported_builtins:
+            problems.append(
+                IntentNodeProblem(
+                    "runtime_allowed_builtin_unsupported",
+                    "runtime.allowed_builtins contains names outside the expression_v1 safe builtin allowlist.",
+                    detail={"unsupported": unsupported_builtins},
+                )
+            )
+    if timeout_ms is not None and not (RUNTIME_CODE_TIMEOUT_MS_MIN <= timeout_ms <= RUNTIME_CODE_TIMEOUT_MS_MAX):
+        problems.append(
+            IntentNodeProblem(
+                "runtime_timeout_bounds",
+                f"runtime.timeout_ms must be between {RUNTIME_CODE_TIMEOUT_MS_MIN} and {RUNTIME_CODE_TIMEOUT_MS_MAX}.",
+                detail={"timeout_ms": timeout_ms},
+            )
+        )
+    if max_source_bytes is not None:
+        if max_source_bytes < 1 or max_source_bytes > INTENT_CODE_MAX_BYTES:
+            problems.append(
+                IntentNodeProblem(
+                    "runtime_source_bounds",
+                    f"runtime.max_source_bytes must be between 1 and {INTENT_CODE_MAX_BYTES}.",
+                    detail={"max_source_bytes": max_source_bytes},
+                )
+            )
+        if isinstance(source, str) and len(source.encode("utf-8")) > max_source_bytes:
+            problems.append(
+                IntentNodeProblem(
+                    "runtime_source_too_large",
+                    "intent.source exceeds runtime.max_source_bytes.",
+                    detail={"max_source_bytes": max_source_bytes, "actual_bytes": len(source.encode("utf-8"))},
+                )
+            )
+    source_within_runtime_limit = not (
+        isinstance(source, str)
+        and max_source_bytes is not None
+        and len(source.encode("utf-8")) > max_source_bytes
+    )
+    if isinstance(source, str) and source_within_runtime_limit:
+        runtime_policy_report = scan_runtime_code_expression(
+            source,
+            input_names=_runtime_io_names(payload.get("io"), "inputs"),
+            allowed_builtins=allowed_builtins or (),
+            max_source_bytes=max_source_bytes or INTENT_CODE_MAX_BYTES,
+        )
+        for failure in runtime_policy_report.failures:
+            problems.append(
+                IntentNodeProblem(
+                    failure.code,
+                    f"Runtime-backed code source failed expression policy: {failure.message}",
+                    detail={
+                        "line": failure.line,
+                        "column": failure.column,
+                        "phase": failure.phase,
+                    },
+                )
+            )
+    if not isinstance(passthrough_on_non_json, bool):
+        problems.append(
+            IntentNodeProblem(
+                "runtime_passthrough_shape",
+                "runtime.passthrough_on_non_json must be a boolean when present.",
+            )
+        )
+    elif passthrough_on_non_json:
+        problems.append(
+            IntentNodeProblem(
+                "runtime_non_json_passthrough_unsupported",
+                "Runtime-backed code must reject non-JSON outputs; passthrough_on_non_json must be false.",
+            )
+        )
+
+    if problems:
+        return RuntimeCodeContractValidationResult(normalized=None, problems=tuple(problems))
+
+    return RuntimeCodeContractValidationResult(
+        normalized=NormalizedRuntimeCodeContract(
+            runtime_backed=True,
+            runtime_contract_version=runtime_contract_version or RUNTIME_CODE_CONTRACT_VERSION,
+            execution_mode=execution_mode or RUNTIME_CODE_EXECUTION_MODE,
+            timeout_ms=timeout_ms if timeout_ms is not None else 0,
+            max_source_bytes=max_source_bytes if max_source_bytes is not None else 0,
+            allowed_builtins=tuple(allowed_builtins or ()),
+            redaction_policy=tuple(redaction_policy or ()),
+            policy_version=policy_version or RUNTIME_CODE_POLICY_VERSION,
+            passthrough_on_non_json=False,
+        )
+    )
+
+
+def scan_runtime_code_expression(
+    source: str,
+    *,
+    input_names: Sequence[str],
+    allowed_builtins: Sequence[str],
+    max_source_bytes: int,
+) -> ScanReport:
+    """Scan runtime-backed ``expression_v1`` source before any executor can run it."""
+
+    if not isinstance(source, str):
+        return ScanReport(
+            ok=False,
+            failures=(
+                ScanFailure(
+                    code="source_type",
+                    message=f"source must be str, got {type(source).__name__}",
+                    phase=INTENT_NODE_VALIDATION_PHASE,
+                ),
+            ),
+        )
+    if len(source.encode("utf-8")) > max_source_bytes:
+        return ScanReport(
+            ok=False,
+            failures=(
+                ScanFailure(
+                    code="source_too_large",
+                    message=f"Python source exceeds {max_source_bytes} bytes",
+                    phase=INTENT_NODE_VALIDATION_PHASE,
+                ),
+            ),
+        )
+    try:
+        tree = ast.parse(source, filename="<runtime_code_expression>", mode="eval")
+    except SyntaxError as exc:
+        try:
+            ast.parse(source, filename="<runtime_code_expression>", mode="exec")
+        except SyntaxError:
+            code = "syntax_error"
+            message = exc.msg
+        else:
+            code = "forbidden_statement"
+            message = "runtime-backed code supports exactly one Python expression, not statements"
+        return ScanReport(
+            ok=False,
+            failures=(
+                ScanFailure(
+                    code=code,
+                    message=message,
+                    phase=INTENT_NODE_VALIDATION_PHASE,
+                    line=exc.lineno,
+                    column=exc.offset,
+                ),
+            ),
+        )
+
+    allowed_call_names = frozenset(allowed_builtins) & RUNTIME_CODE_SAFE_BUILTINS
+    visitor = _RuntimeCodeExpressionPolicy(
+        input_names=frozenset(input_names),
+        allowed_call_names=allowed_call_names,
+    )
+    visitor.visit(tree)
+    return ScanReport(ok=not visitor.failures, failures=tuple(visitor.failures))
+
+
+class _RuntimeCodeExpressionPolicy(ast.NodeVisitor):
+    def __init__(self, *, input_names: frozenset[str], allowed_call_names: frozenset[str]) -> None:
+        self.input_names = input_names
+        self.allowed_call_names = allowed_call_names
+        self.failures: list[ScanFailure] = []
+
+    def visit(self, node: ast.AST) -> Any:
+        if not isinstance(node, RUNTIME_CODE_ALLOWED_EXPRESSION_NODES):
+            self._fail(
+                node,
+                "forbidden_node",
+                f"{type(node).__name__} is not allowed in runtime-backed expression_v1 code",
+            )
+            return None
+        return super().visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id.startswith("__"):
+            self._fail(node, "dunder_access", f"{node.id!r} is not allowed")
+            return
+        if node.id in RUNTIME_CODE_FORBIDDEN_NAMES:
+            self._fail(node, "forbidden_name", f"{node.id!r} is not allowed")
+            return
+        if node.id in self.input_names or node.id in self.allowed_call_names:
+            return
+        self._fail(node, "forbidden_name", f"{node.id!r} is not a declared input or allowed builtin")
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr.startswith("__"):
+            self._fail(node, "dunder_access", f"dunder attribute {node.attr!r} is not allowed")
+        else:
+            self._fail(node, "forbidden_attribute", "attribute access is not allowed in expression_v1")
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if not isinstance(node.func, ast.Name) or node.func.id not in self.allowed_call_names:
+            self._fail(node, "forbidden_call", "only explicitly allowed builtin function calls are allowed")
+            return
+        self.generic_visit(node)
+
+    def _fail(self, node: ast.AST, code: str, message: str) -> None:
+        self.failures.append(
+            ScanFailure(
+                code=code,
+                message=message,
+                phase=INTENT_NODE_VALIDATION_PHASE,
+                line=getattr(node, "lineno", None),
+                column=getattr(node, "col_offset", None),
+            )
+        )
 
 
 def _validate_code_intent(
@@ -264,6 +755,123 @@ def _validate_code_intent(
             )
         )
     return problems
+
+
+def _validate_runtime_json_io(io_payload: Mapping[str, Any]) -> list[IntentNodeProblem]:
+    problems: list[IntentNodeProblem] = []
+    for label in ("inputs", "outputs"):
+        value = io_payload.get(label)
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+            continue
+        entries, entry_problems = _validate_typed_io_entries(label, value)
+        if entry_problems:
+            continue
+        for name, socket_type in entries:
+            normalized = socket_type.strip().upper()
+            if normalized in RUNTIME_CODE_ALLOWED_IO_TYPES:
+                continue
+            if normalized in RUNTIME_CODE_REJECTED_IO_TYPES or "TENSOR" in normalized:
+                problems.append(
+                    IntentNodeProblem(
+                        "runtime_non_json_io",
+                        "Runtime-backed code only supports JSON-compatible declared IO types.",
+                        detail={"field": label, "name": name, "type": socket_type},
+                    )
+                )
+            else:
+                problems.append(
+                    IntentNodeProblem(
+                        "runtime_unknown_io_type",
+                        "Runtime-backed code IO types must be explicitly JSON-compatible.",
+                        detail={"field": label, "name": name, "type": socket_type},
+                    )
+                )
+    return problems
+
+
+def _runtime_io_names(io_payload: Any, label: str) -> tuple[str, ...]:
+    if not isinstance(io_payload, Mapping):
+        return ()
+    value = io_payload.get(label)
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return ()
+    names: list[str] = []
+    for entry in value:
+        if (
+            isinstance(entry, Sequence)
+            and not isinstance(entry, (str, bytes))
+            and len(entry) >= 2
+            and isinstance(entry[0], str)
+            and entry[0].strip()
+        ):
+            names.append(entry[0])
+    return tuple(names)
+
+
+def _required_string(
+    runtime: Mapping[str, Any],
+    field_name: str,
+    problems: list[IntentNodeProblem],
+) -> str | None:
+    value = runtime.get(field_name)
+    if isinstance(value, str) and value.strip():
+        return value
+    problems.append(
+        IntentNodeProblem(
+            "runtime_field_required",
+            f"runtime.{field_name} must be a non-empty string.",
+            detail={"field": field_name},
+        )
+    )
+    return None
+
+
+def _required_int(
+    runtime: Mapping[str, Any],
+    field_name: str,
+    problems: list[IntentNodeProblem],
+) -> int | None:
+    value = runtime.get(field_name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        problems.append(
+            IntentNodeProblem(
+                "runtime_field_required",
+                f"runtime.{field_name} must be an integer.",
+                detail={"field": field_name},
+            )
+        )
+        return None
+    return value
+
+
+def _required_string_sequence(
+    runtime: Mapping[str, Any],
+    field_name: str,
+    problems: list[IntentNodeProblem],
+) -> tuple[str, ...] | None:
+    value = runtime.get(field_name)
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        problems.append(
+            IntentNodeProblem(
+                "runtime_field_required",
+                f"runtime.{field_name} must be a sequence of strings.",
+                detail={"field": field_name},
+            )
+        )
+        return None
+    strings: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            problems.append(
+                IntentNodeProblem(
+                    "runtime_field_required",
+                    f"runtime.{field_name}[{index}] must be a non-empty string.",
+                    detail={"field": field_name, "index": index},
+                )
+            )
+            return None
+        strings.append(item)
+    return tuple(strings)
 
 
 def _validate_loop_intent(
@@ -394,6 +1002,11 @@ __all__ = [
     "IntentNodeProblem",
     "IntentNodeValidationResult",
     "KIND_TO_CLASS_TYPE",
+    "NormalizedRuntimeCodeContract",
+    "RUNTIME_CODE_CONTRACT_VERSION",
+    "RUNTIME_CODE_EXECUTION_MODE",
+    "RUNTIME_CODE_POLICY_VERSION",
+    "RuntimeCodeContractValidationResult",
     "SHIPPED_INTENT_KINDS",
     "VIBECOMFY_INTENT_CLASS_RE",
     "intent_node_payload_from_metadata",
@@ -401,5 +1014,6 @@ __all__ = [
     "intent_node_properties_from_metadata",
     "is_intent_class_type",
     "validate_intent_node_contract",
+    "validate_runtime_code_contract",
     "validate_typed_io_spec",
 ]

@@ -7,20 +7,42 @@ from vibecomfy.contracts import (
     INTENT_LOOP_MAX_ITERATIONS,
     INTENT_NODE_CONTRACT_INVALID_CODE,
     INTENT_NODE_EDITOR_ONLY_CODE,
+    RUNTIME_CODE_CONTRACT_VERSION,
+    RUNTIME_CODE_EXECUTION_MODE,
+    RUNTIME_CODE_POLICY_VERSION,
     intent_node_payload_from_metadata,
     intent_node_properties,
     intent_node_properties_from_metadata,
     validate_intent_node_contract,
+    validate_runtime_code_contract,
 )
 from vibecomfy.contracts.intent_nodes import INTENT_SPEC_MAX_BYTES
 from vibecomfy.contracts.validation import comfyui_node_issue_specs
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.schema.provider import NodeSchema, schema_for
+from vibecomfy.schema.validate import sanitize_api_against_schema, validate_api_against_schema
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
 def _metadata(properties: dict[str, object]) -> dict[str, object]:
     return {"_ui": {"properties": properties}}
+
+
+def _runtime_contract(**overrides: object) -> dict[str, object]:
+    contract: dict[str, object] = {
+        "runtime_backed": True,
+        "runtime_contract_version": RUNTIME_CODE_CONTRACT_VERSION,
+        "execution_mode": RUNTIME_CODE_EXECUTION_MODE,
+        "timeout_ms": 1000,
+        "max_source_bytes": INTENT_CODE_MAX_BYTES,
+        "allowed_builtins": ["abs", "len", "min", "max", "round"],
+        "redaction_policy": ["source_hash_only", "closed_set_redaction"],
+        "policy_version": RUNTIME_CODE_POLICY_VERSION,
+        "passthrough_on_non_json": False,
+    }
+    contract.update(overrides)
+    return contract
 
 
 def test_intent_node_properties_builds_programmatic_properties_blob() -> None:
@@ -70,7 +92,7 @@ def test_workflow_validate_treats_valid_intent_node_as_warning_only() -> None:
     assert report.ok
     assert [issue.code for issue in report.issues] == [INTENT_NODE_EDITOR_ONLY_CODE]
     assert report.issues[0].severity == "warning"
-    assert workflow.compile("api")["1"]["class_type"] == "vibecomfy.code"
+    assert "1" not in workflow.compile("api")
 
 
 def test_workflow_validate_treats_valid_loop_intent_node_as_warning_only() -> None:
@@ -94,7 +116,122 @@ def test_workflow_validate_treats_valid_loop_intent_node_as_warning_only() -> No
     assert report.ok
     assert [issue.code for issue in report.issues] == [INTENT_NODE_EDITOR_ONLY_CODE]
     assert report.issues[0].severity == "warning"
-    assert workflow.compile("api")["2"]["class_type"] == "vibecomfy.loop"
+    assert "2" not in workflow.compile("api")
+
+
+def test_compile_materializes_valid_runtime_backed_code_as_queue_visible_inputs() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "value + 1", "spec": "increment"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(timeout_ms=250, max_source_bytes=128)},
+    )
+    workflow = VibeWorkflow("runtime-intent", WorkflowSource("runtime-intent"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.code",
+        inputs={"value": 41},
+        metadata=_metadata(properties),
+    )
+
+    compiled = workflow.compile("api")
+
+    assert compiled["1"]["class_type"] == "vibecomfy.code"
+    assert compiled["1"]["inputs"] == {
+        "value": 41,
+        "runtime_backed": True,
+        "runtime_contract_version": RUNTIME_CODE_CONTRACT_VERSION,
+        "execution_mode": RUNTIME_CODE_EXECUTION_MODE,
+        "timeout_ms": 250,
+        "max_source_bytes": 128,
+        "allowed_builtins": ["abs", "len", "min", "max", "round"],
+        "redaction_policy": ["source_hash_only", "closed_set_redaction"],
+        "policy_version": RUNTIME_CODE_POLICY_VERSION,
+        "passthrough_on_non_json": False,
+        "vibecomfy_uid": "runtime-code",
+        "kind": "code",
+        "io": {"inputs": [["value", "INT"]], "outputs": [["result", "JSON"]]},
+        "source": "value + 1",
+        "spec": "increment",
+    }
+
+
+def test_attempt_bundle_redacts_runtime_source_and_records_contract_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.runtime import attempt as attempt_module
+
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "value + 1", "spec": "increment"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(timeout_ms=250, max_source_bytes=128)},
+    )
+    workflow = VibeWorkflow("runtime-intent", WorkflowSource("runtime-intent"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.code",
+        inputs={"value": 41},
+        metadata=_metadata(properties),
+    )
+    api = workflow.compile("api")
+    monkeypatch.setattr(attempt_module, "_collect_drift_for_bundle", lambda workflow: {})
+
+    bundle = attempt_module.build_attempt_bundle(workflow, api, backend="api")
+
+    compiled_source = bundle["compiled_prompt"]["1"]["inputs"]["source"]
+    runtime_entry = bundle["runtime_intent_nodes"][0]
+    assert compiled_source["redacted"] is True
+    assert compiled_source["byte_count"] == len("value + 1")
+    assert "value + 1" not in repr(bundle)
+    assert bundle["node_lookups"]["1"]["class_type"] == "vibecomfy.code"
+    assert runtime_entry["source_hash"] == compiled_source["sha256"]
+    assert runtime_entry["resource_limits"] == {"timeout_ms": 250, "max_source_bytes": 128}
+    assert runtime_entry["redaction"] == {
+        "policy": ["source_hash_only", "closed_set_redaction"],
+        "status": "source_hash_only",
+    }
+    assert "runtime_source" in bundle["redactions"]
+
+
+def test_schema_sanitize_preserves_runtime_backed_code_inputs() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "value + 1", "spec": "increment"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(timeout_ms=250, max_source_bytes=128)},
+    )
+    workflow = VibeWorkflow("runtime-intent", WorkflowSource("runtime-intent"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.code",
+        inputs={"value": 41},
+        metadata=_metadata(properties),
+    )
+    api = workflow.compile("api")
+
+    class StrictProvider:
+        def schemas(self) -> dict[str, NodeSchema]:
+            return {"KnownNode": NodeSchema("KnownNode", None, {}, [])}
+
+        def get_schema(self, class_type: str) -> None:
+            return None
+
+    sanitized = sanitize_api_against_schema(api, StrictProvider())
+    issues = validate_api_against_schema(sanitized, StrictProvider())
+
+    assert sanitized["1"]["inputs"] == api["1"]["inputs"]
+    assert issues == []
+    schema = schema_for(StrictProvider(), "vibecomfy.code")
+    assert schema is not None
+    assert schema.source_provider == "vibecomfy_builtin"
+    assert schema.confidence == 1.0
 
 
 def test_validate_intent_node_contract_reports_missing_uid_and_forbidden_source() -> None:
@@ -133,6 +270,212 @@ def test_validate_intent_node_contract_enforces_loop_bounds() -> None:
 
     assert not result.ok
     assert {problem.code for problem in result.problems} == {"loop_bound"}
+
+
+def test_validate_runtime_code_contract_normalizes_valid_runtime_backed_metadata() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "value + 1"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(timeout_ms=250, max_source_bytes=128)},
+    )
+
+    result = validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=properties["vibecomfy"],
+    )
+
+    assert result.ok
+    assert result.normalized is not None
+    assert result.normalized.as_dict() == {
+        "runtime_backed": True,
+        "runtime_contract_version": RUNTIME_CODE_CONTRACT_VERSION,
+        "execution_mode": RUNTIME_CODE_EXECUTION_MODE,
+        "timeout_ms": 250,
+        "max_source_bytes": 128,
+        "allowed_builtins": ["abs", "len", "min", "max", "round"],
+        "redaction_policy": ["source_hash_only", "closed_set_redaction"],
+        "policy_version": RUNTIME_CODE_POLICY_VERSION,
+        "passthrough_on_non_json": False,
+    }
+    assert validate_intent_node_contract(
+        node_id="1",
+        class_type="vibecomfy.code",
+        metadata=_metadata(properties),
+    ).ok
+
+
+def test_validate_runtime_code_contract_reports_missing_runtime_block_when_required() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "value + 1"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+    )
+
+    result = validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=properties["vibecomfy"],
+    )
+
+    assert not result.ok
+    assert {problem.code for problem in result.problems} == {"missing_runtime_contract"}
+
+
+def test_validate_runtime_code_contract_rejects_unsupported_execution_mode() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "value + 1"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(execution_mode="function_body_v1")},
+    )
+
+    result = validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=properties["vibecomfy"],
+    )
+
+    assert not result.ok
+    assert {problem.code for problem in result.problems} == {"unsupported_execution_mode"}
+
+
+def test_validate_runtime_code_contract_rejects_source_over_runtime_limit() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "value + 1"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(max_source_bytes=3)},
+    )
+
+    result = validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=properties["vibecomfy"],
+    )
+
+    assert not result.ok
+    assert {problem.code for problem in result.problems} == {"runtime_source_too_large"}
+
+
+def test_validate_runtime_code_contract_rejects_non_json_io_declarations() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "pixels"},
+        inputs=[("pixels", "IMAGE"), ("latent", "LATENT")],
+        outputs=[("result", "*")],
+        extra_vibecomfy={"runtime": _runtime_contract()},
+    )
+
+    result = validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=properties["vibecomfy"],
+    )
+
+    assert not result.ok
+    assert {problem.code for problem in result.problems} == {"runtime_non_json_io"}
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_code"),
+    [
+        pytest.param("import os", "forbidden_statement", id="import-statement"),
+        pytest.param("value = 1", "forbidden_statement", id="assignment-statement"),
+        pytest.param("eval('1')", "forbidden_call", id="eval-call"),
+        pytest.param("exec('value')", "forbidden_call", id="exec-call"),
+        pytest.param("open('/tmp/x').read()", "forbidden_call", id="file-open-call"),
+        pytest.param("__import__('os')", "forbidden_call", id="import-reflection-call"),
+        pytest.param("getattr(value, 'x')", "forbidden_call", id="dynamic-attribute-call"),
+        pytest.param("value.__class__", "dunder_access", id="dunder-attribute"),
+        pytest.param("os.environ", "forbidden_attribute", id="environment-api"),
+        pytest.param("subprocess.run(['true'])", "forbidden_call", id="process-api"),
+        pytest.param("socket.create_connection(['localhost', 80])", "forbidden_call", id="network-api"),
+        pytest.param("inspect.signature(value)", "forbidden_call", id="reflection-api"),
+    ],
+)
+def test_runtime_code_contract_rejects_forbidden_expression_policy_before_execution(
+    source: str,
+    expected_code: str,
+) -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": source},
+        inputs=[("value", "JSON")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract()},
+    )
+
+    result = validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=properties["vibecomfy"],
+    )
+
+    assert not result.ok
+    assert expected_code in {problem.code for problem in result.problems}
+    assert {problem.detail.get("phase") for problem in result.problems if problem.code == expected_code} == {
+        "intent_node_validate"
+    }
+
+
+def test_runtime_code_contract_allows_declared_json_expression_subset() -> None:
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code",
+        intent={"source": "round(max(value, 1) / 2, 2)"},
+        inputs=[("value", "FLOAT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(allowed_builtins=["round", "max"])},
+    )
+
+    result = validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=properties["vibecomfy"],
+    )
+
+    assert result.ok
+
+
+def test_legacy_editor_only_code_and_loop_metadata_remain_valid_without_runtime_contract() -> None:
+    code_properties = intent_node_properties(
+        kind="code",
+        uid="editor-code",
+        intent={"source": "value = 1"},
+        inputs=[("prompt", "STRING")],
+        outputs=[("image", "IMAGE")],
+    )
+    loop_properties = intent_node_properties(
+        kind="loop",
+        uid="editor-loop",
+        intent={"var": "seed", "count": 2},
+        inputs=[("image", "IMAGE")],
+        outputs=[("image", "IMAGE")],
+    )
+
+    code_result = validate_intent_node_contract(
+        node_id="1",
+        class_type="vibecomfy.code",
+        metadata=_metadata(code_properties),
+    )
+    loop_result = validate_intent_node_contract(
+        node_id="2",
+        class_type="vibecomfy.loop",
+        metadata=_metadata(loop_properties),
+    )
+
+    assert code_result.ok
+    assert loop_result.ok
+    assert validate_runtime_code_contract(
+        class_type="vibecomfy.code",
+        payload=code_properties["vibecomfy"],
+        require_runtime=False,
+    ).ok
 
 
 @pytest.mark.parametrize(
@@ -344,17 +687,113 @@ def test_intent_comfy_nodes_register_editor_only_noop_classes() -> None:
         assert node_cls.CATEGORY == "vibecomfy/intent"
         assert node_cls.RETURN_TYPES == ("*",)
         assert node_cls.RETURN_NAMES == ("value",)
-        assert node_cls.FUNCTION == "passthrough"
         assert node_cls.VIBECOMFY_INTENT_KIND == kind
         assert node_cls.VIBECOMFY_EDITOR_ONLY is True
-        assert node_cls.VIBECOMFY_RUNTIME_BACKED is False
         assert node_cls.VIBECOMFY_LOWERED is False
-        assert node_cls.INPUT_TYPES()["required"] == {"value": ("*",)}
-        assert node_cls().passthrough(
-            "sentinel",
-            source=source_payload,
-            spec=spec_payload,
-        ) == ("sentinel",)
+        inputs = node_cls.INPUT_TYPES()
+        assert inputs["required"] == {"value": ("*",)}
+        if kind == "code":
+            assert node_cls.FUNCTION == "execute"
+            assert node_cls.VIBECOMFY_RUNTIME_BACKED is True
+            assert {"runtime_backed", "source", "spec", "io"} <= set(inputs["optional"])
+        else:
+            assert node_cls.FUNCTION == "passthrough"
+            assert node_cls.VIBECOMFY_RUNTIME_BACKED is False
+            assert "optional" not in inputs
+            assert node_cls().passthrough(
+                "sentinel",
+                source=source_payload,
+                spec=spec_payload,
+            ) == ("sentinel",)
+
+
+def test_runtime_code_executor_returns_json_result_from_child_process() -> None:
+    from vibecomfy.comfy_nodes.runtime_code import execute_runtime_code
+
+    result = execute_runtime_code(
+        value=2,
+        source="max(value + 3, 4)",
+        io={"inputs": [["value", "INT"]], "outputs": [["result", "JSON"]]},
+        runtime_backed=True,
+        runtime_contract_version=RUNTIME_CODE_CONTRACT_VERSION,
+        execution_mode=RUNTIME_CODE_EXECUTION_MODE,
+        timeout_ms=1000,
+        max_source_bytes=128,
+        allowed_builtins=["max"],
+        redaction_policy=["source_hash_only"],
+        policy_version=RUNTIME_CODE_POLICY_VERSION,
+        passthrough_on_non_json=False,
+    )
+
+    assert result == 5
+
+
+def test_runtime_code_executor_rejects_non_json_inputs_and_outputs(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.comfy_nodes import runtime_code
+    from vibecomfy.comfy_nodes.runtime_code import RuntimeCodeExecutionError, execute_runtime_code
+
+    with pytest.raises(RuntimeCodeExecutionError, match="runtime_input_not_json"):
+        execute_runtime_code(
+            value=float("nan"),
+            source="value",
+            io={"inputs": [["value", "FLOAT"]], "outputs": [["result", "JSON"]]},
+            runtime_backed=True,
+            runtime_contract_version=RUNTIME_CODE_CONTRACT_VERSION,
+            execution_mode=RUNTIME_CODE_EXECUTION_MODE,
+            timeout_ms=1000,
+            max_source_bytes=128,
+            allowed_builtins=[],
+            redaction_policy=["source_hash_only"],
+            policy_version=RUNTIME_CODE_POLICY_VERSION,
+            passthrough_on_non_json=False,
+        )
+
+    monkeypatch.setattr(
+        runtime_code,
+        "_WORKER_SOURCE",
+        "import sys\nsys.stdout.write('not-json')\n",
+    )
+    with pytest.raises(RuntimeCodeExecutionError, match="runtime_protocol_non_json"):
+        runtime_code._run_worker(
+            {"source": "value", "value": 1, "inputs": {"value": 1}, "allowed_builtins": []},
+            timeout_ms=1000,
+        )
+
+
+def test_runtime_code_executor_enforces_timeout_and_scrubbed_child_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+
+    from vibecomfy.comfy_nodes import runtime_code
+    from vibecomfy.comfy_nodes.runtime_code import RuntimeCodeExecutionError
+
+    monkeypatch.setenv("VIBECOMFY_RUNTIME_TEST_SECRET", "leak")
+    monkeypatch.setattr(
+        runtime_code,
+        "_WORKER_SOURCE",
+        "import json, os, sys\n"
+        "sys.stdout.write(json.dumps({'ok': True, 'result': {"
+        "'pid': os.getpid(), "
+        "'parent_secret': os.environ.get('VIBECOMFY_RUNTIME_TEST_SECRET'), "
+        "'cwd': os.getcwd()}}))\n",
+    )
+
+    result = runtime_code._run_worker(
+        {"source": "value", "value": 1, "inputs": {"value": 1}, "allowed_builtins": []},
+        timeout_ms=1000,
+    )
+
+    assert result["pid"] != os.getpid()
+    assert result["parent_secret"] is None
+    assert os.path.basename(result["cwd"]).startswith("vibecomfy-runtime-code-")
+
+    monkeypatch.setattr(runtime_code, "_WORKER_SOURCE", "import time\ntime.sleep(1)\n")
+    with pytest.raises(RuntimeCodeExecutionError, match="runtime_timeout"):
+        runtime_code._run_worker(
+            {"source": "value", "value": 1, "inputs": {"value": 1}, "allowed_builtins": []},
+            timeout_ms=10,
+        )
 
 
 def test_ui_json_intent_properties_survive_ingest_and_emit_round_trip() -> None:
@@ -445,3 +884,43 @@ def test_programmatic_intent_node_properties_export_with_stable_uid_and_typed_io
         "outputs": [["image", "IMAGE"]],
     }
     assert workflow.nodes[builder.id].uid == builder.node.uid
+
+
+@pytest.mark.comfy
+@pytest.mark.info
+def test_runtime_backed_code_embedded_queue_smoke() -> None:
+    """Opt-in live ComfyUI smoke: prove the runtime-backed node queues successfully."""
+    import importlib.util
+    import json
+    import os
+    from pathlib import Path
+
+    if os.environ.get("VIBECOMFY_RUNTIME_CODE_SMOKE") != "1":
+        pytest.skip("runtime-backed ComfyUI smoke is opt-in (set VIBECOMFY_RUNTIME_CODE_SMOKE=1)")
+    if importlib.util.find_spec("comfy.client.embedded_comfy_client") is None:
+        pytest.skip("embedded ComfyUI runtime is unavailable for the live smoke test")
+
+    from vibecomfy.runtime import run_embedded_sync
+
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-code-live",
+        intent={"source": "value + 1", "spec": "increment"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={"runtime": _runtime_contract(timeout_ms=1000, max_source_bytes=128)},
+    )
+    workflow = VibeWorkflow("runtime-intent-live", WorkflowSource("runtime-intent-live"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.code",
+        inputs={"value": 41},
+        metadata=_metadata(properties),
+    )
+
+    result = run_embedded_sync(workflow)
+
+    assert result.prompt_id is not None
+    metadata = json.loads(Path(result.metadata_path).read_text(encoding="utf-8"))
+    assert metadata["runtime"] == "embedded"
+    assert metadata["queued"]

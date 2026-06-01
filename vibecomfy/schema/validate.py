@@ -630,4 +630,4 @@ def _schema_accepts_dict(spec: Any) -> bool:
     typ = getattr(spec, "type", None)
     if typ is None:
         return False
-    return str(typ).strip().upper() in {"DICT", "*"}
+    return str(typ).strip().upper() in {"DICT", "JSON", "*"}

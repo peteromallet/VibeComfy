@@ -97,6 +97,37 @@ class _VibeComfyIntentNodeBase:
 
 class VibeComfyCodeIntent(_VibeComfyIntentNodeBase):
     VIBECOMFY_INTENT_KIND = "code"
+    FUNCTION = "execute"
+    VIBECOMFY_RUNTIME_BACKED = True
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "value": ("*",),
+            },
+            "optional": {
+                "runtime_backed": ("BOOLEAN", {"default": False}),
+                "runtime_contract_version": ("STRING", {"default": "runtime_code_v1"}),
+                "execution_mode": ("STRING", {"default": "expression_v1"}),
+                "timeout_ms": ("INT", {"default": 1000, "min": 1, "max": 10000}),
+                "max_source_bytes": ("INT", {"default": 16384, "min": 1, "max": 16384}),
+                "allowed_builtins": ("JSON",),
+                "redaction_policy": ("JSON",),
+                "policy_version": ("STRING", {"default": "runtime_code_policy_v1"}),
+                "passthrough_on_non_json": ("BOOLEAN", {"default": False}),
+                "vibecomfy_uid": ("STRING", {"default": ""}),
+                "kind": ("STRING", {"default": "code"}),
+                "io": ("JSON",),
+                "source": ("STRING", {"default": "", "multiline": True}),
+                "spec": ("STRING", {"default": "", "multiline": True}),
+            },
+        }
+
+    def execute(self, value: Any, **kwargs: Any) -> tuple[Any]:
+        from vibecomfy.comfy_nodes.runtime_code import execute_runtime_code
+
+        return (execute_runtime_code(value=value, **kwargs),)
 
 
 class VibeComfyLoopIntent(_VibeComfyIntentNodeBase):

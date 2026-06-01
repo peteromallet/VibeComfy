@@ -50,6 +50,9 @@ from vibecomfy.contracts import (
     INTENT_NODE_CONTRACT_INVALID_CODE,
     INTENT_NODE_EDITOR_ONLY_CODE,
     INTENT_NODE_QUEUE_BLOCKER_CODE,
+    RUNTIME_CODE_CONTRACT_VERSION,
+    RUNTIME_CODE_EXECUTION_MODE,
+    RUNTIME_CODE_POLICY_VERSION,
     intent_node_properties,
 )
 from vibecomfy._graph_utils import UI_ONLY_CLASS_TYPES as GRAPH_UTILS_UI_ONLY_CLASS_TYPES
@@ -112,6 +115,33 @@ def _intent_metadata(*, kind: str, uid: str, intent: dict[str, object]) -> dict[
                 intent=intent,
                 inputs=[("prompt", "STRING")],
                 outputs=[("image", "IMAGE")],
+            )
+        }
+    }
+
+
+def _runtime_code_metadata(*, uid: str = "runtime-code", source: str = "value + 1") -> dict[str, object]:
+    return {
+        "_ui": {
+            "properties": intent_node_properties(
+                kind="code",
+                uid=uid,
+                intent={"source": source, "spec": "json metadata expression"},
+                inputs=[("value", "INT")],
+                outputs=[("result", "JSON")],
+                extra_vibecomfy={
+                    "runtime": {
+                        "runtime_backed": True,
+                        "runtime_contract_version": "runtime_code_v1",
+                        "execution_mode": "expression_v1",
+                        "timeout_ms": 1000,
+                        "max_source_bytes": 16384,
+                        "allowed_builtins": ["abs", "len", "min", "max", "round"],
+                        "redaction_policy": ["source_hash_only", "closed_set_redaction"],
+                        "policy_version": "runtime_code_policy_v1",
+                        "passthrough_on_non_json": False,
+                    }
+                },
             )
         }
     }
@@ -1014,6 +1044,58 @@ def test_audit_preserves_bounded_intent_node_metadata_snapshot(tmp_path: Path) -
     ]
 
 
+def test_audit_redacts_runtime_backed_intent_source_to_hash(tmp_path: Path) -> None:
+    context_allocation = allocate_turn(
+        session_root=tmp_path / "sessions",
+        session_id="s1",
+        request_payload={"task": "audit-runtime-intent"},
+    )
+    context = context_allocation.context
+    properties = intent_node_properties(
+        kind="code",
+        uid="runtime-audit-1",
+        intent={"source": "value + 1", "spec": "increment"},
+        inputs=[("value", "INT")],
+        outputs=[("result", "JSON")],
+        extra_vibecomfy={
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "timeout_ms": 1000,
+                "max_source_bytes": 128,
+                "allowed_builtins": ["max"],
+                "redaction_policy": ["source_hash_only", "closed_set_redaction"],
+                "policy_version": "runtime_code_policy_v1",
+                "passthrough_on_non_json": False,
+            }
+        },
+    )
+
+    audit_ref = write_audit(
+        tmp_path / "audit-runtime-intent",
+        context=context,
+        turn_state="candidate",
+        metadata={
+            "intent_nodes": [
+                {
+                    "node_id": "17",
+                    "class_type": "vibecomfy.code",
+                    "properties": properties,
+                }
+            ]
+        },
+    )
+
+    audit = json.loads(Path(audit_ref.path).read_text(encoding="utf-8"))
+    source = audit["metadata"]["intent_nodes"][0]["properties"]["vibecomfy"]["intent"]["source"]
+
+    assert source["redacted"] is True
+    assert source["byte_count"] == len("value + 1")
+    assert len(source["sha256"]) == 64
+    assert "value + 1" not in json.dumps(audit)
+
+
 def test_success_audit_is_deterministic_and_sorted_with_failure_payload(tmp_path: Path) -> None:
     context_allocation = allocate_turn(
         session_root=tmp_path / "sessions",
@@ -1510,6 +1592,10 @@ def test_queue_stage_diagnostics_derive_queue_only_blockers_from_emit_evidence()
         "uid": "intent-10",
         "lowered": False,
         "runtime_backed": False,
+        "class_runtime_backed": True,
+        "runtime_contract_valid": None,
+        "intent_contract_valid": None,
+        "contract_problem_codes": None,
         "provider": "widget_schema",
         "confidence": 0.2,
         "diagnostic": "schema-less: emitting best-effort slots from link appearance order",
@@ -1548,6 +1634,10 @@ def test_queue_diagnostics_detect_intent_nodes_before_generic_schema_confidence_
         "uid": "intent-17",
         "lowered": False,
         "runtime_backed": False,
+        "class_runtime_backed": False,
+        "runtime_contract_valid": None,
+        "intent_contract_valid": None,
+        "contract_problem_codes": None,
         "provider": None,
         "confidence": None,
         "diagnostic": "schema-less: emitting best-effort slots from link appearance order",
@@ -1615,6 +1705,179 @@ def test_queue_diagnostics_still_block_actual_unlowered_intent_with_lowered_prov
     assert [issue["code"] for issue in diagnostics.issues] == [INTENT_NODE_QUEUE_BLOCKER_CODE]
     assert diagnostics.issues[0]["detail"]["node_id"] == "18"
     assert diagnostics.issues[0]["detail"]["lowered"] is False
+
+
+def test_recovery_marks_valid_runtime_backed_code_as_queue_ready() -> None:
+    workflow = VibeWorkflow("runtime-code", WorkflowSource("runtime-code"))
+    workflow.nodes["44"] = VibeNode(
+        "44",
+        "vibecomfy.code",
+        inputs={"value": 41},
+        metadata=_runtime_code_metadata(uid="intent-44"),
+    )
+
+    recovery: list[dict[str, object]] = []
+    emit_ui_json(
+        workflow,
+        schema_provider=_Provider({"vibecomfy.code": _schema("vibecomfy.code")}),
+        recovery_report=recovery,
+    )
+
+    entry = next(item for item in recovery if item.get("node_id") == "44")
+    assert entry["runtime_backed"] is True
+    assert entry["runtime_contract_valid"] is True
+    assert entry["intent_contract_valid"] is True
+    assert entry["contract_problem_codes"] == []
+
+    diagnostics = queue_stage_diagnostics(recovery_report=recovery, change_report={})
+    assert diagnostics.ok is True
+    assert diagnostics.issues == ()
+
+
+def test_queue_diagnostics_block_stale_runtime_backed_flags_without_valid_contract() -> None:
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "44",
+                "class_type": "vibecomfy.code",
+                "kind": "code",
+                "uid": "intent-44",
+                "provider": "test",
+                "confidence": 1.0,
+                "schema_less": False,
+                "diagnostic": None,
+                "lowered": False,
+                "runtime_backed": True,
+            }
+        ],
+        change_report={},
+    )
+
+    assert diagnostics.ok is False
+    assert [issue["code"] for issue in diagnostics.issues] == [INTENT_NODE_QUEUE_BLOCKER_CODE]
+    assert diagnostics.issues[0]["detail"]["runtime_backed"] is True
+    assert diagnostics.issues[0]["detail"]["runtime_contract_valid"] is None
+
+
+def test_queue_diagnostics_block_loop_even_with_stale_runtime_backed_flag() -> None:
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "17",
+                "class_type": "vibecomfy.loop",
+                "kind": "loop",
+                "uid": "intent-17",
+                "provider": "test",
+                "confidence": 1.0,
+                "schema_less": False,
+                "diagnostic": None,
+                "lowered": False,
+                "runtime_backed": True,
+                "runtime_contract_valid": True,
+                "intent_contract_valid": True,
+            }
+        ],
+        change_report={},
+    )
+
+    assert diagnostics.ok is False
+    assert [issue["code"] for issue in diagnostics.issues] == [INTENT_NODE_QUEUE_BLOCKER_CODE]
+    assert diagnostics.issues[0]["detail"]["class_runtime_backed"] is False
+
+
+def test_runtime_backed_code_fixture_is_queueable_after_compile_schema_and_recovery() -> None:
+    workflow = VibeWorkflow("runtime-code-fixture", WorkflowSource("runtime-code-fixture"))
+    workflow.nodes["44"] = VibeNode(
+        "44",
+        "vibecomfy.code",
+        inputs={"value": 41},
+        metadata=_runtime_code_metadata(uid="intent-44", source="value + 1"),
+    )
+    schema_provider = _Provider({"vibecomfy.code": _schema("vibecomfy.code")})
+
+    compiled = workflow.compile("api")
+    validate = validate_stage_diagnostics(workflow, schema_provider=schema_provider)
+    recovery: list[dict[str, object]] = []
+    emit_ui_json(workflow, schema_provider=schema_provider, recovery_report=recovery)
+    queue = queue_stage_diagnostics(recovery_report=recovery, change_report={})
+
+    assert validate.ok is True
+    assert compiled["44"]["inputs"]["source"] == "value + 1"
+    assert compiled["44"]["inputs"]["runtime_backed"] is True
+    assert compiled["44"]["inputs"]["runtime_contract_version"] == RUNTIME_CODE_CONTRACT_VERSION
+    assert compiled["44"]["inputs"]["execution_mode"] == RUNTIME_CODE_EXECUTION_MODE
+    assert compiled["44"]["inputs"]["policy_version"] == RUNTIME_CODE_POLICY_VERSION
+    assert queue.ok is True
+    assert queue.issues == ()
+
+
+@pytest.mark.parametrize(
+    ("entry_overrides", "expected_detail"),
+    (
+        ({"runtime_contract_valid": False, "contract_problem_codes": ["execution_mode_invalid"]}, "runtime_contract_valid"),
+        ({"intent_contract_valid": False, "contract_problem_codes": ["missing_uid"]}, "intent_contract_valid"),
+        ({"schema_less": True, "provider": None, "confidence": None}, "provider"),
+        ({"confidence": 0.3, "provider": "object_info"}, "confidence"),
+    ),
+)
+def test_runtime_backed_code_fixture_blocks_pre_queue_when_contract_or_schema_is_not_proven(
+    entry_overrides: dict[str, object],
+    expected_detail: str,
+) -> None:
+    entry: dict[str, object] = {
+        "node_id": "44",
+        "class_type": "vibecomfy.code",
+        "kind": "code",
+        "uid": "intent-44",
+        "provider": "object_info",
+        "confidence": 1.0,
+        "schema_less": False,
+        "diagnostic": None,
+        "lowered": False,
+        "runtime_backed": True,
+        "runtime_contract_valid": True,
+        "intent_contract_valid": True,
+        "contract_problem_codes": [],
+    }
+    entry.update(entry_overrides)
+
+    diagnostics = queue_stage_diagnostics(recovery_report=[entry], change_report={})
+
+    assert diagnostics.ok is False
+    assert [issue["code"] for issue in diagnostics.issues] == [INTENT_NODE_QUEUE_BLOCKER_CODE]
+    assert expected_detail in diagnostics.issues[0]["detail"]
+
+
+def test_runtime_backed_code_fixture_blocks_pre_queue_when_custom_node_readiness_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy import comfy_nodes
+
+    monkeypatch.delitem(comfy_nodes.NODE_CLASS_MAPPINGS, "vibecomfy.code")
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "44",
+                "class_type": "vibecomfy.code",
+                "kind": "code",
+                "uid": "intent-44",
+                "provider": "object_info",
+                "confidence": 1.0,
+                "schema_less": False,
+                "diagnostic": None,
+                "lowered": False,
+                "runtime_backed": True,
+                "runtime_contract_valid": True,
+                "intent_contract_valid": True,
+                "contract_problem_codes": [],
+            }
+        ],
+        change_report={},
+    )
+
+    assert diagnostics.ok is False
+    assert [issue["code"] for issue in diagnostics.issues] == [INTENT_NODE_QUEUE_BLOCKER_CODE]
+    assert diagnostics.issues[0]["detail"]["class_runtime_backed"] is None
 
 
 def test_valid_intent_queue_blocker_keeps_canvas_apply_true_and_queue_false() -> None:
@@ -1838,7 +2101,7 @@ def test_intent_nodes_are_not_treated_as_ui_only_helpers_in_s4() -> None:
     )
 
     compiled = workflow.compile("api")
-    assert compiled["1"]["class_type"] == "vibecomfy.code"
+    assert "1" not in compiled
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
