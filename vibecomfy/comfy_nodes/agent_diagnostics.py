@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from vibecomfy.contracts.intent_nodes import INTENT_NODE_CONTRACT_INVALID_CODE
 from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
@@ -21,6 +22,7 @@ UNSUPPORTED_NON_DAG_CODES = frozenset(
         "subgraph_freshness_error",
     }
 )
+INTENT_CONTRACT_INVALID_CODES = frozenset({INTENT_NODE_CONTRACT_INVALID_CODE})
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,8 @@ def classify_validation_issues(issues: tuple[dict[str, Any], ...]) -> FailureKin
     hard_codes = {str(issue.get("code")) for issue in hard}
     if hard_codes & UNSUPPORTED_NON_DAG_CODES:
         return FailureKind.UNSUPPORTED_NON_DAG
+    if hard_codes & INTENT_CONTRACT_INVALID_CODES:
+        return FailureKind.VALIDATION_ERROR
     if hard_codes & UNSATISFIED_INPUT_CODES:
         return FailureKind.UNSATISFIED_INPUT_ERROR
     return FailureKind.VALIDATION_ERROR

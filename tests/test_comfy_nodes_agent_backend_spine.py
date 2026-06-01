@@ -29,6 +29,7 @@ from vibecomfy.comfy_nodes.agent_diagnostics import (
     validate_stage_result,
 )
 from vibecomfy.comfy_nodes.agent_gates import (
+    EXPLICIT_QUEUE_BLOCKER_CODES,
     derive_gates,
     initialize_gates,
     update_queue_gate,
@@ -42,6 +43,12 @@ from vibecomfy.comfy_nodes.agent_session import (
     record_idempotent_response,
     reject_turn,
     write_state_atomic,
+)
+from vibecomfy.contracts import (
+    INTENT_NODE_CONTRACT_INVALID_CODE,
+    INTENT_NODE_EDITOR_ONLY_CODE,
+    INTENT_NODE_QUEUE_BLOCKER_CODE,
+    intent_node_properties,
 )
 from vibecomfy.schema.provider import InputSpec, NodeSchema
 from vibecomfy.workflow import ValidationIssue, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -88,6 +95,20 @@ def _response_writer(base: Path):
         return path
 
     return _write
+
+
+def _intent_metadata(*, kind: str, uid: str, intent: dict[str, object]) -> dict[str, object]:
+    return {
+        "_ui": {
+            "properties": intent_node_properties(
+                kind=kind,
+                uid=uid,
+                intent=intent,
+                inputs=[("prompt", "STRING")],
+                outputs=[("image", "IMAGE")],
+            )
+        }
+    }
 
 
 def _request_graph(label: str) -> dict:
@@ -946,6 +967,47 @@ def test_audit_redacts_closed_set_and_references_raw_artifacts(tmp_path: Path) -
     assert "inline" in artifact_entry(raw_path)
 
 
+def test_audit_preserves_bounded_intent_node_metadata_snapshot(tmp_path: Path) -> None:
+    context_allocation = allocate_turn(
+        session_root=tmp_path / "sessions",
+        session_id="s1",
+        request_payload={"task": "audit-intent"},
+    )
+    context = context_allocation.context
+    properties = intent_node_properties(
+        kind="code",
+        uid="intent-audit-1",
+        intent={"source": "value = image", "spec": "inspect only"},
+        inputs=[("image", "IMAGE")],
+        outputs=[("image", "IMAGE")],
+    )
+
+    audit_ref = write_audit(
+        tmp_path / "audit-intent",
+        context=context,
+        turn_state="candidate",
+        metadata={
+            "intent_nodes": [
+                {
+                    "node_id": "17",
+                    "class_type": "vibecomfy.code",
+                    "properties": properties,
+                }
+            ]
+        },
+    )
+
+    audit = json.loads(Path(audit_ref.path).read_text(encoding="utf-8"))
+
+    assert audit["metadata"]["intent_nodes"] == [
+        {
+            "node_id": "17",
+            "class_type": "vibecomfy.code",
+            "properties": properties,
+        }
+    ]
+
+
 def test_success_audit_is_deterministic_and_sorted_with_failure_payload(tmp_path: Path) -> None:
     context_allocation = allocate_turn(
         session_root=tmp_path / "sessions",
@@ -1463,6 +1525,102 @@ def test_queue_diagnostics_editor_only_only_blocks_queue_when_canvas_passes() ->
     assert context.queue_allowed is False
 
 
+def test_validate_stage_keeps_valid_intent_warning_canvas_allowing() -> None:
+    workflow = VibeWorkflow("intent-valid", WorkflowSource("intent-valid"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.code",
+        metadata=_intent_metadata(kind="code", uid="intent-1", intent={"source": "value = 1"}),
+    )
+
+    diagnostics = validate_stage_diagnostics(workflow)
+    result = validate_stage_result(workflow)
+
+    assert diagnostics.ok is True
+    assert diagnostics.blocking is False
+    assert {issue["code"] for issue in diagnostics.issues} == {INTENT_NODE_EDITOR_ONLY_CODE}
+    assert result.gate_updates["ir_validate_ok"] is True
+
+
+def test_validate_stage_marks_invalid_intent_contract_as_ir_validation_failure() -> None:
+    workflow = VibeWorkflow("intent-invalid", WorkflowSource("intent-invalid"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.code",
+        metadata=_intent_metadata(kind="code", uid="intent-1", intent={"source": "import os\nvalue = 1"}),
+    )
+
+    diagnostics = validate_stage_diagnostics(workflow)
+    result = validate_stage_result(workflow)
+
+    assert diagnostics.ok is False
+    assert diagnostics.blocking is True
+    assert diagnostics.failure_kind == FailureKind.VALIDATION_ERROR
+    assert {issue["code"] for issue in diagnostics.issues} == {INTENT_NODE_CONTRACT_INVALID_CODE}
+    assert result.gate_updates["ir_validate_ok"] is False
+
+
+def test_explicit_intent_queue_blocker_code_blocks_queue_without_changing_canvas_gate_names() -> None:
+    context = TurnContext(session_id="s1")
+    initialize_gates(context)
+    for name in (
+        "python_load_ok",
+        "ir_validate_ok",
+        "ui_emit_ok",
+        "ui_fidelity_ok",
+        "ui_load_safe_ok",
+        "state_match_ok",
+    ):
+        context.set_gate(name, True, evidence={"test": name})
+
+    blockers = (
+        {
+            "code": INTENT_NODE_QUEUE_BLOCKER_CODE,
+            "severity": "error",
+            "detail": {"node_id": "17", "class_type": "vibecomfy.code"},
+        },
+    )
+    derived = derive_gates(context, queue_blockers=blockers)
+
+    assert INTENT_NODE_QUEUE_BLOCKER_CODE in EXPLICIT_QUEUE_BLOCKER_CODES
+    assert derived.canvas_apply_allowed is True
+    assert derived.queue_allowed is False
+
+
+def test_queue_gate_preserves_substring_fallback_for_legacy_queue_blocker_codes() -> None:
+    context = TurnContext(session_id="s1")
+    initialize_gates(context)
+    for name in (
+        "python_load_ok",
+        "ir_validate_ok",
+        "ui_emit_ok",
+        "ui_fidelity_ok",
+        "ui_load_safe_ok",
+        "state_match_ok",
+    ):
+        context.set_gate(name, True, evidence={"test": name})
+
+    context.record_stage(
+        StageResult(
+            stage="queue_validate",
+            ok=False,
+            blocking=False,
+            issues=(
+                {
+                    "code": "legacy_editor-only_queue_blocker",
+                    "severity": "error",
+                    "detail": {"node_id": "legacy-1"},
+                },
+            ),
+        )
+    )
+
+    blockers = update_queue_gate(context)
+
+    assert blockers[0]["code"] == "legacy_editor-only_queue_blocker"
+    assert context.queue_allowed is False
+
+
 def test_queue_diagnostics_unresolved_model_widget_blocks_queue_when_canvas_passes() -> None:
     context = TurnContext(session_id="s1")
     initialize_gates(context)
@@ -1622,6 +1780,10 @@ def test_agent_provider_lazy_loads_arnold_and_normalizes_response(monkeypatch) -
     assert calls[0]["route"] == "arnold"
     assert calls[0]["messages"][0]["role"] == "system"
     assert "Return only JSON with keys `python` and `message`." in calls[0]["messages"][0]["content"]
+    assert "Prefer direct static graph edits first." in calls[0]["messages"][0]["content"]
+    assert "Use `vibecomfy.loop` only for bounded, visible sweeps" in calls[0]["messages"][0]["content"]
+    assert "Use `vibecomfy.code` only for inspectable typed logic" in calls[0]["messages"][0]["content"]
+    assert "intent_node_properties(...)" in calls[0]["messages"][0]["content"]
     assert "User request:\nchange it" in calls[0]["messages"][1]["content"]
     assert "Current scratchpad Python" in calls[0]["messages"][1]["content"]
     assert result.audit_metadata["requested_route"] == "anthropic"

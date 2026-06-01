@@ -35,6 +35,15 @@ This skill teaches an agent how to use it. The user wants to: **grab a template,
 - Prefer subprocess CLI smoke tests only when behavior depends on process-level invocation or current working directory.
 - Keep tests deterministic and avoid requiring ComfyUI, RunPod, network access, or local model files unless the test is explicitly marked or scoped for that environment.
 
+## Agent-edit policy
+
+- Prefer direct static graph edits first. If the request can be lowered into ordinary nodes, do that instead of emitting intent nodes.
+- Use `vibecomfy.loop` only for bounded, visible sweeps that cannot be lowered cleanly. The metadata must carry a stable `vibecomfy_uid`, `properties.vibecomfy.kind`, typed `io.inputs` / `io.outputs`, and a bounded `count` / `iterations` / `over` contract with no more than 128 iterations.
+- Use `vibecomfy.code` only for inspectable typed logic when no more specific shipped shape fits. `intent.source` or `intent.spec` must stay within 16 KiB.
+- Reject side-effecting, unbounded, runtime-only, external-I/O, or otherwise unrepresentable requests at policy level. Do not imply sandboxed execution that does not exist.
+- Editor-only intent nodes may be valid for Canvas Apply, but they are still Queue blockers until lowered to normal runtime nodes.
+- When emitting an intent node programmatically, build the metadata with `intent_node_properties(...)` rather than hand-rolling `properties.vibecomfy`.
+
 ## Vocabulary
 
 VibeComfy uses ComfyUI's two-word distinction precisely:

@@ -744,6 +744,10 @@ Examples:
 - `vibecomfy.workflowref`: deferred. It should not ship until there is a
   concrete staged-workflow/VibeFlow model.
 
+Programmatic emitters should construct these metadata blobs with
+`intent_node_properties(...)` rather than hand-rolling
+`properties.vibecomfy`.
+
 **Frozen architecture:** Editor-only `vibecomfy.*` nodes are extension-owned UI
 nodes. They register in `NODE_CLASS_MAPPINGS` as real ComfyUI custom node
 classes so `app.loadGraphData()` can load them predictably. They expose
@@ -901,7 +905,12 @@ Before editing, the agent should decide:
 4. Can it be represented as a useful editable intent node? If yes, create the
    most specific node available; use `vibecomfy.code` as the generic fallback.
    Mark it editor-only unless runtime-backed, allow Canvas Apply if the intent
-   is valid, and block Queue.
+   is valid, and block Queue. Metadata is explicit: every shipped intent node
+   carries `properties.vibecomfy_uid`, `properties.vibecomfy.kind`,
+   `properties.vibecomfy.intent`, and typed `properties.vibecomfy.io.inputs` /
+   `outputs`. `vibecomfy.code` source/spec payloads stay within 16 KiB, and
+   `vibecomfy.loop` must declare a bounded `count` / `iterations` / `over`
+   contract with no more than 128 iterations.
 5. Does it require orchestration outside one graph? Represent that honestly as
    `vibecomfy.code` when an inspectable block is useful, or as a Python recipe /
    staged workflow plan outside the canvas. Defer `vibecomfy.workflowref` until

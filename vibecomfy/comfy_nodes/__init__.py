@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from vibecomfy.contracts.intent_nodes import KIND_TO_CLASS_TYPE
+
 WEB_DIRECTORY = "./web"
 
 try:
@@ -70,10 +72,45 @@ class VibeComfyStripConditioningKeys:
         )
 
 
+class _VibeComfyIntentNodeBase:
+    CATEGORY = "vibecomfy/intent"
+    RETURN_TYPES = ("*",)
+    RETURN_NAMES = ("value",)
+    FUNCTION = "passthrough"
+
+    VIBECOMFY_EDITOR_ONLY = True
+    VIBECOMFY_RUNTIME_BACKED = False
+    VIBECOMFY_LOWERED = False
+    VIBECOMFY_INTENT_NODE = True
+
+    @classmethod
+    def INPUT_TYPES(cls) -> dict[str, Any]:
+        return {
+            "required": {
+                "value": ("*",),
+            }
+        }
+
+    def passthrough(self, value: Any, **_ignored: Any) -> tuple[Any]:
+        return (value,)
+
+
+class VibeComfyCodeIntent(_VibeComfyIntentNodeBase):
+    VIBECOMFY_INTENT_KIND = "code"
+
+
+class VibeComfyLoopIntent(_VibeComfyIntentNodeBase):
+    VIBECOMFY_INTENT_KIND = "loop"
+
+
 NODE_CLASS_MAPPINGS = {
     "VibeComfyStripConditioningKeys": VibeComfyStripConditioningKeys,
+    KIND_TO_CLASS_TYPE["code"]: VibeComfyCodeIntent,
+    KIND_TO_CLASS_TYPE["loop"]: VibeComfyLoopIntent,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VibeComfyStripConditioningKeys": "VibeComfy Strip Conditioning Keys",
+    KIND_TO_CLASS_TYPE["code"]: "VibeComfy Code Intent",
+    KIND_TO_CLASS_TYPE["loop"]: "VibeComfy Loop Intent",
 }

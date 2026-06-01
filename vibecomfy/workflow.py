@@ -605,7 +605,7 @@ class VibeWorkflow:
         if not self.nodes:
             issues.append(ValidationIssue("empty_workflow", "Workflow contains no nodes."))
         for spec in comfyui_node_issue_specs(
-            (node_id, node.class_type, node.inputs)
+            (node_id, node.class_type, node.inputs, node.metadata)
             for node_id, node in self.nodes.items()
         ):
             issues.append(

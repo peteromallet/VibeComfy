@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from vibecomfy.contracts.intent_nodes import INTENT_NODE_QUEUE_BLOCKER_CODE
+
 from .agent_contracts import (
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,
@@ -16,6 +18,15 @@ EMIT_STAGE_GATE_NAMES: tuple[str, ...] = (
     "ui_emit_ok",
     "ui_fidelity_ok",
     "ui_load_safe_ok",
+)
+
+EXPLICIT_QUEUE_BLOCKER_CODES = frozenset(
+    {
+        INTENT_NODE_QUEUE_BLOCKER_CODE,
+        "schema_less_queue_blocker",
+        "low_confidence_queue_blocker",
+        "editor_only_node_queue_blocker",
+    }
 )
 
 
@@ -101,7 +112,8 @@ def _queue_blocker_issues(stage_results: Mapping[str, StageResult]) -> tuple[dic
             if severity != "error":
                 continue
             if (
-                "queue_blocker" in code
+                code in EXPLICIT_QUEUE_BLOCKER_CODES
+                or "queue_blocker" in code
                 or "schema_less" in code
                 or "schema-less" in code
                 or "editor_only" in code
@@ -156,6 +168,7 @@ def derive_gates(
 
 
 __all__ = [
+    "EXPLICIT_QUEUE_BLOCKER_CODES",
     "EMIT_STAGE_GATE_NAMES",
     "GateDerivation",
     "apply_stage_gate_updates",

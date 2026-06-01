@@ -5,6 +5,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from vibecomfy.contracts.intent_nodes import (
+    INTENT_NODE_CONTRACT_INVALID_CODE,
+    INTENT_NODE_EDITOR_ONLY_CODE,
+    is_intent_class_type,
+    validate_intent_node_contract,
+)
+
 
 OPAQUE_COMPONENT_CLASS_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -23,7 +30,7 @@ class ContractIssue:
 
 
 def comfyui_node_issue_specs(
-    nodes: Iterable[tuple[Any, str, dict[str, Any]]],
+    nodes: Iterable[tuple[Any, str, dict[str, Any]] | tuple[Any, str, dict[str, Any], dict[str, Any]]],
 ) -> list[ContractIssue]:
     """Neutral ComfyUI-specific node validation specs.
 
@@ -33,7 +40,50 @@ def comfyui_node_issue_specs(
     reverse dependency on the IR workflow module.
     """
     specs: list[ContractIssue] = []
-    for node_id, class_type, inputs in nodes:
+    for raw_node in nodes:
+        if len(raw_node) == 3:
+            node_id, class_type, inputs = raw_node
+            metadata: dict[str, Any] = {}
+        elif len(raw_node) == 4:
+            node_id, class_type, inputs, metadata = raw_node
+        else:
+            raise ValueError(
+                "comfyui_node_issue_specs expects (node_id, class_type, inputs) "
+                "or (node_id, class_type, inputs, metadata) tuples"
+            )
+        if is_intent_class_type(class_type):
+            intent_result = validate_intent_node_contract(
+                node_id=str(node_id),
+                class_type=class_type,
+                metadata=metadata,
+            )
+            detail = {
+                "node_id": str(node_id),
+                "class_type": class_type,
+                "kind": intent_result.kind,
+                "vibecomfy_uid": intent_result.vibecomfy_uid,
+            }
+            if intent_result.ok:
+                specs.append(
+                    ContractIssue(
+                        code=INTENT_NODE_EDITOR_ONLY_CODE,
+                        message=(
+                            f"Node {node_id} ({class_type}) is an editor-only intent node; "
+                            "it may stay on the canvas but must be lowered before queueing."
+                        ),
+                        severity="warning",
+                        detail=detail,
+                    )
+                )
+            else:
+                for problem in intent_result.problems:
+                    specs.append(
+                        ContractIssue(
+                            code=INTENT_NODE_CONTRACT_INVALID_CODE,
+                            message=problem.message,
+                            detail={**detail, "intent_issue_code": problem.code, **problem.detail},
+                        )
+                    )
         if OPAQUE_COMPONENT_CLASS_RE.match(class_type):
             specs.append(
                 ContractIssue(

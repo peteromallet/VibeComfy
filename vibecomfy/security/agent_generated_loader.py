@@ -192,21 +192,44 @@ class AgentGeneratedLoadError(WorkflowBuildError):
 def scan_agent_generated_python(source: str) -> ScanReport:
     """Scan generated Python source without executing it."""
 
+    return scan_python_source_with_policy(
+        source,
+        phase=_LOAD_PHASE,
+        max_source_bytes=MAX_AGENT_GENERATED_SOURCE_BYTES,
+        max_ast_nodes=MAX_AGENT_GENERATED_AST_NODES,
+        allowed_imports=_ALLOWED_IMPORTS,
+        allowed_import_prefixes=_ALLOWED_IMPORT_PREFIXES,
+    )
+
+
+def scan_python_source_with_policy(
+    source: str,
+    *,
+    phase: str,
+    max_source_bytes: int,
+    max_ast_nodes: int,
+    allowed_imports: dict[str, frozenset[str] | None] | None = None,
+    allowed_import_prefixes: tuple[str, ...] = (),
+) -> ScanReport:
+    """Scan Python source with the shared AST safety vocabulary."""
+
     if not isinstance(source, str):
         return _report(
             ScanFailure(
                 code="source_type",
                 message=f"source must be str, got {type(source).__name__}",
+                phase=phase,
             )
         )
-    if len(source.encode("utf-8")) > MAX_AGENT_GENERATED_SOURCE_BYTES:
+    if len(source.encode("utf-8")) > max_source_bytes:
         return _report(
             ScanFailure(
                 code="source_too_large",
                 message=(
-                    "agent-generated Python exceeds "
-                    f"{MAX_AGENT_GENERATED_SOURCE_BYTES} bytes"
+                    "Python source exceeds "
+                    f"{max_source_bytes} bytes"
                 ),
+                phase=phase,
             )
         )
     try:
@@ -216,24 +239,30 @@ def scan_agent_generated_python(source: str) -> ScanReport:
             ScanFailure(
                 code="syntax_error",
                 message=exc.msg,
+                phase=phase,
                 line=exc.lineno,
                 column=exc.offset,
             )
         )
 
     node_count = sum(1 for _ in ast.walk(tree))
-    if node_count > MAX_AGENT_GENERATED_AST_NODES:
+    if node_count > max_ast_nodes:
         return _report(
             ScanFailure(
                 code="source_too_large",
                 message=(
-                    "agent-generated Python AST exceeds "
-                    f"{MAX_AGENT_GENERATED_AST_NODES} nodes"
+                    "Python source AST exceeds "
+                    f"{max_ast_nodes} nodes"
                 ),
+                phase=phase,
             )
         )
 
-    visitor = _AgentGeneratedPolicy()
+    visitor = _PythonPolicy(
+        phase=phase,
+        allowed_imports=allowed_imports or {},
+        allowed_import_prefixes=allowed_import_prefixes,
+    )
     visitor.visit(tree)
     failures = tuple(visitor.failures)
     return ScanReport(ok=not failures, failures=failures)
@@ -287,8 +316,17 @@ def _report(*failures: ScanFailure) -> ScanReport:
     return ScanReport(ok=False, failures=tuple(failures))
 
 
-class _AgentGeneratedPolicy(ast.NodeVisitor):
-    def __init__(self) -> None:
+class _PythonPolicy(ast.NodeVisitor):
+    def __init__(
+        self,
+        *,
+        phase: str,
+        allowed_imports: dict[str, frozenset[str] | None],
+        allowed_import_prefixes: tuple[str, ...],
+    ) -> None:
+        self.phase = phase
+        self.allowed_imports = allowed_imports
+        self.allowed_import_prefixes = allowed_import_prefixes
         self.failures: list[ScanFailure] = []
 
     def visit(self, node: ast.AST) -> Any:
@@ -313,8 +351,8 @@ class _AgentGeneratedPolicy(ast.NodeVisitor):
         if root in _FORBIDDEN_MODULE_ROOTS:
             self._fail(node, "forbidden_import", f"import from {module!r} is not allowed")
             return
-        allowed_names = _ALLOWED_IMPORTS.get(module)
-        prefix_allowed = any(module.startswith(prefix) for prefix in _ALLOWED_IMPORT_PREFIXES)
+        allowed_names = self.allowed_imports.get(module)
+        prefix_allowed = any(module.startswith(prefix) for prefix in self.allowed_import_prefixes)
         if allowed_names is None and not prefix_allowed:
             self._fail(node, "forbidden_import", f"import from {module!r} is not allowed")
             return
@@ -365,6 +403,7 @@ class _AgentGeneratedPolicy(ast.NodeVisitor):
             ScanFailure(
                 code=code,
                 message=message,
+                phase=self.phase,
                 line=getattr(node, "lineno", None),
                 column=getattr(node, "col_offset", None),
             )
@@ -386,4 +425,5 @@ __all__ = [
     "ScanReport",
     "load_agent_generated_scratchpad",
     "scan_agent_generated_python",
+    "scan_python_source_with_policy",
 ]
