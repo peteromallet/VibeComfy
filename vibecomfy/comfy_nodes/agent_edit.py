@@ -32,7 +32,7 @@ from .agent_gates import (
     update_state_match_gate,
 )
 from .agent_provider import AgentTurnResult, build_messages, run_agent_turn
-from .agent_diagnostics import queue_stage_result
+from .agent_diagnostics import lower_stage_result, queue_stage_result
 from .agent_session import allocate_turn, payload_hash, record_idempotent_response, turn_dir_for
 
 if TYPE_CHECKING:
@@ -82,6 +82,77 @@ class _StageBlocked(Exception):
         super().__init__(result.stage)
         self.result = result
         self.failure = failure
+
+
+def _build_lowering_recovery_entries(
+    lowering_evidence: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for item in lowering_evidence:
+        loop_node_id = item.get("loop_node_id")
+        loop_uid = item.get("loop_uid")
+        lowered_native_count = item.get("lowered_node_count", 0)
+        entries.append(
+            {
+                "node_id": loop_node_id,
+                "class_type": "vibecomfy.loop",
+                "kind": "loop",
+                "uid": loop_uid,
+                "lowered": True,
+                "runtime_backed": False,
+                "provider": "static_lowering",
+                "confidence": 1.0,
+                "diagnostic": f"statically lowered to {lowered_native_count} native node(s)",
+                "lowered_native_count": lowered_native_count,
+                "source_node_id": loop_node_id,
+                "source_node_uid": loop_uid,
+                "original_intent_hash": item.get("original_intent_hash"),
+                "lowered_fragment_hash": item.get("lowered_fragment_hash"),
+                "layout_policy": item.get("layout_policy"),
+                "variable": item.get("variable"),
+                "iterations": item.get("iterations"),
+                "iteration_values": list(item.get("iteration_values") or ()),
+            }
+        )
+    return entries
+
+
+def _build_lowering_change_entries(
+    lowering_evidence: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for item in lowering_evidence:
+        loop_node_id = item.get("loop_node_id")
+        loop_uid = item.get("loop_uid")
+        entries.append(
+            {
+                "node_id": loop_node_id,
+                "class_type": "vibecomfy.loop",
+                "kind": "loop",
+                "uid": loop_uid,
+                "lowered": True,
+                "source_node_id": loop_node_id,
+                "source_node_uid": loop_uid,
+                "lowered_native_count": item.get("lowered_node_count", 0),
+                "original_intent_hash": item.get("original_intent_hash"),
+                "lowered_fragment_hash": item.get("lowered_fragment_hash"),
+            }
+        )
+    return entries
+
+
+def _inject_lowering_provenance(state: AgentEditState) -> None:
+    if state.report is None or not state.lowering_evidence:
+        state.lowering_recovery_entries = []
+        return
+    recovery_entries = _build_lowering_recovery_entries(state.lowering_evidence)
+    state.lowering_recovery_entries = recovery_entries
+    recovery_report = state.report.setdefault("recovery", [])
+    if isinstance(recovery_report, list):
+        recovery_report.extend(recovery_entries)
+    change_report = state.report.setdefault("change", {})
+    if isinstance(change_report, dict):
+        change_report["lowered"] = _build_lowering_change_entries(state.lowering_evidence)
 
 
 def _safe_session_id(value: str | None = None) -> str:
@@ -243,6 +314,24 @@ def _stage_load_python(state: AgentEditState, _context: TurnContext) -> StageRes
     )
 
 
+def _stage_lower(state: AgentEditState, _context: TurnContext) -> StageResult:
+    from vibecomfy.porting.lowering import lower_workflow
+
+    start = time.monotonic()
+    original_workflow = state.edited_workflow
+    lowering = lower_workflow(state.edited_workflow, schema_provider=state.schema_provider)
+    result = lower_stage_result(lowering)
+    if result.ok:
+        if lowering.lowered_count > 0:
+            if lowering.workflow is not None:
+                state.edited_workflow = lowering.workflow
+            state.original_intent_workflow = original_workflow
+        else:
+            state.edited_workflow = original_workflow
+        state.lowering_evidence = [dict(dataclasses.asdict(item)) for item in lowering.evidence]
+    return dataclasses.replace(result, duration_ms=_duration_ms(start))
+
+
 def _stage_validate(state: AgentEditState, _context: TurnContext) -> StageResult:
     from .agent_diagnostics import validate_stage_result
 
@@ -294,6 +383,7 @@ def _stage_emit(state: AgentEditState, _context: TurnContext) -> StageResult:
         "recovery": recovery_report,
         "felt": dataclasses.asdict(felt_report) if felt_report is not None else {},
     }
+    _inject_lowering_provenance(state)
     return StageResult(
         stage="emit",
         ok=True,
@@ -375,7 +465,10 @@ def _stage_audit(
             }).items()
             if Path(path).exists()
         },
-        metadata={"provider": state.provider_metadata or {}},
+        metadata={
+            "provider": state.provider_metadata or {},
+            "lowering": state.lowering_evidence,
+        },
     )
 
 
@@ -590,6 +683,7 @@ def handle_agent_edit(
             model=payload.get("model") if isinstance(payload.get("model"), str) else None,
         )
         _run_stage("load_python", state, context, _stage_load_python)
+        _run_stage("lower", state, context, _stage_lower)
         _run_stage("validate", state, context, _stage_validate)
         _run_stage("emit", state, context, _stage_emit)
         _run_stage("summarize", state, context, _stage_summarize)

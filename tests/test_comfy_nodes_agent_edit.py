@@ -7,9 +7,10 @@ from unittest.mock import patch
 import pytest
 
 from vibecomfy.comfy_nodes.agent_edit import AgentEditState, handle_agent_edit
-from vibecomfy.comfy_nodes.agent_contracts import FailureKind
+from vibecomfy.comfy_nodes.agent_contracts import FailureKind, StageResult
 from vibecomfy.comfy_nodes.agent_session import payload_hash
 from vibecomfy.porting.convert import ConversionWriteError
+from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, LoweringResult
 from vibecomfy.porting.refuse import EditorAheadError, RefusedEmit
 from vibecomfy.porting.ui_emitter import emit_ui_json
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError, ScanFailure, ScanReport
@@ -227,6 +228,7 @@ def test_handle_agent_edit_round_trips_deepseek_python(tmp_path: Path) -> None:
     assert result["graph"]["nodes"]
     assert result["report"]["change"]
     assert result["gates"]["python_load_ok"] is True
+    assert result["gates"]["lower_ok"] is True
     assert result["gates"]["ir_validate_ok"] is True
     assert result["gates"]["ui_emit_ok"] is True
     assert result["gates"]["ui_fidelity_ok"] is True
@@ -243,6 +245,383 @@ def test_handle_agent_edit_round_trips_deepseek_python(tmp_path: Path) -> None:
         "candidate_ui",
         "messages",
     } <= set(audit["artifacts"])
+
+
+def test_handle_agent_edit_validates_lowered_copy_after_load_python(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+
+    original = VibeWorkflow("original", WorkflowSource("original"))
+    original.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    original.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "after"})
+    original.connect("1.0", "2.images")
+    lowered = original.copy()
+
+    monkeypatch.setattr(
+        "vibecomfy.security.agent_generated_loader.load_agent_generated_scratchpad",
+        lambda _path: original,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.porting.lowering.lower_workflow",
+        lambda workflow, **_kwargs: LoweringResult(
+            ok=True,
+            workflow=lowered,
+            evidence=(),
+            diagnostics=(),
+            lowered_count=1,
+        ),
+    )
+
+    def _validate(state: AgentEditState, _context) -> StageResult:
+        assert state.original_intent_workflow is original
+        assert state.edited_workflow is lowered
+        return StageResult(
+            stage="validate",
+            ok=True,
+            blocking=False,
+            gate_updates={"ir_validate_ok": True},
+        )
+
+    def _emit(state: AgentEditState, _context) -> StageResult:
+        state.ui_payload = _ui_graph()
+        state.report = {"change": {}, "recovery": [], "felt": {}}
+        return StageResult(
+            stage="emit",
+            ok=True,
+            blocking=False,
+            gate_updates={
+                "ui_emit_ok": True,
+                "ui_fidelity_ok": True,
+                "ui_load_safe_ok": True,
+            },
+        )
+
+    def _summarize(state: AgentEditState, _context) -> StageResult:
+        state.artifacts = {}
+        return StageResult(
+            stage="summarize",
+            ok=True,
+            blocking=False,
+            gate_updates={"queue_validate_ok": True},
+        )
+
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_validate", _validate)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_emit", _emit)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_summarize", _summarize)
+
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
+
+    stage_order: list[str] = []
+
+    def _capture_audit(audit_dir, **kwargs):
+        stage_order[:] = list((kwargs.get("stage_results") or {}).keys())
+        return real_write_audit(audit_dir, **kwargs)
+
+    monkeypatch.setattr(agent_edit_module, "write_audit", _capture_audit)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "lower-success",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["gates"]["lower_ok"] is True
+    assert result["gates"]["ir_validate_ok"] is True
+    assert stage_order == [
+        "ingest",
+        "convert",
+        "agent",
+        "load_python",
+        "lower",
+        "validate",
+        "emit",
+        "summarize",
+    ]
+
+
+def test_handle_agent_edit_blocks_on_lowering_failure_before_validate_or_emit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+
+    monkeypatch.setattr(
+        "vibecomfy.porting.lowering.lower_workflow",
+        lambda *_args, **_kwargs: LoweringResult(
+            ok=False,
+            workflow=None,
+            evidence=(),
+            diagnostics=(
+                LoweringDiagnostic(
+                    code="lowered_copy_validation_failed",
+                    message="Lowered edge validation failed.",
+                    loop_node_id="10",
+                    loop_uid="loop-10",
+                    detail={"validation_issue": {"code": "invalid_link_shape"}},
+                ),
+            ),
+            lowered_count=0,
+        ),
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "lower-fail",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.LOWERING_FAILURE.value,
+        stage="lower",
+        audit_ref_expected=True,
+    )
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["gates"]["python_load_ok"] is True
+    assert audit["gates"]["lower_ok"] is False
+    assert audit["gates"]["ir_validate_ok"] is False
+    stages = {stage["stage"]: stage for stage in audit["stage_results"]}
+    assert {"ingest", "convert", "agent", "load_python", "lower"} <= set(stages)
+    assert "validate" not in stages
+    assert "emit" not in stages
+
+
+def test_handle_agent_edit_threads_synthetic_lowered_provenance_without_emitting_loop_nodes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+
+    original = VibeWorkflow("original-intent", WorkflowSource("original-intent"))
+    original.nodes["10"] = VibeNode("10", "vibecomfy.loop")
+
+    lowered = VibeWorkflow("lowered-native", WorkflowSource("lowered-native"))
+    lowered.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    lowered.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "after"})
+    lowered.connect("1.0", "2.images")
+
+    monkeypatch.setattr(
+        "vibecomfy.security.agent_generated_loader.load_agent_generated_scratchpad",
+        lambda _path: original,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.porting.lowering.lower_workflow",
+        lambda workflow, **_kwargs: LoweringResult(
+            ok=True,
+            workflow=lowered,
+            evidence=(
+                LoweringEvidence(
+                    loop_uid="intent-loop-10",
+                    loop_node_id="10",
+                    original_intent_hash="intent-hash",
+                    variable="seed",
+                    iterations=2,
+                    iteration_values=(101, 202),
+                    lowered_node_count=2,
+                    source_to_lowered_node_map={"intent-loop-10": ("native-1", "native-2")},
+                    lowered_fragment_hash="lowered-hash",
+                    layout_policy="horizontal_stride_clone:offset=300",
+                    validation_result={"ok": True, "issues": []},
+                ),
+            ),
+            diagnostics=(),
+            lowered_count=1,
+        ),
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "lowered-provenance",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert all(node["type"] != "vibecomfy.loop" for node in result["graph"]["nodes"])
+    assert all(node["class_type"] != "vibecomfy.loop" for node in lowered.compile("api").values())
+    assert result["report"]["recovery"][-1] == {
+        "node_id": "10",
+        "class_type": "vibecomfy.loop",
+        "kind": "loop",
+        "uid": "intent-loop-10",
+        "lowered": True,
+        "runtime_backed": False,
+        "provider": "static_lowering",
+        "confidence": 1.0,
+        "diagnostic": "statically lowered to 2 native node(s)",
+        "lowered_native_count": 2,
+        "source_node_id": "10",
+        "source_node_uid": "intent-loop-10",
+        "original_intent_hash": "intent-hash",
+        "lowered_fragment_hash": "lowered-hash",
+        "layout_policy": "horizontal_stride_clone:offset=300",
+        "variable": "seed",
+        "iterations": 2,
+        "iteration_values": [101, 202],
+    }
+    assert result["report"]["change"]["lowered"] == [
+        {
+            "node_id": "10",
+            "class_type": "vibecomfy.loop",
+            "kind": "loop",
+            "uid": "intent-loop-10",
+            "lowered": True,
+            "source_node_id": "10",
+            "source_node_uid": "intent-loop-10",
+            "lowered_native_count": 2,
+            "original_intent_hash": "intent-hash",
+            "lowered_fragment_hash": "lowered-hash",
+        }
+    ]
+    assert result["report"]["queue_blockers"] == []
+    assert result["queue_allowed"] is True
+
+
+def test_handle_agent_edit_audit_threads_complete_lowering_metadata_and_keeps_queue_unblocked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+
+    original = VibeWorkflow("original-intent", WorkflowSource("original-intent"))
+    original.nodes["10"] = VibeNode("10", "vibecomfy.loop")
+
+    lowered = VibeWorkflow("lowered-native", WorkflowSource("lowered-native"))
+    lowered.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    lowered.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "after"})
+    lowered.connect("1.0", "2.images")
+
+    monkeypatch.setattr(
+        "vibecomfy.security.agent_generated_loader.load_agent_generated_scratchpad",
+        lambda _path: original,
+    )
+    monkeypatch.setattr(
+        "vibecomfy.porting.lowering.lower_workflow",
+        lambda workflow, **_kwargs: LoweringResult(
+            ok=True,
+            workflow=lowered,
+            evidence=(
+                LoweringEvidence(
+                    loop_uid="intent-loop-10",
+                    loop_node_id="10",
+                    original_intent_hash="intent-hash",
+                    variable="prompt",
+                    iterations=3,
+                    iteration_values=("frame 1", "frame 2", "frame 3"),
+                    lowered_node_count=3,
+                    source_to_lowered_node_map={
+                        "20": (
+                            "intent-loop-10:iter0:20",
+                            "intent-loop-10:iter1:20",
+                            "intent-loop-10:iter2:20",
+                        )
+                    },
+                    lowered_fragment_hash="lowered-hash",
+                    layout_policy="horizontal_stride_clone:offset=300",
+                    validation_result={
+                        "ok": True,
+                        "issue_count": 0,
+                        "error_count": 0,
+                        "warning_count": 0,
+                        "issues": [],
+                    },
+                ),
+            ),
+            diagnostics=(),
+            lowered_count=1,
+        ),
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "lowered-audit",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["queue_allowed"] is True
+    assert result["report"]["queue_blockers"] == []
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["metadata"]["provider"] == {"provider": "test_client"}
+    assert audit["metadata"]["lowering"] == [
+        {
+            "loop_uid": "intent-loop-10",
+            "loop_node_id": "10",
+            "original_intent_hash": "intent-hash",
+            "variable": "prompt",
+            "iterations": 3,
+            "iteration_values": ["frame 1", "frame 2", "frame 3"],
+            "lowered_node_count": 3,
+            "source_to_lowered_node_map": {
+                "20": [
+                    "intent-loop-10:iter0:20",
+                    "intent-loop-10:iter1:20",
+                    "intent-loop-10:iter2:20",
+                ]
+            },
+            "lowered_fragment_hash": "lowered-hash",
+            "layout_policy": "horizontal_stride_clone:offset=300",
+            "validation_result": {
+                "ok": True,
+                "issue_count": 0,
+                "error_count": 0,
+                "warning_count": 0,
+                "issues": [],
+            },
+        }
+    ]
 
 
 def test_handle_agent_edit_uses_agent_generated_loader(

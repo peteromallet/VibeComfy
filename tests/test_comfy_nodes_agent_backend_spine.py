@@ -24,6 +24,7 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     failure_envelope,
 )
 from vibecomfy.comfy_nodes.agent_diagnostics import (
+    lower_stage_result,
     queue_stage_diagnostics,
     queue_stage_result,
     validate_stage_diagnostics,
@@ -53,6 +54,7 @@ from vibecomfy.contracts import (
 )
 from vibecomfy._graph_utils import UI_ONLY_CLASS_TYPES as GRAPH_UTILS_UI_ONLY_CLASS_TYPES
 from vibecomfy.porting.emitter import UI_ONLY_CLASS_TYPES as EMITTER_UI_ONLY_CLASS_TYPES
+from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, LoweringResult
 from vibecomfy.porting.ui_emitter import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema
 from vibecomfy.workflow import ValidationIssue, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -1163,6 +1165,100 @@ def test_validate_stage_diagnostics_reuses_existing_validation_sources() -> None
     assert any(issue["code"] == "missing_required_input" for issue in diagnostics.issues)
 
 
+def test_lower_stage_result_sets_lower_gate_and_keeps_validation_evidence() -> None:
+    workflow = VibeWorkflow("lowered", WorkflowSource("lowered"))
+    lowering = LoweringResult(
+        ok=True,
+        workflow=workflow,
+        evidence=(
+            LoweringEvidence(
+                loop_uid="loop-1",
+                loop_node_id="1",
+                original_intent_hash="abc123",
+                variable="prompt",
+                iterations=2,
+                iteration_values=("a", "b"),
+                lowered_node_count=4,
+                validation_result={"ok": True, "issue_count": 0, "error_count": 0, "warning_count": 0, "issues": []},
+            ),
+        ),
+        diagnostics=(),
+        lowered_count=1,
+    )
+
+    result = lower_stage_result(lowering)
+
+    assert result.stage == "lower"
+    assert result.ok is True
+    assert result.blocking is False
+    assert result.gate_updates["lower_ok"] is True
+    assert result.value["failure_kind"] is None
+    assert result.value["lowered_count"] == 1
+    assert result.value["evidence"][0]["validation_result"]["ok"] is True
+
+
+def test_lower_stage_result_passes_noop_lowering_with_zero_count() -> None:
+    workflow = VibeWorkflow("unchanged", WorkflowSource("unchanged"))
+    lowering = LoweringResult(
+        ok=True,
+        workflow=workflow,
+        evidence=(),
+        diagnostics=(),
+        lowered_count=0,
+    )
+
+    result = lower_stage_result(lowering)
+
+    assert result.stage == "lower"
+    assert result.ok is True
+    assert result.blocking is False
+    assert result.gate_updates["lower_ok"] is True
+    assert result.value == {
+        "failure_kind": None,
+        "lowered_count": 0,
+        "evidence": [],
+    }
+
+
+def test_lower_stage_result_maps_failed_lowered_copy_validation_to_lowering_failure() -> None:
+    lowering = LoweringResult(
+        ok=False,
+        workflow=None,
+        evidence=(),
+        diagnostics=(
+            LoweringDiagnostic(
+                code="lowered_copy_validation_failed",
+                message="Node 3 (SaveImage) input images is incompatible.",
+                loop_node_id="10",
+                loop_uid="loop-10",
+                detail={"validation_issue": {"code": "invalid_link_shape"}},
+            ),
+        ),
+        lowered_count=0,
+    )
+
+    result = lower_stage_result(lowering)
+
+    assert result.stage == "lower"
+    assert result.ok is False
+    assert result.blocking is True
+    assert result.gate_updates["lower_ok"] is False
+    assert result.value["failure_kind"] == FailureKind.LOWERING_FAILURE.value
+    assert result.issues == (
+        {
+            "source": "lower_workflow",
+            "code": "lowered_copy_validation_failed",
+            "message": "Node 3 (SaveImage) input images is incompatible.",
+            "severity": "error",
+            "detail": {
+                "validation_issue": {"code": "invalid_link_shape"},
+                "loop_uid": "loop-10",
+                "loop_node_id": "10",
+            },
+        },
+    )
+
+
 def test_validate_stage_classifies_compile_failures_as_validation_error() -> None:
     workflow = VibeWorkflow("validate", WorkflowSource("validate"))
     workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={})
@@ -1456,6 +1552,69 @@ def test_queue_diagnostics_detect_intent_nodes_before_generic_schema_confidence_
         "confidence": None,
         "diagnostic": "schema-less: emitting best-effort slots from link appearance order",
     }
+
+
+def test_queue_diagnostics_ignore_synthetic_lowered_intent_provenance() -> None:
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "17",
+                "class_type": "vibecomfy.loop",
+                "kind": "loop",
+                "uid": "intent-17",
+                "provider": "static_lowering",
+                "confidence": 1.0,
+                "schema_less": False,
+                "diagnostic": "statically lowered to 4 native node(s)",
+                "lowered": True,
+                "runtime_backed": False,
+                "lowered_native_count": 4,
+            }
+        ],
+        change_report={},
+    )
+
+    assert diagnostics.ok is True
+    assert diagnostics.failure_kind is None
+    assert diagnostics.issues == ()
+
+
+def test_queue_diagnostics_still_block_actual_unlowered_intent_with_lowered_provenance_present() -> None:
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=[
+            {
+                "node_id": "17",
+                "class_type": "vibecomfy.loop",
+                "kind": "loop",
+                "uid": "intent-17",
+                "provider": "static_lowering",
+                "confidence": 1.0,
+                "schema_less": False,
+                "diagnostic": "statically lowered to 4 native node(s)",
+                "lowered": True,
+                "runtime_backed": False,
+                "lowered_native_count": 4,
+            },
+            {
+                "node_id": "18",
+                "class_type": "vibecomfy.code",
+                "kind": "code",
+                "uid": "intent-18",
+                "provider": "widget_schema",
+                "confidence": 1.0,
+                "schema_less": False,
+                "diagnostic": None,
+                "lowered": False,
+                "runtime_backed": False,
+            },
+        ],
+        change_report={},
+    )
+
+    assert diagnostics.ok is False
+    assert [issue["code"] for issue in diagnostics.issues] == [INTENT_NODE_QUEUE_BLOCKER_CODE]
+    assert diagnostics.issues[0]["detail"]["node_id"] == "18"
+    assert diagnostics.issues[0]["detail"]["lowered"] is False
 
 
 def test_valid_intent_queue_blocker_keeps_canvas_apply_true_and_queue_false() -> None:

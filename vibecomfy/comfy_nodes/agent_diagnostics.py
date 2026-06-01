@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,7 @@ from vibecomfy.contracts.intent_nodes import (
     INTENT_NODE_QUEUE_BLOCKER_CODE,
     is_intent_class_type,
 )
+from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringResult
 from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
@@ -53,6 +55,20 @@ def _issue_to_dict(issue: ValidationIssue, *, source: str) -> dict[str, Any]:
         "message": issue.message,
         "severity": issue.severity,
         "detail": dict(issue.detail),
+    }
+
+
+def _lowering_issue_to_dict(issue: LoweringDiagnostic) -> dict[str, Any]:
+    detail = dict(issue.detail)
+    if issue.loop_uid is not None:
+        detail.setdefault("loop_uid", issue.loop_uid)
+    detail.setdefault("loop_node_id", issue.loop_node_id)
+    return {
+        "source": "lower_workflow",
+        "code": issue.code,
+        "message": issue.message,
+        "severity": "error",
+        "detail": detail,
     }
 
 
@@ -209,6 +225,32 @@ def validate_stage_result(
     )
 
 
+def lower_stage_result(result: LoweringResult) -> StageResult:
+    if result.ok:
+        return StageResult(
+            stage="lower",
+            ok=True,
+            blocking=False,
+            value={
+                "failure_kind": None,
+                "lowered_count": result.lowered_count,
+                "evidence": [dict(dataclasses.asdict(item)) for item in result.evidence],
+            },
+            gate_updates={"lower_ok": True},
+        )
+    return StageResult(
+        stage="lower",
+        ok=False,
+        blocking=True,
+        value={
+            "failure_kind": FailureKind.LOWERING_FAILURE.value,
+            "lowered_count": result.lowered_count,
+        },
+        issues=tuple(_lowering_issue_to_dict(issue) for issue in result.diagnostics),
+        gate_updates={"lower_ok": False},
+    )
+
+
 def queue_stage_diagnostics(
     *,
     recovery_report: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
@@ -226,6 +268,8 @@ def queue_stage_diagnostics(
         confidence = entry.get("confidence")
         if is_intent_class_type(class_type):
             lowered, runtime_backed = _intent_node_runtime_flags(class_type, entry)
+            if lowered is True:
+                continue
             issues.append(
                 _queue_issue(
                     code=INTENT_NODE_QUEUE_BLOCKER_CODE,

@@ -1556,3 +1556,208 @@ test("VibeComfy turn history tracks pending/candidate/applied/rejected/failed st
     await harness.dispose();
   }
 });
+
+test("VibeComfy lowered recovery entries are informational and do not block queue, while graph-scan fallback still blocks unlowered intent nodes", async () => {
+  const loweredCandidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "KSampler", properties: { vibecomfy_uid: "uid-ks" } },
+      { id: 3, type: "SaveImage", properties: { vibecomfy_uid: "uid-si" } },
+    ],
+    links: [[1, 1, 0, 2, 0, "IMAGE"]],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: {
+      nodes: [
+        { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+        { id: 99, type: "vibecomfy.loop", properties: { vibecomfy_uid: "loop-uid-1" } },
+      ],
+      links: [],
+    },
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+            anthropic: { requested_route: "anthropic", normalized_route: "arnold", browser_api_key_allowed: false, tos_acknowledgement_required: true },
+            "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-lowered",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: true,
+          message: "Lowered candidate with informational recovery entries.",
+          graph: loweredCandidateGraph,
+          report: {
+            change: {
+              content_edits: {
+                preserved: ["uid-1"],
+                edited: [],
+                new_auto_placed: ["uid-ks", "uid-si"],
+                removed: ["loop-uid-1"],
+                removed_named: [],
+              },
+              lowered: [
+                {
+                  node_id: "99",
+                  class_type: "vibecomfy.loop",
+                  kind: "loop",
+                  uid: "loop-uid-1",
+                  lowered: true,
+                  lowered_native_count: 3,
+                  source_node_uid: "loop-uid-1",
+                },
+              ],
+            },
+            recovery: [
+              {
+                node_id: "99",
+                class_type: "vibecomfy.loop",
+                kind: "loop",
+                uid: "loop-uid-1",
+                lowered: true,
+                runtime_backed: false,
+                provider: "static_lowering",
+                confidence: 1.0,
+                diagnostic: "statically lowered to 3 native node(s)",
+                lowered_native_count: 3,
+              },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "lower a loop";
+    await harness.clickButton("Submit");
+
+    const text = harness.textDump();
+
+    // lowered diff row appears with teal color
+    assert.match(text, /lowered: loop-uid-1 -> 3 native node\(s\)/);
+
+    // queue is allowed (lowered entry does not block)
+    assert.match(text, /queue_allowed=true/);
+
+    // no intent_node_queue_blocker from the lowered recovery entry
+    assert.doesNotMatch(text, /Node 99 \(vibecomfy\.loop\) is an editor-only intent node/);
+
+    // affected preview includes lowered count
+    assert.match(text, /"lowered": 1/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vibecomfy.code", async () => {
+  const candidateGraphWithCodeIntent = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "vibecomfy.code", properties: { vibecomfy_uid: "code-uid-1" } },
+      { id: 3, type: "SaveImage", properties: { vibecomfy_uid: "uid-si" } },
+    ],
+    links: [[1, 1, 0, 2, 0, "IMAGE"]],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: {
+      nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+      links: [],
+    },
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+            anthropic: { requested_route: "anthropic", normalized_route: "arnold", browser_api_key_allowed: false, tos_acknowledgement_required: true },
+            "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-code-intent",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          message: "Candidate with unlowered code intent in graph.",
+          graph: candidateGraphWithCodeIntent,
+          report: {
+            change: {
+              content_edits: {
+                preserved: ["uid-1"],
+                edited: [],
+                new_auto_placed: ["code-uid-1", "uid-si"],
+                removed_named: [],
+              },
+              lowered: [],
+            },
+            recovery: [],
+            graph: candidateGraphWithCodeIntent,
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a code intent";
+    await harness.clickButton("Submit");
+
+    const text = harness.textDump();
+
+    // queue is blocked because vibecomfy.code is in the graph nodes (graph-scan fallback)
+    assert.match(text, /queue_allowed=false/);
+
+    // graph-scan fallback detects the unlowered intent node
+    assert.match(text, /Node 2 \(vibecomfy\.code\) is an editor-only intent node/);
+    assert.match(text, /intent_node_queue_blocker/);
+  } finally {
+    await harness.dispose();
+  }
+});

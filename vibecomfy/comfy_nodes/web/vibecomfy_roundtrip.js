@@ -194,6 +194,9 @@ const INTENT_STYLE_BY_KIND = Object.freeze({
   },
 });
 
+const LOWERED_DIFF_COLOR = "#02d4b3";
+const LOWERED_BADGE = "lowered";
+
 let agentPanel = null;
 let changedNodeFeedbackTimer = null;
 let changedNodeFeedbackVisuals = [];
@@ -784,13 +787,17 @@ function collectQueueIssues(report) {
     const nodeId = entry?.node_id;
     const classType = entry?.class_type;
     if (isIntentClassType(classType)) {
+      if (entry?.lowered === true) {
+        // lowered entries are informational — the intent node was already
+        // statically lowered to native nodes; no queue blocker needed
+        continue;
+      }
       if (hasBackendIntentBlocker) {
         continue;
       }
       const kind = entry?.kind
         || INTENT_KIND_BY_CLASS_TYPE[classType]
         || "intent";
-      const lowered = Boolean(entry?.lowered);
       const runtimeBacked = Boolean(entry?.runtime_backed);
       issues.push(createQueueIssue(
         "intent_node_queue_blocker",
@@ -800,7 +807,7 @@ function collectQueueIssues(report) {
           class_type: classType,
           kind,
           uid: entry?.uid || null,
-          lowered,
+          lowered: false,
           runtime_backed: runtimeBacked,
           provider: entry?.provider || null,
           confidence: entry?.confidence ?? null,
@@ -1477,6 +1484,16 @@ function collectDiffRows(report) {
   for (const uid of ce.stripped_helpers || []) {
     rows.push({ text: `stripped_helper: ${uid}`, color: "#ff8f59", title: null });
   }
+  // lowered entries from static lowering provenance
+  for (const item of report?.change?.lowered || []) {
+    const uid = item?.uid || item?.source_node_uid || "unknown";
+    const count = item?.lowered_native_count ?? 0;
+    rows.push({
+      text: `lowered: ${uid} -> ${count} native node(s)`,
+      color: LOWERED_DIFF_COLOR,
+      title: null,
+    });
+  }
   return rows;
 }
 
@@ -1774,6 +1791,7 @@ function renderCandidate(panel) {
     added: rows.filter((item) => item.text.startsWith("new_auto_placed:")).length,
     removed: rows.filter((item) => item.text.startsWith("removed:") || item.text.startsWith("removed_named:")).length,
     helpers: rows.filter((item) => item.text.startsWith("stripped_helper:") || item.text.startsWith("virtual_wires_degraded:")).length,
+    lowered: rows.filter((item) => item.text.startsWith("lowered:")).length,
   };
   body.appendChild(createDetails("affected node preview", affected));
   const issues = collectQueueIssues(panel.state.candidateReport);
