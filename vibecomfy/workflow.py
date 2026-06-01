@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field, replace
 import warnings
 from typing import TYPE_CHECKING, Any
@@ -204,6 +205,77 @@ class VibeWorkflow:
 
     def set_model(self, value: str) -> "VibeWorkflow":
         return self.set_input("model", value)
+
+    def copy(self) -> "VibeWorkflow":
+        cloned = VibeWorkflow(
+            id=self.id,
+            source=copy.deepcopy(self.source),
+            nodes={
+                node_id: VibeNode(
+                    id=node.id,
+                    class_type=node.class_type,
+                    pack=node.pack,
+                    inputs=copy.deepcopy(node.inputs),
+                    widgets=copy.deepcopy(node.widgets),
+                    metadata=copy.deepcopy(node.metadata),
+                    uid=node.uid,
+                    raw_widgets=copy.deepcopy(node.raw_widgets),
+                )
+                for node_id, node in self.nodes.items()
+            },
+            edges=[
+                VibeEdge(
+                    from_node=edge.from_node,
+                    from_output=edge.from_output,
+                    to_node=edge.to_node,
+                    to_input=edge.to_input,
+                )
+                for edge in self.edges
+            ],
+            inputs={
+                name: VibeInput(
+                    name=vibe_input.name,
+                    node_id=vibe_input.node_id,
+                    field=vibe_input.field,
+                    value=copy.deepcopy(vibe_input.value),
+                    type=vibe_input.type,
+                    default=copy.deepcopy(vibe_input.default),
+                    required=vibe_input.required,
+                    range=copy.deepcopy(vibe_input.range),
+                    aliases=tuple(vibe_input.aliases),
+                    media_semantics=vibe_input.media_semantics,
+                )
+                for name, vibe_input in self.inputs.items()
+            },
+            outputs=[
+                VibeOutput(
+                    node_id=output.node_id,
+                    output_type=output.output_type,
+                    name=output.name,
+                    artifact_kind=output.artifact_kind,
+                    mime_type=output.mime_type,
+                    filename_prefix=output.filename_prefix,
+                    expected_cardinality=copy.deepcopy(output.expected_cardinality),
+                )
+                for output in self.outputs
+            ],
+            requirements=WorkflowRequirements(
+                models=list(self.requirements.models),
+                custom_nodes=list(self.requirements.custom_nodes),
+                missing_models=list(self.requirements.missing_models),
+                missing_nodes=list(self.requirements.missing_nodes),
+                unsupported=list(self.requirements.unsupported),
+            ),
+            metadata=copy.deepcopy(self.metadata),
+            strict_types=self.strict_types,
+        )
+        cloned._id_map = dict(self._id_map)
+        cloned._manual_input_names = set(self._manual_input_names)
+        cloned._uid_counter = self._uid_counter
+        return cloned
+
+    def clone(self) -> "VibeWorkflow":
+        return self.copy()
 
     def finalize_metadata(self) -> "VibeWorkflow":
         from vibecomfy.metadata import OUTPUT_NODE_NAMES, _infer_requirements, _register_common_inputs

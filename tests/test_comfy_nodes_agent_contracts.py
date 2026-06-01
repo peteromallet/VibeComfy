@@ -38,6 +38,7 @@ def test_failure_kind_enum_matches_closed_contract_exactly() -> None:
         "EditorAheadConflict",
         "StaleStateMismatch",
         "UnsupportedNonDAG",
+        "LoweringFailure",
         "SchemaLessQueueBlocker",
         "LowConfidenceQueueBlocker",
         "EditorOnlyNodeQueueBlocker",
@@ -150,10 +151,11 @@ def test_failure_envelope_shape_is_frozen_and_uses_apply_alias() -> None:
 
 def test_all_design_gates_present_and_distinct() -> None:
     """Every design-level named gate exists and is distinct."""
-    assert len(DEFAULT_GATE_NAMES) == 7
-    assert len(set(DEFAULT_GATE_NAMES)) == 7
+    assert len(DEFAULT_GATE_NAMES) == 8
+    assert len(set(DEFAULT_GATE_NAMES)) == 8
     assert set(DEFAULT_GATE_NAMES) == {
         "python_load_ok",
+        "lower_ok",
         "ir_validate_ok",
         "ui_emit_ok",
         "ui_fidelity_ok",
@@ -165,8 +167,16 @@ def test_all_design_gates_present_and_distinct() -> None:
 
 def test_canvas_apply_subset_is_proper_subset_of_all_gates() -> None:
     """canvas_apply_allowed checks every gate except queue_validate_ok."""
-    assert set(CANVAS_APPLY_GATE_NAMES) == set(DEFAULT_GATE_NAMES) - {"queue_validate_ok"}
+    assert set(CANVAS_APPLY_GATE_NAMES) == set(DEFAULT_GATE_NAMES) - {"queue_validate_ok", "lower_ok"}
     assert "queue_validate_ok" not in CANVAS_APPLY_GATE_NAMES
+    assert "lower_ok" not in CANVAS_APPLY_GATE_NAMES
+
+
+def test_turn_context_set_gate_accepts_lower_ok() -> None:
+    context = TurnContext(session_id="s1")
+    context.set_gate("lower_ok", True, evidence={"stage": "lower"})
+    assert context.gate_results["lower_ok"].ok is True
+    assert dict(context.gate_results["lower_ok"].evidence) == {"stage": "lower"}
 
 
 def test_turn_context_set_gate_rejects_unknown_name() -> None:
@@ -464,6 +474,13 @@ def test_classify_ingest_unsupported() -> None:
     assert fe.kind is FailureKind.UNSUPPORTED_NON_DAG
 
 
+def test_classify_lower_stage_uses_lowering_failure() -> None:
+    ctx = TurnContext(session_id="s1")
+    fe = classify_failure("lower", RuntimeError("unsupported loop body"), ctx)
+    assert fe.kind is FailureKind.LOWERING_FAILURE
+    assert fe.stage == "lower"
+
+
 def test_classify_ingest_fallback_missing_required_field() -> None:
     """Generic ingest error falls back to MISSING_REQUIRED_FIELD."""
     ctx = TurnContext(session_id="s1")
@@ -591,6 +608,13 @@ def test_failure_envelope_accepts_string_kind() -> None:
     fe = failure_envelope("SyntaxError", "load_python", None)
     assert fe.kind is FailureKind.SYNTAX_ERROR
     assert fe.to_dict()["kind"] == "SyntaxError"
+
+
+def test_failure_envelope_serializes_lowering_failure_kind() -> None:
+    fe = failure_envelope(FailureKind.LOWERING_FAILURE, "lower", None)
+    payload = fe.to_dict()
+    assert payload["kind"] == FailureKind.LOWERING_FAILURE.value
+    assert payload["stage"] == "lower"
 
 
 def test_failure_envelope_invalid_string_kind_raises() -> None:

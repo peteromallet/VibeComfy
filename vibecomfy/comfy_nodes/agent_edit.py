@@ -5,9 +5,9 @@ import json
 import re
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from .agent_audit import (
     artifact_ref_for_path,
@@ -35,6 +35,9 @@ from .agent_provider import AgentTurnResult, build_messages, run_agent_turn
 from .agent_diagnostics import queue_stage_result
 from .agent_session import allocate_turn, payload_hash, record_idempotent_response, turn_dir_for
 
+if TYPE_CHECKING:
+    from vibecomfy.workflow import VibeWorkflow
+
 DeepSeekClient = Callable[[list[dict[str, str]]], dict[str, str]]
 
 _SESSION_ROOT = Path("out/editor_sessions")
@@ -61,10 +64,13 @@ class AgentEditState:
     messages_path: Path
     workflow: Any = None
     edited_workflow: Any = None
+    original_intent_workflow: VibeWorkflow | None = None
     prior_store: Any = None
     python_before: str = ""
     python_after: str = ""
     user_message: str = ""
+    lowering_evidence: list[dict[str, Any]] = field(default_factory=list)
+    lowering_recovery_entries: list[dict[str, Any]] = field(default_factory=list)
     provider_metadata: dict[str, Any] | None = None
     ui_payload: dict[str, Any] | None = None
     report: dict[str, Any] | None = None

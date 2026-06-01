@@ -10,6 +10,7 @@ from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
 
 DEFAULT_GATE_NAMES: tuple[str, ...] = (
     "python_load_ok",
+    "lower_ok",
     "ir_validate_ok",
     "ui_emit_ok",
     "ui_fidelity_ok",
@@ -43,6 +44,7 @@ class FailureKind(str, Enum):
     EDITOR_AHEAD_CONFLICT = "EditorAheadConflict"
     STALE_STATE_MISMATCH = "StaleStateMismatch"
     UNSUPPORTED_NON_DAG = "UnsupportedNonDAG"
+    LOWERING_FAILURE = "LoweringFailure"
     SCHEMA_LESS_QUEUE_BLOCKER = "SchemaLessQueueBlocker"
     LOW_CONFIDENCE_QUEUE_BLOCKER = "LowConfidenceQueueBlocker"
     EDITOR_ONLY_NODE_QUEUE_BLOCKER = "EditorOnlyNodeQueueBlocker"
@@ -192,6 +194,15 @@ FAILURE_SPECS: Mapping[FailureKind, FailureSpec] = MappingProxyType(
             user_facing_message=(
                 "This request requires custom code or control flow that is not yet "
                 "supported. Try a static graph edit."
+            ),
+        ),
+        FailureKind.LOWERING_FAILURE: FailureSpec(
+            retryable=True,
+            next_action="agent should simplify or fix the loop before lowering",
+            graph_unchanged=True,
+            user_facing_message=(
+                "The edited workflow could not be lowered into a static graph. "
+                "The graph is unchanged."
             ),
         ),
         FailureKind.SCHEMA_LESS_QUEUE_BLOCKER: FailureSpec(
@@ -625,6 +636,14 @@ def classify_failure(
         )
         return failure_envelope(
             kind,
+            stage,
+            context,
+            agent_failure_context={"explanation": str(exc_or_issue)},
+        )
+
+    if stage == "lower":
+        return failure_envelope(
+            FailureKind.LOWERING_FAILURE,
             stage,
             context,
             agent_failure_context={"explanation": str(exc_or_issue)},

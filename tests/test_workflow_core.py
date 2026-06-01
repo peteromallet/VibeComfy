@@ -14,7 +14,16 @@ from vibecomfy.ingest.normalize import convert_to_vibe_format, detect_workflow_s
 from vibecomfy.registry.library import load_workflow_reference, workflow_from_id
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.handles import Handle
-from vibecomfy.workflow import VibeEdge, VibeInput, VibeNode, VibeWorkflow, WorkflowCompileError, WorkflowSource
+from vibecomfy.workflow import (
+    VibeEdge,
+    VibeInput,
+    VibeNode,
+    VibeOutput,
+    VibeWorkflow,
+    WorkflowCompileError,
+    WorkflowRequirements,
+    WorkflowSource,
+)
 
 
 class _FakeSchemaProvider:
@@ -308,6 +317,105 @@ def test_register_input_rejects_alias_collisions() -> None:
         workflow.register_input("second", "2", "filename_prefix", "two", aliases=["first"])
     with pytest.raises(ValueError, match="existing alias"):
         workflow.register_input("prefix", "2", "filename_prefix", "two")
+
+
+def test_workflow_copy_deep_copies_mutable_state_and_preserves_original() -> None:
+    workflow = VibeWorkflow("original", WorkflowSource("original", provenance={"origin": ["unit"]}))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "SourceNode",
+        inputs={"seed": {"value": 1}},
+        widgets={"steps": [4]},
+        metadata={"tags": ["source"]},
+        uid="uid-1",
+    )
+    workflow.nodes["2"] = VibeNode(
+        "2",
+        "SaveImage",
+        inputs={"images": ["1", 0], "filename_prefix": "orig"},
+        metadata={"tags": ["sink"]},
+        uid="uid-2",
+    )
+    workflow.edges.append(VibeEdge("1", "0", "2", "images"))
+    workflow.register_input(
+        "seed",
+        "1",
+        "seed",
+        value={"current": 1},
+        default={"original": 1},
+        aliases=["seed_alias"],
+        range={"min": 0},
+    )
+    workflow.outputs.append(
+        VibeOutput(
+            node_id="2",
+            output_type="IMAGE",
+            name="preview",
+            expected_cardinality={"count": 1},
+        )
+    )
+    workflow.requirements = WorkflowRequirements(
+        models=["base"],
+        custom_nodes=["pack-a"],
+        missing_models=["missing-a"],
+        missing_nodes=["missing-node"],
+        unsupported=["unsupported-a"],
+    )
+    workflow.metadata = {
+        "flags": ["original"],
+        "nested": {"keep": True},
+        "id_map": {"seed_node": "1"},
+    }
+    workflow._set_id_map({"seed_node": "1"})
+    workflow._manual_input_names.add("seed")
+    workflow._uid_counter = 7
+
+    cloned = workflow.copy()
+
+    assert cloned is not workflow
+    assert cloned.clone() is not cloned
+    assert cloned.source is not workflow.source
+    assert cloned.nodes["1"] is not workflow.nodes["1"]
+    assert cloned.inputs["seed"] is not workflow.inputs["seed"]
+    assert cloned.outputs[0] is not workflow.outputs[0]
+    assert cloned.requirements is not workflow.requirements
+    assert cloned.metadata is not workflow.metadata
+    assert cloned.edges[0] is not workflow.edges[0]
+    assert cloned.id_map() == {"seed_node": "1"}
+    assert cloned._manual_input_names == {"seed"}
+    assert cloned._uid_counter == 7
+
+    cloned.nodes["1"].inputs["seed"]["value"] = 99
+    cloned.nodes["1"].widgets["steps"].append(8)
+    cloned.nodes["1"].metadata["tags"].append("clone")
+    cloned.inputs["seed"].value["current"] = 99
+    cloned.inputs["seed"].default["original"] = 99
+    cloned.inputs["seed"].range["min"] = -1
+    cloned.outputs[0].expected_cardinality["count"] = 2
+    cloned.requirements.models.append("clone-model")
+    cloned.metadata["flags"].append("clone")
+    cloned.metadata["nested"]["keep"] = False
+    cloned._id_map["seed_node"] = "2"
+    cloned._manual_input_names.add("extra")
+    cloned._uid_counter = 100
+    cloned.source.provenance["origin"].append("clone")
+    cloned.edges[0].from_node = "9"
+
+    assert workflow.nodes["1"].inputs["seed"] == {"value": 1}
+    assert workflow.nodes["1"].widgets["steps"] == [4]
+    assert workflow.nodes["1"].metadata["tags"] == ["source"]
+    assert workflow.inputs["seed"].value == {"current": 1}
+    assert workflow.inputs["seed"].default == {"original": 1}
+    assert workflow.inputs["seed"].range == {"min": 0}
+    assert workflow.outputs[0].expected_cardinality == {"count": 1}
+    assert workflow.requirements.models == ["base"]
+    assert workflow.metadata["flags"] == ["original"]
+    assert workflow.metadata["nested"] == {"keep": True}
+    assert workflow.id_map() == {"seed_node": "1"}
+    assert workflow._manual_input_names == {"seed"}
+    assert workflow._uid_counter == 7
+    assert workflow.source.provenance == {"origin": ["unit"]}
+    assert workflow.edges[0].from_node == "1"
 
 
 def test_ui_workflow_normalizes_to_api() -> None:

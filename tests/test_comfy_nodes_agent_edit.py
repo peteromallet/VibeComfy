@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vibecomfy.comfy_nodes.agent_edit import handle_agent_edit
+from vibecomfy.comfy_nodes.agent_edit import AgentEditState, handle_agent_edit
 from vibecomfy.comfy_nodes.agent_contracts import FailureKind
 from vibecomfy.comfy_nodes.agent_session import payload_hash
 from vibecomfy.porting.convert import ConversionWriteError
@@ -138,6 +138,32 @@ def _assert_failure_defaults(
         assert result["audit_ref"]["path"]
     else:
         assert result["audit_ref"] is None
+
+
+def test_agent_edit_state_exposes_explicit_lowering_fields(tmp_path: Path) -> None:
+    state = AgentEditState(
+        task="lowering smoke",
+        graph={},
+        request_payload={},
+        schema_provider=None,
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submitted_client_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+
+    assert state.original_intent_workflow is None
+    assert state.lowering_evidence == []
+    assert state.lowering_recovery_entries == []
 
 
 # ── gate context fixture ──────────────────────────────────────────────────
