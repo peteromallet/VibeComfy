@@ -700,6 +700,35 @@ def test_compile_raises_stable_code_for_missing_edge_endpoint() -> None:
     assert exc_info.value.detail["source_node_id"] == "missing"
 
 
+def test_compile_ignores_stripped_intent_edge_when_target_has_literal_input() -> None:
+    workflow = VibeWorkflow("test", WorkflowSource("test"))
+    workflow.nodes["1"] = VibeNode("1", "vibecomfy.loop")
+    workflow.nodes["2"] = VibeNode("2", "CLIPTextEncode", inputs={"text": "literal fallback"})
+    workflow.connect("1.0", "2.text")
+
+    assert workflow.compile("api") == {
+        "2": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": "literal fallback"},
+        }
+    }
+
+
+def test_compile_raises_for_stripped_intent_edge_without_target_literal_input() -> None:
+    workflow = VibeWorkflow("test", WorkflowSource("test"))
+    workflow.nodes["1"] = VibeNode("1", "vibecomfy.loop")
+    workflow.nodes["2"] = VibeNode("2", "CLIPTextEncode", inputs={})
+    workflow.connect("1.0", "2.text")
+
+    with pytest.raises(WorkflowCompileError) as exc_info:
+        workflow.compile("api")
+
+    assert exc_info.value.code == "compiled_edge_missing_endpoint"
+    assert exc_info.value.detail["source_node_id"] == "1"
+    assert exc_info.value.detail["target_node_id"] == "2"
+    assert exc_info.value.detail["target_input"] == "text"
+
+
 def test_validate_records_api_compile_failures_without_schema_provider() -> None:
     workflow = VibeWorkflow("test", WorkflowSource("test"))
     workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={})

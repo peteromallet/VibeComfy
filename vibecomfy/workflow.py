@@ -1283,6 +1283,8 @@ def _compile_resolved_edge_inputs(
             target_input=edge.to_input,
         )
         if str(edge_source[0]) not in compiled_node_ids:
+            if _can_ignore_compile_stripped_edge(edge, nodes):
+                continue
             raise WorkflowCompileError(
                 "compiled_edge_missing_endpoint",
                 (
@@ -1299,6 +1301,19 @@ def _compile_resolved_edge_inputs(
             )
         resolved.setdefault(target_node_id, {})[edge.to_input] = edge_source
     return resolved
+
+
+def _can_ignore_compile_stripped_edge(edge: VibeEdge, nodes: dict[str, VibeNode]) -> bool:
+    source_node = nodes.get(str(edge.from_node))
+    target_node = nodes.get(str(edge.to_node))
+    if source_node is None or target_node is None:
+        return False
+    if not _is_compile_stripped_node(source_node):
+        return False
+    if _is_ui_only_node(source_node):
+        return False
+    compiled_inputs = _compile_node_inputs(target_node)
+    return str(edge.to_input) in compiled_inputs
 
 
 def _resolve_compiled_source_ref(
