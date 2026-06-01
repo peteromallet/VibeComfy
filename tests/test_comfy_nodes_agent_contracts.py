@@ -56,6 +56,23 @@ def test_turn_context_defaults_all_named_gates_false() -> None:
     assert context.queue_allowed is False
 
 
+def test_turn_context_preserves_protocol_identity_fields() -> None:
+    context = TurnContext(
+        session_id="s1",
+        turn_id="0007",
+        baseline_turn_id="0006",
+        client_graph_hash="submit-hash",
+        idempotency_key="accept:s1:0007:abc",
+    )
+
+    assert context.session_id == "s1"
+    assert context.turn_id == "0007"
+    assert context.baseline_turn_id == "0006"
+    assert context.client_graph_hash == "submit-hash"
+    assert context.idempotency_key == "accept:s1:0007:abc"
+    assert context.gate_snapshot() == {name: False for name in DEFAULT_GATE_NAMES}
+
+
 def test_scan_code_mapping_is_exact_and_closed() -> None:
     assert dict(SCAN_CODE_FAILURE_KIND) == {
         "syntax_error": FailureKind.SYNTAX_ERROR,

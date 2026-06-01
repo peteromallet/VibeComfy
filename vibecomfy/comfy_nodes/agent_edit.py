@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .agent_audit import (
     artifact_ref_for_path,
@@ -33,7 +33,7 @@ from .agent_gates import (
 )
 from .agent_provider import AgentTurnResult, build_messages, run_agent_turn
 from .agent_diagnostics import queue_stage_result
-from .agent_session import allocate_turn, record_idempotent_response
+from .agent_session import allocate_turn, payload_hash, record_idempotent_response, turn_dir_for
 
 DeepSeekClient = Callable[[list[dict[str, str]]], dict[str, str]]
 
@@ -46,6 +46,9 @@ class AgentEditState:
     graph: dict[str, Any]
     request_payload: dict[str, Any]
     schema_provider: Any
+    baseline_graph_hash: str | None
+    submit_graph_hash: str | None
+    submitted_client_graph_hash: str | None
     session_dir: Path
     turn_dir: Path
     request_path: Path
@@ -122,9 +125,29 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
     state.prior_store = store_from_ui_json(state.graph)
     update_state_match_gate(
         context,
-        baseline_graph_hash=None,
-        client_graph_hash=context.client_graph_hash,
+        baseline_graph_hash=state.baseline_graph_hash,
+        client_graph_hash=state.submit_graph_hash,
+        client_graph_hash_label="submit_graph_hash",
     )
+    state_match_gate = context.gate_results["state_match_ok"]
+    if not state_match_gate.ok:
+        return StageResult(
+            stage="ingest",
+            ok=False,
+            blocking=True,
+            duration_ms=_duration_ms(start),
+            artifacts=(request_ref, original_ui_ref),
+            issues=(
+                {
+                    "code": "stale_state_mismatch",
+                    "severity": "error",
+                    "failure_kind": FailureKind.STALE_STATE_MISMATCH.value,
+                    "message": "Submitted graph no longer matches the current baseline.",
+                    "detail": dict(state_match_gate.evidence),
+                },
+            ),
+            value={"failure_kind": FailureKind.STALE_STATE_MISMATCH.value},
+        )
     return StageResult(
         stage="ingest",
         ok=True,
@@ -324,6 +347,7 @@ def _stage_audit(
     return write_audit(
         state.turn_dir / "audit",
         context=context,
+        turn_state="candidate",
         stage_results=context.stage_results,
         failure=failure,
         response=response,
@@ -346,12 +370,44 @@ def _stage_audit(
     )
 
 
+def _write_unknown_transition_audits(
+    *,
+    session_root: Path,
+    session_id: str,
+    baseline_turn_id: str | None,
+    unknown_transitions: tuple[dict[str, Any], ...],
+    request_payload: Mapping[str, Any],
+) -> None:
+    for transition in unknown_transitions:
+        turn_id = transition.get("turn_id")
+        if not isinstance(turn_id, str) or not turn_id:
+            continue
+        try:
+            write_audit(
+                turn_dir_for(session_root, session_id, turn_id) / "unknown_audit",
+                context=TurnContext(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    baseline_turn_id=baseline_turn_id,
+                ),
+                turn_state="unknown",
+                artifacts={"request": dict(request_payload)},
+                metadata={"action": "unknown", **transition},
+            )
+        except Exception:
+            continue
+
+
 def _failure_response(
     state: AgentEditState,
     context: TurnContext,
     failure: FailureEnvelope,
 ) -> dict[str, Any]:
-    derive_gates(context)
+    derive_gates(
+        context,
+        baseline_graph_hash=state.baseline_graph_hash,
+        client_graph_hash=state.submit_graph_hash,
+    )
     failure = dataclasses.replace(
         failure,
         canvas_apply_allowed=context.canvas_apply_allowed,
@@ -467,12 +523,39 @@ def handle_agent_edit(
     context = allocation.context
     context.client_graph_hash = payload.get("client_graph_hash") if isinstance(payload.get("client_graph_hash"), str) else None
     initialize_gates(context)
+    _write_unknown_transition_audits(
+        session_root=root,
+        session_id=session_id,
+        baseline_turn_id=context.baseline_turn_id,
+        unknown_transitions=allocation.unknown_transitions,
+        request_payload=payload,
+    )
     turn_dir = allocation.turn_dir
+    turn_record = allocation.state.get("turns", {}).get(context.turn_id)
+    baseline_graph_hash = (
+        allocation.state.get("baseline_graph_hash")
+        if isinstance(allocation.state.get("baseline_graph_hash"), str)
+        else None
+    )
+    submit_graph_hash = (
+        turn_record.get("submit_graph_hash")
+        if isinstance(turn_record, dict) and isinstance(turn_record.get("submit_graph_hash"), str)
+        else None
+    )
+    submitted_client_graph_hash = (
+        turn_record.get("submitted_client_graph_hash")
+        if isinstance(turn_record, dict)
+        and isinstance(turn_record.get("submitted_client_graph_hash"), str)
+        else None
+    )
     state = AgentEditState(
         task=task,
         graph=graph,
         request_payload=payload,
         schema_provider=schema_provider,
+        baseline_graph_hash=baseline_graph_hash,
+        submit_graph_hash=submit_graph_hash,
+        submitted_client_graph_hash=submitted_client_graph_hash,
         session_dir=allocation.session_dir,
         turn_dir=turn_dir,
         request_path=turn_dir / "request.json",
@@ -522,6 +605,16 @@ def handle_agent_edit(
         graph=state.ui_payload,
         report=state.report,
         artifacts=state.artifacts,
+    )
+    candidate_graph_hash = payload_hash(state.ui_payload)
+    response.update(
+        {
+            "baseline_graph_hash": state.baseline_graph_hash,
+            "submit_graph_hash": state.submit_graph_hash,
+            "submitted_client_graph_hash": state.submitted_client_graph_hash,
+            "candidate_graph_hash": candidate_graph_hash,
+            "client_graph_hash": context.client_graph_hash,
+        }
     )
     try:
         audit_ref = _stage_audit(state, context, response=response)

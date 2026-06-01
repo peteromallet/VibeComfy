@@ -1800,6 +1800,66 @@ async function submitAgentEdit(panel) {
       panel.state.inFlightSubmit = null;
     }
 
+    let arrivalSnapshot;
+    try {
+      arrivalSnapshot = await buildCanvasSnapshot();
+    } catch (e) {
+      panel.state.phase = PANEL_STATE.ERROR;
+      panel.state.failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas after the candidate arrived: ${String(e)}`, {
+        retryable: true,
+        graph_unchanged: true,
+        next_action: "Make sure the current canvas can serialize, then submit again.",
+      });
+      panel.state.debugPayload = {
+        ...panel.state.failure,
+        last_submit: panel.state.lastSubmit,
+        response: result,
+      };
+      renderAgentPanel(panel);
+      return;
+    }
+
+    const expectedArrivalHash = panel.state.lastSubmit?.client_graph_hash;
+    if (expectedArrivalHash && arrivalSnapshot.graphHash !== expectedArrivalHash) {
+      const failure = agentPanelFailure("StaleResponseArrival", "The canvas changed before this candidate arrived. Review is blocked.", {
+        retryable: true,
+        graph_unchanged: true,
+        next_action: "Submit a new edit from the current canvas.",
+        client_graph_hash: arrivalSnapshot.graphHash,
+        expected_graph_hash: expectedArrivalHash,
+        session_id: result.session_id,
+        turn_id: result.turn_id,
+        baseline_turn_id: result.baseline_turn_id,
+        audit_ref: result.audit_ref || null,
+        raw_response: result,
+      });
+      panel.state.phase = PANEL_STATE.ERROR;
+      panel.state.failure = failure;
+      panel.state.sessionId = result.session_id || panel.state.sessionId;
+      panel.state.turnId = result.turn_id || null;
+      panel.state.baselineTurnId = result.baseline_turn_id || panel.state.baselineTurnId;
+      panel.state.auditRef = result.audit_ref || null;
+      panel.state.queueGuard = getQueueGuardStateForPanel();
+      panel.state.debugPayload = {
+        ...failure,
+        last_submit: panel.state.lastSubmit,
+      };
+      pushHistory(panel, "failure", failure.kind || "StaleResponseArrival");
+      pushTurnStatus(panel, "failed", {
+        session_id: result.session_id,
+        turn_id: result.turn_id,
+        baseline_turn_id: result.baseline_turn_id,
+        task,
+        failure_kind: failure.kind,
+        failure_stage: failure.stage,
+        message: failure.user_facing_message || failure.message,
+        audit_ref: result.audit_ref,
+        raw_payload: failure,
+      });
+      renderAgentPanel(panel);
+      return;
+    }
+
     panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
     panel.state.sessionId = result.session_id || panel.state.sessionId;
     panel.state.turnId = result.turn_id || null;

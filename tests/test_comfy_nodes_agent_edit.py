@@ -8,6 +8,7 @@ import pytest
 
 from vibecomfy.comfy_nodes.agent_edit import handle_agent_edit
 from vibecomfy.comfy_nodes.agent_contracts import FailureKind
+from vibecomfy.comfy_nodes.agent_session import payload_hash
 from vibecomfy.porting.convert import ConversionWriteError
 from vibecomfy.porting.refuse import EditorAheadError, RefusedEmit
 from vibecomfy.porting.ui_emitter import emit_ui_json
@@ -54,6 +55,39 @@ def _ui_graph() -> dict:
             {"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])}
         ),
     )
+
+
+def _allocate_action_candidate(
+    root: Path,
+    *,
+    session_id: str,
+    label: str,
+) -> tuple[str, str, str]:
+    from vibecomfy.comfy_nodes.agent_session import allocate_turn, record_idempotent_response
+
+    graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": [label]}], "links": []}
+    candidate_graph = {
+        "nodes": [{"id": 2, "type": "SaveImage", "widgets_values": [f"{label}-candidate"]}],
+        "links": [],
+    }
+    allocation = allocate_turn(
+        session_root=root,
+        session_id=session_id,
+        request_payload={"graph": graph, "task": f"edit {label}"},
+    )
+    turn_id = str(allocation.context.turn_id)
+    record_idempotent_response(
+        session_root=root,
+        session_id=session_id,
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={"ok": True, "turn_id": turn_id, "graph": candidate_graph},
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+    return turn_id, payload_hash(graph), payload_hash(candidate_graph)
 
 
 def _fake_deepseek_replace(
@@ -130,11 +164,14 @@ def test_handle_agent_edit_round_trips_deepseek_python(tmp_path: Path) -> None:
         }
     )
 
+    graph = _ui_graph()
+    client_graph_hash = payload_hash(graph)
     result = handle_agent_edit(
         {
-            "graph": _ui_graph(),
+            "graph": graph,
             "task": "change the save prefix to after",
             "session_id": "t1",
+            "client_graph_hash": client_graph_hash,
         },
         schema_provider=provider,
         deepseek_client=_fake_deepseek_replace(
@@ -145,6 +182,10 @@ def test_handle_agent_edit_round_trips_deepseek_python(tmp_path: Path) -> None:
 
     assert result["message"] == "Changed the save prefix."
     assert result["session_id"] == "t1"
+    assert result["submit_graph_hash"] == client_graph_hash
+    assert result["submitted_client_graph_hash"] == client_graph_hash
+    assert result["candidate_graph_hash"] == payload_hash(result["graph"])
+    assert result["baseline_graph_hash"] is None
     assert (
         Path(result["artifacts"]["python"])
         .read_text(encoding="utf-8")
@@ -837,6 +878,79 @@ def test_agent_edit_idempotency_conflict_returns_stale_state_mismatch(
     assert "_allocation_failures" in conflict["audit_ref"]["path"]
 
 
+def test_agent_edit_stale_submit_fails_at_ingest_via_state_match_gate(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+    original_graph = _ui_graph()
+
+    first = handle_agent_edit(
+        {
+            "graph": original_graph,
+            "task": "change the save prefix to after",
+            "session_id": "stale-submit",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+    assert first["ok"] is True
+    assert first["submit_graph_hash"] == payload_hash(original_graph)
+    assert "submitted_client_graph_hash" in first
+    assert first["submitted_client_graph_hash"] is None
+    assert first["candidate_graph_hash"] == payload_hash(first["graph"])
+    assert first["baseline_graph_hash"] is None
+
+    accepted = _handle_agent_edit_accept(
+        {
+            "session_id": "stale-submit",
+            "turn_id": first["turn_id"],
+            "client_graph_hash": payload_hash(original_graph),
+            "idempotency_key": "accept-stale-submit",
+        },
+        session_root=tmp_path,
+    )
+    assert accepted["ok"] is True
+    assert accepted["baseline_graph_hash"] == payload_hash(first["graph"])
+
+    stale = handle_agent_edit(
+        {
+            "graph": original_graph,
+            "task": "change the save prefix to something else",
+            "session_id": "stale-submit",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "other", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    _assert_failure_defaults(
+        stale,
+        kind=FailureKind.STALE_STATE_MISMATCH.value,
+        stage="ingest",
+        audit_ref_expected=True,
+    )
+    assert stale["agent_failure_context"]["issues"][0]["failure_kind"] == FailureKind.STALE_STATE_MISMATCH.value
+    detail = stale["agent_failure_context"]["issues"][0]["detail"]
+    assert detail["reason"] == "hash_mismatch"
+    assert detail["client_graph_hash_label"] == "submit_graph_hash"
+    assert detail["baseline_graph_hash"] == payload_hash(first["graph"])
+    assert detail["client_graph_hash"] == payload_hash(original_graph)
+    audit = json.loads(Path(stale["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["gates"]["state_match_ok"] is False
+
+
 def test_agent_edit_queue_blockers_keep_canvas_apply_true_but_queue_false(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -886,6 +1000,98 @@ def test_agent_edit_queue_blockers_keep_canvas_apply_true_but_queue_false(
     assert result["queue_allowed"] is False
     assert result["gates"]["queue_validate_ok"] is False
     assert result["audit_ref"]["path"]
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["turn_state"] == "candidate"
+
+
+def test_agent_edit_unknown_transition_audit_failure_does_not_rollback_session_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes import agent_audit, agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent_session import read_state
+
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+    first_turn_id, _submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="unknown-audit",
+        label="first",
+    )
+    real_write_audit = agent_audit.write_audit
+
+    def _write_with_unknown_failure(audit_dir, **kwargs):
+        if Path(audit_dir).name == "unknown_audit":
+            raise OSError("unknown audit unavailable")
+        return real_write_audit(audit_dir, **kwargs)
+
+    monkeypatch.setattr(agent_edit_module, "write_audit", _write_with_unknown_failure)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "unknown-audit",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    state = read_state(tmp_path / "unknown-audit")
+    assert state["turns"][first_turn_id]["state"] == "unknown"
+    assert not (
+        tmp_path / "unknown-audit" / "turns" / first_turn_id / "unknown_audit" / "audit.json"
+    ).exists()
+
+
+def test_agent_edit_writes_unknown_transition_audit_with_unknown_turn_state(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.agent_session import read_state
+
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+    first_turn_id, _submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="unknown-audit-ok",
+        label="first",
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "unknown-audit-ok",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    state = read_state(tmp_path / "unknown-audit-ok")
+    assert state["turns"][first_turn_id]["state"] == "unknown"
+    unknown_audit = json.loads(
+        (
+            tmp_path / "unknown-audit-ok" / "turns" / first_turn_id / "unknown_audit" / "audit.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert unknown_audit["turn_state"] == "unknown"
+    assert unknown_audit["metadata"]["reason"] == "superseded_by_new_submit"
 
 
 def test_agent_edit_audit_failure_returns_exact_failure_envelope(
@@ -990,23 +1196,22 @@ def test_agent_edit_route_preserves_classified_handler_failure_without_open_kind
 def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import allocate_turn, read_state
+    from vibecomfy.comfy_nodes.agent_session import read_state
     from vibecomfy.comfy_nodes.routes import (
         _handle_agent_edit_accept,
         _handle_agent_edit_audit,
         _handle_agent_edit_reject,
     )
 
-    allocation = allocate_turn(
-        session_root=tmp_path,
+    turn_id, submit_graph_hash, candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
         session_id="s1",
-        request_payload={"task": "candidate"},
+        label="accept",
     )
-    turn_id = str(allocation.context.turn_id)
     accept_payload = {
         "session_id": "s1",
         "turn_id": turn_id,
-        "client_graph_hash": "hash-after",
+        "client_graph_hash": submit_graph_hash,
         "idempotency_key": "accept-1",
     }
 
@@ -1017,6 +1222,9 @@ def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     assert accepted["ok"] is True
     assert accepted["action"] == "accept"
     assert accepted["baseline_turn_id"] == turn_id
+    assert accepted["submit_graph_hash"] == submit_graph_hash
+    assert accepted["candidate_graph_hash"] == candidate_graph_hash
+    assert accepted["baseline_graph_hash"] == candidate_graph_hash
     assert accepted["audit_ref"]["path"].endswith("/accept_audit/audit.json")
     state = read_state(tmp_path / "s1")
     assert state["baseline_turn_id"] == turn_id
@@ -1042,23 +1250,24 @@ def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     assert "attachment;" in downloaded["headers"]["Content-Disposition"]
     audit_payload = json.loads(downloaded["body"].decode("utf-8"))
     assert audit_payload["metadata"]["action"] == "accept"
+    assert audit_payload["turn_state"] == "accepted"
 
 
 def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import allocate_turn, read_state
+    from vibecomfy.comfy_nodes.agent_session import read_state
     from vibecomfy.comfy_nodes.routes import _handle_agent_edit_reject
 
-    allocation = allocate_turn(
-        session_root=tmp_path,
+    turn_id, submit_graph_hash, candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
         session_id="s2",
-        request_payload={"task": "candidate"},
+        label="reject",
     )
-    turn_id = str(allocation.context.turn_id)
     reject_payload = {
         "session_id": "s2",
         "turn_id": turn_id,
+        "client_graph_hash": submit_graph_hash,
         "idempotency_key": "reject-1",
     }
 
@@ -1069,7 +1278,12 @@ def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
     assert rejected["ok"] is True
     assert rejected["action"] == "reject"
     assert rejected["baseline_turn_id"] is None
+    assert rejected["submit_graph_hash"] == submit_graph_hash
+    assert rejected["candidate_graph_hash"] == candidate_graph_hash
+    assert rejected["baseline_graph_hash"] is None
     assert rejected["audit_ref"]["path"].endswith("/reject_audit/audit.json")
+    reject_audit = json.loads(Path(rejected["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert reject_audit["turn_state"] == "rejected"
     state = read_state(tmp_path / "s2")
     assert state["baseline_turn_id"] is None
     assert state["turns"][turn_id]["state"] == "rejected"
@@ -1078,24 +1292,23 @@ def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
 def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit_redaction(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import allocate_turn, read_state
+    from vibecomfy.comfy_nodes.agent_session import read_state
     from vibecomfy.comfy_nodes.routes import (
         _handle_agent_edit_accept,
         _handle_agent_edit_audit,
         _handle_agent_edit_reject,
     )
 
-    accepted_allocation = allocate_turn(
-        session_root=tmp_path,
+    accepted_turn_id, accepted_submit_hash, _accepted_candidate_hash = _allocate_action_candidate(
+        tmp_path,
         session_id="s3",
-        request_payload={"task": "first candidate"},
+        label="first",
     )
-    accepted_turn_id = str(accepted_allocation.context.turn_id)
     accepted = _handle_agent_edit_accept(
         {
             "session_id": "s3",
             "turn_id": accepted_turn_id,
-            "client_graph_hash": "hash-1",
+            "client_graph_hash": accepted_submit_hash,
             "idempotency_key": "accept-a",
             "api_key": "deepseek-secret",
         },
@@ -1105,7 +1318,7 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
         {
             "session_id": "s3",
             "turn_id": accepted_turn_id,
-            "client_graph_hash": "hash-1",
+            "client_graph_hash": accepted_submit_hash,
             "idempotency_key": "accept-b",
         },
         session_root=tmp_path,
@@ -1114,7 +1327,7 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
         {
             "session_id": "s3",
             "turn_id": accepted_turn_id,
-            "client_graph_hash": "hash-2",
+            "client_graph_hash": "stale-hash",
             "idempotency_key": "accept-a",
         },
         session_root=tmp_path,
@@ -1128,16 +1341,16 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
         session_root=tmp_path,
     )
 
-    rejected_allocation = allocate_turn(
-        session_root=tmp_path,
+    rejected_turn_id, rejected_submit_hash, _rejected_candidate_hash = _allocate_action_candidate(
+        tmp_path,
         session_id="s3",
-        request_payload={"task": "second candidate"},
+        label="second",
     )
-    rejected_turn_id = str(rejected_allocation.context.turn_id)
     rejected = _handle_agent_edit_reject(
         {
             "session_id": "s3",
             "turn_id": rejected_turn_id,
+            "client_graph_hash": rejected_submit_hash,
             "idempotency_key": "reject-a",
         },
         session_root=tmp_path,
@@ -1146,6 +1359,7 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
         {
             "session_id": "s3",
             "turn_id": rejected_turn_id,
+            "client_graph_hash": rejected_submit_hash,
             "idempotency_key": "reject-b",
         },
         session_root=tmp_path,
@@ -1154,7 +1368,7 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
         {
             "session_id": "s3",
             "turn_id": rejected_turn_id,
-            "client_graph_hash": "hash-rejected",
+            "client_graph_hash": rejected_submit_hash,
             "idempotency_key": "accept-rejected",
         },
         session_root=tmp_path,
@@ -1177,8 +1391,10 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
 
     assert accepted["ok"] is True
     assert accepted["baseline_turn_id"] == accepted_turn_id
+    assert accepted["baseline_graph_hash"] == accepted["candidate_graph_hash"]
     assert repeated_accept["ok"] is True
     assert repeated_accept["baseline_turn_id"] == accepted_turn_id
+    assert repeated_accept["baseline_graph_hash"] == accepted["candidate_graph_hash"]
     assert accept_key_conflict["ok"] is False
     assert accept_key_conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
     assert rejecting_accepted["ok"] is False
@@ -1186,8 +1402,10 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
 
     assert rejected["ok"] is True
     assert rejected["baseline_turn_id"] == accepted_turn_id
+    assert rejected["baseline_graph_hash"] == accepted["candidate_graph_hash"]
     assert repeated_reject["ok"] is True
     assert repeated_reject["baseline_turn_id"] == accepted_turn_id
+    assert repeated_reject["baseline_graph_hash"] == accepted["candidate_graph_hash"]
     assert accepting_rejected["ok"] is False
     assert accepting_rejected["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
 
@@ -1198,6 +1416,7 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
 
     state = read_state(tmp_path / "s3")
     assert state["baseline_turn_id"] == accepted_turn_id
+    assert state["baseline_graph_hash"] == accepted["candidate_graph_hash"]
     assert state["turns"][accepted_turn_id]["state"] == "accepted"
     assert state["turns"][rejected_turn_id]["state"] == "rejected"
     assert state["idempotency_records"]["accept:accept-a"]["turn_id"] == accepted_turn_id
@@ -1215,11 +1434,15 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
     assert accept_response["action"] == "accept"
     assert accept_response["turn_id"] == accepted_turn_id
     assert accept_response["baseline_turn_id"] == accepted_turn_id
+    assert accept_response["submit_graph_hash"] == accepted_submit_hash
+    assert accept_response["baseline_graph_hash"] == accepted["candidate_graph_hash"]
     assert "audit_ref" not in accept_response
     assert reject_response["ok"] is True
     assert reject_response["action"] == "reject"
     assert reject_response["turn_id"] == rejected_turn_id
     assert reject_response["baseline_turn_id"] == accepted_turn_id
+    assert reject_response["submit_graph_hash"] == rejected_submit_hash
+    assert reject_response["baseline_graph_hash"] == accepted["candidate_graph_hash"]
     assert "audit_ref" not in reject_response
 
     downloaded = _handle_agent_edit_audit(
@@ -1236,6 +1459,176 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
     assert audit_payload["metadata"]["action"] == "accept"
     assert audit_payload["artifacts"]["request"]["api_key"] == "<REDACTED>"
     assert "deepseek-secret" not in downloaded["body"].decode("utf-8")
+
+
+# ── T8: route-level idempotency regression tests (no hash-value assertions) ─
+
+
+def test_route_edit_idempotency_replays_same_request_body(
+    tmp_path: Path,
+) -> None:
+    """Route-level same-body replay for the edit endpoint: sending the
+    same payload with the same idempotency key returns the identical
+    success response.
+
+    No hash-value assertions — this isolates idempotency plumbing."""
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+
+    payload = {
+        "graph": _ui_graph(),
+        "task": "change the save prefix to after",
+        "session_id": "t-idem-edit-replay",
+        "idempotency_key": "edit-replay-route",
+    }
+    first = handle_agent_edit(
+        payload,
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+    assert first["ok"] is True
+
+    second = handle_agent_edit(
+        payload,
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+    assert second["ok"] is True
+    assert second == first
+
+
+def test_route_accept_idempotency_replays_same_request_body(
+    tmp_path: Path,
+) -> None:
+    """Route-level same-body replay for the accept endpoint."""
+    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+
+    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="t-idem-accept-replay",
+        label="accept-replay-route",
+    )
+    payload = {
+        "session_id": "t-idem-accept-replay",
+        "turn_id": turn_id,
+        "client_graph_hash": submit_graph_hash,
+        "idempotency_key": "accept-replay-route",
+    }
+
+    first = _handle_agent_edit_accept(payload, session_root=tmp_path)
+    assert first["ok"] is True
+
+    second = _handle_agent_edit_accept(payload, session_root=tmp_path)
+    assert second == first
+
+
+def test_route_accept_idempotency_conflicts_on_different_request_body(
+    tmp_path: Path,
+) -> None:
+    """Route-level different-body conflict for the accept endpoint."""
+    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+
+    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="t-idem-accept-conflict",
+        label="accept-conflict-route",
+    )
+    first = _handle_agent_edit_accept(
+        {
+            "session_id": "t-idem-accept-conflict",
+            "turn_id": turn_id,
+            "client_graph_hash": submit_graph_hash,
+            "idempotency_key": "accept-conflict-route",
+            "mode": "safe",
+        },
+        session_root=tmp_path,
+    )
+    assert first["ok"] is True
+
+    conflict = _handle_agent_edit_accept(
+        {
+            "session_id": "t-idem-accept-conflict",
+            "turn_id": turn_id,
+            "client_graph_hash": submit_graph_hash,
+            "idempotency_key": "accept-conflict-route",
+            "mode": "force",
+        },
+        session_root=tmp_path,
+    )
+    assert conflict["ok"] is False
+    assert conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+
+
+def test_route_reject_idempotency_replays_same_request_body(
+    tmp_path: Path,
+) -> None:
+    """Route-level same-body replay for the reject endpoint."""
+    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_reject
+
+    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="t-idem-reject-replay",
+        label="reject-replay-route",
+    )
+    payload = {
+        "session_id": "t-idem-reject-replay",
+        "turn_id": turn_id,
+        "client_graph_hash": submit_graph_hash,
+        "idempotency_key": "reject-replay-route",
+    }
+
+    first = _handle_agent_edit_reject(payload, session_root=tmp_path)
+    assert first["ok"] is True
+
+    second = _handle_agent_edit_reject(payload, session_root=tmp_path)
+    assert second == first
+
+
+def test_route_reject_idempotency_conflicts_on_different_request_body(
+    tmp_path: Path,
+) -> None:
+    """Route-level different-body conflict for the reject endpoint."""
+    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_reject
+
+    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="t-idem-reject-conflict",
+        label="reject-conflict-route",
+    )
+    first = _handle_agent_edit_reject(
+        {
+            "session_id": "t-idem-reject-conflict",
+            "turn_id": turn_id,
+            "client_graph_hash": submit_graph_hash,
+            "idempotency_key": "reject-conflict-route",
+            "mode": "soft",
+        },
+        session_root=tmp_path,
+    )
+    assert first["ok"] is True
+
+    conflict = _handle_agent_edit_reject(
+        {
+            "session_id": "t-idem-reject-conflict",
+            "turn_id": turn_id,
+            "client_graph_hash": submit_graph_hash,
+            "idempotency_key": "reject-conflict-route",
+            "mode": "hard",
+        },
+        session_root=tmp_path,
+    )
+    assert conflict["ok"] is False
+    assert conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
 
 
 def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(

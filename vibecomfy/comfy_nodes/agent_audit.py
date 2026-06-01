@@ -136,6 +136,7 @@ def write_audit(
     audit_dir: Path,
     *,
     context: TurnContext | None,
+    turn_state: str | None = None,
     stage_results: Mapping[str, StageResult] | None = None,
     failure: FailureEnvelope | Mapping[str, Any] | None = None,
     response: Mapping[str, Any] | None = None,
@@ -181,6 +182,7 @@ def write_audit(
         "session_id": context.session_id if context is not None else None,
         "turn_id": context.turn_id if context is not None else None,
         "baseline_turn_id": context.baseline_turn_id if context is not None else None,
+        "turn_state": turn_state,
         "created_at": _now(),
         "stage_results": _stage_results_to_dict(stage_results),
         "gates": _gates_to_dict(context),
@@ -212,6 +214,7 @@ def write_allocation_failure_audit(
     return write_audit(
         audit_dir,
         context=context,
+        turn_state=None,
         failure=failure,
         artifacts=artifacts,
     )

@@ -64,6 +64,7 @@ def update_state_match_gate(
     *,
     baseline_graph_hash: str | None = None,
     client_graph_hash: str | None = None,
+    client_graph_hash_label: str = "client_graph_hash",
 ) -> None:
     if baseline_graph_hash is None:
         ok = True
@@ -81,6 +82,9 @@ def update_state_match_gate(
             extra={
                 "baseline_graph_hash_present": baseline_graph_hash is not None,
                 "client_graph_hash_present": client_graph_hash is not None,
+                "baseline_graph_hash": baseline_graph_hash,
+                "client_graph_hash": client_graph_hash,
+                "client_graph_hash_label": client_graph_hash_label,
             },
         ),
     )

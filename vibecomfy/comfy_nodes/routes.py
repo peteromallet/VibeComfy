@@ -141,6 +141,9 @@ def _handle_agent_edit_action(
                     else None,
                     idempotency_key=_idempotency_key(payload),
                 ),
+                turn_state=result.get("accepted_state")
+                if isinstance(result.get("accepted_state"), str)
+                else None,
                 response=result,
                 artifacts={"request": payload},
                 metadata={"action": action},
@@ -176,7 +179,7 @@ def _handle_agent_edit_audit(
         ).to_dict()
     session_id = _safe_session_id(session_id_raw)
     audit_dir = "audit"
-    if action in {"accept", "reject"}:
+    if action in {"accept", "reject", "unknown"}:
         audit_dir = f"{action}_audit"
     path = turn_dir_for(_root(session_root), session_id, turn_id) / audit_dir / "audit.json"
     session_dir = session_dir_for(_root(session_root), session_id).resolve()

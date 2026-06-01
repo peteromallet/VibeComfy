@@ -22,6 +22,60 @@ function sha256HexUtf8(value) {
   return crypto.createHash("sha256").update(JSON.stringify(canonicalizeJsonValue(value)), "utf8").digest("hex");
 }
 
+const CANONICAL_HASH_PAYLOADS = [
+  {
+    graph: {
+      meta: { locale: "café 漢字", seed: 9007199254740991, cfg: 7.5 },
+      nodes: [
+        {
+          id: 2,
+          type: "SaveImage",
+          widgets_values: [{ beta: 2, alpha: 1 }, ["frame-1", { z: 3, a: 2 }]],
+          properties: { vibecomfy_uid: "uid-2", nested: { zeta: 2, alpha: 1 } },
+        },
+        {
+          id: 1,
+          type: "Input",
+          properties: { vibecomfy_uid: "uid-1", prompt: "naïve façade" },
+        },
+      ],
+      links: [[1, 1, 0, 2, 0, "IMAGE"]],
+    },
+  },
+  {
+    graph: {
+      links: [],
+      nodes: [
+        {
+          id: 4,
+          type: "KSampler",
+          widgets_values: [123456789, 20, 0.125, "euler"],
+          properties: { vibecomfy_uid: "uid-4", labels: ["ä", "ß", "ç"] },
+        },
+      ],
+      extras: {
+        sorted_key_edge_case: { zebra: 1, alpha: 2, middle: { omega: 9, beta: 3 } },
+      },
+    },
+  },
+  {
+    graph: {
+      nodes: [
+        {
+          id: 7,
+          type: "PreviewImage",
+          properties: { vibecomfy_uid: "uid-7", floats: [0.5, 1.25, 2.75] },
+        },
+      ],
+      links: [],
+      audit: {
+        reviewer: { notes: ["résumé", "jalapeño"], accepted: false },
+        history: [{ turn_id: "0001", state: "candidate" }, { turn_id: "0002", state: "unknown" }],
+      },
+    },
+  },
+];
+
 async function waitFor(predicate, { attempts = 50 } = {}) {
   for (let index = 0; index < attempts; index += 1) {
     if (predicate()) {
@@ -31,6 +85,54 @@ async function waitFor(predicate, { attempts = 50 } = {}) {
   }
   throw new Error("waitFor timed out");
 }
+
+test("VibeComfy browser canonical hash helper sorts object keys while preserving array order", () => {
+  for (const payload of CANONICAL_HASH_PAYLOADS) {
+    assert.match(sha256HexUtf8(payload), /^[0-9a-f]{64}$/);
+  }
+
+  const sameGraphDifferentKeyOrder = {
+    graph: {
+      links: [[1, 1, 0, 2, 0, "IMAGE"]],
+      meta: { cfg: 7.5, seed: 9007199254740991, locale: "café 漢字" },
+      nodes: [
+        {
+          type: "SaveImage",
+          id: 2,
+          properties: { nested: { alpha: 1, zeta: 2 }, vibecomfy_uid: "uid-2" },
+          widgets_values: [{ alpha: 1, beta: 2 }, ["frame-1", { a: 2, z: 3 }]],
+        },
+        {
+          type: "Input",
+          id: 1,
+          properties: { prompt: "naïve façade", vibecomfy_uid: "uid-1" },
+        },
+      ],
+    },
+  };
+  const arrayOrderChanged = {
+    graph: {
+      meta: { locale: "café 漢字", seed: 9007199254740991, cfg: 7.5 },
+      nodes: [
+        {
+          id: 2,
+          type: "SaveImage",
+          widgets_values: [["frame-1", { z: 3, a: 2 }], { beta: 2, alpha: 1 }],
+          properties: { vibecomfy_uid: "uid-2", nested: { zeta: 2, alpha: 1 } },
+        },
+        {
+          id: 1,
+          type: "Input",
+          properties: { vibecomfy_uid: "uid-1", prompt: "naïve façade" },
+        },
+      ],
+      links: [[1, 1, 0, 2, 0, "IMAGE"]],
+    },
+  };
+
+  assert.equal(sha256HexUtf8(CANONICAL_HASH_PAYLOADS[0]), sha256HexUtf8(sameGraphDifferentKeyOrder));
+  assert.notEqual(sha256HexUtf8(CANONICAL_HASH_PAYLOADS[0]), sha256HexUtf8(arrayOrderChanged));
+});
 
 test("VibeComfy browser harness loads the extension, captures commands, loadGraphData, and reuses one persistent right-side panel root", async () => {
   const candidateGraph = {
@@ -241,6 +343,97 @@ test("VibeComfy agent submit sends canonical graph hash, normalized route/model 
   } finally {
     releaseResponse?.();
     await Promise.allSettled([firstSubmit, duplicateSubmit].filter(Boolean));
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy blocks stale response arrivals before review and leaves candidate state untouched", async () => {
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const changedGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 3, type: "SaveImage", properties: { vibecomfy_uid: "uid-3" } },
+    ],
+    links: [[1, 1, 0, 3, 0, "IMAGE"]],
+  };
+  let releaseResponse;
+  const pendingResponse = new Promise((resolve) => {
+    releaseResponse = resolve;
+  });
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent-edit": async () => {
+        await pendingResponse;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            session_id: "session-stale-arrival",
+            turn_id: "0001",
+            baseline_turn_id: null,
+            canvas_apply_allowed: true,
+            apply_allowed: true,
+            queue_allowed: false,
+            message: "Candidate should be blocked before review.",
+            graph: { nodes: [{ id: 9, type: "PreviewImage", properties: { vibecomfy_uid: "uid-9" } }], links: [] },
+            report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-9"], removed_named: [] } }, recovery: [] },
+            audit_ref: { path: "/tmp/stale-arrival-audit.json" },
+          },
+        };
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+            anthropic: { requested_route: "anthropic", normalized_route: "arnold", browser_api_key_allowed: false, tos_acknowledgement_required: true },
+            "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+    },
+  });
+
+  let submitPromise;
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "tighten the graph";
+    submitPromise = harness.clickButton("Submit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit"));
+
+    harness.setCurrentGraph(changedGraph);
+    releaseResponse();
+    await submitPromise;
+
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "ERROR");
+    assert.match(harness.textDump(), /StaleResponseArrival/);
+    assert.match(harness.textDump(), /Submit a new edit from the current canvas\./);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
+    assert.equal(harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.getCurrentGraph().nodes[1]?.id, 3);
+    assert.doesNotMatch(harness.textDump(), /AWAITING_REVIEW/);
+  } finally {
+    releaseResponse?.();
+    await Promise.allSettled([submitPromise].filter(Boolean));
     await harness.dispose();
   }
 });
@@ -631,6 +824,8 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     await harness.clickButton("Submit");
     harness.setCurrentGraph({ nodes: [{ id: 99, type: "Dirty" }], links: [] });
     await harness.clickButton("Apply Candidate");
+    assert.match(harness.textDump(), /StaleStateMismatch/);
+    assert.match(harness.textDump(), /Submit a new edit from the current canvas\./);
     assert.match(harness.textDump(), /The canvas changed after this candidate was generated/);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.loadGraphDataCalls.length, 2);

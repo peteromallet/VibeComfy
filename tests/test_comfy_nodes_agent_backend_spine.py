@@ -41,6 +41,7 @@ from vibecomfy.comfy_nodes.agent_session import (
     read_state,
     record_idempotent_response,
     reject_turn,
+    write_state_atomic,
 )
 from vibecomfy.schema.provider import InputSpec, NodeSchema
 from vibecomfy.workflow import ValidationIssue, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -87,6 +88,48 @@ def _response_writer(base: Path):
         return path
 
     return _write
+
+
+def _request_graph(label: str) -> dict:
+    return {
+        "graph": {
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "SaveImage",
+                    "widgets_values": [label],
+                }
+            ],
+            "links": [],
+        },
+        "client_graph_hash": f"client-{label}",
+        "task": f"edit {label}",
+    }
+
+
+def _record_candidate_response(
+    *,
+    root: Path,
+    session_id: str,
+    allocation,
+    graph: dict | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
+    turn_id = str(allocation.context.turn_id)
+    candidate_graph = graph or {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}
+    response = {"ok": True, "turn_id": turn_id, "graph": candidate_graph}
+    record_idempotent_response(
+        session_root=root,
+        session_id=session_id,
+        scope="edit",
+        idempotency_key=idempotency_key,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+    return candidate_graph
 
 
 def test_session_allocates_zero_padded_turns_under_lock(tmp_path: Path) -> None:
@@ -156,20 +199,251 @@ def test_session_idempotency_replays_same_hash_and_conflicts_on_different_hash(
     assert conflict.conflict.failure.kind is FailureKind.STALE_STATE_MISMATCH
 
 
-def test_accept_reject_mutations_are_atomic_and_conflict_aware(tmp_path: Path) -> None:
+# ── T8: idempotency regression tests (no hash-value assertions) ──────────
+
+
+def test_edit_idempotency_replays_same_request_body(
+    tmp_path: Path,
+) -> None:
+    """Duplicate same-body replay for the edit endpoint: the exact same
+    payload with the same idempotency key returns the recorded response.
+
+    This test does NOT assert on any hash value so that failures isolate
+    idempotency plumbing from protocol-hash semantics."""
     root = tmp_path / "sessions"
+    request = {"task": "edit replay A", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
     allocation = allocate_turn(
         session_root=root,
         session_id="s1",
-        request_payload={"task": "candidate"},
+        request_payload=request,
+        idempotency_key="edit-replay-1",
+    )
+    response = {"ok": True, "turn_id": allocation.context.turn_id, "label": "first"}
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="edit-replay-1",
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=allocation.context.turn_id,
+    )
+
+    replay = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+        idempotency_key="edit-replay-1",
+    )
+    assert replay.replay is not None
+    assert replay.replay.response == response
+
+
+def test_edit_idempotency_conflicts_on_different_request_body(
+    tmp_path: Path,
+) -> None:
+    """Duplicate different-body conflict for the edit endpoint: a different
+    payload with the same idempotency key after recording produces a
+    stale-state conflict.
+
+    This test does NOT assert on any hash value so that failures isolate
+    idempotency plumbing from protocol-hash semantics."""
+    root = tmp_path / "sessions"
+    request_a = {"task": "edit A", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request_a,
+        idempotency_key="edit-conflict-2",
+    )
+    response = {"ok": True, "turn_id": allocation.context.turn_id}
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="edit-conflict-2",
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=allocation.context.turn_id,
+    )
+
+    conflict = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload={"task": "edit B", "graph": {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}},
+        idempotency_key="edit-conflict-2",
+    )
+    assert conflict.conflict is not None
+    assert conflict.conflict.failure.kind is FailureKind.STALE_STATE_MISMATCH
+
+
+def test_accept_idempotency_replays_same_request_body(
+    tmp_path: Path,
+) -> None:
+    """Duplicate same-body replay for the accept endpoint: calling
+    accept_turn twice with the same idempotency key and payload returns
+    the identical response."""
+    root = tmp_path / "sessions"
+    request = _request_graph("accept-replay")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
+
+    first = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "accept"},
+        idempotency_key="accept-replay-2",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert isinstance(first, dict)
+
+    replayed = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "accept"},
+        idempotency_key="accept-replay-2",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert replayed == first
+
+
+def test_accept_idempotency_conflicts_on_different_request_body(
+    tmp_path: Path,
+) -> None:
+    """Duplicate different-body conflict for the accept endpoint: calling
+    accept_turn with the same idempotency key but a different request
+    payload produces an editor-ahead conflict."""
+    root = tmp_path / "sessions"
+    request = _request_graph("accept-conflict")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
+
+    first = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "accept", "mode": "safe"},
+        idempotency_key="accept-conflict-2",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert isinstance(first, dict)
+
+    conflict = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "accept", "mode": "force"},
+        idempotency_key="accept-conflict-2",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert not isinstance(conflict, dict)
+    assert conflict.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+
+
+def test_reject_idempotency_replays_same_request_body(
+    tmp_path: Path,
+) -> None:
+    """Duplicate same-body replay for the reject endpoint: calling
+    reject_turn twice with the same idempotency key and payload returns
+    the identical response."""
+    root = tmp_path / "sessions"
+    request = _request_graph("reject-replay")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
+
+    first = reject_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "reject"},
+        idempotency_key="reject-replay-1",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert isinstance(first, dict)
+
+    replayed = reject_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "reject"},
+        idempotency_key="reject-replay-1",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert replayed == first
+
+
+def test_reject_idempotency_conflicts_on_different_request_body(
+    tmp_path: Path,
+) -> None:
+    """Duplicate different-body conflict for the reject endpoint: calling
+    reject_turn with the same idempotency key but a different request
+    payload produces an editor-ahead conflict."""
+    root = tmp_path / "sessions"
+    request = _request_graph("reject-conflict")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
+
+    first = reject_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "reject", "mode": "soft"},
+        idempotency_key="reject-conflict-1",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert isinstance(first, dict)
+
+    conflict = reject_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "reject", "mode": "hard"},
+        idempotency_key="reject-conflict-1",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert not isinstance(conflict, dict)
+    assert conflict.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+
+
+def test_accept_reject_mutations_are_atomic_and_conflict_aware(tmp_path: Path) -> None:
+    root = tmp_path / "sessions"
+    request = _request_graph("hash-a")
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
     )
     turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
 
     accepted = accept_turn(
         session_root=root,
         session_id="s1",
         turn_id=turn_id,
-        client_graph_hash="hash-a",
+        client_graph_hash=action_hash,
         request_payload={"turn_id": turn_id, "action": "accept"},
         idempotency_key="accept-1",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -185,7 +459,7 @@ def test_accept_reject_mutations_are_atomic_and_conflict_aware(tmp_path: Path) -
         session_root=root,
         session_id="s1",
         turn_id=turn_id,
-        client_graph_hash="hash-a",
+        client_graph_hash=action_hash,
         request_payload={"turn_id": turn_id, "action": "accept"},
         idempotency_key="accept-1",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -196,7 +470,7 @@ def test_accept_reject_mutations_are_atomic_and_conflict_aware(tmp_path: Path) -
         session_root=root,
         session_id="s1",
         turn_id=turn_id,
-        client_graph_hash="hash-a",
+        client_graph_hash=action_hash,
         request_payload={"turn_id": turn_id, "action": "reject"},
     )
     assert not isinstance(rejected, dict)
@@ -205,15 +479,15 @@ def test_accept_reject_mutations_are_atomic_and_conflict_aware(tmp_path: Path) -
 
 def test_accept_updates_baseline_and_reject_replays_idempotently(tmp_path: Path) -> None:
     root = tmp_path / "sessions"
-    first = allocate_turn(session_root=root, session_id="s1", request_payload={"task": "first"})
-    second = allocate_turn(session_root=root, session_id="s1", request_payload={"task": "second"})
-    third = allocate_turn(session_root=root, session_id="s1", request_payload={"task": "third"})
+    first_request = _request_graph("first")
+    first = allocate_turn(session_root=root, session_id="s1", request_payload=first_request)
+    _record_candidate_response(root=root, session_id="s1", allocation=first)
 
     accepted = accept_turn(
         session_root=root,
         session_id="s1",
         turn_id=str(first.context.turn_id),
-        client_graph_hash="hash-a",
+        client_graph_hash=payload_hash(first_request["graph"]),
         request_payload={"turn_id": str(first.context.turn_id), "action": "accept"},
         idempotency_key="accept-first",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -221,11 +495,14 @@ def test_accept_updates_baseline_and_reject_replays_idempotently(tmp_path: Path)
     assert isinstance(accepted, dict)
     assert accepted["baseline_turn_id"] == str(first.context.turn_id)
 
+    second_request = _request_graph("second")
+    second = allocate_turn(session_root=root, session_id="s1", request_payload=second_request)
+    _record_candidate_response(root=root, session_id="s1", allocation=second)
     updated = accept_turn(
         session_root=root,
         session_id="s1",
         turn_id=str(second.context.turn_id),
-        client_graph_hash="hash-b",
+        client_graph_hash=payload_hash(second_request["graph"]),
         request_payload={"turn_id": str(second.context.turn_id), "action": "accept"},
         idempotency_key="accept-second",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -233,11 +510,14 @@ def test_accept_updates_baseline_and_reject_replays_idempotently(tmp_path: Path)
     assert isinstance(updated, dict)
     assert updated["baseline_turn_id"] == str(second.context.turn_id)
 
+    third_request = _request_graph("third")
+    third = allocate_turn(session_root=root, session_id="s1", request_payload=third_request)
+    _record_candidate_response(root=root, session_id="s1", allocation=third)
     rejected = reject_turn(
         session_root=root,
         session_id="s1",
         turn_id=str(third.context.turn_id),
-        client_graph_hash="hash-a",
+        client_graph_hash=payload_hash(third_request["graph"]),
         request_payload={"turn_id": str(third.context.turn_id), "action": "reject"},
         idempotency_key="reject-first",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -246,7 +526,7 @@ def test_accept_updates_baseline_and_reject_replays_idempotently(tmp_path: Path)
         session_root=root,
         session_id="s1",
         turn_id=str(third.context.turn_id),
-        client_graph_hash="hash-a",
+        client_graph_hash=payload_hash(third_request["graph"]),
         request_payload={"turn_id": str(third.context.turn_id), "action": "reject"},
         idempotency_key="reject-first",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -260,18 +540,299 @@ def test_accept_updates_baseline_and_reject_replays_idempotently(tmp_path: Path)
     assert state["turns"][str(second.context.turn_id)]["state"] == "accepted"
 
 
+def test_session_protocol_hashes_graph_subdict_and_records_candidate_hash(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    request = _request_graph("before")
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+        idempotency_key="edit-1",
+    )
+    turn_id = str(allocation.context.turn_id)
+    submit_graph_hash = payload_hash(request["graph"])
+
+    state = read_state(root / "s1")
+    turn_record = state["turns"][turn_id]
+    assert turn_record["submit_graph_hash"] == submit_graph_hash
+    assert turn_record["submitted_client_graph_hash"] == "client-before"
+    assert turn_record["submit_graph_hash"] != payload_hash(request)
+
+    response = {
+        "ok": True,
+        "turn_id": turn_id,
+        "graph": {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []},
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="edit-1",
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    state = read_state(root / "s1")
+    assert state["turns"][turn_id]["candidate_graph_hash"] == payload_hash(response["graph"])
+
+
+def test_accept_reject_validate_against_submit_graph_hash_before_action_writes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    request = _request_graph("before")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+
+    stale = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=payload_hash({"different": True}),
+        request_payload={"turn_id": turn_id, "action": "accept"},
+    )
+
+    assert not isinstance(stale, dict)
+    assert stale.kind is FailureKind.STALE_STATE_MISMATCH
+    state = read_state(root / "s1")
+    turn_record = state["turns"][turn_id]
+    assert turn_record["state"] == "candidate"
+    assert turn_record["client_graph_hash"] is None
+    assert turn_record["action_request_hash"] is None
+    assert turn_record["action_client_graph_hash"] is None
+
+
+def test_accept_reject_fail_closed_when_candidate_hash_missing_before_action_writes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    request = _request_graph("before")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+
+    failure = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=payload_hash(request["graph"]),
+        request_payload={"turn_id": turn_id, "action": "accept"},
+    )
+
+    assert not isinstance(failure, dict)
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+    assert failure.agent_failure_context["candidate_graph_hash_present"] is False
+    state = read_state(root / "s1")
+    turn_record = state["turns"][turn_id]
+    assert turn_record["state"] == "candidate"
+    assert turn_record["client_graph_hash"] is None
+    assert turn_record["action_request_hash"] is None
+    assert turn_record["action_client_graph_hash"] is None
+    assert state["baseline_turn_id"] is None
+    assert state["baseline_graph_hash"] is None
+
+
+def test_accept_reject_fail_closed_when_submit_hash_missing_before_action_writes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    request = _request_graph("before")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+    candidate_graph = {"nodes": [{"id": 9, "type": "SaveImage"}], "links": []}
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={"ok": True, "turn_id": turn_id, "graph": candidate_graph},
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+    state = read_state(root / "s1")
+    del state["turns"][turn_id]["submit_graph_hash"]
+    write_state_atomic(root / "s1", state)
+
+    failure = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=payload_hash(request["graph"]),
+        request_payload={"turn_id": turn_id, "action": "accept"},
+    )
+
+    assert not isinstance(failure, dict)
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+    assert failure.agent_failure_context["submit_graph_hash_present"] is False
+    state = read_state(root / "s1")
+    turn_record = state["turns"][turn_id]
+    assert turn_record["state"] == "candidate"
+    assert turn_record["client_graph_hash"] is None
+    assert turn_record["action_request_hash"] is None
+    assert turn_record["action_client_graph_hash"] is None
+    assert state["baseline_turn_id"] is None
+    assert state["baseline_graph_hash"] is None
+
+
+def test_new_submit_marks_prior_candidates_unknown_and_accept_updates_baseline_graph_hash(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    first_request = _request_graph("first")
+    second_request = _request_graph("second")
+    first = allocate_turn(session_root=root, session_id="s1", request_payload=first_request)
+    first_id = str(first.context.turn_id)
+    first_candidate_graph = {"nodes": [{"id": 9, "type": "SaveImage"}], "links": []}
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="candidate-first",
+        request_hash=first.request_hash,
+        response={"ok": True, "turn_id": first_id, "graph": first_candidate_graph},
+        response_path=first.turn_dir / "response.json",
+        operation="edit",
+        turn_id=first_id,
+    )
+    second = allocate_turn(session_root=root, session_id="s1", request_payload=second_request)
+    second_id = str(second.context.turn_id)
+    state = read_state(root / "s1")
+
+    assert list(second.unknown_transitions) == [
+        {
+            "session_id": "s1",
+            "turn_id": first_id,
+            "from_state": "candidate",
+            "to_state": "unknown",
+            "reason": "superseded_by_new_submit",
+            "superseded_by_turn_id": second_id,
+            "transitioned_at": state["turns"][first_id]["unknown_at"],
+        }
+    ]
+    assert state["turns"][first_id]["state"] == "unknown"
+
+    rejected_unknown = reject_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=first_id,
+        client_graph_hash=payload_hash(first_request["graph"]),
+        request_payload={"turn_id": first_id, "action": "reject"},
+    )
+    assert not isinstance(rejected_unknown, dict)
+    assert rejected_unknown.kind is FailureKind.STALE_STATE_MISMATCH
+
+    second_candidate_graph = {"nodes": [{"id": 10, "type": "PreviewImage"}], "links": []}
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="candidate-second",
+        request_hash=second.request_hash,
+        response={"ok": True, "turn_id": second_id, "graph": second_candidate_graph},
+        response_path=second.turn_dir / "response.json",
+        operation="edit",
+        turn_id=second_id,
+    )
+
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=second_id,
+        client_graph_hash=payload_hash(second_request["graph"]),
+        request_payload={"turn_id": second_id, "action": "accept"},
+    )
+
+    assert isinstance(accepted, dict)
+    assert accepted["baseline_graph_hash"] == payload_hash(second_candidate_graph)
+    assert accepted["unknown_transitions"] == []
+    state = read_state(root / "s1")
+    assert state["baseline_graph_hash"] == payload_hash(second_candidate_graph)
+    assert state["turns"][second_id]["state"] == "accepted"
+
+
+def test_reject_preserves_existing_baseline_graph_hash(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    baseline_request = _request_graph("baseline")
+    baseline_allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=baseline_request,
+    )
+    baseline_turn_id = str(baseline_allocation.context.turn_id)
+    baseline_candidate_graph = _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=baseline_allocation,
+        graph={"nodes": [{"id": 2, "type": "PreviewImage", "widgets_values": ["baseline"]}], "links": []},
+    )
+    baseline_candidate_hash = payload_hash(baseline_candidate_graph)
+
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=baseline_turn_id,
+        client_graph_hash=payload_hash(baseline_request["graph"]),
+        request_payload={"turn_id": baseline_turn_id, "action": "accept"},
+    )
+    assert isinstance(accepted, dict)
+    assert accepted["baseline_turn_id"] == baseline_turn_id
+    assert accepted["baseline_graph_hash"] == baseline_candidate_hash
+
+    rejected_request = _request_graph("reject-next")
+    rejected_allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=rejected_request,
+    )
+    rejected_turn_id = str(rejected_allocation.context.turn_id)
+    rejected_candidate_graph = _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=rejected_allocation,
+        graph={"nodes": [{"id": 3, "type": "SaveImage", "widgets_values": ["reject-next"]}], "links": []},
+    )
+
+    rejected = reject_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=rejected_turn_id,
+        client_graph_hash=payload_hash(rejected_request["graph"]),
+        request_payload={"turn_id": rejected_turn_id, "action": "reject"},
+    )
+
+    assert isinstance(rejected, dict)
+    assert rejected["baseline_turn_id"] == baseline_turn_id
+    assert rejected["baseline_graph_hash"] == baseline_candidate_hash
+    assert rejected["candidate_graph_hash"] == payload_hash(rejected_candidate_graph)
+    state = read_state(root / "s1")
+    assert state["baseline_turn_id"] == baseline_turn_id
+    assert state["baseline_graph_hash"] == baseline_candidate_hash
+    assert state["turns"][rejected_turn_id]["state"] == "rejected"
+
+
 def test_accept_idempotency_conflicts_on_reused_key_with_different_request_payload(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "sessions"
-    allocation = allocate_turn(session_root=root, session_id="s1", request_payload={"task": "candidate"})
+    request = _request_graph("candidate")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
     turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
 
     first = accept_turn(
         session_root=root,
         session_id="s1",
         turn_id=turn_id,
-        client_graph_hash="hash-a",
+        client_graph_hash=action_hash,
         request_payload={"turn_id": turn_id, "action": "accept", "mode": "safe"},
         idempotency_key="accept-same",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -280,7 +841,7 @@ def test_accept_idempotency_conflicts_on_reused_key_with_different_request_paylo
         session_root=root,
         session_id="s1",
         turn_id=turn_id,
-        client_graph_hash="hash-a",
+        client_graph_hash=action_hash,
         request_payload={"turn_id": turn_id, "action": "accept", "mode": "force"},
         idempotency_key="accept-same",
         response_writer=_response_writer(tmp_path / "responses"),
@@ -294,8 +855,11 @@ def test_accept_idempotency_conflicts_on_reused_key_with_different_request_paylo
 
 def test_concurrent_accept_and_reject_leave_single_terminal_turn_state(tmp_path: Path) -> None:
     root = tmp_path / "sessions"
-    allocation = allocate_turn(session_root=root, session_id="s1", request_payload={"task": "candidate"})
+    request = _request_graph("candidate")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
     turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
     results: list[dict | object] = []
 
     def _run_accept() -> None:
@@ -304,7 +868,7 @@ def test_concurrent_accept_and_reject_leave_single_terminal_turn_state(tmp_path:
                 session_root=root,
                 session_id="s1",
                 turn_id=turn_id,
-                client_graph_hash="hash-a",
+                client_graph_hash=action_hash,
                 request_payload={"turn_id": turn_id, "action": "accept"},
                 idempotency_key="accept-concurrent",
                 response_writer=_response_writer(tmp_path / "responses"),
@@ -317,7 +881,7 @@ def test_concurrent_accept_and_reject_leave_single_terminal_turn_state(tmp_path:
                 session_root=root,
                 session_id="s1",
                 turn_id=turn_id,
-                client_graph_hash="hash-a",
+                client_graph_hash=action_hash,
                 request_payload={"turn_id": turn_id, "action": "reject"},
                 idempotency_key="reject-concurrent",
                 response_writer=_response_writer(tmp_path / "responses"),
@@ -360,6 +924,7 @@ def test_audit_redacts_closed_set_and_references_raw_artifacts(tmp_path: Path) -
     audit_ref = write_audit(
         tmp_path / "audit",
         context=context,
+        turn_state="candidate",
         stage_results=context.stage_results,
         response={"ok": True, "Authorization": "Bearer secret"},
         artifacts={"raw": raw_path, "already_ref": raw_ref},
@@ -370,6 +935,7 @@ def test_audit_redacts_closed_set_and_references_raw_artifacts(tmp_path: Path) -
     )
 
     audit = json.loads(Path(audit_ref.path).read_text(encoding="utf-8"))
+    assert audit["turn_state"] == "candidate"
     assert audit["redactions"] == ["api_key", "auth_header", "provider_secret"]
     assert audit["metadata"]["api_key"] == REDACTED
     assert audit["metadata"]["nested"]["provider_secret"] == REDACTED
@@ -445,6 +1011,7 @@ def test_allocation_failure_audit_uses_fallback_directory_and_redacts(
 
     assert "_allocation_failures" in audit_ref.path
     audit = json.loads(Path(audit_ref.path).read_text(encoding="utf-8"))
+    assert audit["turn_state"] is None
     assert audit["failure"]["agent_failure_context"]["api_key"] == REDACTED
     assert audit["artifacts"]["request"]["auth_header"] == REDACTED
 
@@ -460,6 +1027,7 @@ def test_allocation_failure_audit_uses_failure_digest_when_request_is_absent(tmp
     audit_ref = write_allocation_failure_audit(tmp_path / "s1", session_id="s1", failure=failure)
     audit = json.loads(Path(audit_ref.path).read_text(encoding="utf-8"))
 
+    assert audit["turn_state"] is None
     assert audit["artifacts"] == {}
     assert audit["failure"]["agent_failure_context"]["provider_secret"] == REDACTED
 
@@ -677,6 +1245,25 @@ def test_gate_derivation_requires_canvas_gates_state_match_and_queue_without_blo
     assert derived.canvas_apply_allowed is True
     assert derived.queue_allowed is True
     assert context.gate_results["state_match_ok"].evidence["reason"] == "no_baseline_hash_required"
+
+
+def test_state_match_gate_records_hash_diagnostics_for_backend_submit_hashes() -> None:
+    context = TurnContext(session_id="s1")
+    initialize_gates(context)
+
+    update_state_match_gate(
+        context,
+        baseline_graph_hash="baseline-hash",
+        client_graph_hash="submit-hash",
+        client_graph_hash_label="submit_graph_hash",
+    )
+
+    evidence = context.gate_results["state_match_ok"].evidence
+    assert context.gate_results["state_match_ok"].ok is False
+    assert evidence["reason"] == "hash_mismatch"
+    assert evidence["baseline_graph_hash"] == "baseline-hash"
+    assert evidence["client_graph_hash"] == "submit-hash"
+    assert evidence["client_graph_hash_label"] == "submit_graph_hash"
 
 
 def test_gate_derivation_keeps_canvas_false_when_only_validation_gate_passes() -> None:

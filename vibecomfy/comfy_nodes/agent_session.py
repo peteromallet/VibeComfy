@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -17,7 +18,7 @@ DEFAULT_LOCK_TIMEOUT_SECONDS = 10.0
 LOCK_POLL_SECONDS = 0.025
 
 OperationScope = Literal["edit", "accept", "reject"]
-TurnState = Literal["candidate", "accepted", "rejected"]
+TurnState = Literal["candidate", "accepted", "rejected", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class TurnAllocation:
     turn_dir: Path
     state: dict[str, Any]
     request_hash: str
+    unknown_transitions: tuple[dict[str, Any], ...] = ()
     idempotency_record_key: str | None = None
     replay: IdempotencyReplay | None = None
     conflict: IdempotencyConflict | None = None
@@ -110,6 +112,7 @@ def default_state() -> dict[str, Any]:
         "schema_version": STATE_SCHEMA_VERSION,
         "next_turn_index": 1,
         "baseline_turn_id": None,
+        "baseline_graph_hash": None,
         "turns": {},
         "idempotency_records": {},
     }
@@ -131,6 +134,13 @@ def read_state(session_dir: Path) -> dict[str, Any]:
         merged["idempotency_records"] = {}
     if not isinstance(merged.get("next_turn_index"), int) or merged["next_turn_index"] < 1:
         merged["next_turn_index"] = 1
+    if merged.get("baseline_graph_hash") is None and isinstance(merged.get("baseline_turn_id"), str):
+        baseline_turn = merged["turns"].get(merged["baseline_turn_id"])
+        if isinstance(baseline_turn, dict):
+            migrated_hash = baseline_turn.get("candidate_graph_hash") or baseline_turn.get(
+                "client_graph_hash"
+            )
+            merged["baseline_graph_hash"] = migrated_hash if isinstance(migrated_hash, str) else None
     merged["schema_version"] = STATE_SCHEMA_VERSION
     return merged
 
@@ -168,6 +178,22 @@ def _conflict_kind(scope: OperationScope) -> FailureKind:
     return FailureKind.EDITOR_AHEAD_CONFLICT
 
 
+def _mapping_graph_hash(payload: Any, *, field: str = "graph") -> str | None:
+    if not isinstance(payload, Mapping):
+        return None
+    graph = payload.get(field)
+    if not isinstance(graph, Mapping):
+        return None
+    return payload_hash(graph)
+
+
+def _client_graph_hash(payload: Any) -> str | None:
+    if not isinstance(payload, Mapping):
+        return None
+    value = payload.get("client_graph_hash")
+    return value if isinstance(value, str) else None
+
+
 def allocate_turn(
     *,
     session_root: Path,
@@ -178,6 +204,8 @@ def allocate_turn(
 ) -> TurnAllocation:
     session_dir = session_dir_for(session_root, session_id)
     request_digest = payload_hash(request_payload)
+    submit_graph_hash = _mapping_graph_hash(request_payload)
+    submitted_client_graph_hash = _client_graph_hash(request_payload)
     key = _record_key("edit", idempotency_key)
 
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
@@ -229,12 +257,39 @@ def allocate_turn(
         state["next_turn_index"] = turn_index + 1
         state["turns"][turn_id] = {
             "state": "candidate",
+            "submit_graph_hash": submit_graph_hash,
+            "submitted_client_graph_hash": submitted_client_graph_hash,
+            "candidate_graph_hash": None,
             "client_graph_hash": None,
             "accepted_at": None,
             "rejected_at": None,
             "action_request_hash": None,
+            "action_client_graph_hash": None,
+            "action_submit_graph_hash": None,
             "created_at": _now(),
         }
+        unknown_transitions: list[dict[str, Any]] = []
+        for other_turn_id, other_record in state["turns"].items():
+            if other_turn_id == turn_id or not isinstance(other_record, dict):
+                continue
+            if other_record.get("state") != "candidate":
+                continue
+            other_record["state"] = "unknown"
+            other_record["unknown_at"] = other_record.get("unknown_at") or _now()
+            other_record["unknown_reason"] = "superseded_by_new_submit"
+            other_record["superseded_by_turn_id"] = turn_id
+            transitioned_at = other_record["unknown_at"]
+            unknown_transitions.append(
+                {
+                    "session_id": session_id,
+                    "turn_id": other_turn_id,
+                    "from_state": "candidate",
+                    "to_state": "unknown",
+                    "reason": "superseded_by_new_submit",
+                    "superseded_by_turn_id": turn_id,
+                    "transitioned_at": transitioned_at,
+                }
+            )
         write_state_atomic(session_dir, state)
 
     turn_dir = turn_dir_for(session_root, session_id, turn_id)
@@ -250,6 +305,7 @@ def allocate_turn(
         turn_dir=turn_dir,
         state=state,
         request_hash=request_digest,
+        unknown_transitions=tuple(unknown_transitions),
         idempotency_record_key=key,
     )
 
@@ -268,7 +324,16 @@ def record_idempotent_response(
     lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
 ) -> dict[str, Any] | None:
     key = _record_key(scope, idempotency_key)
+    candidate_graph_hash = _mapping_graph_hash(response)
     if key is None:
+        if scope == "edit" and turn_id is not None:
+            session_dir = session_dir_for(session_root, session_id)
+            with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
+                state = read_state(session_dir)
+                turn_record = state["turns"].get(turn_id)
+                if isinstance(turn_record, dict):
+                    turn_record["candidate_graph_hash"] = candidate_graph_hash
+                    write_state_atomic(session_dir, state)
         return None
     response_path.parent.mkdir(parents=True, exist_ok=True)
     response_path.write_text(json.dumps(response, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -284,6 +349,10 @@ def record_idempotent_response(
     session_dir = session_dir_for(session_root, session_id)
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
+        if scope == "edit" and turn_id is not None:
+            turn_record = state["turns"].get(turn_id)
+            if isinstance(turn_record, dict):
+                turn_record["candidate_graph_hash"] = candidate_graph_hash
         state["idempotency_records"][key] = record
         write_state_atomic(session_dir, state)
     return record
@@ -344,6 +413,16 @@ def _mutate_turn_state(
         current_state = turn_record.get("state")
         target_state: TurnState = "accepted" if scope == "accept" else "rejected"
         opposite_state: TurnState = "rejected" if scope == "accept" else "accepted"
+        if current_state == "unknown":
+            return failure_envelope(
+                FailureKind.STALE_STATE_MISMATCH,
+                scope,
+                context,
+                agent_failure_context={
+                    "explanation": f"Turn {turn_id} was superseded by a newer accepted turn.",
+                    "accepted_state": current_state,
+                },
+            )
         if current_state == opposite_state:
             return failure_envelope(
                 FailureKind.EDITOR_AHEAD_CONFLICT,
@@ -355,13 +434,77 @@ def _mutate_turn_state(
                 },
             )
 
+        submit_graph_hash = turn_record.get("submit_graph_hash")
+        if not isinstance(submit_graph_hash, str):
+            return failure_envelope(
+                FailureKind.STALE_STATE_MISMATCH,
+                scope,
+                context,
+                agent_failure_context={
+                    "explanation": "Turn has no persisted submit graph hash.",
+                    "turn_id": turn_id,
+                    "submit_graph_hash_present": False,
+                },
+            )
+        if client_graph_hash != submit_graph_hash:
+            return failure_envelope(
+                FailureKind.STALE_STATE_MISMATCH,
+                scope,
+                context,
+                agent_failure_context={
+                    "explanation": "Client graph hash does not match the graph submitted for this turn.",
+                    "turn_id": turn_id,
+                    "client_graph_hash": client_graph_hash,
+                    "submit_graph_hash": submit_graph_hash,
+                },
+            )
+        candidate_graph_hash = turn_record.get("candidate_graph_hash")
+        if not isinstance(candidate_graph_hash, str):
+            return failure_envelope(
+                FailureKind.STALE_STATE_MISMATCH,
+                scope,
+                context,
+                agent_failure_context={
+                    "explanation": "Turn has no persisted candidate graph hash.",
+                    "turn_id": turn_id,
+                    "candidate_graph_hash_present": False,
+                },
+            )
+
         timestamp_key = "accepted_at" if scope == "accept" else "rejected_at"
         turn_record["state"] = target_state
         turn_record["client_graph_hash"] = client_graph_hash
         turn_record[timestamp_key] = turn_record.get(timestamp_key) or _now()
         turn_record["action_request_hash"] = request_digest
+        turn_record["action_client_graph_hash"] = client_graph_hash
+        turn_record["action_submit_graph_hash"] = (
+            submit_graph_hash if isinstance(submit_graph_hash, str) else None
+        )
+        unknown_transitions: list[dict[str, Any]] = []
         if scope == "accept":
             state["baseline_turn_id"] = turn_id
+            state["baseline_graph_hash"] = candidate_graph_hash
+            for other_turn_id, other_record in state["turns"].items():
+                if other_turn_id == turn_id or not isinstance(other_record, dict):
+                    continue
+                if other_record.get("state") != "candidate":
+                    continue
+                other_record["state"] = "unknown"
+                other_record["unknown_at"] = other_record.get("unknown_at") or _now()
+                other_record["unknown_reason"] = "superseded_by_accept"
+                other_record["superseded_by_turn_id"] = turn_id
+                transitioned_at = other_record["unknown_at"]
+                unknown_transitions.append(
+                    {
+                        "session_id": session_id,
+                        "turn_id": other_turn_id,
+                        "from_state": "candidate",
+                        "to_state": "unknown",
+                        "reason": "superseded_by_accept",
+                        "superseded_by_turn_id": turn_id,
+                        "transitioned_at": transitioned_at,
+                    }
+                )
 
         response = {
             "ok": True,
@@ -369,8 +512,12 @@ def _mutate_turn_state(
             "session_id": session_id,
             "turn_id": turn_id,
             "baseline_turn_id": state.get("baseline_turn_id"),
+            "baseline_graph_hash": state.get("baseline_graph_hash"),
             "accepted_state": target_state,
             "client_graph_hash": client_graph_hash,
+            "submit_graph_hash": submit_graph_hash,
+            "candidate_graph_hash": turn_record.get("candidate_graph_hash"),
+            "unknown_transitions": unknown_transitions,
             "idempotency_key": idempotency_key,
         }
         if key is not None and response_writer is not None:
