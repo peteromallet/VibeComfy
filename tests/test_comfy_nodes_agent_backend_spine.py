@@ -1027,15 +1027,19 @@ def test_agent_provider_lazy_loads_arnold_and_normalizes_response(monkeypatch) -
 
     monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
 
-    result = agent_provider.run_agent_turn("change it", "before", route="r1", model="m1")
+    result = agent_provider.run_agent_turn("change it", "before", route="anthropic", model="m1")
 
     assert result.python == "print('ok')"
     assert result.message == "done"
-    assert result.route == "r1"
+    assert result.route == "arnold"
+    assert calls[0]["route"] == "arnold"
     assert calls[0]["messages"][0]["role"] == "system"
     assert "Return only JSON with keys `python` and `message`." in calls[0]["messages"][0]["content"]
     assert "User request:\nchange it" in calls[0]["messages"][1]["content"]
     assert "Current scratchpad Python" in calls[0]["messages"][1]["content"]
+    assert result.audit_metadata["requested_route"] == "anthropic"
+    assert result.audit_metadata["route_metadata"]["normalized_route"] == "arnold"
+    assert result.audit_metadata["route_metadata"]["tos_acknowledgement_required"] is True
     assert result.audit_metadata["legacy_deepseek_fallback_enabled"] is False
 
 
@@ -1058,10 +1062,15 @@ def test_agent_provider_status_reports_unavailable_without_secret_values(monkeyp
 
     monkeypatch.setattr(agent_provider, "_load_arnold_runtime", _missing)
 
-    status = agent_provider.get_agent_status(route="r1", model="m1")
+    status = agent_provider.get_agent_status(route="openai-codex", model="m1")
 
     assert status["ok"] is False
     assert status["provider_available"] is False
+    assert status["route"] == "arnold"
+    assert status["requested_route"] == "openai-codex"
+    assert status["route_metadata"]["normalized_route"] == "arnold"
+    assert status["route_metadata"]["browser_api_key_allowed"] is False
+    assert "openai-codex" in status["route_options"]
     assert status["credential_presence"] == {
         "arnold_api_key": True,
         "hermes_api_key": False,
@@ -1099,21 +1108,28 @@ def test_agent_provider_maps_malformed_and_missing_fields(monkeypatch) -> None:
 
 
 def test_agent_provider_status_uses_runtime_status_without_leaking_secrets(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
     monkeypatch.setenv("ARNOLD_API_KEY", "secret-value")
     monkeypatch.setenv("HERMES_API_KEY", "hermes-secret")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
 
     class Runtime:
         @staticmethod
-        def get_agent_status(**_kwargs):
+        def get_agent_status(**kwargs):
+            calls.append(kwargs)
             return {"ok": True, "route": "runtime-route", "detail": "healthy"}
 
     monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
 
-    status = agent_provider.get_agent_status(route="r1", model="m1")
+    status = agent_provider.get_agent_status(route="deepseek", model="m1")
 
     assert status["ok"] is True
     assert status["provider_available"] is True
+    assert calls == [{"route": "deepseek", "model": "m1"}]
+    assert status["route"] == "deepseek"
+    assert status["requested_route"] == "deepseek"
+    assert status["route_metadata"]["browser_api_key_allowed"] is True
     assert status["credential_presence"] == {
         "arnold_api_key": True,
         "hermes_api_key": True,
@@ -1176,20 +1192,26 @@ def test_agent_provider_ignores_claude_and_codex_key_submissions(tmp_path: Path)
     env_path = tmp_path / ".hermes" / ".env"
 
     claude = agent_provider.handle_credential_submission(
-        {"provider": "claude", "api_key": "claude-secret"},
+        {"provider": "anthropic", "api_key": "claude-secret"},
         env_path=env_path,
     )
     codex = agent_provider.handle_credential_submission(
-        {"provider": "codex", "api_key": "codex-secret"},
+        {"provider": "openai-codex", "api_key": "codex-secret"},
         env_path=env_path,
     )
 
     assert claude["ok"] is True
     assert claude["stored"] is False
     assert claude["ignored"] is True
+    assert claude["provider"] == "arnold"
+    assert claude["requested_route"] == "anthropic"
+    assert "Arnold/Hermes" in claude["reason"]
     assert codex["ok"] is True
     assert codex["stored"] is False
     assert codex["ignored"] is True
+    assert codex["provider"] == "arnold"
+    assert codex["requested_route"] == "openai-codex"
+    assert "Arnold/Hermes" in codex["reason"]
     assert not env_path.exists()
     assert "claude-secret" not in json.dumps(claude)
     assert "codex-secret" not in json.dumps(codex)

@@ -1252,10 +1252,13 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
         lambda: (_ for _ in ()).throw(agent_provider.ProviderError("not installed")),
     )
 
-    status = _handle_agent_status({"route": "arnold", "model": "agent-edit"})
+    status = _handle_agent_status({"route": "anthropic", "model": "agent-edit"})
 
     assert status["ok"] is False
     assert status["provider_available"] is False
+    assert status["route"] == "arnold"
+    assert status["requested_route"] == "anthropic"
+    assert status["route_metadata"]["tos_acknowledgement_required"] is True
     assert status["credential_presence"]["arnold_api_key"] is True
     assert "arnold-secret" not in json.dumps(status)
 
@@ -1265,7 +1268,7 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
         env_path=env_path,
     )
     ignored = _handle_agent_credentials(
-        {"provider": "codex", "api_key": "codex-secret"},
+        {"provider": "openai-codex", "api_key": "codex-secret"},
         env_path=tmp_path / ".hermes" / "codex.env",
     )
 
@@ -1276,6 +1279,9 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
     assert ignored["ok"] is True
     assert ignored["stored"] is False
     assert ignored["ignored"] is True
+    assert ignored["provider"] == "arnold"
+    assert ignored["requested_route"] == "openai-codex"
+    assert "Arnold/Hermes" in ignored["reason"]
     assert "codex-secret" not in json.dumps(ignored)
 
 
@@ -1304,11 +1310,16 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
             }
 
     monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
-    healthy = _handle_agent_status({"route": "arnold", "model": "agent-edit"})
+    healthy = _handle_agent_status({"route": "openai-codex", "model": "agent-edit"})
 
     assert healthy["ok"] is True
     assert healthy["provider_available"] is True
     assert healthy["detail"] == "healthy"
+    assert healthy["route"] == "arnold"
+    assert healthy["requested_route"] == "openai-codex"
+    assert healthy["route_metadata"]["normalized_route"] == "arnold"
+    assert healthy["route_metadata"]["browser_api_key_allowed"] is False
+    assert healthy["route_options"]["deepseek"]["browser_api_key_allowed"] is True
     assert healthy["credential_presence"] == {
         "arnold_api_key": True,
         "hermes_api_key": True,
@@ -1327,15 +1338,59 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
         "_load_arnold_runtime",
         lambda: (_ for _ in ()).throw(agent_provider.ProviderError("not installed")),
     )
-    unavailable = _handle_agent_status({"route": "arnold", "model": "agent-edit"})
+    unavailable = _handle_agent_status({"route": "openai-codex", "model": "agent-edit"})
 
     assert unavailable == {
         "ok": False,
         "route": "arnold",
+        "requested_route": "openai-codex",
         "model": "agent-edit",
         "provider": "arnold",
         "provider_available": False,
         "error": "not installed",
+        "route_metadata": {
+            "requested_route": "openai-codex",
+            "normalized_route": "arnold",
+            "browser_api_key_allowed": False,
+            "guidance": "OpenAI Codex runs through local Arnold/Hermes. Configure local "
+            "ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted.",
+            "tos_acknowledgement_required": False,
+        },
+        "route_options": {
+            "auto": {
+                "requested_route": "auto",
+                "normalized_route": "arnold",
+                "browser_api_key_allowed": False,
+                "guidance": "Use local Arnold/Hermes setup for this route. Configure "
+                "ARNOLD_API_KEY or HERMES_API_KEY locally; browser-submitted API keys "
+                "are not stored.",
+                "tos_acknowledgement_required": False,
+            },
+            "deepseek": {
+                "requested_route": "deepseek",
+                "normalized_route": "deepseek",
+                "browser_api_key_allowed": True,
+                "guidance": "DeepSeek browser key submission is supported and stored locally.",
+                "tos_acknowledgement_required": False,
+            },
+            "anthropic": {
+                "requested_route": "anthropic",
+                "normalized_route": "arnold",
+                "browser_api_key_allowed": False,
+                "guidance": "Anthropic/Claude runs through local Arnold/Hermes. "
+                "Acknowledge the ToS in the UI and configure local ARNOLD_API_KEY or "
+                "HERMES_API_KEY; browser keys are not accepted.",
+                "tos_acknowledgement_required": True,
+            },
+            "openai-codex": {
+                "requested_route": "openai-codex",
+                "normalized_route": "arnold",
+                "browser_api_key_allowed": False,
+                "guidance": "OpenAI Codex runs through local Arnold/Hermes. Configure "
+                "local ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted.",
+                "tos_acknowledgement_required": False,
+            },
+        },
         "credential_presence": {
             "arnold_api_key": True,
             "hermes_api_key": True,
@@ -1354,11 +1409,11 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
         env_path=env_path,
     )
     claude = _handle_agent_credentials(
-        {"provider": "claude", "api_key": "claude-secret", "claude_api_key": "claude-secret"},
+        {"provider": "anthropic", "api_key": "claude-secret", "claude_api_key": "claude-secret"},
         env_path=env_path,
     )
     codex = _handle_agent_credentials(
-        {"provider": "codex", "api_key": "codex-secret", "codex_api_key": "codex-secret"},
+        {"provider": "openai-codex", "api_key": "codex-secret", "codex_api_key": "codex-secret"},
         env_path=env_path,
     )
 
@@ -1372,6 +1427,10 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
     assert "deepseek-secret" not in json.dumps(deepseek)
     assert claude["stored"] is False
     assert codex["stored"] is False
+    assert claude["provider"] == "arnold"
+    assert claude["requested_route"] == "anthropic"
+    assert codex["provider"] == "arnold"
+    assert codex["requested_route"] == "openai-codex"
     assert "claude-secret" not in json.dumps(claude)
     assert "codex-secret" not in json.dumps(codex)
 

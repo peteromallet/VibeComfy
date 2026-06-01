@@ -14,6 +14,21 @@ from .agent_audit import redact_closed_set
 DEFAULT_ROUTE = "arnold"
 DEFAULT_MODEL = "agent-edit"
 DEFAULT_HERMES_ENV_PATH = Path("~/.hermes/.env")
+SUPPORTED_BROWSER_ROUTES = ("auto", "deepseek", "anthropic", "openai-codex")
+
+_ARNOLD_GUIDANCE = (
+    "Use local Arnold/Hermes setup for this route. Configure ARNOLD_API_KEY or "
+    "HERMES_API_KEY locally; browser-submitted API keys are not stored."
+)
+_ANTHROPIC_GUIDANCE = (
+    "Anthropic/Claude runs through local Arnold/Hermes. Acknowledge the ToS in "
+    "the UI and configure local ARNOLD_API_KEY or HERMES_API_KEY; browser keys "
+    "are not accepted."
+)
+_CODEX_GUIDANCE = (
+    "OpenAI Codex runs through local Arnold/Hermes. Configure local "
+    "ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted."
+)
 
 
 class ProviderError(RuntimeError):
@@ -49,6 +64,24 @@ class AgentTurnResult:
             "route": self.route,
             "model": self.model,
             "audit_metadata": dict(self.audit_metadata or {}),
+        }
+
+
+@dataclass(frozen=True)
+class AgentRouteDescriptor:
+    requested_route: str
+    normalized_route: str
+    browser_api_key_allowed: bool
+    guidance: str | None = None
+    tos_acknowledgement_required: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "requested_route": self.requested_route,
+            "normalized_route": self.normalized_route,
+            "browser_api_key_allowed": self.browser_api_key_allowed,
+            "guidance": self.guidance,
+            "tos_acknowledgement_required": self.tos_acknowledgement_required,
         }
 
 
@@ -88,6 +121,63 @@ def build_messages(*, task: str, python_source: str) -> list[dict[str, str]]:
         "```"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _supported_browser_route_options() -> dict[str, dict[str, Any]]:
+    return {
+        route: _resolve_agent_route(route).to_dict()
+        for route in SUPPORTED_BROWSER_ROUTES
+    }
+
+
+def _resolve_agent_route(route: str | None) -> AgentRouteDescriptor:
+    requested = (route or DEFAULT_ROUTE).strip().lower() or DEFAULT_ROUTE
+    if requested == "claude":
+        requested = "anthropic"
+    elif requested == "codex":
+        requested = "openai-codex"
+
+    if requested == "auto":
+        return AgentRouteDescriptor(
+            requested_route=requested,
+            normalized_route="arnold",
+            browser_api_key_allowed=False,
+            guidance=_ARNOLD_GUIDANCE,
+        )
+    if requested == "deepseek":
+        return AgentRouteDescriptor(
+            requested_route=requested,
+            normalized_route="deepseek",
+            browser_api_key_allowed=True,
+            guidance="DeepSeek browser key submission is supported and stored locally.",
+        )
+    if requested == "anthropic":
+        return AgentRouteDescriptor(
+            requested_route=requested,
+            normalized_route="arnold",
+            browser_api_key_allowed=False,
+            guidance=_ANTHROPIC_GUIDANCE,
+            tos_acknowledgement_required=True,
+        )
+    if requested == "openai-codex":
+        return AgentRouteDescriptor(
+            requested_route=requested,
+            normalized_route="arnold",
+            browser_api_key_allowed=False,
+            guidance=_CODEX_GUIDANCE,
+        )
+    if requested == "arnold":
+        return AgentRouteDescriptor(
+            requested_route=requested,
+            normalized_route="arnold",
+            browser_api_key_allowed=False,
+            guidance=_ARNOLD_GUIDANCE,
+        )
+    return AgentRouteDescriptor(
+        requested_route=requested,
+        normalized_route=requested,
+        browser_api_key_allowed=False,
+    )
 
 
 def _credential_presence() -> dict[str, bool]:
@@ -186,7 +276,8 @@ def run_agent_turn(
     route: str | None = None,
     model: str | None = None,
 ) -> AgentTurnResult:
-    selected_route = route or DEFAULT_ROUTE
+    route_descriptor = _resolve_agent_route(route)
+    selected_route = route_descriptor.normalized_route
     selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
     runtime = _load_arnold_runtime()
     try:
@@ -211,6 +302,8 @@ def run_agent_turn(
         model=selected_model,
         audit_metadata={
             "provider": "arnold",
+            "requested_route": route_descriptor.requested_route,
+            "route_metadata": route_descriptor.to_dict(),
             "legacy_deepseek_fallback_enabled": False,
             "credential_presence": _credential_presence(),
         },
@@ -218,7 +311,8 @@ def run_agent_turn(
 
 
 def get_agent_status(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
-    selected_route = route or DEFAULT_ROUTE
+    route_descriptor = _resolve_agent_route(route)
+    selected_route = route_descriptor.normalized_route
     selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
     try:
         runtime = _load_arnold_runtime()
@@ -226,10 +320,13 @@ def get_agent_status(*, route: str | None = None, model: str | None = None) -> d
         return {
             "ok": False,
             "route": selected_route,
+            "requested_route": route_descriptor.requested_route,
             "model": selected_model,
             "provider": "arnold",
             "provider_available": False,
             "error": str(exc),
+            "route_metadata": route_descriptor.to_dict(),
+            "route_options": _supported_browser_route_options(),
             "credential_presence": _credential_presence(),
             "legacy_deepseek_fallback_enabled": False,
         }
@@ -242,9 +339,12 @@ def get_agent_status(*, route: str | None = None, model: str | None = None) -> d
         **runtime_status,
         "ok": bool(runtime_status.get("ok", True)),
         "route": selected_route,
+        "requested_route": route_descriptor.requested_route,
         "model": selected_model,
         "provider": "arnold",
         "provider_available": True,
+        "route_metadata": route_descriptor.to_dict(),
+        "route_options": _supported_browser_route_options(),
         "credential_presence": _credential_presence(),
         "legacy_deepseek_fallback_enabled": False,
     }
@@ -295,20 +395,35 @@ def handle_credential_submission(
     *,
     env_path: Path | None = None,
 ) -> dict[str, Any]:
-    provider = str(payload.get("provider") or payload.get("route") or "").lower()
+    requested_route = str(payload.get("provider") or payload.get("route") or "").lower() or None
+    route_descriptor = _resolve_agent_route(requested_route)
+    provider = route_descriptor.requested_route
     deepseek_key = payload.get("deepseek_api_key")
     api_key = payload.get("api_key")
-    if isinstance(deepseek_key, str):
+    if isinstance(deepseek_key, str) and (
+        route_descriptor.normalized_route == "deepseek" or requested_route is None
+    ):
         return save_deepseek_api_key(deepseek_key, env_path=env_path)
-    if provider == "deepseek" and isinstance(api_key, str):
+    if (
+        route_descriptor.normalized_route == "deepseek"
+        and route_descriptor.browser_api_key_allowed
+        and isinstance(api_key, str)
+    ):
         return save_deepseek_api_key(api_key, env_path=env_path)
-    if provider in {"claude", "codex"} or "claude_api_key" in payload or "codex_api_key" in payload:
+    if (
+        provider in {"auto", "arnold", "anthropic", "openai-codex"}
+        or "claude_api_key" in payload
+        or "codex_api_key" in payload
+        or "openai_api_key" in payload
+    ):
         return {
             "ok": True,
             "stored": False,
-            "provider": provider or "unsupported",
+            "provider": route_descriptor.normalized_route,
+            "requested_route": route_descriptor.requested_route,
+            "route_metadata": route_descriptor.to_dict(),
             "ignored": True,
-            "reason": "Claude/Codex credentials are not stored by VibeComfy S1.",
+            "reason": route_descriptor.guidance or _ARNOLD_GUIDANCE,
         }
     return {
         "ok": False,
