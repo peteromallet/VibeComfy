@@ -1,0 +1,297 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
+from vibecomfy.workflow import ValidationIssue, VibeWorkflow
+
+from .agent_contracts import FailureKind, StageResult
+
+UNSATISFIED_INPUT_CODES = frozenset(
+    {
+        "missing_required_input",
+        "missing_input",
+    }
+)
+UNSUPPORTED_NON_DAG_CODES = frozenset(
+    {
+        "opaque_component_class_type",
+        "unsupported_non_dag",
+        "subgraph_freshness_error",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ValidateDiagnostics:
+    ok: bool
+    blocking: bool
+    failure_kind: FailureKind | None
+    issues: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class QueueDiagnostics:
+    ok: bool
+    blocking: bool
+    failure_kind: FailureKind | None
+    issues: tuple[dict[str, Any], ...]
+
+
+def _issue_to_dict(issue: ValidationIssue, *, source: str) -> dict[str, Any]:
+    return {
+        "source": source,
+        "code": issue.code,
+        "message": issue.message,
+        "severity": issue.severity,
+        "detail": dict(issue.detail),
+    }
+
+
+def _dedupe(issues: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+    seen: set[tuple[Any, ...]] = set()
+    result: list[dict[str, Any]] = []
+    for issue in issues:
+        key = (
+            issue.get("source"),
+            issue.get("code"),
+            issue.get("message"),
+            jsonish_key(issue.get("detail", {})),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(issue)
+    return tuple(result)
+
+
+def jsonish_key(value: Any) -> str:
+    import json
+
+    try:
+        return json.dumps(value, sort_keys=True, default=str)
+    except TypeError:
+        return repr(value)
+
+
+def classify_validation_issues(issues: tuple[dict[str, Any], ...]) -> FailureKind | None:
+    hard = [issue for issue in issues if issue.get("severity", "error") == "error"]
+    if not hard:
+        return None
+    hard_codes = {str(issue.get("code")) for issue in hard}
+    if hard_codes & UNSUPPORTED_NON_DAG_CODES:
+        return FailureKind.UNSUPPORTED_NON_DAG
+    if hard_codes & UNSATISFIED_INPUT_CODES:
+        return FailureKind.UNSATISFIED_INPUT_ERROR
+    return FailureKind.VALIDATION_ERROR
+
+
+def _queue_issue(
+    *,
+    code: str,
+    message: str,
+    detail: dict[str, Any],
+    failure_kind: FailureKind,
+) -> dict[str, Any]:
+    return {
+        "source": "agent_diagnostics.queue_stage",
+        "code": code,
+        "message": message,
+        "severity": "error",
+        "detail": detail,
+        "failure_kind": failure_kind.value,
+    }
+
+
+def classify_queue_issues(issues: tuple[dict[str, Any], ...]) -> FailureKind | None:
+    for issue in issues:
+        raw_kind = issue.get("failure_kind")
+        if isinstance(raw_kind, str):
+            return FailureKind(raw_kind)
+    return None
+
+
+def validate_stage_diagnostics(
+    workflow: VibeWorkflow,
+    *,
+    schema_provider: Any = None,
+) -> ValidateDiagnostics:
+    issues: list[dict[str, Any]] = []
+    report = workflow.validate(schema_provider=None)
+    issues.extend(_issue_to_dict(issue, source="workflow.validate") for issue in report.issues)
+
+    if schema_provider is not None:
+        issues.extend(
+            _issue_to_dict(issue, source="validate_against_schema")
+            for issue in validate_against_schema(workflow, schema_provider)
+        )
+        try:
+            api_dict = workflow.compile("api")
+        except Exception:
+            api_dict = None
+        if api_dict is not None:
+            issues.extend(
+                _issue_to_dict(issue, source="validate_api_link_shapes")
+                for issue in validate_api_link_shapes(api_dict, schema_provider)
+            )
+
+    issues.extend(
+        _issue_to_dict(issue, source="workflow.helper_diagnostics")
+        for issue in workflow.helper_diagnostics()
+    )
+
+    deduped = _dedupe(issues)
+    failure_kind = classify_validation_issues(deduped)
+    return ValidateDiagnostics(
+        ok=failure_kind is None,
+        blocking=failure_kind is not None,
+        failure_kind=failure_kind,
+        issues=deduped,
+    )
+
+
+def validate_stage_result(
+    workflow: VibeWorkflow,
+    *,
+    schema_provider: Any = None,
+) -> StageResult:
+    diagnostics = validate_stage_diagnostics(workflow, schema_provider=schema_provider)
+    return StageResult(
+        stage="validate",
+        ok=diagnostics.ok,
+        blocking=diagnostics.blocking,
+        value={
+            "failure_kind": diagnostics.failure_kind.value
+            if diagnostics.failure_kind is not None
+            else None,
+        },
+        issues=diagnostics.issues,
+        gate_updates={"ir_validate_ok": diagnostics.ok},
+    )
+
+
+def queue_stage_diagnostics(
+    *,
+    recovery_report: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+    change_report: dict[str, Any] | None = None,
+) -> QueueDiagnostics:
+    issues: list[dict[str, Any]] = []
+    per_node_entries = [
+        entry
+        for entry in recovery_report or ()
+        if isinstance(entry, dict) and entry.get("node_id") is not None
+    ]
+    for entry in per_node_entries:
+        node_id = str(entry.get("node_id"))
+        class_type = str(entry.get("class_type"))
+        confidence = entry.get("confidence")
+        if entry.get("schema_less") is True:
+            issues.append(
+                _queue_issue(
+                    code="schema_less_queue_blocker",
+                    message=(
+                        f"Node {node_id} ({class_type}) is schema-less and cannot be queued safely."
+                    ),
+                    detail={
+                        "node_id": node_id,
+                        "class_type": class_type,
+                        "provider": entry.get("provider"),
+                        "confidence": confidence,
+                        "diagnostic": entry.get("diagnostic"),
+                    },
+                    failure_kind=FailureKind.SCHEMA_LESS_QUEUE_BLOCKER,
+                )
+            )
+            continue
+        if isinstance(confidence, (int, float)) and confidence <= 0.3:
+            issues.append(
+                _queue_issue(
+                    code="low_confidence_queue_blocker",
+                    message=(
+                        f"Node {node_id} ({class_type}) has low-confidence schema evidence and cannot be queued safely."
+                    ),
+                    detail={
+                        "node_id": node_id,
+                        "class_type": class_type,
+                        "provider": entry.get("provider"),
+                        "confidence": confidence,
+                        "diagnostic": entry.get("diagnostic"),
+                    },
+                    failure_kind=FailureKind.LOW_CONFIDENCE_QUEUE_BLOCKER,
+                )
+            )
+            continue
+        if confidence is None and not entry.get("schema_less"):
+            issues.append(
+                _queue_issue(
+                    code="low_confidence_queue_blocker",
+                    message=(
+                        f"Node {node_id} ({class_type}) has unresolved model/widget evidence and cannot be queued safely."
+                    ),
+                    detail={
+                        "node_id": node_id,
+                        "class_type": class_type,
+                        "provider": entry.get("provider"),
+                        "confidence": None,
+                        "diagnostic": "unresolved model/widget: confidence could not be determined",
+                    },
+                    failure_kind=FailureKind.LOW_CONFIDENCE_QUEUE_BLOCKER,
+                )
+            )
+    content_edits = change_report.get("content_edits", {}) if isinstance(change_report, dict) else {}
+    stripped_helpers = content_edits.get("stripped_helpers", [])
+    if isinstance(stripped_helpers, list) and stripped_helpers:
+        issues.append(
+            _queue_issue(
+                code="editor_only_node_queue_blocker",
+                message="Editor-only helper nodes would be stripped from the queued API graph.",
+                detail={"stripped_helpers": list(stripped_helpers)},
+                failure_kind=FailureKind.EDITOR_ONLY_NODE_QUEUE_BLOCKER,
+            )
+        )
+
+    deduped = _dedupe(issues)
+    return QueueDiagnostics(
+        ok=not deduped,
+        blocking=False,
+        failure_kind=classify_queue_issues(deduped),
+        issues=deduped,
+    )
+
+
+def queue_stage_result(
+    *,
+    recovery_report: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+    change_report: dict[str, Any] | None = None,
+) -> StageResult:
+    diagnostics = queue_stage_diagnostics(
+        recovery_report=recovery_report,
+        change_report=change_report,
+    )
+    return StageResult(
+        stage="queue_validate",
+        ok=diagnostics.ok,
+        blocking=diagnostics.blocking,
+        value={
+            "failure_kind": diagnostics.failure_kind.value
+            if diagnostics.failure_kind is not None
+            else None,
+        },
+        issues=diagnostics.issues,
+        gate_updates={"queue_validate_ok": diagnostics.ok},
+    )
+
+
+__all__ = [
+    "QueueDiagnostics",
+    "UNSATISFIED_INPUT_CODES",
+    "UNSUPPORTED_NON_DAG_CODES",
+    "ValidateDiagnostics",
+    "classify_queue_issues",
+    "classify_validation_issues",
+    "queue_stage_diagnostics",
+    "queue_stage_result",
+    "validate_stage_diagnostics",
+    "validate_stage_result",
+]

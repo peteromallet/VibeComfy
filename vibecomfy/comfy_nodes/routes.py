@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+from pathlib import Path
 from typing import Any
 
-from .agent_edit import handle_agent_edit
+from .agent_contracts import FailureKind, TurnContext, classify_failure, failure_envelope
+from .agent_edit import _SESSION_ROOT, _safe_session_id, handle_agent_edit
+from .agent_provider import get_agent_status, handle_credential_submission
+from .agent_session import accept_turn, payload_hash, reject_turn, session_dir_for, turn_dir_for
+from .agent_audit import artifact_ref_for_path, write_audit
 
 
 def _handle_roundtrip(
@@ -61,6 +67,191 @@ def _handle_roundtrip(
         return {"error": str(exc), "kind": type(exc).__name__}
 
 
+def _idempotency_key(payload: dict[str, Any]) -> str | None:
+    value = payload.get("idempotency_key")
+    return value if isinstance(value, str) and value else None
+
+
+def _root(path: Any = None) -> Path:
+    return Path(path) if path is not None else _SESSION_ROOT
+
+
+def _handle_agent_edit_action(
+    payload: Any,
+    *,
+    action: str,
+    session_root: Any = None,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            action,
+            agent_failure_context={"explanation": "Request body must be a JSON object."},
+        ).to_dict()
+    session_id_raw = payload.get("session_id")
+    turn_id = payload.get("turn_id")
+    if not isinstance(session_id_raw, str) or not session_id_raw.strip():
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            action,
+            agent_failure_context={"explanation": "`session_id` is required."},
+        ).to_dict()
+    if not isinstance(turn_id, str) or not turn_id.strip():
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            action,
+            agent_failure_context={"explanation": "`turn_id` is required."},
+        ).to_dict()
+    session_id = _safe_session_id(session_id_raw)
+    root = _root(session_root)
+    mutator = accept_turn if action == "accept" else reject_turn
+
+    def _write_action_response(response: dict[str, Any]) -> Path:
+        path = turn_dir_for(root, session_id, turn_id) / f"{action}_response.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(response, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return path
+
+    result = mutator(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        client_graph_hash=payload.get("client_graph_hash")
+        if isinstance(payload.get("client_graph_hash"), str)
+        else None,
+        request_payload=payload,
+        idempotency_key=_idempotency_key(payload),
+        response_writer=_write_action_response,
+    )
+    if not isinstance(result, dict):
+        return result.to_dict()
+    try:
+        audit_dir = turn_dir_for(root, session_id, turn_id) / f"{action}_audit"
+        audit_path = audit_dir / "audit.json"
+        if audit_path.exists():
+            audit_ref = artifact_ref_for_path(audit_path)
+        else:
+            audit_ref = write_audit(
+                audit_dir,
+                context=TurnContext(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    baseline_turn_id=result.get("baseline_turn_id")
+                    if isinstance(result.get("baseline_turn_id"), str)
+                    else None,
+                    idempotency_key=_idempotency_key(payload),
+                ),
+                response=result,
+                artifacts={"request": payload},
+                metadata={"action": action},
+            )
+        result = {**result, "audit_ref": audit_ref.to_dict()}
+    except Exception as exc:
+        failure = classify_failure("audit", exc)
+        return failure.to_dict()
+    return result
+
+
+def _handle_agent_edit_accept(payload: Any, *, session_root: Any = None) -> dict[str, Any]:
+    return _handle_agent_edit_action(payload, action="accept", session_root=session_root)
+
+
+def _handle_agent_edit_reject(payload: Any, *, session_root: Any = None) -> dict[str, Any]:
+    return _handle_agent_edit_action(payload, action="reject", session_root=session_root)
+
+
+def _handle_agent_edit_audit(
+    params: dict[str, Any],
+    *,
+    session_root: Any = None,
+) -> dict[str, Any]:
+    session_id_raw = params.get("session_id")
+    turn_id = params.get("turn_id")
+    action = params.get("action")
+    if not isinstance(session_id_raw, str) or not isinstance(turn_id, str):
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "audit",
+            agent_failure_context={"explanation": "`session_id` and `turn_id` are required."},
+        ).to_dict()
+    session_id = _safe_session_id(session_id_raw)
+    audit_dir = "audit"
+    if action in {"accept", "reject"}:
+        audit_dir = f"{action}_audit"
+    path = turn_dir_for(_root(session_root), session_id, turn_id) / audit_dir / "audit.json"
+    session_dir = session_dir_for(_root(session_root), session_id).resolve()
+    try:
+        resolved = path.resolve()
+        if session_dir not in resolved.parents:
+            raise ValueError("Audit path escaped the session directory.")
+        body = resolved.read_bytes()
+    except Exception as exc:
+        return classify_failure("audit", exc).to_dict()
+    return {
+        "ok": True,
+        "body": body,
+        "headers": {
+            "Content-Type": "application/json",
+            "Content-Disposition": f'attachment; filename="{session_id}-{turn_id}-{audit_dir}.json"',
+            "X-Content-Type-Options": "nosniff",
+        },
+        "path": str(resolved),
+        "sha256": payload_hash(json.loads(body.decode("utf-8"))),
+    }
+
+
+def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]:
+    params = params or {}
+    route = params.get("route") if isinstance(params.get("route"), str) else None
+    model = params.get("model") if isinstance(params.get("model"), str) else None
+    return get_agent_status(route=route, model=model)
+
+
+def _handle_agent_credentials(
+    payload: Any,
+    *,
+    env_path: Any = None,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "credentials",
+            agent_failure_context={"explanation": "Request body must be a JSON object."},
+        ).to_dict()
+    try:
+        return handle_credential_submission(
+            payload,
+            env_path=Path(env_path) if env_path is not None else None,
+        )
+    except Exception as exc:
+        return classify_failure("ingest", exc).to_dict()
+
+
+def _handle_agent_edit(
+    payload: Any,
+    *,
+    schema_provider: Any = None,
+    deepseek_client: Any = None,
+    session_root: Any = None,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "ingest",
+            agent_failure_context={"explanation": "Request body must be a JSON object."},
+        ).to_dict()
+    try:
+        return handle_agent_edit(
+            payload,
+            schema_provider=schema_provider,
+            deepseek_client=deepseek_client,
+            session_root=session_root,
+        )
+    except Exception as exc:
+        stage = "ingest" if isinstance(exc, ValueError) else "route"
+        return classify_failure(stage, exc).to_dict()
+
+
 try:
     from aiohttp import web as _web  # noqa: PLC0415
     from server import PromptServer as _PromptServer  # noqa: PLC0415
@@ -84,15 +275,88 @@ try:
             payload = await request.json()
         except Exception as exc:
             return _web.json_response(
-                {"error": str(exc), "kind": type(exc).__name__}, status=400
+                failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    "ingest",
+                    agent_failure_context={
+                        "explanation": f"Request body must be valid JSON: {exc}"
+                    },
+                ).to_dict(),
+                status=400,
             )
+        result = _handle_agent_edit(payload)
+        if result.get("ok") is False:
+            status = 500 if result.get("stage") == "route" else 400
+            return _web.json_response(result, status=status)
+        return _web.json_response(result)
+
+    @_PromptServer.instance.routes.post("/vibecomfy/agent-edit/accept")
+    async def agent_edit_accept_route(request):  # type: ignore[no-untyped-def]
         try:
-            result = handle_agent_edit(payload)
+            payload = await request.json()
         except Exception as exc:
             return _web.json_response(
-                {"error": str(exc), "kind": type(exc).__name__}, status=400
+                failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    "accept",
+                    agent_failure_context={
+                        "explanation": f"Request body must be valid JSON: {exc}"
+                    },
+                ).to_dict(),
+                status=400,
             )
-        return _web.json_response(result)
+        result = _handle_agent_edit_accept(payload)
+        return _web.json_response(result, status=400 if result.get("ok") is False else 200)
+
+    @_PromptServer.instance.routes.post("/vibecomfy/agent-edit/reject")
+    async def agent_edit_reject_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _web.json_response(
+                failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    "reject",
+                    agent_failure_context={
+                        "explanation": f"Request body must be valid JSON: {exc}"
+                    },
+                ).to_dict(),
+                status=400,
+            )
+        result = _handle_agent_edit_reject(payload)
+        return _web.json_response(result, status=400 if result.get("ok") is False else 200)
+
+    @_PromptServer.instance.routes.get("/vibecomfy/agent-edit/audit")
+    async def agent_edit_audit_route(request):  # type: ignore[no-untyped-def]
+        result = _handle_agent_edit_audit(dict(request.query))
+        if result.get("ok") is not True:
+            return _web.json_response(result, status=400)
+        return _web.Response(
+            body=result["body"],
+            headers=result["headers"],
+        )
+
+    @_PromptServer.instance.routes.get("/vibecomfy/agent/status")
+    async def agent_status_route(request):  # type: ignore[no-untyped-def]
+        return _web.json_response(_handle_agent_status(dict(request.query)))
+
+    @_PromptServer.instance.routes.post("/vibecomfy/agent/credentials")
+    async def agent_credentials_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _web.json_response(
+                failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    "credentials",
+                    agent_failure_context={
+                        "explanation": f"Request body must be valid JSON: {exc}"
+                    },
+                ).to_dict(),
+                status=400,
+            )
+        result = _handle_agent_credentials(payload)
+        return _web.json_response(result, status=400 if result.get("ok") is False else 200)
 
 except ImportError:
     pass
