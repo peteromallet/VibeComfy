@@ -170,6 +170,30 @@ const FALLBACK_ROUTE_OPTIONS = Object.freeze({
   },
 });
 
+const INTENT_NODE_CLASS_TYPES = new Set(["vibecomfy.code", "vibecomfy.loop"]);
+const INTENT_KIND_BY_CLASS_TYPE = Object.freeze({
+  "vibecomfy.code": "code",
+  "vibecomfy.loop": "loop",
+});
+const INTENT_PREVIEW_MAX = 120;
+const INTENT_STYLE_BY_KIND = Object.freeze({
+  code: {
+    color: "#2d2643",
+    bgcolor: "#171229",
+    boxcolor: "#e39cff",
+  },
+  loop: {
+    color: "#17363b",
+    bgcolor: "#10252a",
+    boxcolor: "#6ee7f2",
+  },
+  degraded: {
+    color: "#3a2a1f",
+    bgcolor: "#231811",
+    boxcolor: "#ffb86c",
+  },
+});
+
 let agentPanel = null;
 let changedNodeFeedbackTimer = null;
 let changedNodeFeedbackVisuals = [];
@@ -179,6 +203,233 @@ let queueGuardFallbackWarning = null;
 let queueGuardFallbackWarned = false;
 let queueGuardBlockNotice = null;
 let queueGuardBlockedTurnKeys = new Set();
+
+function isIntentClassType(classType) {
+  return INTENT_NODE_CLASS_TYPES.has(String(classType || "").trim());
+}
+
+function getIntentClassType(node, fallback = null) {
+  const classType = String(
+    node?.type
+      || node?.comfyClass
+      || node?.properties?.["Node name for S&R"]
+      || fallback
+      || "",
+  ).trim();
+  return isIntentClassType(classType) ? classType : "";
+}
+
+function truncateIntentPreview(value) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text) {
+    return "";
+  }
+  return text.length > INTENT_PREVIEW_MAX
+    ? `${text.slice(0, INTENT_PREVIEW_MAX - 1)}…`
+    : text;
+}
+
+function normalizeIntentTypedIo(io, key) {
+  const entries = io?.[key];
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  return entries
+    .map((entry) => {
+      if (!Array.isArray(entry) || entry.length < 2) {
+        return null;
+      }
+      const [name, type] = entry;
+      if (!name || !type) {
+        return null;
+      }
+      return { name: String(name), type: String(type) };
+    })
+    .filter(Boolean);
+}
+
+function readIntentMetadata(node, fallbackClassType = null) {
+  const properties = node?.properties && typeof node.properties === "object" ? node.properties : {};
+  const classType = getIntentClassType(node, fallbackClassType);
+  const payload = properties?.vibecomfy && typeof properties.vibecomfy === "object"
+    ? properties.vibecomfy
+    : null;
+  const typedInputs = normalizeIntentTypedIo(payload?.io, "inputs");
+  const typedOutputs = normalizeIntentTypedIo(payload?.io, "outputs");
+  const kind = typeof payload?.kind === "string" && payload.kind
+    ? payload.kind
+    : INTENT_KIND_BY_CLASS_TYPE[classType] || "intent";
+  const sourcePreview = truncateIntentPreview(payload?.intent?.source);
+  const specPreview = truncateIntentPreview(payload?.intent?.spec);
+  const valid = Boolean(
+    payload
+      && typeof payload === "object"
+      && payload.intent
+      && typeof payload.intent === "object",
+  );
+  return {
+    classType,
+    kind,
+    valid,
+    badgeStatus: valid ? "editor-only" : "metadata missing",
+    typedInputs,
+    typedOutputs,
+    sourcePreview,
+    specPreview,
+  };
+}
+
+function buildIntentBadge(meta) {
+  return `${meta.kind} · ${meta.badgeStatus}`;
+}
+
+function styleForIntentMeta(meta) {
+  if (!meta.valid) {
+    return INTENT_STYLE_BY_KIND.degraded;
+  }
+  return INTENT_STYLE_BY_KIND[meta.kind] || INTENT_STYLE_BY_KIND.degraded;
+}
+
+function applyTypedSocketLabels(slots, typedEntries) {
+  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
+    return;
+  }
+  const count = Math.min(slots.length, typedEntries.length);
+  for (let index = 0; index < count; index += 1) {
+    const slot = slots[index];
+    const typed = typedEntries[index];
+    if (!slot || !typed) {
+      continue;
+    }
+    const label = `${typed.name}: ${typed.type}`;
+    slot.name = label;
+    if ("label" in slot || typeof slot === "object") {
+      slot.label = label;
+    }
+  }
+}
+
+function decorateIntentNode(node, fallbackClassType = null) {
+  const classType = getIntentClassType(node, fallbackClassType);
+  if (!classType) {
+    return false;
+  }
+  const meta = readIntentMetadata(node, classType);
+  const style = styleForIntentMeta(meta);
+  node.properties = node?.properties && typeof node.properties === "object" ? node.properties : {};
+  node.color = style.color;
+  node.bgcolor = style.bgcolor;
+  node.boxcolor = style.boxcolor;
+  node.properties.vibecomfy_intent_badge = buildIntentBadge(meta);
+  node.properties["VibeComfy Intent Kind"] = meta.kind;
+  node.properties["VibeComfy Intent Badge"] = node.properties.vibecomfy_intent_badge;
+  if (meta.sourcePreview) {
+    node.properties["VibeComfy Intent Source"] = meta.sourcePreview;
+  }
+  if (meta.specPreview) {
+    node.properties["VibeComfy Intent Spec"] = meta.specPreview;
+  }
+  applyTypedSocketLabels(node.inputs, meta.typedInputs);
+  applyTypedSocketLabels(node.outputs, meta.typedOutputs);
+  node.__vibecomfyIntentMeta = meta;
+  return true;
+}
+
+function drawIntentBadge(ctx, node) {
+  if (!ctx || typeof ctx.fillText !== "function") {
+    return;
+  }
+  const meta = node?.__vibecomfyIntentMeta || readIntentMetadata(node);
+  if (!meta.classType) {
+    return;
+  }
+  const badge = buildIntentBadge(meta);
+  const width = Array.isArray(node?.size) ? Number(node.size[0] || 180) : 180;
+  const style = styleForIntentMeta(meta);
+  if (typeof ctx.save === "function") {
+    ctx.save();
+  }
+  try {
+    ctx.fillStyle = style.boxcolor;
+    if (typeof ctx.fillRect === "function") {
+      ctx.fillRect(10, 6, Math.max(112, Math.min(width - 20, badge.length * 7.25)), 18);
+    }
+    ctx.fillStyle = "#111418";
+    ctx.font = "bold 11px monospace";
+    ctx.fillText(badge, 16, 19);
+  } finally {
+    if (typeof ctx.restore === "function") {
+      ctx.restore();
+    }
+  }
+}
+
+function patchIntentNodePrototype(nodeType, nodeData) {
+  const proto = nodeType?.prototype;
+  const classType = String(nodeData?.name || nodeData?.type || "").trim();
+  if (!proto || !isIntentClassType(classType) || proto.__vibecomfyIntentPatched === classType) {
+    return;
+  }
+  proto.__vibecomfyIntentPatched = classType;
+
+  const originalCreated = proto.onNodeCreated;
+  proto.onNodeCreated = function patchedIntentNodeCreated(...args) {
+    const result = typeof originalCreated === "function" ? originalCreated.apply(this, args) : undefined;
+    this.type = this.type || classType;
+    decorateIntentNode(this, classType);
+    return result;
+  };
+
+  const originalConfigure = proto.onConfigure;
+  proto.onConfigure = function patchedIntentNodeConfigure(...args) {
+    const result = typeof originalConfigure === "function" ? originalConfigure.apply(this, args) : undefined;
+    this.type = this.type || classType;
+    decorateIntentNode(this, classType);
+    return result;
+  };
+
+  const originalDrawForeground = proto.onDrawForeground;
+  proto.onDrawForeground = function patchedIntentNodeDrawForeground(ctx, ...args) {
+    const result = typeof originalDrawForeground === "function"
+      ? originalDrawForeground.call(this, ctx, ...args)
+      : undefined;
+    this.type = this.type || classType;
+    decorateIntentNode(this, classType);
+    drawIntentBadge(ctx, this);
+    return result;
+  };
+}
+
+function decorateIntentGraphPayload(graph) {
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  for (const node of nodes) {
+    decorateIntentNode(node);
+  }
+}
+
+function decorateLiveIntentNodes() {
+  const graph = getLiveGraph();
+  for (const node of getLiveGraphNodes(graph)) {
+    decorateIntentNode(node);
+  }
+}
+
+function installIntentNodeFallback() {
+  if (app.__vibecomfyIntentFallbackInstalled) {
+    return;
+  }
+  const originalLoadGraphData = app?.loadGraphData;
+  if (typeof originalLoadGraphData !== "function") {
+    return;
+  }
+  app.loadGraphData = function vibecomfyIntentLoadGraphData(nextGraph, ...args) {
+    decorateIntentGraphPayload(nextGraph);
+    const result = originalLoadGraphData.call(this, nextGraph, ...args);
+    decorateLiveIntentNodes();
+    return result;
+  };
+  app.__vibecomfyIntentFallbackInstalled = true;
+}
 
 async function checkFrontendVersion() {
   let version = "unknown";
@@ -481,12 +732,83 @@ function createQueueIssue(code, message, detail = {}, severity = "error") {
   return { code, message, detail, severity };
 }
 
+function collectArrayAtPath(root, path) {
+  let value = root;
+  for (const key of path) {
+    value = value?.[key];
+    if (value == null) {
+      return [];
+    }
+  }
+  return Array.isArray(value) ? value : [];
+}
+
+function backendQueueIssueCandidates(report) {
+  return [
+    ...collectArrayAtPath(report, ["queue_blockers"]),
+    ...collectArrayAtPath(report, ["diagnostics", "issues"]),
+    ...collectArrayAtPath(report, ["gates", "queue_validate_ok", "evidence", "blockers"]),
+    ...collectArrayAtPath(report, ["gates", "queue_validate_ok", "evidence", "queue_blockers"]),
+  ];
+}
+
+function normalizeBackendIntentQueueIssue(issue) {
+  if (!issue || issue.code !== "intent_node_queue_blocker") {
+    return null;
+  }
+  const detail = issue.detail && typeof issue.detail === "object"
+    ? { ...issue.detail }
+    : {};
+  for (const key of ["node_id", "class_type", "kind", "uid", "lowered", "runtime_backed", "provider", "confidence", "diagnostic"]) {
+    if (detail[key] == null && issue[key] != null) {
+      detail[key] = issue[key];
+    }
+  }
+  const nodeId = detail.node_id || "unknown";
+  const classType = detail.class_type || "vibecomfy.*";
+  return createQueueIssue(
+    issue.code,
+    issue.message || issue.user_facing_message || `Node ${nodeId} (${classType}) is an editor-only intent node and cannot be queued until it is lowered.`,
+    detail,
+    issue.severity || "error",
+  );
+}
+
 function collectQueueIssues(report) {
-  const issues = [];
+  const issues = backendQueueIssueCandidates(report)
+    .map(normalizeBackendIntentQueueIssue)
+    .filter(Boolean);
+  const hasBackendIntentBlocker = issues.some((issue) => issue.code === "intent_node_queue_blocker");
   const recovery = Array.isArray(report?.recovery) ? report.recovery : [];
   for (const entry of recovery) {
     const nodeId = entry?.node_id;
     const classType = entry?.class_type;
+    if (isIntentClassType(classType)) {
+      if (hasBackendIntentBlocker) {
+        continue;
+      }
+      const kind = entry?.kind
+        || INTENT_KIND_BY_CLASS_TYPE[classType]
+        || "intent";
+      const lowered = Boolean(entry?.lowered);
+      const runtimeBacked = Boolean(entry?.runtime_backed);
+      issues.push(createQueueIssue(
+        "intent_node_queue_blocker",
+        `Node ${nodeId} (${classType}) is an editor-only intent node and cannot be queued until it is lowered.`,
+        {
+          node_id: nodeId,
+          class_type: classType,
+          kind,
+          uid: entry?.uid || null,
+          lowered,
+          runtime_backed: runtimeBacked,
+          provider: entry?.provider || null,
+          confidence: entry?.confidence ?? null,
+          diagnostic: entry?.diagnostic || null,
+        },
+      ));
+      continue;
+    }
     if (entry?.schema_less === true) {
       issues.push(createQueueIssue(
         "schema_less_queue_blocker",
@@ -539,6 +861,35 @@ function collectQueueIssues(report) {
       { stripped_helpers: strippedHelpers.slice() },
     ));
   }
+
+  if (!issues.some((issue) => issue.code === "intent_node_queue_blocker")) {
+    const graphNodes = Array.isArray(report?.graph?.nodes)
+      ? report.graph.nodes
+      : report?.nodes
+        ? (Array.isArray(report.nodes) ? report.nodes : [])
+        : [];
+    for (const node of graphNodes) {
+      const classType = node?.type || node?.class_type;
+      if (isIntentClassType(classType)) {
+        issues.push(createQueueIssue(
+          "intent_node_queue_blocker",
+          `Node ${node?.id || "unknown"} (${classType}) is an editor-only intent node and cannot be queued until it is lowered.`,
+          {
+            node_id: node?.id || null,
+            class_type: classType,
+            kind: INTENT_KIND_BY_CLASS_TYPE[classType] || "intent",
+            uid: node?.properties?.vibecomfy_uid || null,
+            lowered: false,
+            runtime_backed: false,
+            provider: null,
+            confidence: null,
+            diagnostic: "detected from graph nodes (fallback for older report format)",
+          },
+        ));
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -2359,8 +2710,13 @@ app.registerExtension({
     { id: "VibeComfy.AgentEdit", label: "Edit with DeepSeek (VibeComfy)", function: openAgentEdit },
   ],
   menuCommands: [{ path: ["Extensions", "VibeComfy"], commands: ["VibeComfy.Roundtrip", "VibeComfy.AgentEdit"] }],
+  async beforeRegisterNodeDef(nodeType, nodeData) {
+    patchIntentNodePrototype(nodeType, nodeData);
+  },
   async setup() {
     await checkFrontendVersion();
+    installIntentNodeFallback();
+    decorateLiveIntentNodes();
     installQueueGuard();
     const proto = window.LiteGraph?.LGraphCanvas?.prototype;
     if (proto && !proto.__vibecomfyRoundtripPatched) {

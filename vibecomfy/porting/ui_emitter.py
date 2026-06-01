@@ -70,6 +70,7 @@ from vibecomfy._workflow_helpers import (
     collect_broadcast_sources,
     is_broadcast_helper_class_type,
 )
+from vibecomfy.contracts.intent_nodes import CLASS_TYPE_TO_KIND, is_intent_class_type
 from vibecomfy.porting.uid import mint_local_uid
 from vibecomfy.porting.widget_aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.workflow import VibeEdge
@@ -1053,6 +1054,7 @@ def _pinned_link_ref_refusal(
     details: Mapping[str, Any],
 ) -> None:
     from vibecomfy.porting.refuse import RefusedEmit  # noqa: PLC0415
+
     typed_reason = (
         "pinned_link_id_mismatch"
         if reason
@@ -1904,13 +1906,18 @@ def emit_ui_json(
     # Populate recovery_report
     if recovery_report is not None:
         for node_id in order_list:
-            recovery_report.append(
-                _build_recovery_entry(
-                    node_prov[node_id],
-                    widget_shape_verdicts[node_id],
-                    has_raw_ui_payload=widget_shape_raw_payloads[node_id] is not None,
-                )
+            entry = _build_recovery_entry(
+                node_prov[node_id],
+                widget_shape_verdicts[node_id],
+                has_raw_ui_payload=widget_shape_raw_payloads[node_id] is not None,
             )
+            node = wf.nodes.get(node_id)
+            if node is not None and is_intent_class_type(node.class_type):
+                entry["uid"] = node.uid or None
+                entry["kind"] = CLASS_TYPE_TO_KIND.get(node.class_type)
+                entry["lowered"] = False
+                entry["runtime_backed"] = False
+            recovery_report.append(entry)
 
         # ── Orphaned virtual-wire routes (display mode) ─────────────────
         if include_virtual_wires and orphaned_get_ids:

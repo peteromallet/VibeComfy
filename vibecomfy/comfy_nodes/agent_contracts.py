@@ -217,8 +217,8 @@ FAILURE_SPECS: Mapping[FailureKind, FailureSpec] = MappingProxyType(
             next_action="remove or lower editor-only nodes before queueing",
             graph_unchanged=False,
             user_facing_message=(
-                "Editor-only nodes are present and block Queue. You can inspect "
-                "them on the canvas."
+                "Editor-only nodes, including VibeComfy intent nodes, are present "
+                "and block Queue. You can inspect them on the canvas."
             ),
         ),
         FailureKind.AUDIT_WRITE_WARNING: FailureSpec(

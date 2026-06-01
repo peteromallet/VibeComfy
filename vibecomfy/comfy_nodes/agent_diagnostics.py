@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from vibecomfy.contracts.intent_nodes import INTENT_NODE_CONTRACT_INVALID_CODE
+from vibecomfy.contracts.intent_nodes import (
+    CLASS_TYPE_TO_KIND,
+    INTENT_NODE_CONTRACT_INVALID_CODE,
+    INTENT_NODE_QUEUE_BLOCKER_CODE,
+    is_intent_class_type,
+)
 from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
@@ -108,6 +113,35 @@ def _queue_issue(
     }
 
 
+def _intent_node_runtime_flags(
+    class_type: str,
+    entry: dict[str, Any],
+) -> tuple[bool | None, bool | None]:
+    lowered = entry.get("lowered")
+    runtime_backed = entry.get("runtime_backed")
+    if isinstance(lowered, bool) and isinstance(runtime_backed, bool):
+        return lowered, runtime_backed
+    try:
+        from vibecomfy.comfy_nodes import NODE_CLASS_MAPPINGS
+    except Exception:
+        return (
+            lowered if isinstance(lowered, bool) else None,
+            runtime_backed if isinstance(runtime_backed, bool) else None,
+        )
+    node_cls = NODE_CLASS_MAPPINGS.get(class_type)
+    if node_cls is None:
+        return (
+            lowered if isinstance(lowered, bool) else None,
+            runtime_backed if isinstance(runtime_backed, bool) else None,
+        )
+    return (
+        lowered if isinstance(lowered, bool) else getattr(node_cls, "VIBECOMFY_LOWERED", None),
+        runtime_backed
+        if isinstance(runtime_backed, bool)
+        else getattr(node_cls, "VIBECOMFY_RUNTIME_BACKED", None),
+    )
+
+
 def classify_queue_issues(issues: tuple[dict[str, Any], ...]) -> FailureKind | None:
     for issue in issues:
         raw_kind = issue.get("failure_kind")
@@ -190,6 +224,29 @@ def queue_stage_diagnostics(
         node_id = str(entry.get("node_id"))
         class_type = str(entry.get("class_type"))
         confidence = entry.get("confidence")
+        if is_intent_class_type(class_type):
+            lowered, runtime_backed = _intent_node_runtime_flags(class_type, entry)
+            issues.append(
+                _queue_issue(
+                    code=INTENT_NODE_QUEUE_BLOCKER_CODE,
+                    message=(
+                        f"Node {node_id} ({class_type}) is an editor-only intent node and cannot be queued until it is lowered."
+                    ),
+                    detail={
+                        "node_id": node_id,
+                        "class_type": class_type,
+                        "kind": entry.get("kind") or CLASS_TYPE_TO_KIND.get(class_type),
+                        "uid": entry.get("uid"),
+                        "lowered": lowered,
+                        "runtime_backed": runtime_backed,
+                        "provider": entry.get("provider"),
+                        "confidence": confidence,
+                        "diagnostic": entry.get("diagnostic"),
+                    },
+                    failure_kind=FailureKind.EDITOR_ONLY_NODE_QUEUE_BLOCKER,
+                )
+            )
+            continue
         if entry.get("schema_less") is True:
             issues.append(
                 _queue_issue(

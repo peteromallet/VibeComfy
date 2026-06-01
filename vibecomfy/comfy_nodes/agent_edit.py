@@ -310,6 +310,9 @@ def _stage_summarize(state: AgentEditState, context: TurnContext) -> StageResult
     )
     _record(context, queue_result)
     derive_gates(context, queue_blockers=queue_result.issues)
+    if state.report is None:
+        state.report = {}
+    state.report["queue_blockers"] = [dict(issue) for issue in queue_result.issues]
     state.messages_path.open("a", encoding="utf-8").write(
         json.dumps({"task": state.task, "message": state.user_message}, sort_keys=True) + "\n"
     )

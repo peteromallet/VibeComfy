@@ -238,6 +238,84 @@ test("VibeComfy browser harness loads the extension, captures commands, loadGrap
   }
 });
 
+test("VibeComfy beforeRegisterNodeDef decorates intent node prototypes and degrades safely on malformed metadata", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    const extension = harness.getExtension();
+    assert.equal(typeof extension.beforeRegisterNodeDef, "function");
+
+    const nodeType = { prototype: {} };
+    await extension.beforeRegisterNodeDef(nodeType, { name: "vibecomfy.code" });
+
+    const intentNode = {
+      type: "vibecomfy.code",
+      size: [240, 90],
+      properties: {
+        vibecomfy_uid: "intent-1",
+        vibecomfy: {
+          kind: "code",
+          intent: {
+            source: "value = image",
+            spec: "inspect image value",
+          },
+          io: {
+            inputs: [["image", "IMAGE"]],
+            outputs: [["preview", "IMAGE"]],
+          },
+        },
+      },
+      inputs: [{ name: "value" }],
+      outputs: [{ name: "value" }],
+    };
+
+    nodeType.prototype.onNodeCreated.call(intentNode);
+    assert.equal(intentNode.color, "#2d2643");
+    assert.equal(intentNode.bgcolor, "#171229");
+    assert.equal(intentNode.boxcolor, "#e39cff");
+    assert.equal(intentNode.properties["VibeComfy Intent Badge"], "code · editor-only");
+    assert.equal(intentNode.properties["VibeComfy Intent Source"], "value = image");
+    assert.equal(intentNode.properties["VibeComfy Intent Spec"], "inspect image value");
+    assert.equal(intentNode.inputs[0].name, "image: IMAGE");
+    assert.equal(intentNode.outputs[0].name, "preview: IMAGE");
+
+    const drawOps = [];
+    const ctx = {
+      save() {},
+      restore() {},
+      fillRect(...args) {
+        drawOps.push(["rect", ...args]);
+      },
+      fillText(text, ...args) {
+        drawOps.push(["text", text, ...args]);
+      },
+    };
+    nodeType.prototype.onDrawForeground.call(intentNode, ctx);
+    assert(drawOps.some((entry) => entry[0] === "text" && entry[1] === "code · editor-only"));
+
+    const degradedNode = {
+      type: "vibecomfy.code",
+      size: [240, 90],
+      properties: {},
+      inputs: [{ name: "value" }],
+      outputs: [{ name: "value" }],
+    };
+    nodeType.prototype.onNodeCreated.call(degradedNode);
+    assert.equal(degradedNode.properties["VibeComfy Intent Badge"], "code · metadata missing");
+    assert.equal(degradedNode.boxcolor, "#ffb86c");
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy agent submit sends canonical graph hash, normalized route/model fields, idempotency key, and dedupes in-flight submits", async () => {
   const graph = {
     links: [],
@@ -470,7 +548,28 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
               stripped_helpers: ["helper-1"],
             },
           },
+          queue_blockers: [
+            {
+              code: "intent_node_queue_blocker",
+              severity: "error",
+              message: "Backend says the code intent must be lowered before Queue.",
+              detail: {
+                node_id: "88",
+                class_type: "vibecomfy.code",
+                kind: "code",
+                uid: "intent-backend",
+                diagnostic: "backend owns this queue blocker payload",
+              },
+            },
+          ],
           recovery: [
+            {
+              node_id: "88",
+              class_type: "vibecomfy.code",
+              kind: "code",
+              uid: "intent-recovery",
+              diagnostic: "recovery should not replace backend issue text",
+            },
             {
               node_id: "77",
               class_type: "SchemaLessNode",
@@ -564,6 +663,9 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
     assert.match(successText, /new_auto_placed: uid-3/);
     assert.match(successText, /removed_named: uid-9 \(SaveImage\)/);
     assert.match(successText, /stripped_helper: helper-1/);
+    assert.match(successText, /intent_node_queue_blocker: Backend says the code intent must be lowered before Queue\./);
+    assert.match(successText, /backend owns this queue blocker payload/);
+    assert.doesNotMatch(successText, /Node 88 \(vibecomfy\.code\) is an editor-only intent node/);
     assert.match(successText, /schema_less_queue_blocker/);
     assert.match(successText, /python: \/tmp\/after\.py/);
     assert.match(successText, /audit: \/tmp\/audit\.json/);
@@ -921,6 +1023,133 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
     assert.match(harness.textDump(), /Native queue hook unavailable: `app\.queuePrompt` was not found\./);
     assert.match(harness.textDump(), /native queue guard: panel warning fallback only/);
     assert.equal(harness.consoleCapture.warn.filter((line) => line.includes("queue guard fallback active")).length, 1);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy loadGraphData fallback decorates intent nodes with persistent styling, typed labels, and read-only previews", async () => {
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      {
+        id: 2,
+        type: "vibecomfy.code",
+        properties: {
+          vibecomfy_uid: "intent-code-1",
+          vibecomfy: {
+            kind: "code",
+            intent: {
+              source: "value = image",
+              spec: "inspect the input image before lowering",
+            },
+            io: {
+              inputs: [["image", "IMAGE"]],
+              outputs: [["image", "IMAGE"]],
+            },
+          },
+        },
+        inputs: [{ name: "value" }],
+        outputs: [{ name: "value" }],
+      },
+      {
+        id: 3,
+        type: "vibecomfy.loop",
+        properties: {
+          vibecomfy_uid: "intent-loop-1",
+        },
+        inputs: [{ name: "value" }],
+        outputs: [{ name: "value" }],
+      },
+    ],
+    links: [[1, 1, 0, 2, 0, "IMAGE"]],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+            anthropic: { requested_route: "anthropic", normalized_route: "arnold", browser_api_key_allowed: false, tos_acknowledgement_required: true },
+            "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-intent-style",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          message: "Styled intent candidate.",
+          graph: candidateGraph,
+          report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "accept",
+          session_id: "session-intent-style",
+          turn_id: "0001",
+          baseline_turn_id: "0001",
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "style the intent nodes";
+    await harness.clickButton("Submit");
+    await harness.clickButton("Apply Candidate");
+
+    assert.equal(harness.loadGraphDataCalls.length, 1);
+    const loadedIntentNodes = harness.loadGraphDataCalls[0].nodes.filter((node) => /^vibecomfy\./.test(node.type));
+    assert.equal(loadedIntentNodes.length, 2);
+
+    const codeNode = loadedIntentNodes.find((node) => node.type === "vibecomfy.code");
+    assert.equal(codeNode.color, "#2d2643");
+    assert.equal(codeNode.bgcolor, "#171229");
+    assert.equal(codeNode.boxcolor, "#e39cff");
+    assert.equal(codeNode.properties["VibeComfy Intent Badge"], "code · editor-only");
+    assert.equal(codeNode.properties["VibeComfy Intent Source"], "value = image");
+    assert.equal(codeNode.properties["VibeComfy Intent Spec"], "inspect the input image before lowering");
+    assert.equal(codeNode.inputs[0].name, "image: IMAGE");
+    assert.equal(codeNode.outputs[0].name, "image: IMAGE");
+
+    const degradedNode = loadedIntentNodes.find((node) => node.type === "vibecomfy.loop");
+    assert.equal(degradedNode.properties["VibeComfy Intent Badge"], "loop · metadata missing");
+    assert.equal(degradedNode.color, "#3a2a1f");
+    assert.equal(degradedNode.bgcolor, "#231811");
+    assert.equal(degradedNode.boxcolor, "#ffb86c");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "IDLE");
+    assert.deepEqual(harness.consoleCapture.error, []);
   } finally {
     await harness.dispose();
   }
