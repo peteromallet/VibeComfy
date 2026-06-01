@@ -141,6 +141,20 @@ def _build_lowering_change_entries(
     return entries
 
 
+def _build_lowering_audit_entries(
+    lowering_evidence: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for item in lowering_evidence:
+        entry = dict(item)
+        if "lowered_node_count" in entry:
+            entry["node_count"] = entry.pop("lowered_node_count")
+        if "lowered_fragment_hash" in entry:
+            entry["lowered_graph_fragment_hash"] = entry.pop("lowered_fragment_hash")
+        entries.append(entry)
+    return entries
+
+
 def _inject_lowering_provenance(state: AgentEditState) -> None:
     if state.report is None or not state.lowering_evidence:
         state.lowering_recovery_entries = []
@@ -467,7 +481,7 @@ def _stage_audit(
         },
         metadata={
             "provider": state.provider_metadata or {},
-            "lowering": state.lowering_evidence,
+            "lowering": _build_lowering_audit_entries(state.lowering_evidence),
         },
     )
 

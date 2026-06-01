@@ -603,7 +603,7 @@ def test_handle_agent_edit_audit_threads_complete_lowering_metadata_and_keeps_qu
             "variable": "prompt",
             "iterations": 3,
             "iteration_values": ["frame 1", "frame 2", "frame 3"],
-            "lowered_node_count": 3,
+            "node_count": 3,
             "source_to_lowered_node_map": {
                 "20": [
                     "intent-loop-10:iter0:20",
@@ -611,7 +611,7 @@ def test_handle_agent_edit_audit_threads_complete_lowering_metadata_and_keeps_qu
                     "intent-loop-10:iter2:20",
                 ]
             },
-            "lowered_fragment_hash": "lowered-hash",
+            "lowered_graph_fragment_hash": "lowered-hash",
             "layout_policy": "horizontal_stride_clone:offset=300",
             "validation_result": {
                 "ok": True,
