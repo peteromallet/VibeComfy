@@ -2498,10 +2498,12 @@ class TestEditSessionPrimitiveLowering:
         )
         assert result.ok is True
 
-        # Should have a splice_anchor_no_group diagnostic
-        diagnostic_codes = {d.code for d in result.diagnostics}
-        assert "splice_anchor_no_group" in diagnostic_codes, (
-            f"Expected splice_anchor_no_group diagnostic, got {diagnostic_codes}"
+        # Should have a splice_anchor_no_group diagnostic on the add-node statement
+        mid_stmt = result.statements[0]
+        stmt_diagnostic_codes = {d.code for d in mid_stmt.diagnostics}
+        assert "splice_anchor_no_group" in stmt_diagnostic_codes, (
+            f"Expected splice_anchor_no_group diagnostic on statement, "
+            f"got {stmt_diagnostic_codes}"
         )
 
 
@@ -2796,10 +2798,10 @@ class TestDescribeQuery:
         assert "Inputs:" in text
         assert "Outputs:" in text
         assert "Widget Values:" in text
-        # Inputs include link status
-        assert "unlinked" in text or "linked" in text
+        # CheckpointLoaderSimple has no inputs — verify (none) is shown
+        assert "    (none)" in text
         # Outputs include link counts
-        assert "link" in text
+        assert "1 link" in text or "0 links" in text
 
 
 class TestSearchQuery:

@@ -1784,7 +1784,7 @@ def _target_group_index(
                 f"Splice-placed node of type '{spec.op.class_type}': neither downstream "
                 f"'{downstream_uid}' nor upstream '{upstream_uid}' belongs to a group; "
                 f"leaving ungrouped.",
-                severity="warning",
+                severity="info",
                 detail={
                     "class_type": spec.op.class_type,
                     "downstream_uid": downstream_uid,
