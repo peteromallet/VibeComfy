@@ -33,6 +33,10 @@ READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED = "generated_template_not_f
 READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG = "generated_variable_name_too_long"
 READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND = "subgraph_input_unbound"
 READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS = "schema_unknown_kwarg_hidden_by_extras"
+READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID = "locked_variable_alias_invalid"
+READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION = "locked_variable_alias_collision"
+READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING = "locked_variable_alias_missing"
+READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION = "locked_variable_uid_collision"
 
 READABILITY_WARNING_CODES: frozenset[str] = frozenset(
     {
@@ -46,6 +50,10 @@ READABILITY_WARNING_CODES: frozenset[str] = frozenset(
         READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
         READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND,
         READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
+        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
+        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
+        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
+        READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION,
     }
 )
 
@@ -1428,6 +1436,8 @@ def emit_ready_template_python(
     apply_overrides: dict[str, Any] | None = None,
     diagnostics: list[EmissionDiagnostic] | None = None,
     raw_workflow: dict[str, Any] | None = None,
+    variable_name_locks: Mapping[str, str] | None = None,
+    strict_variable_name_locks: bool = False,
 ) -> str:
     metadata = dict(ready_metadata)
     requirements = dict(ready_requirements)
@@ -1469,7 +1479,14 @@ def emit_ready_template_python(
 
     raw_workflow = raw_workflow or _raw_workflow_from_metadata(metadata)
     subgraph_definitions = _subgraph_definitions_from_raw(raw_workflow, source_path=_source_workflow_path(metadata))
-    prepared = _prepare_workflow_for_emit(workflow, apply_overrides=apply_overrides, template_id=template_id)
+    prepared = _prepare_workflow_for_emit(
+        workflow,
+        apply_overrides=apply_overrides,
+        template_id=template_id,
+        variable_name_locks=variable_name_locks,
+        strict_variable_name_locks=strict_variable_name_locks,
+        diagnostics=diagnostics,
+    )
     prepared["subgraph_definitions"] = subgraph_definitions
     _apply_subgraph_names_to_prepared(prepared)
     has_ltx_tail = _has_ltx_lowvram_tail(template_id)
@@ -1566,6 +1583,8 @@ def emit_ready_template_python(
         diagnostics=diagnostics,
         constant_map=constant_map,
         required_ids_by_subgraph=required_ids_by_subgraph,
+        variable_name_locks=variable_name_locks,
+        strict_variable_name_locks=strict_variable_name_locks,
     )
     if subgraph_lines:
         out_lines.extend(subgraph_lines)
@@ -1621,6 +1640,8 @@ def emit_scratchpad_python(
     diagnostics: list[EmissionDiagnostic] | None = None,
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
+    variable_name_locks: Mapping[str, str] | None = None,
+    strict_variable_name_locks: bool = False,
 ) -> str:
     workflow_id = workflow_id or getattr(workflow, "id", "scratchpad")
     prepared = _prepare_workflow_for_emit(
@@ -1628,6 +1649,9 @@ def emit_scratchpad_python(
         apply_overrides=apply_overrides,
         keep_virtual_wires=keep_virtual_wires,
         prune_dead_branches=prune_dead_branches,
+        variable_name_locks=variable_name_locks,
+        strict_variable_name_locks=strict_variable_name_locks,
+        diagnostics=diagnostics,
     )
     source_path_expr = repr(source_path) if source_path is not None else "__file__"
 
@@ -1657,6 +1681,60 @@ def emit_scratchpad_python(
     return "\n".join(out_lines) + "\n"
 
 
+def emit_agent_edit_python(
+    workflow,
+    *,
+    diagnostics: list[EmissionDiagnostic] | None = None,
+    raw_workflow: dict[str, Any] | None = None,
+    variable_name_locks: Mapping[str, str] | None = None,
+    strict_variable_name_locks: bool = False,
+) -> str:
+    """Render a workflow as the Python assignment view used by EditSession.
+
+    This is intentionally parallel to ``emit_scratchpad_python``.  It reuses the
+    same lower-level workflow preparation and locked variable-name plumbing, but
+    emits a compact edit surface rather than runnable scratchpad code.
+    """
+    from vibecomfy.workflow import VibeWorkflow
+
+    if not isinstance(workflow, VibeWorkflow):
+        raise TypeError(
+            f"emit_agent_edit_python requires VibeWorkflow, got {type(workflow).__name__}. "
+            "Raw LiteGraph UI JSON must be converted before emitter calls."
+        )
+
+    prepared = _prepare_workflow_for_emit(
+        workflow,
+        apply_overrides=None,
+        keep_virtual_wires=True,
+        prune_dead_branches=False,
+        variable_name_locks=variable_name_locks,
+        strict_variable_name_locks=strict_variable_name_locks,
+        diagnostics=diagnostics,
+    )
+    if raw_workflow is not None:
+        subgraph_definitions = _subgraph_definitions_from_raw(raw_workflow, source_path=None)
+        if subgraph_definitions:
+            prepared["subgraph_definitions"] = subgraph_definitions
+            _apply_subgraph_names_to_prepared(prepared)
+    lines = _emit_agent_edit_lines(prepared)
+    subgraph_lines = _emit_subgraph_functions(
+        prepared,
+        diagnostics=diagnostics,
+        constant_map={},
+        variable_name_locks=variable_name_locks,
+        strict_variable_name_locks=strict_variable_name_locks,
+    )
+    if subgraph_lines:
+        lines.extend(["", *subgraph_lines])
+    source = "\n".join(lines) + "\n"
+    try:
+        ast.parse(source)
+    except SyntaxError as exc:
+        raise RuntimeError(f"Generated agent-edit Python failed syntax check: {exc}") from exc
+    return source
+
+
 _VIRTUAL_WIRE_EMITTER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode", "Reroute"})
 
 
@@ -1667,6 +1745,10 @@ def _prepare_workflow_for_emit(
     template_id: str | None = None,
     keep_virtual_wires: bool = False,
     prune_dead_branches: bool = True,
+    variable_name_locks: Mapping[str, str] | None = None,
+    strict_variable_name_locks: bool = False,
+    diagnostics: list[EmissionDiagnostic] | None = None,
+    scope_path: str = "",
 ) -> dict[str, Any]:
     # Defensive assertion: resolver MUST have eliminated all helper nodes before emission.
     # If any RESOLVABLE_HELPER_CLASS_TYPES node survives, the resolver has a bug.
@@ -1738,6 +1820,14 @@ def _prepare_workflow_for_emit(
         workflow_nodes,
         [edge for edges in edges_in.values() for edge in edges] + extracted_edges_for_naming,
     )
+    _apply_locked_variable_names(
+        workflow_nodes,
+        var_names,
+        variable_name_locks=variable_name_locks,
+        strict=strict_variable_name_locks,
+        diagnostics=diagnostics,
+        scope_path=scope_path,
+    )
     output_var_names = _compute_output_variable_names(
         workflow_nodes,
         var_names,
@@ -1749,6 +1839,167 @@ def _prepare_workflow_for_emit(
         "var_names": var_names,
         "output_var_names": output_var_names,
     }
+
+
+def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
+    from vibecomfy.porting.slot_codec import encode_slot_names, to_python_identifier
+
+    workflow_nodes = prepared["nodes"]
+    edges_in = prepared["edges_in"]
+    ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
+    var_names = prepared["var_names"]
+    output_aliases = {
+        nid: _agent_edit_output_aliases(node)
+        for nid, node in workflow_nodes.items()
+    }
+
+    lines = [
+        "# vibecomfy: agent-edit",
+        "# Edit node assignments only; uid comments are the stable identity fallback.",
+        "",
+    ]
+    for nid in _topological_node_order(workflow_nodes, ordering_edges_in):
+        node = workflow_nodes[nid]
+        var = var_names[nid]
+        edge_fields = {str(edge.to_input) for edge in edges_in.get(nid, [])}
+        raw_fields = [
+            str(edge.to_input)
+            for edge in edges_in.get(nid, [])
+        ]
+        raw_fields.extend(str(key) for key in node.inputs if str(key) not in edge_fields)
+        raw_fields.extend(str(key) for key in node.widgets if str(key) not in edge_fields and str(key) not in node.inputs)
+        input_aliases = encode_slot_names(raw_fields)
+
+        kwargs: list[tuple[str, str, str]] = []
+        for edge in sorted(edges_in.get(nid, []), key=lambda item: str(item.to_input)):
+            raw_name = str(edge.to_input)
+            alias = input_aliases.get(raw_name, to_python_identifier(raw_name))
+            source_var = var_names.get(str(edge.from_node), _safe_var(str(edge.from_node)))
+            try:
+                from_slot = int(edge.from_output)
+            except (TypeError, ValueError):
+                from_slot = 0
+            source_alias = output_aliases.get(str(edge.from_node), {}).get(from_slot)
+            if source_alias is None:
+                source_alias = to_python_identifier(f"output_{from_slot}")
+            kwargs.append((alias, f"{source_var}.{source_alias}", raw_name))
+
+        for raw_name, value in sorted(node.inputs.items(), key=lambda item: str(item[0])):
+            raw_key = str(raw_name)
+            if raw_key in edge_fields or _is_link(value):
+                continue
+            alias = input_aliases.get(raw_key, to_python_identifier(raw_key))
+            kwargs.append((alias, _format_value(value), raw_key))
+
+        for raw_name, value in sorted(node.widgets.items(), key=lambda item: str(item[0])):
+            raw_key = str(raw_name)
+            if raw_key in edge_fields:
+                continue
+            resolved_key = raw_key
+            if raw_key.startswith("widget_"):
+                aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+                resolved = resolve_widget_key_with_provenance(str(node.class_type), raw_key, input_aliases=aliases)
+                if resolved.name is not None:
+                    resolved_key = resolved.name
+            alias = input_aliases.get(raw_key) or input_aliases.get(resolved_key) or to_python_identifier(resolved_key)
+            kwargs.append((alias, _format_value(value), resolved_key))
+
+        comment = _agent_edit_comment(nid, node, output_aliases.get(nid, {}))
+        call_name = str(node.class_type)
+        if call_name.isidentifier() and not keyword.iskeyword(call_name):
+            call_head = f"{var} = {call_name}("
+            positional: list[str] = []
+        else:
+            call_head = f"{var} = node("
+            positional = [_format_value(call_name)]
+        rendered_args = [*positional, *[f"{alias}={expr}" for alias, expr, _raw in kwargs]]
+        if not rendered_args:
+            lines.append(f"{call_head}){comment}")
+            continue
+        single_line = f"{call_head}{', '.join(rendered_args)}){comment}"
+        if len(single_line) <= 118:
+            lines.append(single_line)
+            continue
+        lines.append(call_head)
+        for arg in rendered_args:
+            lines.append(f"    {arg},")
+        lines.append(f"){comment}")
+    return lines
+
+
+def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
+    from vibecomfy.porting.slot_codec import encode_slot_names, to_python_identifier
+
+    output_names = _agent_edit_raw_output_names(node)
+    if not output_names:
+        count = class_output_count(str(node.class_type)) or 0
+        output_names = {slot: f"output_{slot}" for slot in range(count)}
+    encoded = encode_slot_names(output_names.values())
+    return {
+        slot: encoded.get(raw_name, to_python_identifier(raw_name))
+        for slot, raw_name in output_names.items()
+    }
+
+
+def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
+    raw_ui = getattr(node, "metadata", {}).get("_ui") if hasattr(node, "metadata") else None
+    outputs = raw_ui.get("outputs") if isinstance(raw_ui, Mapping) else None
+    result: dict[int, str] = {}
+    if isinstance(outputs, list):
+        for index, output in enumerate(outputs):
+            if not isinstance(output, Mapping):
+                continue
+            slot = output.get("slot_index", index)
+            try:
+                slot_index = int(slot)
+            except (TypeError, ValueError):
+                slot_index = index
+            name = output.get("name")
+            if isinstance(name, str) and name:
+                result[slot_index] = name
+    if result:
+        return result
+    metadata_names = getattr(node, "metadata", {}).get("output_names") if hasattr(node, "metadata") else None
+    if isinstance(metadata_names, (list, tuple)):
+        for index, name in enumerate(metadata_names):
+            if isinstance(name, str) and name:
+                result[index] = name
+    if result:
+        return result
+    schema_names = class_output_names(str(node.class_type))
+    return {index: name for index, name in enumerate(schema_names) if isinstance(name, str) and name}
+
+
+def _agent_edit_comment(nid: str, node: Any, output_aliases: Mapping[int, str]) -> str:
+    parts: list[str] = []
+    uid = str(getattr(node, "uid", "") or "")
+    if uid:
+        parts.append(f"uid:{uid}")
+    if str(node.class_type) in _VIRTUAL_WIRE_EMITTER_CLASS_TYPES:
+        parts.append("[virtual]")
+    raw_ui = getattr(node, "metadata", {}).get("_ui") if hasattr(node, "metadata") else None
+    if isinstance(raw_ui, Mapping):
+        pos = raw_ui.get("pos")
+        if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+            parts.append(f"placed ({pos[0]}, {pos[1]})")
+        title = raw_ui.get("title") or raw_ui.get("name")
+        if isinstance(title, str) and title:
+            parts.append(f"title {title!r}")
+    slot_parts = _agent_edit_slot_alias_parts(node, output_aliases)
+    if slot_parts:
+        parts.append("slots " + ", ".join(slot_parts))
+    if not parts:
+        parts.append(f"node:{nid}")
+    return "  # " + " ".join(parts)
+
+
+def _agent_edit_slot_alias_parts(node: Any, output_aliases: Mapping[int, str]) -> list[str]:
+    parts: list[str] = []
+    for slot, raw_name in sorted(_agent_edit_raw_output_names(node).items()):
+        alias = output_aliases.get(slot)
+        if alias and alias != raw_name:
+            parts.append(f"{alias}={raw_name!r}")
+    return parts
 
 
 def _prune_dead_branches_for_emit(
@@ -1980,6 +2231,7 @@ def _disambiguated_subgraph_slugs(raw_by_id: Mapping[str, Mapping[str, Any]]) ->
 
 def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str | None) -> _SubgraphDef:
     from vibecomfy.ingest.normalize import normalize_to_api
+    from vibecomfy.porting.uid import make_uid, mint_local_uid
     from vibecomfy.workflow import VibeEdge as _Edge, VibeNode as _Node
 
     subgraph_id = str(raw["id"])
@@ -2048,7 +2300,14 @@ def _build_subgraph_def(raw: Mapping[str, Any], *, slug: str, source_path: str |
         output_names = _ui_output_names(metadata.get("_ui"))
         if output_names:
             metadata.setdefault("output_names", output_names)
-        nodes[str(node_id)] = _Node(str(node_id), class_type, inputs=static_inputs, widgets=widgets, metadata=metadata)
+        nodes[str(node_id)] = _Node(
+            str(node_id),
+            class_type,
+            inputs=static_inputs,
+            widgets=widgets,
+            metadata=metadata,
+            uid=make_uid(subgraph_id, mint_local_uid(metadata.get("_ui"), str(node_id))),
+        )
 
     for node_id, node in api.items():
         if not isinstance(node, Mapping):
@@ -2755,6 +3014,8 @@ def _emit_subgraph_functions(
     diagnostics: list[EmissionDiagnostic] | None,
     constant_map: dict[tuple[str, str], str] | None,
     required_ids_by_subgraph: dict[str, set[str]] | None = None,
+    variable_name_locks: Mapping[str, str] | None = None,
+    strict_variable_name_locks: bool = False,
 ) -> list[str]:
     subgraphs: dict[str, _SubgraphDef] = prepared.get("subgraph_definitions") or {}
     if not subgraphs:
@@ -2768,6 +3029,14 @@ def _emit_subgraph_functions(
             "var_names": _compute_variable_names(subgraph.nodes, [edge for edges in subgraph.edges_in.values() for edge in edges]),
             "subgraph_definitions": subgraphs,
         }
+        _apply_locked_variable_names(
+            subgraph.nodes,
+            inner_prepared["var_names"],
+            variable_name_locks=variable_name_locks,
+            strict=strict_variable_name_locks,
+            diagnostics=diagnostics,
+            scope_path=subgraph.id,
+        )
         inner_prepared["output_var_names"] = _compute_output_variable_names(
             subgraph.nodes,
             inner_prepared["var_names"],
@@ -3573,6 +3842,129 @@ def _compute_variable_names(workflow_nodes: dict[str, Any], edges: list[Any]) ->
         used[base] = used.get(base, 0) + 1
         var_names[nid] = base if used[base] == 1 else f"{base}_{used[base]}"
     return var_names
+
+
+def _locked_variable_uid_map(
+    workflow_nodes: Mapping[str, Any],
+    *,
+    scope_path: str = "",
+    diagnostics: list[EmissionDiagnostic] | None = None,
+) -> dict[str, str]:
+    from vibecomfy.porting.uid import make_uid
+
+    uid_to_nid: dict[str, str] = {}
+    for nid, node in workflow_nodes.items():
+        candidates: list[str] = []
+        node_uid = str(getattr(node, "uid", "") or "")
+        if node_uid:
+            candidates.append(node_uid)
+        raw_ui = getattr(node, "metadata", {}).get("_ui") if hasattr(node, "metadata") else None
+        properties = raw_ui.get("properties") if isinstance(raw_ui, Mapping) else None
+        ui_uid = properties.get("vibecomfy_uid") if isinstance(properties, Mapping) else None
+        if ui_uid is not None:
+            ui_uid_str = str(ui_uid)
+            candidates.append(ui_uid_str)
+            if scope_path:
+                candidates.append(make_uid(scope_path, ui_uid_str))
+        if scope_path and node_uid and "#" not in node_uid:
+            candidates.append(make_uid(scope_path, node_uid))
+
+        for uid in dict.fromkeys(candidates):
+            previous = uid_to_nid.get(uid)
+            if previous is not None and previous != str(nid):
+                if diagnostics is not None:
+                    diagnostics.append(
+                        EmissionDiagnostic(
+                            code=READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION,
+                            message=(
+                                f"Locked variable uid {uid!r} maps to multiple node ids "
+                                f"({previous!r}, {str(nid)!r}); ignoring the later binding."
+                            ),
+                            severity="error",
+                            node_id=str(nid),
+                            class_type=str(getattr(node, "class_type", "")),
+                            detail={"uid": uid, "existing_node_id": previous, "colliding_node_id": str(nid)},
+                        )
+                    )
+                continue
+            uid_to_nid[uid] = str(nid)
+    return uid_to_nid
+
+
+def _apply_locked_variable_names(
+    workflow_nodes: Mapping[str, Any],
+    var_names: dict[str, str],
+    *,
+    variable_name_locks: Mapping[str, str] | None,
+    strict: bool,
+    diagnostics: list[EmissionDiagnostic] | None,
+    scope_path: str = "",
+) -> None:
+    if not variable_name_locks:
+        return
+
+    uid_to_nid = _locked_variable_uid_map(workflow_nodes, scope_path=scope_path, diagnostics=diagnostics)
+    locked_by_nid: dict[str, tuple[str, str]] = {}
+    for uid, alias in sorted((str(key), str(value)) for key, value in variable_name_locks.items()):
+        nid = uid_to_nid.get(uid)
+        if nid is None:
+            if strict and diagnostics is not None:
+                diagnostics.append(
+                    EmissionDiagnostic(
+                        code=READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
+                        message=f"Locked variable uid {uid!r} was not present in emitted scope {scope_path!r}.",
+                        severity="error",
+                        detail={"uid": uid, "alias": alias, "scope_path": scope_path},
+                    )
+                )
+            continue
+        if not _is_valid_locked_variable_alias(alias):
+            if diagnostics is not None:
+                diagnostics.append(
+                    EmissionDiagnostic(
+                        code=READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
+                        message=f"Locked variable alias {alias!r} for uid {uid!r} is not a valid Python variable name.",
+                        severity="error",
+                        node_id=nid,
+                        class_type=str(getattr(workflow_nodes.get(nid), "class_type", "")),
+                        detail={"uid": uid, "alias": alias, "scope_path": scope_path},
+                    )
+                )
+            continue
+        locked_by_nid[nid] = (uid, alias)
+
+    aliases_to_nids: dict[str, list[str]] = {}
+    for nid, (_uid, alias) in locked_by_nid.items():
+        aliases_to_nids.setdefault(alias, []).append(nid)
+    colliding_locked_aliases = {alias for alias, nids in aliases_to_nids.items() if len(nids) > 1}
+
+    generated_unlocked = {alias: nid for nid, alias in var_names.items() if nid not in locked_by_nid}
+    for nid, (uid, alias) in locked_by_nid.items():
+        collision_node = generated_unlocked.get(alias)
+        if alias in colliding_locked_aliases or collision_node is not None:
+            if diagnostics is not None:
+                diagnostics.append(
+                    EmissionDiagnostic(
+                        code=READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
+                        message=f"Locked variable alias {alias!r} for uid {uid!r} collides with another emitted variable.",
+                        severity="error",
+                        node_id=nid,
+                        class_type=str(getattr(workflow_nodes.get(nid), "class_type", "")),
+                        detail={
+                            "uid": uid,
+                            "alias": alias,
+                            "scope_path": scope_path,
+                            "colliding_node_id": collision_node,
+                            "locked_collision": alias in colliding_locked_aliases,
+                        },
+                    )
+                )
+            continue
+        var_names[nid] = alias
+
+
+def _is_valid_locked_variable_alias(alias: str) -> bool:
+    return alias.isidentifier() and not keyword.iskeyword(alias)
 
 
 def _compute_output_variable_names(
@@ -4382,9 +4774,232 @@ def _node(
 '''
 
 
+# ---------------------------------------------------------------------------
+# Node signature catalog for agent-edit surface
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class InputSignatureField:
+    """A single input field described by a schema for agent-edit catalog display."""
+
+    name: str
+    type: str | None = None
+    required: bool = False
+    default: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class OutputSignatureField:
+    """A single output slot described by a schema for agent-edit catalog display."""
+
+    name: str | None = None
+    type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NodeSignatureRow:
+    """A structured row describing one node type for the agent-edit catalog.
+
+    Rows are produced by ``emit_available_node_signatures(...)`` from a
+    ``SchemaProvider`` and may be filtered by socket-type compatibility.
+    """
+
+    class_type: str
+    inputs: list[InputSignatureField]
+    outputs: list[OutputSignatureField]
+    source_confidence: float = 1.0
+    pack: str | None = None
+
+
+def emit_available_node_signatures(
+    schema_provider: Any,
+    *,
+    focus_types: list[str] | None = None,
+    compatible_input_type: str | None = None,
+    compatible_output_type: str | None = None,
+) -> list[NodeSignatureRow]:
+    """Return structured rows for every known node type in *schema_provider*.
+
+    Two query paths are supported:
+
+    * **Enumeration** — when *focus_types* is ``None``, calls
+      ``schema_provider.schemas()`` (or the protocol equivalent via
+      ``schemas_for``) to enumerate every schema the provider knows.
+    * **Focused / per-node** — when *focus_types* is a list of class-type
+      strings, calls ``schema_provider.get_schema(...)`` for each entry.
+
+    Optional compatibility filtering:
+
+    * *compatible_input_type* — keep only rows that have at **least one
+      output** socket type compatible with the given type (``MODEL`` →
+      nodes whose output sockets can feed a ``MODEL`` input).
+    * *compatible_output_type* — keep only rows that have at **least one
+      input** socket type compatible with the given type (``MODEL`` →
+      nodes that can consume a ``MODEL`` output).
+
+    Both filters can be combined; when both are supplied a row must
+    satisfy both.
+
+    Unknown socket types (``None`` or ``\"*\"``) are treated as
+    **compatible with everything** (the same contract as
+    ``socket_types_compatible`` in ``vibecomfy.schema.validate``).
+
+    Rows are always sorted by ``class_type`` for determinism.
+    """
+    from vibecomfy.schema import schema_for, schemas_for
+    from vibecomfy.schema.validate import socket_types_compatible
+
+    schemas_map: dict[str, Any] = {}
+
+    if focus_types is not None:
+        for class_type in focus_types:
+            if not isinstance(class_type, str):
+                continue
+            schema = schema_for(schema_provider, class_type)
+            if schema is not None:
+                schemas_map[class_type] = schema
+    else:
+        raw = schemas_for(schema_provider)
+        if raw is not None:
+            schemas_map.update(
+                {str(key): value for key, value in raw.items() if isinstance(key, str)}
+            )
+
+    rows: list[NodeSignatureRow] = []
+    for class_type in sorted(schemas_map):
+        schema = schemas_map[class_type]
+        inputs = _build_input_signature_fields(schema)
+        outputs = _build_output_signature_fields(schema)
+        confidence = float(getattr(schema, "confidence", 1.0) or 1.0)
+        pack = getattr(schema, "pack", None) or None
+
+        # Compatibility filtering
+        if compatible_input_type is not None:
+            if not any(
+                socket_types_compatible(output.type, compatible_input_type)
+                for output in outputs
+            ):
+                continue
+
+        if compatible_output_type is not None:
+            if not any(
+                socket_types_compatible(compatible_output_type, input_.type)
+                for input_ in inputs
+            ):
+                continue
+
+        rows.append(
+            NodeSignatureRow(
+                class_type=class_type,
+                inputs=inputs,
+                outputs=outputs,
+                source_confidence=confidence,
+                pack=pack,
+            )
+        )
+
+    return rows
+
+
+def _build_input_signature_fields(schema: Any) -> list[InputSignatureField]:
+    inputs = getattr(schema, "inputs", None) or {}
+    fields: list[InputSignatureField] = []
+    for name, spec in inputs.items():
+        if not isinstance(name, str):
+            continue
+        spec_type = getattr(spec, "type", None) if hasattr(spec, "type") else None
+        spec_required = bool(getattr(spec, "required", False)) if hasattr(spec, "required") else False
+        spec_default = getattr(spec, "default", None) if hasattr(spec, "default") else None
+        fields.append(
+            InputSignatureField(
+                name=name,
+                type=str(spec_type) if spec_type is not None else None,
+                required=spec_required,
+                default=spec_default,
+            )
+        )
+    return fields
+
+
+def _build_output_signature_fields(schema: Any) -> list[OutputSignatureField]:
+    outputs = getattr(schema, "outputs", None) or []
+    fields: list[OutputSignatureField] = []
+    for output in outputs:
+        out_type = getattr(output, "type", None) if hasattr(output, "type") else None
+        out_name = getattr(output, "name", None) if hasattr(output, "name") else None
+        fields.append(
+            OutputSignatureField(
+                name=str(out_name) if out_name is not None else None,
+                type=str(out_type) if out_type is not None else None,
+            )
+        )
+    return fields
+
+
+def format_signature_rows(
+    rows: list[NodeSignatureRow],
+    *,
+    show_pack: bool = False,
+    show_confidence: bool = False,
+) -> str:
+    """Format a list of ``NodeSignatureRow`` as a deterministic text catalog.
+
+    Each row is rendered as a Python-like function signature::
+
+        def CheckpointLoaderSimple(ckpt_name: COMBO = ...) -> MODEL, CLIP, VAE:
+
+    The output is sorted by ``class_type``.
+
+    If *show_pack* is ``True``, a ``# pack: ...`` comment line precedes
+    each signature.  If *show_confidence* is ``True``, a ``# confidence:
+    0.XX`` suffix is appended.
+    """
+    from vibecomfy.porting.slot_codec import to_python_identifier
+
+    lines: list[str] = []
+    for row in sorted(rows, key=lambda r: r.class_type):
+        prefix_parts: list[str] = []
+        if show_pack and row.pack:
+            prefix_parts.append(f"# pack: {row.pack}")
+        suffix_parts: list[str] = []
+        if show_confidence and row.source_confidence < 1.0:
+            suffix_parts.append(f"confidence: {row.source_confidence:.2f}")
+
+        param_parts: list[str] = []
+        for field in row.inputs:
+            has_default = field.default is not None
+            default_str = " = ..." if has_default else ""
+            type_str = f": {field.type}" if field.type else ""
+            optional_marker = "" if field.required else ""
+            name_ident = to_python_identifier(field.name)
+            param_parts.append(f"{name_ident}{type_str}{default_str}")
+
+        return_parts: list[str] = []
+        for output in row.outputs:
+            out_name = output.name
+            out_type = output.type
+            if out_type:
+                return_parts.append(out_type)
+            elif out_name:
+                return_parts.append(out_name)
+            else:
+                return_parts.append("Any")
+
+        params = ", ".join(param_parts)
+        returns = ", ".join(return_parts) if return_parts else "None"
+        sig = f"def {row.class_type}({params}) -> {returns}:"
+
+        comment_parts = prefix_parts + suffix_parts
+        if comment_parts:
+            sig = "  ".join(comment_parts) + f"\n{sig}"
+
+        lines.append(sig)
+
+    return "\n".join(lines) + "\n"
+
+
 __all__ = [
-    "emit_ready_template_python",
-    "emit_scratchpad_python",
     "EmissionDiagnostic",
     "EmissionSeverity",
     "READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT",
@@ -4395,5 +5010,14 @@ __all__ = [
     "READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL",
     "READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED",
     "READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG",
+    "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID",
+    "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION",
+    "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING",
+    "READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION",
     "READABILITY_WARNING_CODES",
+    "NodeSignatureRow",
+    "InputSignatureField",
+    "OutputSignatureField",
+    "emit_available_node_signatures",
+    "format_signature_rows",
 ]

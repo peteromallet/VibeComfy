@@ -1,13 +1,30 @@
 from __future__ import annotations
 
+from vibecomfy.porting import slot_codec  # noqa: F401 — public M1 submodule
 from vibecomfy.porting.assets import AssetAnalysis
 from vibecomfy.porting.emitter import (
     EmissionDiagnostic,
+    InputSignatureField,
+    NodeSignatureRow,
+    OutputSignatureField,
     READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
     READABILITY_WARNING_CODES,
     READABILITY_WARNING_HIDDEN_MODEL_FILENAME,
     READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
     READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED,
+    emit_agent_edit_python,
+    emit_available_node_signatures,
+    format_signature_rows,
+)
+from vibecomfy.porting.edit_session import (
+    BatchResult,
+    CompactDiagnostic,
+    DoneResult,
+    EditSession,
+    InputSlotInfo,
+    NodeDescriptor,
+    OutputSlotInfo,
+    StatementResult,
 )
 from vibecomfy.porting.parity import (
     class_type_counter,
@@ -22,6 +39,12 @@ from vibecomfy.porting.report import (
     PortArtifact,
     PortIssue,
     PortReport,
+)
+from vibecomfy.porting.slot_codec import (
+    build_reverse_map,
+    encode_slot_names,
+    to_python_identifier,
+    to_raw_name,
 )
 from vibecomfy.porting.strict_ready import (
     HIDDEN_MODEL_FILENAME,
@@ -46,10 +69,25 @@ __all__ = [
     "AssetAnalysis",
     "AssetCandidate",
     "AssetCheckResult",
+    "BatchResult",
+    "build_reverse_map",
     "class_type_counter",
+    "CompactDiagnostic",
     "compile_equivalent",
+    "DoneResult",
+    "EditSession",
     "EmissionDiagnostic",
+    "encode_slot_names",
+    "emit_agent_edit_python",
+    "emit_available_node_signatures",
+    "format_signature_rows",
+    "InputSignatureField",
+    "InputSlotInfo",
+    "NodeDescriptor",
     "NodePackSuggestion",
+    "NodeSignatureRow",
+    "OutputSlotInfo",
+    "OutputSignatureField",
     "PortArtifact",
     "PortIssue",
     "PortReport",
@@ -73,6 +111,10 @@ __all__ = [
     "StrictReadyException",
     "apply_strict_ready_exceptions",
     "load_strict_ready_exceptions",
+    "slot_codec",
+    "StatementResult",
+    "to_python_identifier",
+    "to_raw_name",
     "topology_counter",
     "validate_strict_ready_workflow",
     "widget_value_counter",
