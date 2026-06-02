@@ -56,6 +56,14 @@ _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
 
 
+class _ConstantFoldError(Exception):
+    """Raised by _apply_binop when a constant fold operation fails irrecoverably."""
+
+    def __init__(self, message: str, detail: Mapping[str, Any] | None = None):
+        super().__init__(message)
+        self.detail: dict[str, Any] = dict(detail or {})
+
+
 @dataclass(frozen=True, slots=True)
 class CompactDiagnostic:
     code: str
@@ -94,6 +102,51 @@ class BatchResult:
     statements: tuple[StatementResult, ...] = ()
     diagnostics: tuple[CompactDiagnostic, ...] = ()
     landed_ops: tuple[Any, ...] = ()
+
+    def render_diff(self) -> str:
+        """Produce a compact diff view of the batch results.
+
+        Returns a human-readable summary suitable for agent feedback.  Each
+        landed operation is described with before→after values, driven by the
+        same pattern used in ``_summarize_op``.  This method is
+        presentation-only — it does not mutate any state.
+        """
+        parts: list[str] = []
+        # -- Diagnostic banner -------------------------------------------------
+        if not self.ok and self.diagnostics:
+            parts.append(f"@@ batch failed with {len(self.diagnostics)} diagnostic(s) @@")
+            for diag in self.diagnostics:
+                mark = "**" if diag.severity == "error" else ""
+                parts.append(f"   [{diag.severity}] {mark}{diag.code}{mark}: {diag.message}")
+            parts.append("")
+
+        # -- Statement-level lines --------------------------------------------
+        for stmt in self.statements:
+            tag = "  " if stmt.ok else "!!"
+            source = stmt.source.replace("\n", " ")
+            parts.append(f"{tag} {source}")
+            if stmt.diagnostics:
+                for diag in stmt.diagnostics:
+                    parts.append(f"      [{diag.code}] {diag.message}")
+
+        # -- Landed operations diff -------------------------------------------
+        if self.landed_ops:
+            parts.append("")
+            parts.append("--- landed operations ---")
+            from vibecomfy.porting.edit_ops import (
+                AddNodeOp,
+                RemoveLinkOp,
+                RemoveNodeOp,
+                ReorderOp,
+                SetModeOp,
+                SetNodeFieldOp,
+                UpsertLinkOp,
+            )
+            for i, op in enumerate(self.landed_ops):
+                desc = _render_op_diff(op)
+                parts.append(f"  [{i + 1}] {desc}")
+
+        return "\n".join(parts)
 
 
 @dataclass(slots=True)
@@ -180,6 +233,55 @@ class NodeDescriptor:
     widget_values: tuple[Any, ...] = ()
     fields: tuple[InputSlotInfo, ...] = ()
     outputs: tuple[OutputSlotInfo, ...] = ()
+
+    def __str__(self) -> str:
+        """Render a human-readable block describing this node.
+
+        This is a presentation-only method; it never mutates state.
+        """
+        lines: list[str] = []
+        # Header line
+        virtual_tag = " [VIRTUAL]" if self.is_virtual else ""
+        helper_tag = " [HELPER]" if self.is_helper else ""
+        tags = f"{virtual_tag}{helper_tag}"
+        lines.append(f"Node: {self.name} ({self.class_type}){tags}")
+
+        # Core properties
+        pos_str = f"({self.pos[0]:.1f}, {self.pos[1]:.1f})" if self.pos else "none"
+        size_str = f"({self.size[0]:.1f}, {self.size[1]:.1f})" if self.size else "none"
+        lines.append(
+            f"  uid: {self.uid}  mode: {self.mode_label} ({self.mode})  "
+            f"pos: {pos_str}  size: {size_str}"
+        )
+
+        if self.title:
+            lines.append(f"  Title: {self.title!r}")
+
+        if self.widget_values:
+            lines.append(f"  Widget Values: {self.widget_values!r}")
+
+        # Inputs
+        lines.append("  Inputs:")
+        if self.fields:
+            for f in self.fields:
+                type_str = f" [{f.socket_type}]" if f.socket_type else ""
+                link_str = f"linked (link_id={f.link})" if f.link is not None else "unlinked"
+                virt = " [virtual]" if f.is_virtual else ""
+                lines.append(f"    {f.name}{type_str} - {link_str}{virt}")
+        else:
+            lines.append("    (none)")
+
+        # Outputs
+        lines.append("  Outputs:")
+        if self.outputs:
+            for o in self.outputs:
+                type_str = f" [{o.socket_type}]" if o.socket_type else ""
+                count_str = f"{o.link_count} link{'s' if o.link_count != 1 else ''}"
+                lines.append(f"    {o.name} (slot {o.slot_index}){type_str} -> {count_str}")
+        else:
+            lines.append("    (none)")
+
+        return "\n".join(lines)
 
 
 _TEACHING_HINTS: dict[str, str] = {
@@ -1292,6 +1394,19 @@ class EditSession:
                     detail["minted_uid"] = minted_uid
                     detail["minted_scope_path"] = minted_scope_path
 
+            # Merge apply-level diagnostics (e.g., splice_anchor_no_group info) into
+            # statement diagnostics so they are visible to callers even on success.
+            # Only error/warning apply diagnostics affect batch-level ok; info-severity
+            # diagnostics (e.g., add_node_applied, add_node_group_growth) are kept
+            # at the statement level only to avoid false-positive batch failures.
+            apply_diagnostics = tuple(
+                self._compact_port_issue(issue) for issue in applied.diagnostics
+            )
+            merged_diagnostics = statement.diagnostics + apply_diagnostics
+            diagnostics.extend(
+                d for d in apply_diagnostics if d.severity in ("error", "warning")
+            )
+
             executed.append(
                 StatementResult(
                     statement_index=statement.statement_index,
@@ -1299,7 +1414,7 @@ class EditSession:
                     ok=statement.ok,
                     landed=True,
                     op_kind=statement.op_kind,
-                    diagnostics=statement.diagnostics,
+                    diagnostics=merged_diagnostics,
                     detail=detail,
                     touched_uids=tuple(touched_uids),
                     dependency_cause=dep_cause,
@@ -2570,6 +2685,13 @@ def _fold_constant(
             return None, right_diag
         try:
             return _apply_binop(node.op, left, right), None
+        except _ConstantFoldError as exc:
+            return None, _unsafe(
+                node,
+                "constant_fold_failed",
+                str(exc),
+                detail=exc.detail,
+            )
         except Exception:
             return None, _unsafe(node, "constant_fold_failed", "Binary constant expression could not be folded.")
     if isinstance(node, ast.JoinedStr):
@@ -2632,12 +2754,81 @@ def _apply_binop(op: ast.operator, left: Any, right: Any) -> Any:
     if isinstance(op, ast.Mult):
         return left * right
     if isinstance(op, ast.Div):
-        return left / right
+        try:
+            return left / right
+        except ZeroDivisionError:
+            raise _ConstantFoldError(
+                "Division by zero in constant expression.",
+                detail={"left": repr(left), "right": repr(right), "op": "Div"},
+            ) from None
     if isinstance(op, ast.FloorDiv):
-        return left // right
+        try:
+            return left // right
+        except ZeroDivisionError:
+            raise _ConstantFoldError(
+                "Floor division by zero in constant expression.",
+                detail={"left": repr(left), "right": repr(right), "op": "FloorDiv"},
+            ) from None
     if isinstance(op, ast.Mod):
-        return left % right
+        try:
+            return left % right
+        except ZeroDivisionError:
+            raise _ConstantFoldError(
+                "Modulo by zero in constant expression.",
+                detail={"left": repr(left), "right": repr(right), "op": "Mod"},
+            ) from None
     raise TypeError(type(op).__name__)
+
+
+def _render_op_diff(op: Any) -> str:
+    """Produce a single-line diff summary for one edit operation.
+
+    Driven by the same pattern as ``_summarize_op`` but kept compact so it is
+    suitable for line-by-line agent feedback.
+    """
+    from vibecomfy.porting.edit_ops import (
+        AddNodeOp,
+        RemoveLinkOp,
+        RemoveNodeOp,
+        ReorderOp,
+        SetModeOp,
+        SetNodeFieldOp,
+        UpsertLinkOp,
+    )
+
+    if isinstance(op, SetNodeFieldOp):
+        field = op.target.field_path
+        uid = op.target.uid
+        old = _repr_short(op.value)
+        return f"set_node_field  uid={uid!r} field={field!r} → {old}"
+    if isinstance(op, AddNodeOp):
+        ct = op.class_type
+        n_inputs = len(op.inputs) if op.inputs else 0
+        n_fields = len(op.fields) if op.fields else 0
+        return f"add_node  class_type={ct!r}  inputs={n_inputs}  fields={n_fields}"
+    if isinstance(op, RemoveNodeOp):
+        return f"remove_node  uid={op.target.uid!r}"
+    if isinstance(op, UpsertLinkOp):
+        src = f"{op.source.uid}.{op.source.output_slot}"
+        tgt = f"{op.target.uid}.{op.target.input_field}"
+        return f"upsert_link  {src} → {tgt}"
+    if isinstance(op, RemoveLinkOp):
+        if op.target is not None:
+            return f"remove_link  target={op.target.uid!r}.{op.target.input_field}"
+        return f"remove_link  link_id={op.link_id}"
+    if isinstance(op, SetModeOp):
+        return f"set_mode  uid={op.target.uid!r} → mode={op.mode}"
+    if isinstance(op, ReorderOp):
+        return f"reorder  uid={op.target.uid!r} axis={op.axis}"
+    return repr(type(op).__name__)
+
+
+def _repr_short(value: Any) -> str:
+    """Truncate repr for compact display."""
+    s = repr(value)
+    if len(s) > 60:
+        return s[:57] + "..."
+    return s
 
 
 def _statement_op_kind(statement: ast.stmt) -> str | None:

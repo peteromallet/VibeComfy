@@ -1714,10 +1714,10 @@ def _place_add_node(
     ledger: EditLedger,
     spec: ResolvedAddNodeSpec,
     size: tuple[float, float],
-) -> tuple[list[float], int | None, bool]:
+) -> tuple[list[float], int | None, bool, list[PortIssue]]:
     scope_graph = spec.scope.graph
     desired_x, desired_y = _default_add_node_position(scope_graph, size)
-    target_group_index = _target_group_index(scope_graph, spec, size)
+    target_group_index, group_issues = _target_group_index(scope_graph, spec, size)
     if spec.op.anchor is not None:
         desired_x, desired_y = _anchor_position(scope_graph, spec.op.anchor, spec, size, (desired_x, desired_y))
     elif spec.resolved_inputs:
@@ -1729,7 +1729,7 @@ def _place_add_node(
     grew_group = False
     if target_group_index is not None:
         grew_group = _grow_group_to_fit(scope_graph, target_group_index, pos, size)
-    return pos, target_group_index, grew_group
+    return pos, target_group_index, grew_group, group_issues
 
 
 def _anchor_position(
@@ -1761,24 +1761,42 @@ def _target_group_index(
     scope_graph: Mapping[str, Any],
     spec: ResolvedAddNodeSpec,
     size: tuple[float, float],
-) -> int | None:
+) -> tuple[int | None, list[PortIssue]]:
     if spec.anchor_group_index is not None:
-        return spec.anchor_group_index
+        return spec.anchor_group_index, []
     if spec.anchor_near is not None:
-        return _group_index_for_node(scope_graph, spec.anchor_near.node)
+        return _group_index_for_node(scope_graph, spec.anchor_near.node), []
     if spec.anchor_between is not None:
-        left = _group_index_for_node(scope_graph, spec.anchor_between[0].node)
-        right = _group_index_for_node(scope_graph, spec.anchor_between[1].node)
-        if left is not None and left == right:
-            return left
-        if left is not None:
-            return left
-        return right
+        downstream_ref = spec.anchor_between[1]
+        upstream_ref = spec.anchor_between[0]
+        downstream = _group_index_for_node(scope_graph, downstream_ref.node)
+        upstream = _group_index_for_node(scope_graph, upstream_ref.node)
+        if downstream is not None:
+            return downstream, []
+        if upstream is not None:
+            return upstream, []
+        # Neither has a group — leave ungrouped with a diagnostic
+        downstream_uid = str(downstream_ref.node.get("properties", {}).get("vibecomfy_uid", downstream_ref.node.get("id", "?")))
+        upstream_uid = str(upstream_ref.node.get("properties", {}).get("vibecomfy_uid", upstream_ref.node.get("id", "?")))
+        return None, [
+            _issue(
+                "splice_anchor_no_group",
+                f"Splice-placed node of type '{spec.op.class_type}': neither downstream "
+                f"'{downstream_uid}' nor upstream '{upstream_uid}' belongs to a group; "
+                f"leaving ungrouped.",
+                severity="warning",
+                detail={
+                    "class_type": spec.op.class_type,
+                    "downstream_uid": downstream_uid,
+                    "upstream_uid": upstream_uid,
+                },
+            )
+        ]
     if spec.resolved_inputs:
         primary = next(iter(sorted(spec.resolved_inputs.items())))[1]
-        return _group_index_for_node(scope_graph, primary.node)
+        return _group_index_for_node(scope_graph, primary.node), []
     pos = _default_add_node_position(scope_graph, size)
-    return _group_index_for_rect(scope_graph, [pos[0], pos[1], size[0], size[1]])
+    return _group_index_for_rect(scope_graph, [pos[0], pos[1], size[0], size[1]]), []
 
 
 def _default_add_node_position(
@@ -2152,7 +2170,7 @@ def _apply_add_node(
         [0.0, 0.0],
     )
     size = _node_size(provisional)
-    pos, group_index, grew_group = _place_add_node(ledger, spec, size)
+    pos, group_index, grew_group, group_issues = _place_add_node(ledger, spec, size)
     node = materialize_litegraph_node(
         spec.op.class_type,
         spec.op.fields,
@@ -2170,7 +2188,7 @@ def _apply_add_node(
     ledger.node_index[(scope_path, uid)] = node
 
     link_ids: list[int] = []
-    diagnostics: list[PortIssue] = []
+    diagnostics: list[PortIssue] = list(group_issues)
     for input_name in sorted(spec.resolved_inputs):
         source = spec.resolved_inputs[input_name]
         target_type = _normalize_type(getattr(spec.schema_inputs.get(input_name), "type", None))
