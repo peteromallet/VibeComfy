@@ -2703,3 +2703,219 @@ def test_agent_provider_ignores_claude_and_codex_key_submissions(tmp_path: Path)
     assert not env_path.exists()
     assert "claude-secret" not in json.dumps(claude)
     assert "codex-secret" not in json.dumps(codex)
+
+
+# ── Batch-REPL provider wire contract (M2 T1) ──────────────────────────
+
+
+def test_extract_batch_fence_prose_before_and_after() -> None:
+    """Prose before and after a single ```batch fence is preserved as message."""
+    text = "Here is my plan.\n\n```batch\nadd_node(\"Foo\")\n```\n\nLet me know if this works."
+    batch_code, prose = agent_provider.extract_batch_fence(text)
+    assert batch_code == 'add_node("Foo")'
+    assert "Here is my plan." in prose
+    assert "Let me know if this works." in prose
+
+
+def test_extract_batch_fence_prose_before_only() -> None:
+    """Prose before a fence with nothing after is preserved."""
+    text = "I'll add a node.\n\n```batch\nadd_node(\"Bar\")\n```"
+    batch_code, prose = agent_provider.extract_batch_fence(text)
+    assert batch_code == 'add_node("Bar")'
+    assert 'add_node("Bar")' not in prose
+    assert "I'll add a node." in prose
+
+
+def test_extract_batch_fence_prose_after_only() -> None:
+    """Prose after a fence with nothing before is preserved."""
+    text = "```batch\nremove_node(\"42\")\n```\n\nDone."
+    batch_code, prose = agent_provider.extract_batch_fence(text)
+    assert batch_code == 'remove_node("42")'
+    assert 'remove_node("42")' not in prose
+    assert "Done." in prose
+
+
+def test_extract_batch_fence_ignores_non_batch_fenced_code() -> None:
+    """Non-```batch fenced blocks are treated as prose, not parsed."""
+    text = (
+        "Here is some context.\n\n"
+        "```python\nprint('hello')\n```\n\n"
+        "```batch\nset_node_field('n1', 'text', 'new value')\n```\n\n"
+        "Hope that helps!\n\n"
+        "```json\n{\"key\": \"value\"}\n```"
+    )
+    batch_code, prose = agent_provider.extract_batch_fence(text)
+    assert batch_code == "set_node_field('n1', 'text', 'new value')"
+    assert "print('hello')" in prose
+    assert '{"key": "value"}' in prose
+    assert "Here is some context." in prose
+    assert "Hope that helps!" in prose
+
+
+def test_extract_batch_fence_missing_fence_raises_malformed() -> None:
+    """A response with no ```batch fence raises MalformedModelJSON."""
+    with pytest.raises(agent_provider.MalformedModelJSON, match="does not contain"):
+        agent_provider.extract_batch_fence("Just some prose, no code block.")
+
+
+def test_extract_batch_fence_multiple_fences_raises_malformed() -> None:
+    """A response with multiple ```batch fences raises MalformedModelJSON."""
+    text = "```batch\nx = 1\n```\n\n```batch\ny = 2\n```"
+    with pytest.raises(agent_provider.MalformedModelJSON, match="multiple"):
+        agent_provider.extract_batch_fence(text)
+
+
+def test_extract_batch_fence_empty_fence_is_valid() -> None:
+    """An empty ```batch fence is accepted (no statements yet)."""
+    text = "Nothing to do.\n\n```batch\n```\n\nMaybe later."
+    batch_code, prose = agent_provider.extract_batch_fence(text)
+    assert batch_code == ""
+    assert "Nothing to do." in prose
+    assert "Maybe later." in prose
+
+
+def test_build_batch_messages_turn_zero_includes_full_python_and_catalog() -> None:
+    """Turn 0 messages include the full Python render and signature catalog."""
+    messages = agent_provider.build_batch_messages(
+        task="Add a node",
+        python_source="workflow = ...",
+        signature_catalog="FooNode(input: IMAGE, output: IMAGE)",
+        budget_remaining=12,
+        max_batches=12,
+    )
+    system = messages[0]["content"]
+    user = messages[1]["content"]
+
+    # System mentions batch format, not JSON delta
+    assert "```batch" in system
+    assert "done()" in system
+    assert 'clarify("' in system.lower() or "clarify(" in system
+    # No JSON-delta response requirements (may mention JSON only to forbid it)
+    assert "return only json" not in system.lower()
+    assert "delta" not in system.lower()
+
+    # User message includes full Python and catalog
+    assert "Add a node" in user
+    assert "workflow = ..." in user
+    assert "```python" in user
+    assert "FooNode" in user
+    assert "signature" in user.lower() or "catalog" in user.lower()
+
+
+def test_build_batch_messages_later_turn_includes_diff_and_report_only() -> None:
+    """Later-turn messages include diff + report, not full Python."""
+    messages = agent_provider.build_batch_messages(
+        task="Fix the field",
+        turn_number=3,
+        diff="-old line\n+new line",
+        report="✓ Statement 0: set_node_field — landed",
+        budget_remaining=9,
+        max_batches=12,
+    )
+    system = messages[0]["content"]
+    user = messages[1]["content"]
+
+    # System does NOT require JSON delta responses
+    assert "return only json" not in system.lower()
+    assert "delta" not in system.lower()
+
+    # User message includes diff + report, NOT full Python
+    assert "Fix the field" in user
+    assert "```diff" in user
+    assert "-old line" in user
+    assert "+new line" in user
+    assert "✓ Statement 0" in user
+    # No full Python re-dump
+    assert "```python" not in user
+    assert "Current scratchpad Python" not in user
+
+
+def test_build_batch_messages_no_json_delta_wording() -> None:
+    """The batch system prompt never mentions JSON delta requirements."""
+    # Test both turn 0 and later-turn variants
+    for turn in (0, 1):
+        messages = agent_provider.build_batch_messages(
+            task="test",
+            turn_number=turn,
+            python_source="x=1" if turn == 0 else "",
+            diff="diff" if turn > 0 else "",
+            report="report" if turn > 0 else "",
+        )
+        system = messages[0]["content"]
+        user = messages[1]["content"]
+        combined = (system + user).lower()
+        # No JSON-delta response requirements (may mention JSON only to forbid)
+        assert "return only json" not in system.lower()
+        assert "delta" not in system.lower()
+        # No markdown fence hints for JSON
+        assert "```json" not in system
+
+
+def test_batch_turn_result_to_dict() -> None:
+    """BatchTurnResult.to_dict() includes batch, message, route, model, audit_metadata."""
+    result = agent_provider.BatchTurnResult(
+        batch='add_node("N")',
+        message="Adding a node.",
+        route="arnold",
+        model="test-model",
+        audit_metadata={"response_contract": "batch_repl"},
+    )
+    d = result.to_dict()
+    assert d["batch"] == 'add_node("N")'
+    assert d["message"] == "Adding a node."
+    assert d["route"] == "arnold"
+    assert d["model"] == "test-model"
+    assert d["audit_metadata"]["response_contract"] == "batch_repl"
+
+
+def test_run_agent_turn_batch_audit_metadata_marks_batch_repl(monkeypatch) -> None:
+    """run_agent_turn_batch audit metadata includes response_contract='batch_repl'."""
+    class BatchRuntime:
+        @staticmethod
+        def run_agent_turn(**_kwargs):
+            return "Prose\n\n```batch\nset_node_field('n1', 'text', 'hello')\n```\n\nDone."
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: BatchRuntime)
+    result = agent_provider.run_agent_turn_batch(
+        task="test",
+        messages=[{"role": "user", "content": "test"}],
+        route="arnold",
+        model="test-model",
+    )
+    assert result.batch == "set_node_field('n1', 'text', 'hello')"
+    assert "Prose" in result.message
+    assert result.route == "arnold"
+    assert result.model == "test-model"
+    md = dict(result.audit_metadata or {})
+    assert md.get("response_contract") == "batch_repl"
+    assert md.get("provider") == "arnold"
+
+
+def test_run_agent_turn_batch_rejects_missing_fence(monkeypatch) -> None:
+    """run_agent_turn_batch raises MalformedModelJSON when response has no fence."""
+    class NoFenceRuntime:
+        @staticmethod
+        def run_agent_turn(**_kwargs):
+            return "Just prose with no code block."
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: NoFenceRuntime)
+    with pytest.raises(agent_provider.MalformedModelJSON, match="does not contain"):
+        agent_provider.run_agent_turn_batch(
+            task="test",
+            messages=[{"role": "user", "content": "test"}],
+        )
+
+
+def test_run_agent_turn_batch_provider_error_wraps_generic(monkeypatch) -> None:
+    """run_agent_turn_batch wraps unexpected exceptions as ProviderError."""
+    class BrokenRuntime:
+        @staticmethod
+        def run_agent_turn(**_kwargs):
+            raise ValueError("something broke")
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: BrokenRuntime)
+    with pytest.raises(agent_provider.ProviderError, match="something broke"):
+        agent_provider.run_agent_turn_batch(
+            task="test",
+            messages=[{"role": "user", "content": "test"}],
+        )

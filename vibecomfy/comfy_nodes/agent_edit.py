@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import difflib
 import json
 import os
 import re
@@ -35,15 +36,19 @@ from .agent_gates import (
 )
 from .agent_provider import (
     AgentTurnResult,
+    BatchTurnResult,
+    build_batch_messages,
     build_delta_messages,
     build_messages,
     run_agent_turn,
+    run_agent_turn_batch,
     run_agent_turn_delta,
 )
 from .agent_diagnostics import lower_stage_result, queue_stage_result
 from .agent_session import allocate_turn, payload_hash, record_idempotent_response, turn_dir_for
 
 if TYPE_CHECKING:
+    from vibecomfy.porting.edit_session import EditSession
     from vibecomfy.workflow import VibeWorkflow
 
 DeepSeekClient = Callable[[list[dict[str, str]]], dict[str, str]]
@@ -90,6 +95,18 @@ class AgentEditState:
     delta_diagnostics: list[dict[str, Any]] = field(default_factory=list)
     delta_audit: dict[str, Any] | None = None
     guard_result: dict[str, Any] | None = None
+    # Batch REPL state (gated behind VIBECOMFY_AGENT_EDIT_BATCH_REPL=1)
+    batch_session: EditSession | None = None
+    batch_signature_catalog: str = ""
+    batch_turns: list[dict[str, Any]] = field(default_factory=list)
+    batch_budget_state: dict[str, Any] = field(default_factory=dict)
+    batch_turn_count: int = 0
+    batch_max_turns: int = 5
+    batch_max_consecutive_errors: int = 3
+    batch_feedback: str = ""
+    batch_final_summary: str = ""
+    batch_exit_mode: str = ""
+    batch_done_summary: str = ""
 
 
 class _StageBlocked(Exception):
@@ -214,6 +231,234 @@ def _normalize_test_client_response(response: dict[str, str]) -> AgentTurnResult
     )
 
 
+def _normalize_test_client_batch_response(response: dict[str, str]) -> BatchTurnResult:
+    batch = response.get("batch")
+    message = response.get("message")
+    if not isinstance(batch, str):
+        raise ValueError("Batch agent response must include string key `batch`.")
+    if not isinstance(message, str):
+        raise ValueError("Batch agent response must include string key `message`.")
+    return BatchTurnResult(
+        batch=batch,
+        message=message,
+        route="test_client",
+        audit_metadata={"provider": "test_client", "response_contract": "batch_repl"},
+    )
+
+
+def _render_batch_diff(before: str, after: str, *, max_chars: int = 2000) -> str:
+    diff = "".join(
+        difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile="before.py",
+            tofile="after.py",
+            n=2,
+        )
+    ).strip()
+    if len(diff) <= max_chars:
+        return diff
+    return diff[: max(0, max_chars - 15)].rstrip() + "\n... [truncated]"
+
+
+def _format_statement_source(source: str, *, max_chars: int = 72) -> str:
+    """Truncate a statement source string for inline display."""
+    if len(source) <= max_chars:
+        return source
+    return source[: max(0, max_chars - 3)] + "..."
+
+
+def _format_batch_report(
+    batch_result: Any,
+    *,
+    consecutive_errors: int,
+    budget_remaining: int,
+) -> str:
+    """Build a deterministic text teaching report from a :class:`BatchResult`.
+
+    The report is grounded only in ``BatchResult.statements`` and
+    ``CompactDiagnostic`` fields — it never invents schema hints or other
+    generated content.
+    """
+    statement_lines: list[str] = []
+    landed_count = 0
+    failed_count = 0
+    for statement in batch_result.statements:
+        if statement.landed:
+            landed_count += 1
+        if not statement.ok:
+            failed_count += 1
+        marker = "✓" if statement.ok else "✗"
+        status = "landed" if statement.landed else "not landed"
+        op_kind = statement.op_kind or "statement"
+        source_text = _format_statement_source(statement.source)
+        line = (
+            f"{marker} Statement {statement.statement_index}: "
+            f"{op_kind} — {status}"
+        )
+        extras: list[str] = []
+        if source_text:
+            extras.append(f'source: "{source_text}"')
+        if statement.touched_uids:
+            extras.append(
+                "touched uids: [{}]".format(", ".join(statement.touched_uids))
+            )
+        if statement.dependency_cause:
+            extras.append(f"cause: {statement.dependency_cause}")
+        if statement.diagnostics:
+            primary = statement.diagnostics[0]
+            extras.append(f"{primary.code}: {primary.message}")
+        if statement.teaching_hint:
+            extras.append(f"hint: {statement.teaching_hint}")
+        if extras:
+            line += f" ({'; '.join(extras)})"
+        statement_lines.append(line)
+
+    diagnostic_lines = [
+        f"! {diagnostic.code}: {diagnostic.message}"
+        for diagnostic in batch_result.diagnostics
+    ]
+    summary = (
+        f"Batch summary: {landed_count} landed, {failed_count} failed, "
+        f"{len(batch_result.diagnostics)} batch diagnostic(s), "
+        f"{budget_remaining} batch(es) remaining, "
+        f"{consecutive_errors} consecutive error turn(s)."
+    )
+    lines = [summary, *statement_lines, *diagnostic_lines]
+    return "\n".join(line for line in lines if line)
+
+
+def _format_batch_report_json(
+    batch_result: Any,
+    *,
+    consecutive_errors: int,
+    budget_remaining: int,
+) -> dict[str, Any]:
+    """Build a deterministic JSON teaching report from a :class:`BatchResult`.
+
+    Every field is derived from ``BatchResult.statements`` and
+    ``CompactDiagnostic`` fields — no invented content.
+    """
+    landed_count = sum(1 for s in batch_result.statements if s.landed)
+    failed_count = sum(1 for s in batch_result.statements if not s.ok)
+    return {
+        "summary": {
+            "landed": landed_count,
+            "failed": failed_count,
+            "budget_remaining": budget_remaining,
+            "consecutive_errors": consecutive_errors,
+        },
+        "statements": [
+            {
+                "statement_index": item.statement_index,
+                "source": item.source,
+                "ok": item.ok,
+                "landed": item.landed,
+                "op_kind": item.op_kind,
+                "detail": _json_safe(dict(item.detail)),
+                "touched_uids": list(item.touched_uids),
+                "dependency_cause": item.dependency_cause,
+                "teaching_hint": item.teaching_hint,
+                "diagnostics": [
+                    _compact_diag_to_dict(diag) for diag in item.diagnostics
+                ],
+            }
+            for item in batch_result.statements
+        ],
+        "diagnostics": [
+            _compact_diag_to_dict(item) for item in batch_result.diagnostics
+        ],
+    }
+
+
+_CLARIFY_CALL_RE = re.compile(
+    r'(?m)^\s*clarify\("((?:[^"\\]|\\.)*)"\)\s*$'
+)
+
+
+def _extract_clarify_message(batch: str) -> str | None:
+    matches = _CLARIFY_CALL_RE.findall(batch)
+    if not matches:
+        return None
+    try:
+        return json.loads(f'"{matches[0]}"')
+    except json.JSONDecodeError:
+        return matches[0]
+
+
+def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
+    schema_gap_markers = (
+        "schema",
+        "schema-backed",
+        "socket type",
+        "compatible output",
+        "confidence",
+    )
+    unrepresentable_codes = {
+        "statement_not_allowed",
+        "call_not_allowed",
+        "nested_call_not_allowed",
+        "raw_coordinate_kwarg_not_allowed",
+        "intent_class_construction_not_allowed",
+        "cross_scope_add_node_unsupported",
+        "scope_escape_not_allowed",
+        "original_virtual_node_immutable",
+        "kwargs_unpack_not_allowed",
+        "dict_unpack_not_allowed",
+        "lambda_not_allowed",
+        "comprehension_not_allowed",
+        "f_string_not_allowed",
+        "for_else_not_allowed",
+        "import_not_allowed",
+    }
+    category_turn_hits = {
+        FailureKind.MODEL_MISTAKE: 0,
+        FailureKind.UNREPRESENTABLE: 0,
+        FailureKind.SCHEMA_GAP: 0,
+    }
+    for turn in turns:
+        turn_categories: set[FailureKind] = set()
+        diagnostics = list(turn.get("diagnostics") or [])
+        for statement in turn.get("statements") or []:
+            diagnostics.extend(statement.get("diagnostics") or [])
+        for diagnostic in diagnostics:
+            code = str(diagnostic.get("code", "")).lower()
+            message = str(diagnostic.get("message", "")).lower()
+            teaching_hint = str(diagnostic.get("teaching_hint", "")).lower()
+            haystack = " ".join((code, message, teaching_hint))
+            if any(marker in haystack for marker in schema_gap_markers):
+                turn_categories.add(FailureKind.SCHEMA_GAP)
+                continue
+            if code in unrepresentable_codes or "not allowed" in haystack or "immutable" in haystack:
+                turn_categories.add(FailureKind.UNREPRESENTABLE)
+                continue
+            turn_categories.add(FailureKind.MODEL_MISTAKE)
+        for category in turn_categories:
+            category_turn_hits[category] += 1
+    ranked = sorted(
+        category_turn_hits.items(),
+        key=lambda item: (item[1], item[0] == FailureKind.SCHEMA_GAP, item[0] == FailureKind.UNREPRESENTABLE),
+        reverse=True,
+    )
+    if ranked and ranked[0][1] > 0:
+        return ranked[0][0]
+    return FailureKind.MODEL_MISTAKE
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=str))
+
+
+def _compact_diag_to_dict(diagnostic: Any) -> dict[str, Any]:
+    return {
+        "code": getattr(diagnostic, "code", type(diagnostic).__name__),
+        "message": getattr(diagnostic, "message", str(diagnostic)),
+        "severity": getattr(diagnostic, "severity", "error"),
+        "detail": _json_safe(getattr(diagnostic, "detail", {})),
+        "teaching_hint": getattr(diagnostic, "teaching_hint", None),
+    }
+
+
 def _port_issue_to_dict(issue: Any) -> dict[str, Any]:
     to_json = getattr(issue, "to_json", None)
     if callable(to_json):
@@ -227,6 +472,10 @@ def _port_issue_to_dict(issue: Any) -> dict[str, Any]:
 
 def _agent_edit_v2_enabled() -> bool:
     return os.getenv("VIBECOMFY_AGENT_EDIT_V2") == "1"
+
+
+def _agent_edit_batch_repl_enabled() -> bool:
+    return os.getenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL") == "1"
 
 
 def _record(context: TurnContext, result: StageResult) -> StageResult:
@@ -533,6 +782,365 @@ def _stage_agent_delta(
             "model": agent_result.model,
             "op_count": len(agent_result.delta),
             "provider_metadata": state.provider_metadata,
+        },
+    )
+
+
+def _stage_agent_batch_repl(
+    state: AgentEditState,
+    _context: TurnContext,
+    *,
+    deepseek_client: DeepSeekClient | None = None,
+    route: str | None = None,
+    model: str | None = None,
+) -> StageResult:
+    from vibecomfy.porting.edit_session import EditSession
+
+    start = time.monotonic()
+    prepared_ui = state.guard_original_ui or state.graph
+    session = EditSession(prepared_ui, schema_provider=state.schema_provider)
+    state.batch_session = session
+    initial_render = session.render()
+    signature_catalog = session.search(formatted=True)
+    state.python_before = initial_render
+    state.before_py_path.write_text(initial_render, encoding="utf-8")
+    if isinstance(signature_catalog, str):
+        state.batch_signature_catalog = signature_catalog
+
+    max_batches = max(1, int(state.batch_max_turns or 1))
+    max_consecutive_errors = max(1, int(state.batch_max_consecutive_errors or 1))
+    state.batch_budget_state = {
+        "max_batches": max_batches,
+        "max_consecutive_errors": max_consecutive_errors,
+        "remaining_batches": max_batches,
+        "remaining_consecutive_errors": max_consecutive_errors,
+    }
+    state.artifacts = {
+        "request": str(state.request_path),
+        "original_ui": str(state.original_ui_path),
+        "before_python": str(state.before_py_path),
+        "after_python": str(state.after_py_path),
+        "model_request": str(state.model_request_path),
+        "model_response": str(state.model_response_path),
+        "candidate_ui": str(state.candidate_ui_path),
+        "messages": str(state.messages_path),
+    }
+
+    current_render = initial_render
+    last_diff = ""
+    last_report = ""
+    consecutive_errors = 0
+    request_log: list[dict[str, Any]] = []
+    response_log: list[dict[str, Any]] = []
+
+    for turn_number in range(max_batches):
+        budget_remaining = max_batches - turn_number
+        messages = build_batch_messages(
+            task=state.task,
+            turn_number=turn_number,
+            python_source=initial_render if turn_number == 0 else "",
+            signature_catalog=state.batch_signature_catalog if turn_number == 0 else "",
+            diff=last_diff,
+            report=last_report,
+            budget_remaining=budget_remaining,
+            max_batches=max_batches,
+        )
+        request_entry = {
+            "turn_number": turn_number,
+            "messages": messages,
+            "budget_remaining": budget_remaining,
+        }
+        request_log.append(request_entry)
+        write_json_artifact(
+            state.model_request_path,
+            {"response_contract": "batch_repl", "turns": request_log},
+        )
+
+        if deepseek_client is not None:
+            turn_result = _normalize_test_client_batch_response(deepseek_client(messages))
+        else:
+            turn_result = run_agent_turn_batch(
+                state.task,
+                messages,
+                route=route,
+                model=model,
+            )
+
+        state.provider_metadata = dict(turn_result.audit_metadata or {})
+        state.user_message = turn_result.message
+        clarify_message = _extract_clarify_message(turn_result.batch)
+        if clarify_message is not None:
+            state.batch_turn_count = turn_number + 1
+            state.batch_exit_mode = "clarify"
+            state.batch_final_summary = (
+                f"Clarification requested after {state.batch_turn_count} batch turn(s)."
+            )
+            state.batch_budget_state = {
+                "max_batches": max_batches,
+                "max_consecutive_errors": max_consecutive_errors,
+                "remaining_batches": max_batches - state.batch_turn_count,
+                "remaining_consecutive_errors": max_consecutive_errors,
+                "consecutive_errors": consecutive_errors,
+            }
+            state.user_message = clarify_message
+            state.python_after = current_render
+            state.after_py_path.write_text(current_render, encoding="utf-8")
+            state.ui_payload = json.loads(json.dumps(session.working_ui))
+            write_json_artifact(state.candidate_ui_path, state.ui_payload)
+            state.report = {
+                "clarification_required": True,
+                "graph_unchanged": True,
+                "queue_blockers": [],
+            }
+            turn_record = {
+                "turn_number": turn_number,
+                "batch": turn_result.batch,
+                "message": turn_result.message,
+                "route": turn_result.route,
+                "model": turn_result.model,
+                "provider_metadata": _json_safe(dict(turn_result.audit_metadata or {})),
+                "clarification_required": True,
+                "clarification_message": clarify_message,
+            }
+            state.batch_turns.append(turn_record)
+            response_log.append(
+                {
+                    "turn_number": turn_number,
+                    "response": turn_result.to_dict(),
+                    "clarification": turn_record,
+                }
+            )
+            write_json_artifact(state.model_response_path, {"turns": response_log})
+            state.messages_path.open("a", encoding="utf-8").write(
+                json.dumps(
+                    {
+                        "turn_number": turn_number,
+                        "task": state.task,
+                        "message": turn_result.message,
+                        "batch": turn_result.batch,
+                        "clarification_required": clarify_message,
+                    },
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            state.artifacts = {
+                "request": str(state.request_path),
+                "original_ui": str(state.original_ui_path),
+                "before_python": str(state.before_py_path),
+                "after_python": str(state.after_py_path),
+                "model_request": str(state.model_request_path),
+                "model_response": str(state.model_response_path),
+                "candidate_ui": str(state.candidate_ui_path),
+                "messages": str(state.messages_path),
+            }
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={"mode": "clarification_required", "graph_unchanged": True},
+            )
+
+        batch_result = session.apply_batch(turn_result.batch)
+        next_render = session.render()
+        state.python_after = next_render
+        state.after_py_path.write_text(next_render, encoding="utf-8")
+        state.ui_payload = json.loads(json.dumps(session.working_ui))
+        write_json_artifact(state.candidate_ui_path, state.ui_payload)
+
+        turn_has_errors = (not batch_result.ok) or bool(batch_result.diagnostics)
+        consecutive_errors = consecutive_errors + 1 if turn_has_errors else 0
+        diff_text = _render_batch_diff(current_render, next_render)
+        report_text = _format_batch_report(
+            batch_result,
+            consecutive_errors=consecutive_errors,
+            budget_remaining=max_batches - (turn_number + 1),
+        )
+        report_json = _format_batch_report_json(
+            batch_result,
+            consecutive_errors=consecutive_errors,
+            budget_remaining=max_batches - (turn_number + 1),
+        )
+        turn_record = {
+            "turn_number": turn_number,
+            "batch": turn_result.batch,
+            "message": turn_result.message,
+            "route": turn_result.route,
+            "model": turn_result.model,
+            "provider_metadata": _json_safe(dict(turn_result.audit_metadata or {})),
+            "batch_ok": batch_result.ok,
+            "statement_count": len(batch_result.statements),
+            "landed_op_count": len(batch_result.landed_ops),
+            "diagnostics": report_json["diagnostics"],
+            "statements": report_json["statements"],
+            "diff": diff_text,
+            "report": report_text,
+        }
+        state.batch_turns.append(turn_record)
+        state.batch_feedback = report_text
+        state.batch_turn_count = turn_number + 1
+        state.batch_budget_state = {
+            "max_batches": max_batches,
+            "max_consecutive_errors": max_consecutive_errors,
+            "remaining_batches": max_batches - state.batch_turn_count,
+            "remaining_consecutive_errors": max(0, max_consecutive_errors - consecutive_errors),
+            "consecutive_errors": consecutive_errors,
+        }
+
+        response_log.append(
+            {
+                "turn_number": turn_number,
+                "response": turn_result.to_dict(),
+                "batch_result": turn_record,
+            }
+        )
+        write_json_artifact(state.model_response_path, {"turns": response_log})
+        state.messages_path.open("a", encoding="utf-8").write(
+            json.dumps(
+                {
+                    "turn_number": turn_number,
+                    "task": state.task,
+                    "message": turn_result.message,
+                    "batch": turn_result.batch,
+                    "report": report_text,
+                },
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+        current_render = next_render
+        last_diff = diff_text
+        last_report = report_text
+        done_requested = any(
+            item.ok and str(item.op_kind or "") == "done"
+            for item in batch_result.statements
+        )
+        if done_requested:
+            done_result = session.done()
+            state.batch_turn_count = turn_number + 1
+            state.batch_budget_state = {
+                "max_batches": max_batches,
+                "max_consecutive_errors": max_consecutive_errors,
+                "remaining_batches": max_batches - state.batch_turn_count,
+                "remaining_consecutive_errors": max(0, max_consecutive_errors - consecutive_errors),
+                "consecutive_errors": consecutive_errors,
+            }
+            state.batch_exit_mode = "done"
+            state.batch_done_summary = done_result.summary
+            state.batch_final_summary = done_result.summary
+            if not done_result.ok:
+                return StageResult(
+                    stage="agent_batch",
+                    ok=False,
+                    blocking=True,
+                    duration_ms=_duration_ms(start),
+                    artifacts=(
+                        _artifact(state.before_py_path),
+                        _artifact(state.after_py_path),
+                        _artifact(state.model_request_path),
+                        _artifact(state.model_response_path),
+                        _artifact(state.candidate_ui_path),
+                        _artifact(state.messages_path),
+                    ),
+                    issues=tuple(_compact_diag_to_dict(item) for item in done_result.diagnostics),
+                    value={
+                        "failure_kind": FailureKind.VALIDATION_ERROR.value,
+                        "turn_count": state.batch_turn_count,
+                        "done_summary": done_result.summary,
+                    },
+                )
+            state.user_message = (
+                f"{turn_result.message}\n\n{done_result.summary}".strip()
+                if turn_result.message
+                else done_result.summary
+            )
+            state.report = {
+                "done_summary": done_result.summary,
+                "queue_blockers": [],
+            }
+            state.artifacts = {
+                "request": str(state.request_path),
+                "original_ui": str(state.original_ui_path),
+                "before_python": str(state.before_py_path),
+                "after_python": str(state.after_py_path),
+                "python": str(state.after_py_path),
+                "model_request": str(state.model_request_path),
+                "model_response": str(state.model_response_path),
+                "candidate_ui": str(state.candidate_ui_path),
+                "messages": str(state.messages_path),
+            }
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.before_py_path),
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={"mode": "done", "done_summary": done_result.summary},
+                gate_updates={
+                    "python_load_ok": True,
+                    "lower_ok": True,
+                    "ir_validate_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                    "state_match_ok": True,
+                },
+            )
+        if consecutive_errors >= max_consecutive_errors:
+            break
+
+    failure_kind = _batch_budget_failure_kind(state.batch_turns)
+    state.batch_final_summary = (
+        f"Stopped after {state.batch_turn_count} batch turn(s); "
+        f"{state.batch_budget_state.get('remaining_batches', 0)} batch(es) remaining."
+    )
+    return StageResult(
+        stage="agent_batch",
+        ok=False,
+        blocking=True,
+        duration_ms=_duration_ms(start),
+        artifacts=(
+            _artifact(state.before_py_path),
+            _artifact(state.after_py_path),
+            _artifact(state.model_request_path),
+            _artifact(state.model_response_path),
+            _artifact(state.candidate_ui_path),
+            _artifact(state.messages_path),
+        ),
+        issues=(
+            {
+                "code": "batch_budget_exhausted",
+                "severity": "error",
+                "failure_kind": failure_kind.value,
+                "message": state.batch_final_summary,
+                "detail": {
+                    "turn_count": state.batch_turn_count,
+                    "budget_state": dict(state.batch_budget_state),
+                    "budget_classification": failure_kind.value,
+                },
+            },
+        ),
+        value={
+            "failure_kind": failure_kind.value,
+            "turn_count": state.batch_turn_count,
+            "budget_state": dict(state.batch_budget_state),
+            "budget_classification": failure_kind.value,
         },
     )
 
@@ -864,6 +1472,17 @@ def _stage_audit(
                 "delta_ops": state.delta_audit or {},
             }
         )
+    if _agent_edit_batch_repl_enabled():
+        metadata["batch_repl"] = {
+            "enabled": True,
+            "turn_count": state.batch_turn_count,
+            "signature_catalog_available": bool(state.batch_signature_catalog),
+            "feedback": state.batch_feedback,
+            "final_summary": state.batch_final_summary,
+            "exit_mode": state.batch_exit_mode,
+            "done_summary": state.batch_done_summary,
+            "budget_state": _json_safe(state.batch_budget_state),
+        }
     return write_audit(
         state.turn_dir / "audit",
         context=context,
@@ -952,7 +1571,7 @@ def _run_stage(
     try:
         result = fn(state, context, *args, **kwargs)
     except Exception as exc:
-        failure_stage = "agent_response" if name in {"agent", "agent_delta"} else name
+        failure_stage = "agent_response" if name in {"agent", "agent_delta", "agent_batch"} else name
         failure = classify_failure(failure_stage, exc, context)
         result = StageResult(
             stage=name,
@@ -1167,9 +1786,27 @@ def handle_agent_edit(
         projection_path=turn_dir / "projection.txt",
         messages_path=turn_dir / "messages.jsonl",
     )
+    if isinstance(payload.get("max_batches"), int) and payload["max_batches"] > 0:
+        state.batch_max_turns = int(payload["max_batches"])
+    if (
+        isinstance(payload.get("max_consecutive_errors"), int)
+        and payload["max_consecutive_errors"] > 0
+    ):
+        state.batch_max_consecutive_errors = int(payload["max_consecutive_errors"])
 
     try:
-        if _agent_edit_v2_enabled():
+        if _agent_edit_batch_repl_enabled():
+            _run_stage("ingest", state, context, _stage_ingest_v2)
+            _run_stage(
+                "agent_batch",
+                state,
+                context,
+                _stage_agent_batch_repl,
+                deepseek_client=deepseek_client,
+                route=payload.get("route") if isinstance(payload.get("route"), str) else None,
+                model=payload.get("model") if isinstance(payload.get("model"), str) else None,
+            )
+        elif _agent_edit_v2_enabled():
             _run_stage("ingest", state, context, _stage_ingest_v2)
             _run_stage("project", state, context, _stage_project_v2)
             _run_stage(
@@ -1236,6 +1873,12 @@ def handle_agent_edit(
         from vibecomfy.porting.edit_ops import op_to_dict
 
         response["delta_ops"] = [op_to_dict(op) for op in state.delta_ops]
+    if _agent_edit_batch_repl_enabled():
+        if state.batch_exit_mode == "clarify":
+            response["clarification_required"] = True
+            response["graph_unchanged"] = True
+        elif state.batch_done_summary:
+            response["done_summary"] = state.batch_done_summary
     try:
         if _agent_edit_v2_enabled():
             _record(
@@ -1245,6 +1888,16 @@ def handle_agent_edit(
                     ok=True,
                     blocking=False,
                     value={"mode": "agent_edit_v2_delta"},
+                ),
+            )
+        elif _agent_edit_batch_repl_enabled():
+            _record(
+                context,
+                StageResult(
+                    stage="audit",
+                    ok=True,
+                    blocking=False,
+                    value={"mode": state.batch_exit_mode or "batch_repl"},
                 ),
             )
         audit_ref = _stage_audit(state, context, response=response)

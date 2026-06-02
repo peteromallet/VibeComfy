@@ -19,6 +19,7 @@ from vibecomfy.porting.edit_ops import (
     NodeTarget,
     RemoveLinkOp,
     RemoveNodeOp,
+    ReorderOp,
     SetModeOp,
     SetNodeFieldOp,
     UpsertLinkOp,

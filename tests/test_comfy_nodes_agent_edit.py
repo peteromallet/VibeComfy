@@ -20,7 +20,7 @@ from vibecomfy.security.agent_generated_loader import (
 )
 from vibecomfy.security.gate import GateContext, _gate_context_var, set_gate_context
 from vibecomfy.security.provenance import confirm, read as read_provenance
-from vibecomfy.schema.provider import NodeSchema, OutputSpec
+from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -424,6 +424,727 @@ def test_handle_agent_edit_v2_classifies_provider_error_as_closed_failure_envelo
     )
     assert "temporarily unavailable" in result["message"]
     assert "ProviderError(" not in json.dumps(result, sort_keys=True)
+
+
+# ── M2 T4 — flag-off regression tests ────────────────────────────────────
+
+
+def test_flag_off_legacy_stage_order_and_prompt_unchanged_with_batch_repl_unset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIBECOMFY_AGENT_EDIT_BATCH_REPL is explicitly unset (and V2 is
+    unset), the legacy pipeline stage order, provider prompt shape, and
+    response artifacts remain identical to the pre-batch-REPL codebase."""
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+    # Explicitly unset the batch flag — guarantee the flag-off invariant.
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", raising=False)
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_V2", raising=False)
+
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
+
+    stage_order: list[str] = []
+
+    def _capture_audit(audit_dir, **kwargs):
+        stage_order[:] = list((kwargs.get("stage_results") or {}).keys())
+        return real_write_audit(audit_dir, **kwargs)
+
+    monkeypatch.setattr(agent_edit_module, "write_audit", _capture_audit)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "flag-off-legacy",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    # ── stage order ──────────────────────────────────────────────────
+    assert result["ok"] is True
+    # Legacy path records StageResults for ingest, convert, agent, load_python,
+    # lower, validate, emit, queue_validate, and summarize.  The audit stage is
+    # recorded as a StageResult only in the v2 path (for agent_edit_v2 metadata
+    # injection); the legacy path calls _stage_audit directly without a preceding
+    # _record, so "audit" does not appear in the captured stage_results.
+    assert stage_order == [
+        "ingest",
+        "convert",
+        "agent",
+        "load_python",
+        "lower",
+        "validate",
+        "emit",
+        "queue_validate",
+        "summarize",
+    ]
+    # Authoring / delta stages must NOT appear in the legacy path.
+    assert {"project", "agent_delta", "apply_delta"}.isdisjoint(stage_order)
+
+    # ── provider prompt shape ─────────────────────────────────────────
+    request = json.loads(Path(result["artifacts"]["model_request"]).read_text(encoding="utf-8"))
+    # Legacy prompt is simple JSON with keys `python` + `message` — never delta.
+    assert "response_contract" not in request
+    system = request["messages"][0]["content"]
+    user = request["messages"][1]["content"]
+    assert "Return only JSON with keys `python` and `message`." in system
+    assert "Return only JSON with keys `delta` and `message`." not in system
+    assert "```batch" not in system
+    assert "batch" not in (system + user).lower()
+    assert "Current scratchpad Python" in user
+    assert "```python" in user
+
+    # ── response artifacts ────────────────────────────────────────────
+    assert "python" in result["artifacts"]
+    assert "before_python" in result["artifacts"]
+    assert "after_python" in result["artifacts"]
+    assert Path(result["artifacts"]["before_python"]).name == "before.py"
+    assert Path(result["artifacts"]["after_python"]).name == "after.py"
+    # V2-only artifact must NOT leak into the legacy path.
+    assert "projection" not in result["artifacts"]
+    # delta_ops must NOT leak into the legacy response.
+    assert "delta_ops" not in result
+
+    # ── audit shape ───────────────────────────────────────────────────
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert "before_python" in audit["artifacts"]
+    assert "after_python" in audit["artifacts"]
+    assert "projection" not in audit["artifacts"]
+    assert "agent_edit_v2" not in audit.get("metadata", {})
+    assert "response_contract" not in json.dumps(audit)
+
+
+def test_flag_off_v2_delta_stage_order_and_prompt_unchanged_with_batch_repl_unset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIBECOMFY_AGENT_EDIT_BATCH_REPL is explicitly unset but
+    VIBECOMFY_AGENT_EDIT_V2=1, the v2 JSON-delta pipeline stage order,
+    provider prompt shape, ``response_contract=\"delta\"`` marker, and
+    response artifacts remain identical to the pre-batch-REPL codebase."""
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+    # BATCH_REPL off, V2 on — the flag-off invariant for the v2 path.
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", raising=False)
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_V2", "1")
+
+    def _fake_delta(messages):
+        prompt = messages[-1]["content"]
+        match = re.search(r'target=\[\"\",\s*\"([^\"]+)\"\].*class=\"SaveImage\"', prompt)
+        assert match is not None, "projection must contain a SaveImage target address"
+        return {
+            "delta": [
+                {
+                    "op": "set_node_field",
+                    "target": ["", match.group(1), "filename_prefix"],
+                    "value": "after",
+                }
+            ],
+            "message": "Set save prefix.",
+        }
+
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
+
+    stage_order: list[str] = []
+
+    def _capture_audit(audit_dir, **kwargs):
+        stage_order[:] = list((kwargs.get("stage_results") or {}).keys())
+        return real_write_audit(audit_dir, **kwargs)
+
+    monkeypatch.setattr(agent_edit_module, "write_audit", _capture_audit)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "flag-off-v2",
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_delta,
+        session_root=tmp_path,
+    )
+
+    # ── stage order ──────────────────────────────────────────────────
+    assert result["ok"] is True
+    assert stage_order == [
+        "ingest",
+        "project",
+        "agent_delta",
+        "apply_delta",
+        "queue_validate",
+        "summarize",
+        "audit",
+    ]
+    # Authoring / legacy stages must NOT appear in the v2 delta path.
+    assert {"convert", "agent", "load_python", "lower", "validate", "emit"}.isdisjoint(stage_order)
+
+    # ── provider prompt shape ─────────────────────────────────────────
+    request = json.loads(Path(result["artifacts"]["model_request"]).read_text(encoding="utf-8"))
+    assert request["response_contract"] == "delta"
+    system = request["messages"][0]["content"]
+    user = request["messages"][1]["content"]
+    assert "Return only JSON with keys `delta` and `message`." in system
+    assert "Return only JSON with keys `python` and `message`." not in system
+    assert "```batch" not in system
+    assert "batch" not in (system + user).lower()
+    assert "Address-preserving UI projection" in user
+
+    # ── response artifacts ────────────────────────────────────────────
+    assert "projection" in result["artifacts"]
+    assert Path(result["artifacts"]["projection"]).name == "projection.txt"
+    # Legacy-only artifacts must NOT leak into the v2 path.
+    assert "python" not in result["artifacts"]
+    assert "before_python" not in result["artifacts"]
+    assert "after_python" not in result["artifacts"]
+    # delta_ops must be present.
+    assert "delta_ops" in result
+    assert len(result["delta_ops"]) == 1
+    assert result["delta_ops"][0]["op"] == "set_node_field"
+    assert result["delta_ops"][0]["value"] == "after"
+
+    # ── audit shape ───────────────────────────────────────────────────
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert "projection" in audit["artifacts"]
+    assert "before_python" not in audit["artifacts"]
+    assert "after_python" not in audit["artifacts"]
+    assert audit["metadata"]["agent_edit_v2"]["enabled"] is True
+    assert audit["metadata"]["agent_edit_v2"]["op_count"] == 1
+    assert "batch_repl" not in json.dumps(audit)
+
+
+def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_diff_feedback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    captured_messages: list[list[dict[str, str]]] = []
+    session_stats = {"init": 0, "search_calls": []}
+
+    from vibecomfy.porting import edit_session as edit_session_module
+
+    real_edit_session = edit_session_module.EditSession
+
+    class _TrackingSession(real_edit_session):
+        def __init__(self, *args, **kwargs):
+            session_stats["init"] += 1
+            super().__init__(*args, **kwargs)
+
+        def search(self, *, formatted=False, **kwargs):
+            session_stats["search_calls"].append(formatted)
+            return super().search(formatted=formatted, **kwargs)
+
+    monkeypatch.setattr(edit_session_module, "EditSession", _TrackingSession)
+
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Applied the requested save-prefix change.",
+            },
+            {
+                "batch": 'saveimage.not_a_field = "bad"',
+                "message": "Tried a follow-up edit.",
+            },
+        ]
+    )
+
+    def _fake_batch_client(messages):
+        captured_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "batch-loop-core",
+            "max_batches": 4,
+            "max_consecutive_errors": 1,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.MODEL_MISTAKE.value,
+        stage="agent_batch",
+        audit_ref_expected=True,
+    )
+    assert session_stats["init"] == 1
+    assert session_stats["search_calls"] == [True]
+    assert len(captured_messages) == 2
+
+    turn0_system = captured_messages[0][0]["content"]
+    turn0_user = captured_messages[0][1]["content"]
+    assert "```batch" in turn0_system
+    assert "Current scratchpad Python (full render):" in turn0_user
+    assert "Available node signatures" in turn0_user
+    assert "Diff from previous render" not in turn0_user
+
+    turn1_user = captured_messages[1][1]["content"]
+    assert "Current scratchpad Python (full render):" not in turn1_user
+    assert "Diff from previous render:" in turn1_user
+    assert "Teaching report from previous turn:" in turn1_user
+    assert "filename_prefix='after'" in turn1_user
+    assert "✓ Statement 1: set_node_field" in turn1_user
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["metadata"]["batch_repl"]["enabled"] is True
+    assert audit["metadata"]["batch_repl"]["turn_count"] == 2
+    assert audit["metadata"]["batch_repl"]["budget_state"]["remaining_batches"] == 2
+    assert audit["metadata"]["batch_repl"]["budget_state"]["consecutive_errors"] == 1
+    request_turns = json.loads(
+        Path(audit["artifacts"]["model_request"]["path"]).read_text(encoding="utf-8")
+    )["turns"]
+    response_turns = json.loads(
+        Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
+    )["turns"]
+    assert len(request_turns) == 2
+    assert len(response_turns) == 2
+    assert response_turns[0]["batch_result"]["landed_op_count"] == 1
+    assert response_turns[1]["batch_result"]["batch_ok"] is False
+
+
+def test_batch_budget_failure_kind_prefers_schema_gap_then_unrepresentable_then_model_mistake() -> None:
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    assert (
+        agent_edit_module._batch_budget_failure_kind(
+            [
+                {
+                    "diagnostics": [
+                        {
+                            "code": "ambiguous_bare_reference",
+                            "message": "requires a schema-backed target socket type",
+                        }
+                    ],
+                    "statements": [],
+                },
+                {
+                    "diagnostics": [
+                        {
+                            "code": "unknown_target_field",
+                            "message": "unknown field",
+                        }
+                    ],
+                    "statements": [],
+                },
+            ]
+        )
+        == FailureKind.SCHEMA_GAP
+    )
+    assert (
+        agent_edit_module._batch_budget_failure_kind(
+            [
+                {
+                    "diagnostics": [
+                        {
+                            "code": "cross_scope_add_node_unsupported",
+                            "message": "cross-scope add-node unsupported",
+                        }
+                    ],
+                    "statements": [],
+                }
+            ]
+        )
+        == FailureKind.UNREPRESENTABLE
+    )
+    assert (
+        agent_edit_module._batch_budget_failure_kind(
+            [
+                {
+                    "diagnostics": [
+                        {
+                            "code": "unknown_target_field",
+                            "message": "unknown field",
+                        }
+                    ],
+                    "statements": [],
+                }
+            ]
+        )
+        == FailureKind.MODEL_MISTAKE
+    )
+
+
+def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_cause_and_budget_stop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _fake_batch_client(_messages):
+        return {
+            "batch": "\n".join(
+                [
+                    'saveimage.filename_prefix = "after"',
+                    'saveimage.not_a_field = "bad"',
+                    "extra = SaveImage(images=loadimage.image, relation='right_of')",
+                    "saveimage.images = extra.image",
+                ]
+            ),
+            "message": "Tried a mixed batch with a few follow-up edits.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix and wire an extra save node",
+            "session_id": "batch-partial-stop",
+            "max_batches": 4,
+            "max_consecutive_errors": 1,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.MODEL_MISTAKE.value,
+        stage="agent_batch",
+        audit_ref_expected=True,
+    )
+    issue = result["agent_failure_context"]["issues"][0]
+    assert issue["code"] == "batch_budget_exhausted"
+    assert issue["detail"]["turn_count"] == 1
+    assert issue["detail"]["budget_state"]["consecutive_errors"] == 1
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    batch_meta = audit["metadata"]["batch_repl"]
+    assert batch_meta["turn_count"] == 1
+    assert batch_meta["budget_state"]["remaining_batches"] == 3
+    assert batch_meta["budget_state"]["consecutive_errors"] == 1
+    assert batch_meta["exit_mode"] == ""
+    assert batch_meta["final_summary"] == "Stopped after 1 batch turn(s); 3 batch(es) remaining."
+    assert "Batch summary: 1 landed, 3 failed, 3 batch diagnostic(s), 3 batch(es) remaining, 1 consecutive error turn(s)." in batch_meta["feedback"]
+    assert "✓ Statement 1: set_node_field" in batch_meta["feedback"]
+    assert "✗ Statement 2: set_node_field" in batch_meta["feedback"]
+    assert "cause: Statement depends on graph name 'extra' whose add-node statement did not land." in batch_meta["feedback"]
+    assert "unknown_target_field: SaveImage has no editable field or input named 'not_a_field'." in batch_meta["feedback"]
+    assert "unbound_graph_name: Graph name 'extra' is currently unbound because its add-node statement did not land." in batch_meta["feedback"]
+
+    response_turns = json.loads(
+        Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
+    )["turns"]
+    turn0 = response_turns[0]["batch_result"]
+    assert turn0["batch_ok"] is False
+    assert turn0["landed_op_count"] == 1
+    assert turn0["statement_count"] == 4
+    assert len(turn0["diagnostics"]) == 3
+    assert turn0["report"] == batch_meta["feedback"]
+
+    statements = turn0["statements"]
+    assert [item["landed"] for item in statements] == [True, False, False, False]
+    assert statements[1]["diagnostics"][0]["code"] == "unknown_target_field"
+    assert statements[1]["diagnostics"][0]["teaching_hint"] == (
+        "Check the available field and input names. Use describe(name) to see the node's shape."
+    )
+    assert statements[2]["diagnostics"][0]["code"] == "anchor_target_missing"
+    assert statements[3]["diagnostics"][0]["code"] == "unbound_graph_name"
+    assert statements[3]["dependency_cause"] == (
+        "Statement depends on graph name 'extra' whose add-node statement did not land."
+    )
+    assert statements[3]["diagnostics"][0]["teaching_hint"] == (
+        "The add-node statement for this name did not land. Fix the node construction call or remove the dependent statement."
+    )
+
+
+def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {"LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")])}
+    )
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _fake_batch_client(_messages):
+        return {
+            "batch": 'clarify("before or after the face restoration?")',
+            "message": "I need one detail before continuing.",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "adjust the final save behavior",
+            "session_id": "batch-clarify",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["clarification_required"] is True
+    assert result["graph_unchanged"] is True
+    assert result["message"] == "before or after the face restoration?"
+    assert result["apply_allowed"] is False
+    assert result["queue_allowed"] is False
+    assert '"before"' in json.dumps(result["graph"], sort_keys=True)
+    assert '"after"' not in json.dumps(result["graph"], sort_keys=True)
+    assert "done_summary" not in result
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["metadata"]["batch_repl"]["exit_mode"] == "clarify"
+    assert audit["metadata"]["batch_repl"]["turn_count"] == 1
+
+
+def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Adjusted the save prefix.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready to commit the candidate.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after and finish",
+            "session_id": "batch-done",
+            "max_batches": 4,
+            "max_consecutive_errors": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["apply_allowed"] is True
+    assert result["queue_allowed"] is False
+    assert result["message"].endswith(result["done_summary"])
+    assert result["done_summary"].startswith("Gate A passed:")
+    assert "Gate B passed:" in result["done_summary"]
+    assert "Set saveimage.filename_prefix" in result["done_summary"]
+    assert "after" in result["done_summary"]
+    assert result["report"]["done_summary"] == result["done_summary"]
+
+    graph_text = json.dumps(result["graph"], sort_keys=True)
+    assert "after" in graph_text
+    assert "before" not in graph_text
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["metadata"]["batch_repl"]["exit_mode"] == "done"
+    assert audit["metadata"]["batch_repl"]["done_summary"] == result["done_summary"]
+
+
+def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_correct_graph(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": NodeSchema(
+                class_type="LoadImage",
+                pack=None,
+                inputs={"image": InputSpec("STRING")},
+                outputs=[OutputSpec("IMAGE", "image")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "PassThroughImage": NodeSchema(
+                class_type="PassThroughImage",
+                pack=None,
+                inputs={"image": InputSpec("IMAGE", required=True)},
+                outputs=[OutputSpec("IMAGE", "IMAGE")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    wf = VibeWorkflow("batch-transcript", WorkflowSource("batch-transcript"))
+    wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    wf.nodes["2"] = VibeNode("2", "PassThroughImage")
+    wf.nodes["3"] = VibeNode("3", "SaveImage", inputs={"filename_prefix": "before"})
+    wf.connect("1.0", "2.image")
+    wf.connect("2.0", "3.images")
+    graph = emit_ui_json(wf, schema_provider=provider)
+
+    captured_messages: list[list[dict[str, str]]] = []
+    scripted_turns = iter(
+        [
+            {
+                "batch": "saveimage.images = loadimage.image",
+                "message": "Bypassed the passthrough output.",
+            },
+            {
+                "batch": 'saveimage.not_a_field = "bad"',
+                "message": "Tried to finish the rename.",
+            },
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Corrected the field name and updated the prefix.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready to commit the candidate.",
+            },
+        ]
+    )
+
+    def _fake_batch_client(messages: list[dict[str, str]]) -> dict[str, str]:
+        captured_messages.append(messages)
+        return next(scripted_turns)
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "task": "bypass the passthrough and rename the final save output",
+            "session_id": "batch-transcript",
+            "max_batches": 5,
+            "max_consecutive_errors": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["apply_allowed"] is True
+    assert result["queue_allowed"] is False
+    assert result["done_summary"].startswith("Gate A passed:")
+    assert "Rewired saveimage.images" in result["done_summary"]
+    assert "Set saveimage.filename_prefix" in result["done_summary"]
+    assert len(captured_messages) == 4
+    assert "Teaching report from previous turn:" in captured_messages[2][1]["content"]
+    assert "unknown_target_field: SaveImage has no editable field or input named 'not_a_field'." in captured_messages[2][1]["content"]
+
+    final_graph = result["graph"]
+    nodes_by_id = {str(node["id"]): node for node in final_graph["nodes"]}
+    assert [nodes_by_id[node_id]["type"] for node_id in sorted(nodes_by_id)] == [
+        "LoadImage",
+        "PassThroughImage",
+        "SaveImage",
+    ]
+
+    save_node = nodes_by_id["3"]
+    assert save_node["widgets_values"] == ["after"]
+    save_input = next(
+        item for item in save_node["inputs"] if item.get("name") == "images"
+    )
+    passthrough_input = next(
+        item for item in nodes_by_id["2"]["inputs"] if item.get("name") == "image"
+    )
+    link_rows = {
+        (
+            int(link[1]),
+            int(link[2]),
+            int(link[3]),
+            int(link[4]),
+        ): link
+        for link in final_graph["links"]
+    }
+    assert (1, 0, 2, 0) in link_rows
+    assert (1, 0, 3, 0) in link_rows
+    assert (2, 0, 3, 0) not in link_rows
+    assert passthrough_input["link"] == link_rows[(1, 0, 2, 0)][0]
+    assert save_input["link"] == link_rows[(1, 0, 3, 0)][0]
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["metadata"]["batch_repl"]["turn_count"] == 4
+    assert audit["metadata"]["batch_repl"]["exit_mode"] == "done"
+    response_turns = json.loads(
+        Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
+    )["turns"]
+    assert [turn["response"]["batch"] for turn in response_turns] == [
+        "saveimage.images = loadimage.image",
+        'saveimage.not_a_field = "bad"',
+        'saveimage.filename_prefix = "after"',
+        "done()",
+    ]
+    assert response_turns[1]["batch_result"]["batch_ok"] is False
+    assert response_turns[2]["batch_result"]["batch_ok"] is True
 
 
 def test_handle_agent_edit_validates_lowered_copy_after_load_python(

@@ -50,6 +50,11 @@ class FailureKind(str, Enum):
     EDITOR_ONLY_NODE_QUEUE_BLOCKER = "EditorOnlyNodeQueueBlocker"
     AUDIT_WRITE_WARNING = "AuditWriteWarning"
     AUDIT_WRITE_FAILURE = "AuditWriteFailure"
+    BATCH_BUDGET_EXHAUSTED = "BatchBudgetExhausted"
+    CLARIFICATION_REQUIRED = "ClarificationRequired"
+    MODEL_MISTAKE = "ModelMistake"
+    UNREPRESENTABLE = "Unrepresentable"
+    SCHEMA_GAP = "SchemaGap"
 
 
 SCAN_CODE_FAILURE_KIND: Mapping[str, FailureKind] = MappingProxyType(
@@ -247,6 +252,50 @@ FAILURE_SPECS: Mapping[FailureKind, FailureSpec] = MappingProxyType(
             graph_unchanged=True,
             user_facing_message=(
                 "The audit file could not be written and the turn was aborted. "
+                "The graph is unchanged."
+            ),
+        ),
+        FailureKind.BATCH_BUDGET_EXHAUSTED: FailureSpec(
+            retryable=False,
+            next_action="manual intervention or resubmit with narrower scope",
+            graph_unchanged=True,
+            user_facing_message=(
+                "The agent used its budget of batch edit turns without completing "
+                "the task. Try a narrower scope or manual edits."
+            ),
+        ),
+        FailureKind.CLARIFICATION_REQUIRED: FailureSpec(
+            retryable=False,
+            next_action="answer the agent's question and resubmit",
+            graph_unchanged=True,
+            user_facing_message=(
+                "The agent needs clarification before it can continue."
+            ),
+        ),
+        FailureKind.MODEL_MISTAKE: FailureSpec(
+            retryable=True,
+            next_action="retry or restate the request more concretely",
+            graph_unchanged=True,
+            user_facing_message=(
+                "The agent exhausted its batch budget on fixable edit mistakes. "
+                "The graph is unchanged."
+            ),
+        ),
+        FailureKind.UNREPRESENTABLE: FailureSpec(
+            retryable=False,
+            next_action="reformulate the request as a supported static graph edit",
+            graph_unchanged=True,
+            user_facing_message=(
+                "The request could not be represented in the supported edit surface. "
+                "The graph is unchanged."
+            ),
+        ),
+        FailureKind.SCHEMA_GAP: FailureSpec(
+            retryable=False,
+            next_action="add the missing schema coverage or inspect the graph manually",
+            graph_unchanged=True,
+            user_facing_message=(
+                "The agent exhausted its budget because required schema information is missing. "
                 "The graph is unchanged."
             ),
         ),

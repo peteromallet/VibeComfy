@@ -68,6 +68,24 @@ class AgentTurnResult:
 
 
 @dataclass(frozen=True)
+class BatchTurnResult:
+    batch: str
+    message: str
+    route: str
+    model: str | None = None
+    audit_metadata: Mapping[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "batch": self.batch,
+            "message": self.message,
+            "route": self.route,
+            "model": self.model,
+            "audit_metadata": dict(self.audit_metadata or {}),
+        }
+
+
+@dataclass(frozen=True)
 class AgentRouteDescriptor:
     requested_route: str
     normalized_route: str
@@ -100,6 +118,103 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise MalformedModelJSON("Agent response must be a JSON object.")
     return parsed
+
+
+_BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
+
+
+def extract_batch_fence(text: str) -> tuple[str, str]:
+    """Extract exactly one ```batch fenced block from a model response.
+
+    Returns ``(batch_code, prose)`` where *batch_code* is the code inside the
+    fence and *prose* is all text outside it (the agent's user-facing message).
+
+    Raises :class:`MalformedModelJSON` when zero or multiple batch fences are
+    found — the fence is the single stripping seam.
+    """
+    matches = _BATCH_FENCE_RE.findall(text)
+    if len(matches) == 0:
+        raise MalformedModelJSON(
+            "Agent response does not contain a ```batch fenced block. "
+            "Include exactly one ```batch code block with your edit statements."
+        )
+    if len(matches) > 1:
+        raise MalformedModelJSON(
+            "Agent response contains multiple ```batch fenced blocks. "
+            "Include exactly one ```batch code block per turn."
+        )
+    batch_code = matches[0].strip()
+    # Extract prose: everything outside the fence, with the fence text removed.
+    prose = _BATCH_FENCE_RE.sub("", text).strip()
+    return batch_code, prose
+
+
+def build_batch_messages(
+    *,
+    task: str,
+    turn_number: int = 0,
+    python_source: str = "",
+    signature_catalog: str = "",
+    diff: str = "",
+    report: str = "",
+    budget_remaining: int = 12,
+    max_batches: int = 12,
+) -> list[dict[str, str]]:
+    """Build messages for the batch-REPL wire protocol.
+
+    Turn 0 includes the full Python render, typed signature catalog, and budget.
+    Later turns include only the diff, structured teaching report, remaining
+    budget, and task — no full Python re-dump.
+
+    The system prompt describes prose + a single ```batch fenced block with
+    ``done()`` and ``clarify(\"...\")`` as in-batch calls.  It does **not**
+    mention JSON delta response requirements.
+    """
+    system = (
+        "You edit a VibeComfy ComfyUI canvas through batch edit statements.\n"
+        "Return prose (your explanation to the user) and exactly one ```batch "
+        "fenced code block containing your edit statements.\n\n"
+        "Batch statement grammar:\n"
+        "- Statements are Python-like calls: add_node(...), set_node_field(...), "
+        "remove_node(...), upsert_link(...), remove_link(...), set_mode(...), "
+        "reorder(...).\n"
+        "- Use `done()` to commit the edit session after your final batch.\n"
+        "- Use `clarify(\"...\")` to ask the user a question; the turn ends "
+        "without applying changes.\n"
+        "- Return ONLY prose + one ```batch block.  Do NOT return JSON.\n"
+        "- Do not use markdown fences other than the ```batch block.\n"
+        "- Prefer minimal, targeted edits.  One batch per turn.\n"
+        f"Budget: {budget_remaining} batch(es) remaining out of {max_batches}."
+    )
+    if turn_number == 0:
+        catalog_block = ""
+        if signature_catalog:
+            catalog_block = (
+                "\n\nAvailable node signatures (typed catalog):\n"
+                f"```\n{signature_catalog}\n```"
+            )
+        user = (
+            f"User request:\n{task}\n\n"
+            "Current scratchpad Python (full render):\n"
+            "```python\n"
+            f"{python_source}\n"
+            "```"
+            f"{catalog_block}"
+        )
+    else:
+        diff_block = ""
+        if diff:
+            diff_block = f"\n\nDiff from previous render:\n```diff\n{diff}\n```"
+        report_block = ""
+        if report:
+            report_block = f"\n\nTeaching report from previous turn:\n{report}"
+        user = (
+            f"User request:\n{task}\n"
+            f"{diff_block}"
+            f"{report_block}"
+            f"\n\nBudget: {budget_remaining} batch(es) remaining out of {max_batches}."
+        )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 def build_messages(*, task: str, python_source: str) -> list[dict[str, str]]:
@@ -484,6 +599,153 @@ def run_agent_turn_delta(
         raise MalformedModelJSON(str(exc)) from exc
 
 
+def _normalize_batch_response(
+    response: Any,
+    *,
+    route: str,
+    model: str | None,
+    audit_metadata: Mapping[str, Any] | None = None,
+) -> BatchTurnResult:
+    """Normalize a raw runtime response into a :class:`BatchTurnResult`.
+
+    Extracts the ```batch fenced block and surrounding prose via
+    :func:`extract_batch_fence`.  The runtime may return a string (the raw
+    model response) or a mapping with a ``content`` key.
+    """
+    if isinstance(response, BatchTurnResult):
+        return response
+    if isinstance(response, str):
+        text = response
+    elif isinstance(response, Mapping):
+        payload = dict(response)
+        content = payload.get("content")
+        if isinstance(content, str) and "batch" not in payload:
+            text = content
+        elif isinstance(payload.get("batch"), str):
+            batch_code = payload["batch"]
+            message = payload.get("message", "")
+            if not isinstance(message, str):
+                message = ""
+            return BatchTurnResult(
+                batch=batch_code,
+                message=message,
+                route=route,
+                model=model,
+                audit_metadata=audit_metadata or {},
+            )
+        else:
+            text = str(response)
+    else:
+        raise MalformedModelJSON("Agent response must be a string or object.")
+    batch_code, prose = extract_batch_fence(text)
+    return BatchTurnResult(
+        batch=batch_code,
+        message=prose,
+        route=route,
+        model=model,
+        audit_metadata=audit_metadata or {},
+    )
+
+
+def _call_batch_runtime(
+    runtime: Any,
+    *,
+    task: str,
+    messages: list[dict[str, str]],
+    route: str,
+    model: str | None,
+) -> Any:
+    """Call the Arnold/Hermes runtime for a batch-REPL turn."""
+    if hasattr(runtime, "run_agent_turn_batch"):
+        return runtime.run_agent_turn_batch(
+            task=task,
+            route=route,
+            model=model,
+            messages=messages,
+        )
+    if hasattr(runtime, "run_agent_turn"):
+        return runtime.run_agent_turn(
+            task=task,
+            python_source="",
+            route=route,
+            model=model,
+            messages=messages,
+        )
+    if hasattr(runtime, "run"):
+        return runtime.run(
+            task=task,
+            route=route,
+            model=model,
+            messages=messages,
+            response_contract="batch_repl",
+        )
+    raise ProviderError(
+        "Arnold/Hermes runtime does not expose run_agent_turn_batch, "
+        "run_agent_turn, or run."
+    )
+
+
+def run_agent_turn_batch(
+    task: str,
+    messages: list[dict[str, str]],
+    *,
+    route: str | None = None,
+    model: str | None = None,
+) -> BatchTurnResult:
+    """Run a single batch-REPL turn through the Arnold/Hermes provider.
+
+    Sends *messages* (built by :func:`build_batch_messages`) to the model
+    and normalizes the response through :func:`extract_batch_fence` instead
+    of JSON parsing.  Returns a :class:`BatchTurnResult` with the fenced
+    batch code and surrounding prose.
+
+    Parameters
+    ----------
+    task:
+        The user's natural-language edit request.
+    messages:
+        Pre-built chat messages from :func:`build_batch_messages`.
+    route:
+        Optional provider route name.  Resolved via :func:`_resolve_agent_route`.
+    model:
+        Optional model identifier.  Falls back to ``VIBECOMFY_AGENT_MODEL``.
+    """
+    route_descriptor = _resolve_agent_route(route)
+    selected_route = route_descriptor.normalized_route
+    selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
+    runtime = _load_arnold_runtime()
+    audit_metadata: dict[str, Any] = {
+        "provider": "arnold",
+        "requested_route": route_descriptor.requested_route,
+        "route_metadata": route_descriptor.to_dict(),
+        "legacy_deepseek_fallback_enabled": False,
+        "credential_presence": _credential_presence(),
+        "response_contract": "batch_repl",
+    }
+    try:
+        response = _call_batch_runtime(
+            runtime,
+            task=task,
+            messages=messages,
+            route=selected_route,
+            model=selected_model,
+        )
+    except PermissionError as exc:
+        raise AuthError(str(exc)) from exc
+    except TimeoutError:
+        raise
+    except (ProviderError, MalformedModelJSON, MissingRequiredField):
+        raise
+    except Exception as exc:
+        raise ProviderError(str(exc)) from exc
+    return _normalize_batch_response(
+        response,
+        route=selected_route,
+        model=selected_model,
+        audit_metadata=audit_metadata,
+    )
+
+
 def get_agent_status(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
     route_descriptor = _resolve_agent_route(route)
     selected_route = route_descriptor.normalized_route
@@ -611,14 +873,18 @@ def handle_credential_submission(
 __all__ = [
     "AgentTurnResult",
     "AuthError",
+    "BatchTurnResult",
     "MalformedModelJSON",
     "MissingRequiredField",
     "ProviderError",
     "_load_arnold_runtime",
+    "build_batch_messages",
     "build_delta_messages",
     "build_messages",
+    "extract_batch_fence",
     "get_agent_status",
     "handle_credential_submission",
+    "run_agent_turn_batch",
     "run_agent_turn_delta",
     "run_agent_turn",
     "save_deepseek_api_key",
