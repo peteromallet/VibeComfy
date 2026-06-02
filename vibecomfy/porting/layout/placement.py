@@ -7,9 +7,11 @@ geometric search.  All returned coords pass through ``_canonicalize_coord``.
 
 from __future__ import annotations
 
+import ast
 import logging
 import math
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable, Literal, Mapping
 
 from vibecomfy.porting.ui_emitter import _canonicalize_coord
 
@@ -40,6 +42,89 @@ _DIRECTIONS: tuple[tuple[float, float], ...] = (
     (-1,  0),  # W
     (-1, -1),  # NW
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BatchGraphRef:
+    name: str
+    slot_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BatchRewirePlan:
+    source_name: str
+    target_name: str
+    target_field: str
+
+
+@dataclass(frozen=True, slots=True)
+class InferredAnchorHint:
+    relation: Literal["right_of", "between"]
+    near_name: str | None = None
+    between_names: tuple[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BatchAddNodePlan:
+    target_name: str
+    class_type: str
+    explicit_anchor: bool
+    input_refs: tuple[BatchGraphRef, ...]
+    statement_order: int
+
+
+@dataclass(frozen=True, slots=True)
+class BatchPlacementFacts:
+    cluster_hints: Mapping[str, InferredAnchorHint]
+    rewires_by_source: Mapping[str, tuple[BatchRewirePlan, ...]]
+
+
+def build_batch_placement_facts(
+    statements: tuple[Any, ...],
+    *,
+    graph_name_exists: Callable[[str], bool],
+    estimate_add_node_width: Callable[[str], int],
+) -> BatchPlacementFacts:
+    """Infer batch-local placement facts from edit-surface statements."""
+    add_plans: list[BatchAddNodePlan] = []
+    rewires_by_source: dict[str, list[BatchRewirePlan]] = {}
+    for order, item in enumerate(statements):
+        statement = getattr(item, "node", item)
+        add_plan = _extract_batch_add_node_plan(statement, statement_order=order)
+        if add_plan is not None:
+            add_plans.append(add_plan)
+        rewire = _extract_batch_rewire_plan(statement)
+        if rewire is not None:
+            rewires_by_source.setdefault(rewire.source_name, []).append(rewire)
+    return BatchPlacementFacts(
+        cluster_hints=_infer_cluster_anchor_hints(
+            add_plans,
+            graph_name_exists=graph_name_exists,
+            estimate_add_node_width=estimate_add_node_width,
+        ),
+        rewires_by_source={key: tuple(value) for key, value in rewires_by_source.items()},
+    )
+
+
+def infer_add_node_anchor_hint(
+    *,
+    target_name: str,
+    resolved_inputs: Mapping[str, Any],
+    placement_facts: BatchPlacementFacts,
+    current_input_source_ref: Callable[[str, str], Any | None],
+    uid_to_name: Mapping[str, str],
+) -> InferredAnchorHint | None:
+    """Infer the anchor hint for a newly added node in a batch."""
+    splice_anchor = _infer_splice_anchor_hint(
+        target_name=target_name,
+        resolved_inputs=resolved_inputs,
+        rewires=placement_facts.rewires_by_source.get(target_name, ()),
+        current_input_source_ref=current_input_source_ref,
+        uid_to_name=uid_to_name,
+    )
+    if splice_anchor is not None:
+        return splice_anchor
+    return placement_facts.cluster_hints.get(target_name)
 
 
 def place_constrained(
@@ -139,3 +224,192 @@ def place_constrained(
         new_uid,
     )
     return _canonicalize_coord(fallback_x), _canonicalize_coord(fallback_y)
+
+
+def _infer_cluster_anchor_hints(
+    add_plans: list[BatchAddNodePlan],
+    *,
+    graph_name_exists: Callable[[str], bool],
+    estimate_add_node_width: Callable[[str], int],
+) -> dict[str, InferredAnchorHint]:
+    if len(add_plans) < 2:
+        return {}
+    add_by_name = {plan.target_name: plan for plan in add_plans}
+    statement_order = {plan.target_name: plan.statement_order for plan in add_plans}
+    widths = {plan.target_name: estimate_add_node_width(plan.class_type) for plan in add_plans}
+    deps: dict[str, set[str]] = {plan.target_name: set() for plan in add_plans}
+    external_refs: dict[str, list[BatchGraphRef]] = {plan.target_name: [] for plan in add_plans}
+    adjacency: dict[str, set[str]] = {plan.target_name: set() for plan in add_plans}
+    for plan in add_plans:
+        for ref in plan.input_refs:
+            if ref.name in add_by_name:
+                deps[plan.target_name].add(ref.name)
+                adjacency[plan.target_name].add(ref.name)
+                adjacency[ref.name].add(plan.target_name)
+            elif graph_name_exists(ref.name):
+                external_refs[plan.target_name].append(ref)
+
+    hints: dict[str, InferredAnchorHint] = {}
+    seen: set[str] = set()
+    for plan in sorted(add_plans, key=lambda item: item.statement_order):
+        if plan.target_name in seen:
+            continue
+        stack = [plan.target_name]
+        component: set[str] = set()
+        while stack:
+            current = stack.pop()
+            if current in component:
+                continue
+            component.add(current)
+            stack.extend(adjacency[current] - component)
+        seen.update(component)
+        if len(component) < 2:
+            continue
+        ordered = _toposort_component(component, deps, statement_order)
+        if not ordered:
+            continue
+        cluster_anchor_name = _first_external_anchor_name(ordered, external_refs)
+        lane_weight: dict[str, int] = {}
+        for index, name in enumerate(ordered):
+            predecessors = [dep for dep in deps[name] if dep in component]
+            if predecessors:
+                predecessor = max(
+                    predecessors,
+                    key=lambda dep: (lane_weight.get(dep, 0) + widths.get(dep, 0), -statement_order[dep]),
+                )
+                lane_weight[name] = lane_weight.get(predecessor, 0) + widths.get(predecessor, 0)
+                if not add_by_name[name].explicit_anchor:
+                    hints[name] = InferredAnchorHint(relation="right_of", near_name=predecessor)
+                continue
+            lane_weight[name] = 0
+            if add_by_name[name].explicit_anchor:
+                continue
+            if cluster_anchor_name is not None:
+                hints[name] = InferredAnchorHint(relation="right_of", near_name=cluster_anchor_name)
+            elif index > 0:
+                hints[name] = InferredAnchorHint(relation="right_of", near_name=ordered[index - 1])
+    return hints
+
+
+def _toposort_component(
+    component: set[str],
+    deps: Mapping[str, set[str]],
+    statement_order: Mapping[str, int],
+) -> list[str]:
+    remaining = {name: set(dep for dep in deps[name] if dep in component) for name in component}
+    ready = sorted([name for name, dep_set in remaining.items() if not dep_set], key=lambda name: statement_order[name])
+    ordered: list[str] = []
+    while ready:
+        current = ready.pop(0)
+        ordered.append(current)
+        for candidate in sorted(component, key=lambda name: statement_order[name]):
+            if current not in remaining[candidate]:
+                continue
+            remaining[candidate].remove(current)
+            if not remaining[candidate]:
+                if candidate not in ordered and candidate not in ready:
+                    ready.append(candidate)
+                    ready.sort(key=lambda name: statement_order[name])
+    if len(ordered) != len(component):
+        return sorted(component, key=lambda name: statement_order[name])
+    return ordered
+
+
+def _first_external_anchor_name(
+    ordered: list[str],
+    external_refs: Mapping[str, list[BatchGraphRef]],
+) -> str | None:
+    for name in ordered:
+        refs = external_refs.get(name) or []
+        if refs:
+            return refs[0].name
+    return None
+
+
+def _infer_splice_anchor_hint(
+    *,
+    target_name: str,
+    resolved_inputs: Mapping[str, Any],
+    rewires: tuple[BatchRewirePlan, ...],
+    current_input_source_ref: Callable[[str, str], Any | None],
+    uid_to_name: Mapping[str, str],
+) -> InferredAnchorHint | None:
+    if not resolved_inputs or not rewires:
+        return None
+    for rewire in rewires:
+        current_source = current_input_source_ref(rewire.target_name, rewire.target_field)
+        if current_source is None:
+            continue
+        for source_ref in resolved_inputs.values():
+            if source_ref.scope_path != current_source.scope_path or source_ref.uid != current_source.uid:
+                continue
+            if not _source_slots_match(source_ref.output_slot, current_source.output_slot):
+                continue
+            return InferredAnchorHint(
+                relation="between",
+                between_names=(uid_to_name.get(current_source.uid, current_source.uid), rewire.target_name),
+            )
+    return None
+
+
+def _source_slots_match(expected: str | int, actual: str | int) -> bool:
+    return expected == actual or str(expected) == str(actual)
+
+
+def _extract_batch_add_node_plan(
+    statement: ast.stmt,
+    *,
+    statement_order: int,
+) -> BatchAddNodePlan | None:
+    if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+        return None
+    target = statement.targets[0]
+    value = statement.value
+    if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
+        return None
+    func = value.func
+    if not isinstance(func, ast.Name):
+        return None
+    input_refs: list[BatchGraphRef] = []
+    explicit_anchor = False
+    for keyword in value.keywords:
+        if keyword.arg is None:
+            continue
+        if keyword.arg in {"near", "relation", "group"}:
+            explicit_anchor = True
+            continue
+        ref = _graph_ref_from_expr(keyword.value)
+        if ref is not None:
+            input_refs.append(ref)
+    return BatchAddNodePlan(
+        target_name=target.id,
+        class_type=func.id,
+        explicit_anchor=explicit_anchor,
+        input_refs=tuple(input_refs),
+        statement_order=statement_order,
+    )
+
+
+def _extract_batch_rewire_plan(statement: ast.stmt) -> BatchRewirePlan | None:
+    if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+        return None
+    target = statement.targets[0]
+    value = statement.value
+    if not isinstance(target, ast.Attribute) or not isinstance(target.value, ast.Name):
+        return None
+    ref = _graph_ref_from_expr(value)
+    if ref is None:
+        return None
+    return BatchRewirePlan(
+        source_name=ref.name,
+        target_name=target.value.id,
+        target_field=target.attr,
+    )
+
+
+def _graph_ref_from_expr(node: ast.expr) -> BatchGraphRef | None:
+    if isinstance(node, ast.Name):
+        return BatchGraphRef(name=node.id)
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        return BatchGraphRef(name=node.value.id, slot_name=node.attr)
+    return None

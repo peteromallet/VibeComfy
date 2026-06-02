@@ -5,7 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from vibecomfy.porting.edit_apply import apply_delta
 from vibecomfy.porting.edit_ledger import EditLedger
@@ -25,6 +25,12 @@ from vibecomfy.porting.edit_ops import (
 )
 from vibecomfy.porting.emitter import EmissionDiagnostic, emit_agent_edit_python
 from vibecomfy.porting.edit_projection import HELPER_NODE_TYPES, MODE_LABELS
+from vibecomfy.porting.layout.placement import (
+    BatchPlacementFacts,
+    InferredAnchorHint,
+    build_batch_placement_facts,
+    infer_add_node_anchor_hint,
+)
 from vibecomfy.porting.slot_codec import to_raw_name
 from vibecomfy.schema import get_schema_provider, schema_for, socket_types_compatible
 
@@ -128,41 +134,6 @@ class _ResolvedAddNodeCall:
     fields: Mapping[str, Any]
     inputs: Mapping[str, LinkSourceRef]
     anchor: AnchorRef | None
-
-
-@dataclass(frozen=True, slots=True)
-class _BatchGraphRef:
-    name: str
-    slot_name: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _BatchRewirePlan:
-    source_name: str
-    target_name: str
-    target_field: str
-
-
-@dataclass(frozen=True, slots=True)
-class _InferredAnchorHint:
-    relation: Literal["right_of", "between"]
-    near_name: str | None = None
-    between_names: tuple[str, str] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _BatchAddNodePlan:
-    target_name: str
-    class_type: str
-    explicit_anchor: bool
-    input_refs: tuple[_BatchGraphRef, ...]
-    statement_order: int
-
-
-@dataclass(frozen=True, slots=True)
-class _BatchPlacementFacts:
-    cluster_hints: Mapping[str, _InferredAnchorHint]
-    rewires_by_source: Mapping[str, tuple[_BatchRewirePlan, ...]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,7 +332,11 @@ class EditSession:
                 statements=parsed.statements,
                 diagnostics=parsed.diagnostics,
             )
-        placement_facts = self._build_batch_placement_facts(parsed.expanded)
+        placement_facts = build_batch_placement_facts(
+            parsed.expanded,
+            graph_name_exists=self._graph_name_exists,
+            estimate_add_node_width=self._estimate_add_node_width,
+        )
         statement_results, landed_ops, diagnostics = self._execute_statements(
             parsed.expanded,
             placement_facts=placement_facts,
@@ -1213,7 +1188,7 @@ class EditSession:
         self,
         statements: tuple["_ExpandedStatement", ...],
         *,
-        placement_facts: _BatchPlacementFacts,
+        placement_facts: BatchPlacementFacts,
     ) -> tuple[tuple[StatementResult, ...], tuple[EditOp, ...], tuple[CompactDiagnostic, ...]]:
         executed: list[StatementResult] = []
         landed_ops: list[EditOp] = []
@@ -1335,7 +1310,7 @@ class EditSession:
         self,
         item: "_ExpandedStatement",
         *,
-        placement_facts: _BatchPlacementFacts,
+        placement_facts: BatchPlacementFacts,
     ) -> StatementResult:
         statement = item.node
         source = item.source
@@ -1624,7 +1599,7 @@ class EditSession:
         target_name: str,
         value: ast.expr,
         env: Mapping[str, Any],
-        placement_facts: _BatchPlacementFacts,
+        placement_facts: BatchPlacementFacts,
     ) -> StatementResult:
         if target_name.startswith("__"):
             return StatementResult(
@@ -1689,7 +1664,7 @@ class EditSession:
         call: ast.Call,
         *,
         env: Mapping[str, Any],
-        placement_facts: _BatchPlacementFacts,
+        placement_facts: BatchPlacementFacts,
     ) -> tuple[_ResolvedAddNodeCall | None, list[CompactDiagnostic]]:
         func = call.func
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "vibecomfy":
@@ -1859,121 +1834,6 @@ class EditSession:
             detail=dict(getattr(issue, "detail", {}) or {}),
         )
 
-    def _build_batch_placement_facts(
-        self,
-        statements: tuple["_ExpandedStatement", ...],
-    ) -> _BatchPlacementFacts:
-        add_plans: list[_BatchAddNodePlan] = []
-        rewires_by_source: dict[str, list[_BatchRewirePlan]] = {}
-        for order, item in enumerate(statements):
-            add_plan = _extract_batch_add_node_plan(item.node, statement_order=order)
-            if add_plan is not None:
-                add_plans.append(add_plan)
-            rewire = _extract_batch_rewire_plan(item.node)
-            if rewire is not None:
-                rewires_by_source.setdefault(rewire.source_name, []).append(rewire)
-        return _BatchPlacementFacts(
-            cluster_hints=self._infer_cluster_anchor_hints(add_plans),
-            rewires_by_source={key: tuple(value) for key, value in rewires_by_source.items()},
-        )
-
-    def _infer_cluster_anchor_hints(
-        self,
-        add_plans: list[_BatchAddNodePlan],
-    ) -> dict[str, _InferredAnchorHint]:
-        if len(add_plans) < 2:
-            return {}
-        add_by_name = {plan.target_name: plan for plan in add_plans}
-        statement_order = {plan.target_name: plan.statement_order for plan in add_plans}
-        widths = {plan.target_name: self._estimate_add_node_width(plan.class_type) for plan in add_plans}
-        deps: dict[str, set[str]] = {plan.target_name: set() for plan in add_plans}
-        external_refs: dict[str, list[_BatchGraphRef]] = {plan.target_name: [] for plan in add_plans}
-        adjacency: dict[str, set[str]] = {plan.target_name: set() for plan in add_plans}
-        for plan in add_plans:
-            for ref in plan.input_refs:
-                if ref.name in add_by_name:
-                    deps[plan.target_name].add(ref.name)
-                    adjacency[plan.target_name].add(ref.name)
-                    adjacency[ref.name].add(plan.target_name)
-                elif self._graph_name_exists(ref.name):
-                    external_refs[plan.target_name].append(ref)
-
-        hints: dict[str, _InferredAnchorHint] = {}
-        seen: set[str] = set()
-        for plan in sorted(add_plans, key=lambda item: item.statement_order):
-            if plan.target_name in seen:
-                continue
-            stack = [plan.target_name]
-            component: set[str] = set()
-            while stack:
-                current = stack.pop()
-                if current in component:
-                    continue
-                component.add(current)
-                stack.extend(adjacency[current] - component)
-            seen.update(component)
-            if len(component) < 2:
-                continue
-            ordered = self._toposort_component(component, deps, statement_order)
-            if not ordered:
-                continue
-            cluster_anchor_name = self._first_external_anchor_name(ordered, external_refs)
-            lane_weight: dict[str, int] = {}
-            for index, name in enumerate(ordered):
-                predecessors = [dep for dep in deps[name] if dep in component]
-                if predecessors:
-                    predecessor = max(
-                        predecessors,
-                        key=lambda dep: (lane_weight.get(dep, 0) + widths.get(dep, 0), -statement_order[dep]),
-                    )
-                    lane_weight[name] = lane_weight.get(predecessor, 0) + widths.get(predecessor, 0)
-                    if not add_by_name[name].explicit_anchor:
-                        hints[name] = _InferredAnchorHint(relation="right_of", near_name=predecessor)
-                    continue
-                lane_weight[name] = 0
-                if add_by_name[name].explicit_anchor:
-                    continue
-                if cluster_anchor_name is not None:
-                    hints[name] = _InferredAnchorHint(relation="right_of", near_name=cluster_anchor_name)
-                elif index > 0:
-                    hints[name] = _InferredAnchorHint(relation="right_of", near_name=ordered[index - 1])
-        return hints
-
-    @staticmethod
-    def _toposort_component(
-        component: set[str],
-        deps: Mapping[str, set[str]],
-        statement_order: Mapping[str, int],
-    ) -> list[str]:
-        remaining = {name: set(dep for dep in deps[name] if dep in component) for name in component}
-        ready = sorted([name for name, dep_set in remaining.items() if not dep_set], key=lambda name: statement_order[name])
-        ordered: list[str] = []
-        while ready:
-            current = ready.pop(0)
-            ordered.append(current)
-            for candidate in sorted(component, key=lambda name: statement_order[name]):
-                if current not in remaining[candidate]:
-                    continue
-                remaining[candidate].remove(current)
-                if not remaining[candidate]:
-                    if candidate not in ordered and candidate not in ready:
-                        ready.append(candidate)
-                        ready.sort(key=lambda name: statement_order[name])
-        if len(ordered) != len(component):
-            return sorted(component, key=lambda name: statement_order[name])
-        return ordered
-
-    @staticmethod
-    def _first_external_anchor_name(
-        ordered: list[str],
-        external_refs: Mapping[str, list[_BatchGraphRef]],
-    ) -> str | None:
-        for name in ordered:
-            refs = external_refs.get(name) or []
-            if refs:
-                return refs[0].name
-        return None
-
     def _estimate_add_node_width(self, class_type: str) -> int:
         from vibecomfy.porting.layout.sizing import estimate_node_size
         from vibecomfy.workflow import VibeNode
@@ -1987,58 +1847,24 @@ class EditSession:
         target_name: str,
         scope_path: str,
         resolved_inputs: Mapping[str, LinkSourceRef],
-        placement_facts: _BatchPlacementFacts,
+        placement_facts: BatchPlacementFacts,
     ) -> AnchorRef | None:
-        splice_anchor = self._infer_splice_anchor(
+        hint = infer_add_node_anchor_hint(
             target_name=target_name,
-            scope_path=scope_path,
             resolved_inputs=resolved_inputs,
-            rewires=placement_facts.rewires_by_source.get(target_name, ()),
+            placement_facts=placement_facts,
+            current_input_source_ref=self._current_input_source_ref,
+            uid_to_name=self.name_by_uid,
         )
-        if splice_anchor is not None:
-            return splice_anchor
-        cluster_hint = placement_facts.cluster_hints.get(target_name)
-        if cluster_hint is not None:
-            return self._materialize_inferred_anchor(scope_path=scope_path, hint=cluster_hint)
-        return None
-
-    def _infer_splice_anchor(
-        self,
-        *,
-        target_name: str,
-        scope_path: str,
-        resolved_inputs: Mapping[str, LinkSourceRef],
-        rewires: tuple[_BatchRewirePlan, ...],
-    ) -> AnchorRef | None:
-        if not resolved_inputs or not rewires:
+        if hint is None:
             return None
-        for rewire in rewires:
-            current_source = self._current_input_source_ref(rewire.target_name, rewire.target_field)
-            if current_source is None:
-                continue
-            for source_ref in resolved_inputs.values():
-                if source_ref.scope_path != current_source.scope_path or source_ref.uid != current_source.uid:
-                    continue
-                if not self._source_slots_match(source_ref.output_slot, current_source.output_slot):
-                    continue
-                return self._materialize_inferred_anchor(
-                    scope_path=scope_path,
-                    hint=_InferredAnchorHint(
-                        relation="between",
-                        between_names=(self.name_by_uid.get(current_source.uid, current_source.uid), rewire.target_name),
-                    ),
-                )
-        return None
-
-    @staticmethod
-    def _source_slots_match(expected: str | int, actual: str | int) -> bool:
-        return expected == actual or str(expected) == str(actual)
+        return self._materialize_inferred_anchor(scope_path=scope_path, hint=hint)
 
     def _materialize_inferred_anchor(
         self,
         *,
         scope_path: str,
-        hint: _InferredAnchorHint,
+        hint: InferredAnchorHint,
     ) -> AnchorRef | None:
         if hint.relation == "between" and hint.between_names is not None:
             left = self._resolve_graph_name_soft(hint.between_names[0])
@@ -2843,65 +2669,6 @@ def _assignment_op_kind(value: ast.expr, *, target_attr: str) -> str:
 def _call_name(node: ast.Call) -> str | None:
     if isinstance(node.func, ast.Name):
         return node.func.id
-    return None
-
-
-def _extract_batch_add_node_plan(
-    statement: ast.stmt,
-    *,
-    statement_order: int,
-) -> _BatchAddNodePlan | None:
-    if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
-        return None
-    target = statement.targets[0]
-    value = statement.value
-    if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
-        return None
-    func = value.func
-    if not isinstance(func, ast.Name):
-        return None
-    input_refs: list[_BatchGraphRef] = []
-    explicit_anchor = False
-    for keyword in value.keywords:
-        if keyword.arg is None:
-            continue
-        if keyword.arg in {"near", "relation", "group"}:
-            explicit_anchor = True
-            continue
-        ref = _graph_ref_from_expr(keyword.value)
-        if ref is not None:
-            input_refs.append(ref)
-    return _BatchAddNodePlan(
-        target_name=target.id,
-        class_type=func.id,
-        explicit_anchor=explicit_anchor,
-        input_refs=tuple(input_refs),
-        statement_order=statement_order,
-    )
-
-
-def _extract_batch_rewire_plan(statement: ast.stmt) -> _BatchRewirePlan | None:
-    if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
-        return None
-    target = statement.targets[0]
-    value = statement.value
-    if not isinstance(target, ast.Attribute) or not isinstance(target.value, ast.Name):
-        return None
-    ref = _graph_ref_from_expr(value)
-    if ref is None:
-        return None
-    return _BatchRewirePlan(
-        source_name=ref.name,
-        target_name=target.value.id,
-        target_field=target.attr,
-    )
-
-
-def _graph_ref_from_expr(node: ast.expr) -> _BatchGraphRef | None:
-    if isinstance(node, ast.Name):
-        return _BatchGraphRef(name=node.id)
-    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-        return _BatchGraphRef(name=node.value.id, slot_name=node.attr)
     return None
 
 

@@ -191,23 +191,21 @@ def apply_delta(
     *,
     schema_provider: Any = None,
 ) -> ApplyResult:
-    candidate_ledger = EditLedger.ingest(original_ui)
-    diagnostics: list[PortIssue] = list(candidate_ledger.diagnostics)
-    applied_resolved_ops: list[tuple[EditOp, ResolvedOp]] = []
+    resolved = resolve_delta(original_ui, delta, schema_provider=schema_provider)
+    if not resolved.ok:
+        return ApplyResult(
+            ok=False,
+            candidate=None,
+            diagnostics=resolved.diagnostics,
+            resolved_ops=resolved.resolved_ops,
+            mutation_started=False,
+        )
     if delta:
+        candidate_ledger = resolved.ledger
         stamped_before = candidate_ledger.stamped_copy()
-        for op in delta:
-            resolved_op, issues = _resolve_op(candidate_ledger, op, schema_provider=schema_provider)
-            diagnostics.extend(issues)
-            if any(issue.severity == "error" for issue in issues):
-                return ApplyResult(
-                    ok=False,
-                    candidate=None,
-                    diagnostics=tuple(diagnostics),
-                    resolved_ops=tuple(applied_resolved_ops),
-                    mutation_started=bool(applied_resolved_ops),
-                )
-            assert resolved_op is not None
+        diagnostics = list(resolved.diagnostics)
+        applied_resolved_ops: list[tuple[EditOp, ResolvedOp]] = []
+        for op, resolved_op in resolved.resolved_ops:
             if isinstance(op, SetNodeFieldOp):
                 assert isinstance(resolved_op, ResolvedFieldRef)
                 diagnostics.extend(_apply_set_node_field(candidate_ledger, resolved_op, op.value))
@@ -269,8 +267,8 @@ def apply_delta(
     return ApplyResult(
         ok=True,
         candidate=copy.deepcopy(dict(original_ui)),
-        diagnostics=tuple(diagnostics),
-        resolved_ops=tuple(applied_resolved_ops),
+        diagnostics=resolved.diagnostics,
+        resolved_ops=resolved.resolved_ops,
         mutation_started=False,
         guard_result=None,
     )
