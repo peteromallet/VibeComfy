@@ -20,7 +20,7 @@ from vibecomfy.porting.edit_apply import apply_delta
 from vibecomfy.porting.edit_ledger import EditLedger
 from vibecomfy.porting.edit_session import EditSession
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, socket_types_compatible
-from tests.support.agent_edit_normalize import normalize_ui_json
+from vibecomfy.porting.agent_edit_normalize import normalize_ui_json
 from tests.support.corpus_schema import (
     GraphInferredSchemaProvider,
     graph_inferred_schema_provider,

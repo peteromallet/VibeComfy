@@ -424,7 +424,7 @@ def _normalize_for_guard(
     original = copy.deepcopy(dict(stamped_original_ui))
     candidate = copy.deepcopy(dict(candidate_ui))
     try:
-        from tests.support.agent_edit_normalize import is_normalize_available, normalize_ui_json
+        from vibecomfy.porting.agent_edit_normalize import is_normalize_available, normalize_ui_json
 
         preferred_available = is_normalize_available()
         started = time.monotonic()
@@ -818,7 +818,7 @@ def _all_diffs_normalize_allowed(
     if not node_class or node_class != candidate_class:
         return False
     try:
-        from tests.support.agent_edit_normalize import normalize_allow_list_matches
+        from vibecomfy.porting.agent_edit_normalize import normalize_allow_list_matches
     except Exception:
         return False
     return all(normalize_allow_list_matches(node_class, field_path) is not None for field_path in diffs)

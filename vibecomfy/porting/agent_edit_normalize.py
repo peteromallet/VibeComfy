@@ -1,9 +1,8 @@
-"""Agent-edit UI normalization measurement support.
+"""Agent-edit UI normalization.
 
 Provides the normalize helper consumed by the preservation guard
-(:func:`guard_full_ui` in ``vibecomfy/porting/edit_apply.py`` or
-``vibecomfy/porting/refuse.py``) and the narrow field-path allow-list
-used by the time-boxed fallback path.
+(:func:`guard_full_ui` in ``vibecomfy/porting/edit_apply.py``) and the
+narrow field-path allow-list used by the time-boxed fallback path.
 
 Preferred path
 --------------

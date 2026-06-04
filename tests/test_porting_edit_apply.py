@@ -10,7 +10,7 @@ from vibecomfy.porting.edit_apply import apply_delta, guard_full_ui, resolve_del
 from vibecomfy.porting.edit_ledger import EditLedger
 from vibecomfy.porting.edit_ops import parse_edit_delta
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
-from tests.support.agent_edit_normalize import normalize_ui_json
+from vibecomfy.porting.agent_edit_normalize import normalize_ui_json
 
 
 class _SchemaProvider:
@@ -1357,7 +1357,7 @@ def test_guard_full_ui_allows_counter_advancement_but_rejects_regression() -> No
 
 
 def test_guard_full_ui_uses_fallback_allow_list_only_for_exact_measured_paths(monkeypatch) -> None:
-    import tests.support.agent_edit_normalize as normalize_support
+    import vibecomfy.porting.agent_edit_normalize as normalize_support
 
     original = EditLedger.ingest(_fixture()).stamped_copy()
     candidate = copy.deepcopy(original)
