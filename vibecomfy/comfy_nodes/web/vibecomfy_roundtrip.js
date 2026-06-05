@@ -122,6 +122,7 @@ const PANEL_IDS = Object.freeze({
   root: "vibecomfy-agent-panel-root",
   shell: "vibecomfy-agent-panel-shell",
   status: "vibecomfy-agent-panel-status",
+  composerNotice: "vibecomfy-agent-panel-composer-notice",
   prompt: "vibecomfy-agent-panel-prompt",
   route: "vibecomfy-agent-panel-route",
   model: "vibecomfy-agent-panel-model",
@@ -143,6 +144,7 @@ const PANEL_IDS = Object.freeze({
   queueRegion: "vibecomfy-agent-panel-region-queue",
   auditRegion: "vibecomfy-agent-panel-region-audit",
   debugRegion: "vibecomfy-agent-panel-region-debug",
+  developerRegion: "vibecomfy-agent-panel-region-developer",
   previewToggle: "vibecomfy-agent-preview-toggle",
 });
 
@@ -282,6 +284,8 @@ let queueGuardFallbackWarning = null;
 let queueGuardFallbackWarned = false;
 let queueGuardBlockNotice = null;
 let queueGuardBlockedTurnKeys = new Set();
+let _previewForegroundInstallReport = null;
+let _adapterCapabilities = null;
 let _progressPulseInjected = false;
 
 function isIntentClassType(classType) {
@@ -558,11 +562,13 @@ function installAgentPreviewOverlay() {
   };
   try {
     const install = installPreviewForegroundOverlay(app, overlayDraw, { windowObj: window });
+    _previewForegroundInstallReport = install;
     if (install.polling) {
       console.warn(`[vibecomfy] preview overlay install degraded: ${install.detail}`);
     }
   } catch (e) {
     if (e?.code === "PREVIEW_FOREGROUND_UNAVAILABLE") {
+      _previewForegroundInstallReport = { capability: e.capability, strategy: "unavailable", degraded: true, detail: e.message };
       console.warn(`[vibecomfy] preview overlay unavailable: ${e.capability?.detail || e.message}`);
       return;
     }
@@ -698,6 +704,17 @@ function safeJson(value) {
     return JSON.stringify(value, null, 2);
   } catch (e) {
     return String(value);
+  }
+}
+
+function clonePlainData(value) {
+  if (value == null) {
+    return value;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_e) {
+    return value;
   }
 }
 
@@ -972,6 +989,30 @@ function createDetails(summary, value) {
   details.appendChild(heading);
   details.appendChild(pre);
   return details;
+}
+
+function createBubbleDetailSection(title) {
+  const section = el("div");
+  Object.assign(section.style, {
+    display: "grid",
+    gap: "4px",
+  });
+  const heading = el("div", title);
+  Object.assign(heading.style, {
+    fontSize: "10px",
+    fontWeight: "700",
+    color: "#6b7080",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  });
+  const body = el("div");
+  Object.assign(body.style, {
+    display: "grid",
+    gap: "4px",
+  });
+  section.appendChild(heading);
+  section.appendChild(body);
+  return { section, body };
 }
 
 function createQueueIssue(code, message, detail = {}, severity = "error") {
@@ -1348,6 +1389,59 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
   renderAgentPanel(panel);
 }
 
+function submitReadinessState(panel) {
+  const routeStatus = routeStatusState(panel);
+  if (routeStatus.kind === ROUTE_STATUS_KIND.LOADING) {
+    return {
+      ready: false,
+      reason: routeStatus.kind,
+      message: "Waiting for /vibecomfy/agent/status before enabling Submit.",
+    };
+  }
+  if (routeStatus.kind === ROUTE_STATUS_KIND.MISSING_OPTIONS) {
+    return {
+      ready: false,
+      reason: routeStatus.kind,
+      message: "Submit is disabled because /vibecomfy/agent/status returned no route_options.",
+    };
+  }
+  if (routeStatus.kind === ROUTE_STATUS_KIND.MALFORMED) {
+    return {
+      ready: false,
+      reason: routeStatus.kind,
+      message: "Submit is disabled because /vibecomfy/agent/status returned a malformed payload.",
+    };
+  }
+  if (routeStatus.kind === ROUTE_STATUS_KIND.UNAVAILABLE) {
+    return {
+      ready: false,
+      reason: routeStatus.kind,
+      message: "Submit is disabled because /vibecomfy/agent/status is unavailable.",
+    };
+  }
+  const status = panel?.state?.statusSnapshot;
+  if (!status || typeof status !== "object" || Array.isArray(status)) {
+    return {
+      ready: false,
+      reason: "missing_status",
+      message: "Submit is disabled until /vibecomfy/agent/status returns a valid ready=true payload.",
+    };
+  }
+  if (status.ready === true) {
+    return { ready: true, reason: "ready", message: "" };
+  }
+  const statusMessage =
+    (typeof status.readiness_message === "string" && status.readiness_message.trim())
+    || (typeof status.message === "string" && status.message.trim())
+    || (typeof status.reason === "string" && status.reason.trim())
+    || "";
+  return {
+    ready: false,
+    reason: status.ready === false ? "not_ready" : "missing_ready",
+    message: statusMessage || "Submit is disabled until /vibecomfy/agent/status returns ready=true.",
+  };
+}
+
 function clearCredentialInput(panel) {
   panel.fields.apiKey.value = "";
 }
@@ -1570,6 +1664,105 @@ function applyEligibility(panel, liveCanvasSnapshot = null) {
   return missingContractApplyEligibility(panel);
 }
 
+function disabledApplyEligibility(reason, message, warnings = []) {
+  return {
+    applyable: false,
+    reason,
+    message: typeof message === "string" ? message : "",
+    warnings: Array.isArray(warnings) ? warnings.slice() : [],
+  };
+}
+
+function candidateTurnId(message, snapshot = null) {
+  if (typeof snapshot?.turn_id === "string" && snapshot.turn_id) {
+    return snapshot.turn_id;
+  }
+  if (typeof message?.turn_id === "string" && message.turn_id) {
+    return message.turn_id;
+  }
+  return null;
+}
+
+function candidateGraphPresentForBubble(message, snapshot = null) {
+  if (snapshot && Object.prototype.hasOwnProperty.call(snapshot, "candidateGraphPresent")) {
+    return Boolean(snapshot.candidateGraphPresent);
+  }
+  return Boolean(candidateGraphFromResult(message));
+}
+
+function snapshotEligibilityForBubble(message, snapshot = null) {
+  const normalizedSnapshot = normalizeApplyEligibility(snapshot?.applyEligibility);
+  if (normalizedSnapshot) {
+    return normalizedSnapshot;
+  }
+  const normalizedMessage = normalizeApplyEligibility(eligibilityFromResult(message));
+  if (normalizedMessage) {
+    return normalizedMessage;
+  }
+  return null;
+}
+
+function candidateActionState(panel, message = null, snapshot = null) {
+  const submitting = panel?.state?.phase === PANEL_STATE.SUBMITTING;
+  const applying = panel?.state?.phase === PANEL_STATE.APPLYING;
+  const activeTurnId =
+    panel?.state?.candidateGraph && typeof panel.state.turnId === "string" && panel.state.turnId
+      ? panel.state.turnId
+      : null;
+  const turnId = candidateTurnId(message, snapshot) || activeTurnId;
+  const candidatePresent = message || snapshot
+    ? candidateGraphPresentForBubble(message, snapshot)
+    : Boolean(panel?.state?.candidateGraph);
+
+  if (!candidatePresent) {
+    return {
+      visible: false,
+      active: false,
+      turnId,
+      eligibility: noCandidateApplyEligibility(),
+      applyDisabled: true,
+      rejectDisabled: true,
+    };
+  }
+
+  const active =
+    !message && !snapshot
+      ? Boolean(candidatePresent && activeTurnId)
+      : Boolean(activeTurnId && turnId && activeTurnId === turnId);
+  let eligibility;
+  if (!message && !snapshot) {
+    eligibility = applyEligibility(panel);
+  } else if (active) {
+    eligibility = applyEligibility(panel);
+  } else {
+    const historicalEligibility = snapshotEligibilityForBubble(message, snapshot);
+    if (historicalEligibility?.reason === APPLY_ELIGIBILITY_REASON.SUPERSEDED) {
+      eligibility = historicalEligibility;
+    } else {
+      eligibility = disabledApplyEligibility(
+        APPLY_ELIGIBILITY_REASON.NOT_LATEST,
+        "Only the latest candidate can be applied.",
+        ["not_latest"],
+      );
+    }
+  }
+
+  const blockerMessage =
+    !eligibility.applyable
+      ? (eligibility.message || (Array.isArray(eligibility.warnings) ? eligibility.warnings[0] : "") || "")
+      : "";
+
+  return {
+    visible: true,
+    active,
+    turnId,
+    eligibility,
+    blockerMessage,
+    applyDisabled: applying || !active || !eligibility.applyable,
+    rejectDisabled: submitting || applying || !active,
+  };
+}
+
 async function buildSubmitSnapshot(panel) {
   const graph = app.canvas.graph.serialize();
   const graphJson = canonicalJsonString(graph);
@@ -1618,6 +1811,7 @@ function createAgentPanel() {
   shell.id = PANEL_IDS.shell;
   shell.className = "vibecomfy-agent-panel-shell";
   Object.assign(shell.style, {
+    position: "relative",
     height: "100%",
     display: "grid",
     gridTemplateRows: "auto auto 1fr auto",
@@ -1629,25 +1823,40 @@ function createAgentPanel() {
     pointerEvents: "auto",
   });
 
+  // ── Header (title, status, settings gear, close) ────────────────────────
   const header = el("div");
   Object.assign(header.style, {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "12px",
-    padding: "12px 14px 8px 14px",
+    gap: "8px",
+    padding: "10px 14px 6px 14px",
     borderBottom: "1px solid #282a32",
+    flexWrap: "wrap",
   });
-  const headerText = el("div");
+  const headerLeft = el("div");
+  Object.assign(headerLeft.style, {
+    display: "flex",
+    flexDirection: "column",
+    gap: "2px",
+  });
   const title = el("div", "VibeComfy Agent Edit");
   title.style.fontWeight = "700";
   title.style.fontSize = "13px";
-  headerText.appendChild(title);
-  const sub = el("div", "Durable panel shell. Round-trip modal remains unchanged.");
+  headerLeft.appendChild(title);
+  const sub = el("div", "Durable agent edit panel.");
   sub.style.fontSize = "11px";
   sub.style.color = "#8d93a1";
-  headerText.appendChild(sub);
-  header.appendChild(headerText);
+  headerLeft.appendChild(sub);
+  header.appendChild(headerLeft);
+
+  const headerRight = el("div");
+  Object.assign(headerRight.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    flexShrink: "0",
+  });
 
   const status = el("div", "Idle");
   status.id = PANEL_IDS.status;
@@ -1657,36 +1866,81 @@ function createAgentPanel() {
     textTransform: "uppercase",
     letterSpacing: "0.08em",
   });
-  header.appendChild(status);
+  headerRight.appendChild(status);
 
+  const settingsGearBtn = button("\u2699", () => {
+    if (agentPanel) {
+      const popover = agentPanel.settingsPopover;
+      if (popover) {
+        const isOpen = popover.style.display !== "none";
+        popover.style.display = isOpen ? "none" : "block";
+      }
+    }
+  });
+  settingsGearBtn.title = "Settings";
+  Object.assign(settingsGearBtn.style, {
+    padding: "4px 8px",
+    fontSize: "14px",
+    lineHeight: "1",
+  });
+
+  const closeBtn = button("Close", () => closeAgentPanel(agentPanel));
+  closeBtn.id = PANEL_IDS.close;
+  closeBtn.style.padding = "4px 8px";
+  closeBtn.style.fontSize = "11px";
+
+  headerRight.appendChild(settingsGearBtn);
+  headerRight.appendChild(closeBtn);
+  header.appendChild(headerRight);
+
+  // ── Compact meta row (now inside header area, not a full grid row) ──────
   const metaRow = el("div");
   Object.assign(metaRow.style, {
     display: "flex",
-    gap: "12px",
-    padding: "8px 14px",
+    gap: "10px",
+    padding: "4px 14px 6px 14px",
     borderBottom: "1px solid #282a32",
     background: "#14161b",
-    fontSize: "11px",
+    fontSize: "10px",
     color: "#8d93a1",
     flexWrap: "wrap",
   });
 
-  const body = el("div");
-  Object.assign(body.style, {
+  // ── Thread mount (scrollable chat + activity region) ────────────────────
+  const thread = el("div");
+  Object.assign(thread.style, {
     overflowY: "auto",
     padding: "12px 14px",
     display: "grid",
-    gap: "12px",
+    gap: "10px",
     alignContent: "start",
   });
 
+  // Chat section: persisted conversation bubbles (M3).
+  const chatRegion = panelSection("vibecomfy-agent-panel-region-chat", "Chat");
+  thread.appendChild(chatRegion.section);
+
+  // ── Composer (bottom mount: prompt + action buttons) ────────────────────
+  const composer = el("div");
+  Object.assign(composer.style, {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    padding: "10px 14px 12px 14px",
+    borderTop: "1px solid #282a32",
+    background: "#14161b",
+  });
+
   const promptRegion = panelSection(PANEL_IDS.promptRegion, "Prompt");
+  promptRegion.section.style.border = "none";
+  promptRegion.section.style.background = "transparent";
+  promptRegion.section.style.padding = "0";
   const textarea = document.createElement("textarea");
   textarea.id = PANEL_IDS.prompt;
   textarea.placeholder = "Describe the workflow change...";
   Object.assign(textarea.style, {
     width: "100%",
-    minHeight: "120px",
+    minHeight: "80px",
     resize: "vertical",
     background: "#0d0e12",
     color: "#edf2f7",
@@ -1698,8 +1952,74 @@ function createAgentPanel() {
     boxSizing: "border-box",
   });
   promptRegion.body.appendChild(textarea);
+  composer.appendChild(promptRegion.section);
+
+  const composerButtons = el("div");
+  Object.assign(composerButtons.style, {
+    display: "flex",
+    gap: "6px",
+    flexWrap: "wrap",
+  });
+
+  const submitBtn = button("Submit", () => submitAgentEdit(agentPanel));
+  submitBtn.id = PANEL_IDS.submit;
+  const stopBtn = button("Stop", () => stopAgentSubmit(agentPanel));
+  stopBtn.style.display = "none";
+  const applyBtn = button("Apply Candidate", () => applyAgentCandidate(agentPanel));
+  applyBtn.id = PANEL_IDS.apply;
+  const rejectBtn = button("Reject Candidate", () => rejectAgentCandidate(agentPanel));
+  rejectBtn.id = PANEL_IDS.reject;
+  const undoBtn = button("Undo Last Apply", () => undoLastApply(agentPanel));
+  undoBtn.id = PANEL_IDS.undo;
+  const newConvBtn = button("New conversation", () => newAgentConversation(agentPanel));
+  newConvBtn.id = "vibecomfy-agent-panel-new-conversation";
+
+  composerButtons.appendChild(submitBtn);
+  composerButtons.appendChild(stopBtn);
+  composerButtons.appendChild(applyBtn);
+  composerButtons.appendChild(rejectBtn);
+  composerButtons.appendChild(undoBtn);
+  composerButtons.appendChild(newConvBtn);
+  composer.appendChild(composerButtons);
+
+  const composerNotice = el("div");
+  composerNotice.id = PANEL_IDS.composerNotice;
+  Object.assign(composerNotice.style, {
+    display: "none",
+    padding: "8px 10px",
+    borderRadius: "6px",
+    border: "1px solid #2a313c",
+    background: "#0d1118",
+    color: "#c4ccd6",
+    fontSize: "11px",
+    lineHeight: "1.45",
+    whiteSpace: "pre-wrap",
+  });
+  composer.appendChild(composerNotice);
+
+  // ── Settings popover (absolutely positioned overlay) ────────────────────
+  const settingsPopover = el("div");
+  settingsPopover.className = "vibecomfy-agent-panel-settings-popover";
+  Object.assign(settingsPopover.style, {
+    display: "none",
+    position: "absolute",
+    top: "44px",
+    right: "14px",
+    width: "360px",
+    maxWidth: "calc(100% - 28px)",
+    background: "#17171c",
+    border: "1px solid #34343a",
+    borderRadius: "8px",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+    zIndex: "10000",
+    padding: "12px",
+  });
 
   const settingsRegion = panelSection(PANEL_IDS.settingsRegion, "Settings");
+  settingsRegion.section.style.border = "none";
+  settingsRegion.section.style.background = "transparent";
+  settingsRegion.section.style.padding = "0";
+
   const routeSelect = document.createElement("select");
   routeSelect.id = PANEL_IDS.route;
   Object.assign(routeSelect.style, {
@@ -1776,65 +2096,24 @@ function createAgentPanel() {
   settingsRegion.body.appendChild(settingsButtons);
   settingsRegion.body.appendChild(settingsStatus);
   settingsRegion.body.appendChild(settingsGuidance);
+  settingsPopover.appendChild(settingsRegion.section);
 
-  // Chat section: persisted conversation bubbles (M3 — conversation slice & memory).
-  const chatRegion = panelSection("vibecomfy-agent-panel-region-chat", "Chat");
-  const historyRegion = panelSection(PANEL_IDS.historyRegion, "Activity");
-  const candidateRegion = panelSection(PANEL_IDS.candidateRegion, "Candidate");
-  const failureRegion = panelSection(PANEL_IDS.failureRegion, "Failure");
-  const queueRegion = panelSection(PANEL_IDS.queueRegion, "Queue");
-  const auditRegion = panelSection(PANEL_IDS.auditRegion, "Audit");
-  const debugRegion = panelSection(PANEL_IDS.debugRegion, "Debug");
+  // ── Developer section inside settings popover ────────────────────────────
+  const developerRegion = panelSection(PANEL_IDS.developerRegion, "Developer");
+  developerRegion.section.style.border = "none";
+  developerRegion.section.style.background = "transparent";
+  developerRegion.section.style.padding = "0";
+  developerRegion.section.style.marginTop = "12px";
+  developerRegion.section.style.borderTop = "1px solid #34343a";
+  developerRegion.section.style.paddingTop = "10px";
+  settingsPopover.appendChild(developerRegion.section);
 
-  // Chat sits directly below the prompt (the "chat box") — the user reads
-  // persisted conversation right where they typed. Live activity rows follow.
-  body.appendChild(promptRegion.section);
-  body.appendChild(chatRegion.section);
-  body.appendChild(historyRegion.section);
-  body.appendChild(settingsRegion.section);
-  body.appendChild(candidateRegion.section);
-  body.appendChild(failureRegion.section);
-  body.appendChild(queueRegion.section);
-  body.appendChild(auditRegion.section);
-  body.appendChild(debugRegion.section);
-
-  const footer = el("div");
-  Object.assign(footer.style, {
-    display: "flex",
-    gap: "8px",
-    justifyContent: "flex-end",
-    flexWrap: "wrap",
-    padding: "12px 14px",
-    borderTop: "1px solid #282a32",
-    background: "#14161b",
-  });
-
-  const submitBtn = button("Submit", () => submitAgentEdit(agentPanel));
-  submitBtn.id = PANEL_IDS.submit;
-  const applyBtn = button("Apply Candidate", () => applyAgentCandidate(agentPanel));
-  applyBtn.id = PANEL_IDS.apply;
-  const rejectBtn = button("Reject Candidate", () => rejectAgentCandidate(agentPanel));
-  rejectBtn.id = PANEL_IDS.reject;
-  const undoBtn = button("Undo Last Apply", () => undoLastApply(agentPanel));
-  undoBtn.id = PANEL_IDS.undo;
-  const closeBtn = button("Close", () => closeAgentPanel(agentPanel));
-  closeBtn.id = PANEL_IDS.close;
-  const newConvBtn = button("New conversation", () => newAgentConversation(agentPanel));
-  newConvBtn.id = "vibecomfy-agent-panel-new-conversation";
-  footer.appendChild(submitBtn);
-  footer.appendChild(applyBtn);
-  footer.appendChild(rejectBtn);
-  footer.appendChild(undoBtn);
-  footer.appendChild(newConvBtn);
-  footer.appendChild(closeBtn);
-
-  // Preview is ALWAYS-ON: no toggle. The overlay draws automatically whenever a
-  // candidate is pending (AWAITING_REVIEW). (Previously a "Preview changes" checkbox.)
-
+  // ── Assemble shell ──────────────────────────────────────────────────────
   shell.appendChild(header);
   shell.appendChild(metaRow);
-  shell.appendChild(body);
-  shell.appendChild(footer);
+  shell.appendChild(thread);
+  shell.appendChild(composer);
+  shell.appendChild(settingsPopover);
   root.appendChild(shell);
   document.body.appendChild(root);
 
@@ -1843,6 +2122,7 @@ function createAgentPanel() {
     shell,
     metaRow,
     status,
+    settingsPopover,
     fields: {
       prompt: textarea,
       route: routeSelect,
@@ -1857,16 +2137,21 @@ function createAgentPanel() {
       close: closeBtn,
       settingsSave,
       settingsTest,
+      stop: stopBtn,
+      newConversation: newConvBtn,
     },
     sections: {
       chat: chatRegion.body,
-      history: historyRegion.body,
-      candidate: candidateRegion.body,
-      failure: failureRegion.body,
-      queue: queueRegion.body,
-      audit: auditRegion.body,
-      debug: debugRegion.body,
+      history: null,
+      candidate: null,
+      failure: null,
+      queue: null,
+      audit: null,
+      debug: null,
+      developer: developerRegion.body,
+      composerNotice,
     },
+    composerButtons,
     state: {
       phase: PANEL_STATE.IDLE,
       sessionId: null,
@@ -1896,6 +2181,7 @@ function createAgentPanel() {
       turns: [],
       undoStack: [],
       inFlightSubmit: null,
+      submitAbortController: null,
       inFlightApply: null,
       inFlightRebaseline: null,
       rebaselinePending: null,
@@ -1913,6 +2199,8 @@ function createAgentPanel() {
       queueGuard: getQueueGuardStateForPanel(),
       previewEnabled: false,
       expandedTurnKeys: {},
+      expandedBubbleTurnKeys: {},
+      turnDetailSnapshots: {},
       // Chat / session rehydration state (M3)
       chatMessages: [],
       chatLoaded: false,
@@ -1920,6 +2208,7 @@ function createAgentPanel() {
       chatSessionPath: null,
       chatDetailJsonPath: null,
       chatRehydrateEpoch: 0,
+      syntheticAgentMessage: null,
     },
   };
 }
@@ -2414,6 +2703,96 @@ function restoreExpandedTurnKeys(panel, previous) {
     }
   }
   panel.state.expandedTurnKeys = restored;
+}
+
+function rememberTurnDetailSnapshot(panel, detail = {}) {
+  if (!panel?.state) {
+    return null;
+  }
+  const turnId =
+    typeof detail.turn_id === "string" && detail.turn_id
+      ? detail.turn_id
+      : (typeof panel.state.turnId === "string" && panel.state.turnId ? panel.state.turnId : null);
+  if (!turnId) {
+    return null;
+  }
+  if (!panel.state.turnDetailSnapshots || typeof panel.state.turnDetailSnapshots !== "object") {
+    panel.state.turnDetailSnapshots = {};
+  }
+  const snapshot = {
+    turn_id: turnId,
+    session_id:
+      typeof detail.session_id === "string" && detail.session_id
+        ? detail.session_id
+        : (typeof panel.state.sessionId === "string" && panel.state.sessionId ? panel.state.sessionId : null),
+    phase: detail.phase || panel.state.phase,
+    message:
+      detail.message
+      || panel.state.message
+      || panel.state.clarification?.message
+      || panel.state.failure?.user_facing_message
+      || panel.state.failure?.message
+      || panel.state.failure?.error
+      || null,
+    clarification: clonePlainData(detail.clarification ?? panel.state.clarification ?? null),
+    failure: clonePlainData(detail.failure ?? panel.state.failure ?? null),
+    candidateGraphPresent: Boolean(detail.candidateGraphPresent ?? panel.state.candidateGraph),
+    candidateReport: clonePlainData(detail.candidateReport ?? panel.state.candidateReport ?? null),
+    applyEligibility: clonePlainData(detail.applyEligibility ?? panel.state.applyEligibility ?? null),
+    queueAllowed: detail.queueAllowed ?? panel.state.queueAllowed,
+    canvasApplyAllowed: detail.canvasApplyAllowed ?? panel.state.canvasApplyAllowed,
+    auditRef: clonePlainData(detail.auditRef ?? panel.state.auditRef ?? null),
+    debugPayload: clonePlainData(detail.debugPayload ?? panel.state.debugPayload ?? null),
+    queueGuard: clonePlainData(detail.queueGuard ?? panel.state.queueGuard ?? getQueueGuardStateForPanel()),
+    fieldChanges: clonePlainData(detail.fieldChanges ?? panel.state.lastSubmitFieldChanges ?? null),
+    lastAppliedChanges: clonePlainData(detail.lastAppliedChanges ?? panel.state.lastAppliedChanges ?? null),
+  };
+  panel.state.turnDetailSnapshots[turnId] = snapshot;
+  return snapshot;
+}
+
+function detailSnapshotForMessage(panel, message) {
+  const turnId = typeof message?.turn_id === "string" && message.turn_id ? message.turn_id : null;
+  if (!turnId) {
+    return null;
+  }
+  return panel?.state?.turnDetailSnapshots?.[turnId] || null;
+}
+
+function buildSyntheticAgentMessage(panel) {
+  if (!panel?.state) {
+    return null;
+  }
+  if (panel.state.syntheticAgentMessage && typeof panel.state.syntheticAgentMessage === "object") {
+    return panel.state.syntheticAgentMessage;
+  }
+  const turnId = typeof panel.state.turnId === "string" && panel.state.turnId ? panel.state.turnId : null;
+  if (!turnId) {
+    return null;
+  }
+  const existing = Array.isArray(panel.state.chatMessages)
+    ? panel.state.chatMessages.some((msg) => msg?.role === "agent" && msg?.turn_id === turnId)
+    : false;
+  if (existing) {
+    return null;
+  }
+  const text =
+    panel.state.message
+    || panel.state.clarification?.message
+    || panel.state.failure?.user_facing_message
+    || panel.state.failure?.message
+    || panel.state.failure?.error
+    || null;
+  if (!text) {
+    return null;
+  }
+  return {
+    role: "agent",
+    text,
+    turn_id: turnId,
+    session_id: panel.state.sessionId || null,
+    synthetic: true,
+  };
 }
 
 function upsertBatchTurn(panel, payload, options = {}) {
@@ -2990,7 +3369,7 @@ function _renderDurableTurnRow(body, panel, entry, index) {
   body.appendChild(turnCard);
 }
 
-// ── Chat thread rendering (M3 — persisted conversation bubbles) ──────────
+// ── Chat thread rendering (M4b — newest-at-bottom bubble list) ────────────
 
 function renderChatThread(panel) {
   const body = panel.sections.chat;
@@ -3023,22 +3402,31 @@ function renderChatThread(panel) {
     body.appendChild(linkRow);
   }
 
-  if (!panel.state.chatMessages || !panel.state.chatMessages.length) {
-    if (panel.state.chatLoaded) {
-      body.appendChild(muted("No conversation history for this session."));
-    } else if (panel.state.chatError) {
+  const threadMessages = Array.isArray(panel.state.chatMessages)
+    ? panel.state.chatMessages.slice()
+    : [];
+  const syntheticAgentMessage = buildSyntheticAgentMessage(panel);
+  if (syntheticAgentMessage) {
+    threadMessages.push(syntheticAgentMessage);
+  }
+
+  if (!threadMessages.length) {
+    if (panel.state.chatError) {
       const errEl = el("div", `Chat unavailable: ${panel.state.chatError}`);
       errEl.style.color = "#ffb86c";
       errEl.style.fontSize = "11px";
       body.appendChild(errEl);
-    } else {
-      body.appendChild(muted("Chat will load on panel open."));
     }
+    // Welcome / example prompts — shown only when the thread is empty.
+    _renderWelcomeExamples(body);
     return;
   }
 
-  // Render user/agent chat bubbles
-  for (const msg of panel.state.chatMessages) {
+  // Render the last 5 messages, newest at bottom (natural chronological order).
+  const displayMessages = threadMessages.slice(-5);
+
+  for (let mi = 0; mi < displayMessages.length; mi += 1) {
+    const msg = displayMessages[mi];
     if (!msg || typeof msg !== "object" || !msg.role) {
       continue;
     }
@@ -3077,88 +3465,253 @@ function renderChatThread(panel) {
     });
     bubble.appendChild(text);
 
+    // Agent detail: collapsed bubble-local control with reusable turn fragments.
+    if (!isUser) {
+      const detailTurnKey =
+        typeof msg.turn_id === "string" && msg.turn_id
+          ? `turn:${msg.turn_id}`
+          : `agent:${mi}:${String(msg.text || "").slice(0, 24)}`;
+      const detailSnapshot = detailSnapshotForMessage(panel, msg);
+      const detailRow = el("div");
+      Object.assign(detailRow.style, {
+        marginTop: "3px",
+        fontSize: "10px",
+      });
+
+      const detailToggle = el("span", "\u25b6 details");
+      Object.assign(detailToggle.style, {
+        color: "#8d93a1",
+        cursor: "pointer",
+        userSelect: "none",
+      });
+
+      const detailBody = el("div");
+      Object.assign(detailBody.style, {
+        display: "none",
+        marginTop: "4px",
+        padding: "6px 8px",
+        background: "#0d0f14",
+        border: "1px solid #282a32",
+        borderRadius: "4px",
+        fontSize: "10px",
+        color: "#8d93a1",
+        gridTemplateColumns: "auto 1fr",
+        gap: "4px 8px",
+        alignItems: "baseline",
+      });
+
+      let detailShown = !!panel.state.expandedBubbleTurnKeys?.[detailTurnKey];
+      detailToggle.onclick = function () {
+        detailShown = !detailShown;
+        if (!panel.state.expandedBubbleTurnKeys || typeof panel.state.expandedBubbleTurnKeys !== "object") {
+          panel.state.expandedBubbleTurnKeys = {};
+        }
+        if (detailShown) {
+          panel.state.expandedBubbleTurnKeys[detailTurnKey] = true;
+        } else {
+          delete panel.state.expandedBubbleTurnKeys[detailTurnKey];
+        }
+        detailToggle.textContent = detailShown ? "\u25bc details" : "\u25b6 details";
+        detailBody.style.display = detailShown ? "grid" : "none";
+      };
+      populateAgentBubbleDetail(detailBody, panel, msg, detailSnapshot);
+      detailToggle.textContent = detailShown ? "\u25bc details" : "\u25b6 details";
+      detailBody.style.display = detailShown ? "grid" : "none";
+
+      detailRow.appendChild(detailToggle);
+      detailRow.appendChild(detailBody);
+      bubble.appendChild(detailRow);
+    }
+
     body.appendChild(bubble);
   }
 }
 
+function populateAgentBubbleDetail(target, panel, message, snapshot = null) {
+  clearNode(target);
+
+  const metaSection = createBubbleDetailSection("Turn");
+  appendTurnMeta(metaSection.body, panel, message, snapshot);
+  target.appendChild(metaSection.section);
+
+  const progressSection = createBubbleDetailSection("Progress");
+  populateActivityRows(progressSection.body, panel, {
+    sessionId: snapshot?.session_id || message?.session_id || panel?.state?.sessionId || null,
+  });
+  if (progressSection.body.children.length) {
+    target.appendChild(progressSection.section);
+  }
+
+  const candidateSection = createBubbleDetailSection("Candidate");
+  appendCandidateDetail(candidateSection.body, panel, message, snapshot);
+  if (candidateSection.body.children.length) {
+    target.appendChild(candidateSection.section);
+  }
+
+  const failureSection = createBubbleDetailSection("Failure");
+  appendFailureDetail(failureSection.body, panel, snapshot);
+  if (failureSection.body.children.length) {
+    target.appendChild(failureSection.section);
+  }
+
+  const queueSection = createBubbleDetailSection("Queue");
+  appendQueueDetail(queueSection.body, panel, snapshot);
+  if (queueSection.body.children.length) {
+    target.appendChild(queueSection.section);
+  }
+
+  const auditSection = createBubbleDetailSection("Audit");
+  appendAuditDetail(auditSection.body, panel, snapshot);
+  if (auditSection.body.children.length) {
+    target.appendChild(auditSection.section);
+  }
+
+  const debugSection = createBubbleDetailSection("Debug");
+  appendDebugDetail(debugSection.body, panel, snapshot);
+  if (debugSection.body.children.length) {
+    target.appendChild(debugSection.section);
+  }
+}
+
+function appendTurnMeta(target, panel, message, snapshot = null) {
+  const turnId = typeof message?.turn_id === "string" && message.turn_id ? message.turn_id : snapshot?.turn_id;
+  if (turnId) {
+    appendTextLine(target, `turn: ${turnId}`, "#8d93a1");
+  }
+
+  const fieldChanges = message?.field_changes || snapshot?.fieldChanges;
+  if (fieldChanges && typeof fieldChanges === "object") {
+    const directChanges = Array.isArray(fieldChanges.directChanges) ? fieldChanges.directChanges : [];
+    const outcomeChanges = Array.isArray(fieldChanges.outcomeChanges) ? fieldChanges.outcomeChanges : [];
+    const batchTurnChanges = Array.isArray(fieldChanges.batchTurnChanges) ? fieldChanges.batchTurnChanges : [];
+    const allChanges = directChanges.concat(outcomeChanges, batchTurnChanges);
+    if (allChanges.length > 0) {
+      appendTextLine(target, allChanges.map(function (change) {
+        if (!change || typeof change.field_path !== "string") {
+          return "";
+        }
+        const nextValue =
+          typeof change.new_value !== "undefined"
+            ? change.new_value
+            : change.new;
+        return `${change.field_path}${typeof nextValue !== "undefined" ? ` \u2192 ${String(nextValue).slice(0, 40)}` : ""}`;
+      }).filter(Boolean).join("; "), "#c4ccd6");
+    }
+  }
+
+  if (panel.state.chatDetailJsonPath && turnId) {
+    const detailLink = el("a", "view response \u2197");
+    detailLink.href = `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(panel.state.sessionId || "")}`;
+    detailLink.target = "_blank";
+    detailLink.rel = "noopener";
+    Object.assign(detailLink.style, {
+      color: "#9ed0ff",
+      textDecoration: "none",
+    });
+    target.appendChild(detailLink);
+  }
+}
+
+// ── Welcome examples (shown in thread when no messages exist) ────────────
+
+function _renderWelcomeExamples(body) {
+  const welcome = el("div");
+  Object.assign(welcome.style, {
+    border: "1px solid #2d6fb5",
+    borderRadius: "6px",
+    background: "#111722",
+    padding: "10px",
+    display: "grid",
+    gap: "6px",
+  });
+  const heading = el("div", "Try an example");
+  Object.assign(heading.style, {
+    fontSize: "11px",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    color: "#9da1ac",
+    fontWeight: "600",
+    marginBottom: "2px",
+  });
+  welcome.appendChild(heading);
+
+  const examplePrompts = [
+    "Add a code node that processes images with PIL",
+    "Connect the output of LoadImage to a PreviewImage node",
+    "Replace the CLIPTextEncode prompt text with something new",
+    "Add a VAE Decode after the sampler output",
+    "Wire the model output into a SaveImage node",
+  ];
+  for (const example of examplePrompts) {
+    const row = el("div", example);
+    Object.assign(row.style, {
+      fontSize: "11px",
+      color: "#9ed0ff",
+      cursor: "pointer",
+      padding: "4px 8px",
+      borderRadius: "4px",
+      background: "#0a1628",
+      border: "1px solid #1e3355",
+    });
+    row.onclick = () => {
+      if (agentPanel?.fields?.prompt) {
+        agentPanel.fields.prompt.value = example;
+        agentPanel.fields.prompt.focus();
+      }
+    };
+    welcome.appendChild(row);
+  }
+  body.appendChild(welcome);
+}
+
 // ── Activity row rendering (live turn progress) ───────────────────────────
 
-function renderActivityRows(panel) {
+function populateActivityRows(body, panel, { sessionId = null } = {}) {
   _injectProgressPulseStyle();
-  const body = panel.sections.history;
   clearNode(body);
 
-  // Build a set of turn_ids already represented in chat bubbles (to avoid
-  // duplicating completed agent responses as activity rows).
-  const chatTurnIds = new Set();
-  if (panel.state.chatLoaded && Array.isArray(panel.state.chatMessages)) {
-    for (const msg of panel.state.chatMessages) {
-      if (msg && typeof msg.turn_id === "string") {
-        chatTurnIds.add(msg.turn_id);
+  const relevantTurns = Array.isArray(panel?.state?.turns)
+    ? panel.state.turns.filter((entry) => {
+      if (!entry) {
+        return false;
       }
-    }
-  }
+      if (sessionId && entry.session_id && entry.session_id !== sessionId) {
+        return false;
+      }
+      return true;
+    })
+    : [];
 
-  const hasTurns = panel.state.turns.length > 0;
-  const hasLegacy = panel.state.history.length > 0;
-
-  if (!hasTurns && !hasLegacy) {
-    // Only show empty-state message if chat is also empty.
-    if (!panel.state.chatLoaded || !panel.state.chatMessages.length) {
-      body.appendChild(muted("No turn history yet. Open the panel once and submit a prompt to seed durable state."));
-    }
-    return;
-  }
-
-  // Render batch/durable turns, skipping terminal ones whose agent response
-  // is already shown in the chat thread.
-  let renderedCount = 0;
-  for (let index = 0; index < panel.state.turns.length; index += 1) {
-    const entry = panel.state.turns[index];
-    if (!entry) {
-      continue;
-    }
-    // Skip terminal (non-progress) turns whose turn_id is already in chat.
-    // In-progress turns always show — they're live, not yet persisted.
-    const isTerminal = BATCH_TERMINAL_STATUSES.has(entry.status);
-    const turnId = entry.turn_id;
-    if (isTerminal && typeof turnId === "string" && chatTurnIds.has(turnId)) {
-      continue;
-    }
-
+  for (let index = 0; index < relevantTurns.length; index += 1) {
+    const entry = relevantTurns[index];
     if (entry.entry_type === "batch") {
       _renderBatchTurnRow(body, panel, entry, index);
     } else {
       _renderDurableTurnRow(body, panel, entry, index);
     }
-    renderedCount += 1;
   }
 
-  // Also render legacy history entries that don't have turn counterparts.
-  for (const hEntry of panel.state.history) {
-    const hasTurn = panel.state.turns.some(
-      (t) => t.timestamp === hEntry.at,
-    );
-    if (hasTurn) {
-      continue;
+  if (!relevantTurns.length) {
+    for (const hEntry of Array.isArray(panel?.state?.history) ? panel.state.history : []) {
+      const line = el("div");
+      line.style.borderLeft = "2px solid #3d8bfd";
+      line.style.paddingLeft = "8px";
+      appendTextLine(line, `${hEntry.kind} \u2014 ${hEntry.message}`, "#edf2f7");
+      appendTextLine(line, hEntry.at, "#8d93a1");
+      body.appendChild(line);
     }
-    const line = el("div");
-    line.style.borderLeft = "2px solid #3d8bfd";
-    line.style.paddingLeft = "8px";
-    appendTextLine(line, `${hEntry.kind} \u2014 ${hEntry.message}`, "#edf2f7");
-    appendTextLine(line, hEntry.at, "#8d93a1");
-    body.appendChild(line);
-    renderedCount += 1;
   }
+}
 
-  if (renderedCount === 0 && panel.state.chatLoaded) {
-    body.appendChild(muted("All completed turns are shown in Chat above."));
+function renderActivityRows(panel) {
+  if (!panel?.sections?.history) {
+    return;
   }
+  populateActivityRows(panel.sections.history, panel);
 }
 
 function renderHistory(panel) {
   renderChatThread(panel);
-  renderActivityRows(panel);
 }
 
 function collectDiffRows(report) {
@@ -3339,6 +3892,7 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
       && panel.state._previewDiff
       && Array.isArray(panel.state._previewDiff.added_links)
       && Array.isArray(panel.state._previewDiff.removed_links)
+      && Array.isArray(panel.state._previewDiff.edited_fields)
     ) {
       return panel.state._previewDiff;
     }
@@ -3467,6 +4021,65 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
       console.warn("[vibecomfy] computePreviewDiff — unresolved report entries:", unresolved);
     }
 
+    // ── Edited Fields: from normalized FieldChange data (T10) ────────────
+    // Read panel.state.lastSubmitFieldChanges (populated by submitAgentEdit
+    // after a round-trip response) and merge outcomeChanges with all batch
+    // turn changes into a flat uid+field_path-keyed view for the overlay.
+    // Resolve uids through the existing liveByUid/candidateByUid maps (which
+    // already use getUid()/LiteGraph id fallback).
+    const editedFields = [];
+    if (panel?.state?.lastSubmitFieldChanges) {
+      const seenFieldKeys = new Set();
+      const lfs = panel.state.lastSubmitFieldChanges;
+
+      // Collect all changes: outcome first, then batch turns
+      const allFieldChanges = [
+        ...(Array.isArray(lfs.outcomeChanges) ? lfs.outcomeChanges : []),
+      ];
+      if (Array.isArray(lfs.batchTurnChanges)) {
+        for (const btc of lfs.batchTurnChanges) {
+          if (Array.isArray(btc.changes)) {
+            allFieldChanges.push(...btc.changes);
+          }
+        }
+      }
+
+      for (const fc of allFieldChanges) {
+        if (!fc || !fc.uid || !fc.field_path) continue;
+        // Resolve uid through liveByUid or candidateByUid (getUid/LiteGraph id fallback)
+        if (!liveByUid.has(fc.uid) && !candidateByUid.has(fc.uid)) continue;
+        const fieldKey = `${fc.uid}::${fc.field_path}`;
+        if (seenFieldKeys.has(fieldKey)) continue;
+        seenFieldKeys.add(fieldKey);
+
+        // Format the new value for display
+        let newValueDisplay;
+        if (!("new" in fc)) {
+          newValueDisplay = null;
+        } else if (fc.new === null) {
+          newValueDisplay = "null";
+        } else if (fc.new === undefined) {
+          newValueDisplay = null;
+        } else if (typeof fc.new === "string") {
+          newValueDisplay = fc.new;
+        } else if (typeof fc.new === "number" || typeof fc.new === "boolean") {
+          newValueDisplay = String(fc.new);
+        } else if (Array.isArray(fc.new)) {
+          newValueDisplay = "[…]";
+        } else if (typeof fc.new === "object") {
+          newValueDisplay = "{…}";
+        } else {
+          newValueDisplay = String(fc.new);
+        }
+
+        editedFields.push({
+          uid: fc.uid,
+          field_path: fc.field_path,
+          new_value: newValueDisplay,
+        });
+      }
+    }
+
     // ── Link diff: normalize by endpoint UID + port name ──────────────────
     // Build supplementary maps for link endpoint resolution.
     const candidateNodesById = new Map();
@@ -3575,6 +4188,7 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
 
     const diff = {
       edited,
+      edited_fields: editedFields,
       added,
       removed,
       removed_named: removedNamed,
@@ -3594,6 +4208,7 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
     console.warn("[vibecomfy] computePreviewDiff failed, returning empty diff:", e);
     return {
       edited: [],
+      edited_fields: [],
       added: [],
       removed: [],
       removed_named: [],
@@ -3619,7 +4234,8 @@ function getOrBuildPreviewDiff() {
     panel.state._previewDiff &&
     panel.state._previewDiffGraphHash === candidateGraphHash &&
     Array.isArray(panel.state._previewDiff.added_links) &&
-    Array.isArray(panel.state._previewDiff.removed_links)
+    Array.isArray(panel.state._previewDiff.removed_links) &&
+    Array.isArray(panel.state._previewDiff.edited_fields)
   ) {
     return panel.state._previewDiff;
   }
@@ -3796,6 +4412,51 @@ export function drawPreviewOverlay(ctx, diff) {
           rowTop = computedRowsTop + widx * WIDGET_H;
         }
         ctx.fillRect(ex, rowTop, ew, Math.max(rowH - 2, 4));
+      }
+    }
+
+    // ── Edited field labels (from FieldChange data, T10) ─────────────────
+    // Renders field_path + new_value text labels on nodes that have
+    // normalized FieldChange entries keyed by uid and field_path.
+    if (diff.edited_fields && diff.edited_fields.length > 0) {
+      for (var _efi = 0; _efi < diff.edited_fields.length; _efi += 1) {
+        var ef = diff.edited_fields[_efi];
+        var efn = lookupLiveNodeByUid(ef.uid);
+        if (!efn || !efn.pos) continue;
+        var efCollapsed = !!(efn.flags && efn.flags.collapsed);
+        if (efCollapsed) continue;
+        var efx = efn.pos[0];
+        var efy = efn.pos[1];
+        var efw = Array.isArray(efn.size) ? efn.size[0] : 200;
+        var efh = Array.isArray(efn.size) ? efn.size[1] : 100;
+
+        ctx.save();
+        ctx.font = "11px Arial, sans-serif";
+        ctx.textBaseline = "bottom";
+        ctx.textAlign = "left";
+
+        // Build display label: field_path plus new value
+        var efLabel = ef.field_path;
+        if (ef.new_value !== null && ef.new_value !== undefined) {
+          efLabel += ": " + ef.new_value;
+        }
+        efLabel = _trunc(efLabel, 48);
+
+        var efTextW = ctx.measureText(efLabel).width + 10;
+        var efTextH = 19;
+        // Place at the bottom of the node body, left-aligned
+        var efTextX = efx + 4;
+        var efTextY = efy + efh - 4;
+
+        // Semi-transparent background for readability
+        ctx.fillStyle = "rgba(0,0,0,0.72)";
+        ctx.fillRect(efTextX, efTextY - efTextH, efTextW, efTextH);
+
+        // Text in edited amber
+        ctx.fillStyle = hexToRgba(VC_COLORS.edited, 0.95);
+        ctx.fillText(efLabel, efTextX + 5, efTextY - 2);
+
+        ctx.restore();
       }
     }
 
@@ -4272,19 +4933,21 @@ function installQueueGuard() {
   return true;
 }
 
-function renderCandidate(panel) {
-  const body = panel.sections.candidate;
-  clearNode(body);
-  if (!panel.state.candidateGraph) {
+function appendCandidateDetail(body, panel, message = null, snapshot = null) {
+  const candidateGraphPresent = candidateGraphPresentForBubble(message, snapshot)
+    || (!message && !snapshot && Boolean(panel.state.candidateGraph));
+  const phase = snapshot?.phase || panel.state.phase;
+  const clarification = snapshot?.clarification || panel.state.clarification;
+  if (!candidateGraphPresent) {
     // Clarify turn: the agent asked a question and produced no candidate. Show the
     // question as the headline (not "No candidate yet") and point the user at the
     // prompt box, which is open for their answer in the same session.
-    if (panel.state.phase === PANEL_STATE.CLARIFY && panel.state.clarification?.message) {
+    if (phase === PANEL_STATE.CLARIFY && clarification?.message) {
       const q = el("div", "❓ The agent needs your input:");
       q.style.color = "#ffc107";
       q.style.fontWeight = "600";
       body.appendChild(q);
-      const msg = el("div", panel.state.clarification.message);
+      const msg = el("div", clarification.message);
       msg.style.whiteSpace = "pre-wrap";
       msg.style.color = "#edf2f7";
       msg.style.borderLeft = "2px solid #ffc107";
@@ -4294,7 +4957,7 @@ function renderCandidate(panel) {
       body.appendChild(muted("Answer in the prompt box above and submit — it continues this session."));
       return;
     }
-    const feedback = panel.state.lastAppliedChanges;
+    const feedback = snapshot?.lastAppliedChanges || panel.state.lastAppliedChanges;
     if (feedback?.items?.length) {
       appendTextLine(
         body,
@@ -4315,10 +4978,10 @@ function renderCandidate(panel) {
       }
       return;
     }
-    body.appendChild(muted("No candidate yet. The legacy round-trip modal remains available through its original command."));
     return;
   }
-  const stageInfo = getBackendStageInfo(panel.state.debugPayload);
+  const debugPayload = snapshot?.debugPayload || panel.state.debugPayload;
+  const stageInfo = getBackendStageInfo(debugPayload);
   if (stageInfo) {
     appendTextLine(
       body,
@@ -4326,20 +4989,75 @@ function renderCandidate(panel) {
       "#9ed0ff",
     );
   }
-  if (panel.state.message) {
-    const msg = el("div", panel.state.message);
+  const candidateMessage = snapshot?.message || message?.text || panel.state.message;
+  if (candidateMessage) {
+    const msg = el("div", candidateMessage);
     msg.style.whiteSpace = "pre-wrap";
     msg.style.color = "#edf2f7";
     body.appendChild(msg);
   }
-  const eligibility = applyEligibility(panel);
-  appendTextLine(body, `canvas_apply_allowed=${String(panel.state.canvasApplyAllowed)}`, panel.state.canvasApplyAllowed ? "#4caf50" : "#ffb86c");
+  const actionState = candidateActionState(panel, message, snapshot);
+  const eligibility = actionState.eligibility;
+  const canvasApplyAllowed = snapshot?.canvasApplyAllowed ?? panel.state.canvasApplyAllowed;
+  const queueAllowed = snapshot?.queueAllowed ?? panel.state.queueAllowed;
+  appendTextLine(body, `canvas_apply_allowed=${String(canvasApplyAllowed)}`, canvasApplyAllowed ? "#4caf50" : "#ffb86c");
   appendTextLine(body, `apply_eligibility=${eligibility.reason}`, eligibility.applyable ? "#4caf50" : "#ffb86c");
-  appendTextLine(body, `queue_allowed=${String(panel.state.queueAllowed)}`, panel.state.queueAllowed ? "#4caf50" : "#ffb86c");
+  appendTextLine(body, `queue_allowed=${String(queueAllowed)}`, queueAllowed ? "#4caf50" : "#ffb86c");
   if (eligibility.message) {
     appendTextLine(body, eligibility.message, "#9ed0ff");
   }
-  const rows = collectDiffRows(panel.state.candidateReport);
+  if (actionState.visible) {
+    const controlsRow = el("div");
+    controlsRow.dataset.vibecomfyCandidateControls = "1";
+    Object.assign(controlsRow.style, {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: "6px",
+      alignItems: "center",
+      marginTop: "2px",
+    });
+
+    const applyBtn = button("Apply", () => applyAgentCandidate(panel));
+    applyBtn.dataset.vibecomfyCandidateAction = "apply";
+    applyBtn.dataset.vibecomfyCandidateTurnId = actionState.turnId || "";
+    applyBtn.disabled = actionState.applyDisabled;
+    applyBtn.style.fontSize = "11px";
+    applyBtn.style.padding = "4px 8px";
+    setButtonEmphasis(applyBtn, actionState.active || panel.state.phase === PANEL_STATE.APPLYING, "primary");
+    controlsRow.appendChild(applyBtn);
+
+    const rejectBtn = button("Reject", () => rejectAgentCandidate(panel));
+    rejectBtn.dataset.vibecomfyCandidateAction = "reject";
+    rejectBtn.dataset.vibecomfyCandidateTurnId = actionState.turnId || "";
+    rejectBtn.disabled = actionState.rejectDisabled;
+    rejectBtn.style.fontSize = "11px";
+    rejectBtn.style.padding = "4px 8px";
+    setButtonEmphasis(rejectBtn, actionState.active || panel.state.phase === PANEL_STATE.APPLYING, "danger");
+    controlsRow.appendChild(rejectBtn);
+
+    const stateLabel = el(
+      "span",
+      actionState.active
+        ? (eligibility.applyable ? "latest" : eligibility.reason)
+        : eligibility.reason,
+    );
+    stateLabel.dataset.vibecomfyCandidateReason = eligibility.reason || "";
+    stateLabel.dataset.vibecomfyCandidateTurnId = actionState.turnId || "";
+    Object.assign(stateLabel.style, {
+      fontSize: "10px",
+      color: eligibility.applyable ? "#4caf50" : "#ffb86c",
+      textTransform: "uppercase",
+      letterSpacing: "0.04em",
+      fontWeight: "700",
+    });
+    controlsRow.appendChild(stateLabel);
+
+    body.appendChild(controlsRow);
+    if (actionState.blockerMessage && actionState.blockerMessage !== eligibility.message) {
+      appendTextLine(body, actionState.blockerMessage, "#9ed0ff");
+    }
+  }
+  const rows = collectDiffRows(snapshot?.candidateReport || message?.report || panel.state.candidateReport);
   if (!rows.length) {
     body.appendChild(muted("Candidate returned without report rows."));
   }
@@ -4362,7 +5080,7 @@ function renderCandidate(panel) {
     lowered: rows.filter((item) => item.text.startsWith("lowered:")).length,
   };
   body.appendChild(createDetails("affected node preview", affected));
-  const issues = collectQueueIssues(panel.state.candidateReport);
+  const issues = collectQueueIssues(snapshot?.candidateReport || message?.report || panel.state.candidateReport);
   if (issues.length) {
     for (const issue of issues) {
       appendTextLine(body, `${issue.code}: ${issue.message}`, issue.severity === "error" ? "#ffb86c" : "#9ed0ff");
@@ -4371,24 +5089,31 @@ function renderCandidate(panel) {
       }
     }
   }
-  const artifacts = panel.state.debugPayload?.artifacts;
+  const artifacts = debugPayload?.artifacts;
   if (artifacts && typeof artifacts === "object") {
     for (const [name, value] of Object.entries(artifacts)) {
       appendCodeLine(body, `${name}: ${value}`);
     }
   }
-  if (panel.state.auditRef?.path) {
-    appendCodeLine(body, `audit: ${panel.state.auditRef.path}`, "#9ed0ff");
+  const auditRef = snapshot?.auditRef || panel.state.auditRef;
+  if (auditRef?.path) {
+    appendCodeLine(body, `audit: ${auditRef.path}`, "#9ed0ff");
   }
-  body.appendChild(createDetails("raw report", panel.state.candidateReport || {}));
+  body.appendChild(createDetails("raw report", snapshot?.candidateReport || message?.report || panel.state.candidateReport || {}));
 }
 
-function renderFailure(panel) {
-  const body = panel.sections.failure;
+function renderCandidate(panel) {
+  if (!panel?.sections?.candidate) {
+    return;
+  }
+  const body = panel.sections.candidate;
   clearNode(body);
-  const failure = panel.state.failure;
+  appendCandidateDetail(body, panel, null, null);
+}
+
+function appendFailureDetail(body, panel, snapshot = null) {
+  const failure = snapshot?.failure || panel.state.failure;
   if (!failure) {
-    body.appendChild(muted("No failure envelope."));
     return;
   }
   appendTextLine(body, `${failure.kind || "Error"} @ ${failure.stage || "unknown"}`, "#ffd6d6");
@@ -4448,11 +5173,18 @@ function renderFailure(panel) {
   body.appendChild(createDetails("raw failure", failure));
 }
 
-function renderQueue(panel) {
-  const body = panel.sections.queue;
+function renderFailure(panel) {
+  if (!panel?.sections?.failure) {
+    return;
+  }
+  const body = panel.sections.failure;
   clearNode(body);
-  const queueGuard = panel.state.queueGuard || getQueueGuardStateForPanel();
-  const issues = collectQueueIssues(panel.state.candidateReport);
+  appendFailureDetail(body, panel);
+}
+
+function appendQueueDetail(body, panel, snapshot = null) {
+  const queueGuard = snapshot?.queueGuard || panel.state.queueGuard || getQueueGuardStateForPanel();
+  const issues = collectQueueIssues(snapshot?.candidateReport || panel.state.candidateReport);
   if (queueGuard.fallbackWarning) {
     appendTextLine(body, queueGuard.fallbackWarning, "#ffb86c");
   }
@@ -4464,7 +5196,8 @@ function renderQueue(panel) {
   } else {
     appendTextLine(body, "native queue guard: panel warning fallback only", "#8d93a1");
   }
-  if (panel.state.queueAllowed) {
+  const queueAllowed = snapshot?.queueAllowed ?? panel.state.queueAllowed;
+  if (queueAllowed) {
     appendTextLine(body, "Queue-eligible candidate. Native queue path remains unchanged.", "#4caf50");
   } else if (issues.length) {
     for (const issue of issues) {
@@ -4477,13 +5210,21 @@ function renderQueue(panel) {
   }
 }
 
-function renderAudit(panel) {
-  const body = panel.sections.audit;
+function renderQueue(panel) {
+  if (!panel?.sections?.queue) {
+    return;
+  }
+  const body = panel.sections.queue;
   clearNode(body);
-  if (panel.state.auditRef?.path) {
-    appendCodeLine(body, panel.state.auditRef.path, "#edf2f7");
-    if (panel.state.auditRef.sha256) {
-      appendCodeLine(body, `sha256: ${panel.state.auditRef.sha256}`, "#8d93a1");
+  appendQueueDetail(body, panel);
+}
+
+function appendAuditDetail(body, panel, snapshot = null) {
+  const auditRef = snapshot?.auditRef || panel.state.auditRef;
+  if (auditRef?.path) {
+    appendCodeLine(body, auditRef.path, "#edf2f7");
+    if (auditRef.sha256) {
+      appendCodeLine(body, `sha256: ${auditRef.sha256}`, "#8d93a1");
     }
   } else if (Array.isArray(panel.state.turns) && panel.state.turns.length) {
     const latest = panel.state.turns[0];
@@ -4505,35 +5246,217 @@ function renderAudit(panel) {
   body.appendChild(dlBtn);
 }
 
+function renderAudit(panel) {
+  if (!panel?.sections?.audit) {
+    return;
+  }
+  const body = panel.sections.audit;
+  clearNode(body);
+  appendAuditDetail(body, panel);
+}
+
+function appendDebugDetail(body, panel, snapshot = null) {
+  const debugPayload = snapshot?.debugPayload || panel.state.debugPayload || { state: snapshot?.phase || panel.state.phase };
+  body.appendChild(createDetails("Raw response (debug)", debugPayload));
+}
+
 function renderDebug(panel) {
+  if (!panel?.sections?.debug) {
+    return;
+  }
   const body = panel.sections.debug;
   clearNode(body);
-  // Tuck the raw envelope behind a collapsed <details>. It is a developer aid;
-  // left always-open it dumps the full response (incl. batch_turns) as a wall of
-  // JSON that buries the Activity feed. Collapsed by default — click to expand.
-  const details = el("details");
-  details.open = !!panel.state.debugExpanded;
-  details.ontoggle = function () {
-    panel.state.debugExpanded = details.open;
+  appendDebugDetail(body, panel);
+}
+
+// ── Adapter capability snapshot for developer section ──────────────────────
+function adapterCapabilitySnapshot() {
+  const graphApply = {
+    available: typeof app?.canvas?.graph?.clear === "function" && typeof app?.canvas?.graph?.configure === "function",
+    detail: typeof app?.canvas?.graph?.clear === "function" && typeof app?.canvas?.graph?.configure === "function"
+      ? "Live graph supports in-place clear + configure."
+      : "No live graph instance with clear + configure found.",
+    path: "app.canvas.graph",
   };
-  const summary = el("summary", "Raw response (debug)");
-  Object.assign(summary.style, {
-    cursor: "pointer",
+  const previewForeground = _previewForegroundInstallReport?.capability || {
+    available: false,
+    detail: "Preview foreground install not attempted.",
+    path: "app.canvas.onDrawForeground",
+  };
+  const previewStrategy = _previewForegroundInstallReport?.strategy || null;
+  const previewPolling = _previewForegroundInstallReport?.polling === true;
+  const queueGuard = {
+    available: Boolean(queueGuardHook?.installed),
+    detail: queueGuardHook?.installed ? "app.queuePrompt is wrapped." : "app.queuePrompt guard not installed.",
+    path: queueGuardHook?.path || "app.queuePrompt",
+    fallbackWarning: queueGuardFallbackWarning || null,
+  };
+  return {
+    graphApply,
+    previewForeground,
+    previewStrategy,
+    previewPolling,
+    queueGuard,
+    frontendVersion: typeof SUPPORTED_FRONTEND === "string" ? SUPPORTED_FRONTEND : "unknown",
+    supportsAll: graphApply.available && previewForeground.available && queueGuard.available,
+  };
+}
+
+function renderDeveloper(panel) {
+  const body = panel?.sections?.developer;
+  if (!body) {
+    return;
+  }
+  clearNode(body);
+
+  const caps = adapterCapabilitySnapshot();
+
+  const devData = el("div");
+  Object.assign(devData.style, {
+    display: "grid",
+    gap: "4px",
+    fontSize: "10px",
     color: "#8d93a1",
-    fontSize: "11px",
-    userSelect: "none",
+    lineHeight: "1.4",
   });
-  details.appendChild(summary);
-  const pre = el("pre", safeJson(panel.state.debugPayload || { state: panel.state.phase }));
-  Object.assign(pre.style, {
-    margin: "6px 0 0",
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-    color: "#b9ffcc",
-    fontSize: "11px",
+
+  // ── Adapter capability state ──────────────────────────────────────────
+  const adapterSection = renderDeveloperSubsection("Adapter Capabilities");
+  const capLines = [
+    `graphApply: ${caps.graphApply.available ? "✓" : "✗"} (${caps.graphApply.detail})`,
+    `previewForeground: ${caps.previewForeground.available ? "✓" : "✗"} (${caps.previewForeground.detail})`,
+    caps.previewStrategy ? `preview strategy: ${caps.previewStrategy}${caps.previewPolling ? " (polling fallback)" : ""}` : null,
+    `queueGuard: ${caps.queueGuard.available ? "✓" : "✗"} (${caps.queueGuard.detail})`,
+    caps.queueGuard.fallbackWarning ? `queueGuard fallback: ${caps.queueGuard.fallbackWarning}` : null,
+    `supportsAll: ${caps.supportsAll ? "yes" : "no"} (frontend ${caps.frontendVersion})`,
+  ].filter(Boolean);
+  for (const line of capLines) {
+    const div = el("div", line);
+    div.style.color = line.startsWith("graphApply: ✗") || line.startsWith("previewForeground: ✗") || line.startsWith("queueGuard: ✗") ? "#ff8d8d" : "#8d93a1";
+    adapterSection.appendChild(div);
+  }
+  devData.appendChild(adapterSection);
+
+  // ── Queue guard state ─────────────────────────────────────────────────
+  const qgSection = renderDeveloperSubsection("Queue Guard State");
+  const qgState = getQueueGuardStateForPanel();
+  const qgLines = [
+    `hookInstalled: ${qgState.hookInstalled}`,
+    `hookPath: ${qgState.hookPath || "none"}`,
+    qgState.fallbackWarning ? `fallbackWarning: ${qgState.fallbackWarning}` : null,
+    qgState.activeContext ? `activeContext: turn=${qgState.activeContext.turnId || "?"} queueAllowed=${qgState.activeContext.queueAllowed}` : "activeContext: none",
+    qgState.lastBlockNotice ? `lastBlock: ${qgState.lastBlockNotice.at || "?"} — ${qgState.lastBlockNotice.message}` : "lastBlockNotice: none",
+    `blockedTurnKeys: ${queueGuardBlockedTurnKeys.size}`,
+  ].filter(Boolean);
+  for (const line of qgLines) {
+    qgSection.appendChild(el("div", line));
+  }
+  devData.appendChild(qgSection);
+
+  // ── Hashes ────────────────────────────────────────────────────────────
+  const hashSection = renderDeveloperSubsection("Hashes");
+  const hashLines = [
+    `baselineGraphHash: ${panel.state.baselineGraphHash || "none"}`,
+    panel.state.baselineGraphHashKind ? `baselineGraphHashKind: ${panel.state.baselineGraphHashKind}` : null,
+    panel.state.baselineGraphHashVersion != null ? `baselineGraphHashVersion: ${panel.state.baselineGraphHashVersion}` : null,
+    `candidateGraphHash: ${panel.state.candidateGraphHash || "none"}`,
+    `serverSubmitGraphHash: ${panel.state.serverSubmitGraphHash || "none"}`,
+    panel.state.lastSubmit?.client_graph_hash ? `lastSubmit.client_graph_hash: ${panel.state.lastSubmit.client_graph_hash}` : null,
+    panel.state.lastSubmit?.client_structural_graph_hash ? `lastSubmit.client_structural_graph_hash: ${panel.state.lastSubmit.client_structural_graph_hash}` : null,
+  ].filter(Boolean);
+  for (const line of hashLines) {
+    hashSection.appendChild(el("div", line));
+  }
+  devData.appendChild(hashSection);
+
+  // ── Raw booleans ──────────────────────────────────────────────────────
+  const boolSection = renderDeveloperSubsection("Raw Booleans");
+  const boolLines = [
+    `canvasApplyAllowed: ${panel.state.canvasApplyAllowed}`,
+    `queueAllowed: ${panel.state.queueAllowed}`,
+    `applyAllowed: ${panel.state.applyAllowed}`,
+    `applyEligibility: ${JSON.stringify(panel.state.applyEligibility)}`,
+    panel.state.applyEligibilityWarning ? `applyEligibilityWarning: ${JSON.stringify(panel.state.applyEligibilityWarning)}` : null,
+  ].filter(Boolean);
+  for (const line of boolLines) {
+    boolSection.appendChild(el("div", line));
+  }
+  devData.appendChild(boolSection);
+
+  // ── Missing-contract warning ──────────────────────────────────────────
+  if (panel.state.applyEligibilityWarning && panel.state.applyEligibilityWarning.reason === APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT) {
+    const mcSection = renderDeveloperSubsection("Missing Contract");
+    mcSection.style.color = "#ffc107";
+    mcSection.appendChild(el("div", `turn_id: ${panel.state.applyEligibilityWarning.turn_id || "?"}`));
+    mcSection.appendChild(el("div", `message: ${panel.state.applyEligibilityWarning.message}`));
+    if (panel.state.applyEligibilityWarning.candidate_graph_hash) {
+      mcSection.appendChild(el("div", `candidate_graph_hash: ${panel.state.applyEligibilityWarning.candidate_graph_hash}`));
+    }
+    devData.appendChild(mcSection);
+  }
+
+  // ── Raw JSON ──────────────────────────────────────────────────────────
+  const rawSection = renderDeveloperSubsection("Raw JSON");
+  const statusSnapshot = panel.state.statusSnapshot;
+  const debugPayload = panel.state.debugPayload;
+  if (statusSnapshot || debugPayload) {
+    if (statusSnapshot) {
+      const pre = el("pre", JSON.stringify(statusSnapshot, null, 2));
+      Object.assign(pre.style, {
+        maxHeight: "120px",
+        overflowY: "auto",
+        background: "#0d0e12",
+        padding: "4px",
+        borderRadius: "4px",
+        fontSize: "9px",
+        margin: "0",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-all",
+      });
+      rawSection.appendChild(el("div", "Status snapshot:"));
+      rawSection.appendChild(pre);
+    }
+    if (debugPayload) {
+      const pre = el("pre", JSON.stringify(debugPayload, null, 2));
+      Object.assign(pre.style, {
+        maxHeight: "120px",
+        overflowY: "auto",
+        background: "#0d0e12",
+        padding: "4px",
+        borderRadius: "4px",
+        fontSize: "9px",
+        margin: "0",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-all",
+      });
+      rawSection.appendChild(el("div", "Debug payload:"));
+      rawSection.appendChild(pre);
+    }
+    devData.appendChild(rawSection);
+  }
+
+  body.appendChild(devData);
+}
+
+function renderDeveloperSubsection(title) {
+  const section = el("div");
+  Object.assign(section.style, {
+    border: "1px solid #282a32",
+    borderRadius: "4px",
+    padding: "6px",
+    background: "#0d0f14",
   });
-  details.appendChild(pre);
-  body.appendChild(details);
+  const heading = el("div", title);
+  Object.assign(heading.style, {
+    fontSize: "10px",
+    fontWeight: "700",
+    color: "#9da1ac",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    marginBottom: "4px",
+  });
+  section.appendChild(heading);
+  return section;
 }
 
 function renderSettings(panel) {
@@ -4584,6 +5507,78 @@ function renderSettings(panel) {
   }
 }
 
+function syncComposerButtons(panel, { submitting = false, showUndo = false } = {}) {
+  const row = panel?.composerButtons;
+  if (!row) {
+    return;
+  }
+  const orderedButtons = [
+    panel.buttons.submit,
+    panel.buttons.stop,
+    panel.buttons.apply,
+    panel.buttons.reject,
+    panel.buttons.undo,
+    panel.buttons.newConversation,
+  ];
+  for (const btn of orderedButtons) {
+    if (btn.parentNode !== row) {
+      row.appendChild(btn);
+    }
+  }
+  panel.buttons.stop.style.display = submitting ? "inline-flex" : "none";
+  panel.buttons.undo.style.display = showUndo ? "inline-flex" : "none";
+}
+
+function renderComposerNotice(panel, readinessState) {
+  const notice = panel?.sections?.composerNotice;
+  if (!notice) {
+    return;
+  }
+  clearNode(notice);
+  let hasContent = false;
+  const clarification = panel?.state?.clarification;
+  if (panel.state.phase === PANEL_STATE.CLARIFY && clarification?.message) {
+    const heading = el("div", "Clarify question");
+    heading.style.color = "#ffc107";
+    heading.style.fontWeight = "700";
+    heading.style.marginBottom = "4px";
+    notice.appendChild(heading);
+    notice.appendChild(el("div", clarification.message));
+    const followUp = el("div", "Reply in the prompt and submit — it continues this same session.");
+    followUp.style.color = "#9da1ac";
+    followUp.style.marginTop = "6px";
+    notice.appendChild(followUp);
+    hasContent = true;
+  }
+  if (!readinessState.ready) {
+    if (hasContent) {
+      const divider = el("div");
+      divider.style.height = "1px";
+      divider.style.background = "#2a313c";
+      divider.style.margin = "8px 0";
+      notice.appendChild(divider);
+    }
+    const readinessLabel = el("div", "Send unavailable");
+    readinessLabel.style.color = "#ffb86c";
+    readinessLabel.style.fontWeight = "700";
+    readinessLabel.style.marginBottom = "4px";
+    notice.appendChild(readinessLabel);
+    notice.appendChild(el("div", readinessState.message));
+    hasContent = true;
+  } else if (panel.state.phase === PANEL_STATE.SUBMITTING) {
+    const submittingLabel = el("div", "Submitting edit request.");
+    submittingLabel.style.color = "#ffd36f";
+    submittingLabel.style.fontWeight = "700";
+    notice.appendChild(submittingLabel);
+    const stopHint = el("div", "Stop cancels this request locally and marks the visible turn cancelled.");
+    stopHint.style.color = "#9da1ac";
+    stopHint.style.marginTop = "4px";
+    notice.appendChild(stopHint);
+    hasContent = true;
+  }
+  notice.style.display = hasContent ? "block" : "none";
+}
+
 export function renderAgentPanel(panel) {
   if (!panel?.root) {
     return;
@@ -4611,25 +5606,27 @@ export function renderAgentPanel(panel) {
 
   renderHistory(panel);
   renderSettings(panel);
-  renderCandidate(panel);
-  renderFailure(panel);
-  renderQueue(panel);
-  renderAudit(panel);
-  renderDebug(panel);
+  renderDeveloper(panel);
 
   const submitting = phase === PANEL_STATE.SUBMITTING;
   const reviewing = phase === PANEL_STATE.AWAITING_REVIEW;
   const applying = phase === PANEL_STATE.APPLYING;
   const canSubmit = phase === PANEL_STATE.IDLE || phase === PANEL_STATE.ERROR || phase === PANEL_STATE.CLARIFY;
-  const eligibility = applyEligibility(panel);
+  const actionState = candidateActionState(panel);
   const rebaselineReason = panel.state.rebaselinePending?.reason || null;
   const rebaselinePending = Boolean(panel.state.rebaselinePending || panel.state.inFlightRebaseline);
   const undoPending = rebaselineReason === "undo";
+  const readinessState = submitReadinessState(panel);
 
-  panel.buttons.submit.disabled = submitting || rebaselinePending;
+  panel.buttons.submit.disabled =
+    submitting
+    || rebaselinePending
+    || !canSubmit
+    || (!readinessState.ready && readinessState.reason !== ROUTE_STATUS_KIND.LOADING);
   panel.buttons.submit.textContent = submitting ? "Submitting..." : "Submit";
-  panel.buttons.apply.disabled = applying || !eligibility.applyable;
-  panel.buttons.reject.disabled = !panel.state.candidateGraph || submitting || applying;
+  panel.buttons.stop.disabled = !submitting;
+  panel.buttons.apply.disabled = actionState.applyDisabled;
+  panel.buttons.reject.disabled = actionState.rejectDisabled;
   panel.buttons.undo.disabled =
     panel.state.undoStack.length < 1
     || submitting
@@ -4652,7 +5649,14 @@ export function renderAgentPanel(panel) {
   // a pending candidate to preview.
   panel.state.previewEnabled = !!(reviewing && panel.state.candidateGraph);
 
-  setButtonEmphasis(panel.buttons.submit, canSubmit || submitting, "primary");
+  syncComposerButtons(panel, {
+    submitting,
+    showUndo: panel.state.undoStack.length > 0,
+  });
+  renderComposerNotice(panel, readinessState);
+
+  setButtonEmphasis(panel.buttons.submit, (canSubmit && readinessState.ready) || submitting, "primary");
+  setButtonEmphasis(panel.buttons.stop, submitting, "danger");
   setButtonEmphasis(panel.buttons.apply, reviewing || applying, "primary");
   setButtonEmphasis(panel.buttons.reject, reviewing || applying, "danger");
   setButtonEmphasis(panel.buttons.undo, panel.state.undoStack.length > 0, "neutral");
@@ -4722,6 +5726,10 @@ async function newAgentConversation(panel) {
   if (!panel) {
     return;
   }
+  if (panel.state.submitAbortController) {
+    panel.state.submitAbortController.abort();
+    panel.state.submitAbortController = null;
+  }
   panel.state.chatRehydrateEpoch = (panel.state.chatRehydrateEpoch || 0) + 1;
   // Clear candidate state
   panel.state.candidateGraph = null;
@@ -4742,6 +5750,9 @@ async function newAgentConversation(panel) {
   panel.state.chatError = null;
   panel.state.chatSessionPath = null;
   panel.state.chatDetailJsonPath = null;
+  panel.state.expandedBubbleTurnKeys = {};
+  panel.state.turnDetailSnapshots = {};
+  panel.state.syntheticAgentMessage = null;
   // Clear activity / history
   panel.state.turns = [];
   panel.state.history = [];
@@ -4783,6 +5794,18 @@ async function submitAgentEdit(panel) {
     if (promptEl && promptEl !== panel.fields.prompt) {
       panel.fields.prompt = promptEl;
     }
+    const readinessState = submitReadinessState(panel);
+    if (!readinessState.ready) {
+      panel.state.failure = null;
+      panel.state.debugPayload = {
+        readiness: readinessState,
+        route_status: clonePlainData(panel.state.routeStatus),
+        status_snapshot: clonePlainData(panel.state.statusSnapshot),
+      };
+      renderAgentPanel(panel);
+      return;
+    }
+
     const task = (promptEl && typeof promptEl.value === "string" ? promptEl.value : "").trim();
     if (!task) {
       panel.state.phase = PANEL_STATE.ERROR;
@@ -4810,6 +5833,7 @@ async function submitAgentEdit(panel) {
     }
 
     panel.state.phase = PANEL_STATE.SUBMITTING;
+    panel.state.syntheticAgentMessage = null;
     invalidateCandidateState(panel);
     panel.state.failure = null;
     panel.state.lastAppliedChanges = null;
@@ -4842,6 +5866,8 @@ async function submitAgentEdit(panel) {
 
     let result;
     try {
+      const submitAbortController = new AbortController();
+      panel.state.submitAbortController = submitAbortController;
       const body = {
         graph: snapshot.graph,
         task,
@@ -4858,6 +5884,7 @@ async function submitAgentEdit(panel) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: submitAbortController.signal,
       });
       result = await res.json();
       // Prefer typed envelope fields; fall back to compatibility fields.
@@ -4881,6 +5908,31 @@ async function submitAgentEdit(panel) {
         });
       }
     } catch (e) {
+      if (e?.name === "AbortError") {
+        panel.state.phase = PANEL_STATE.IDLE;
+        panel.state.failure = null;
+        panel.state.message = "Request cancelled.";
+        panel.state.queueGuard = getQueueGuardStateForPanel();
+        panel.state.syntheticAgentMessage = {
+          role: "agent",
+          text: "Request cancelled.",
+          session_id: panel.state.sessionId || null,
+          synthetic: true,
+          local_id: `cancelled:${Date.now()}`,
+        };
+        panel.state.debugPayload = {
+          cancelled: true,
+          last_submit: panel.state.lastSubmit,
+        };
+        pushHistory(panel, "cancelled", task);
+        pushTurnStatus(panel, "cancelled", {
+          session_id: panel.state.sessionId,
+          task,
+          message: "Request cancelled.",
+        });
+        renderAgentPanel(panel);
+        return;
+      }
       const failure = e?.ok === false
         ? e
         : agentPanelFailure("NetworkError", String(e), {
@@ -4911,11 +5963,18 @@ async function submitAgentEdit(panel) {
         audit_ref: failure.audit_ref,
         raw_payload: failure,
       });
+      rememberTurnDetailSnapshot(panel, {
+        turn_id: failure.turn_id,
+        session_id: failure.session_id,
+        failure,
+        message: failure.user_facing_message || failure.message || failure.error,
+      });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
       _rehydrateChat(panel).then(() => { rerenderAgentPanelIfMounted(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
       return;
     } finally {
+      panel.state.submitAbortController = null;
       panel.state.inFlightSubmit = null;
     }
 
@@ -4973,6 +6032,12 @@ async function submitAgentEdit(panel) {
         clarification_message: clarifyMessage,
         audit_ref: result.audit_ref,
         raw_payload: result,
+      });
+      rememberTurnDetailSnapshot(panel, {
+        turn_id: result.turn_id,
+        session_id: result.session_id,
+        clarification: panel.state.clarification,
+        message: clarifyMessage,
       });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
@@ -5046,6 +6111,12 @@ async function submitAgentEdit(panel) {
         audit_ref: result.audit_ref,
         raw_payload: failure,
       });
+      rememberTurnDetailSnapshot(panel, {
+        turn_id: result.turn_id,
+        session_id: result.session_id,
+        failure,
+        message: failure.user_facing_message || failure.message,
+      });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
       _rehydrateChat(panel).then(() => { rerenderAgentPanelIfMounted(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
@@ -5089,6 +6160,22 @@ async function submitAgentEdit(panel) {
       audit_ref: result.audit_ref,
       raw_payload: result,
     });
+    rememberTurnDetailSnapshot(panel, {
+      turn_id: result.turn_id,
+      session_id: result.session_id,
+      candidateGraphPresent: Boolean(candidateGraph),
+      candidateReport: result.report || null,
+      applyEligibility: normalizeApplyEligibility(eligibility),
+      queueAllowed: Boolean(result.queue_allowed),
+      canvasApplyAllowed: Boolean(result.canvas_apply_allowed),
+      auditRef: result.audit_ref || null,
+      debugPayload: {
+        ...result,
+        last_submit: panel.state.lastSubmit,
+      },
+      fieldChanges: panel.state.lastSubmitFieldChanges,
+      message: result.message || null,
+    });
     renderAgentPanel(panel);
     // Canonicalize chat through the rehydrate endpoint after visible update.
     _rehydrateChat(panel).then(() => { rerenderAgentPanelIfMounted(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
@@ -5104,6 +6191,16 @@ async function submitAgentEdit(panel) {
   })();
 
   return panel.state.inFlightSubmit;
+}
+
+function stopAgentSubmit(panel) {
+  const controller = panel?.state?.submitAbortController;
+  if (!controller) {
+    renderAgentPanel(panel);
+    return false;
+  }
+  controller.abort();
+  return true;
 }
 
 async function applyAgentCandidate(panel) {
@@ -5243,6 +6340,12 @@ async function applyAgentCandidate(panel) {
         audit_ref: failure.audit_ref,
         raw_payload: failure,
       });
+      rememberTurnDetailSnapshot(panel, {
+        turn_id: failure.turn_id || panel.state.turnId,
+        session_id: failure.session_id || panel.state.sessionId,
+        failure,
+        message: failure.user_facing_message || failure.message || failure.error,
+      });
       renderAgentPanel(panel);
       return;
     }
@@ -5307,6 +6410,12 @@ async function applyAgentCandidate(panel) {
         audit_ref: failure.audit_ref,
         raw_payload: failure,
       });
+      rememberTurnDetailSnapshot(panel, {
+        turn_id: failure.turn_id || panel.state.turnId,
+        session_id: failure.session_id || panel.state.sessionId,
+        failure,
+        message: failure.user_facing_message || failure.message || failure.error,
+      });
       renderAgentPanel(panel);
       return;
     }
@@ -5337,6 +6446,16 @@ async function applyAgentCandidate(panel) {
       accepted,
       undo_stack_depth: panel.state.undoStack.length,
     };
+    rememberTurnDetailSnapshot(panel, {
+      turn_id: accepted.turn_id || panel.state.turnId,
+      session_id: accepted.session_id || panel.state.sessionId,
+      auditRef: accepted.audit_ref || panel.state.auditRef,
+      debugPayload: {
+        accepted,
+        undo_stack_depth: panel.state.undoStack.length,
+      },
+      message: panel.state.message,
+    });
     renderAgentPanel(panel);
     toast("Agent candidate applied");
   })();
@@ -5417,17 +6536,23 @@ async function rejectAgentCandidate(panel) {
       reject_request: rejectBody,
     };
     pushHistory(panel, "failure", failure.kind || "RejectError");
-    pushTurnStatus(panel, "failed", {
-      session_id: failure.session_id || panel.state.sessionId,
-      turn_id: failure.turn_id || panel.state.turnId,
+      pushTurnStatus(panel, "failed", {
+        session_id: failure.session_id || panel.state.sessionId,
+        turn_id: failure.turn_id || panel.state.turnId,
       baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
       failure_kind: failure.kind || "RejectError",
       failure_stage: failure.stage || "reject",
       message: failure.user_facing_message || failure.message || failure.error,
-      audit_ref: failure.audit_ref,
-      raw_payload: failure,
-    });
-    renderAgentPanel(panel);
+        audit_ref: failure.audit_ref,
+        raw_payload: failure,
+      });
+      rememberTurnDetailSnapshot(panel, {
+        turn_id: failure.turn_id || panel.state.turnId,
+        session_id: failure.session_id || panel.state.sessionId,
+        failure,
+        message: failure.user_facing_message || failure.message || failure.error,
+      });
+      renderAgentPanel(panel);
     return;
   }
 
@@ -5450,6 +6575,16 @@ async function rejectAgentCandidate(panel) {
     rejected,
     graph_unchanged: true,
   };
+  rememberTurnDetailSnapshot(panel, {
+    turn_id: rejected.turn_id || panel.state.turnId,
+    session_id: rejected.session_id || panel.state.sessionId,
+    auditRef: rejected.audit_ref || panel.state.auditRef,
+    debugPayload: {
+      rejected,
+      graph_unchanged: true,
+    },
+    message: panel.state.message,
+  });
   renderAgentPanel(panel);
   toast("Agent candidate rejected");
 }
