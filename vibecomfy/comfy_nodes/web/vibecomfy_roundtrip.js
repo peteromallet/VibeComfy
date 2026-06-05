@@ -1727,10 +1727,13 @@ function createAgentPanel() {
   undoBtn.id = PANEL_IDS.undo;
   const closeBtn = button("Close", () => closeAgentPanel(agentPanel));
   closeBtn.id = PANEL_IDS.close;
+  const newConvBtn = button("New conversation", () => newAgentConversation(agentPanel));
+  newConvBtn.id = "vibecomfy-agent-panel-new-conversation";
   footer.appendChild(submitBtn);
   footer.appendChild(applyBtn);
   footer.appendChild(rejectBtn);
   footer.appendChild(undoBtn);
+  footer.appendChild(newConvBtn);
   footer.appendChild(closeBtn);
 
   // Preview is ALWAYS-ON: no toggle. The overlay draws automatically whenever a
@@ -4418,6 +4421,54 @@ async function testAgentSettings(panel) {
   await refreshAgentStatus(panel);
 }
 
+async function newAgentConversation(panel) {
+  if (!panel) {
+    return;
+  }
+  // Clear candidate state
+  panel.state.candidateGraph = null;
+  panel.state.candidateGraphHash = null;
+  panel.state.candidateReport = null;
+  panel.state.serverSubmitGraphHash = null;
+  panel.state.message = null;
+  panel.state.applyEligibility = null;
+  panel.state.applyAllowed = false;
+  panel.state.canvasApplyAllowed = false;
+  panel.state.queueAllowed = false;
+  // Clear failure state
+  panel.state.failure = null;
+  panel.state.clarification = null;
+  // Clear chat / session state
+  panel.state.chatMessages = [];
+  panel.state.chatLoaded = false;
+  panel.state.chatError = null;
+  panel.state.chatSessionPath = null;
+  panel.state.chatDetailJsonPath = null;
+  // Clear activity / history
+  panel.state.turns = [];
+  panel.state.history = [];
+  // Clear session metadata — next submit will omit session_id.
+  panel.state.sessionId = null;
+  panel.state.turnId = null;
+  panel.state.baselineTurnId = null;
+  panel.state.baselineGraphHash = null;
+  panel.state.baselineGraphHashKind = null;
+  panel.state.baselineGraphHashVersion = null;
+  panel.state.baselineSource = "none";
+  panel.state.baselineRebaselineId = null;
+  panel.state.baselineGraphSourcePath = null;
+  panel.state.auditRef = null;
+  panel.state.debugPayload = null;
+  panel.state.lastSubmit = null;
+  panel.state.undoStack = [];
+  panel.state.lastAppliedChanges = null;
+  panel.state.previewEnabled = false;
+  panel.state.phase = PANEL_STATE.IDLE;
+  // Clear localStorage — never call /vibecomfy/agent-edit/rebaseline.
+  forgetActiveSession();
+  renderAgentPanel(panel);
+}
+
 async function submitAgentEdit(panel) {
   if (panel?.state?.rebaselinePending || panel?.state?.inFlightRebaseline) {
     renderAgentPanel(panel);
@@ -4535,6 +4586,7 @@ async function submitAgentEdit(panel) {
       panel.state.failure = failure;
       panel.state.turnId = failure.turn_id || panel.state.turnId;
       panel.state.sessionId = failure.session_id || panel.state.sessionId;
+      _persistActiveSession(panel.state.sessionId);
       syncBaselineFromResponse(panel, failure);
       panel.state.auditRef = failure.audit_ref || null;
       panel.state.queueGuard = getQueueGuardStateForPanel();
@@ -4555,6 +4607,8 @@ async function submitAgentEdit(panel) {
         raw_payload: failure,
       });
       renderAgentPanel(panel);
+      // Canonicalize chat through the rehydrate endpoint.
+      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
       return;
     } finally {
       panel.state.inFlightSubmit = null;
@@ -4577,6 +4631,7 @@ async function submitAgentEdit(panel) {
             : "The agent needs clarification before it can edit the graph.";
       panel.state.phase = PANEL_STATE.CLARIFY;
       panel.state.sessionId = result.session_id || panel.state.sessionId;
+      _persistActiveSession(panel.state.sessionId);
       panel.state.turnId = result.turn_id || null;
       syncBaselineFromResponse(panel, result);
       invalidateCandidateState(panel);
@@ -4611,6 +4666,8 @@ async function submitAgentEdit(panel) {
         raw_payload: result,
       });
       renderAgentPanel(panel);
+      // Canonicalize chat through the rehydrate endpoint.
+      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
       return;
     }
 
@@ -4659,6 +4716,7 @@ async function submitAgentEdit(panel) {
       panel.state.phase = PANEL_STATE.ERROR;
       panel.state.failure = failure;
       panel.state.sessionId = result.session_id || panel.state.sessionId;
+      _persistActiveSession(panel.state.sessionId);
       panel.state.turnId = result.turn_id || null;
       syncBaselineFromResponse(panel, result);
       panel.state.auditRef = result.audit_ref || null;
@@ -4680,6 +4738,8 @@ async function submitAgentEdit(panel) {
         raw_payload: failure,
       });
       renderAgentPanel(panel);
+      // Canonicalize chat through the rehydrate endpoint.
+      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
       return;
     }
 
@@ -4688,6 +4748,7 @@ async function submitAgentEdit(panel) {
       : await sha256HexUtf8(canonicalJsonString(result.graph));
     panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
     panel.state.sessionId = result.session_id || panel.state.sessionId;
+    _persistActiveSession(panel.state.sessionId);
     panel.state.turnId = result.turn_id || null;
     syncBaselineFromResponse(panel, result);
     invalidateCandidateState(panel);
@@ -4719,6 +4780,8 @@ async function submitAgentEdit(panel) {
       raw_payload: result,
     });
     renderAgentPanel(panel);
+    // Canonicalize chat through the rehydrate endpoint after visible update.
+    _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
 
     if (panel.state.previewEnabled) {
       if (app?.canvas?.setDirty) {

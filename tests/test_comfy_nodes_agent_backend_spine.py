@@ -3652,6 +3652,92 @@ def test_build_batch_messages_system_prompt_size_under_ceiling() -> None:
     assert len(system) < 2600, f"system prompt is {len(system)} chars, expected <2600"
 
 
+def test_build_batch_messages_conversation_memory_included_on_turn_zero() -> None:
+    """Turn 0 with conversation_messages injects a ``Recent conversation`` block
+    that includes prior context (e.g. "set it to 28") before the current
+    ``User request: now make it 30``."""
+    conversation = [
+        {"role": "user", "text": "set it to 28"},
+        {"role": "agent", "text": "Done — changed the value to 28."},
+    ]
+    messages = agent_provider.build_batch_messages(
+        task="now make it 30",
+        turn_number=0,
+        python_source="val = 28",
+        conversation_messages=conversation,
+    )
+    user_msg = messages[1]["content"]
+
+    assert "Recent conversation:" in user_msg
+    assert "User: set it to 28" in user_msg
+    assert "Agent: Done" in user_msg
+    assert "User request:" in user_msg
+    assert "now make it 30" in user_msg
+    # The conversation block should appear BEFORE the user request.
+    conv_pos = user_msg.index("Recent conversation:")
+    req_pos = user_msg.index("User request:")
+    assert conv_pos < req_pos, (
+        "Recent conversation block must precede User request"
+    )
+
+
+def test_build_batch_messages_conversation_memory_omitted_on_later_turns() -> None:
+    """Turn > 0 does NOT inject a ``Recent conversation`` block, even when
+    conversation_messages are provided — later batch iterations are tight
+    diffs without repeated context."""
+    conversation = [
+        {"role": "user", "text": "set it to 28"},
+        {"role": "agent", "text": "Done."},
+    ]
+    for turn_number in (1, 2, 5):
+        messages = agent_provider.build_batch_messages(
+            task="now make it 30",
+            turn_number=turn_number,
+            diff="-val = 28\n+val = 30",
+            report="set_node_field landed",
+            conversation_messages=conversation,
+        )
+        user_msg = messages[1]["content"]
+        assert "Recent conversation:" not in user_msg, (
+            f"turn {turn_number} must not inject conversation block"
+        )
+        assert "User request:" in user_msg
+
+
+def test_build_batch_messages_conversation_empty_list_no_block() -> None:
+    """An empty conversation_messages list does not inject the block."""
+    messages = agent_provider.build_batch_messages(
+        task="make it green",
+        turn_number=0,
+        python_source="color = blue",
+        conversation_messages=[],
+    )
+    user_msg = messages[1]["content"]
+    assert "Recent conversation:" not in user_msg
+
+
+def test_build_batch_messages_conversation_with_changes_compact() -> None:
+    """Changes list on conversation messages renders compact op annotations."""
+    conversation = [
+        {
+            "role": "agent",
+            "text": "updated the value",
+            "changes": [
+                {"op_kind": "set_node_field", "source": "agent-edit"},
+            ],
+        },
+    ]
+    messages = agent_provider.build_batch_messages(
+        task="verify",
+        turn_number=0,
+        python_source="x = 1",
+        conversation_messages=conversation,
+    )
+    user_msg = messages[1]["content"]
+    assert "set_node_field" in user_msg
+    assert "[" in user_msg  # compact change annotation present
+
+
 def test_batch_turn_result_to_dict() -> None:
     """BatchTurnResult.to_dict() includes batch, message, route, model, audit_metadata."""
     result = agent_provider.BatchTurnResult(
