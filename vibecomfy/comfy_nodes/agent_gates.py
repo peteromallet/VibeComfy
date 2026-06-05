@@ -6,11 +6,13 @@ from typing import Any, Mapping
 from vibecomfy.contracts.intent_nodes import INTENT_NODE_QUEUE_BLOCKER_CODE
 
 from .agent_contracts import (
+    ApplyEligibility,
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,
     GateResult,
     StageResult,
     TurnContext,
+    derive_apply_eligibility,
 )
 
 
@@ -34,6 +36,7 @@ EXPLICIT_QUEUE_BLOCKER_CODES = frozenset(
 class GateDerivation:
     gates: Mapping[str, GateResult]
     canvas_apply_allowed: bool
+    apply_eligibility: ApplyEligibility
     queue_allowed: bool
     queue_blockers: tuple[dict[str, Any], ...]
 
@@ -162,6 +165,7 @@ def derive_gates(
     return GateDerivation(
         gates={name: context.gate_results[name] for name in DEFAULT_GATE_NAMES},
         canvas_apply_allowed=all(context.gate_results[name].ok for name in CANVAS_APPLY_GATE_NAMES),
+        apply_eligibility=derive_apply_eligibility(context),
         queue_allowed=context.queue_allowed,
         queue_blockers=blockers,
     )
@@ -173,6 +177,7 @@ __all__ = [
     "GateDerivation",
     "apply_stage_gate_updates",
     "derive_gates",
+    "derive_apply_eligibility",
     "initialize_gates",
     "update_queue_gate",
     "update_state_match_gate",

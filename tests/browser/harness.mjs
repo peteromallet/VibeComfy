@@ -490,6 +490,12 @@ export async function createBrowserHarness({
       assert(command, `missing command ${id}`);
       return command.function();
     },
+    findButtons(label) {
+      return findButtons(label);
+    },
+    getButton(label) {
+      return findButtons(label)[0] || null;
+    },
     clickButton(label) {
       const button = findButtons(label)[0];
       assert(button, `missing button ${label}`);

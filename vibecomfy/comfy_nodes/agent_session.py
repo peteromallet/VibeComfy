@@ -23,8 +23,15 @@ STRUCTURAL_PROJECTION_VERSION = 2
 DEFAULT_LOCK_TIMEOUT_SECONDS = 10.0
 LOCK_POLL_SECONDS = 0.025
 
-OperationScope = Literal["edit", "accept", "reject"]
+OperationScope = Literal["edit", "accept", "reject", "rebaseline"]
 TurnState = Literal["candidate", "accepted", "rejected", "unknown"]
+BaselineSource = Literal["none", "turn", "rebaseline", "legacy"]
+RebaselineReason = Literal["undo", "stale_state_recovery", "continue_from_canvas"]
+REBASELINE_REASONS: tuple[RebaselineReason, ...] = (
+    "undo",
+    "stale_state_recovery",
+    "continue_from_canvas",
+)
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,28 @@ class TurnAllocation:
     idempotency_record_key: str | None = None
     replay: IdempotencyReplay | None = None
     conflict: IdempotencyConflict | None = None
+
+
+@dataclass(frozen=True)
+class ExpectedBaseline:
+    reliable: bool
+    graph_hash: str | None
+    hash_kind: str | None
+    source: str | None
+    reason: str
+    evidence: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RebaselineReplay:
+    response: dict[str, Any]
+    record: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RebaselineConflict:
+    failure: FailureEnvelope
+    record: dict[str, Any]
 
 
 def session_dir_for(root: Path, session_id: str) -> Path:
@@ -120,9 +149,193 @@ def default_state() -> dict[str, Any]:
         "baseline_turn_id": None,
         "baseline_graph_hash": None,
         "baseline_graph_hash_kind": None,
+        "baseline_graph_hash_version": None,
+        "baseline_source": "none",
+        "baseline_rebaseline_id": None,
+        "baseline_graph_source_path": None,
+        "next_rebaseline_index": 1,
         "turns": {},
         "idempotency_records": {},
     }
+
+
+def _set_baseline_authoritatively(
+    state: dict[str, Any],
+    *,
+    next_hash: str | None,
+    next_kind: Literal["structural", "raw"] | None,
+    next_source: BaselineSource,
+    reason: str,
+    source_turn_id: str | None = None,
+    rebaseline_id: str | None = None,
+    source_path: str | None = None,
+    projection_version: int | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
+    if not isinstance(next_hash, str):
+        next_hash = None
+        next_kind = None
+        next_source = "none"
+        projection_version = None
+        source_turn_id = None
+        rebaseline_id = None
+        source_path = None
+    elif next_kind not in {"structural", "raw"}:
+        raise ValueError("baseline hash kind must be 'structural' or 'raw'")
+    elif next_source not in {"turn", "rebaseline", "legacy"}:
+        raise ValueError("baseline source must identify a persisted source")
+
+    if next_source == "turn" and not isinstance(source_turn_id, str):
+        raise ValueError("turn baselines require a source turn id")
+    if next_source == "rebaseline" and not isinstance(rebaseline_id, str):
+        raise ValueError("rebaseline baselines require a rebaseline id")
+    if next_kind == "structural" and projection_version is None:
+        projection_version = STRUCTURAL_PROJECTION_VERSION
+
+    state["baseline_turn_id"] = source_turn_id if next_source == "turn" else None
+    state["baseline_graph_hash"] = next_hash
+    state["baseline_graph_hash_kind"] = next_kind
+    state["baseline_graph_hash_version"] = (
+        projection_version if next_kind == "structural" else None
+    )
+    state["baseline_source"] = next_source
+    state["baseline_rebaseline_id"] = (
+        rebaseline_id if next_source == "rebaseline" else None
+    )
+    state["baseline_graph_source_path"] = source_path
+    _ = reason, metadata
+
+
+def _source_path_for_turn_baseline(session_dir: Path, turn_id: str) -> str | None:
+    for relative in (
+        Path("turns") / turn_id / "candidate.ui.json",
+        Path("turns") / turn_id / "response.json",
+    ):
+        if (session_dir / relative).is_file():
+            return relative.as_posix()
+    return None
+
+
+def _structural_hash_from_source_path(session_dir: Path, source_path: str | None) -> str | None:
+    if not isinstance(source_path, str) or not source_path:
+        return None
+    path = Path(source_path)
+    if path.is_absolute():
+        try:
+            path.relative_to(session_dir)
+        except ValueError:
+            return None
+    else:
+        path = session_dir / path
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    graph = payload.get("graph", payload) if isinstance(payload, Mapping) else payload
+    return structural_graph_hash(graph)
+
+
+def _normalize_baseline_state(session_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
+    baseline_turn_id = state.get("baseline_turn_id")
+    baseline_hash = state.get("baseline_graph_hash")
+    baseline_kind = state.get("baseline_graph_hash_kind")
+    baseline_source = state.get("baseline_source")
+    baseline_version = state.get("baseline_graph_hash_version")
+
+    if isinstance(baseline_turn_id, str):
+        baseline_turn = state["turns"].get(baseline_turn_id)
+        if isinstance(baseline_turn, dict):
+            structural_hash = baseline_turn.get("candidate_structural_graph_hash")
+            stored_version = baseline_turn.get("candidate_structural_graph_hash_version")
+            if (
+                not isinstance(structural_hash, str)
+                or stored_version != STRUCTURAL_PROJECTION_VERSION
+            ):
+                recomputed = _candidate_structural_hash_from_turn_dir(
+                    session_dir=session_dir,
+                    turn_id=baseline_turn_id,
+                )
+                if isinstance(recomputed, str):
+                    structural_hash = recomputed
+                    baseline_turn["candidate_structural_graph_hash"] = recomputed
+                    baseline_turn[
+                        "candidate_structural_graph_hash_version"
+                    ] = STRUCTURAL_PROJECTION_VERSION
+            if isinstance(structural_hash, str):
+                _set_baseline_authoritatively(
+                    state,
+                    next_hash=structural_hash,
+                    next_kind="structural",
+                    next_source="turn",
+                    reason="normalize_turn_baseline",
+                    source_turn_id=baseline_turn_id,
+                    source_path=_source_path_for_turn_baseline(session_dir, baseline_turn_id),
+                    projection_version=STRUCTURAL_PROJECTION_VERSION,
+                )
+                return state
+            if not isinstance(baseline_hash, str):
+                migrated_hash = baseline_turn.get("candidate_graph_hash") or baseline_turn.get(
+                    "client_graph_hash"
+                )
+                baseline_hash = migrated_hash if isinstance(migrated_hash, str) else None
+        if isinstance(baseline_hash, str):
+            _set_baseline_authoritatively(
+                state,
+                next_hash=baseline_hash,
+                next_kind="raw",
+                next_source="legacy",
+                reason="normalize_legacy_turn_baseline",
+            )
+            return state
+
+    rebaseline_id = state.get("baseline_rebaseline_id")
+    if baseline_source == "rebaseline" and isinstance(rebaseline_id, str):
+        source_path = state.get("baseline_graph_source_path")
+        if not isinstance(source_path, str):
+            source_path = (Path("_rebaseline") / rebaseline_id / "graph.ui.json").as_posix()
+        structural_hash = baseline_hash if isinstance(baseline_hash, str) else None
+        if (
+            baseline_kind != "structural"
+            or baseline_version != STRUCTURAL_PROJECTION_VERSION
+            or not isinstance(structural_hash, str)
+        ):
+            recomputed = _structural_hash_from_source_path(session_dir, source_path)
+            if isinstance(recomputed, str):
+                structural_hash = recomputed
+        if isinstance(structural_hash, str):
+            _set_baseline_authoritatively(
+                state,
+                next_hash=structural_hash,
+                next_kind="structural",
+                next_source="rebaseline",
+                reason="normalize_rebaseline",
+                rebaseline_id=rebaseline_id,
+                source_path=source_path,
+                projection_version=STRUCTURAL_PROJECTION_VERSION,
+            )
+            return state
+
+    if isinstance(baseline_hash, str):
+        _set_baseline_authoritatively(
+            state,
+            next_hash=baseline_hash,
+            next_kind="raw" if baseline_kind != "structural" else "structural",
+            next_source="legacy",
+            reason="normalize_legacy_baseline",
+            projection_version=(
+                baseline_version if isinstance(baseline_version, int) else None
+            ),
+        )
+        return state
+
+    _set_baseline_authoritatively(
+        state,
+        next_hash=None,
+        next_kind=None,
+        next_source="none",
+        reason="normalize_empty_baseline",
+    )
+    return state
 
 
 def read_state(session_dir: Path) -> dict[str, Any]:
@@ -141,47 +354,12 @@ def read_state(session_dir: Path) -> dict[str, Any]:
         merged["idempotency_records"] = {}
     if not isinstance(merged.get("next_turn_index"), int) or merged["next_turn_index"] < 1:
         merged["next_turn_index"] = 1
-    if isinstance(merged.get("baseline_turn_id"), str):
-        baseline_turn = merged["turns"].get(merged["baseline_turn_id"])
-        if isinstance(baseline_turn, dict):
-            structural_hash = baseline_turn.get("candidate_structural_graph_hash")
-            stored_version = baseline_turn.get("candidate_structural_graph_hash_version")
-            # Recompute when the hash is missing OR was produced by an older
-            # projection version. Recomputing from the on-disk accepted candidate
-            # re-runs the CURRENT projection, so a session opened across a code
-            # change heals its baseline instead of mismatching on every submit.
-            if (
-                not isinstance(structural_hash, str)
-                or stored_version != STRUCTURAL_PROJECTION_VERSION
-            ):
-                recomputed = _candidate_structural_hash_from_turn_dir(
-                    session_dir=path.parent,
-                    turn_id=merged["baseline_turn_id"],
-                )
-                if isinstance(recomputed, str):
-                    structural_hash = recomputed
-                    baseline_turn["candidate_structural_graph_hash"] = recomputed
-                    baseline_turn[
-                        "candidate_structural_graph_hash_version"
-                    ] = STRUCTURAL_PROJECTION_VERSION
-            if isinstance(structural_hash, str):
-                merged["baseline_graph_hash"] = structural_hash
-                merged["baseline_graph_hash_kind"] = "structural"
-            elif merged.get("baseline_graph_hash") is None:
-                migrated_hash = baseline_turn.get("candidate_graph_hash") or baseline_turn.get(
-                    "client_graph_hash"
-                )
-                merged["baseline_graph_hash"] = (
-                    migrated_hash if isinstance(migrated_hash, str) else None
-                )
-                merged["baseline_graph_hash_kind"] = (
-                    "raw" if isinstance(merged["baseline_graph_hash"], str) else None
-                )
     if (
-        merged.get("baseline_graph_hash") is not None
-        and merged.get("baseline_graph_hash_kind") is None
+        not isinstance(merged.get("next_rebaseline_index"), int)
+        or merged["next_rebaseline_index"] < 1
     ):
-        merged["baseline_graph_hash_kind"] = "raw"
+        merged["next_rebaseline_index"] = 1
+    _normalize_baseline_state(path.parent, merged)
     merged["schema_version"] = STATE_SCHEMA_VERSION
     return merged
 
@@ -415,6 +593,206 @@ def _client_live_canvas_token(payload: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _stale_state_recovery_evidence(
+    *,
+    reason: str,
+    expected_baseline_graph_hash: str | None = None,
+    current_baseline_graph_hash: str | None = None,
+    submitted_baseline_graph_hash: str | None = None,
+    submit_structural_graph_hash: str | None = None,
+    baseline_source: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "reason": reason,
+        "expected_baseline_graph_hash": expected_baseline_graph_hash,
+        "current_baseline_graph_hash": current_baseline_graph_hash,
+        "submitted_baseline_graph_hash": submitted_baseline_graph_hash,
+        "submit_structural_graph_hash": submit_structural_graph_hash,
+        "baseline_source": baseline_source,
+        "recovery": {
+            "action": "rebaseline",
+            "endpoint": "/vibecomfy/agent-edit/rebaseline",
+            "reason": reason,
+        },
+    }
+
+
+def _current_structural_baseline_hash(state: Mapping[str, Any]) -> str | None:
+    current_hash = state.get("baseline_graph_hash")
+    current_kind = state.get("baseline_graph_hash_kind")
+    if isinstance(current_hash, str) and current_kind == "structural":
+        return current_hash
+    return None
+
+
+def _accept_structural_cas_evidence(
+    *,
+    expected_baseline: ExpectedBaseline,
+    state: Mapping[str, Any],
+    turn_record: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    current_hash = _current_structural_baseline_hash(state)
+    current_source = state.get("baseline_source")
+    current_raw_hash = state.get("baseline_graph_hash")
+    current_kind = state.get("baseline_graph_hash_kind")
+    if expected_baseline.graph_hash is None:
+        if (
+            current_raw_hash is None
+            and current_source in {None, "none"}
+            and state.get("baseline_turn_id") is None
+        ):
+            return None
+    elif expected_baseline.hash_kind == "structural" and current_hash == expected_baseline.graph_hash:
+        return None
+
+    return _stale_state_recovery_evidence(
+        reason="structural_baseline_cas_mismatch",
+        expected_baseline_graph_hash=expected_baseline.graph_hash,
+        current_baseline_graph_hash=current_hash,
+        submitted_baseline_graph_hash=(
+            turn_record.get("submitted_baseline_graph_hash")
+            if isinstance(turn_record.get("submitted_baseline_graph_hash"), str)
+            else None
+        ),
+        submit_structural_graph_hash=(
+            turn_record.get("submit_structural_graph_hash")
+            if isinstance(turn_record.get("submit_structural_graph_hash"), str)
+            else None
+        ),
+        baseline_source=current_source if isinstance(current_source, str) else None,
+    ) | {
+        "current_baseline_graph_hash_kind": (
+            current_kind if isinstance(current_kind, str) else None
+        ),
+        "expected_baseline_graph_hash_kind": expected_baseline.hash_kind,
+    }
+
+
+def _expected_baseline_for_turn(
+    turn_record: Mapping[str, Any],
+    state: Mapping[str, Any],
+) -> ExpectedBaseline:
+    if "submitted_baseline_graph_hash" in turn_record:
+        submitted_hash = turn_record.get("submitted_baseline_graph_hash")
+        submitted_kind = turn_record.get("submitted_baseline_graph_hash_kind")
+        submitted_source = turn_record.get("submitted_baseline_source")
+        if submitted_hash is None:
+            return ExpectedBaseline(
+                reliable=True,
+                graph_hash=None,
+                hash_kind=None,
+                source=submitted_source if isinstance(submitted_source, str) else "none",
+                reason="submitted_no_baseline",
+                evidence={
+                    "submitted_baseline_graph_hash": None,
+                    "submitted_baseline_graph_hash_kind": submitted_kind,
+                    "submitted_baseline_source": submitted_source,
+                },
+            )
+        if isinstance(submitted_hash, str):
+            return ExpectedBaseline(
+                reliable=True,
+                graph_hash=submitted_hash,
+                hash_kind=submitted_kind if isinstance(submitted_kind, str) else None,
+                source=submitted_source if isinstance(submitted_source, str) else None,
+                reason="submitted_baseline_snapshot",
+                evidence={
+                    "submitted_baseline_graph_hash": submitted_hash,
+                    "submitted_baseline_graph_hash_kind": submitted_kind,
+                    "submitted_baseline_source": submitted_source,
+                    "submitted_baseline_graph_hash_version": turn_record.get(
+                        "submitted_baseline_graph_hash_version"
+                    ),
+                    "submitted_baseline_rebaseline_id": turn_record.get(
+                        "submitted_baseline_rebaseline_id"
+                    ),
+                },
+            )
+        reason = "submitted_baseline_snapshot_malformed"
+        return ExpectedBaseline(
+            reliable=False,
+            graph_hash=None,
+            hash_kind=None,
+            source=None,
+            reason=reason,
+            evidence=_stale_state_recovery_evidence(
+                reason=reason,
+                current_baseline_graph_hash=(
+                    state.get("baseline_graph_hash")
+                    if isinstance(state.get("baseline_graph_hash"), str)
+                    else None
+                ),
+                submitted_baseline_graph_hash=None,
+                submit_structural_graph_hash=(
+                    turn_record.get("submit_structural_graph_hash")
+                    if isinstance(turn_record.get("submit_structural_graph_hash"), str)
+                    else None
+                ),
+                baseline_source=(
+                    state.get("baseline_source")
+                    if isinstance(state.get("baseline_source"), str)
+                    else None
+                ),
+            ),
+        )
+
+    submit_structural_hash = turn_record.get("submit_structural_graph_hash")
+    current_baseline_hash = state.get("baseline_graph_hash")
+    current_baseline_kind = state.get("baseline_graph_hash_kind")
+    current_baseline_source = state.get("baseline_source")
+    if (
+        current_baseline_hash is None
+        and current_baseline_source in {None, "none"}
+        and state.get("baseline_turn_id") is None
+    ):
+        return ExpectedBaseline(
+            reliable=True,
+            graph_hash=None,
+            hash_kind=None,
+            source="none",
+            reason="legacy_no_baseline",
+            evidence={"legacy_derivation": "no_baseline"},
+        )
+    if (
+        isinstance(submit_structural_hash, str)
+        and current_baseline_kind == "structural"
+        and current_baseline_source in {"turn", "rebaseline"}
+    ):
+        return ExpectedBaseline(
+            reliable=True,
+            graph_hash=submit_structural_hash,
+            hash_kind="structural",
+            source="legacy",
+            reason="legacy_submit_structural_graph_hash",
+            evidence={
+                "legacy_derivation": "submit_structural_graph_hash",
+                "submit_structural_graph_hash": submit_structural_hash,
+                "current_baseline_source": current_baseline_source,
+            },
+        )
+
+    reason = "legacy_expected_baseline_untrusted"
+    return ExpectedBaseline(
+        reliable=False,
+        graph_hash=None,
+        hash_kind=None,
+        source=None,
+        reason=reason,
+        evidence=_stale_state_recovery_evidence(
+            reason=reason,
+            current_baseline_graph_hash=(
+                current_baseline_hash if isinstance(current_baseline_hash, str) else None
+            ),
+            submit_structural_graph_hash=(
+                submit_structural_hash if isinstance(submit_structural_hash, str) else None
+            ),
+            baseline_source=(
+                current_baseline_source if isinstance(current_baseline_source, str) else None
+            ),
+        ),
+    )
+
+
 def allocate_turn(
     *,
     session_root: Path,
@@ -483,6 +861,13 @@ def allocate_turn(
             "state": "candidate",
             "submit_graph_hash": submit_graph_hash,
             "submit_structural_graph_hash": submit_structural_graph_hash,
+            "submitted_baseline_graph_hash": state.get("baseline_graph_hash"),
+            "submitted_baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
+            "submitted_baseline_graph_hash_version": state.get("baseline_graph_hash_version"),
+            "submitted_baseline_source": state.get("baseline_source"),
+            "submitted_baseline_rebaseline_id": state.get("baseline_rebaseline_id"),
+            "submitted_baseline_turn_id": state.get("baseline_turn_id"),
+            "submitted_baseline_graph_source_path": state.get("baseline_graph_source_path"),
             "submitted_client_graph_hash": submitted_client_graph_hash,
             "submitted_client_structural_graph_hash": submitted_client_structural_graph_hash,
             "submitted_client_live_canvas_token": submitted_client_live_canvas_token,
@@ -590,6 +975,9 @@ def record_idempotent_response(
             if isinstance(turn_record, dict):
                 turn_record["candidate_graph_hash"] = candidate_graph_hash
                 turn_record["candidate_structural_graph_hash"] = candidate_structural_graph_hash
+                turn_record[
+                    "candidate_structural_graph_hash_version"
+                ] = STRUCTURAL_PROJECTION_VERSION
                 turn_record["agent_edit_protocol"] = agent_edit_protocol
         state["idempotency_records"][key] = record
         write_state_atomic(session_dir, state)
@@ -698,6 +1086,7 @@ def _mutate_turn_state(
             )
         candidate_structural_graph_hash = turn_record.get("candidate_structural_graph_hash")
         stored_struct_version = turn_record.get("candidate_structural_graph_hash_version")
+        recomputed_candidate_structural_graph_hash: str | None = None
         if (
             not isinstance(candidate_structural_graph_hash, str)
             or stored_struct_version != STRUCTURAL_PROJECTION_VERSION
@@ -708,10 +1097,7 @@ def _mutate_turn_state(
             )
             if isinstance(recomputed, str):
                 candidate_structural_graph_hash = recomputed
-                turn_record["candidate_structural_graph_hash"] = recomputed
-                turn_record[
-                    "candidate_structural_graph_hash_version"
-                ] = STRUCTURAL_PROJECTION_VERSION
+                recomputed_candidate_structural_graph_hash = recomputed
         if not isinstance(candidate_structural_graph_hash, str):
             return failure_envelope(
                 FailureKind.STALE_STATE_MISMATCH,
@@ -723,8 +1109,39 @@ def _mutate_turn_state(
                     "candidate_structural_graph_hash_present": False,
                 },
             )
+        expected_baseline: ExpectedBaseline | None = None
+        if scope == "accept":
+            expected_baseline = _expected_baseline_for_turn(turn_record, state)
+            if not expected_baseline.reliable:
+                return failure_envelope(
+                    FailureKind.STALE_STATE_MISMATCH,
+                    scope,
+                    context,
+                    agent_failure_context={
+                        "explanation": "Cannot derive a reliable expected baseline for this turn.",
+                        "turn_id": turn_id,
+                        **expected_baseline.evidence,
+                    },
+                )
+            cas_evidence = _accept_structural_cas_evidence(
+                expected_baseline=expected_baseline,
+                state=state,
+                turn_record=turn_record,
+            )
+            if cas_evidence is not None:
+                return failure_envelope(
+                    FailureKind.STALE_STATE_MISMATCH,
+                    scope,
+                    context,
+                    agent_failure_context={
+                        "explanation": "Accepted turn no longer matches the authoritative structural baseline.",
+                        "turn_id": turn_id,
+                        **cas_evidence,
+                    },
+                )
         agent_edit_protocol = turn_record.get("agent_edit_protocol")
         submitted_client_graph_hash = turn_record.get("submitted_client_graph_hash")
+        action_diagnostics: list[dict[str, Any]] = []
         if scope == "accept" and agent_edit_protocol == "v2_delta":
             if not isinstance(request_payload, Mapping):
                 return failure_envelope(
@@ -766,16 +1183,17 @@ def _mutate_turn_state(
                 or not submitted_live_canvas_token
                 or request_live_canvas_token != submitted_live_canvas_token
             ):
-                return failure_envelope(
-                    FailureKind.STALE_STATE_MISMATCH,
-                    scope,
-                    context,
-                    agent_failure_context={
-                        "explanation": "Client live-canvas token does not match the token captured at v2 submit time.",
-                        "turn_id": turn_id,
-                        "client_live_canvas_token": request_live_canvas_token,
-                        "submitted_client_live_canvas_token": submitted_live_canvas_token,
-                    },
+                action_diagnostics.append(
+                    {
+                        "code": "client_live_canvas_token_mismatch",
+                        "severity": "info",
+                        "message": "Client live-canvas token differed from the token captured at v2 submit time.",
+                        "detail": {
+                            "turn_id": turn_id,
+                            "client_live_canvas_token": request_live_canvas_token,
+                            "submitted_client_live_canvas_token": submitted_live_canvas_token,
+                        },
+                    }
                 )
         else:
             # V1 compatibility: the backend's `submit_graph_hash` is canonical,
@@ -799,6 +1217,13 @@ def _mutate_turn_state(
                 )
 
         timestamp_key = "accepted_at" if scope == "accept" else "rejected_at"
+        if recomputed_candidate_structural_graph_hash is not None:
+            turn_record[
+                "candidate_structural_graph_hash"
+            ] = recomputed_candidate_structural_graph_hash
+            turn_record[
+                "candidate_structural_graph_hash_version"
+            ] = STRUCTURAL_PROJECTION_VERSION
         turn_record["state"] = target_state
         turn_record["client_graph_hash"] = client_graph_hash
         turn_record[timestamp_key] = turn_record.get(timestamp_key) or _now()
@@ -809,9 +1234,16 @@ def _mutate_turn_state(
         )
         unknown_transitions: list[dict[str, Any]] = []
         if scope == "accept":
-            state["baseline_turn_id"] = turn_id
-            state["baseline_graph_hash"] = candidate_structural_graph_hash
-            state["baseline_graph_hash_kind"] = "structural"
+            _set_baseline_authoritatively(
+                state,
+                next_hash=candidate_structural_graph_hash,
+                next_kind="structural",
+                next_source="turn",
+                reason="accept_turn",
+                source_turn_id=turn_id,
+                source_path=_source_path_for_turn_baseline(session_dir, turn_id),
+                projection_version=STRUCTURAL_PROJECTION_VERSION,
+            )
             for other_turn_id, other_record in state["turns"].items():
                 if other_turn_id == turn_id or not isinstance(other_record, dict):
                     continue
@@ -851,9 +1283,17 @@ def _mutate_turn_state(
             ),
             "candidate_graph_hash": turn_record.get("candidate_graph_hash"),
             "candidate_structural_graph_hash": turn_record.get("candidate_structural_graph_hash"),
+            "expected_baseline_graph_hash": (
+                expected_baseline.graph_hash if expected_baseline is not None else None
+            ),
+            "expected_baseline_graph_hash_kind": (
+                expected_baseline.hash_kind if expected_baseline is not None else None
+            ),
             "unknown_transitions": unknown_transitions,
             "idempotency_key": idempotency_key,
         }
+        if action_diagnostics:
+            response["diagnostics"] = action_diagnostics
         if key is not None and response_writer is not None:
             response_path = response_writer(response)
             state["idempotency_records"][key] = {
@@ -912,6 +1352,226 @@ def reject_turn(
     )
 
 
+def _rebaseline_expected_matches(
+    state: Mapping[str, Any],
+    expected_baseline_graph_hash: Any,
+) -> bool:
+    current_hash = state.get("baseline_graph_hash")
+    current_source = state.get("baseline_source")
+    if expected_baseline_graph_hash is None:
+        return (
+            current_hash is None
+            and current_source in {None, "none"}
+            and state.get("baseline_turn_id") is None
+        )
+    return (
+        isinstance(expected_baseline_graph_hash, str)
+        and state.get("baseline_graph_hash_kind") == "structural"
+        and _current_structural_baseline_hash(state) == expected_baseline_graph_hash
+    )
+
+
+def rebaseline_session(
+    *,
+    session_root: Path,
+    session_id: str,
+    request_payload: Any,
+    idempotency_key: str | None = None,
+    response_writer: Callable[[dict[str, Any]], Path] | None = None,
+    lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
+) -> dict[str, Any] | FailureEnvelope:
+    request_digest = payload_hash(request_payload)
+    key = _record_key("rebaseline", idempotency_key)
+    session_dir = session_dir_for(session_root, session_id)
+    context = TurnContext(session_id=session_id, idempotency_key=idempotency_key)
+
+    if not isinstance(request_payload, Mapping):
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "rebaseline",
+            context,
+            agent_failure_context={"explanation": "Rebaseline request body must be a JSON object."},
+        )
+    graph = request_payload.get("graph")
+    next_structural_hash = structural_graph_hash(graph)
+    if next_structural_hash is None:
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "rebaseline",
+            context,
+            agent_failure_context={"explanation": "`graph` must be a UI workflow JSON object."},
+        )
+    reason = request_payload.get("reason")
+    if reason not in REBASELINE_REASONS:
+        return failure_envelope(
+            FailureKind.VALIDATION_ERROR,
+            "rebaseline",
+            context,
+            agent_failure_context={
+                "explanation": "`reason` must be one of the supported rebaseline reasons.",
+                "reason": reason,
+                "allowed_reasons": list(REBASELINE_REASONS),
+            },
+        )
+    if "last_known_baseline_graph_hash" not in request_payload:
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "rebaseline",
+            context,
+            agent_failure_context={"explanation": "`last_known_baseline_graph_hash` is required."},
+        )
+    expected_baseline_graph_hash = request_payload.get("last_known_baseline_graph_hash")
+    if expected_baseline_graph_hash is not None and not isinstance(expected_baseline_graph_hash, str):
+        return failure_envelope(
+            FailureKind.VALIDATION_ERROR,
+            "rebaseline",
+            context,
+            agent_failure_context={
+                "explanation": "`last_known_baseline_graph_hash` must be a string or null.",
+                "last_known_baseline_graph_hash": expected_baseline_graph_hash,
+            },
+        )
+
+    with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
+        state = read_state(session_dir)
+        context = TurnContext(
+            session_id=session_id,
+            baseline_turn_id=state.get("baseline_turn_id"),
+            idempotency_key=idempotency_key,
+        )
+        if key is not None:
+            existing = state["idempotency_records"].get(key)
+            if isinstance(existing, dict):
+                if existing.get("request_hash") == request_digest:
+                    response = _load_response(existing.get("response_path"))
+                    if response is not None:
+                        return response
+                return failure_envelope(
+                    _conflict_kind("rebaseline"),
+                    "rebaseline",
+                    context,
+                    agent_failure_context={
+                        "explanation": "Idempotency key was reused with a different request hash.",
+                        "idempotency_key": idempotency_key,
+                        "existing_request_hash": existing.get("request_hash"),
+                        "request_hash": request_digest,
+                    },
+                )
+
+        previous_baseline_graph_hash = state.get("baseline_graph_hash")
+        previous_baseline_graph_hash_kind = state.get("baseline_graph_hash_kind")
+        previous_baseline_source = state.get("baseline_source")
+        if not _rebaseline_expected_matches(state, expected_baseline_graph_hash):
+            current_structural_hash = _current_structural_baseline_hash(state)
+            return failure_envelope(
+                FailureKind.STALE_STATE_MISMATCH,
+                "rebaseline",
+                context,
+                agent_failure_context={
+                    "explanation": "Rebaseline request no longer matches the authoritative structural baseline.",
+                    **_stale_state_recovery_evidence(
+                        reason="rebaseline_structural_baseline_cas_mismatch",
+                        expected_baseline_graph_hash=expected_baseline_graph_hash,
+                        current_baseline_graph_hash=current_structural_hash,
+                        submitted_baseline_graph_hash=expected_baseline_graph_hash,
+                        submit_structural_graph_hash=next_structural_hash,
+                        baseline_source=previous_baseline_source
+                        if isinstance(previous_baseline_source, str)
+                        else None,
+                    ),
+                    "current_baseline_graph_hash_kind": previous_baseline_graph_hash_kind,
+                },
+            )
+
+        rebaseline_index = int(state["next_rebaseline_index"])
+        rebaseline_id = f"{rebaseline_index:04d}"
+        state["next_rebaseline_index"] = rebaseline_index + 1
+        rebaseline_dir = session_dir / "_rebaseline" / rebaseline_id
+        source_path = (Path("_rebaseline") / rebaseline_id / "graph.ui.json").as_posix()
+        graph_path = session_dir / source_path
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        graph_path.write_text(
+            json.dumps(graph, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        _set_baseline_authoritatively(
+            state,
+            next_hash=next_structural_hash,
+            next_kind="structural",
+            next_source="rebaseline",
+            reason="rebaseline",
+            rebaseline_id=rebaseline_id,
+            source_path=source_path,
+            projection_version=STRUCTURAL_PROJECTION_VERSION,
+            metadata={
+                "reason": reason,
+                "expected_baseline_graph_hash": expected_baseline_graph_hash,
+                "previous_baseline_graph_hash": previous_baseline_graph_hash,
+            },
+        )
+        response = {
+            "ok": True,
+            "action": "rebaseline",
+            "session_id": session_id,
+            "baseline_turn_id": state.get("baseline_turn_id"),
+            "baseline_graph_hash": state.get("baseline_graph_hash"),
+            "baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
+            "baseline_graph_hash_version": state.get("baseline_graph_hash_version"),
+            "baseline_source": state.get("baseline_source"),
+            "baseline_rebaseline_id": state.get("baseline_rebaseline_id"),
+            "baseline_graph_source_path": state.get("baseline_graph_source_path"),
+            "previous_baseline_graph_hash": previous_baseline_graph_hash,
+            "previous_baseline_graph_hash_kind": previous_baseline_graph_hash_kind,
+            "expected_baseline_graph_hash": expected_baseline_graph_hash,
+            "rebaseline_id": rebaseline_id,
+            "reason": reason,
+            "client_graph_hash": request_payload.get("client_graph_hash")
+            if isinstance(request_payload.get("client_graph_hash"), str)
+            else None,
+            "client_structural_graph_hash": request_payload.get("client_structural_graph_hash")
+            if isinstance(request_payload.get("client_structural_graph_hash"), str)
+            else None,
+            "computed_structural_graph_hash": next_structural_hash,
+            "idempotency_key": idempotency_key,
+        }
+        audit_metadata = {
+            "action": "rebaseline",
+            "reason": reason,
+            "rebaseline_id": rebaseline_id,
+            "request_hash": request_digest,
+            "expected_baseline_graph_hash": expected_baseline_graph_hash,
+            "previous_baseline_graph_hash": previous_baseline_graph_hash,
+            "next_baseline_graph_hash": next_structural_hash,
+            "baseline_graph_source_path": source_path,
+            "structural_projection_version": STRUCTURAL_PROJECTION_VERSION,
+        }
+        metadata_path = rebaseline_dir / "metadata.json"
+        metadata_path.write_text(
+            json.dumps(audit_metadata, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        if response_writer is not None:
+            response_path = response_writer(response)
+        else:
+            response_path = rebaseline_dir / "response.json"
+            response_path.write_text(
+                json.dumps(response, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        if key is not None:
+            state["idempotency_records"][key] = {
+                "request_hash": request_digest,
+                "response_hash": payload_hash(response),
+                "response_path": str(response_path),
+                "created_at": _now(),
+                "operation": "rebaseline",
+                "turn_id": None,
+                "rebaseline_id": rebaseline_id,
+            }
+        write_state_atomic(session_dir, state)
+        return response
+
+
 __all__ = [
     "IdempotencyConflict",
     "IdempotencyReplay",
@@ -924,6 +1584,7 @@ __all__ = [
     "payload_hash",
     "read_state",
     "record_idempotent_response",
+    "rebaseline_session",
     "reject_turn",
     "session_dir_for",
     "turn_dir_for",

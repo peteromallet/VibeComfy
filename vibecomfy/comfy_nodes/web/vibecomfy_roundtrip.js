@@ -106,6 +106,16 @@ const PANEL_STATE = Object.freeze({
   ERROR: "ERROR",
 });
 
+const APPLY_ELIGIBILITY_REASON = Object.freeze({
+  APPLYABLE: "applyable",
+  NO_CANDIDATE: "no_candidate",
+  NOT_LATEST: "not_latest",
+  SUPERSEDED: "superseded",
+  SERVER_BLOCKED: "server_blocked",
+  STALE_CANVAS: "stale_canvas",
+  QUEUE_BLOCKED_WARNING: "queue_blocked_warning",
+});
+
 const PANEL_IDS = Object.freeze({
   root: "vibecomfy-agent-panel-root",
   shell: "vibecomfy-agent-panel-shell",
@@ -953,6 +963,18 @@ function buildActionIdempotencyKey({ action, sessionId, turnId, graphHash }) {
   return `${action}:${sessionId}:${turnId}:${graphHash.slice(0, 12)}:${unique}`;
 }
 
+function buildRebaselineIdempotencyKey({ sessionId, reason, baselineGraphHash, structuralHash }) {
+  const sessionPart = sessionId || "new";
+  const reasonPart = String(reason || "continue_from_canvas").trim() || "continue_from_canvas";
+  const baselinePart = typeof baselineGraphHash === "string" && baselineGraphHash
+    ? baselineGraphHash.slice(0, 12)
+    : "none";
+  const structuralPart = typeof structuralHash === "string" && structuralHash
+    ? structuralHash.slice(0, 12)
+    : "unknown";
+  return `rebaseline:${sessionPart}:${reasonPart}:${baselinePart}:${structuralPart}`;
+}
+
 function createDetails(summary, value) {
   const details = el("details");
   const heading = el("summary", summary);
@@ -1225,6 +1247,199 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
 
 function clearCredentialInput(panel) {
   panel.fields.apiKey.value = "";
+}
+
+function normalizeApplyEligibility(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  if (!Object.values(APPLY_ELIGIBILITY_REASON).includes(payload.reason)) {
+    return null;
+  }
+  return {
+    applyable: payload.applyable !== false,
+    reason: payload.reason,
+    message: typeof payload.message === "string" ? payload.message : "",
+    warnings: Array.isArray(payload.warnings) ? payload.warnings.slice() : [],
+  };
+}
+
+function compatibilityApplyEligibility(panel) {
+  if (!panel?.state?.candidateGraph) {
+    return {
+      applyable: false,
+      reason: APPLY_ELIGIBILITY_REASON.NO_CANDIDATE,
+      message: "No candidate is available to apply.",
+      warnings: [],
+    };
+  }
+  if (panel.state.canvasApplyAllowed !== true) {
+    return {
+      applyable: false,
+      reason: APPLY_ELIGIBILITY_REASON.SERVER_BLOCKED,
+      message: "Server validation gates blocked Apply.",
+      warnings: [],
+    };
+  }
+  if (panel.state.queueAllowed !== true) {
+    return {
+      applyable: true,
+      reason: APPLY_ELIGIBILITY_REASON.QUEUE_BLOCKED_WARNING,
+      message: "Apply is allowed, but Queue remains blocked for this candidate.",
+      warnings: ["queue_blocked"],
+    };
+  }
+  return {
+    applyable: true,
+    reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
+    message: "Apply is allowed.",
+    warnings: [],
+  };
+}
+
+export function syncBaselineFromResponse(panel, payload) {
+  if (!panel?.state || !payload || typeof payload !== "object") {
+    return;
+  }
+  const hadExplicitSource = Object.prototype.hasOwnProperty.call(payload, "baseline_source");
+  if ("baseline_turn_id" in payload) {
+    panel.state.baselineTurnId = typeof payload.baseline_turn_id === "string"
+      ? payload.baseline_turn_id
+      : null;
+  }
+  if ("baseline_graph_hash" in payload) {
+    panel.state.baselineGraphHash = typeof payload.baseline_graph_hash === "string"
+      ? payload.baseline_graph_hash
+      : null;
+  }
+  if ("baseline_graph_hash_kind" in payload) {
+    panel.state.baselineGraphHashKind = typeof payload.baseline_graph_hash_kind === "string"
+      ? payload.baseline_graph_hash_kind
+      : null;
+  }
+  if ("baseline_graph_hash_version" in payload) {
+    panel.state.baselineGraphHashVersion = Number.isFinite(payload.baseline_graph_hash_version)
+      ? payload.baseline_graph_hash_version
+      : null;
+  }
+  if ("baseline_source" in payload) {
+    panel.state.baselineSource = typeof payload.baseline_source === "string"
+      ? payload.baseline_source
+      : "none";
+  }
+  if ("baseline_rebaseline_id" in payload) {
+    panel.state.baselineRebaselineId = typeof payload.baseline_rebaseline_id === "string"
+      ? payload.baseline_rebaseline_id
+      : null;
+  }
+  if ("baseline_graph_source_path" in payload) {
+    panel.state.baselineGraphSourcePath = typeof payload.baseline_graph_source_path === "string"
+      ? payload.baseline_graph_source_path
+      : null;
+  }
+  if (!hadExplicitSource && payload.action === "accept" && payload.ok === true) {
+    panel.state.baselineSource = "turn";
+    panel.state.baselineRebaselineId = null;
+    panel.state.baselineGraphSourcePath = typeof payload.turn_id === "string"
+      ? `turns/${payload.turn_id}/candidate.ui.json`
+      : null;
+  } else if (
+    !hadExplicitSource
+    && panel.state.baselineTurnId
+    && typeof panel.state.baselineGraphHash === "string"
+    && panel.state.baselineGraphHash
+  ) {
+    panel.state.baselineSource = "turn";
+    panel.state.baselineRebaselineId = null;
+    if (!panel.state.baselineGraphSourcePath) {
+      panel.state.baselineGraphSourcePath = `turns/${panel.state.baselineTurnId}/candidate.ui.json`;
+    }
+  } else if (
+    !hadExplicitSource
+    && panel.state.baselineTurnId == null
+    && panel.state.baselineGraphHash == null
+  ) {
+    panel.state.baselineSource = "none";
+    panel.state.baselineRebaselineId = null;
+    panel.state.baselineGraphSourcePath = null;
+  }
+  const recovery = extractRebaselineRecovery(payload);
+  if (recovery) {
+    panel.state.rebaselineRecovery = recovery;
+  } else if (payload.ok === true) {
+    panel.state.rebaselineRecovery = null;
+  }
+}
+
+function normalizeRebaselineRecovery(recovery) {
+  if (!recovery || typeof recovery !== "object") {
+    return null;
+  }
+  return {
+    action: typeof recovery.action === "string" ? recovery.action : null,
+    endpoint: typeof recovery.endpoint === "string" ? recovery.endpoint : null,
+    reason: typeof recovery.reason === "string" ? recovery.reason : null,
+    last_known_baseline_graph_hash:
+      typeof recovery.last_known_baseline_graph_hash === "string"
+        ? recovery.last_known_baseline_graph_hash
+        : null,
+    submit_graph_hash:
+      typeof recovery.submit_graph_hash === "string" ? recovery.submit_graph_hash : null,
+    submit_structural_graph_hash:
+      typeof recovery.submit_structural_graph_hash === "string"
+        ? recovery.submit_structural_graph_hash
+        : null,
+    client_graph_hash:
+      typeof recovery.client_graph_hash === "string" ? recovery.client_graph_hash : null,
+    client_structural_graph_hash:
+      typeof recovery.client_structural_graph_hash === "string"
+        ? recovery.client_structural_graph_hash
+        : null,
+  };
+}
+
+function extractRebaselineRecovery(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const topLevel = normalizeRebaselineRecovery(payload.rebaseline_recovery);
+  if (topLevel) {
+    return topLevel;
+  }
+  const issues = payload.agent_failure_context?.issues;
+  if (!Array.isArray(issues)) {
+    return null;
+  }
+  for (const issue of issues) {
+    const recovery = normalizeRebaselineRecovery(issue?.rebaseline_recovery);
+    if (recovery) {
+      return recovery;
+    }
+  }
+  return null;
+}
+
+function applyEligibility(panel, liveCanvasSnapshot = null) {
+  if (!panel?.state?.candidateGraph) {
+    return compatibilityApplyEligibility(panel);
+  }
+  const submitStructuralHash = panel.state.lastSubmit?.client_structural_graph_hash;
+  const liveStructuralHash = liveCanvasSnapshot?.structuralHash;
+  if (
+    typeof submitStructuralHash === "string"
+    && submitStructuralHash
+    && typeof liveStructuralHash === "string"
+    && liveStructuralHash
+    && liveStructuralHash !== submitStructuralHash
+  ) {
+    return {
+      applyable: false,
+      reason: APPLY_ELIGIBILITY_REASON.STALE_CANVAS,
+      message: "The live canvas no longer matches the submitted candidate baseline.",
+      warnings: [],
+    };
+  }
+  return normalizeApplyEligibility(panel.state.applyEligibility) || compatibilityApplyEligibility(panel);
 }
 
 async function buildSubmitSnapshot(panel) {
@@ -1523,6 +1738,12 @@ function createAgentPanel() {
       sessionId: null,
       turnId: null,
       baselineTurnId: null,
+      baselineGraphHash: null,
+      baselineGraphHashKind: null,
+      baselineGraphHashVersion: null,
+      baselineSource: "none",
+      baselineRebaselineId: null,
+      baselineGraphSourcePath: null,
       candidateGraph: null,
       candidateGraphHash: null,
       candidateReport: null,
@@ -1530,6 +1751,7 @@ function createAgentPanel() {
       message: null,
       failure: null,
       applyAllowed: false,
+      applyEligibility: null,
       queueAllowed: false,
       canvasApplyAllowed: false,
       auditRef: null,
@@ -1539,6 +1761,9 @@ function createAgentPanel() {
       undoStack: [],
       inFlightSubmit: null,
       inFlightApply: null,
+      inFlightRebaseline: null,
+      rebaselinePending: null,
+      rebaselineRecovery: null,
       lastSubmit: null,
       settingsMessage: null,
       statusSnapshot: null,
@@ -1550,7 +1775,7 @@ function createAgentPanel() {
   };
 }
 
-function ensureAgentPanel() {
+export function ensureAgentPanel() {
   if (!agentPanel) {
     agentPanel = createAgentPanel();
   }
@@ -2520,6 +2745,7 @@ function invalidateCandidateState(panel, { repaint = true } = {}) {
   panel.state.candidateGraphHash = null;
   panel.state.candidateReport = null;
   panel.state.serverSubmitGraphHash = null;
+  panel.state.applyEligibility = null;
   // Clear preview diff caches (same as clearCandidatePreviewState)
   delete panel.state._previewDiff;
   delete panel.state._previewDiffGraphHash;
@@ -3553,8 +3779,13 @@ function renderCandidate(panel) {
     msg.style.color = "#edf2f7";
     body.appendChild(msg);
   }
+  const eligibility = applyEligibility(panel);
   appendTextLine(body, `canvas_apply_allowed=${String(panel.state.canvasApplyAllowed)}`, panel.state.canvasApplyAllowed ? "#4caf50" : "#ffb86c");
+  appendTextLine(body, `apply_eligibility=${eligibility.reason}`, eligibility.applyable ? "#4caf50" : "#ffb86c");
   appendTextLine(body, `queue_allowed=${String(panel.state.queueAllowed)}`, panel.state.queueAllowed ? "#4caf50" : "#ffb86c");
+  if (eligibility.message) {
+    appendTextLine(body, eligibility.message, "#9ed0ff");
+  }
   const rows = collectDiffRows(panel.state.candidateReport);
   if (!rows.length) {
     body.appendChild(muted("Candidate returned without report rows."));
@@ -3622,6 +3853,19 @@ function renderFailure(panel) {
   if (failure.next_action) {
     appendTextLine(body, `next: ${failure.next_action}`, "#8d93a1");
   }
+  if (panel.state.rebaselinePending) {
+    const pending = panel.state.rebaselinePending;
+    const pendingLabel =
+      panel.state.inFlightRebaseline
+        ? `rebaseline pending: ${pending.reason} (in flight)`
+        : pending.retryable
+          ? `rebaseline pending: ${pending.reason} (retryable)`
+          : `rebaseline pending: ${pending.reason}`;
+    appendTextLine(body, pendingLabel, "#9ed0ff");
+    if (pending.last_known_baseline_graph_hash) {
+      appendCodeLine(body, `expected_baseline: ${pending.last_known_baseline_graph_hash}`, "#8d93a1");
+    }
+  }
   if (failure.session_id || failure.turn_id || failure.baseline_turn_id) {
     appendTextLine(
       body,
@@ -3634,6 +3878,16 @@ function renderFailure(panel) {
   }
   if (failure.audit_error) {
     appendTextLine(body, `audit_error: ${failure.audit_error}`, "#ffb86c");
+  }
+  const recovery = panel.state.rebaselineRecovery;
+  if (recovery?.action === "rebaseline" && recovery.reason === "stale_state_recovery") {
+    appendTextLine(body, "The current canvas can be promoted to the new baseline.", "#9ed0ff");
+    if (recovery.last_known_baseline_graph_hash) {
+      appendCodeLine(body, `expected_baseline: ${recovery.last_known_baseline_graph_hash}`, "#8d93a1");
+    }
+    const recoveryButton = button("Rebaseline Current Canvas", () => rebaselineCurrentCanvas(panel));
+    recoveryButton.disabled = Boolean(panel.state.inFlightRebaseline);
+    body.appendChild(recoveryButton);
   }
   if (failure.agent_failure_context && Object.keys(failure.agent_failure_context).length) {
     body.appendChild(createDetails("agent failure context", failure.agent_failure_context));
@@ -3753,7 +4007,7 @@ function renderSettings(panel) {
   }
 }
 
-function renderAgentPanel(panel) {
+export function renderAgentPanel(panel) {
   renderMeta(panel);
 
   const phase = panel.state.phase;
@@ -3781,12 +4035,27 @@ function renderAgentPanel(panel) {
   const reviewing = phase === PANEL_STATE.AWAITING_REVIEW;
   const applying = phase === PANEL_STATE.APPLYING;
   const canSubmit = phase === PANEL_STATE.IDLE || phase === PANEL_STATE.ERROR || phase === PANEL_STATE.CLARIFY;
+  const eligibility = applyEligibility(panel);
+  const rebaselineReason = panel.state.rebaselinePending?.reason || null;
+  const rebaselinePending = Boolean(panel.state.rebaselinePending || panel.state.inFlightRebaseline);
+  const undoPending = rebaselineReason === "undo";
 
-  panel.buttons.submit.disabled = submitting;
+  panel.buttons.submit.disabled = submitting || rebaselinePending;
   panel.buttons.submit.textContent = submitting ? "Submitting..." : "Submit";
-  panel.buttons.apply.disabled = !panel.state.candidateGraph || applying || panel.state.canvasApplyAllowed !== true;
+  panel.buttons.apply.disabled = applying || !eligibility.applyable;
   panel.buttons.reject.disabled = !panel.state.candidateGraph || submitting || applying;
-  panel.buttons.undo.disabled = panel.state.undoStack.length < 1 || submitting || applying;
+  panel.buttons.undo.disabled =
+    panel.state.undoStack.length < 1
+    || submitting
+    || applying
+    || Boolean(panel.state.inFlightRebaseline)
+    || (rebaselinePending && !undoPending);
+  panel.buttons.undo.textContent =
+    panel.state.inFlightRebaseline && undoPending
+      ? "Undo Rebaseline..."
+      : undoPending
+        ? "Retry Undo Rebaseline"
+        : "Undo Last Apply";
   panel.buttons.settingsSave.disabled = submitting || applying;
   panel.buttons.settingsTest.disabled = submitting || applying;
 
@@ -3856,6 +4125,10 @@ async function testAgentSettings(panel) {
 }
 
 async function submitAgentEdit(panel) {
+  if (panel?.state?.rebaselinePending || panel?.state?.inFlightRebaseline) {
+    renderAgentPanel(panel);
+    return panel.state.inFlightRebaseline || undefined;
+  }
   if (panel.state.inFlightSubmit) {
     return panel.state.inFlightSubmit;
   }
@@ -3966,7 +4239,7 @@ async function submitAgentEdit(panel) {
       panel.state.failure = failure;
       panel.state.turnId = failure.turn_id || panel.state.turnId;
       panel.state.sessionId = failure.session_id || panel.state.sessionId;
-      panel.state.baselineTurnId = failure.baseline_turn_id || panel.state.baselineTurnId;
+      syncBaselineFromResponse(panel, failure);
       panel.state.auditRef = failure.audit_ref || null;
       panel.state.queueGuard = getQueueGuardStateForPanel();
       panel.state.debugPayload = {
@@ -4009,7 +4282,7 @@ async function submitAgentEdit(panel) {
       panel.state.phase = PANEL_STATE.CLARIFY;
       panel.state.sessionId = result.session_id || panel.state.sessionId;
       panel.state.turnId = result.turn_id || null;
-      panel.state.baselineTurnId = result.baseline_turn_id || null;
+      syncBaselineFromResponse(panel, result);
       invalidateCandidateState(panel);
       panel.state.clarification = {
         message: clarifyMessage,
@@ -4020,6 +4293,7 @@ async function submitAgentEdit(panel) {
       panel.state.failure = null;
       panel.state.canvasApplyAllowed = false;
       panel.state.applyAllowed = false;
+      panel.state.applyEligibility = null;
       panel.state.queueAllowed = false;
       panel.state.auditRef = result.audit_ref || null;
       panel.state.queueGuard = getQueueGuardStateForPanel();
@@ -4049,6 +4323,7 @@ async function submitAgentEdit(panel) {
       arrivalSnapshot = await buildCanvasSnapshot();
     } catch (e) {
       panel.state.phase = PANEL_STATE.ERROR;
+      syncBaselineFromResponse(panel, result);
       panel.state.failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas after the candidate arrived: ${String(e)}`, {
         retryable: true,
         graph_unchanged: true,
@@ -4064,8 +4339,12 @@ async function submitAgentEdit(panel) {
     }
 
     const expectedArrivalHash = panel.state.lastSubmit?.client_graph_hash;
-    const expectedArrivalToken = panel.state.lastSubmit?.client_live_canvas_token;
-    if (expectedArrivalToken && arrivalSnapshot.liveCanvasToken !== expectedArrivalToken) {
+    const expectedArrivalStructuralHash = panel.state.lastSubmit?.client_structural_graph_hash;
+    if (
+      typeof expectedArrivalStructuralHash === "string"
+      && expectedArrivalStructuralHash
+      && arrivalSnapshot.structuralHash !== expectedArrivalStructuralHash
+    ) {
       const failure = agentPanelFailure("StaleResponseArrival", "The canvas changed before this candidate arrived. Review is blocked.", {
         retryable: true,
         graph_unchanged: true,
@@ -4073,8 +4352,8 @@ async function submitAgentEdit(panel) {
         client_graph_hash: arrivalSnapshot.graphHash,
         client_structural_graph_hash: arrivalSnapshot.structuralHash,
         expected_graph_hash: expectedArrivalHash,
+        expected_structural_graph_hash: expectedArrivalStructuralHash,
         client_live_canvas_token: arrivalSnapshot.liveCanvasToken,
-        expected_live_canvas_token: expectedArrivalToken,
         session_id: result.session_id,
         turn_id: result.turn_id,
         baseline_turn_id: result.baseline_turn_id,
@@ -4085,7 +4364,7 @@ async function submitAgentEdit(panel) {
       panel.state.failure = failure;
       panel.state.sessionId = result.session_id || panel.state.sessionId;
       panel.state.turnId = result.turn_id || null;
-      panel.state.baselineTurnId = result.baseline_turn_id || panel.state.baselineTurnId;
+      syncBaselineFromResponse(panel, result);
       panel.state.auditRef = result.audit_ref || null;
       panel.state.queueGuard = getQueueGuardStateForPanel();
       panel.state.debugPayload = {
@@ -4114,7 +4393,7 @@ async function submitAgentEdit(panel) {
     panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
     panel.state.sessionId = result.session_id || panel.state.sessionId;
     panel.state.turnId = result.turn_id || null;
-    panel.state.baselineTurnId = result.baseline_turn_id || null;
+    syncBaselineFromResponse(panel, result);
     invalidateCandidateState(panel);
     panel.state.candidateGraph = result.graph || null;
     panel.state.candidateGraphHash = candidateGraphHash;
@@ -4122,6 +4401,7 @@ async function submitAgentEdit(panel) {
     panel.state.serverSubmitGraphHash = typeof result.submit_graph_hash === "string" ? result.submit_graph_hash : null;
     panel.state.message = result.message || null;
     panel.state.failure = null;
+    panel.state.applyEligibility = normalizeApplyEligibility(result.apply_eligibility);
     panel.state.applyAllowed = result.apply_allowed !== false && result.canvas_apply_allowed !== false;
     panel.state.canvasApplyAllowed = Boolean(result.canvas_apply_allowed);
     panel.state.queueAllowed = Boolean(result.queue_allowed);
@@ -4158,7 +4438,7 @@ async function submitAgentEdit(panel) {
 }
 
 async function applyAgentCandidate(panel) {
-  if (!panel.state.candidateGraph || panel.state.canvasApplyAllowed !== true) {
+  if (!panel.state.candidateGraph) {
     return;
   }
   if (!panel.state.sessionId || !panel.state.turnId) {
@@ -4192,19 +4472,30 @@ async function applyAgentCandidate(panel) {
     }
 
     const expectedHash = panel.state.lastSubmit?.client_graph_hash;
-    const expectedLiveCanvasToken = panel.state.lastSubmit?.client_live_canvas_token;
-    if (expectedLiveCanvasToken && beforeApply.liveCanvasToken !== expectedLiveCanvasToken) {
+    const eligibility = applyEligibility(panel, beforeApply);
+    if (!eligibility.applyable) {
       panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = agentPanelFailure("StaleStateMismatch", "The canvas changed after this candidate was generated. Apply is blocked.", {
-        retryable: true,
-        graph_unchanged: true,
-        next_action: "Submit a new edit from the current canvas.",
-        client_graph_hash: beforeApply.graphHash,
-        client_structural_graph_hash: beforeApply.structuralHash,
-        expected_graph_hash: expectedHash,
-        client_live_canvas_token: beforeApply.liveCanvasToken,
-        expected_live_canvas_token: expectedLiveCanvasToken,
-      });
+      panel.state.failure = agentPanelFailure(
+        eligibility.reason === APPLY_ELIGIBILITY_REASON.STALE_CANVAS
+          ? "StaleStateMismatch"
+          : "ApplyBlocked",
+        eligibility.reason === APPLY_ELIGIBILITY_REASON.STALE_CANVAS
+          ? "The canvas changed after this candidate was generated. Apply is blocked."
+          : (eligibility.message || "Apply is blocked for this candidate."),
+        {
+          retryable: eligibility.reason !== APPLY_ELIGIBILITY_REASON.NO_CANDIDATE,
+          graph_unchanged: true,
+          next_action:
+            eligibility.reason === APPLY_ELIGIBILITY_REASON.STALE_CANVAS
+              ? "Submit a new edit from the current canvas."
+              : "Submit a new edit or resolve the server-side blockers before retrying Apply.",
+          client_graph_hash: beforeApply.graphHash,
+          client_structural_graph_hash: beforeApply.structuralHash,
+          expected_graph_hash: expectedHash,
+          expected_structural_graph_hash: panel.state.lastSubmit?.client_structural_graph_hash,
+          apply_eligibility: eligibility,
+        },
+      );
       panel.state.debugPayload = panel.state.failure;
       clearCandidatePreviewState(panel);
       renderAgentPanel(panel);
@@ -4266,6 +4557,7 @@ async function applyAgentCandidate(panel) {
           });
       panel.state.phase = PANEL_STATE.ERROR;
       panel.state.failure = failure;
+      syncBaselineFromResponse(panel, failure);
       panel.state.auditRef = failure.audit_ref || panel.state.auditRef;
       panel.state.debugPayload = {
         ...failure,
@@ -4311,6 +4603,7 @@ async function applyAgentCandidate(panel) {
       turn_id: panel.state.turnId,
       graph: currentBeforeLoad.graph,
       client_graph_hash: currentBeforeLoad.graphHash,
+      accepted_baseline_graph_hash: accepted.baseline_graph_hash || panel.state.baselineGraphHash || null,
       captured_at: new Date().toISOString(),
     });
     panel.state.undoStack = panel.state.undoStack.slice(-16);
@@ -4358,7 +4651,8 @@ async function applyAgentCandidate(panel) {
       raw_payload: accepted,
     });
     panel.state.phase = PANEL_STATE.IDLE;
-    panel.state.baselineTurnId = accepted.baseline_turn_id || panel.state.turnId || panel.state.baselineTurnId;
+    syncBaselineFromResponse(panel, accepted);
+    panel.state.baselineTurnId = panel.state.baselineTurnId || panel.state.turnId || null;
     panel.state.auditRef = accepted.audit_ref || panel.state.auditRef;
     // applyGraphInPlaceWithIntentDecoration already repainted the canvas above and
     // the panel is now IDLE (overlay won't draw), so skip the redundant repaint.
@@ -4447,6 +4741,7 @@ async function rejectAgentCandidate(panel) {
         });
     panel.state.phase = PANEL_STATE.ERROR;
     panel.state.failure = failure;
+    syncBaselineFromResponse(panel, failure);
     panel.state.auditRef = failure.audit_ref || panel.state.auditRef;
     panel.state.debugPayload = {
       ...failure,
@@ -4476,6 +4771,7 @@ async function rejectAgentCandidate(panel) {
     raw_payload: rejected,
   });
   panel.state.phase = PANEL_STATE.IDLE;
+  syncBaselineFromResponse(panel, rejected);
   invalidateCandidateState(panel);
   panel.state.message = "Candidate rejected and cleared from the panel.";
   panel.state.failure = null;
@@ -4489,20 +4785,171 @@ async function rejectAgentCandidate(panel) {
   toast("Agent candidate rejected");
 }
 
-function undoLastApply(panel) {
-  const previous = panel?.state?.undoStack?.pop();
+export async function postAgentRebaseline(
+  panel,
+  { reason, graphSnapshot = null, lastKnownBaselineGraphHash = undefined } = {},
+) {
+  if (!panel?.state) {
+    return null;
+  }
+  if (panel.state.inFlightRebaseline) {
+    return panel.state.inFlightRebaseline;
+  }
+  if (!panel.state.sessionId) {
+    throw agentPanelFailure("MissingRequiredField", "Cannot rebaseline without a session_id.", {
+      retryable: false,
+      graph_unchanged: true,
+      next_action: "Submit an agent edit first so the session exists.",
+    });
+  }
+
+  panel.state.inFlightRebaseline = (async () => {
+    let body = null;
+    let rebaselineReason = "continue_from_canvas";
+    try {
+      let snapshot = graphSnapshot;
+      if (!snapshot) {
+        snapshot = await buildCanvasSnapshot();
+      }
+      rebaselineReason = String(reason || "continue_from_canvas").trim() || "continue_from_canvas";
+      const expectedBaselineGraphHash =
+        lastKnownBaselineGraphHash !== undefined
+          ? lastKnownBaselineGraphHash
+          : (panel.state.baselineGraphHash || null);
+      const idempotencyKey = buildRebaselineIdempotencyKey({
+        sessionId: panel.state.sessionId,
+        reason: rebaselineReason,
+        baselineGraphHash: expectedBaselineGraphHash,
+        structuralHash: snapshot.structuralHash,
+      });
+      panel.state.rebaselinePending = {
+        reason: rebaselineReason,
+        last_known_baseline_graph_hash: expectedBaselineGraphHash,
+        client_graph_hash: snapshot.graphHash,
+        client_structural_graph_hash: snapshot.structuralHash,
+        idempotency_key: idempotencyKey,
+      };
+      renderAgentPanel(panel);
+
+      body = {
+        session_id: panel.state.sessionId,
+        graph: snapshot.graph,
+        reason: rebaselineReason,
+        last_known_baseline_graph_hash: expectedBaselineGraphHash,
+        client_graph_hash: snapshot.graphHash,
+        client_structural_graph_hash: snapshot.structuralHash,
+        idempotency_key: idempotencyKey,
+      };
+
+      const res = await fetch("/vibecomfy/agent-edit/rebaseline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await res.json();
+      if (!res.ok || result?.ok === false || result?.error) {
+        throw result || { kind: "RebaselineError", message: res.statusText };
+      }
+      syncBaselineFromResponse(panel, result);
+      panel.state.auditRef = result.audit_ref || panel.state.auditRef;
+      panel.state.rebaselinePending = null;
+      panel.state.debugPayload = {
+        rebaseline_request: body,
+        rebaseline_response: result,
+      };
+      return result;
+    } catch (e) {
+      const failure = e?.ok === false
+        ? e
+        : agentPanelFailure("RebaselineError", String(e), {
+            retryable: true,
+            graph_unchanged: true,
+            next_action: "Retry the rebaseline request after the backend responds again.",
+          });
+      syncBaselineFromResponse(panel, failure);
+      panel.state.rebaselinePending = {
+        ...(panel.state.rebaselinePending || {}),
+        reason: rebaselineReason,
+        retryable: Boolean(failure.retryable),
+        failure_kind: failure.kind || null,
+        failure_stage: failure.stage || null,
+        message: failure.user_facing_message || failure.message || failure.error || null,
+      };
+      panel.state.auditRef = failure.audit_ref || panel.state.auditRef;
+      panel.state.debugPayload = {
+        ...failure,
+        rebaseline_request: body,
+      };
+      throw failure;
+    } finally {
+      panel.state.inFlightRebaseline = null;
+      renderAgentPanel(panel);
+    }
+  })();
+
+  return panel.state.inFlightRebaseline;
+}
+
+async function rebaselineCurrentCanvas(panel) {
+  const recovery = panel?.state?.rebaselineRecovery;
+  if (!recovery) {
+    renderAgentPanel(panel);
+    return null;
+  }
+  if (panel.state.inFlightRebaseline) {
+    return panel.state.inFlightRebaseline;
+  }
+  panel.state.phase = PANEL_STATE.IDLE;
+  panel.state.message = "Current canvas queued for stale-state recovery rebaseline.";
+  renderAgentPanel(panel);
+  try {
+    const result = await postAgentRebaseline(panel, {
+      reason: "stale_state_recovery",
+      lastKnownBaselineGraphHash: recovery.last_known_baseline_graph_hash ?? null,
+    });
+    invalidateCandidateState(panel);
+    panel.state.failure = null;
+    panel.state.rebaselineRecovery = null;
+    panel.state.phase = PANEL_STATE.IDLE;
+    panel.state.message = "Current canvas rebaselined. Submit again from this canvas.";
+    panel.state.auditRef = result.audit_ref || panel.state.auditRef;
+    panel.state.debugPayload = {
+      stale_state_recovery: true,
+      rebaseline_response: result,
+    };
+    renderAgentPanel(panel);
+    toast("Current canvas rebaselined");
+    return result;
+  } catch (failure) {
+    panel.state.rebaselineRecovery = extractRebaselineRecovery(failure) || recovery;
+    panel.state.phase = PANEL_STATE.ERROR;
+    panel.state.message = "Current canvas rebaseline failed. Review the evidence and retry.";
+    panel.state.debugPayload = {
+      ...(panel.state.debugPayload || {}),
+      stale_state_recovery: true,
+    };
+    renderAgentPanel(panel);
+    return null;
+  }
+}
+
+async function undoLastApply(panel) {
+  const undoStack = panel?.state?.undoStack;
+  const previous = Array.isArray(undoStack) ? undoStack[undoStack.length - 1] : null;
   if (!previous?.graph) {
     renderAgentPanel(panel);
-    return;
+    return null;
+  }
+  if (panel.state.inFlightRebaseline) {
+    return panel.state.inFlightRebaseline;
   }
   clearChangedNodeFeedbackVisuals();
   app.loadGraphData(previous.graph);
   panel.state.lastAppliedChanges = null;
   setQueueGuardContext(null);
-  pushHistory(panel, "undo", previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph");
   panel.state.phase = PANEL_STATE.IDLE;
   panel.state.failure = null;
-  panel.state.message = "Previous graph restored from the last local apply.";
+  panel.state.message = "Previous graph restored locally. Rebaselining undo state...";
   panel.state.queueGuard = getQueueGuardStateForPanel();
   panel.state.debugPayload = {
     undone_turn_id: previous.turn_id || null,
@@ -4510,7 +4957,50 @@ function undoLastApply(panel) {
     undo_stack_depth: panel.state.undoStack.length,
   };
   renderAgentPanel(panel);
-  toast("Previous graph restored");
+  try {
+    const result = await postAgentRebaseline(panel, {
+      reason: "undo",
+      lastKnownBaselineGraphHash:
+        previous.accepted_baseline_graph_hash
+        ?? panel.state.rebaselinePending?.last_known_baseline_graph_hash
+        ?? panel.state.baselineGraphHash
+        ?? null,
+    });
+    panel.state.undoStack.pop();
+    pushHistory(panel, "undo", previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph");
+    pushTurnStatus(panel, "undone", {
+      turn_id: previous.turn_id || null,
+      baseline_turn_id: result.baseline_turn_id || null,
+      message: previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph",
+      audit_ref: result.audit_ref || panel.state.auditRef,
+      raw_payload: result,
+    });
+    panel.state.phase = PANEL_STATE.IDLE;
+    panel.state.failure = null;
+    panel.state.auditRef = result.audit_ref || panel.state.auditRef;
+    panel.state.message = "Previous graph restored and rebaselined locally.";
+    panel.state.queueGuard = getQueueGuardStateForPanel();
+    panel.state.debugPayload = {
+      rebaseline_response: result,
+      undone_turn_id: previous.turn_id || null,
+      restored_graph_hash: previous.client_graph_hash || null,
+      undo_stack_depth: panel.state.undoStack.length,
+    };
+    renderAgentPanel(panel);
+    toast("Previous graph restored");
+    return result;
+  } catch (failure) {
+    panel.state.phase = PANEL_STATE.ERROR;
+    panel.state.message = "Previous graph restored locally, but the undo rebaseline failed. Retry Undo Rebaseline.";
+    panel.state.debugPayload = {
+      ...(panel.state.debugPayload || {}),
+      undone_turn_id: previous.turn_id || null,
+      restored_graph_hash: previous.client_graph_hash || null,
+      undo_stack_depth: panel.state.undoStack.length,
+    };
+    renderAgentPanel(panel);
+    return null;
+  }
 }
 
 async function openRoundtrip() {

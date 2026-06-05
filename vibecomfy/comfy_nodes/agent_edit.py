@@ -25,7 +25,9 @@ from .agent_contracts import (
     FailureKind,
     StageResult,
     TurnContext,
+    apply_eligibility_payload,
     classify_failure,
+    derive_apply_eligibility,
     failure_envelope,
     success_envelope,
 )
@@ -622,6 +624,30 @@ def _stamp_identity_on_original(graph: dict[str, Any], workflow: Any) -> int:
     return stamped
 
 
+def _stale_rebaseline_recovery_issue(
+    state: AgentEditState,
+    gate_evidence: Mapping[str, Any],
+) -> dict[str, Any]:
+    recovery = {
+        "action": "rebaseline",
+        "endpoint": "/vibecomfy/agent-edit/rebaseline",
+        "reason": "stale_state_recovery",
+        "last_known_baseline_graph_hash": state.baseline_graph_hash,
+        "submit_graph_hash": state.submit_graph_hash,
+        "submit_structural_graph_hash": state.submit_structural_graph_hash,
+        "client_graph_hash": state.submitted_client_graph_hash,
+        "client_structural_graph_hash": state.submitted_client_structural_graph_hash,
+    }
+    return {
+        "code": "stale_state_mismatch",
+        "severity": "error",
+        "failure_kind": FailureKind.STALE_STATE_MISMATCH.value,
+        "message": "Submitted graph no longer matches the current baseline.",
+        "detail": dict(gate_evidence),
+        "rebaseline_recovery": recovery,
+    }
+
+
 def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
     from vibecomfy.ingest.normalize import convert_to_vibe_format
     from vibecomfy.porting.layout_store import store_from_ui_json
@@ -656,21 +682,14 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
     )
     state_match_gate = context.gate_results["state_match_ok"]
     if not state_match_gate.ok:
+        stale_issue = _stale_rebaseline_recovery_issue(state, state_match_gate.evidence)
         return StageResult(
             stage="ingest",
             ok=False,
             blocking=True,
             duration_ms=_duration_ms(start),
             artifacts=(request_ref, original_ui_ref),
-            issues=(
-                {
-                    "code": "stale_state_mismatch",
-                    "severity": "error",
-                    "failure_kind": FailureKind.STALE_STATE_MISMATCH.value,
-                    "message": "Submitted graph no longer matches the current baseline.",
-                    "detail": dict(state_match_gate.evidence),
-                },
-            ),
+            issues=(stale_issue,),
             value={"failure_kind": FailureKind.STALE_STATE_MISMATCH.value},
         )
     return StageResult(
@@ -698,21 +717,14 @@ def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult
     )
     state_match_gate = context.gate_results["state_match_ok"]
     if not state_match_gate.ok:
+        stale_issue = _stale_rebaseline_recovery_issue(state, state_match_gate.evidence)
         return StageResult(
             stage="ingest",
             ok=False,
             blocking=True,
             duration_ms=_duration_ms(start),
             artifacts=(request_ref, original_ui_ref),
-            issues=(
-                {
-                    "code": "stale_state_mismatch",
-                    "severity": "error",
-                    "failure_kind": FailureKind.STALE_STATE_MISMATCH.value,
-                    "message": "Submitted graph no longer matches the current baseline.",
-                    "detail": dict(state_match_gate.evidence),
-                },
-            ),
+            issues=(stale_issue,),
             value={"failure_kind": FailureKind.STALE_STATE_MISMATCH.value},
         )
     return StageResult(
@@ -1751,7 +1763,33 @@ def _failure_response(
         failure = dataclasses.replace(failure, audit_ref=audit_ref)
     except Exception as audit_exc:
         failure = dataclasses.replace(failure, audit_error=str(audit_exc))
-    return failure.to_dict()
+    response = failure.to_dict()
+    if failure.kind is FailureKind.STALE_STATE_MISMATCH:
+        eligibility = derive_apply_eligibility(
+            context,
+            live_structural_graph_hash=state.baseline_graph_hash,
+            submit_structural_graph_hash=state.submit_structural_graph_hash,
+        )
+    else:
+        eligibility = derive_apply_eligibility(context, has_candidate=False)
+    response.update(
+        apply_eligibility_payload(
+            eligibility,
+            canvas_apply_allowed=context.canvas_apply_allowed,
+            queue_allowed=context.queue_allowed,
+        )
+    )
+    failure_context = response.get("agent_failure_context")
+    issues = failure_context.get("issues") if isinstance(failure_context, Mapping) else None
+    if isinstance(issues, list):
+        for issue in issues:
+            if not isinstance(issue, Mapping):
+                continue
+            recovery = issue.get("rebaseline_recovery")
+            if isinstance(recovery, Mapping):
+                response["rebaseline_recovery"] = dict(recovery)
+                break
+    return response
 
 
 def _run_stage(
@@ -2079,12 +2117,21 @@ def handle_agent_edit(
         )
         return response
 
+    has_candidate = not (contract == "batch_repl" and state.batch_exit_mode == "clarify")
+    response_apply_eligibility = derive_apply_eligibility(
+        context,
+        has_candidate=has_candidate,
+        candidate_state="candidate",
+    )
     response = success_envelope(
         context,
         message=state.user_message,
         graph=state.ui_payload,
         report=state.report,
         artifacts=state.artifacts,
+        apply_eligibility=response_apply_eligibility,
+        canvas_apply_allowed=context.canvas_apply_allowed if has_candidate else False,
+        queue_allowed=context.queue_allowed if has_candidate else False,
     )
     candidate_graph_hash = payload_hash(state.ui_payload)
     candidate_structural_graph_hash = structural_graph_hash(state.ui_payload)

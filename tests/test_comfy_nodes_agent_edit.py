@@ -1622,6 +1622,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     assert result["message"] == "before or after the face restoration?"
     assert result["apply_allowed"] is False
     assert result["queue_allowed"] is False
+    assert result["apply_eligibility"]["reason"] == "no_candidate"
     assert '"before"' in json.dumps(result["graph"], sort_keys=True)
     assert '"after"' not in json.dumps(result["graph"], sort_keys=True)
     assert "done_summary" not in result
@@ -2310,6 +2311,7 @@ def test_handle_agent_edit_threads_synthetic_lowered_provenance_without_emitting
     ]
     assert result["report"]["queue_blockers"] == []
     assert result["queue_allowed"] is True
+    assert result["apply_eligibility"]["reason"] == "applyable"
 
 
 def test_handle_agent_edit_audit_threads_complete_lowering_metadata_and_keeps_queue_unblocked(
@@ -3353,6 +3355,8 @@ def test_agent_edit_queue_blockers_keep_canvas_apply_true_but_queue_false(
     assert result["canvas_apply_allowed"] is True
     assert result["apply_allowed"] is True
     assert result["queue_allowed"] is False
+    assert result["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert result["apply_eligibility"]["warnings"] == ["queue_blocked"]
     assert result["gates"]["queue_validate_ok"] is False
     assert result["audit_ref"]["path"]
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
@@ -3580,6 +3584,10 @@ def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     assert replayed == accepted
     assert accepted["ok"] is True
     assert accepted["action"] == "accept"
+    assert accepted["canvas_apply_allowed"] is False
+    assert accepted["apply_allowed"] is False
+    assert accepted["queue_allowed"] is False
+    assert accepted["apply_eligibility"]["reason"] == "superseded"
     assert accepted["baseline_turn_id"] == turn_id
     assert accepted["submit_graph_hash"] == submit_graph_hash
     assert accepted["candidate_graph_hash"] == candidate_graph_hash
@@ -3725,22 +3733,6 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
     submit_hash = payload_hash(graph)
     candidate_hash = payload_hash(candidate_graph)
 
-    stale_token = _handle_agent_edit_accept(
-        {
-            "session_id": "s-v2-lock",
-            "turn_id": turn_id,
-            "client_graph_hash": client_hash,
-            "client_live_canvas_token": "live:rev:2:browser-hash-v2",
-            "submit_graph_hash": submit_hash,
-            "candidate_graph_hash": candidate_hash,
-            "idempotency_key": "accept-v2-stale-token",
-        },
-        session_root=tmp_path,
-    )
-    assert stale_token["ok"] is False
-    assert stale_token["kind"] == FailureKind.STALE_STATE_MISMATCH.value
-    assert "live-canvas token" in stale_token["agent_failure_context"]["explanation"]
-
     wrong_candidate = _handle_agent_edit_accept(
         {
             "session_id": "s-v2-lock",
@@ -3778,7 +3770,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "session_id": "s-v2-lock",
             "turn_id": turn_id,
             "client_graph_hash": client_hash,
-            "client_live_canvas_token": live_token,
+            "client_live_canvas_token": "live:rev:2:browser-hash-v2",
             "submit_graph_hash": submit_hash,
             "candidate_graph_hash": candidate_hash,
             "idempotency_key": "accept-v2-ok",
@@ -3787,6 +3779,38 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
     )
     assert accepted["ok"] is True, accepted
     assert accepted["baseline_graph_hash"] == structural_graph_hash(candidate_graph)
+    assert accepted["diagnostics"][0]["code"] == "client_live_canvas_token_mismatch"
+    assert (
+        accepted["diagnostics"][0]["detail"]["client_live_canvas_token"]
+        == "live:rev:2:browser-hash-v2"
+    )
+    assert accepted["apply_eligibility"]["reason"] == "superseded"
+
+
+def test_agent_edit_rebaseline_route_returns_no_candidate_apply_eligibility(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_rebaseline
+
+    graph = _ui_graph()
+
+    result = _handle_agent_edit_rebaseline(
+        {
+            "session_id": "reb-eligibility",
+            "graph": graph,
+            "reason": "continue_from_canvas",
+            "last_known_baseline_graph_hash": None,
+            "idempotency_key": "reb-1",
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True, result
+    assert result["action"] == "rebaseline"
+    assert result["canvas_apply_allowed"] is False
+    assert result["apply_allowed"] is False
+    assert result["queue_allowed"] is False
+    assert result["apply_eligibility"]["reason"] == "no_candidate"
 
 
 def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
@@ -3813,6 +3837,10 @@ def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
     assert replayed == rejected
     assert rejected["ok"] is True
     assert rejected["action"] == "reject"
+    assert rejected["canvas_apply_allowed"] is False
+    assert rejected["apply_allowed"] is False
+    assert rejected["queue_allowed"] is False
+    assert rejected["apply_eligibility"]["reason"] == "superseded"
     assert rejected["baseline_turn_id"] is None
     assert rejected["submit_graph_hash"] == submit_graph_hash
     assert rejected["candidate_graph_hash"] == candidate_graph_hash
@@ -3928,9 +3956,9 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
     assert accepted["ok"] is True
     assert accepted["baseline_turn_id"] == accepted_turn_id
     assert accepted["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
-    assert repeated_accept["ok"] is True
-    assert repeated_accept["baseline_turn_id"] == accepted_turn_id
-    assert repeated_accept["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
+    assert repeated_accept["ok"] is False
+    assert repeated_accept["kind"] == FailureKind.STALE_STATE_MISMATCH.value
+    assert repeated_accept["agent_failure_context"]["reason"] == "structural_baseline_cas_mismatch"
     assert accept_key_conflict["ok"] is False
     assert accept_key_conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
     assert rejecting_accepted["ok"] is False

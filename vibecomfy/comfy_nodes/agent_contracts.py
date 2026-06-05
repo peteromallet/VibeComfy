@@ -28,6 +28,16 @@ CANVAS_APPLY_GATE_NAMES: tuple[str, ...] = (
     "state_match_ok",
 )
 
+APPLY_ELIGIBILITY_REASONS: tuple[str, ...] = (
+    "applyable",
+    "no_candidate",
+    "not_latest",
+    "superseded",
+    "server_blocked",
+    "stale_canvas",
+    "queue_blocked_warning",
+)
+
 
 class FailureKind(str, Enum):
     SYNTAX_ERROR = "SyntaxError"
@@ -55,6 +65,41 @@ class FailureKind(str, Enum):
     MODEL_MISTAKE = "ModelMistake"
     UNREPRESENTABLE = "Unrepresentable"
     SCHEMA_GAP = "SchemaGap"
+
+
+@dataclass(frozen=True)
+class ApplyEligibility:
+    applyable: bool
+    reason: str
+    message: str
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.reason not in APPLY_ELIGIBILITY_REASONS:
+            raise ValueError(f"Unknown Apply eligibility reason {self.reason!r}")
+        object.__setattr__(self, "warnings", tuple(self.warnings))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "applyable": self.applyable,
+            "reason": self.reason,
+            "message": self.message,
+            "warnings": list(self.warnings),
+        }
+
+
+def apply_eligibility_payload(
+    eligibility: ApplyEligibility,
+    *,
+    canvas_apply_allowed: bool,
+    queue_allowed: bool,
+) -> dict[str, Any]:
+    return {
+        "canvas_apply_allowed": bool(canvas_apply_allowed),
+        "apply_allowed": eligibility.applyable,
+        "queue_allowed": bool(queue_allowed),
+        "apply_eligibility": eligibility.to_dict(),
+    }
 
 
 SCAN_CODE_FAILURE_KIND: Mapping[str, FailureKind] = MappingProxyType(
@@ -413,11 +458,15 @@ class TurnContext:
 
     @property
     def apply_allowed(self) -> bool:
-        return self.canvas_apply_allowed
+        return self.apply_eligibility.applyable
 
     @property
     def queue_allowed(self) -> bool:
         return self.canvas_apply_allowed and self.gate_results["queue_validate_ok"].ok
+
+    @property
+    def apply_eligibility(self) -> ApplyEligibility:
+        return derive_apply_eligibility(self)
 
     def set_gate(self, name: str, ok: bool, *, evidence: Mapping[str, Any] | None = None) -> None:
         if name not in self.gate_results:
@@ -432,6 +481,63 @@ class TurnContext:
 
     def gate_snapshot(self) -> dict[str, bool]:
         return {name: gate.ok for name, gate in self.gate_results.items()}
+
+
+def derive_apply_eligibility(
+    context: TurnContext,
+    *,
+    has_candidate: bool = True,
+    is_latest_candidate: bool = True,
+    candidate_state: str | None = "candidate",
+    live_structural_graph_hash: str | None = None,
+    submit_structural_graph_hash: str | None = None,
+) -> ApplyEligibility:
+    if not has_candidate:
+        return ApplyEligibility(
+            applyable=False,
+            reason="no_candidate",
+            message="No candidate is available to apply.",
+        )
+    if not is_latest_candidate:
+        return ApplyEligibility(
+            applyable=False,
+            reason="not_latest",
+            message="Only the latest candidate can be applied.",
+        )
+    if candidate_state in {"unknown", "rejected", "accepted", "superseded"}:
+        return ApplyEligibility(
+            applyable=False,
+            reason="superseded",
+            message="This candidate has been superseded.",
+        )
+    if (
+        isinstance(live_structural_graph_hash, str)
+        and isinstance(submit_structural_graph_hash, str)
+        and live_structural_graph_hash != submit_structural_graph_hash
+    ):
+        return ApplyEligibility(
+            applyable=False,
+            reason="stale_canvas",
+            message="The live canvas no longer matches the submitted candidate baseline.",
+        )
+    if not context.canvas_apply_allowed:
+        return ApplyEligibility(
+            applyable=False,
+            reason="server_blocked",
+            message="Server validation gates blocked Apply.",
+        )
+    if not context.queue_allowed:
+        return ApplyEligibility(
+            applyable=True,
+            reason="queue_blocked_warning",
+            message="Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings=("queue_blocked",),
+        )
+    return ApplyEligibility(
+        applyable=True,
+        reason="applyable",
+        message="Apply is allowed.",
+    )
 
 
 @dataclass(frozen=True)
@@ -464,13 +570,35 @@ class FailureEnvelope:
 
     @property
     def apply_allowed(self) -> bool:
-        return self.canvas_apply_allowed
+        return self.apply_eligibility.applyable
+
+    @property
+    def apply_eligibility(self) -> ApplyEligibility:
+        if not self.canvas_apply_allowed:
+            return ApplyEligibility(
+                applyable=False,
+                reason="server_blocked",
+                message="Server validation gates blocked Apply.",
+            )
+        if not self.queue_allowed:
+            return ApplyEligibility(
+                applyable=True,
+                reason="queue_blocked_warning",
+                message="Apply is allowed, but Queue remains blocked for this candidate.",
+                warnings=("queue_blocked",),
+            )
+        return ApplyEligibility(
+            applyable=True,
+            reason="applyable",
+            message="Apply is allowed.",
+        )
 
     @property
     def message(self) -> str:
         return self.user_facing_message
 
     def to_dict(self) -> dict[str, Any]:
+        eligibility = self.apply_eligibility
         payload: dict[str, Any] = {
             "ok": False,
             "kind": self.kind.value,
@@ -478,9 +606,6 @@ class FailureEnvelope:
             "session_id": self.session_id,
             "turn_id": self.turn_id,
             "baseline_turn_id": self.baseline_turn_id,
-            "canvas_apply_allowed": self.canvas_apply_allowed,
-            "apply_allowed": self.apply_allowed,
-            "queue_allowed": self.queue_allowed,
             "graph_unchanged": self.graph_unchanged,
             "retryable": self.retryable,
             "next_action": self.next_action,
@@ -490,6 +615,13 @@ class FailureEnvelope:
             "audit_ref": self.audit_ref.to_dict() if self.audit_ref is not None else None,
             "audit_error": self.audit_error,
         }
+        payload.update(
+            apply_eligibility_payload(
+                eligibility,
+                canvas_apply_allowed=self.canvas_apply_allowed,
+                queue_allowed=self.queue_allowed,
+            )
+        )
         if self.turn_id is None:
             payload.pop("turn_id")
         return payload
@@ -773,16 +905,23 @@ def success_envelope(
     report: dict[str, Any] | None = None,
     artifacts: Mapping[str, Any] | None = None,
     audit_ref: ArtifactRef | None = None,
+    apply_eligibility: ApplyEligibility | None = None,
+    canvas_apply_allowed: bool | None = None,
+    queue_allowed: bool | None = None,
     version: int = 1,
 ) -> dict[str, Any]:
-    return {
+    eligibility = apply_eligibility or context.apply_eligibility
+    canvas_allowed = (
+        context.canvas_apply_allowed
+        if canvas_apply_allowed is None
+        else bool(canvas_apply_allowed)
+    )
+    queue_ok = context.queue_allowed if queue_allowed is None else bool(queue_allowed)
+    payload = {
         "ok": True,
         "session_id": context.session_id,
         "turn_id": context.turn_id,
         "baseline_turn_id": context.baseline_turn_id,
-        "canvas_apply_allowed": context.canvas_apply_allowed,
-        "apply_allowed": context.apply_allowed,
-        "queue_allowed": context.queue_allowed,
         "gates": context.gate_snapshot(),
         "message": message,
         "graph": graph,
@@ -791,10 +930,20 @@ def success_envelope(
         "audit_ref": audit_ref.to_dict() if audit_ref is not None else None,
         "version": version,
     }
+    payload.update(
+        apply_eligibility_payload(
+            eligibility,
+            canvas_apply_allowed=canvas_allowed,
+            queue_allowed=queue_ok,
+        )
+    )
+    return payload
 
 
 __all__ = [
     "ArtifactRef",
+    "APPLY_ELIGIBILITY_REASONS",
+    "ApplyEligibility",
     "CANVAS_APPLY_GATE_NAMES",
     "DEFAULT_GATE_NAMES",
     "FAILURE_SPECS",
@@ -804,7 +953,9 @@ __all__ = [
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
     "TurnContext",
+    "apply_eligibility_payload",
     "classify_failure",
+    "derive_apply_eligibility",
     "failure_envelope",
     "success_envelope",
 ]

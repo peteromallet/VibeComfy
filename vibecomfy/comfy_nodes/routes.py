@@ -5,10 +5,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .agent_contracts import FailureKind, TurnContext, classify_failure, failure_envelope
+from .agent_contracts import (
+    FailureKind,
+    TurnContext,
+    apply_eligibility_payload,
+    classify_failure,
+    derive_apply_eligibility,
+    failure_envelope,
+)
 from .agent_edit import _SESSION_ROOT, _safe_session_id, handle_agent_edit
 from .agent_provider import get_agent_status, handle_credential_submission
-from .agent_session import accept_turn, payload_hash, reject_turn, session_dir_for, turn_dir_for
+from .agent_session import accept_turn, payload_hash, rebaseline_session, reject_turn, session_dir_for, turn_dir_for
 from .agent_audit import artifact_ref_for_path, write_audit
 
 
@@ -125,6 +132,24 @@ def _handle_agent_edit_action(
     )
     if not isinstance(result, dict):
         return result.to_dict()
+    terminal_state = result.get("accepted_state") if isinstance(result.get("accepted_state"), str) else None
+    eligibility = derive_apply_eligibility(
+        TurnContext(
+            session_id=session_id,
+            turn_id=turn_id,
+            baseline_turn_id=result.get("baseline_turn_id")
+            if isinstance(result.get("baseline_turn_id"), str)
+            else None,
+        ),
+        candidate_state=terminal_state,
+    )
+    result.update(
+        apply_eligibility_payload(
+            eligibility,
+            canvas_apply_allowed=False,
+            queue_allowed=False,
+        )
+    )
     try:
         audit_dir = turn_dir_for(root, session_id, turn_id) / f"{action}_audit"
         audit_path = audit_dir / "audit.json"
@@ -161,6 +186,83 @@ def _handle_agent_edit_accept(payload: Any, *, session_root: Any = None) -> dict
 
 def _handle_agent_edit_reject(payload: Any, *, session_root: Any = None) -> dict[str, Any]:
     return _handle_agent_edit_action(payload, action="reject", session_root=session_root)
+
+
+def _handle_agent_edit_rebaseline(payload: Any, *, session_root: Any = None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "rebaseline",
+            agent_failure_context={"explanation": "Request body must be a JSON object."},
+        ).to_dict()
+    session_id_raw = payload.get("session_id")
+    if not isinstance(session_id_raw, str) or not session_id_raw.strip():
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "rebaseline",
+            agent_failure_context={"explanation": "`session_id` is required."},
+        ).to_dict()
+    session_id = _safe_session_id(session_id_raw)
+    root = _root(session_root)
+
+    result = rebaseline_session(
+        session_root=root,
+        session_id=session_id,
+        request_payload=payload,
+        idempotency_key=_idempotency_key(payload),
+    )
+    if not isinstance(result, dict):
+        return result.to_dict()
+    eligibility = derive_apply_eligibility(
+        TurnContext(
+            session_id=session_id,
+            baseline_turn_id=result.get("baseline_turn_id")
+            if isinstance(result.get("baseline_turn_id"), str)
+            else None,
+        ),
+        has_candidate=False,
+    )
+    result.update(
+        apply_eligibility_payload(
+            eligibility,
+            canvas_apply_allowed=False,
+            queue_allowed=False,
+        )
+    )
+
+    try:
+        rebaseline_id = result.get("rebaseline_id")
+        audit_dir = (
+            session_dir_for(root, session_id)
+            / "_rebaseline"
+            / str(rebaseline_id)
+            / "audit"
+        )
+        audit_path = audit_dir / "audit.json"
+        if audit_path.exists():
+            audit_ref = artifact_ref_for_path(audit_path)
+        else:
+            audit_ref = write_audit(
+                audit_dir,
+                context=TurnContext(
+                    session_id=session_id,
+                    baseline_turn_id=result.get("baseline_turn_id")
+                    if isinstance(result.get("baseline_turn_id"), str)
+                    else None,
+                    idempotency_key=_idempotency_key(payload),
+                ),
+                response=result,
+                artifacts={"request": payload},
+                metadata={
+                    "action": "rebaseline",
+                    "rebaseline_id": rebaseline_id,
+                },
+            )
+        result = {**result, "audit_ref": audit_ref.to_dict()}
+    except Exception as exc:
+        failure = classify_failure("audit", exc)
+        return failure.to_dict()
+    return result
 
 
 def _handle_agent_edit_audit(
@@ -330,6 +432,24 @@ try:
                 status=400,
             )
         result = _handle_agent_edit_reject(payload)
+        return _web.json_response(result, status=400 if result.get("ok") is False else 200)
+
+    @_PromptServer.instance.routes.post("/vibecomfy/agent-edit/rebaseline")
+    async def agent_edit_rebaseline_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _web.json_response(
+                failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    "rebaseline",
+                    agent_failure_context={
+                        "explanation": f"Request body must be valid JSON: {exc}"
+                    },
+                ).to_dict(),
+                status=400,
+            )
+        result = _handle_agent_edit_rebaseline(payload)
         return _web.json_response(result, status=400 if result.get("ok") is False else 200)
 
     @_PromptServer.instance.routes.get("/vibecomfy/agent-edit/audit")

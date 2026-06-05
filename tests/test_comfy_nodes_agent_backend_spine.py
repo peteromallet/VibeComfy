@@ -20,9 +20,11 @@ from vibecomfy.comfy_nodes.agent_audit import (
 from vibecomfy.comfy_nodes import agent_provider
 from vibecomfy.comfy_nodes import megaplan_runtime
 from vibecomfy.comfy_nodes.agent_contracts import (
+    APPLY_ELIGIBILITY_REASONS,
     FailureKind,
     StageResult,
     TurnContext,
+    derive_apply_eligibility,
     failure_envelope,
 )
 from vibecomfy.comfy_nodes.agent_diagnostics import (
@@ -32,6 +34,11 @@ from vibecomfy.comfy_nodes.agent_diagnostics import (
     validate_stage_diagnostics,
     validate_stage_result,
 )
+from vibecomfy.comfy_nodes.agent_edit import (
+    AgentEditState,
+    _failure_response,
+    _stale_rebaseline_recovery_issue,
+)
 from vibecomfy.comfy_nodes.agent_gates import (
     EXPLICIT_QUEUE_BLOCKER_CODES,
     derive_gates,
@@ -40,11 +47,13 @@ from vibecomfy.comfy_nodes.agent_gates import (
     update_state_match_gate,
 )
 from vibecomfy.comfy_nodes.agent_session import (
+    STRUCTURAL_PROJECTION_VERSION,
     accept_turn,
     allocate_turn,
     payload_hash,
     read_state,
     record_idempotent_response,
+    rebaseline_session,
     reject_turn,
     structural_graph_hash,
     write_state_atomic,
@@ -645,6 +654,443 @@ def test_session_protocol_hashes_graph_subdict_and_records_candidate_hash(
     )
 
 
+def test_allocate_turn_captures_submitted_baseline_snapshot(tmp_path: Path) -> None:
+    root = tmp_path / "sessions"
+    first_request = _request_graph("first-baseline-snapshot")
+    first = allocate_turn(session_root=root, session_id="s1", request_payload=first_request)
+    first_id = str(first.context.turn_id)
+    first_candidate = _record_candidate_response(root=root, session_id="s1", allocation=first)
+
+    state = read_state(root / "s1")
+    first_record = state["turns"][first_id]
+    assert first_record["submitted_baseline_graph_hash"] is None
+    assert first_record["submitted_baseline_graph_hash_kind"] is None
+    assert first_record["submitted_baseline_graph_hash_version"] is None
+    assert first_record["submitted_baseline_source"] == "none"
+    assert first_record["submitted_baseline_rebaseline_id"] is None
+
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=first_id,
+        client_graph_hash=payload_hash(first_request["graph"]),
+        request_payload={"turn_id": first_id, "action": "accept"},
+    )
+    assert isinstance(accepted, dict)
+
+    second_request = _request_graph("second-baseline-snapshot")
+    second = allocate_turn(session_root=root, session_id="s1", request_payload=second_request)
+    second_id = str(second.context.turn_id)
+    state = read_state(root / "s1")
+    second_record = state["turns"][second_id]
+    assert second_record["submitted_baseline_graph_hash"] == structural_graph_hash(first_candidate)
+    assert second_record["submitted_baseline_graph_hash_kind"] == "structural"
+    assert second_record["submitted_baseline_graph_hash_version"] == 2
+    assert second_record["submitted_baseline_source"] == "turn"
+    assert second_record["submitted_baseline_turn_id"] == first_id
+
+
+def test_rebaseline_session_updates_structural_baseline_and_persists_source_graph(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    graph = _request_graph("rebaseline-success")["graph"]
+
+    response = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload={
+            "session_id": "s1",
+            "graph": graph,
+            "last_known_baseline_graph_hash": None,
+            "reason": "continue_from_canvas",
+            "idempotency_key": "reb-1",
+        },
+        idempotency_key="reb-1",
+    )
+
+    assert isinstance(response, dict)
+    assert response["ok"] is True
+    assert response["action"] == "rebaseline"
+    assert response["baseline_turn_id"] is None
+    assert response["baseline_graph_hash"] == structural_graph_hash(graph)
+    assert response["baseline_graph_hash_kind"] == "structural"
+    assert response["baseline_source"] == "rebaseline"
+    assert response["rebaseline_id"] == "0001"
+
+    session_dir = root / "s1"
+    graph_path = session_dir / "_rebaseline" / "0001" / "graph.ui.json"
+    metadata_path = session_dir / "_rebaseline" / "0001" / "metadata.json"
+    assert json.loads(graph_path.read_text(encoding="utf-8")) == graph
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["action"] == "rebaseline"
+    assert metadata["reason"] == "continue_from_canvas"
+    assert metadata["next_baseline_graph_hash"] == structural_graph_hash(graph)
+
+    state = read_state(session_dir)
+    assert state["baseline_graph_hash"] == structural_graph_hash(graph)
+    assert state["baseline_turn_id"] is None
+    assert state["baseline_rebaseline_id"] == "0001"
+    assert state["baseline_graph_source_path"] == "_rebaseline/0001/graph.ui.json"
+
+
+def test_rebaseline_session_enforces_explicit_null_cas_and_does_not_mutate_on_mismatch(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    first_graph = _request_graph("rebaseline-first")["graph"]
+    first = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload={
+            "session_id": "s1",
+            "graph": first_graph,
+            "last_known_baseline_graph_hash": None,
+            "reason": "continue_from_canvas",
+        },
+    )
+    assert isinstance(first, dict)
+
+    second_graph = _request_graph("rebaseline-stale")["graph"]
+    failure = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload={
+            "session_id": "s1",
+            "graph": second_graph,
+            "last_known_baseline_graph_hash": None,
+            "reason": "stale_state_recovery",
+        },
+    )
+
+    assert not isinstance(failure, dict)
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+    assert (
+        failure.agent_failure_context["reason"]
+        == "rebaseline_structural_baseline_cas_mismatch"
+    )
+    state = read_state(root / "s1")
+    assert state["baseline_graph_hash"] == structural_graph_hash(first_graph)
+    assert state["baseline_rebaseline_id"] == "0001"
+    assert state["next_rebaseline_index"] == 2
+    assert not (root / "s1" / "_rebaseline" / "0002").exists()
+
+
+def test_rebaseline_session_replays_same_idempotency_key_and_conflicts_on_different_body(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    graph = _request_graph("rebaseline-replay")["graph"]
+    payload = {
+        "session_id": "s1",
+        "graph": graph,
+        "last_known_baseline_graph_hash": None,
+        "reason": "continue_from_canvas",
+        "idempotency_key": "reb-replay",
+    }
+
+    first = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload=payload,
+        idempotency_key="reb-replay",
+    )
+    replay = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload=payload,
+        idempotency_key="reb-replay",
+    )
+    conflict = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload={**payload, "reason": "undo"},
+        idempotency_key="reb-replay",
+    )
+
+    assert isinstance(first, dict)
+    assert replay == first
+    assert not isinstance(conflict, dict)
+    assert conflict.agent_failure_context["idempotency_key"] == "reb-replay"
+    state = read_state(root / "s1")
+    assert sorted(path.name for path in (root / "s1" / "_rebaseline").iterdir()) == ["0001"]
+    assert state["idempotency_records"]["rebaseline:reb-replay"]["rebaseline_id"] == "0001"
+
+
+def test_read_state_normalizes_turn_baseline_from_candidate_artifact_on_projection_drift(
+    tmp_path: Path,
+) -> None:
+    session_dir = tmp_path / "s-turn-normalize"
+    candidate_graph = _request_graph("normalize-turn")["graph"]
+    turn_dir = session_dir / "turns" / "0001"
+    turn_dir.mkdir(parents=True, exist_ok=True)
+    (turn_dir / "candidate.ui.json").write_text(
+        json.dumps(candidate_graph, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    state = read_state(session_dir)
+    state["turns"]["0001"] = {
+        "state": "accepted",
+        "candidate_graph_hash": payload_hash(candidate_graph),
+        "candidate_structural_graph_hash": "stale-structural-hash",
+        "candidate_structural_graph_hash_version": STRUCTURAL_PROJECTION_VERSION - 1,
+    }
+    state["baseline_turn_id"] = "0001"
+    state["baseline_graph_hash"] = "stale-structural-hash"
+    state["baseline_graph_hash_kind"] = "structural"
+    state["baseline_graph_hash_version"] = STRUCTURAL_PROJECTION_VERSION - 1
+    state["baseline_source"] = "turn"
+    write_state_atomic(session_dir, state)
+
+    normalized = read_state(session_dir)
+
+    expected = structural_graph_hash(candidate_graph)
+    assert normalized["baseline_turn_id"] == "0001"
+    assert normalized["baseline_graph_hash"] == expected
+    assert normalized["baseline_graph_hash_kind"] == "structural"
+    assert normalized["baseline_graph_hash_version"] == STRUCTURAL_PROJECTION_VERSION
+    assert normalized["baseline_source"] == "turn"
+    assert normalized["baseline_graph_source_path"] == "turns/0001/candidate.ui.json"
+    assert normalized["turns"]["0001"]["candidate_structural_graph_hash"] == expected
+    assert (
+        normalized["turns"]["0001"]["candidate_structural_graph_hash_version"]
+        == STRUCTURAL_PROJECTION_VERSION
+    )
+
+
+def test_read_state_normalizes_rebaseline_baseline_from_source_artifact_on_projection_drift(
+    tmp_path: Path,
+) -> None:
+    session_dir = tmp_path / "s-rebaseline-normalize"
+    graph = _request_graph("normalize-rebaseline")["graph"]
+    graph_path = session_dir / "_rebaseline" / "0003" / "graph.ui.json"
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
+    graph_path.write_text(
+        json.dumps(graph, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    state = read_state(session_dir)
+    state["baseline_turn_id"] = None
+    state["baseline_graph_hash"] = "stale-rebaseline-hash"
+    state["baseline_graph_hash_kind"] = "structural"
+    state["baseline_graph_hash_version"] = STRUCTURAL_PROJECTION_VERSION - 1
+    state["baseline_source"] = "rebaseline"
+    state["baseline_rebaseline_id"] = "0003"
+    state["baseline_graph_source_path"] = "_rebaseline/0003/graph.ui.json"
+    write_state_atomic(session_dir, state)
+
+    normalized = read_state(session_dir)
+
+    expected = structural_graph_hash(graph)
+    assert normalized["baseline_turn_id"] is None
+    assert normalized["baseline_graph_hash"] == expected
+    assert normalized["baseline_graph_hash_kind"] == "structural"
+    assert normalized["baseline_graph_hash_version"] == STRUCTURAL_PROJECTION_VERSION
+    assert normalized["baseline_source"] == "rebaseline"
+    assert normalized["baseline_rebaseline_id"] == "0003"
+    assert normalized["baseline_graph_source_path"] == "_rebaseline/0003/graph.ui.json"
+
+
+def test_rebaseline_session_rejects_unknown_reason_without_writing_artifacts(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    graph = _request_graph("rebaseline-invalid-reason")["graph"]
+
+    failure = rebaseline_session(
+        session_root=root,
+        session_id="s1",
+        request_payload={
+            "session_id": "s1",
+            "graph": graph,
+            "last_known_baseline_graph_hash": None,
+            "reason": "invalid-reason",
+            "idempotency_key": "reb-invalid",
+        },
+        idempotency_key="reb-invalid",
+    )
+
+    assert not isinstance(failure, dict)
+    assert failure.kind is FailureKind.VALIDATION_ERROR
+    assert failure.agent_failure_context["reason"] == "invalid-reason"
+    assert list(failure.agent_failure_context["allowed_reasons"]) == [
+        "undo",
+        "stale_state_recovery",
+        "continue_from_canvas",
+    ]
+    assert not (root / "s1" / "_rebaseline").exists()
+    state = read_state(root / "s1")
+    assert state["baseline_graph_hash"] is None
+    assert state["baseline_source"] == "none"
+
+
+def test_legacy_turn_derives_expected_baseline_from_submit_structural_hash(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    first_request = _request_graph("legacy-baseline")
+    first = allocate_turn(session_root=root, session_id="s1", request_payload=first_request)
+    first_id = str(first.context.turn_id)
+    first_candidate = _record_candidate_response(root=root, session_id="s1", allocation=first)
+    accepted_first = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=first_id,
+        client_graph_hash=payload_hash(first_request["graph"]),
+        request_payload={"turn_id": first_id, "action": "accept"},
+    )
+    assert isinstance(accepted_first, dict)
+
+    legacy_request = {
+        "graph": first_candidate,
+        "client_graph_hash": payload_hash(first_candidate),
+        "task": "edit legacy-derived",
+    }
+    legacy = allocate_turn(session_root=root, session_id="s1", request_payload=legacy_request)
+    legacy_id = str(legacy.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=legacy)
+    state = read_state(root / "s1")
+    legacy_record = state["turns"][legacy_id]
+    for key in list(legacy_record):
+        if key.startswith("submitted_baseline_"):
+            del legacy_record[key]
+    write_state_atomic(root / "s1", state)
+
+    accepted_legacy = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=legacy_id,
+        client_graph_hash=payload_hash(legacy_request["graph"]),
+        request_payload={"turn_id": legacy_id, "action": "accept"},
+    )
+
+    assert isinstance(accepted_legacy, dict)
+    assert (
+        accepted_legacy["expected_baseline_graph_hash"] == structural_graph_hash(first_candidate)
+    )
+    assert accepted_legacy["expected_baseline_graph_hash_kind"] == "structural"
+
+
+def test_legacy_turn_without_trustworthy_expected_baseline_fails_closed(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    session_dir = root / "s1"
+    state = read_state(session_dir)
+    state["baseline_graph_hash"] = "legacy-raw-baseline"
+    state["baseline_graph_hash_kind"] = "raw"
+    state["baseline_source"] = "legacy"
+    write_state_atomic(session_dir, state)
+
+    request = _request_graph("legacy-untrusted")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    state = read_state(session_dir)
+    turn_record = state["turns"][turn_id]
+    for key in list(turn_record):
+        if key.startswith("submitted_baseline_"):
+            del turn_record[key]
+    write_state_atomic(session_dir, state)
+
+    failure = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=payload_hash(request["graph"]),
+        request_payload={"turn_id": turn_id, "action": "accept"},
+    )
+
+    assert not isinstance(failure, dict)
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+    assert failure.agent_failure_context["reason"] == "legacy_expected_baseline_untrusted"
+    assert failure.agent_failure_context["recovery"]["action"] == "rebaseline"
+    state = read_state(session_dir)
+    assert state["turns"][turn_id]["state"] == "candidate"
+    assert state["turns"][turn_id]["action_request_hash"] is None
+    assert state["baseline_graph_hash"] == "legacy-raw-baseline"
+    assert state["baseline_graph_hash_kind"] == "raw"
+
+
+def test_accept_structural_cas_mismatch_fails_without_action_writes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    first_request = _request_graph("cas-first")
+    first = allocate_turn(session_root=root, session_id="s1", request_payload=first_request)
+    first_id = str(first.context.turn_id)
+    first_candidate = _record_candidate_response(root=root, session_id="s1", allocation=first)
+    accepted_first = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=first_id,
+        client_graph_hash=payload_hash(first_request["graph"]),
+        request_payload={"turn_id": first_id, "action": "accept"},
+    )
+    assert isinstance(accepted_first, dict)
+
+    stale_request = _request_graph("cas-stale")
+    stale_allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=stale_request,
+    )
+    stale_id = str(stale_allocation.context.turn_id)
+    stale_candidate = _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=stale_allocation,
+        idempotency_key="edit-cas-stale",
+    )
+    state = read_state(root / "s1")
+    stale_record = state["turns"][stale_id]
+    del stale_record["candidate_structural_graph_hash"]
+    del stale_record["candidate_structural_graph_hash_version"]
+    state["baseline_turn_id"] = None
+    state["baseline_graph_hash"] = structural_graph_hash(
+        {"nodes": [{"id": 77, "type": "PreviewImage"}], "links": []}
+    )
+    state["baseline_graph_hash_kind"] = "structural"
+    state["baseline_graph_hash_version"] = 2
+    state["baseline_source"] = "rebaseline"
+    state["baseline_rebaseline_id"] = "manual-cas-drift"
+    state["baseline_graph_source_path"] = "_rebaseline/manual-cas-drift/graph.ui.json"
+    write_state_atomic(root / "s1", state)
+
+    failure = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=stale_id,
+        client_graph_hash=payload_hash(stale_request["graph"]),
+        request_payload={"turn_id": stale_id, "action": "accept"},
+        idempotency_key="cas-stale",
+        response_writer=_response_writer(root / "responses"),
+    )
+
+    assert not isinstance(failure, dict)
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+    assert failure.agent_failure_context["reason"] == "structural_baseline_cas_mismatch"
+    assert failure.agent_failure_context["expected_baseline_graph_hash"] == structural_graph_hash(
+        first_candidate
+    )
+    assert failure.agent_failure_context["submitted_baseline_graph_hash"] == structural_graph_hash(
+        first_candidate
+    )
+    state = read_state(root / "s1")
+    stale_record = state["turns"][stale_id]
+    assert stale_record["state"] == "candidate"
+    assert stale_record["client_graph_hash"] is None
+    assert stale_record["action_request_hash"] is None
+    assert stale_record["action_client_graph_hash"] is None
+    assert "candidate_structural_graph_hash" not in stale_record
+    assert "accept:cas-stale" not in state["idempotency_records"]
+    assert state["baseline_turn_id"] is None
+    assert state["baseline_source"] == "rebaseline"
+    assert state["baseline_graph_hash"] != structural_graph_hash(stale_candidate)
+
+
 def test_accept_reject_validate_against_submit_graph_hash_before_action_writes(
     tmp_path: Path,
 ) -> None:
@@ -744,7 +1190,7 @@ def test_accept_reject_fail_closed_when_submit_hash_missing_before_action_writes
     assert state["baseline_graph_hash"] is None
 
 
-def test_v2_accept_requires_same_live_canvas_token_and_updates_baseline_on_success(
+def test_v2_accept_records_live_canvas_token_mismatch_diagnostic_and_updates_baseline(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "sessions"
@@ -772,7 +1218,7 @@ def test_v2_accept_requires_same_live_canvas_token_and_updates_baseline_on_succe
     submit_graph_hash = payload_hash(request["graph"])
     candidate_graph_hash = payload_hash(candidate_graph)
 
-    stale = accept_turn(
+    accepted = accept_turn(
         session_root=root,
         session_id="s1",
         turn_id=turn_id,
@@ -786,29 +1232,6 @@ def test_v2_accept_requires_same_live_canvas_token_and_updates_baseline_on_succe
         },
     )
 
-    assert not isinstance(stale, dict)
-    assert stale.kind is FailureKind.STALE_STATE_MISMATCH
-    assert "live-canvas token" in stale.agent_failure_context["explanation"]
-    state = read_state(root / "s1")
-    turn_record = state["turns"][turn_id]
-    assert turn_record["state"] == "candidate"
-    assert state["baseline_turn_id"] is None
-    assert state["baseline_graph_hash"] is None
-
-    accepted = accept_turn(
-        session_root=root,
-        session_id="s1",
-        turn_id=turn_id,
-        client_graph_hash=request["client_graph_hash"],
-        request_payload={
-            "turn_id": turn_id,
-            "action": "accept",
-            "submit_graph_hash": submit_graph_hash,
-            "candidate_graph_hash": candidate_graph_hash,
-            "client_live_canvas_token": request["client_live_canvas_token"],
-        },
-    )
-
     assert isinstance(accepted, dict)
     assert accepted["ok"] is True
     assert accepted["baseline_turn_id"] == turn_id
@@ -816,6 +1239,11 @@ def test_v2_accept_requires_same_live_canvas_token_and_updates_baseline_on_succe
     assert accepted["baseline_graph_hash_kind"] == "structural"
     assert accepted["candidate_graph_hash"] == candidate_graph_hash
     assert accepted["submitted_client_live_canvas_token"] == request["client_live_canvas_token"]
+    assert accepted["diagnostics"][0]["code"] == "client_live_canvas_token_mismatch"
+    assert (
+        accepted["diagnostics"][0]["detail"]["client_live_canvas_token"]
+        == "live:rev:2:client-v2-same-canvas"
+    )
     state = read_state(root / "s1")
     assert state["baseline_turn_id"] == turn_id
     assert state["baseline_graph_hash"] == structural_graph_hash(candidate_graph)
@@ -1625,6 +2053,129 @@ def test_state_match_gate_records_hash_diagnostics_for_backend_submit_hashes() -
     assert evidence["client_graph_hash_label"] == "submit_graph_hash"
 
 
+def test_stale_ingest_recovery_issue_promotes_to_failure_response(tmp_path: Path) -> None:
+    graph = _request_graph("stale-recovery")["graph"]
+    state = AgentEditState(
+        task="edit stale",
+        graph=graph,
+        request_payload={"graph": graph},
+        schema_provider=None,
+        baseline_graph_hash="baseline-structural",
+        submit_graph_hash=payload_hash(graph),
+        submit_structural_graph_hash="submitted-structural",
+        submitted_client_graph_hash="client-raw",
+        submitted_client_structural_graph_hash="client-structural",
+        session_dir=tmp_path / "session",
+        turn_dir=tmp_path / "session" / "turns" / "0001",
+        request_path=tmp_path / "session" / "turns" / "0001" / "request.json",
+        original_ui_path=tmp_path / "session" / "turns" / "0001" / "original.ui.json",
+        before_py_path=tmp_path / "session" / "turns" / "0001" / "before.py",
+        after_py_path=tmp_path / "session" / "turns" / "0001" / "after.py",
+        projection_path=tmp_path / "session" / "turns" / "0001" / "projection.txt",
+        model_request_path=tmp_path / "session" / "turns" / "0001" / "model_request.json",
+        model_response_path=tmp_path / "session" / "turns" / "0001" / "model_response.json",
+        candidate_ui_path=tmp_path / "session" / "turns" / "0001" / "candidate.ui.json",
+        messages_path=tmp_path / "session" / "turns" / "0001" / "messages.jsonl",
+    )
+    context = TurnContext(session_id="s1", turn_id="0001")
+    initialize_gates(context)
+    issue = _stale_rebaseline_recovery_issue(
+        state,
+        {
+            "reason": "hash_mismatch",
+            "baseline_graph_hash": "baseline-structural",
+            "client_graph_hash": "submitted-structural",
+        },
+    )
+    context.record_stage(
+        StageResult(stage="ingest", ok=False, blocking=True, issues=(issue,))
+    )
+    failure = failure_envelope(
+        FailureKind.STALE_STATE_MISMATCH,
+        "ingest",
+        context,
+        agent_failure_context={
+            "explanation": "Stage ingest blocked the agent edit.",
+            "issues": [issue],
+        },
+    )
+
+    response = _failure_response(state, context, failure)
+
+    assert response["apply_allowed"] is False
+    assert response["queue_allowed"] is False
+    assert response["apply_eligibility"]["reason"] == "stale_canvas"
+    assert response["rebaseline_recovery"]["endpoint"] == "/vibecomfy/agent-edit/rebaseline"
+    assert response["rebaseline_recovery"]["reason"] == "stale_state_recovery"
+    assert (
+        response["agent_failure_context"]["issues"][0]["rebaseline_recovery"]
+        == response["rebaseline_recovery"]
+    )
+
+
+def test_generic_submit_failure_response_reports_no_candidate_apply_eligibility(tmp_path: Path) -> None:
+    graph = _request_graph("no-candidate-failure")["graph"]
+    state = AgentEditState(
+        task="edit blocked",
+        graph=graph,
+        request_payload={"graph": graph},
+        schema_provider=None,
+        baseline_graph_hash="baseline-structural",
+        submit_graph_hash=payload_hash(graph),
+        submit_structural_graph_hash="submitted-structural",
+        submitted_client_graph_hash="client-raw",
+        submitted_client_structural_graph_hash="client-structural",
+        session_dir=tmp_path / "session",
+        turn_dir=tmp_path / "session" / "turns" / "0001",
+        request_path=tmp_path / "session" / "turns" / "0001" / "request.json",
+        original_ui_path=tmp_path / "session" / "turns" / "0001" / "original.ui.json",
+        before_py_path=tmp_path / "session" / "turns" / "0001" / "before.py",
+        after_py_path=tmp_path / "session" / "turns" / "0001" / "after.py",
+        projection_path=tmp_path / "session" / "turns" / "0001" / "projection.txt",
+        model_request_path=tmp_path / "session" / "turns" / "0001" / "model_request.json",
+        model_response_path=tmp_path / "session" / "turns" / "0001" / "model_response.json",
+        candidate_ui_path=tmp_path / "session" / "turns" / "0001" / "candidate.ui.json",
+        messages_path=tmp_path / "session" / "turns" / "0001" / "messages.jsonl",
+    )
+    context = TurnContext(session_id="s1", turn_id="0001")
+    initialize_gates(context)
+    context.record_stage(
+        StageResult(
+            stage="validate",
+            ok=False,
+            blocking=True,
+            issues=(
+                {
+                    "code": "validation_blocked",
+                    "severity": "error",
+                    "message": "Validation blocked the candidate.",
+                },
+            ),
+        )
+    )
+    failure = failure_envelope(
+        FailureKind.VALIDATION_ERROR,
+        "validate",
+        context,
+        agent_failure_context={
+            "explanation": "Stage validate blocked the agent edit.",
+            "issues": [
+                {
+                    "code": "validation_blocked",
+                    "severity": "error",
+                    "message": "Validation blocked the candidate.",
+                }
+            ],
+        },
+    )
+
+    response = _failure_response(state, context, failure)
+
+    assert response["apply_allowed"] is False
+    assert response["queue_allowed"] is False
+    assert response["apply_eligibility"]["reason"] == "no_candidate"
+
+
 def test_gate_derivation_keeps_canvas_false_when_only_validation_gate_passes() -> None:
     context = TurnContext(session_id="s1")
     initialize_gates(context)
@@ -2068,6 +2619,53 @@ def test_queue_blockers_keep_canvas_apply_true_but_force_queue_false() -> None:
     assert derived.queue_allowed is False
     assert context.canvas_apply_allowed is True
     assert context.queue_allowed is False
+    assert derived.apply_eligibility.applyable is True
+    assert derived.apply_eligibility.reason == "queue_blocked_warning"
+
+
+def test_apply_eligibility_reasons_are_defined_once_and_preserve_compat_fields() -> None:
+    assert set(APPLY_ELIGIBILITY_REASONS) == {
+        "applyable",
+        "no_candidate",
+        "not_latest",
+        "superseded",
+        "server_blocked",
+        "stale_canvas",
+        "queue_blocked_warning",
+    }
+    context = TurnContext(session_id="s1", turn_id="0001")
+    initialize_gates(context)
+    for name in (
+        "python_load_ok",
+        "ir_validate_ok",
+        "ui_emit_ok",
+        "ui_fidelity_ok",
+        "ui_load_safe_ok",
+        "state_match_ok",
+    ):
+        context.set_gate(name, True, evidence={"test": name})
+    context.set_gate("queue_validate_ok", False, evidence={"test": "queue_warning"})
+
+    eligibility = derive_apply_eligibility(context)
+
+    assert context.canvas_apply_allowed is True
+    assert context.apply_allowed is True
+    assert context.queue_allowed is False
+    assert eligibility.applyable is True
+    assert eligibility.reason == "queue_blocked_warning"
+    assert eligibility.to_dict()["warnings"] == ["queue_blocked"]
+
+    stale = derive_apply_eligibility(
+        context,
+        live_structural_graph_hash="live",
+        submit_structural_graph_hash="submitted",
+    )
+    assert stale.applyable is False
+    assert stale.reason == "stale_canvas"
+
+    superseded = derive_apply_eligibility(context, candidate_state="unknown")
+    assert superseded.applyable is False
+    assert superseded.reason == "superseded"
 
 
 def test_queue_diagnostics_schema_less_only_blocks_queue_when_canvas_passes() -> None:
