@@ -335,3 +335,235 @@ pollute the fresh session.
 | Failure bubble with user_facing_message | "VibeComfy failure bubble uses envelope user_facing_message for MalformedModelJSON" |
 | Typed envelope reading | "VibeComfy reads typed candidate and eligibility envelopes without compatibility mirrors" |
 | Raw apply booleans ignored | "VibeComfy ignores raw apply booleans when canonical eligibility authorizes Apply" |
+
+---
+
+## 7. Render obligation contract
+
+The lifecycle store communicates render intent to `vibecomfy_roundtrip.js` through
+a plain obligations object returned by `transition(panel, event, payload)`. Every
+handler returns an object with the following contract:
+
+### 7.1 Obligation keys
+
+| Key | Type | Description |
+|---|---|---|
+| `render` | `boolean` | Whether `renderAgentPanel(panel)` must be called. Required on every obligation. |
+| `dirtySections` | `string[]` | Scoped DOM regions that changed (see §8). Accumulated into the panel's pending dirty set when `render` is false; consumed on the next scheduled render. |
+| `toast` | `string|null` | Message to display via `app.ui.toast()`. |
+| `rehydrateChat` | `boolean` | Trigger `_rehydrateChat()` followed by a render after the chat payload arrives. |
+| `invalidateCandidate` | `boolean` | Call `invalidateCandidateState(panel)` to clear candidate preview overlay and mark canvas dirty. |
+| `persistSession` | `string|null` | Session id to write to `localStorage`. |
+| `queueGuardClear` | `boolean` | Call `setQueueGuardContext(null)`. |
+| `refreshQueueGuard` | `boolean` | Re-evaluate queue guard from current panel state. |
+| `setQueueGuardContext` | `object` | `{ sessionId, turnId, queueAllowed }` payload for queue guard adapter. |
+| `forgetSession` | `boolean` | Clear session from `localStorage`. |
+| `focusPrompt` | `boolean` | Move focus to the composer prompt input. |
+| `clearCandidatePreview` | `boolean` | Remove candidate preview overlay from canvas. |
+| `clearChangedNodeFeedbackVisuals` | `boolean` | Remove changed-node highlight decorations. |
+
+### 7.2 Render vs. no-render transitions
+
+Transitions that return `render: false` but include `dirtySections` (e.g.
+`REBASELINE_SUCCESS`, `CHAT_REHYDRATE_SUCCESS`, `CHAT_REHYDRATE_NO_SESSION`)
+**accumulate** their dirty sections into the panel's pending dirty set (SD2).
+The next transition that returns `render: true`, or the next scheduled render,
+consumes the accumulated dirty sections so no visual change is lost.
+
+Transitions that return `render: false` with no `dirtySections` (e.g.
+`SUBMIT_IN_FLIGHT`, `APPLY_IN_FLIGHT`, `SUBMIT_FINALLY`) are pure
+bookkeeping — they mutate lifecycle state with no visual consequence.
+
+### 7.3 Obligation fulfillment
+
+The roundtrip module owns all obligation fulfillment. The lifecycle store
+never calls `fetch`, never touches the DOM, and never mutates the canvas.
+It returns obligations; the roundtrip executor reads them and performs the
+corresponding side effects.
+
+---
+
+## 8. `dirtySections` taxonomy and deterministic rules
+
+### 8.1 Section definitions
+
+The `RENDER_SECTIONS` frozen export in `agent_edit_lifecycle.js` defines six
+scoped DOM regions:
+
+| Value | DOM region | Typical content |
+|---|---|---|
+| `META` | Status bar / metadata row | Phase badge, turn id, session id, baseline hash |
+| `THREAD` | Chat message list | Chat bubbles, candidate previews, failure cards |
+| `COMPOSER` | Prompt input area | Text input, route/model selectors, submit/stop/undo buttons |
+| `NOTICE` | Clarification / message banner | Clarify question text, status message, eligibility warning |
+| `SETTINGS` | Provider settings panel | Route status, model config, queue guard UI |
+| `DEVELOPER` | Debug payload panel | Raw JSON debug view of `panel.state.debugPayload` |
+
+### 8.2 Deterministic dirty-section rules
+
+Each lifecycle handler assigns dirty sections based on **what state fields it
+mutates**, not what the caller requests:
+
+| Mutated field category | Dirty section |
+|---|---|
+| `phase`, `message`, `failure`, `clarification`, `applyAllowed`, `queueAllowed`, `canvasApplyAllowed`, `applyEligibility`, `applyEligibilityWarning` | `META` |
+| Status fields (above) plus `debugPayload` | `META`, `COMPOSER`, `NOTICE`, `DEVELOPER` |
+| `chatMessages`, `chatLoaded`, `chatError`, `chatSessionPath`, `chatDetailJsonPath` | `THREAD` |
+| `sessionId` plus any thread mutation | `META`, `THREAD` |
+| All lifecycle fields (INIT, NEW_CONVERSATION) | All six sections |
+
+Pre-composed constant arrays (`STATUS_DIRTY_SECTIONS`, `STATUS_AND_DEVELOPER_DIRTY_SECTIONS`,
+`THREAD_DIRTY_SECTIONS`, `META_AND_THREAD_DIRTY_SECTIONS`, `ALL_RENDER_DIRTY_SECTIONS`)
+are frozen at module scope and reused by handlers to avoid per-call allocation.
+
+### 8.3 Obligation normalization
+
+`normalizeObligationDirtySections(obligations)` de-duplicates and validates
+the `dirtySections` array in every obligations object returned by `transition()`:
+
+1. **Null/undefined pass-through**: If `dirtySections` is absent, the obligation
+   is returned unchanged.
+2. **Type validation**: Throws if `dirtySections` is not an array, or if any
+   element is not a string.
+3. **Known-section validation**: Throws if any element is not a value in the
+   frozen `RENDER_SECTIONS` map (e.g. `"META"`, `"THREAD"`).
+4. **De-duplication**: Preserves first-occurrence order, removes duplicates.
+5. **Key preservation**: `render` and all other obligation keys (e.g. `toast`,
+   `invalidateCandidate`) pass through unchanged.
+
+All internal handlers route through `_obligations()`, which calls
+`normalizeObligationDirtySections` before returning.
+
+---
+
+## 9. Transitional bridge for non-lifecycle write-owned state
+
+Several state fields used during agent-edit rendering are not yet migrated to
+lifecycle store ownership (see §2.2). Until those fields are migrated, the
+roundtrip module uses a **transitional bridge** to ensure dirty-section
+accumulation covers mutations to these fields:
+
+### 9.1 Non-lifecycle fields requiring bridge coverage
+
+| Field group | Mutation sites | Dirty section required |
+|---|---|---|
+| `history`, `turns`, `undoStack` | Push/pop history entries in submit, apply, reject, rebaseline, undo flows | `META` |
+| `chatMessages`, `chatLoaded`, `chatError`, `chatSessionPath`, `chatDetailJsonPath` | Chat rehydrate handlers (already covered — see §8.2) | `THREAD` |
+| `routeStatus`, `statusSnapshot`, `settingsMessage` | Provider settings panel updates | `SETTINGS` |
+
+### 9.2 Bridge mechanism
+
+For each non-lifecycle mutation site, the roundtrip module calls
+`markAgentPanelDirty(panel, sections)` to accumulate dirty sections into the
+panel's pending dirty set. This is a **transitional** pattern — as fields are
+migrated to lifecycle ownership, the lifecycle handlers will emit the
+appropriate `dirtySections` directly and the bridge calls will be removed.
+
+The bridge guarantees:
+- No visual change is lost: the pending dirty set is consumed on the next
+  `render: true` transition or scheduled render.
+- No double-counting: `dirtySections` are de-duplicated in the pending set
+  via the same `normalizeObligationDirtySections` rules.
+- Panel-scoped isolation (SD1): the pending dirty set is stored per-panel,
+  not module-global, preventing state leakage across panels or test fixtures.
+
+### 9.3 Bridge lifecycle
+
+1. **Planned**: Each non-lifecycle mutation site adds a `markAgentPanelDirty`
+   call alongside the existing `renderAgentPanel` call.
+2. **Transition**: The pending dirty set grows from both lifecycle handler
+   `dirtySections` and bridge `markAgentPanelDirty` calls.
+3. **End state**: When all fields are migrated to lifecycle ownership, bridge
+   calls are removed. The pending dirty set is populated exclusively by
+   lifecycle transition handlers.
+
+---
+
+## 10. Render-entry-point inventory (from T1 audit)
+
+### 10.1 Direct `renderAgentPanel(panel)` call sites
+
+| # | Line | Call site classification |
+|---|---|---|
+| 1 | L1540 | Initial-paint: panel creation in `openAgentEditPanel` |
+| 2 | L2286 | User-interaction: `_onAgentEditComposerAction` |
+| 3 | L2525 | Scheduled-executor: `_flushScheduledRender` |
+| 4 | L2541 | Scheduled-executor: per-entry flush in `_flushScheduledRender` |
+| 5 | L2585 | Panel-open: `_onAgentEditPanelOpen` |
+| 6 | L5431 | Queue-guard: `_onQueueGuardChange` |
+| 7 | L6233 | Settings-route: `_renderAgentEditSettingsPanel` |
+| 8 | L6264 | Settings-provider: `_onAgentEditProviderSettingsChange` |
+| 9 | L6374 | Lifecycle-gateway: `fulfillLifecycleTransitionObligations` primary path |
+| 10 | L6392 | Guard-early-return: `fulfillLifecycleTransitionObligations` after `invalidateCandidate` |
+| 11 | L6789 | Guard-early-return: `_applyAgentEdit` preflight path |
+| 12 | L7130 | Submit-error: `_submitAgentEdit` error path |
+| 13 | L7154 | Submit-flow: `_submitAgentEdit` start-of-submit path |
+| 14 | L7202 | Rebaseline-error: `_postAgentRebaseline` error path |
+| 15 | L7366 | Guard-early-return: `_rejectAgentEdit` preflight |
+| 16 | L7410 | Guard-early-return: `_applyAgentEdit` after rejection |
+| 17 | L7495 | Command-handler: `_handleAgentEditCommand` |
+
+### 10.2 `scheduleRenderAgentPanel(reason, panel)` call sites
+
+| # | Line | Reason | Context |
+|---|---|---|---|
+| 1 | L1566 | `"status"` | Status snapshot provider callback |
+| 2 | L1655 | `"status"` | Route status provider callback |
+| 3 | L2528 | (definition) | Function definition |
+| 4 | L2581 | `"rehydrate"` | After chat rehydrate completion |
+| 5 | L3239 | `"websocket"` | WebSocket message handler |
+| 6 | L6385 | `"rehydrate"` | After `_rehydrateChat` in lifecycle gateway |
+
+### 10.3 Dead/duplicate helpers
+
+The T1 audit identified no dead helper functions. All `renderAgentPanel` and
+`scheduleRenderAgentPanel` call sites are live and intentionally placed.
+`invalidateCandidateState()` in `vibecomfy_roundtrip.js` is the canonical
+candidate invalidation helper; it is called only from
+`fulfillLifecycleTransitionObligations()` when the `invalidateCandidate`
+obligation is present. No duplicate or dead candidate invalidation helpers exist.
+
+---
+
+## 11. A5 authoritative accept rejection
+
+### 11.1 Transition: `ACCEPT_REJECTED`
+
+The `_handleAcceptRejected(panel, payload)` handler processes backend accept
+rejection (transition A5 in §3.3). The handler:
+
+1. **Preserves candidate evidence**: Sets `panel.state.failure` to the rejection
+   failure envelope, preserving the candidate context (turn id, session id,
+   audit ref) for display and debugging. The `debugPayload` is set to include
+   the failure envelope plus the accept request body for developer inspection.
+
+2. **Disables apply eligibility on authoritative rejection**: When
+   `payload.authoritativeBackendReject` is truthy (i.e. `Boolean(payload?.authoritativeBackendReject)`),
+   the handler sets:
+   - `applyEligibility` to `payload.disabledApplyEligibility` (typically `SUPERSEDED`)
+   - `applyAllowed = false`
+   - `canvasApplyAllowed = false`
+   - `queueAllowed = false`
+
+   This disables all Apply/Queue controls because the backend has
+   authoritatively determined the candidate is no longer valid.
+
+3. **Does NOT clear the candidate**: Unlike `_handleInvalidateCandidate`,
+   `_handleAcceptRejected` preserves `candidateGraph` and related fields.
+   The candidate evidence remains visible in the thread for historical
+   review, but the Apply button is disabled because `applyAllowed` is false.
+
+4. **Clears queue guard**: On authoritative rejection, `queueGuardClear` and
+   `refreshQueueGuard` are both set to `true`.
+
+5. **Syncs baseline**: Calls `_handleSyncBaseline(panel, failure)` to mirror
+   any baseline fields in the rejection payload, and preserves `auditRef`.
+
+### 11.2 Re-enabling eligibility
+
+An existing transition (e.g. `OK_CANDIDATE_RESPONSE` from a new submit, or
+`CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE`) clears the superseded state by
+setting fresh `applyEligibility`, `applyAllowed`, and related fields. The
+A5 handler itself does not provide a path to re-enable — it only disables.
+Recovery from a superseded candidate requires a new submit or rehydrate
+that produces a fresh eligible candidate.

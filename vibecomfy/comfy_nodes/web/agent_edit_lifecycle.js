@@ -19,6 +19,35 @@ export const PANEL_STATE = Object.freeze({
   ERROR: "ERROR",
 });
 
+// ── Render section taxonomy ────────────────────────────────────────────────
+// Each value identifies a scoped DOM region that the render gateway can
+// selectively repaint. The obligation-normalization helper below validates
+// and de-duplicates dirtySections arrays against this frozen map.
+export const RENDER_SECTIONS = Object.freeze({
+  META: "META",
+  THREAD: "THREAD",
+  COMPOSER: "COMPOSER",
+  NOTICE: "NOTICE",
+  SETTINGS: "SETTINGS",
+  DEVELOPER: "DEVELOPER",
+});
+
+const ALL_RENDER_DIRTY_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
+const STATUS_DIRTY_SECTIONS = Object.freeze([
+  RENDER_SECTIONS.META,
+  RENDER_SECTIONS.COMPOSER,
+  RENDER_SECTIONS.NOTICE,
+]);
+const STATUS_AND_DEVELOPER_DIRTY_SECTIONS = Object.freeze([
+  ...STATUS_DIRTY_SECTIONS,
+  RENDER_SECTIONS.DEVELOPER,
+]);
+const THREAD_DIRTY_SECTIONS = Object.freeze([RENDER_SECTIONS.THREAD]);
+const META_AND_THREAD_DIRTY_SECTIONS = Object.freeze([
+  RENDER_SECTIONS.META,
+  RENDER_SECTIONS.THREAD,
+]);
+
 // ── Lifecycle event taxonomy ───────────────────────────────────────────────
 // Foundation events (implemented in this file):
 //   INIT                — no-op (state already created by createAgentEditState)
@@ -202,7 +231,10 @@ export function transition(panel, event, payload = {}) {
     // State is already created by createAgentEditState(); INIT is a
     // no-op that signals the caller should repaint.
     case "INIT":
-      return { render: true };
+      return _obligations({
+        render: true,
+        dirtySections: ALL_RENDER_DIRTY_SECTIONS,
+      });
 
     // ── Foundation: Baseline sync ───────────────────────────────────────
     // Mirror authoritative baseline fields from a backend response payload.
@@ -394,6 +426,62 @@ export function transition(panel, event, payload = {}) {
   }
 }
 
+// ── normalizeObligationDirtySections ────────────────────────────────────────
+// De-duplicates and validates `dirtySections` in an obligations object
+// while preserving the `render` key and all other obligation keys.
+//
+// Returns a new obligations object (shallow copy) with a normalized
+// `dirtySections` array. Throws for unknown render section names.
+export function normalizeObligationDirtySections(obligations) {
+  if (!obligations || typeof obligations !== "object") {
+    return obligations;
+  }
+
+  const raw = obligations.dirtySections;
+  if (raw === undefined || raw === null) {
+    return obligations;
+  }
+
+  if (!Array.isArray(raw)) {
+    throw new Error(
+      `dirtySections must be an array, got ${typeof raw}`,
+    );
+  }
+
+  const validSections = Object.values(RENDER_SECTIONS);
+  const validSet = new Set(validSections);
+  const seen = new Set();
+  const normalized = [];
+
+  for (let i = 0; i < raw.length; i++) {
+    const section = raw[i];
+    if (typeof section !== "string") {
+      throw new Error(
+        `dirtySections[${i}] must be a string, got ${typeof section}`,
+      );
+    }
+    if (!validSet.has(section)) {
+      throw new Error(
+        `Unknown render section: "${section}". Valid sections: ${validSections.join(", ")}`,
+      );
+    }
+    if (!seen.has(section)) {
+      seen.add(section);
+      normalized.push(section);
+    }
+  }
+
+  return { ...obligations, dirtySections: normalized };
+}
+
+function _obligations({ render = false, dirtySections, ...extras } = {}) {
+  const obligations = { render, ...extras };
+  if (dirtySections !== undefined) {
+    obligations.dirtySections = dirtySections;
+  }
+  return normalizeObligationDirtySections(obligations);
+}
+
 // ── Internal handlers ──────────────────────────────────────────────────────
 
 function _handleSyncBaseline(panel, payload) {
@@ -517,12 +605,13 @@ function _handleSubmitStart(panel, payload) {
   panel.state.lastSubmitFieldChanges = null;
   panel.state.lastSubmit = payload?.lastSubmit || null;
   panel.state.debugPayload = payload?.debugPayload || null;
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     submitEpoch,
     invalidateCandidate: true,
     clearChangedNodeFeedbackVisuals: true,
-  };
+  });
 }
 
 function _handleSubmitReadinessFailure(panel, payload) {
@@ -569,12 +658,13 @@ function _handleSubmitNetworkFailure(panel, payload) {
     ...(failure || {}),
     last_submit: panel.state.lastSubmit,
   };
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     persistSession: panel.state.sessionId || null,
     refreshQueueGuard: true,
     rehydrateChat: true,
-  };
+  });
 }
 
 function _handleClarifyOnlyResponse(panel, payload) {
@@ -597,13 +687,14 @@ function _handleClarifyOnlyResponse(panel, payload) {
     ...result,
     last_submit: panel.state.lastSubmit,
   };
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     persistSession: panel.state.sessionId || null,
     refreshQueueGuard: true,
     rehydrateChat: true,
     invalidateCandidate: true,
-  };
+  });
 }
 
 function _handleArrivalSerializeFailure(panel, payload) {
@@ -644,8 +735,9 @@ function _handleCandidateResponse(panel, payload) {
     ...result,
     last_submit: panel.state.lastSubmit,
   };
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     persistSession: panel.state.sessionId || null,
     setQueueGuardContext: {
       sessionId: panel.state.sessionId,
@@ -655,7 +747,7 @@ function _handleCandidateResponse(panel, payload) {
     refreshQueueGuard: true,
     rehydrateChat: true,
     invalidateCandidate: true,
-  };
+  });
 }
 
 function _handleSubmitFinally(panel, payload) {
@@ -699,14 +791,20 @@ function _handleNewConversation(panel) {
     submitEpoch: nextSubmitEpoch,
     chatRehydrateEpoch: nextChatRehydrateEpoch,
   });
-  return {
+  return _obligations({
     render: true,
+    dirtySections: [
+      RENDER_SECTIONS.THREAD,
+      RENDER_SECTIONS.META,
+      RENDER_SECTIONS.COMPOSER,
+      RENDER_SECTIONS.NOTICE,
+    ],
     invalidateCandidate: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
     forgetSession: true,
     focusPrompt: true,
-  };
+  });
 }
 
 function _handleChatRehydrateStart(panel) {
@@ -725,7 +823,10 @@ function _handleChatRehydrateNoSession(panel, payload) {
   panel.state.chatError = null;
   panel.state.chatSessionPath = null;
   panel.state.chatDetailJsonPath = null;
-  return { render: false };
+  return _obligations({
+    render: false,
+    dirtySections: THREAD_DIRTY_SECTIONS,
+  });
 }
 
 function _handleChatRehydrateMissingSession(panel, payload) {
@@ -741,7 +842,11 @@ function _handleChatRehydrateMissingSession(panel, payload) {
   panel.state.chatError = null;
   panel.state.chatSessionPath = null;
   panel.state.chatDetailJsonPath = null;
-  return { render: false, forgetSession: true };
+  return _obligations({
+    render: false,
+    dirtySections: confirmedSessionId ? META_AND_THREAD_DIRTY_SECTIONS : THREAD_DIRTY_SECTIONS,
+    forgetSession: true,
+  });
 }
 
 function _handleChatRehydrateSuccess(panel, payload) {
@@ -757,7 +862,11 @@ function _handleChatRehydrateSuccess(panel, payload) {
   if (sessionId) {
     panel.state.sessionId = sessionId;
   }
-  return { render: false, persistSession: sessionId };
+  return _obligations({
+    render: false,
+    dirtySections: sessionId ? META_AND_THREAD_DIRTY_SECTIONS : THREAD_DIRTY_SECTIONS,
+    persistSession: sessionId,
+  });
 }
 
 function _handleChatRehydrateRestoreLatestCandidate(panel, payload) {
@@ -795,8 +904,9 @@ function _handleChatRehydrateRestoreLatestCandidate(panel, payload) {
   panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.debugPayload = payload?.debugPayload || null;
-  return {
+  return _obligations({
     render: false,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     restored: true,
     invalidateCandidate: true,
     persistSession: panel.state.sessionId || null,
@@ -806,7 +916,7 @@ function _handleChatRehydrateRestoreLatestCandidate(panel, payload) {
       queueAllowed: panel.state.queueAllowed,
     },
     refreshQueueGuard: true,
-  };
+  });
 }
 
 function _handleChatRehydrateFailure(panel, payload) {
@@ -818,7 +928,10 @@ function _handleChatRehydrateFailure(panel, payload) {
   panel.state.chatError = payload?.chatError || null;
   panel.state.chatSessionPath = null;
   panel.state.chatDetailJsonPath = null;
-  return { render: false };
+  return _obligations({
+    render: false,
+    dirtySections: THREAD_DIRTY_SECTIONS,
+  });
 }
 
 function _handleApplyPreflightBlocked(_panel, _payload) {
@@ -826,13 +939,19 @@ function _handleApplyPreflightBlocked(_panel, _payload) {
 }
 
 function _handleApplyBlockedFailure(panel, payload) {
+  const shouldClear = Boolean(payload?.clearCandidatePreview);
   panel.state.phase = PANEL_STATE.ERROR;
   panel.state.failure = payload?.failure || null;
+  if (shouldClear) {
+    _handleInvalidateCandidate(panel, { repaint: false });
+  }
   panel.state.debugPayload = payload?.debugPayload || panel.state.failure || null;
-  return {
+  return _obligations({
     render: true,
-    clearCandidatePreview: Boolean(payload?.clearCandidatePreview),
-  };
+    dirtySections: STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: shouldClear,
+    clearCandidatePreview: shouldClear,
+  });
 }
 
 function _handleApplyStarted(panel, payload) {
@@ -872,11 +991,14 @@ function _handleAcceptRejected(panel, payload) {
 function _handleStaleCanvasApply(panel, payload) {
   panel.state.phase = PANEL_STATE.ERROR;
   panel.state.failure = payload?.failure || null;
+  _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.debugPayload = payload?.debugPayload || panel.state.failure || null;
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: true,
     clearCandidatePreview: true,
-  };
+  });
 }
 
 function _handleCanvasApplyFailure(panel, payload) {
@@ -908,13 +1030,14 @@ function _handleApplySuccess(panel, payload) {
     accepted,
     undo_stack_depth: Number.isFinite(payload?.undoStackDepth) ? payload.undoStackDepth : null,
   };
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     invalidateCandidate: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
     toast: payload?.toast || null,
-  };
+  });
 }
 
 function _handleRejectStarted(panel, payload) {
@@ -955,13 +1078,14 @@ function _handleRejectSuccess(panel, payload) {
     rejected,
     graph_unchanged: true,
   };
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     invalidateCandidate: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
     toast: payload?.toast || null,
-  };
+  });
 }
 
 function _handleRebaselineStarted(panel, payload) {
@@ -981,7 +1105,10 @@ function _handleRebaselineSuccess(panel, payload) {
     rebaseline_request: payload?.rebaselineRequest || null,
     rebaseline_response: result,
   };
-  return { render: false };
+  return _obligations({
+    render: false,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+  });
 }
 
 function _handleRebaselineFailure(panel, payload) {
@@ -1024,11 +1151,12 @@ function _handleStaleRecoveryRebaselineSuccess(panel, payload) {
   panel.state.message = payload?.message || "Current canvas rebaselined. Resubmitting from this canvas...";
   panel.state.auditRef = payload?.auditRef || panel.state.auditRef;
   panel.state.debugPayload = payload?.debugPayload || null;
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     invalidateCandidate: true,
     toast: payload?.toast || null,
-  };
+  });
 }
 
 function _handleStaleRecoveryRebaselineFailure(panel, payload) {
@@ -1047,18 +1175,21 @@ function _handleUndoLocalRestore(panel, payload) {
   panel.state.lastAppliedChanges = null;
   panel.state.phase = PANEL_STATE.IDLE;
   panel.state.failure = null;
+  _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.message = payload?.message || "Previous graph restored locally. Rebaselining undo state...";
   panel.state.debugPayload = payload?.debugPayload || {
     undone_turn_id: previous?.turn_id || null,
     restored_graph_hash: previous?.client_graph_hash || null,
     undo_stack_depth: Number.isFinite(payload?.undoStackDepth) ? payload.undoStackDepth : null,
   };
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: true,
     clearChangedNodeFeedbackVisuals: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
-  };
+  });
 }
 
 function _handleUndoRebaselineSuccess(panel, payload) {
@@ -1067,6 +1198,7 @@ function _handleUndoRebaselineSuccess(panel, payload) {
   panel.state.phase = PANEL_STATE.IDLE;
   panel.state.failure = null;
   _handleSyncBaseline(panel, result);
+  _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.auditRef = result.audit_ref || panel.state.auditRef;
   panel.state.message = payload?.message || "Previous graph restored and rebaselined locally.";
   panel.state.debugPayload = payload?.debugPayload || {
@@ -1078,11 +1210,13 @@ function _handleUndoRebaselineSuccess(panel, payload) {
   if (Array.isArray(panel.state.undoStack) && panel.state.undoStack.length > 0) {
     panel.state.undoStack = panel.state.undoStack.slice(0, -1);
   }
-  return {
+  return _obligations({
     render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: true,
     refreshQueueGuard: true,
     toast: payload?.toast || null,
-  };
+  });
 }
 
 function _handleUndoRebaselineFailure(panel, payload) {

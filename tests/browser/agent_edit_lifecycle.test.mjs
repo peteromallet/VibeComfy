@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
   PANEL_STATE,
   LIFECYCLE_STATE_FIELDS,
+  RENDER_SECTIONS,
   createAgentEditState,
   transition,
+  normalizeObligationDirtySections,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -36,6 +38,22 @@ function assertCandidateDefaults(state) {
   assert.equal(state.applyEligibilityWarningKey, null);
   assert.equal(state.changeDetails, null);
 }
+
+const ALL_RENDER_DIRTY_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
+const STATUS_DIRTY_SECTIONS = Object.freeze([
+  RENDER_SECTIONS.META,
+  RENDER_SECTIONS.COMPOSER,
+  RENDER_SECTIONS.NOTICE,
+]);
+const STATUS_AND_DEVELOPER_DIRTY_SECTIONS = Object.freeze([
+  ...STATUS_DIRTY_SECTIONS,
+  RENDER_SECTIONS.DEVELOPER,
+]);
+const THREAD_DIRTY_SECTIONS = Object.freeze([RENDER_SECTIONS.THREAD]);
+const META_AND_THREAD_DIRTY_SECTIONS = Object.freeze([
+  RENDER_SECTIONS.META,
+  RENDER_SECTIONS.THREAD,
+]);
 
 // ── PANEL_STATE ─────────────────────────────────────────────────────────────
 
@@ -186,7 +204,10 @@ test("INIT transition returns render:true and does not mutate state", () => {
   const obligations = transition(panel, "INIT");
   const after = JSON.stringify(panel.state);
 
-  assert.deepEqual(obligations, { render: true });
+  assert.deepEqual(obligations, {
+    render: true,
+    dirtySections: ALL_RENDER_DIRTY_SECTIONS,
+  });
   assert.equal(after, before, "INIT must not mutate state");
 });
 
@@ -461,6 +482,143 @@ test("INVALIDATE_CANDIDATE is idempotent — clearing already-cleared fields is 
   assertCandidateDefaults(panel.state);
 });
 
+test("SUBMIT_START emits deterministic status dirty sections and invalidates visible candidate overlays", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    submitEpoch: 2,
+    candidateGraph: { nodes: [{ id: 1 }] },
+    candidateGraphHash: "candidate-hash",
+    candidateReport: { change: true },
+    serverSubmitGraphHash: "submit-hash",
+    applyEligibility: { applyable: true },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: true,
+    clarification: { message: "old clarify" },
+    failure: { kind: "OldFailure" },
+    lastAppliedChanges: { items: [{ uid: "uid-1" }] },
+    lastSubmitFieldChanges: [{ field: "prompt" }],
+    syntheticAgentMessage: { text: "stale" },
+    debugPayload: { old: true },
+    _previewDiff: { stale: true },
+    _previewDiffGraphHash: "preview-stale",
+  });
+
+  const obligations = transition(panel, "SUBMIT_START", {
+    submitEpoch: 9,
+    lastSubmit: { task: "replace node" },
+    debugPayload: { submit: "payload" },
+  });
+
+  assert.deepEqual(obligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    submitEpoch: 9,
+    invalidateCandidate: true,
+    clearChangedNodeFeedbackVisuals: true,
+  });
+  assert.equal(panel.state.phase, PANEL_STATE.SUBMITTING);
+  assert.equal(panel.state.submitEpoch, 9);
+  assert.equal(panel.state.failure, null);
+  assert.equal(panel.state.clarification, null);
+  assert.equal(panel.state.syntheticAgentMessage, null);
+  assert.equal(panel.state.lastAppliedChanges, null);
+  assert.equal(panel.state.lastSubmitFieldChanges, null);
+  assert.deepEqual(panel.state.lastSubmit, { task: "replace node" });
+  assert.deepEqual(panel.state.debugPayload, { submit: "payload" });
+  assertCandidateDefaults(panel.state);
+  assert.equal(panel.state._previewDiff, undefined);
+  assert.equal(panel.state._previewDiffGraphHash, undefined);
+});
+
+test("Submit response transitions return deterministic dirty sections and invalidation obligations", () => {
+  const failure = {
+    kind: "NetworkError",
+    message: "backend unavailable",
+    session_id: "sess-failure",
+    turn_id: "0002",
+    baseline_turn_id: "0001",
+    baseline_graph_hash: "base-failure",
+    audit_ref: { path: "failure-audit.json" },
+  };
+  const failurePanel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-old",
+    turnId: "0001",
+    lastSubmit: { task: "edit" },
+  });
+  const failureObligations = transition(failurePanel, "SUBMIT_NETWORK_FAILURE", { failure });
+  assert.deepEqual(failureObligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    persistSession: "sess-failure",
+    refreshQueueGuard: true,
+    rehydrateChat: true,
+  });
+
+  const clarifyPanel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    candidateGraph: { stale: true },
+    candidateGraphHash: "stale-hash",
+    _previewDiff: { stale: true },
+    _previewDiffGraphHash: "preview-stale",
+  });
+  const clarifyObligations = transition(clarifyPanel, "CLARIFY_ONLY_RESPONSE", {
+    result: {
+      session_id: "sess-clarify",
+      turn_id: "0003",
+      baseline_turn_id: "0002",
+      baseline_graph_hash: "base-clarify",
+    },
+    clarification: { message: "Need more detail" },
+    debugPayload: { response: "clarify" },
+  });
+  assert.deepEqual(clarifyObligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    persistSession: "sess-clarify",
+    refreshQueueGuard: true,
+    rehydrateChat: true,
+    invalidateCandidate: true,
+  });
+
+  const candidatePanel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    candidateGraph: { stale: true },
+    candidateGraphHash: "stale-candidate",
+    _previewDiff: { stale: true },
+    _previewDiffGraphHash: "preview-candidate",
+  });
+  const candidateObligations = transition(candidatePanel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-candidate",
+      turn_id: "0004",
+      message: "Candidate ready",
+      report: { changed: true },
+      submit_graph_hash: "server-submit-hash",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [{ id: 4 }] },
+    candidateGraphHash: "candidate-hash-4",
+    applyEligibility: { applyable: true },
+    debugPayload: { response: "candidate" },
+  });
+  assert.deepEqual(candidateObligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    persistSession: "sess-candidate",
+    setQueueGuardContext: {
+      sessionId: "sess-candidate",
+      turnId: "0004",
+      queueAllowed: false,
+    },
+    refreshQueueGuard: true,
+    rehydrateChat: true,
+    invalidateCandidate: true,
+  });
+});
+
 // ── Stop / new conversation ────────────────────────────────────────────────
 
 test("STOP_ABORT increments submitEpoch and clears in-flight submit state while preserving session context", () => {
@@ -544,6 +702,12 @@ test("NEW_CONVERSATION resets lifecycle state, increments epochs, and leaves non
 
   assert.deepEqual(obligations, {
     render: true,
+    dirtySections: [
+      RENDER_SECTIONS.THREAD,
+      RENDER_SECTIONS.META,
+      RENDER_SECTIONS.COMPOSER,
+      RENDER_SECTIONS.NOTICE,
+    ],
     invalidateCandidate: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
@@ -619,7 +783,11 @@ test("CHAT_REHYDRATE_SUCCESS stores normalized chat payload and persists confirm
     chatDetailJsonPath: "out/editor_sessions/sess-123/session.json",
   });
 
-  assert.deepEqual(obligations, { render: false, persistSession: "sess-123" });
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: META_AND_THREAD_DIRTY_SECTIONS,
+    persistSession: "sess-123",
+  });
   assert.deepEqual(panel.state.chatMessages, messages);
   assert.equal(panel.state.chatLoaded, true);
   assert.equal(panel.state.chatError, null);
@@ -699,6 +867,7 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE atomically restores candidate, bas
 
   assert.deepEqual(obligations, {
     render: false,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     restored: true,
     invalidateCandidate: true,
     persistSession: "sess-new",
@@ -738,6 +907,33 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE atomically restores candidate, bas
   assert.equal(panel.state.applyEligibilityWarningKey, null);
   assert.equal(panel.state._previewDiff, undefined);
   assert.equal(panel.state._previewDiffGraphHash, undefined);
+});
+
+test("CHAT_REHYDRATE_NO_SESSION clears only thread-visible chat state and leaves metadata clean", () => {
+  const panel = makePanel({
+    sessionId: "sess-live",
+    chatRehydrateEpoch: 4,
+    chatMessages: [{ role: "user", text: "old" }],
+    chatLoaded: true,
+    chatError: "old error",
+    chatSessionPath: "out/editor_sessions/sess-live/",
+    chatDetailJsonPath: "out/editor_sessions/sess-live/session.json",
+  });
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", {
+    requestEpoch: 4,
+  });
+
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: THREAD_DIRTY_SECTIONS,
+  });
+  assert.equal(panel.state.sessionId, "sess-live");
+  assert.deepEqual(panel.state.chatMessages, []);
+  assert.equal(panel.state.chatLoaded, false);
+  assert.equal(panel.state.chatError, null);
+  assert.equal(panel.state.chatSessionPath, null);
+  assert.equal(panel.state.chatDetailJsonPath, null);
 });
 
 test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE is skipped while submit/apply is active or candidate graph is missing", () => {
@@ -797,7 +993,12 @@ test("APPLY_PREFLIGHT_BLOCKED no-ops while APPLY_MISSING_FIELDS records a failur
     debugPayload: failure,
   });
 
-  assert.deepEqual(obligations, { render: true, clearCandidatePreview: false });
+  assert.deepEqual(obligations, {
+    render: true,
+    invalidateCandidate: false,
+    clearCandidatePreview: false,
+    dirtySections: [RENDER_SECTIONS.META, RENDER_SECTIONS.COMPOSER, RENDER_SECTIONS.NOTICE],
+  });
   assert.equal(panel.state.phase, PANEL_STATE.ERROR);
   assert.deepEqual(panel.state.failure, failure);
   assert.deepEqual(panel.state.debugPayload, failure);
@@ -899,7 +1100,12 @@ test("STALE_CANVAS_APPLY and CANVAS_APPLY_FAILURE record distinct apply failures
     debugPayload: staleFailure,
   });
 
-  assert.deepEqual(stale, { render: true, clearCandidatePreview: true });
+  assert.deepEqual(stale, {
+    render: true,
+    invalidateCandidate: true,
+    clearCandidatePreview: true,
+    dirtySections: [RENDER_SECTIONS.META, RENDER_SECTIONS.COMPOSER, RENDER_SECTIONS.NOTICE],
+  });
   assert.equal(stalePanel.state.phase, PANEL_STATE.ERROR);
   assert.deepEqual(stalePanel.state.failure, staleFailure);
   assert.deepEqual(stalePanel.state.debugPayload, staleFailure);
@@ -970,6 +1176,7 @@ test("APPLY_SUCCESS atomically syncs baseline, invalidates candidate, clears que
 
   assert.deepEqual(obligations, {
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     invalidateCandidate: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
@@ -1169,6 +1376,7 @@ test("REJECT_SUCCESS clears candidate, syncs baseline, invalidates gates, and re
 
   assert.deepEqual(obligations, {
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     invalidateCandidate: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
@@ -1212,6 +1420,7 @@ test("REJECT_SUCCESS uses default message and empty toast when not provided", ()
 
   assert.deepEqual(obligations, {
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     invalidateCandidate: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
@@ -1238,7 +1447,11 @@ test("CHAT_REHYDRATE_MISSING_SESSION clears visible chat state and forgets only 
     sessionId: "sess-missing",
   });
 
-  assert.deepEqual(obligations, { render: false, forgetSession: true });
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: META_AND_THREAD_DIRTY_SECTIONS,
+    forgetSession: true,
+  });
   assert.equal(panel.state.sessionId, null);
   assert.deepEqual(panel.state.chatMessages, []);
   assert.equal(panel.state.chatLoaded, true);
@@ -1263,7 +1476,10 @@ test("CHAT_REHYDRATE_FAILURE clears only chat display state and leaves current f
     chatError: "Server returned 500",
   });
 
-  assert.deepEqual(obligations, { render: false });
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: THREAD_DIRTY_SECTIONS,
+  });
   assert.deepEqual(panel.state.chatMessages, []);
   assert.equal(panel.state.chatLoaded, false);
   assert.equal(panel.state.chatError, "Server returned 500");
@@ -1461,7 +1677,10 @@ test("REBASELINE_SUCCESS syncs authoritative baseline, clears pending state, and
     rebaselineRequest: { session_id: "sess-1" },
   });
 
-  assert.deepEqual(obligations, { render: false });
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+  });
   assert.equal(panel.state.baselineGraphHash, "baseline-new");
   assert.equal(panel.state.baselineSource, "rebaseline");
   assert.equal(panel.state.baselineRebaselineId, "rebaseline-0001");
@@ -1552,6 +1771,7 @@ test("STALE_RECOVERY_REBASELINE success and failure transitions own recovery-spe
   });
   assert.deepEqual(successObligations, {
     render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
     invalidateCandidate: true,
     toast: "Current canvas rebaselined",
   });
@@ -1604,9 +1824,11 @@ test("UNDO_LOCAL_RESTORE clears local apply feedback and queue guard state befor
 
   assert.deepEqual(obligations, {
     render: true,
+    invalidateCandidate: true,
     clearChangedNodeFeedbackVisuals: true,
     queueGuardClear: true,
     refreshQueueGuard: true,
+    dirtySections: [RENDER_SECTIONS.META, RENDER_SECTIONS.COMPOSER, RENDER_SECTIONS.NOTICE],
   });
   assert.equal(panel.state.phase, PANEL_STATE.IDLE);
   assert.equal(panel.state.failure, null);
@@ -1652,8 +1874,10 @@ test("UNDO_REBASELINE_SUCCESS pops the undo stack and syncs authoritative baseli
 
   assert.deepEqual(obligations, {
     render: true,
+    invalidateCandidate: true,
     refreshQueueGuard: true,
     toast: "Previous graph restored",
+    dirtySections: [RENDER_SECTIONS.META, RENDER_SECTIONS.COMPOSER, RENDER_SECTIONS.NOTICE],
   });
   assert.equal(panel.state.phase, PANEL_STATE.IDLE);
   assert.equal(panel.state.failure, null);
@@ -1740,4 +1964,210 @@ test("All foundation transitions return plain obligations objects", () => {
     // Must be a plain object (not a class instance or array)
     assert.equal(Object.getPrototypeOf(result), Object.prototype, `${name} must return plain object`);
   }
+});
+
+// ── RENDER_SECTIONS ─────────────────────────────────────────────────────────
+
+test("RENDER_SECTIONS exports frozen taxonomy with 6 sections matching the contract", () => {
+  assert.ok(Object.isFrozen(RENDER_SECTIONS));
+
+  const keys = Object.keys(RENDER_SECTIONS).sort();
+  assert.deepEqual(keys, [
+    "COMPOSER",
+    "DEVELOPER",
+    "META",
+    "NOTICE",
+    "SETTINGS",
+    "THREAD",
+  ]);
+
+  // Value equals key by contract
+  for (const key of keys) {
+    assert.equal(RENDER_SECTIONS[key], key, `RENDER_SECTIONS.${key} must equal "${key}"`);
+  }
+});
+
+test("RENDER_SECTIONS values are distinct", () => {
+  const values = Object.values(RENDER_SECTIONS);
+  assert.equal(new Set(values).size, 6);
+});
+
+// ── normalizeObligationDirtySections — known sections ───────────────────────
+
+test("normalizeObligationDirtySections passes through obligations with no dirtySections", () => {
+  const obligations = { render: true };
+  const result = normalizeObligationDirtySections(obligations);
+  assert.deepEqual(result, { render: true });
+  // Should return the same object (not a copy) when no dirtySections key
+  assert.equal(result, obligations);
+});
+
+test("normalizeObligationDirtySections passes through obligations with null dirtySections", () => {
+  const obligations = { render: true, dirtySections: null };
+  const result = normalizeObligationDirtySections(obligations);
+  assert.deepEqual(result, { render: true, dirtySections: null });
+  assert.equal(result, obligations);
+});
+
+test("normalizeObligationDirtySections preserves all known sections", () => {
+  const obligations = {
+    render: true,
+    dirtySections: ["META", "THREAD", "COMPOSER", "NOTICE", "SETTINGS", "DEVELOPER"],
+    toast: "hello",
+  };
+
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.equal(result.render, true);
+  assert.equal(result.toast, "hello");
+  assert.deepEqual(result.dirtySections, ["META", "THREAD", "COMPOSER", "NOTICE", "SETTINGS", "DEVELOPER"]);
+  // Returned object should be a shallow copy when normalised
+  assert.notEqual(result, obligations);
+});
+
+test("normalizeObligationDirtySections preserves single section", () => {
+  const obligations = { render: false, dirtySections: ["THREAD"] };
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.equal(result.render, false);
+  assert.deepEqual(result.dirtySections, ["THREAD"]);
+});
+
+// ── normalizeObligationDirtySections — duplicate removal ────────────────────
+
+test("normalizeObligationDirtySections removes duplicate sections preserving first occurrence order", () => {
+  const obligations = {
+    render: true,
+    dirtySections: ["META", "THREAD", "META", "COMPOSER", "THREAD", "META"],
+  };
+
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.deepEqual(result.dirtySections, ["META", "THREAD", "COMPOSER"]);
+  assert.equal(result.render, true);
+});
+
+test("normalizeObligationDirtySections returns empty array when all duplicates of a single section", () => {
+  const obligations = {
+    render: true,
+    dirtySections: ["NOTICE", "NOTICE", "NOTICE"],
+  };
+
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.deepEqual(result.dirtySections, ["NOTICE"]);
+});
+
+test("normalizeObligationDirtySections returns empty array when dirtySections is empty", () => {
+  const obligations = { render: true, dirtySections: [] };
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.equal(result.render, true);
+  assert.deepEqual(result.dirtySections, []);
+  assert.notEqual(result, obligations);
+});
+
+// ── normalizeObligationDirtySections — unknown section failures ─────────────
+
+test("normalizeObligationDirtySections throws for unknown section name", () => {
+  const obligations = { render: true, dirtySections: ["UNKNOWN_SECTION"] };
+
+  assert.throws(
+    () => normalizeObligationDirtySections(obligations),
+    /Unknown render section: "UNKNOWN_SECTION"/,
+  );
+});
+
+test("normalizeObligationDirtySections throws for mixed known and unknown sections", () => {
+  const obligations = {
+    render: true,
+    dirtySections: ["META", "INVALID", "THREAD"],
+  };
+
+  assert.throws(
+    () => normalizeObligationDirtySections(obligations),
+    /Unknown render section: "INVALID"/,
+  );
+});
+
+test("normalizeObligationDirtySections throws for non-string section entry", () => {
+  const obligations = { render: true, dirtySections: ["META", 42, "THREAD"] };
+
+  assert.throws(
+    () => normalizeObligationDirtySections(obligations),
+    /dirtySections\[1\] must be a string/,
+  );
+});
+
+test("normalizeObligationDirtySections throws for non-array dirtySections", () => {
+  const obligations = { render: true, dirtySections: "THREAD" };
+
+  assert.throws(
+    () => normalizeObligationDirtySections(obligations),
+    /dirtySections must be an array/,
+  );
+});
+
+test("normalizeObligationDirtySections throws for object dirtySections", () => {
+  const obligations = { render: true, dirtySections: { section: "THREAD" } };
+
+  assert.throws(
+    () => normalizeObligationDirtySections(obligations),
+    /dirtySections must be an array/,
+  );
+});
+
+// ── normalizeObligationDirtySections — render backwards compatibility ────────
+
+test("normalizeObligationDirtySections preserves render:true when normalizing sections", () => {
+  const obligations = { render: true, dirtySections: ["META", "NOTICE"] };
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.equal(result.render, true);
+});
+
+test("normalizeObligationDirtySections preserves render:false when normalizing sections", () => {
+  const obligations = { render: false, dirtySections: ["THREAD"] };
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.equal(result.render, false);
+});
+
+test("normalizeObligationDirtySections preserves render when dirtySections is absent (empty obligations)", () => {
+  assert.deepEqual(
+    normalizeObligationDirtySections({ render: false }),
+    { render: false },
+  );
+  assert.deepEqual(
+    normalizeObligationDirtySections({ render: true }),
+    { render: true },
+  );
+});
+
+test("normalizeObligationDirtySections passes through non-object and null obligations unchanged", () => {
+  assert.equal(normalizeObligationDirtySections(null), null);
+  assert.equal(normalizeObligationDirtySections(undefined), undefined);
+  assert.equal(normalizeObligationDirtySections("string"), "string");
+  assert.equal(normalizeObligationDirtySections(42), 42);
+  assert.equal(normalizeObligationDirtySections(true), true);
+});
+
+test("normalizeObligationDirtySections preserves extra obligation keys beyond render and dirtySections", () => {
+  const obligations = {
+    render: true,
+    dirtySections: ["SETTINGS", "DEVELOPER", "SETTINGS"],
+    toast: "Changes saved",
+    persistSession: "sess-42",
+    refreshQueueGuard: true,
+    invalidateCandidate: false,
+  };
+
+  const result = normalizeObligationDirtySections(obligations);
+
+  assert.equal(result.render, true);
+  assert.equal(result.toast, "Changes saved");
+  assert.equal(result.persistSession, "sess-42");
+  assert.equal(result.refreshQueueGuard, true);
+  assert.equal(result.invalidateCandidate, false);
+  assert.deepEqual(result.dirtySections, ["SETTINGS", "DEVELOPER"]);
 });

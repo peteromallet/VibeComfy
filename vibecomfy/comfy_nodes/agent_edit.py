@@ -301,9 +301,79 @@ def _change_subject(change: FieldChange, labels: Mapping[str, str] | None = None
     return f"{uid}.{field}"
 
 
-def _human_change_phrase(change: FieldChange, labels: Mapping[str, str] | None = None) -> str:
+def _is_link_endpoint(value: Any) -> bool:
+    """Return True when *value* is a ComfyUI link endpoint ``[node_uid: str, output_slot: int]``.
+
+    Accepts both ``list`` and ``tuple`` because ``FieldChange.__post_init__`` freezes
+    lists into tuples via ``_freeze_jsonish``.
+    """
     return (
-        f"updated {_change_subject(change, labels)} from "
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and isinstance(value[1], int)
+    )
+
+
+def _resolve_output_slot_name(graph: Mapping[str, Any], uid: str, slot_index: int) -> str | None:
+    """Return the human-readable output-slot name for *uid* / *slot_index*, or None."""
+    for node in _iter_ui_graph_nodes(graph):
+        if _ui_node_uid(node) != uid:
+            continue
+        outputs = node.get("outputs")
+        if isinstance(outputs, list) and 0 <= slot_index < len(outputs):
+            entry = outputs[slot_index]
+            if isinstance(entry, Mapping):
+                name = entry.get("name")
+                if isinstance(name, str) and name.strip():
+                    return name.strip()
+        break
+    return None
+
+
+def _resolve_endpoint_label(
+    endpoint: list,
+    node_labels: Mapping[str, str],
+    graph: Mapping[str, Any],
+) -> str:
+    """Resolve a link endpoint ``[uid, slot]`` to a label like ``'VAE Decode IMAGE'``."""
+    uid = str(endpoint[0])
+    slot = int(endpoint[1])
+    node_label = node_labels.get(uid)
+    slot_name = _resolve_output_slot_name(graph, uid, slot)
+    if node_label and slot_name:
+        return f"{node_label} {slot_name}"
+    if node_label:
+        return f"{node_label} output #{slot}"
+    if slot_name:
+        return f"node {uid} {slot_name}"
+    return f"node {uid} output #{slot}"
+
+
+def _human_change_phrase(
+    change: FieldChange,
+    labels: Mapping[str, str] | None = None,
+    *,
+    graph: Mapping[str, Any] | None = None,
+) -> str:
+    subject = _change_subject(change, labels)
+    if graph is not None and labels is not None:
+        old_link = _is_link_endpoint(change.old)
+        new_link = _is_link_endpoint(change.new)
+        if old_link and new_link:
+            old_label = _resolve_endpoint_label(change.old, labels, graph)
+            new_label = _resolve_endpoint_label(change.new, labels, graph)
+            return f"rewired {subject} from {old_label} to {new_label}"
+        if new_link and not old_link:
+            new_label = _resolve_endpoint_label(change.new, labels, graph)
+            return f"connected {subject} to {new_label}"
+        if old_link and not new_link:
+            old_label = _resolve_endpoint_label(change.old, labels, graph)
+            return f"disconnected {subject} from {old_label}"
+    if change.old is None:
+        return f"set {subject} to {_display_value(change.new)}"
+    return (
+        f"updated {subject} from "
         f"{_display_value(change.old)} to {_display_value(change.new)}"
     )
 
@@ -326,11 +396,11 @@ def _humanized_edit_message(state: AgentEditState) -> str:
     if len(changes) == 1:
         return _sentence_case(
             ensure_sentence_message(
-                _human_change_phrase(changes[0], labels),
+                _human_change_phrase(changes[0], labels, graph=state.graph),
                 fallback="Updated the workflow.",
             )
         )
-    phrases = [_human_change_phrase(change, labels) for change in changes[:3]]
+    phrases = [_human_change_phrase(change, labels, graph=state.graph) for change in changes[:3]]
     if len(changes) == 2:
         text = f"{phrases[0]} and {phrases[1]}"
     else:
@@ -347,8 +417,12 @@ def _operation_detail_payload(changes: tuple[FieldChange, ...]) -> list[dict[str
         {
             **change.to_dict(),
             "summary": (
-                f"Changed {_change_subject(change)} from "
-                f"{_display_value(change.old)} to {_display_value(change.new)}."
+                f"Set {_change_subject(change)} to {_display_value(change.new)}."
+                if change.old is None
+                else (
+                    f"Changed {_change_subject(change)} from "
+                    f"{_display_value(change.old)} to {_display_value(change.new)}."
+                )
             ),
         }
         for change in changes
@@ -872,6 +946,7 @@ def _field_changes_payload(changes: tuple[FieldChange, ...]) -> list[dict[str, A
 
 
 _MISSING_FIELD_CHANGE_OLD = object()
+_ABSENT_FIELD_OLD = object()  # marker for fields genuinely absent from the original UI graph
 
 
 def _ui_node_uid(node: Mapping[str, Any]) -> str | None:
@@ -955,6 +1030,20 @@ def _repair_field_changes_from_original_ui(
     changed = False
     for change in changes:
         if change.old is None:
+            old = _original_ui_field_value(graph, change)
+            if old is not _MISSING_FIELD_CHANGE_OLD:
+                repaired.append(
+                    FieldChange(
+                        uid=change.uid,
+                        field_path=change.field_path,
+                        old=old,
+                        new=change.new,
+                    )
+                )
+                changed = True
+                continue
+            # Genuinely absent from original UI — keep old=None as the
+            # normalised absent marker (serialises as null via to_dict()).
             repaired.append(change)
             continue
         old = _original_ui_field_value(graph, change)

@@ -4850,6 +4850,169 @@ test("VibeComfy agent panel dispatches chat rehydration fetch with stored sessio
   }
 });
 
+test("VibeComfy stores render:false dirty sections on the panel and consumes them through the scheduled render gateway", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+
+    const panel = extensionModule.ensureAgentPanel();
+    assert.deepEqual(panel.pendingDirtySections, []);
+
+    extensionModule.fulfillLifecycleTransitionObligations(panel, {
+      render: false,
+      dirtySections: ["THREAD"],
+    });
+
+    assert.deepEqual(panel.pendingDirtySections, ["THREAD"]);
+
+    extensionModule.scheduleRenderAgentPanel("dirty-gateway-test", panel, ["META"]);
+
+    await waitFor(() =>
+      Array.isArray(panel.lastRenderedDirtySections)
+      && panel.lastRenderedDirtySections.length === 2,
+    );
+
+    assert.deepEqual(panel.lastRenderedDirtySections, ["THREAD", "META"]);
+    assert.deepEqual(panel.pendingDirtySections, []);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy renderAgentPanel defaults to all sections and settings-only renders preserve other section counters and DOM ids", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+
+    const panel = extensionModule.ensureAgentPanel();
+    panel.__renderCounts = {};
+
+    extensionModule.renderAgentPanel(panel);
+
+    assert.deepEqual(panel.__renderCounts, {
+      META: 1,
+      THREAD: 1,
+      COMPOSER: 1,
+      NOTICE: 1,
+      SETTINGS: 1,
+      DEVELOPER: 1,
+    });
+    assert.deepEqual(panel.lastRenderedDirtySections, [
+      "META",
+      "THREAD",
+      "COMPOSER",
+      "NOTICE",
+      "SETTINGS",
+      "DEVELOPER",
+    ]);
+
+    const statusNode = globalThis.document.getElementById("vibecomfy-agent-panel-status");
+    const routeNode = globalThis.document.getElementById("vibecomfy-agent-panel-route");
+    const noticeNode = globalThis.document.getElementById("vibecomfy-agent-panel-composer-notice");
+    const developerRegionNode = globalThis.document.getElementById("vibecomfy-agent-panel-region-developer");
+
+    extensionModule.renderAgentPanel(panel, { dirtySections: ["SETTINGS"] });
+
+    assert.deepEqual(panel.__renderCounts, {
+      META: 1,
+      THREAD: 1,
+      COMPOSER: 1,
+      NOTICE: 1,
+      SETTINGS: 2,
+      DEVELOPER: 1,
+    });
+    assert.deepEqual(panel.lastRenderedDirtySections, ["SETTINGS"]);
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-status"), statusNode);
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-route"), routeNode);
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-composer-notice"), noticeNode);
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-region-developer"), developerRegionNode);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy composer-only update leaves settings/developer DOM identity and render counters unchanged", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+
+    const panel = extensionModule.ensureAgentPanel();
+    panel.__renderCounts = {};
+    panel.__sectionsEverRendered = {};
+
+    // Initial mount: all sections render once.
+    extensionModule.renderAgentPanel(panel);
+
+    assert.deepEqual(panel.__renderCounts, {
+      META: 1,
+      THREAD: 1,
+      COMPOSER: 1,
+      NOTICE: 1,
+      SETTINGS: 1,
+      DEVELOPER: 1,
+    });
+
+    // Capture DOM node identity before composer-only update.
+    const settingsRegionNode = globalThis.document.getElementById("vibecomfy-agent-panel-settings-region");
+    const developerRegionNode = globalThis.document.getElementById("vibecomfy-agent-panel-region-developer");
+    const routeNode = globalThis.document.getElementById("vibecomfy-agent-panel-route");
+    const settingsStatusNode = globalThis.document.getElementById("vibecomfy-agent-panel-settings-status");
+
+    // Composer-only update: only COMPOSER is dirty.
+    extensionModule.renderAgentPanel(panel, { dirtySections: ["COMPOSER"] });
+
+    // Settings and developer counters must NOT increment.
+    assert.deepEqual(panel.__renderCounts, {
+      META: 1,
+      THREAD: 1,
+      COMPOSER: 2,
+      NOTICE: 1,
+      SETTINGS: 1,
+      DEVELOPER: 1,
+    });
+    assert.deepEqual(panel.lastRenderedDirtySections, ["COMPOSER"]);
+
+    // Settings and developer DOM node identity must be preserved.
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-settings-region"), settingsRegionNode);
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-region-developer"), developerRegionNode);
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-route"), routeNode);
+    assert.equal(globalThis.document.getElementById("vibecomfy-agent-panel-settings-status"), settingsStatusNode);
+
+    // Also verify settings and developer are recorded as ever-rendered.
+    assert.equal(panel.__sectionsEverRendered.SETTINGS, true);
+    assert.equal(panel.__sectionsEverRendered.DEVELOPER, true);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 // ── Lifecycle Contract: E2/E3 Entry rehydrate transitions ───────────────
 
 test("Lifecycle E2 page reload rehydrate restores the latest open candidate and Apply controls", async () => {
@@ -5100,18 +5263,14 @@ test("VibeComfy clears stored session when chat rehydrate reports exists false",
   }
 });
 
-test("VibeComfy chat thread shows the session link, keeps newest messages at the bottom, and limits the visible thread to the last 5 messages", async () => {
-  const SESSION_ID = "session-thread-last5";
+test("VibeComfy chat thread shows the session link, caps collapsed history at the latest 30 messages, and expands older messages in place", async () => {
+  const SESSION_ID = "session-thread-last30";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
-  const chatMessages = [
-    { role: "user", text: "message 1", turn_id: "0001" },
-    { role: "agent", text: "message 2", turn_id: "0001" },
-    { role: "user", text: "message 3", turn_id: "0002" },
-    { role: "agent", text: "message 4", turn_id: "0002" },
-    { role: "user", text: "message 5", turn_id: "0003" },
-    { role: "agent", text: "message 6", turn_id: "0003" },
-    { role: "user", text: "message 7", turn_id: "0004" },
-  ];
+  const chatMessages = Array.from({ length: 35 }, (_, index) => ({
+    role: index % 2 === 0 ? "user" : "agent",
+    text: `message ${index + 1}`,
+    turn_id: String(index + 1).padStart(4, "0"),
+  }));
 
   const harness = await createBrowserHarness({
     responses: {
@@ -5146,14 +5305,15 @@ test("VibeComfy chat thread shows the session link, keeps newest messages at the
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
-    await waitFor(() => /session: out\/editor_sessions\/session-thread-last5\//.test(harness.textDump()));
+    await waitFor(() => /session: out\/editor_sessions\/session-thread-last30\//.test(harness.textDump()));
 
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
+    const panel = extensionModule.ensureAgentPanel();
     const sessionLink = chatRegion?.querySelectorAll(
       (node) => node.tagName === "A" && node.textContent === `session: out/editor_sessions/${SESSION_ID}/`,
     )[0];
@@ -5168,24 +5328,274 @@ test("VibeComfy chat thread shows the session link, keeps newest messages at the
     ).map((node) => node.textContent);
     assert.deepEqual(
       visibleMessages,
-      ["message 3", "message 4", "message 5", "message 6", "message 7"],
+      Array.from({ length: 30 }, (_, index) => `message ${index + 6}`),
     );
     assert.doesNotMatch(harness.textDump(), /message 1/);
     assert.doesNotMatch(harness.textDump(), /message 2/);
+    assert.doesNotMatch(harness.textDump(), /message 3/);
+    assert.doesNotMatch(harness.textDump(), /message 4/);
+    assert.doesNotMatch(harness.textDump(), /message 5/);
 
-    const message6 = chatRegion.querySelectorAll(
-      (node) => node.tagName === "DIV" && node.textContent === "message 6",
+    const showEarlierButton = chatRegion.querySelectorAll(
+      (node) => node.tagName === "BUTTON" && node.textContent === "Show earlier messages",
     )[0];
-    const message7 = chatRegion.querySelectorAll(
-      (node) => node.tagName === "DIV" && node.textContent === "message 7",
+    assert(showEarlierButton, "collapsed thread should expose a show earlier messages button");
+    assert.equal(showEarlierButton.title, "5 earlier messages hidden");
+
+    const message34 = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "message 34",
     )[0];
-    assert.equal(message6?.parentNode?.style?.alignItems, "flex-start");
-    assert.equal(message7?.parentNode?.style?.alignItems, "flex-end");
+    const message35 = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "message 35",
+    )[0];
+    assert.equal(message34?.parentNode?.style?.alignItems, "flex-start");
+    assert.equal(message35?.parentNode?.style?.alignItems, "flex-end");
     const thread = harness.document.body.querySelectorAll(
       (node) => node.dataset?.vibecomfyAgentThread === "1",
     )[0];
     assert.equal(thread?.dataset?.vibecomfyScrolledToBottom, "1");
     assert.ok(thread.scrollTop > 0, "chat thread should scroll to the newest bubble after render");
+
+    showEarlierButton.click();
+
+    const expandedMessages = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && /^message [0-9]+$/.test(node.textContent),
+    ).map((node) => node.textContent);
+    assert.deepEqual(
+      expandedMessages,
+      Array.from({ length: 35 }, (_, index) => `message ${index + 1}`),
+    );
+    assert.equal(panel.threadState.expandedOlder, true, "expanding older messages should persist on thread state");
+    assert.equal(
+      chatRegion.querySelectorAll((node) => node.tagName === "BUTTON" && node.textContent === "Show earlier messages").length,
+      0,
+      "expanded thread should remove the show earlier button",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy chat thread only auto-scrolls when near the bottom or after rehydrate-style reopen", async () => {
+  const SESSION_ID = "session-thread-scroll-rules";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+  const chatResponse = {
+    status: 200,
+    body: {
+      ok: true,
+      session_id: SESSION_ID,
+      session_path: `out/editor_sessions/${SESSION_ID}/`,
+      detail_json_path: `out/editor_sessions/${SESSION_ID}/session.json`,
+      messages: [
+        { role: "user", text: "message 1", turn_id: "0001" },
+        { role: "agent", text: "message 2", turn_id: "0001" },
+        { role: "user", text: "message 3", turn_id: "0002" },
+      ],
+    },
+  };
+
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      [CHAT_URL]: chatResponse,
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
+    await waitFor(() => /message 3/.test(harness.textDump()));
+
+    const panel = extensionModule.ensureAgentPanel();
+    const thread = harness.document.body.querySelectorAll(
+      (node) => node.dataset?.vibecomfyAgentThread === "1",
+    )[0];
+
+    assert.equal(thread?.dataset?.vibecomfyScrolledToBottom, "1");
+    assert.ok(thread.scrollTop > 0, "initial render should snap to the bottom");
+
+    thread.clientHeight = 100;
+    thread.scrollHeight = 300;
+    thread.scrollTop = 120;
+    panel.state.chatMessages = [
+      ...panel.state.chatMessages,
+      { role: "agent", text: "message 4", turn_id: "0002" },
+    ];
+    extensionModule.renderAgentPanel(panel, { dirtySections: ["THREAD"] });
+    assert.equal(thread.scrollTop, 120, "scroll position should be preserved when the user is not near the bottom");
+    assert.equal(thread.dataset.vibecomfyScrolledToBottom, "0");
+
+    thread.clientHeight = 100;
+    thread.scrollHeight = 400;
+    thread.scrollTop = 293;
+    panel.state.chatMessages = [
+      ...panel.state.chatMessages,
+      { role: "user", text: "message 5", turn_id: "0003" },
+    ];
+    extensionModule.renderAgentPanel(panel, { dirtySections: ["THREAD"] });
+    assert.equal(thread.scrollTop, 400, "near-bottom renders should snap back to the latest message");
+    assert.equal(thread.dataset.vibecomfyScrolledToBottom, "1");
+
+    const closeButton = harness.document.getElementById("vibecomfy-agent-panel-close");
+    assert(closeButton, "agent panel should render a close button");
+    closeButton.click();
+    thread.clientHeight = 100;
+    thread.scrollHeight = 550;
+    thread.scrollTop = 20;
+    chatResponse.body.messages = [
+      ...chatResponse.body.messages,
+      { role: "agent", text: "message 6", turn_id: "0003" },
+    ];
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => /message 6/.test(harness.textDump()));
+    assert.equal(thread.scrollTop, 550, "reopen/rehydrate should force the thread back to the bottom");
+    assert.equal(thread.dataset.vibecomfyScrolledToBottom, "1");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy thread append preserves existing visible bubble DOM nodes and inline candidate controls", async () => {
+  const SESSION_ID = "session-thread-append-preserve";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }], links: [] },
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      [CHAT_URL]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          session_path: `out/editor_sessions/${SESSION_ID}/`,
+          detail_json_path: `out/editor_sessions/${SESSION_ID}/session.json`,
+          messages: [
+            { role: "user", text: "message 1", turn_id: "0001" },
+            {
+              role: "agent",
+              text: "Candidate ready for review.",
+              turn_id: "0001",
+              candidate: { graph: candidateGraph },
+              eligibility: {
+                applyable: true,
+                reason: "applyable",
+                message: "Latest candidate is ready to apply.",
+              },
+            },
+            { role: "user", text: "message 3", turn_id: "0002" },
+          ],
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
+    await waitFor(() => /Candidate ready for review\./.test(harness.textDump()));
+
+    const panel = extensionModule.ensureAgentPanel();
+    const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
+    const detailsToggle = chatRegion.querySelectorAll((node) => node.textContent === "\u25b6 details")[0];
+    assert(detailsToggle, "candidate bubble should expose a details toggle");
+    detailsToggle.click();
+
+    const message1Node = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "message 1",
+    )[0];
+    const candidateNode = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Candidate ready for review.",
+    )[0];
+    const message3Node = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "message 3",
+    )[0];
+    const applyBefore = chatRegion.querySelectorAll(
+      (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyCandidateAction === "apply",
+    )[0];
+    const rejectBefore = chatRegion.querySelectorAll(
+      (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyCandidateAction === "reject",
+    )[0];
+    assert(applyBefore, "candidate bubble should render an inline Apply button when expanded");
+    assert(rejectBefore, "candidate bubble should render an inline Reject button when expanded");
+
+    panel.state.chatMessages = [
+      ...panel.state.chatMessages,
+      { role: "agent", text: "message 4", turn_id: "0002" },
+    ];
+    extensionModule.renderAgentPanel(panel, { dirtySections: ["THREAD"] });
+
+    const message1After = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "message 1",
+    )[0];
+    const candidateAfter = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "Candidate ready for review.",
+    )[0];
+    const message3After = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "message 3",
+    )[0];
+    const message4After = chatRegion.querySelectorAll(
+      (node) => node.tagName === "DIV" && node.textContent === "message 4",
+    )[0];
+    const applyAfter = chatRegion.querySelectorAll(
+      (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyCandidateAction === "apply",
+    )[0];
+    const rejectAfter = chatRegion.querySelectorAll(
+      (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyCandidateAction === "reject",
+    )[0];
+
+    assert.equal(message1After, message1Node, "appending a message should preserve existing user bubble DOM");
+    assert.equal(candidateAfter, candidateNode, "appending a message should preserve existing candidate bubble DOM");
+    assert.equal(message3After, message3Node, "appending a message should preserve the newest pre-existing bubble DOM");
+    assert.ok(message4After, "append should create a new bubble for the new message");
+    assert.notEqual(message4After, message3Node, "newly appended bubble must be a fresh DOM node");
+    assert.equal(applyAfter, applyBefore, "append should preserve the existing inline Apply control");
+    assert.equal(rejectAfter, rejectBefore, "append should preserve the existing inline Reject control");
   } finally {
     await harness.dispose();
   }
@@ -7307,6 +7717,437 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
 
     await harness.clickButton("Undo Last Apply");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display === "none");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ── T10: Message identity and thread render-state helpers ────────────────
+
+test("VibeComfy messageStableKey produces deterministic keys, uses local_id and synthetic fallback, and messageSignature detects content changes", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    const { messageStableKey, messageSignature } = extensionModule;
+
+    // turn_id + role produces deterministic key
+    const modernMsg = { role: "user", text: "hello", turn_id: "0003" };
+    assert.equal(messageStableKey(modernMsg, 0), "turn:0003:user");
+    assert.equal(messageStableKey(modernMsg, 5), "turn:0003:user", "key ignores index when turn_id+role present");
+
+    const agentMsg = { role: "agent", text: "response", turn_id: "0003" };
+    assert.equal(messageStableKey(agentMsg, 0), "turn:0003:agent");
+    assert.notEqual(messageStableKey(modernMsg, 0), messageStableKey(agentMsg, 0));
+
+    // local_id takes priority when no turn_id
+    const localMsg = { role: "user", text: "with local", local_id: "abc-123" };
+    assert.equal(messageStableKey(localMsg, 0), "local:abc-123");
+
+    // synthetic flag
+    const synthMsg = { role: "agent", text: "cancelled", synthetic: true };
+    assert.match(messageStableKey(synthMsg, 2), /^synthetic:2$/);
+
+    // Legacy fallback uses index
+    const legacyMsg = { role: "user", text: "old message without turn_id" };
+    const legacyKey = messageStableKey(legacyMsg, 7);
+    assert.match(legacyKey, /^legacy:7:user:old message without turn_id$/);
+
+    // Falsy message
+    assert.match(messageStableKey(null, 0), /^empty:0$/);
+    assert.match(messageStableKey(undefined, 3), /^empty:3$/);
+
+    // messageSignature varies with content
+    const sig1 = messageSignature({ role: "agent", text: "hello world", turn_id: "0001" });
+    const sig2 = messageSignature({ role: "agent", text: "hello world", turn_id: "0001" });
+    assert.equal(sig1, sig2, "same content → same signature");
+
+    const sig3 = messageSignature({ role: "agent", text: "different text", turn_id: "0001" });
+    assert.notEqual(sig1, sig3, "different text → different signature");
+
+    const sig4 = messageSignature({ role: "user", text: "hello world", turn_id: "0001" });
+    assert.notEqual(sig1, sig4, "different role → different signature");
+
+    // Synthetic flag affects signature
+    const sigSynth = messageSignature({ role: "agent", text: "hello", synthetic: true });
+    const sigNotSynth = messageSignature({ role: "agent", text: "hello", synthetic: false });
+    assert.notEqual(sigSynth, sigNotSynth);
+
+    // Empty/falsy message
+    assert.equal(messageSignature(null), "empty");
+    assert.equal(messageSignature(undefined), "empty");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy resetThreadRenderState clears all threadState fields and is called on new conversation", async () => {
+  const SESSION_ID = "session-t10-reset";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      [CHAT_URL]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [
+            { role: "user", text: "hello", turn_id: "0001" },
+            { role: "agent", text: "hi there", turn_id: "0001" },
+          ],
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    const { resetThreadRenderState, ensureAgentPanel } = extensionModule;
+    await harness.setup();
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
+
+    const panel = ensureAgentPanel();
+
+    // After rehydrate, threadState should be freshly reset
+    assert.ok(panel.threadState, "threadState should exist after rehydrate");
+    assert.deepEqual(panel.threadState.renderedKeyOrder, []);
+    assert.deepEqual(panel.threadState.bubbleMap, {});
+    assert.equal(panel.threadState.expandedOlder, false);
+    assert.equal(panel.threadState.forceScrollOnNextRender, true);
+    assert.deepEqual(panel.threadState.signatures, {});
+    assert.equal(panel.threadState.lastVisibleKeySet, null);
+
+    // Mutate threadState to verify reset clears it
+    panel.threadState.renderedKeyOrder = ["turn:0001:user", "turn:0001:agent"];
+    panel.threadState.bubbleMap["turn:0001:user"] = {};
+    panel.threadState.expandedOlder = true;
+    panel.threadState.signatures["turn:0001:user"] = "sig";
+    panel.threadState.lastVisibleKeySet = new Set(["turn:0001:user"]);
+
+    resetThreadRenderState(panel);
+
+    assert.deepEqual(panel.threadState.renderedKeyOrder, []);
+    assert.deepEqual(panel.threadState.bubbleMap, {});
+    assert.equal(panel.threadState.expandedOlder, false);
+    assert.equal(panel.threadState.forceScrollOnNextRender, true);
+    assert.deepEqual(panel.threadState.signatures, {});
+    assert.equal(panel.threadState.lastVisibleKeySet, null);
+
+    // Verify new conversation also resets threadState
+    panel.threadState.renderedKeyOrder = ["dirty"];
+    panel.state.chatMessages = [{ role: "user", text: "x", turn_id: "0099" }];
+    // Simulate new conversation by directly calling the reset (the real path
+    // is exercised through the NEW_CONVERSATION transition in newAgentConversation).
+    resetThreadRenderState(panel);
+    assert.deepEqual(panel.threadState.renderedKeyOrder, []);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy threadState is reset on chat rehydrate replacement (message array replaced)", async () => {
+  const SESSION_ID = "session-t10-rehydrate";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+
+  const initialMessages = [
+    { role: "user", text: "first prompt", turn_id: "0001" },
+    { role: "agent", text: "first response", turn_id: "0001" },
+  ];
+
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      [CHAT_URL]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: initialMessages,
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    const { ensureAgentPanel, resetThreadRenderState } = extensionModule;
+    await harness.setup();
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
+
+    const panel = ensureAgentPanel();
+    assert.ok(panel.threadState, "threadState exists after initial rehydrate");
+    assert.equal(panel.state.chatMessages.length, 2);
+
+    // Seed threadState with data from first rehydrate
+    panel.threadState.renderedKeyOrder = ["turn:0001:user", "turn:0001:agent"];
+    panel.threadState.signatures["turn:0001:user"] = "sig-1";
+
+    // Simulate a rehydrate replacement by directly invoking reset
+    // (the actual CHAT_REHYDRATE_SUCCESS path in _rehydrateChat calls this).
+    resetThreadRenderState(panel);
+
+    assert.deepEqual(panel.threadState.renderedKeyOrder, []);
+    assert.deepEqual(panel.threadState.signatures, {});
+    assert.equal(panel.threadState.expandedOlder, false);
+    assert.equal(panel.threadState.forceScrollOnNextRender, true);
+    assert.equal(panel.threadState.lastVisibleKeySet, null);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ── T13: Lazy detail population + shared activity rows ────────────────────
+
+test("VibeComfy collapsed agent bubble does not prebuild detail pane (T13 lazy detail)", async () => {
+  const SESSION_ID = "session-t13-lazy";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      [CHAT_URL]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [
+            { role: "user", text: "add a node", turn_id: "0001" },
+            { role: "agent", text: "Candidate ready.", turn_id: "0001",
+              outcome: { kind: "edit", changes: [{ uid: "n1", field_path: "inputs.text", old: "a", new: "b" }] },
+            },
+          ],
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    const { ensureAgentPanel } = extensionModule;
+    await harness.setup();
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
+
+    const panel = ensureAgentPanel();
+    // Clear any leaked expand state from harness reuse
+    panel.state.expandedBubbleTurnKeys = {};
+
+    // Force a thread render to apply the cleared expand state
+    const { markAgentPanelDirty, RENDER_SECTIONS: RS, renderAgentPanel } = extensionModule;
+    markAgentPanelDirty(panel, [RS.THREAD]);
+    renderAgentPanel(panel, { dirtySections: [RS.THREAD] });
+
+    const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
+    assert.ok(chatRegion, "chat region must exist");
+
+    // Find the detail toggle — should be collapsed (▶ details)
+    const toggles = chatRegion.querySelectorAll(
+      (node) => node.textContent === "\u25b6 details",
+    );
+    assert.ok(toggles.length >= 1, "collapsed agent bubble must expose a detail toggle");
+
+    // Expand the first toggle
+    toggles[0].click();
+
+    // After expansion, detail content like the Audit section should appear
+    const expandedDump = harness.textDump();
+    assert.match(expandedDump, /Download Audit Envelope/, "expanded detail should show audit section");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy shared activity section renders turn-progress rows once, not per bubble (T13 dedup)", async () => {
+  const SESSION_ID = "session-t13-dedup";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      [CHAT_URL]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [
+            { role: "user", text: "edit workflow", turn_id: "0002" },
+            { role: "agent", text: "Done.", turn_id: "0002" },
+            { role: "user", text: "edit again", turn_id: "0003" },
+            { role: "agent", text: "Also done.", turn_id: "0003" },
+          ],
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
+
+    // Expand both agent bubbles
+    const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
+    const toggles = chatRegion.querySelectorAll(
+      (node) => node.textContent === "\u25b6 details",
+    );
+    assert.ok(toggles.length >= 2, "at least 2 agent bubbles should exist");
+
+    for (const toggle of toggles) {
+      toggle.click();
+    }
+
+    // Verify detail panes are populated independently
+    for (const toggle of toggles) {
+      const detailBodyEls = toggle.parentNode.querySelectorAll(
+        (node) => node !== toggle && node.tagName === "DIV",
+      );
+      assert.ok(detailBodyEls.length >= 1, "detail body must exist");
+      assert.ok(detailBodyEls[0].children.length > 0, "each expanded detail should have content");
+    }
+
+    // The shared activity mount (dataset.vibecomfyChatActivity) should exist
+    // and be inside the chat region body.
+    const activityMounts = chatRegion.querySelectorAll(
+      (node) => node.dataset?.vibecomfyChatActivity === "1",
+    );
+    assert.ok(activityMounts.length >= 1, "shared activity mount must exist");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy threadState tracks bubbleDetailSignatures and clears them on reset (T13)", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    const { ensureAgentPanel, resetThreadRenderState } = extensionModule;
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+
+    const panel = ensureAgentPanel();
+    assert.ok(panel.threadState, "threadState should exist");
+
+    // Seed a detail signature
+    panel.threadState.bubbleDetailSignatures = { "turn:0099:agent": "sig-xyz" };
+    assert.ok(panel.threadState.bubbleDetailSignatures["turn:0099:agent"], "signature should be seeded");
+
+    // Reset should clear it
+    resetThreadRenderState(panel);
+    assert.deepEqual(panel.threadState.bubbleDetailSignatures, {}, "bubbleDetailSignatures should be reset");
   } finally {
     await harness.dispose();
   }

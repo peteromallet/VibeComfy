@@ -14,10 +14,14 @@ import pytest
 from vibecomfy.comfy_nodes.agent_edit import (
     AgentEditState,
     _StageBlocked,
+    _ABSENT_FIELD_OLD,
     _agent_edit_contract,
     _agent_edit_turn_event_payload,
     _batch_warning_sentence,
+    _human_change_phrase,
+    _humanized_edit_message,
     _landed_edit_lead,
+    _operation_detail_payload,
     _repair_field_changes_from_original_ui,
     _run_batch_repl_product_path,
     _safe_session_id,
@@ -2084,11 +2088,11 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     assert result["debug"]["gates"] == result["gates"]
     assert result["debug"]["hashes"]["candidate_graph_hash"] == result["candidate_graph_hash"]
     assert result["debug"]["batch_repl"]["exit_mode"] == "done"
-    assert result["message"] == "Updated SaveImage filename_prefix from null to after."
+    assert result["message"] == "Updated SaveImage filename_prefix from before to after."
     assert result["done_summary"] not in result["message"]
     assert result["done_summary"].startswith("Gate A passed:")
     assert "Gate B passed:" in result["done_summary"]
-    assert "Set saveimage.filename_prefix" in result["done_summary"]
+    assert "saveimage.filename_prefix" in result["done_summary"]
     assert "after" in result["done_summary"]
     assert result["change_details"]["done_summary"] == result["done_summary"]
     assert result["change_details"]["landed_operation_count"] == 1
@@ -2096,9 +2100,9 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
         {
             "uid": "2",
             "field_path": "filename_prefix",
-            "old": None,
+            "old": "before",
             "new": "after",
-            "summary": "Changed 2.filename_prefix from null to after.",
+            "summary": "Changed 2.filename_prefix from before to after.",
         }
     ]
     assert result["report"]["done_summary"] == result["done_summary"]
@@ -2108,7 +2112,7 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
             {
                 "uid": "2",
                 "field_path": "filename_prefix",
-                "old": None,
+                "old": "before",
                 "new": "after",
             }
         ],
@@ -2122,7 +2126,7 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
         {
             "uid": "2",
             "field_path": "filename_prefix",
-            "old": None,
+            "old": "before",
             "new": "after",
         }
     ]
@@ -2671,7 +2675,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
     assert result["queue_allowed"] is False
     assert result["done_summary"].startswith("Gate A passed:")
     assert "Rewired saveimage.images" in result["done_summary"]
-    assert "Set saveimage.filename_prefix" in result["done_summary"]
+    assert "saveimage.filename_prefix" in result["done_summary"]
     assert result["outcome"] == {
         "kind": "edit",
         "changes": [
@@ -5736,6 +5740,164 @@ def test_repair_field_changes_uses_named_widget_old_value_for_ksampler_steps() -
         FieldChange(uid="ksampler", field_path="steps", old=20, new=28),
     )
 
+
+def test_repair_field_changes_repairs_null_old_from_original_ui() -> None:
+    """Null old values are repaired from the original UI graph when the field exists."""
+    graph = {
+        "nodes": [
+            {
+                "id": 5,
+                "type": "CLIPTextEncode",
+                "properties": {"vibecomfy_uid": "clip"},
+                "widgets_values": ["a beautiful sunset"],
+            }
+        ],
+        "links": [],
+    }
+    repaired = _repair_field_changes_from_original_ui(
+        graph,
+        (
+            FieldChange(
+                uid="clip",
+                field_path="text",
+                old=None,
+                new="a starry night",
+            ),
+        ),
+    )
+    assert repaired == (
+        FieldChange(uid="clip", field_path="text", old="a beautiful sunset", new="a starry night"),
+    )
+
+
+def test_repair_field_changes_preserves_null_when_absent_from_original_ui() -> None:
+    """Genuinely absent fields keep old=None after the repair attempt."""
+    graph: dict[str, Any] = {"nodes": [], "links": []}
+    repaired = _repair_field_changes_from_original_ui(
+        graph,
+        (
+            FieldChange(
+                uid="nonexistent",
+                field_path="missing_field",
+                old=None,
+                new=42,
+            ),
+        ),
+    )
+    assert repaired == (
+        FieldChange(uid="nonexistent", field_path="missing_field", old=None, new=42),
+    )
+
+
+def test_human_change_phrase_set_wording_for_absent_old() -> None:
+    """_human_change_phrase uses 'set X to Y' when old is None."""
+    change = FieldChange(uid="node1", field_path="title", old=None, new="My Workflow")
+    phrase = _human_change_phrase(change)
+    assert phrase == "set node1.title to My Workflow"
+
+
+def test_human_change_phrase_updated_wording_for_present_old() -> None:
+    """_human_change_phrase still uses 'updated X from A to B' when old is present."""
+    change = FieldChange(uid="node1", field_path="title", old="Old Title", new="New Title")
+    phrase = _human_change_phrase(change)
+    assert phrase == "updated node1.title from Old Title to New Title"
+
+
+def test_operation_detail_payload_set_wording_for_null_old() -> None:
+    """_operation_detail_payload uses 'Set X to Y.' when old is None."""
+    changes = (FieldChange(uid="a", field_path="b", old=None, new=99),)
+    payload = _operation_detail_payload(changes)
+    assert payload == [
+        {
+            "uid": "a",
+            "field_path": "b",
+            "old": None,
+            "new": 99,
+            "summary": "Set a.b to 99.",
+        }
+    ]
+
+
+def test_operation_detail_payload_changed_wording_for_present_old() -> None:
+    """_operation_detail_payload uses 'Changed X from A to B.' when old is present."""
+    changes = (FieldChange(uid="a", field_path="b", old=1, new=99),)
+    payload = _operation_detail_payload(changes)
+    assert payload == [
+        {
+            "uid": "a",
+            "field_path": "b",
+            "old": 1,
+            "new": 99,
+            "summary": "Changed a.b from 1 to 99.",
+        }
+    ]
+
+
+def test_operation_detail_payload_mixed_null_and_present_old() -> None:
+    """Mixed absent/present old values produce correct summaries."""
+    changes = (
+        FieldChange(uid="a", field_path="x", old=None, new=10),
+        FieldChange(uid="b", field_path="y", old=5, new=20),
+    )
+    payload = _operation_detail_payload(changes)
+    assert payload == [
+        {
+            "uid": "a",
+            "field_path": "x",
+            "old": None,
+            "new": 10,
+            "summary": "Set a.x to 10.",
+        },
+        {
+            "uid": "b",
+            "field_path": "y",
+            "old": 5,
+            "new": 20,
+            "summary": "Changed b.y from 5 to 20.",
+        },
+    ]
+
+
+def test_humanized_edit_message_set_wording_for_single_absent_old() -> None:
+    """_humanized_edit_message produces 'Set ...' for a single change with absent old."""
+    state = _make_state(
+        graph={"nodes": [{"id": 1, "type": "SaveImage", "properties": {"vibecomfy_uid": "1"}}]},
+        batch_field_changes=(
+            FieldChange(uid="1", field_path="filename_prefix", old=None, new="output"),
+        ),
+    )
+    msg = _humanized_edit_message(state)
+    assert msg == "Set SaveImage filename_prefix to output."
+
+
+def test_humanized_edit_message_mixed_absent_and_present() -> None:
+    """_humanized_edit_message mixes 'set' and 'updated' for two changes."""
+    state = _make_state(
+        graph={
+            "nodes": [
+                {"id": 1, "type": "SaveImage", "properties": {"vibecomfy_uid": "1"}},
+                {"id": 2, "type": "KSampler", "properties": {"vibecomfy_uid": "2"}},
+            ]
+        },
+        batch_field_changes=(
+            FieldChange(uid="1", field_path="filename_prefix", old=None, new="output"),
+            FieldChange(uid="2", field_path="steps", old=20, new=30),
+        ),
+    )
+    msg = _humanized_edit_message(state)
+    assert "set SaveImage filename_prefix to output" in msg.lower()
+    assert "updated KSampler steps from 20 to 30" in msg.lower()
+
+
+def test_absent_field_old_not_serialized_in_to_dict() -> None:
+    """FieldChange.to_dict() serializes absent old as null, not a sentinel object."""
+    change = FieldChange(uid="x", field_path="y", old=None, new=1)
+    d = change.to_dict()
+    assert d["old"] is None
+    assert d["new"] == 1
+    # The sentinel _ABSENT_FIELD_OLD must never leak into serialized output
+    from vibecomfy.comfy_nodes.agent_edit import _ABSENT_FIELD_OLD
+    assert d["old"] is not _ABSENT_FIELD_OLD
 
 def test_synthesize_message_edit_outcome_with_done_summary() -> None:
     """Edit outcome uses repaired FieldChange values for the visible message."""

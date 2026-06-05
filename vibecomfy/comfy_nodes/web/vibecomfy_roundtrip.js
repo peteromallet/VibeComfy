@@ -1,7 +1,12 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { applyGraphCandidateInPlace, installPreviewForegroundOverlay, installQueueGuard as installQueueGuardAdapter } from "./comfy_adapter.js";
-import { createAgentEditState, transition } from "./agent_edit_lifecycle.js";
+import {
+  createAgentEditState,
+  RENDER_SECTIONS,
+  normalizeObligationDirtySections,
+  transition,
+} from "./agent_edit_lifecycle.js";
 
 // ── VibeComfy Contract (S2 — Durable Frontend Panel) ─────────────────────
 // This file captures the frontend↔backend contract before feature work.
@@ -118,6 +123,13 @@ const APPLY_ELIGIBILITY_REASON = Object.freeze({
   STALE_CANVAS: "stale_canvas",
   QUEUE_BLOCKED_WARNING: "queue_blocked_warning",
 });
+
+const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
+const SETTINGS_STATUS_RENDER_SECTIONS = Object.freeze([
+  RENDER_SECTIONS.SETTINGS,
+  RENDER_SECTIONS.COMPOSER,
+  RENDER_SECTIONS.NOTICE,
+]);
 
 const PANEL_IDS = Object.freeze({
   root: "vibecomfy-agent-panel-root",
@@ -1537,7 +1549,7 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
     model,
   };
   if (typeof document !== "undefined") {
-    renderAgentPanel(panel);
+    renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
   }
   try {
     // Keep the initial "loading" paint observable, then let tests/users observe
@@ -1563,7 +1575,7 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
       });
       panel.fields.route.value = route;
       if (typeof document !== "undefined") {
-        scheduleRenderAgentPanel("status", panel);
+        scheduleRenderAgentPanel("status", panel, SETTINGS_STATUS_RENDER_SECTIONS);
       }
       return;
     }
@@ -1652,7 +1664,7 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
   if (typeof document === "undefined") {
     return;
   }
-  scheduleRenderAgentPanel("status", panel);
+  scheduleRenderAgentPanel("status", panel, SETTINGS_STATUS_RENDER_SECTIONS);
 }
 
 function submitReadinessState(panel) {
@@ -2069,6 +2081,10 @@ function createAgentPanel() {
       const popover = agentPanel.settingsPopover;
       if (popover) {
         const isOpen = popover.style.display !== "none";
+        if (!isOpen && !agentPanel.__settingsPopoverEverOpened) {
+          agentPanel.__settingsPopoverEverOpened = true;
+          renderAgentPanel(agentPanel, { dirtySections: [RENDER_SECTIONS.SETTINGS, RENDER_SECTIONS.DEVELOPER] });
+        }
         popover.style.display = isOpen ? "none" : "block";
       }
     }
@@ -2283,7 +2299,7 @@ function createAgentPanel() {
   routeSelect.onchange = () => {
     if (agentPanel) {
       agentPanel.fields.route.value = normalizeRoutePreference(routeSelect.value);
-      renderAgentPanel(agentPanel);
+      renderAgentPanel(agentPanel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
       refreshAgentStatus(agentPanel, { quiet: true });
     }
   };
@@ -2342,7 +2358,7 @@ function createAgentPanel() {
     },
     sections: {
       chat: chatRegion.body,
-      history: null,
+      history: null, // wired lazily by renderChatThread (T13)
       candidate: chatRegion.body,
       failure: chatRegion.body,
       queue: chatRegion.body,
@@ -2352,6 +2368,7 @@ function createAgentPanel() {
       composerNotice,
     },
     composerButtons,
+    pendingDirtySections: [],
     state: {
       // Lifecycle-owned fields (authority: agent_edit_lifecycle.js)
       ...createAgentEditState(),
@@ -2393,6 +2410,7 @@ async function _rehydrateChat(panel) {
   if (!savedId) {
     const noSessionObligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", { requestEpoch });
     fulfillLifecycleTransitionObligations(panel, noSessionObligations);
+    resetThreadRenderState(panel);
     return;
   }
 
@@ -2410,6 +2428,7 @@ async function _rehydrateChat(panel) {
           sessionId: savedId,
         });
         fulfillLifecycleTransitionObligations(panel, missingSessionObligations);
+        resetThreadRenderState(panel);
         return;
       }
       const messages = Array.isArray(payload.messages) ? payload.messages : [];
@@ -2430,6 +2449,7 @@ async function _rehydrateChat(panel) {
         return;
       }
       fulfillLifecycleTransitionObligations(panel, successObligations);
+      resetThreadRenderState(panel);
       restoreLatestCandidateFromChat(panel, payload);
     } else {
       throw new Error(payload?.error || "chat endpoint returned ok: false");
@@ -2443,6 +2463,7 @@ async function _rehydrateChat(panel) {
       return;
     }
     fulfillLifecycleTransitionObligations(panel, failureObligations);
+    resetThreadRenderState(panel);
   }
 }
 
@@ -2512,6 +2533,69 @@ function forgetActiveSession() {
   _lsRemove(LS_ACTIVE_SESSION_KEY);
 }
 
+function normalizeDirtySectionList(sections) {
+  if (sections === undefined) {
+    return undefined;
+  }
+  if (sections == null) {
+    return [];
+  }
+  const normalized = normalizeObligationDirtySections({
+    render: false,
+    dirtySections: sections,
+  });
+  return Array.isArray(normalized?.dirtySections) ? normalized.dirtySections : [];
+}
+
+function agentPanelPendingDirtySections(panel) {
+  if (!panel) {
+    return [];
+  }
+  if (!Array.isArray(panel.pendingDirtySections)) {
+    panel.pendingDirtySections = [];
+  }
+  return panel.pendingDirtySections;
+}
+
+export function markAgentPanelDirty(panel, sections) {
+  if (!panel) {
+    return [];
+  }
+  const nextSections = normalizeDirtySectionList(sections);
+  if (!Array.isArray(nextSections) || !nextSections.length) {
+    return agentPanelPendingDirtySections(panel);
+  }
+  const pending = agentPanelPendingDirtySections(panel);
+  const seen = new Set(pending);
+  for (const section of nextSections) {
+    if (!seen.has(section)) {
+      pending.push(section);
+      seen.add(section);
+    }
+  }
+  return pending;
+}
+
+export function markAllAgentPanelDirty(panel) {
+  return markAgentPanelDirty(panel, ALL_AGENT_PANEL_RENDER_SECTIONS);
+}
+
+export function consumeAgentPanelDirtySections(panel, fallbackSections = ALL_AGENT_PANEL_RENDER_SECTIONS) {
+  if (!panel) {
+    return [];
+  }
+  const pending = agentPanelPendingDirtySections(panel).slice();
+  panel.pendingDirtySections = [];
+  const fallback = normalizeDirtySectionList(fallbackSections);
+  if (!pending.length && (!Array.isArray(fallback) || !fallback.length)) {
+    return ALL_AGENT_PANEL_RENDER_SECTIONS.slice();
+  }
+  return normalizeDirtySectionList([
+    ...pending,
+    ...(Array.isArray(fallback) ? fallback : []),
+  ]) || [];
+}
+
 function rerenderAgentPanelIfMounted(panel = agentPanel) {
   if (!panel?.root) {
     return;
@@ -2522,14 +2606,17 @@ function rerenderAgentPanelIfMounted(panel = agentPanel) {
   if (panel.root.ownerDocument !== document) {
     return;
   }
-  renderAgentPanel(panel);
+  renderDirtyAgentPanelSections(panel);
 }
 
-function scheduleRenderAgentPanel(reason = "scheduled", panel = agentPanel) {
+export function scheduleRenderAgentPanel(reason = "scheduled", panel = agentPanel, fallbackSections = undefined) {
   if (!panel?.root || typeof document === "undefined" || panel.root.ownerDocument !== document) {
     return;
   }
-  _scheduledAgentPanelRender = { panel, reason };
+  if (fallbackSections !== undefined) {
+    markAgentPanelDirty(panel, fallbackSections);
+  }
+  _scheduledAgentPanelRender = { panel, reason, fallbackSections };
   const flush = () => {
     const scheduled = _scheduledAgentPanelRender;
     _scheduledAgentPanelRender = null;
@@ -2538,7 +2625,10 @@ function scheduleRenderAgentPanel(reason = "scheduled", panel = agentPanel) {
       typeof document !== "undefined"
       && scheduled?.panel?.root?.ownerDocument === document
     ) {
-      renderAgentPanel(scheduled.panel);
+      renderDirtyAgentPanelSections(scheduled.panel, {
+        render: true,
+        dirtySections: scheduled.fallbackSections,
+      });
     }
   };
   if (_scheduledAgentPanelRenderQueued) {
@@ -2611,6 +2701,7 @@ function pushHistory(panel, kind, message) {
     at: new Date().toISOString(),
   });
   panel.state.history = panel.state.history.slice(0, 8);
+  markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
 }
 
 const PANEL_TURN_LIMIT = 64;
@@ -2682,6 +2773,7 @@ function pushTurnStatus(panel, status, extra = {}) {
   entry.turn_key = durableTurnKey(entry);
   panel.state.turns.unshift(entry);
   panel.state.turns = sortPanelTurns(panel.state.turns);
+  markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
   return entry;
 }
 
@@ -3071,6 +3163,82 @@ function detailSnapshotForMessage(panel, message) {
   return panel?.state?.turnDetailSnapshots?.[turnId] || null;
 }
 
+// ── Chat message identity and thread render-state helpers (T10) ─────────
+
+/**
+ * Compute a stable key for a chat message used for thread reconciliation.
+ *
+ * Priority:
+ *   1. turn_id + role       → `turn:<turn_id>:<role>`
+ *   2. local_id             → `local:<local_id>`
+ *   3. synthetic flag       → `synthetic:<index>`
+ *   4. Legacy index fallback → `legacy:<index>:<role>:<text-prefix>`
+ *
+ * The index fallback is intentionally temporary — it is only stable for the
+ * current array snapshot and must not be treated as durable across mutations.
+ */
+export function messageStableKey(msg, index = 0) {
+  if (!msg || typeof msg !== "object") {
+    return `empty:${index}`;
+  }
+  const turnId = typeof msg.turn_id === "string" && msg.turn_id ? msg.turn_id : null;
+  const role = typeof msg.role === "string" && msg.role ? msg.role : null;
+  if (turnId && role) {
+    return `turn:${turnId}:${role}`;
+  }
+  const localId = typeof msg.local_id === "string" && msg.local_id ? msg.local_id : null;
+  if (localId) {
+    return `local:${localId}`;
+  }
+  if (msg.synthetic === true) {
+    return `synthetic:${index}`;
+  }
+  // Legacy fallback — only stable for the current array snapshot.
+  const textSlice = typeof msg.text === "string" ? msg.text.slice(0, 40) : "";
+  return `legacy:${index}:${role || "unknown"}:${textSlice}`;
+}
+
+/**
+ * Lightweight content signature for a chat message.
+ * Used to detect content changes without deep comparison during reconciliation.
+ */
+export function messageSignature(msg) {
+  if (!msg || typeof msg !== "object") {
+    return "empty";
+  }
+  const parts = [
+    msg.role || "",
+    String(msg.text || "").slice(0, 200),
+    msg.turn_id || "",
+    msg.synthetic ? "1" : "0",
+    msg.local_id || "",
+  ];
+  return parts.join("|");
+}
+
+/**
+ * Reset the thread render state stored on the panel object.
+ *
+ * Call this whenever chatMessages is replaced wholesale — new conversation,
+ * rehydrate success/replacement, or any full thread reset path.
+ */
+export function resetThreadRenderState(panel) {
+  if (!panel) {
+    return;
+  }
+  panel.threadState = {
+    renderedKeyOrder: [],
+    bubbleMap: {},
+    expandedOlder: false,
+    forceScrollOnNextRender: true,
+    signatures: {},
+    lastVisibleKeySet: null,
+    bubbleDetailSignatures: {},
+  };
+}
+
+// ── End T10 helpers ──────────────────────────────────────────────────────
+
 function buildSyntheticAgentMessage(panel) {
   if (!panel?.state) {
     return null;
@@ -3126,6 +3294,7 @@ function upsertBatchTurn(panel, payload, options = {}) {
   }
   panel.state.turns = sortPanelTurns(panel.state.turns);
   restoreExpandedTurnKeys(panel, previousExpanded);
+  markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
   return normalized;
 }
 
@@ -3182,6 +3351,7 @@ function reconcileResponseBatchTurns(panel, result) {
     });
   }
   restoreExpandedTurnKeys(panel, previousExpanded);
+  markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
 }
 
 function getAgentTurnEventPayload(event) {
@@ -3720,15 +3890,55 @@ function _renderDurableTurnRow(body, panel, entry, index) {
 
 // ── Chat thread rendering (M4b — newest-at-bottom bubble list) ────────────
 
-function renderChatThread(panel) {
-  const body = panel.sections.chat;
-  clearNode(body);
+const THREAD_WINDOW_SIZE = 30;
+const THREAD_NEAR_BOTTOM_TOLERANCE_PX = 8;
 
-  // Session link — clickable link to the safe session JSON route.
-  if (panel.state.chatSessionPath || panel.state.sessionId) {
-    const linkRow = el("div");
-    Object.assign(linkRow.style, {
-      display: "flex",
+function ensureThreadRenderState(panel) {
+  if (!panel?.threadState || typeof panel.threadState !== "object") {
+    resetThreadRenderState(panel);
+  }
+  return panel.threadState;
+}
+
+function collectThreadMessageEntries(panel) {
+  const threadMessages = Array.isArray(panel?.state?.chatMessages)
+    ? panel.state.chatMessages.slice()
+    : [];
+  const syntheticAgentMessage = buildSyntheticAgentMessage(panel);
+  if (syntheticAgentMessage) {
+    threadMessages.push(syntheticAgentMessage);
+  }
+  return threadMessages.map((msg, index) => ({
+    msg,
+    index,
+    key: messageStableKey(msg, index),
+  }));
+}
+
+function ensureChatThreadMounts(body) {
+  let sessionRow = null;
+  let olderMount = null;
+  let messagesMount = null;
+  let emptyMount = null;
+  let activityMount = null;
+  for (const child of Array.from(body.children || [])) {
+    if (child?.dataset?.vibecomfyChatSessionRow === "1") {
+      sessionRow = child;
+    } else if (child?.dataset?.vibecomfyChatOlderMount === "1") {
+      olderMount = child;
+    } else if (child?.dataset?.vibecomfyChatMessages === "1") {
+      messagesMount = child;
+    } else if (child?.dataset?.vibecomfyChatEmpty === "1") {
+      emptyMount = child;
+    } else if (child?.dataset?.vibecomfyChatActivity === "1") {
+      activityMount = child;
+    }
+  }
+  if (!sessionRow) {
+    sessionRow = el("div");
+    sessionRow.dataset.vibecomfyChatSessionRow = "1";
+    Object.assign(sessionRow.style, {
+      display: "none",
       alignItems: "center",
       gap: "6px",
       marginBottom: "8px",
@@ -3737,9 +3947,65 @@ function renderChatThread(panel) {
       minWidth: "0",
       maxWidth: "100%",
     });
-    const sessionLabel = panel.state.chatSessionPath || `out/editor_sessions/${panel.state.sessionId}`;
-    const link = el("a", `session: ${sessionLabel}`);
-    link.href = `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(panel.state.sessionId || "")}`;
+  }
+  if (!messagesMount) {
+    messagesMount = el("div");
+    messagesMount.dataset.vibecomfyChatMessages = "1";
+    Object.assign(messagesMount.style, {
+      display: "grid",
+      gap: "6px",
+      minWidth: "0",
+    });
+  }
+  if (!emptyMount) {
+    emptyMount = el("div");
+    emptyMount.dataset.vibecomfyChatEmpty = "1";
+    Object.assign(emptyMount.style, {
+      display: "none",
+      gap: "6px",
+      minWidth: "0",
+    });
+  }
+  if (!olderMount) {
+    olderMount = el("div");
+    olderMount.dataset.vibecomfyChatOlderMount = "1";
+    Object.assign(olderMount.style, {
+      display: "none",
+      marginBottom: "6px",
+      minWidth: "0",
+    });
+  }
+  if (!activityMount) {
+    activityMount = el("div");
+    activityMount.dataset.vibecomfyChatActivity = "1";
+    Object.assign(activityMount.style, {
+      display: "none",
+      marginTop: "8px",
+      paddingTop: "8px",
+      borderTop: "1px solid #282a32",
+      minWidth: "0",
+    });
+  }
+  body.appendChild(sessionRow);
+  body.appendChild(olderMount);
+  body.appendChild(messagesMount);
+  body.appendChild(activityMount);
+  body.appendChild(emptyMount);
+  return { sessionRow, olderMount, messagesMount, emptyMount, activityMount };
+}
+
+function renderChatSessionLink(sessionRow, panel) {
+  const sessionLabel = panel?.state?.chatSessionPath || (panel?.state?.sessionId ? `out/editor_sessions/${panel.state.sessionId}` : null);
+  if (!sessionLabel) {
+    clearNode(sessionRow);
+    sessionRow.style.display = "none";
+    return;
+  }
+  const href = `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(panel.state.sessionId || "")}`;
+  let link = sessionRow.querySelectorAll((node) => node.tagName === "A")[0] || null;
+  if (!link) {
+    clearNode(sessionRow);
+    link = el("a");
     link.target = "_blank";
     link.rel = "noopener";
     Object.assign(link.style, {
@@ -3752,143 +4018,313 @@ function renderChatThread(panel) {
       overflowWrap: "anywhere",
       wordBreak: "break-word",
     });
-    linkRow.appendChild(link);
-    body.appendChild(linkRow);
+    sessionRow.appendChild(link);
+  }
+  link.textContent = `session: ${sessionLabel}`;
+  link.href = href;
+  sessionRow.style.display = "flex";
+}
+
+function bubbleRenderSignature(panel, msg) {
+  const snapshot = detailSnapshotForMessage(panel, msg);
+  const actionState = candidateActionState(panel, msg, snapshot);
+  const signatureParts = [
+    messageSignature(msg),
+    snapshot?.phase || "",
+    snapshot?.message || "",
+    snapshot?.auditRef?.path || "",
+    snapshot?.changeDetails?.done_summary || msg?.change_details?.done_summary || "",
+    Array.isArray(snapshot?.fieldChanges) ? String(snapshot.fieldChanges.length) : "",
+    Array.isArray(msg?.field_changes) ? String(msg.field_changes.length) : "",
+    actionState.turnId || "",
+    actionState.eligibility?.reason || "",
+    actionState.eligibility?.message || "",
+    actionState.active ? "1" : "0",
+    actionState.applyDisabled ? "1" : "0",
+    actionState.rejectDisabled ? "1" : "0",
+  ];
+  return signatureParts.join("|");
+}
+
+function renderChatBubbleNode(bubble, panel, msg, messageKey, messageIndex) {
+  clearNode(bubble);
+  bubble.dataset.vibecomfyMessageKey = messageKey;
+  const isUser = msg.role === "user";
+  Object.assign(bubble.style, {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: isUser ? "flex-end" : "flex-start",
+    marginBottom: "6px",
+    maxWidth: "100%",
+    minWidth: "0",
+  });
+
+  const label = el("span", isUser ? "You" : "Agent");
+  Object.assign(label.style, {
+    fontSize: "9px",
+    fontWeight: "700",
+    color: isUser ? "#7db6ff" : "#02d4b3",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    marginBottom: "2px",
+  });
+  bubble.appendChild(label);
+
+  const text = el("div", String(msg.text || ""));
+  Object.assign(text.style, {
+    fontSize: "12px",
+    color: isUser ? "#d1d6e0" : "#c4ccd6",
+    background: isUser ? "#1a2436" : "#0f2a26",
+    padding: "6px 10px",
+    borderRadius: isUser ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
+    maxWidth: "92%",
+    wordBreak: "break-word",
+    overflowWrap: "anywhere",
+    whiteSpace: "pre-wrap",
+    lineHeight: "1.4",
+    minWidth: "0",
+  });
+  bubble.appendChild(text);
+
+  if (isUser) {
+    return;
   }
 
-  const threadMessages = Array.isArray(panel.state.chatMessages)
-    ? panel.state.chatMessages.slice()
-    : [];
-  const syntheticAgentMessage = buildSyntheticAgentMessage(panel);
-  if (syntheticAgentMessage) {
-    threadMessages.push(syntheticAgentMessage);
+  const detailTurnKey =
+    typeof msg.turn_id === "string" && msg.turn_id
+      ? `turn:${msg.turn_id}`
+      : `agent:${messageKey || messageIndex}:${String(msg.text || "").slice(0, 24)}`;
+  const detailSnapshot = detailSnapshotForMessage(panel, msg);
+  const detailRow = el("div");
+  Object.assign(detailRow.style, {
+    marginTop: "3px",
+    fontSize: "10px",
+    maxWidth: "100%",
+    minWidth: "0",
+  });
+
+  const detailToggle = el("span", "\u25b6 details");
+  Object.assign(detailToggle.style, {
+    color: "#8d93a1",
+    cursor: "pointer",
+    userSelect: "none",
+  });
+
+  const detailBody = el("div");
+  Object.assign(detailBody.style, {
+    display: "none",
+    marginTop: "4px",
+    padding: "6px 8px",
+    background: "#0d0f14",
+    border: "1px solid #282a32",
+    borderRadius: "4px",
+    fontSize: "10px",
+    color: "#8d93a1",
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gap: "4px 8px",
+    alignItems: "baseline",
+    maxWidth: "100%",
+    minWidth: "0",
+    overflow: "hidden",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+  });
+
+  // ── Lazy detail population (T13) ────────────────────────────────────
+  // Build a detail-content signature so we can skip re-population when
+  // nothing changed and avoid prebuilding detail panes for collapsed bubbles.
+  const detailSigParts = [
+    detailSnapshot?.phase || "",
+    detailSnapshot?.message || "",
+    detailSnapshot?.auditRef?.path || "",
+    detailSnapshot?.changeDetails?.done_summary || msg?.change_details?.done_summary || "",
+    Array.isArray(detailSnapshot?.fieldChanges) ? String(detailSnapshot.fieldChanges.length) : "",
+    Array.isArray(msg?.field_changes) ? String(msg.field_changes.length) : "",
+    msg?.turn_id || "",
+    String(msg?.text || "").slice(0, 80),
+  ];
+  const detailSignature = detailSigParts.join("|");
+
+  const ts = ensureThreadRenderState(panel);
+  if (!ts.bubbleDetailSignatures) {
+    ts.bubbleDetailSignatures = {};
   }
 
-  if (!threadMessages.length) {
+  let detailShown = !!panel.state.expandedBubbleTurnKeys?.[detailTurnKey];
+  const needsPopulate = detailShown && (
+    !ts.bubbleDetailSignatures[detailTurnKey] ||
+    ts.bubbleDetailSignatures[detailTurnKey] !== detailSignature
+  );
+
+  if (needsPopulate) {
+    populateAgentBubbleDetail(detailBody, panel, msg, detailSnapshot);
+    ts.bubbleDetailSignatures[detailTurnKey] = detailSignature;
+  } else if (!detailShown) {
+    // Collapsed bubble: ensure stale populated flag is cleared so next
+    // expand will repopulate when the signature changed.
+    if (ts.bubbleDetailSignatures[detailTurnKey] &&
+        ts.bubbleDetailSignatures[detailTurnKey] !== detailSignature) {
+      delete ts.bubbleDetailSignatures[detailTurnKey];
+    }
+  }
+
+  detailToggle.textContent = detailShown ? "\u25bc details" : "\u25b6 details";
+  detailBody.style.display = detailShown ? "grid" : "none";
+
+  detailToggle.onclick = function () {
+    detailShown = !detailShown;
+    if (!panel.state.expandedBubbleTurnKeys || typeof panel.state.expandedBubbleTurnKeys !== "object") {
+      panel.state.expandedBubbleTurnKeys = {};
+    }
+    if (detailShown) {
+      panel.state.expandedBubbleTurnKeys[detailTurnKey] = true;
+    } else {
+      delete panel.state.expandedBubbleTurnKeys[detailTurnKey];
+    }
+    detailToggle.textContent = detailShown ? "\u25bc details" : "\u25b6 details";
+    detailBody.style.display = detailShown ? "grid" : "none";
+
+    // Populate lazily on first expand or when the detail signature changed.
+    if (detailShown) {
+      const curTs = ensureThreadRenderState(panel);
+      if (!curTs.bubbleDetailSignatures) {
+        curTs.bubbleDetailSignatures = {};
+      }
+      if (!curTs.bubbleDetailSignatures[detailTurnKey] ||
+          curTs.bubbleDetailSignatures[detailTurnKey] !== detailSignature) {
+        populateAgentBubbleDetail(detailBody, panel, msg, detailSnapshot);
+        curTs.bubbleDetailSignatures[detailTurnKey] = detailSignature;
+      }
+    }
+  };
+
+  detailRow.appendChild(detailToggle);
+  detailRow.appendChild(detailBody);
+  bubble.appendChild(detailRow);
+}
+
+function reconcileChatBubbles(panel, messagesMount, displayEntries) {
+  const threadState = ensureThreadRenderState(panel);
+  const priorBubbleMap = threadState.bubbleMap || {};
+  const nextBubbleMap = {};
+  const nextSignatures = {};
+  const nextKeyOrder = [];
+
+  for (const entry of displayEntries) {
+    const { msg, index, key } = entry;
+    if (!msg || typeof msg !== "object" || !msg.role) {
+      continue;
+    }
+    const signature = bubbleRenderSignature(panel, msg);
+    let bubbleEntry = priorBubbleMap[key] || null;
+    if (!bubbleEntry?.node) {
+      bubbleEntry = { node: el("div") };
+      renderChatBubbleNode(bubbleEntry.node, panel, msg, key, index);
+    } else if (bubbleEntry.signature !== signature) {
+      renderChatBubbleNode(bubbleEntry.node, panel, msg, key, index);
+    }
+    bubbleEntry.signature = signature;
+    nextBubbleMap[key] = bubbleEntry;
+    nextSignatures[key] = signature;
+    nextKeyOrder.push(key);
+    messagesMount.appendChild(bubbleEntry.node);
+  }
+
+  for (const [key, bubbleEntry] of Object.entries(priorBubbleMap)) {
+    if (nextBubbleMap[key]) {
+      continue;
+    }
+    if (bubbleEntry?.node?.parentNode === messagesMount) {
+      messagesMount.removeChild(bubbleEntry.node);
+    }
+  }
+
+  threadState.renderedKeyOrder = nextKeyOrder;
+  threadState.bubbleMap = nextBubbleMap;
+  threadState.signatures = nextSignatures;
+  threadState.lastVisibleKeySet = new Set(nextKeyOrder);
+}
+
+function renderShowEarlierMessages(panel, olderMount, hiddenCount) {
+  if (!olderMount) {
+    return;
+  }
+  if (!Number.isFinite(hiddenCount) || hiddenCount <= 0) {
+    clearNode(olderMount);
+    olderMount.style.display = "none";
+    return;
+  }
+  clearNode(olderMount);
+  const showEarlierButton = button("Show earlier messages", () => {
+    const threadState = ensureThreadRenderState(panel);
+    if (threadState.expandedOlder) {
+      return;
+    }
+    threadState.expandedOlder = true;
+    markAgentPanelDirty(panel, [RENDER_SECTIONS.THREAD]);
+    renderAgentPanel(panel, { dirtySections: [RENDER_SECTIONS.THREAD] });
+  });
+  showEarlierButton.dataset.vibecomfyShowEarlierMessages = "1";
+  showEarlierButton.title = `${hiddenCount} earlier message${hiddenCount === 1 ? "" : "s"} hidden`;
+  Object.assign(showEarlierButton.style, {
+    padding: "4px 8px",
+    fontSize: "10px",
+    lineHeight: "1.3",
+  });
+  olderMount.appendChild(showEarlierButton);
+  olderMount.style.display = "block";
+}
+
+function computeThreadDisplayEntries(panel, threadEntries) {
+  const threadState = ensureThreadRenderState(panel);
+  if (threadState.expandedOlder || threadEntries.length <= THREAD_WINDOW_SIZE) {
+    return {
+      displayEntries: threadEntries,
+      hiddenCount: 0,
+    };
+  }
+  return {
+    displayEntries: threadEntries.slice(-THREAD_WINDOW_SIZE),
+    hiddenCount: Math.max(0, threadEntries.length - THREAD_WINDOW_SIZE),
+  };
+}
+
+function renderChatThread(panel) {
+  const body = panel.sections.chat;
+  const { sessionRow, olderMount, messagesMount, emptyMount, activityMount } = ensureChatThreadMounts(body);
+  // Wire the shared activity mount for turn-progress rows (T13).
+  if (activityMount && panel.sections) {
+    panel.sections.history = activityMount;
+  }
+  renderChatSessionLink(sessionRow, panel);
+
+  const threadEntries = collectThreadMessageEntries(panel);
+  if (!threadEntries.length) {
+    renderShowEarlierMessages(panel, olderMount, 0);
+    clearNode(messagesMount);
+    ensureThreadRenderState(panel).renderedKeyOrder = [];
+    panel.threadState.bubbleMap = {};
+    panel.threadState.forceScrollOnNextRender = true;
+    panel.threadState.signatures = {};
+    panel.threadState.lastVisibleKeySet = null;
+    clearNode(emptyMount);
     if (panel.state.chatError) {
       const errEl = el("div", `Chat unavailable: ${panel.state.chatError}`);
       errEl.style.color = "#ffb86c";
       errEl.style.fontSize = "11px";
-      body.appendChild(errEl);
+      emptyMount.appendChild(errEl);
     }
-    // Welcome / example prompts — shown only when the thread is empty.
-    _renderWelcomeExamples(body);
-    return;
+    _renderWelcomeExamples(emptyMount);
+    emptyMount.style.display = "grid";
+    return false;
   }
 
-  // Render the last 5 messages, newest at bottom (natural chronological order).
-  const displayMessages = threadMessages.slice(-5);
-
-  for (let mi = 0; mi < displayMessages.length; mi += 1) {
-    const msg = displayMessages[mi];
-    if (!msg || typeof msg !== "object" || !msg.role) {
-      continue;
-    }
-    const isUser = msg.role === "user";
-    const bubble = el("div");
-    Object.assign(bubble.style, {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: isUser ? "flex-end" : "flex-start",
-      marginBottom: "6px",
-      maxWidth: "100%",
-      minWidth: "0",
-    });
-
-    const label = el("span", isUser ? "You" : "Agent");
-    Object.assign(label.style, {
-      fontSize: "9px",
-      fontWeight: "700",
-      color: isUser ? "#7db6ff" : "#02d4b3",
-      textTransform: "uppercase",
-      letterSpacing: "0.05em",
-      marginBottom: "2px",
-    });
-    bubble.appendChild(label);
-
-    const text = el("div", String(msg.text || ""));
-    Object.assign(text.style, {
-      fontSize: "12px",
-      color: isUser ? "#d1d6e0" : "#c4ccd6",
-      background: isUser ? "#1a2436" : "#0f2a26",
-      padding: "6px 10px",
-      borderRadius: isUser ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
-      maxWidth: "92%",
-      wordBreak: "break-word",
-      overflowWrap: "anywhere",
-      whiteSpace: "pre-wrap",
-      lineHeight: "1.4",
-      minWidth: "0",
-    });
-    bubble.appendChild(text);
-
-    // Agent detail: collapsed bubble-local control with reusable turn fragments.
-    if (!isUser) {
-      const detailTurnKey =
-        typeof msg.turn_id === "string" && msg.turn_id
-          ? `turn:${msg.turn_id}`
-          : `agent:${mi}:${String(msg.text || "").slice(0, 24)}`;
-      const detailSnapshot = detailSnapshotForMessage(panel, msg);
-      const detailRow = el("div");
-      Object.assign(detailRow.style, {
-        marginTop: "3px",
-        fontSize: "10px",
-        maxWidth: "100%",
-        minWidth: "0",
-      });
-
-      const detailToggle = el("span", "\u25b6 details");
-      Object.assign(detailToggle.style, {
-        color: "#8d93a1",
-        cursor: "pointer",
-        userSelect: "none",
-      });
-
-      const detailBody = el("div");
-      Object.assign(detailBody.style, {
-        display: "none",
-        marginTop: "4px",
-        padding: "6px 8px",
-        background: "#0d0f14",
-        border: "1px solid #282a32",
-        borderRadius: "4px",
-        fontSize: "10px",
-        color: "#8d93a1",
-        gridTemplateColumns: "minmax(0, 1fr)",
-        gap: "4px 8px",
-        alignItems: "baseline",
-        maxWidth: "100%",
-        minWidth: "0",
-        overflow: "hidden",
-        overflowWrap: "anywhere",
-        wordBreak: "break-word",
-      });
-
-      let detailShown = !!panel.state.expandedBubbleTurnKeys?.[detailTurnKey];
-      detailToggle.onclick = function () {
-        detailShown = !detailShown;
-        if (!panel.state.expandedBubbleTurnKeys || typeof panel.state.expandedBubbleTurnKeys !== "object") {
-          panel.state.expandedBubbleTurnKeys = {};
-        }
-        if (detailShown) {
-          panel.state.expandedBubbleTurnKeys[detailTurnKey] = true;
-        } else {
-          delete panel.state.expandedBubbleTurnKeys[detailTurnKey];
-        }
-        detailToggle.textContent = detailShown ? "\u25bc details" : "\u25b6 details";
-        detailBody.style.display = detailShown ? "grid" : "none";
-      };
-      populateAgentBubbleDetail(detailBody, panel, msg, detailSnapshot);
-      detailToggle.textContent = detailShown ? "\u25bc details" : "\u25b6 details";
-      detailBody.style.display = detailShown ? "grid" : "none";
-
-      detailRow.appendChild(detailToggle);
-      detailRow.appendChild(detailBody);
-      bubble.appendChild(detailRow);
-    }
-
-    body.appendChild(bubble);
-  }
+  emptyMount.style.display = "none";
+  clearNode(emptyMount);
+  const { displayEntries, hiddenCount } = computeThreadDisplayEntries(panel, threadEntries);
+  renderShowEarlierMessages(panel, olderMount, hiddenCount);
+  reconcileChatBubbles(panel, messagesMount, displayEntries);
+  return true;
 }
 
 function populateAgentBubbleDetail(target, panel, message, snapshot = null) {
@@ -3898,13 +4334,9 @@ function populateAgentBubbleDetail(target, panel, message, snapshot = null) {
   appendTurnMeta(metaSection.body, panel, message, snapshot);
   target.appendChild(metaSection.section);
 
-  const progressSection = createBubbleDetailSection("Progress");
-  populateActivityRows(progressSection.body, panel, {
-    sessionId: snapshot?.session_id || message?.session_id || panel?.state?.sessionId || null,
-  });
-  if (progressSection.body.children.length) {
-    target.appendChild(progressSection.section);
-  }
+  // Live turn-progress rows are now rendered once in the shared activity
+  // section (renderActivityRows) instead of being duplicated inside every
+  // expanded bubble detail (T13 deduplication).
 
   const changeDetails = changeDetailsForMessage(panel, message, snapshot);
   if (changeDetails) {
@@ -4094,10 +4526,15 @@ function populateActivityRows(body, panel, { sessionId = null } = {}) {
 }
 
 function renderActivityRows(panel) {
-  if (!panel?.sections?.history) {
+  const mount = panel?.sections?.history;
+  if (!mount) {
     return;
   }
-  populateActivityRows(panel.sections.history, panel);
+  populateActivityRows(mount, panel);
+  // Show the shared activity mount only when it contains rows; hide it when
+  // empty to avoid consuming space in the thread area unnecessarily.
+  const hasContent = mount.children.length > 0;
+  mount.style.display = hasContent ? "" : "none";
 }
 
 function scrollChatThreadToBottom(panel) {
@@ -4112,9 +4549,31 @@ function scrollChatThreadToBottom(panel) {
   container.dataset.vibecomfyScrolledToBottom = "1";
 }
 
+function isChatThreadNearBottom(panel) {
+  const container = panel?.thread;
+  if (!container) {
+    return true;
+  }
+  const scrollHeight = Number(container.scrollHeight);
+  const clientHeight = Number(container.clientHeight);
+  const scrollTop = Number(container.scrollTop);
+  if (Number.isFinite(scrollHeight) && Number.isFinite(clientHeight) && Number.isFinite(scrollTop)) {
+    const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
+    return distanceFromBottom <= THREAD_NEAR_BOTTOM_TOLERANCE_PX;
+  }
+  return container.dataset?.vibecomfyScrolledToBottom === "1";
+}
+
 function renderHistory(panel) {
-  renderChatThread(panel);
-  scrollChatThreadToBottom(panel);
+  const threadState = ensureThreadRenderState(panel);
+  const shouldAutoScroll = Boolean(threadState.forceScrollOnNextRender) || isChatThreadNearBottom(panel);
+  const hasMessages = renderChatThread(panel);
+  if (hasMessages && shouldAutoScroll) {
+    scrollChatThreadToBottom(panel);
+    threadState.forceScrollOnNextRender = false;
+  } else if (panel?.thread) {
+    panel.thread.dataset.vibecomfyScrolledToBottom = "0";
+  }
 }
 
 function collectDiffRows(report) {
@@ -4250,15 +4709,6 @@ function clearCandidatePreviewState(panel) {
     // Best-effort: a failed dirty-canvas call should not block cleanup.
     console.warn("[vibecomfy] clearCandidatePreviewState canvas dirty failed:", e);
   }
-}
-
-function invalidateCandidateState(panel, { repaint = true } = {}) {
-  if (!panel) {
-    return;
-  }
-  // Delegate lifecycle field clearing to the store.
-  transition(panel, "INVALIDATE_CANDIDATE", { repaint });
-  clearCandidateInvalidationSideEffects(repaint);
 }
 
 function clearCandidateInvalidationSideEffects(repaint = true) {
@@ -6118,16 +6568,20 @@ function renderComposerNotice(panel, readinessState) {
   notice.style.display = hasContent ? "block" : "none";
 }
 
-export function renderAgentPanel(panel) {
-  if (!panel?.root) {
-    return;
+function recordAgentPanelRenderCount(panel, section) {
+  if (!panel || typeof section !== "string" || !section) {
+    return 0;
   }
-  if (typeof document === "undefined") {
-    return;
+  if (!panel.__renderCounts || typeof panel.__renderCounts !== "object") {
+    panel.__renderCounts = {};
   }
-  if (panel.root.ownerDocument !== document) {
-    return;
-  }
+  const nextCount = (panel.__renderCounts[section] || 0) + 1;
+  panel.__renderCounts[section] = nextCount;
+  return nextCount;
+}
+
+function renderPanelMetaAndStatus(panel) {
+  recordAgentPanelRenderCount(panel, RENDER_SECTIONS.META);
   renderMeta(panel);
 
   const phase = panel.state.phase;
@@ -6139,14 +6593,21 @@ export function renderAgentPanel(panel) {
         ? "#7db6ff"
         : phase === PANEL_STATE.SUBMITTING
           ? "#ffd36f"
-          : phase === PANEL_STATE.CLARIFY
+      : phase === PANEL_STATE.CLARIFY
             ? "#ffc107"
             : "#9da1ac";
+}
 
+function renderThreadSection(panel) {
+  recordAgentPanelRenderCount(panel, RENDER_SECTIONS.THREAD);
   renderHistory(panel);
-  renderSettings(panel);
-  renderDeveloper(panel);
+  // Shared live turn-progress rows rendered once per panel thread render (T13).
+  renderActivityRows(panel);
+}
 
+function renderComposerActions(panel) {
+  recordAgentPanelRenderCount(panel, RENDER_SECTIONS.COMPOSER);
+  const phase = panel.state.phase;
   const submitting = phase === PANEL_STATE.SUBMITTING;
   const reviewing = phase === PANEL_STATE.AWAITING_REVIEW;
   const applying = phase === PANEL_STATE.APPLYING;
@@ -6196,7 +6657,6 @@ export function renderAgentPanel(panel) {
     submitting,
     showUndo: panel.state.undoStack.length > 0,
   });
-  renderComposerNotice(panel, readinessState);
 
   setButtonEmphasis(panel.buttons.submit, (canSubmit && readinessState.ready) || submitting, "primary");
   setButtonEmphasis(panel.buttons.stop, submitting, "danger");
@@ -6206,6 +6666,84 @@ export function renderAgentPanel(panel) {
   setButtonEmphasis(panel.buttons.close, true, "neutral");
   setButtonEmphasis(panel.buttons.settingsSave, true, "neutral");
   setButtonEmphasis(panel.buttons.settingsTest, true, "neutral");
+}
+
+function renderComposerNoticeSection(panel) {
+  recordAgentPanelRenderCount(panel, RENDER_SECTIONS.NOTICE);
+  renderComposerNotice(panel, submitReadinessState(panel));
+}
+
+function renderSettingsSection(panel) {
+  recordAgentPanelRenderCount(panel, RENDER_SECTIONS.SETTINGS);
+  renderSettings(panel);
+}
+
+function renderDeveloperSection(panel) {
+  recordAgentPanelRenderCount(panel, RENDER_SECTIONS.DEVELOPER);
+  renderDeveloper(panel);
+}
+
+function renderAgentPanelSections(panel, dirtySections = ALL_AGENT_PANEL_RENDER_SECTIONS) {
+  if (!panel?.root) {
+    return;
+  }
+  if (typeof document === "undefined") {
+    return;
+  }
+  if (panel.root.ownerDocument !== document) {
+    return;
+  }
+  const requestedSections = Array.isArray(dirtySections)
+    ? new Set(dirtySections)
+    : new Set(ALL_AGENT_PANEL_RENDER_SECTIONS);
+  if (requestedSections.has(RENDER_SECTIONS.META)) {
+    renderPanelMetaAndStatus(panel);
+  }
+  if (requestedSections.has(RENDER_SECTIONS.THREAD)) {
+    renderThreadSection(panel);
+  }
+  if (requestedSections.has(RENDER_SECTIONS.COMPOSER)) {
+    renderComposerActions(panel);
+  }
+  if (requestedSections.has(RENDER_SECTIONS.NOTICE)) {
+    renderComposerNoticeSection(panel);
+  }
+  if (!panel.__sectionsEverRendered) {
+    panel.__sectionsEverRendered = {};
+  }
+  if (requestedSections.has(RENDER_SECTIONS.SETTINGS)) {
+    renderSettingsSection(panel);
+    panel.__sectionsEverRendered.SETTINGS = true;
+  }
+  if (requestedSections.has(RENDER_SECTIONS.DEVELOPER)) {
+    renderDeveloperSection(panel);
+    panel.__sectionsEverRendered.DEVELOPER = true;
+  }
+  panel.lastRenderedDirtySections = Array.isArray(dirtySections) ? dirtySections.slice() : [];
+}
+
+export function renderDirtyAgentPanelSections(panel, obligations = {}) {
+  if (!panel?.root) {
+    return [];
+  }
+  if (typeof document === "undefined") {
+    return [];
+  }
+  if (panel.root.ownerDocument !== document) {
+    return [];
+  }
+  const normalized = normalizeObligationDirtySections(obligations) || obligations;
+  const fallbackSections =
+    normalized && typeof normalized === "object" && "dirtySections" in normalized
+      ? normalized.dirtySections
+      : ALL_AGENT_PANEL_RENDER_SECTIONS;
+  const dirtySections = consumeAgentPanelDirtySections(panel, fallbackSections);
+  renderAgentPanelSections(panel, dirtySections);
+  return dirtySections;
+}
+
+export function renderAgentPanel(panel, obligations = {}) {
+  return renderDirtyAgentPanelSections(panel, obligations);
 }
 
 function agentPanelFailure(kind, message, extra = {}) {
@@ -6230,7 +6768,7 @@ async function saveAgentSettings(panel) {
   const descriptor = getRouteDescriptor(panel, route);
   if (routeStatusState(panel).kind !== ROUTE_STATUS_KIND.READY || !descriptor) {
     panel.state.settingsMessage = "Route/model controls are unavailable until /vibecomfy/agent/status returns a valid payload.";
-    renderAgentPanel(panel);
+    renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
     return;
   }
   const apiKey = panel.fields.apiKey.value;
@@ -6261,7 +6799,7 @@ async function testAgentSettings(panel) {
     return;
   }
   panel.state.settingsMessage = "Testing provider status…";
-  renderAgentPanel(panel);
+  renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
   await refreshAgentStatus(panel);
 }
 
@@ -6275,6 +6813,7 @@ async function newAgentConversation(panel) {
   const obligations = transition(panel, "NEW_CONVERSATION");
   // Clear chat / session state
   panel.state.chatMessages = [];
+  resetThreadRenderState(panel);
   panel.state.chatLoaded = false;
   panel.state.chatError = null;
   panel.state.chatSessionPath = null;
@@ -6339,7 +6878,10 @@ function isSubmitResponseValid(result, outcome, candidateGraph) {
   return candidateGraph && typeof candidateGraph === "object";
 }
 
-function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
+export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
+  if (Array.isArray(obligations?.dirtySections) && obligations.dirtySections.length) {
+    markAgentPanelDirty(panel, obligations.dirtySections);
+  }
   if (obligations.invalidateCandidate) {
     clearCandidateInvalidationSideEffects(false);
   }
@@ -6371,7 +6913,7 @@ function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
 
 function renderLifecycleTransition(panel, obligations = {}) {
   if (obligations.render) {
-    renderAgentPanel(panel);
+    renderDirtyAgentPanelSections(panel, obligations);
   }
   if (obligations.focusPrompt) {
     const promptEl = document.getElementById(PANEL_IDS.prompt) || panel?.fields?.prompt;
@@ -7024,6 +7566,7 @@ async function applyAgentCandidate(panel) {
       captured_at: new Date().toISOString(),
     });
     panel.state.undoStack = panel.state.undoStack.slice(-16);
+    markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
 
     try {
       applyGraphInPlaceWithIntentDecoration(panel.state.candidateGraph);
