@@ -44,6 +44,11 @@ def test_failure_kind_enum_matches_closed_contract_exactly() -> None:
         "EditorOnlyNodeQueueBlocker",
         "AuditWriteWarning",
         "AuditWriteFailure",
+        "BatchBudgetExhausted",
+        "ClarificationRequired",
+        "ModelMistake",
+        "Unrepresentable",
+        "SchemaGap",
     ]
 
 
