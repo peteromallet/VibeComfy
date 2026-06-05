@@ -622,17 +622,15 @@ test("VibeComfy renders a clarify turn as a question, not a no-op candidate", as
           session_id: "session-clarify",
           turn_id: "0001",
           baseline_turn_id: null,
-          // The backend honestly reports: no edits landed, graph unchanged,
-          // nothing applyable, and a clarification question.
-          clarification_required: true,
+          outcome: {
+            kind: "clarify",
+            question: clarifyQuestion,
+          },
           graph_unchanged: true,
           canvas_apply_allowed: false,
           apply_allowed: false,
           queue_allowed: false,
           message: clarifyQuestion,
-          // The backend still echoes the (unchanged) graph in the envelope; the
-          // frontend must NOT treat that as a candidate to apply.
-          graph: { nodes: [{ id: 1, type: "CheckpointLoaderSimple", properties: { vibecomfy_uid: "uid-1" } }], links: [] },
           report: { clarification_required: true },
           audit_ref: { path: "/tmp/clarify-audit.json" },
         },
@@ -679,6 +677,325 @@ test("VibeComfy renders a clarify turn as a question, not a no-op candidate", as
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
   } finally {
     await Promise.allSettled([submitPromise].filter(Boolean));
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy reads typed candidate and eligibility envelopes without compatibility mirrors", async () => {
+  const SESSION_ID = "session-typed-candidate";
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          turn_id: "0002",
+          baseline_turn_id: null,
+          candidate: {
+            graph: candidateGraph,
+          },
+          eligibility: {
+            applyable: true,
+            reason: "applyable",
+            message: "Apply is allowed.",
+            warnings: [],
+          },
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: true,
+          message: "Typed candidate ready.",
+          report: {
+            change: {
+              content_edits: {
+                preserved: ["uid-1"],
+                new_auto_placed: ["uid-2"],
+              },
+            },
+          },
+          audit_ref: { path: "/tmp/typed-candidate-audit.json" },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "accept",
+          session_id: SESSION_ID,
+          turn_id: "0002",
+          baseline_turn_id: "0002",
+          baseline_graph_hash: "baseline-typed-candidate",
+          queue_allowed: true,
+          audit_ref: { path: "/tmp/typed-candidate-accept.json" },
+        },
+      },
+      [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [],
+          session_path: `out/editor_sessions/${SESSION_ID}/`,
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
+    await harness.clickButton("Submit");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
+    assert.match(harness.textDump(), /Typed candidate ready/);
+    assert.match(harness.textDump(), /apply_eligibility=applyable/);
+
+    await harness.clickButton("Apply Candidate");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "IDLE");
+    assert.match(harness.textDump(), /Applied candidate feedback: changed nodes were highlighted on the canvas temporarily\./);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy ignores raw apply booleans when canonical eligibility authorizes Apply", async () => {
+  const SESSION_ID = "session-raw-bools-ignored";
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          turn_id: "0004",
+          baseline_turn_id: null,
+          candidate: {
+            graph: candidateGraph,
+          },
+          eligibility: {
+            applyable: true,
+            reason: "applyable",
+            message: "Apply is allowed via canonical eligibility.",
+            warnings: [],
+          },
+          // Raw booleans set to false — UI must ignore them.
+          canvas_apply_allowed: false,
+          apply_allowed: false,
+          queue_allowed: true,
+          message: "Candidate with canonical eligibility but raw booleans false.",
+          report: {
+            change: {
+              content_edits: {
+                preserved: ["uid-1"],
+                new_auto_placed: ["uid-2"],
+              },
+            },
+          },
+          audit_ref: { path: "/tmp/raw-bools-ignored-audit.json" },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "accept",
+          session_id: SESSION_ID,
+          turn_id: "0004",
+          baseline_turn_id: "0004",
+          queue_allowed: true,
+          audit_ref: { path: "/tmp/raw-bools-ignored-accept.json" },
+        },
+      },
+      [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [],
+          session_path: `out/editor_sessions/${SESSION_ID}/`,
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
+    await harness.clickButton("Submit");
+
+    // Apply must be ENABLED because canonical eligibility says applyable:true,
+    // even though raw apply_allowed and canvas_apply_allowed are false.
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
+    assert.match(harness.textDump(), /apply_eligibility=applyable/);
+
+    // Verify Apply actually works — not gated by raw booleans.
+    await harness.clickButton("Apply Candidate");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "IDLE");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy disables Apply and warns when a candidate arrives without canonical eligibility", async () => {
+  const SESSION_ID = "session-missing-eligibility";
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: {
+      nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+      links: [],
+    },
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          turn_id: "0003",
+          baseline_turn_id: null,
+          candidate: {
+            graph: candidateGraph,
+          },
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: true,
+          message: "Candidate missing eligibility contract.",
+          report: {
+            change: {
+              content_edits: {
+                preserved: ["uid-1"],
+                new_auto_placed: ["uid-2"],
+              },
+            },
+          },
+          audit_ref: { path: "/tmp/missing-eligibility-audit.json" },
+        },
+      },
+      [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [],
+          session_path: `out/editor_sessions/${SESSION_ID}/`,
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
+    await harness.clickButton("Submit");
+
+    const applyButton = harness.document.getElementById("vibecomfy-agent-panel-apply");
+    assert.equal(applyButton?.disabled, true);
+    assert.match(harness.textDump(), /apply_eligibility=missing_contract/);
+    assert.match(harness.textDump(), /Backend response omitted canonical eligibility for this candidate/);
+    assert.equal(
+      harness.consoleCapture.warn.filter((line) => line.includes("omitted canonical eligibility")).length,
+      1,
+    );
+
+    await harness.clickButton("Apply Candidate");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
+  } finally {
     await harness.dispose();
   }
 });
@@ -888,6 +1205,12 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
         canvas_apply_allowed: false,
         apply_allowed: true,
         queue_allowed: false,
+        apply_eligibility: {
+          applyable: false,
+          reason: "server_blocked",
+          message: "Server validation gates blocked Apply.",
+          warnings: [],
+        },
         message: "Preview only.",
         graph: candidateGraph,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
@@ -904,6 +1227,12 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
+        apply_eligibility: {
+          applyable: true,
+          reason: "queue_blocked_warning",
+          message: "Apply is allowed, but Queue remains blocked for this candidate.",
+          warnings: ["queue_blocked"],
+        },
         message: "Allowed candidate.",
         graph: candidateGraph,
         submit_graph_hash: initialGraphHash,
@@ -922,6 +1251,12 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
+        apply_eligibility: {
+          applyable: true,
+          reason: "queue_blocked_warning",
+          message: "Apply is allowed, but Queue remains blocked for this candidate.",
+          warnings: ["queue_blocked"],
+        },
         message: "Stale candidate.",
         graph: candidateGraph,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
@@ -937,6 +1272,12 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
+        apply_eligibility: {
+          applyable: true,
+          reason: "queue_blocked_warning",
+          message: "Apply is allowed, but Queue remains blocked for this candidate.",
+          warnings: ["queue_blocked"],
+        },
         message: "Backend will reject accept.",
         graph: candidateGraph,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
@@ -1259,6 +1600,12 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
           message: "Allowed candidate.",
           graph: candidateGraph,
           submit_graph_hash: initialGraphHash,
@@ -1373,6 +1720,12 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
           message: "Allowed candidate.",
           graph: candidateGraph,
           submit_graph_hash: initialGraphHash,
@@ -1477,6 +1830,12 @@ test("VibeComfy Apply blocks structural drift even when the live canvas revision
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
           message: "Allowed candidate.",
           graph: candidateGraph,
           submit_graph_hash: initialGraphHash,
@@ -1552,6 +1911,12 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
           graph: candidateGraph,
           submit_graph_hash: initialGraphHash,
           candidate_graph_hash: candidateGraphHash,
@@ -1644,6 +2009,12 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
           message: "Fallback candidate.",
           graph: candidateGraph,
           report: { change: { content_edits: { preserved: [], edited: ["uid-missing"], removed_named: [] } }, recovery: [] },
@@ -1757,6 +2128,12 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
           message: "Styled intent candidate.",
           graph: candidateGraph,
           report: { change: { content_edits: { preserved: ["uid-1"], edited: [], removed_named: [] } }, recovery: [] },
@@ -1986,6 +2363,112 @@ test("VibeComfy provider settings normalize routes, use DeepSeek-only password e
   }
 });
 
+test("VibeComfy route/model controls stay explicit across loading, missing-route-options, malformed-status, and unavailable status states", async () => {
+  let statusCalls = 0;
+  const readyRouteOptions = {
+    auto: {
+      requested_route: "auto",
+      normalized_route: "arnold",
+      browser_api_key_allowed: false,
+      guidance: "Use local Arnold/Hermes setup for this route. Browser-submitted API keys are not stored.",
+      tos_acknowledgement_required: false,
+    },
+    deepseek: {
+      requested_route: "deepseek",
+      normalized_route: "deepseek",
+      browser_api_key_allowed: true,
+      guidance: "DeepSeek browser key submission is supported and stored locally.",
+      tos_acknowledgement_required: false,
+    },
+  };
+
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": async () => {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              provider_available: true,
+              route: "arnold",
+              requested_route: "auto",
+              route_options: readyRouteOptions,
+            },
+          };
+        }
+        if (statusCalls === 2) {
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              provider_available: true,
+              route: "arnold",
+              requested_route: "auto",
+            },
+          };
+        }
+        if (statusCalls === 3) {
+          return {
+            status: 200,
+            body: "not-an-object",
+          };
+        }
+        throw new Error("network down");
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+
+    const routeSelect = harness.document.getElementById("vibecomfy-agent-panel-route");
+    const modelInput = harness.document.getElementById("vibecomfy-agent-panel-model");
+    assert.equal(routeSelect.disabled, true);
+    assert.equal(modelInput.disabled, true);
+    assert.equal(routeSelect.children.length, 1);
+    assert.match(routeSelect.children[0].textContent, /Loading route\/model status/);
+
+    await waitFor(() => statusCalls === 1);
+    assert.equal(routeSelect.disabled, false);
+    assert.equal(modelInput.disabled, false);
+    assert.deepEqual(routeSelect.children.map((entry) => entry.value), ["auto", "deepseek"]);
+
+    await harness.clickButton("Test Provider");
+    await waitFor(() => statusCalls === 2);
+    assert.equal(routeSelect.disabled, true);
+    assert.equal(modelInput.disabled, true);
+    assert.equal(routeSelect.children.length, 1);
+    assert.match(routeSelect.children[0].textContent, /Route options unavailable/);
+    assert.match(harness.textDump(), /Status missing route options; route\/model controls disabled\./);
+
+    await harness.clickButton("Test Provider");
+    await waitFor(() => statusCalls === 3);
+    assert.equal(routeSelect.disabled, true);
+    assert.equal(modelInput.disabled, true);
+    assert.equal(routeSelect.children.length, 1);
+    assert.match(routeSelect.children[0].textContent, /Malformed status payload/);
+    assert.match(harness.textDump(), /Malformed status payload; route\/model controls disabled\./);
+
+    await harness.clickButton("Test Provider");
+    await waitFor(() => statusCalls === 4);
+    assert.equal(routeSelect.disabled, true);
+    assert.equal(modelInput.disabled, true);
+    assert.equal(routeSelect.children.length, 1);
+    assert.match(routeSelect.children[0].textContent, /Status unavailable/);
+    assert.match(harness.textDump(), /Status unavailable: Error: network down/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy surfaces network and malformed accept failures with retry guidance and without canvas mutation", async () => {
   const initialGraph = {
     nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
@@ -2038,6 +2521,12 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
             canvas_apply_allowed: true,
             apply_allowed: true,
             queue_allowed: false,
+            apply_eligibility: {
+              applyable: true,
+              reason: "queue_blocked_warning",
+              message: "Apply is allowed, but Queue remains blocked for this candidate.",
+              warnings: ["queue_blocked"],
+            },
             message: "Candidate after retry.",
             graph: candidateGraph,
             report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
@@ -2532,6 +3021,12 @@ test("VibeComfy turn history tracks pending/candidate/applied/rejected/failed st
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
+        apply_eligibility: {
+          applyable: true,
+          reason: "queue_blocked_warning",
+          message: "Apply is allowed, but Queue remains blocked for this candidate.",
+          warnings: ["queue_blocked"],
+        },
         message: "First turn candidate ready.",
         graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-a" } }], links: [] },
         report: { change: { content_edits: { preserved: ["uid-a"], edited: [], removed_named: [] } }, recovery: [] },
@@ -2741,6 +3236,12 @@ test("VibeComfy agent turn websocket listener ignores closed or foreign sessions
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
+        apply_eligibility: {
+          applyable: true,
+          reason: "queue_blocked_warning",
+          message: "Apply is allowed, but Queue remains blocked for this candidate.",
+          warnings: ["queue_blocked"],
+        },
         message: "Candidate after batch replay.",
         graph: candidateGraph,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
@@ -3083,6 +3584,12 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
+        apply_eligibility: {
+          applyable: true,
+          reason: "queue_blocked_warning",
+          message: "Apply is allowed, but Queue remains blocked for this candidate.",
+          warnings: ["queue_blocked"],
+        },
         message: "Candidate with authoritative batch_turns fallback.",
         graph: candidateGraph,
         report: { change: { content_edits: { preserved: ["uid-1"], edited: ["uid-2"], removed_named: [] } }, recovery: [] },
@@ -4015,6 +4522,589 @@ test("VibeComfy agent submit on failure path still persists session_id for recov
       "sess-fail-1",
       "localStorage must persist session_id even on submit failure",
     );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ── M4a: ComfyUI adapter capability detection ──────────────────────────
+
+test("VibeComfy comfy_adapter detects all capabilities on a supported 1.39.x harness shape", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+    },
+  });
+
+  try {
+    const adapter = await harness.loadAdapter();
+
+    // Supported harness: app.canvas.graph has clear/configure,
+    // app.canvas.onDrawForeground is assignable (null by default),
+    // app.queuePrompt is present.
+    const caps = adapter.detectCapabilities(harness.app, harness.window, "1.39.19");
+
+    // All three capabilities should be available.
+    assert.equal(caps.graphApply.available, true);
+    assert.match(caps.graphApply.detail, /clear/);
+    assert.equal(caps.graphApply.path, "app.canvas.graph");
+
+    assert.equal(caps.previewForeground.available, true);
+    assert.match(caps.previewForeground.detail, /Instance-level/);
+    assert.equal(caps.previewForeground.path, "app.canvas.onDrawForeground");
+
+    assert.equal(caps.queueGuard.available, true);
+    assert.match(caps.queueGuard.detail, /interceptable/);
+    assert.equal(caps.queueGuard.path, "app.queuePrompt");
+
+    assert.equal(caps.supportsAll, true);
+    assert.equal(caps.frontendVersion, "1.39.19");
+    assert.equal(caps.frontendMajor, "1.39");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter detects degraded capabilities when hooks are missing", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.37.0" } },
+      },
+    },
+  });
+
+  try {
+    const adapter = await harness.loadAdapter();
+
+    // Test each degraded variant via buildMockAppFromProfile.
+    const variants = adapter.HARNESS_PROFILE_DEGRADED.variants;
+
+    // missing-graph-apply
+    {
+      const { app: degradedApp, window: degradedWindow } =
+        adapter.buildMockAppFromProfile(adapter.HARNESS_PROFILE_DEGRADED, "missing-graph-apply");
+      const caps = adapter.detectCapabilities(degradedApp, degradedWindow, "1.37.0");
+      assert.equal(caps.graphApply.available, false);
+      assert.equal(caps.previewForeground.available, true);
+      assert.equal(caps.queueGuard.available, true);
+      assert.equal(caps.supportsAll, false);
+    }
+
+    // missing-preview-foreground
+    {
+      const { app: degradedApp, window: degradedWindow } =
+        adapter.buildMockAppFromProfile(adapter.HARNESS_PROFILE_DEGRADED, "missing-preview-foreground");
+      const caps = adapter.detectCapabilities(degradedApp, degradedWindow, "1.37.0");
+      assert.equal(caps.graphApply.available, true);
+      assert.equal(caps.previewForeground.available, false);
+      assert.equal(caps.queueGuard.available, true);
+      assert.equal(caps.supportsAll, false);
+    }
+
+    // missing-queue-guard
+    {
+      const { app: degradedApp, window: degradedWindow } =
+        adapter.buildMockAppFromProfile(adapter.HARNESS_PROFILE_DEGRADED, "missing-queue-guard");
+      const caps = adapter.detectCapabilities(degradedApp, degradedWindow, "1.37.0");
+      assert.equal(caps.graphApply.available, true);
+      assert.equal(caps.previewForeground.available, true);
+      assert.equal(caps.queueGuard.available, false);
+      assert.equal(caps.supportsAll, false);
+    }
+
+    // missing-all
+    {
+      const { app: degradedApp, window: degradedWindow } =
+        adapter.buildMockAppFromProfile(adapter.HARNESS_PROFILE_DEGRADED, "missing-all");
+      const caps = adapter.detectCapabilities(degradedApp, degradedWindow, "1.37.0");
+      assert.equal(caps.graphApply.available, false);
+      assert.equal(caps.previewForeground.available, false);
+      assert.equal(caps.queueGuard.available, false);
+      assert.equal(caps.supportsAll, false);
+    }
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter applies candidate graphs in place with clear-before-configure, decoration hooks, and repaint", async () => {
+  const harness = await createBrowserHarness();
+
+  try {
+    const adapter = await harness.loadAdapter();
+    const candidateGraph = {
+      nodes: [{ id: 7, type: "SaveImage", properties: { vibecomfy_uid: "uid-7" } }],
+      links: [],
+    };
+
+    adapter.applyGraphCandidateInPlace(harness.app, candidateGraph, {
+      beforeConfigure(nextCandidate) {
+        nextCandidate.nodes[0].properties.decorated_before_configure = true;
+      },
+      afterConfigure(graph) {
+        graph._nodes[0].boxcolor = "#123456";
+      },
+    });
+
+    const clearIndex = harness.operationLog.findIndex((entry) => entry.kind === "graph.clear");
+    const configureIndex = harness.operationLog.findIndex((entry) => entry.kind === "graph.configure");
+    const changeIndex = harness.operationLog.findIndex((entry) => entry.kind === "graph.change");
+    assert.notEqual(clearIndex, -1);
+    assert.notEqual(configureIndex, -1);
+    assert.notEqual(changeIndex, -1);
+    assert(clearIndex < configureIndex, "adapter apply should clear before configure");
+    assert(configureIndex < changeIndex, "adapter apply should repaint after configure");
+    assert.equal(harness.graphClearCalls.length, 1);
+    assert.equal(harness.graphConfigureCalls.length, 1);
+    assert.equal(harness.graphConfigureCalls[0].nodes[0].properties.decorated_before_configure, true);
+    assert.equal(harness.app.canvas.graph._nodes[0].boxcolor, "#123456");
+    assert.deepEqual(harness.graphDirtyCanvasCalls, [[true, true]]);
+    assert.deepEqual(harness.canvasDrawCalls, [[true, true]]);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter installs preview overlay via direct interceptor without polling and preserves later canvas reassignments", async () => {
+  const harness = await createBrowserHarness();
+
+  const originalSetInterval = globalThis.setInterval;
+  let setIntervalCalls = 0;
+
+  try {
+    const adapter = await harness.loadAdapter();
+    globalThis.setInterval = (...args) => {
+      setIntervalCalls += 1;
+      return originalSetInterval(...args);
+    };
+
+    const drawEvents = [];
+    const report = adapter.installPreviewForegroundOverlay(
+      harness.app,
+      () => drawEvents.push("overlay"),
+      { windowObj: harness.window },
+    );
+
+    assert.equal(report.strategy, "property-interceptor");
+    assert.equal(report.polling, false);
+    assert.equal(setIntervalCalls, 0);
+
+    harness.app.canvas.onDrawForeground = function reassignedForeground() {
+      drawEvents.push("delegate");
+    };
+
+    const installed = harness.app.canvas.onDrawForeground;
+    assert.equal(typeof installed, "function");
+    assert.equal(installed.__vibecomfyOverlayWrapper, true);
+
+    installed.call(harness.app.canvas, {});
+    assert.deepEqual(drawEvents, ["delegate", "overlay"]);
+
+    report.cleanup();
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter reports polling fallback when preview foreground cannot be intercepted directly", async () => {
+  const harness = await createBrowserHarness();
+
+  const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
+  const scheduledIntervals = [];
+
+  try {
+    const adapter = await harness.loadAdapter();
+
+    globalThis.setInterval = (fn, ms) => {
+      const token = { fn, ms };
+      scheduledIntervals.push(token);
+      return token;
+    };
+    globalThis.clearInterval = (token) => {
+      const index = scheduledIntervals.indexOf(token);
+      if (index >= 0) {
+        scheduledIntervals.splice(index, 1);
+      }
+    };
+
+    Object.defineProperty(harness.app.canvas, "onDrawForeground", {
+      configurable: false,
+      enumerable: true,
+      writable: true,
+      value: function lockedForeground() { return "locked"; },
+    });
+
+    const report = adapter.installPreviewForegroundOverlay(
+      harness.app,
+      () => null,
+      { windowObj: harness.window, pollIntervalMs: 250 },
+    );
+
+    assert.equal(report.strategy, "polling-fallback");
+    assert.equal(report.polling, true);
+    assert.match(report.detail, /Fell back to polling/);
+    assert.equal(scheduledIntervals.length, 1);
+    assert.equal(scheduledIntervals[0].ms, 250);
+    assert.equal(harness.app.canvas.onDrawForeground.__vibecomfyOverlayWrapper, true);
+
+    report.cleanup();
+    assert.equal(scheduledIntervals.length, 0);
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+    globalThis.clearInterval = originalClearInterval;
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter registerExtensionWithCapabilities reports install state and attaches capabilities", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+    },
+  });
+
+  try {
+    const adapter = await harness.loadAdapter();
+
+    // Clear any prior extension registrations from loadExtension calls.
+    harness.registeredExtensions.length = 0;
+
+    const extension = {
+      name: "Test.Extension",
+      async setup() { /* noop */ },
+    };
+
+    const caps = adapter.registerExtensionWithCapabilities(harness.app, extension, { silent: true });
+
+    // Extension should be registered.
+    assert.equal(harness.registeredExtensions.length, 1);
+    assert.equal(harness.registeredExtensions[0].name, "Test.Extension");
+
+    // Capabilities should be attached to the extension object.
+    assert.equal(extension.__vibecomfyCapabilities.supportsAll, true);
+    assert.equal(extension.__vibecomfyCapabilities.graphApply.available, true);
+    assert.equal(extension.__vibecomfyCapabilities.previewForeground.available, true);
+    assert.equal(extension.__vibecomfyCapabilities.queueGuard.available, true);
+
+    // The returned caps should match.
+    assert.equal(caps.supportsAll, true);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter registerExtensionWithCapabilities warns on degraded hooks", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.37.0" } },
+      },
+    },
+  });
+
+  try {
+    const adapter = await harness.loadAdapter();
+
+    harness.registeredExtensions.length = 0;
+
+    const extension = { name: "Degraded.Extension" };
+
+    // Build degraded capabilities (missing all hooks).
+    const { app: degradedApp, window: degradedWindow, capabilities: degradedCaps } =
+      adapter.buildMockAppFromProfile(adapter.HARNESS_PROFILE_DEGRADED, "missing-all");
+
+    // We need registerExtension on the degraded app; wire it up.
+    degradedApp.registerExtension = function (ext) {
+      harness.registeredExtensions.push(ext);
+    };
+
+    const preWarnCount = harness.consoleCapture.warn.length;
+    adapter.registerExtensionWithCapabilities(degradedApp, extension, { capabilities: degradedCaps });
+
+    // Should have logged a warning about degraded state.
+    assert.ok(
+      harness.consoleCapture.warn.length > preWarnCount,
+      "Expected console.warn about degraded capabilities",
+    );
+
+    const warningText = harness.consoleCapture.warn.slice(preWarnCount).join(" ");
+    assert.match(warningText, /DEGRADED/);
+    assert.match(warningText, /graphApply/);
+    assert.match(warningText, /previewForeground/);
+    assert.match(warningText, /queueGuard/);
+
+    // Still registered.
+    assert.equal(harness.registeredExtensions.length, 1);
+    assert.equal(extension.__vibecomfyCapabilities.supportsAll, false);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy harness profiles are immutable and contain expected capability shapes", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+    },
+  });
+
+  try {
+    const adapter = await harness.loadAdapter();
+
+    // Supported profile.
+    const supported = adapter.HARNESS_PROFILE_SUPPORTED_139_X;
+    assert.equal(supported.name, "supported-1.39.x");
+    assert.equal(supported.frontendVersion, "1.39.19");
+    assert.equal(supported.capabilities.graphApply.available, true);
+    assert.equal(supported.capabilities.previewForeground.available, true);
+    assert.equal(supported.capabilities.queueGuard.available, true);
+
+    // Degraded profile variants.
+    const degraded = adapter.HARNESS_PROFILE_DEGRADED;
+    assert.equal(degraded.name, "degraded-missing-hook");
+    assert.equal(degraded.frontendVersion, "1.37.0");
+
+    const variantKeys = Object.keys(degraded.variants);
+    assert.ok(variantKeys.includes("missing-graph-apply"));
+    assert.ok(variantKeys.includes("missing-preview-foreground"));
+    assert.ok(variantKeys.includes("missing-queue-guard"));
+    assert.ok(variantKeys.includes("missing-all"));
+
+    // Each variant should have all three capability keys.
+    for (const key of variantKeys) {
+      const v = degraded.variants[key];
+      assert.ok("graphApply" in v.capabilities, `${key}: missing graphApply`);
+      assert.ok("previewForeground" in v.capabilities, `${key}: missing previewForeground`);
+      assert.ok("queueGuard" in v.capabilities, `${key}: missing queueGuard`);
+    }
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ── FieldChange normalization smoke ──────────────────────────────────────
+test("VibeComfy submit normalizes field changes from outcome.changes and batch_turns field_changes", async () => {
+  const SESSION_ID = "session-fieldchange-submit";
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          turn_id: "0010",
+          baseline_turn_id: null,
+          candidate: {
+            graph: candidateGraph,
+          },
+          eligibility: {
+            applyable: true,
+            reason: "applyable",
+            message: "Apply is allowed.",
+            warnings: [],
+          },
+          outcome: {
+            kind: "edit",
+            changes: [
+              { uid: "uid-1", field_path: "inputs.prompt", old: "old value", new: "new value" },
+              { uid: "uid-2", field_path: "widgets_values.0", old: 0, new: 1 },
+            ],
+          },
+          batch_turns: [
+            {
+              turn_number: 0,
+              message: "first batch step",
+              field_changes: [
+                { uid: "uid-1", field_path: "inputs.prompt", old: "old value", new: "interim" },
+              ],
+            },
+            {
+              turn_number: 1,
+              message: "second batch step",
+              field_changes: [
+                { uid: "uid-1", field_path: "inputs.prompt", old: "interim", new: "new value" },
+                { uid: "uid-2", field_path: "widgets_values.0", old: 0, new: 1 },
+              ],
+            },
+          ],
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: true,
+          message: "Candidate with field changes.",
+          report: {
+            change: {
+              content_edits: {
+                preserved: ["uid-1"],
+                new_auto_placed: ["uid-2"],
+              },
+            },
+          },
+          audit_ref: { path: "/tmp/fieldchange-submit-audit.json" },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "accept",
+          session_id: SESSION_ID,
+          turn_id: "0010",
+          baseline_turn_id: "0010",
+          queue_allowed: true,
+          audit_ref: { path: "/tmp/fieldchange-submit-accept.json" },
+        },
+      },
+      [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          messages: [],
+          session_path: `out/editor_sessions/${SESSION_ID}/`,
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "change prompt text";
+    await harness.clickButton("Submit");
+
+    // Verify submit succeeded and the panel reached AWAITING_REVIEW.
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
+    assert.match(harness.textDump(), /Candidate with field changes/);
+    assert.match(harness.textDump(), /apply_eligibility=applyable/);
+
+    // Accept the candidate to verify full round-trip works.
+    await harness.clickButton("Apply Candidate");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "IDLE");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy rehydrate attaches field_changes to chat messages with outcome.changes", async () => {
+  const SESSION_ID = "session-fieldchange-rehydrate";
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      [`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`]: {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          session_path: `out/editor_sessions/${SESSION_ID}/`,
+          messages: [
+            {
+              role: "user",
+              text: "change the prompt",
+              turn_id: "0005",
+            },
+            {
+              role: "agent",
+              text: "I updated the prompt field on the Input node.",
+              turn_id: "0005",
+              changes: [
+                { uid: "uid-1", field_path: "inputs.prompt", old: "hello", new: "world" },
+              ],
+              outcome: {
+                kind: "edit",
+                changes: [
+                  { uid: "uid-1", field_path: "inputs.prompt", old: "hello", new: "world" },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    // Pre-populate localStorage so _rehydrateChat fetches the session.
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+    // Open the panel to trigger _rehydrateChat.
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`));
+
+    // The panel should render chat messages without error (normalization ran).
+    const text = harness.textDump();
+    assert.match(text, /change the prompt/);
+    assert.match(text, /I updated the prompt field/);
   } finally {
     await harness.dispose();
   }

@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { applyGraphCandidateInPlace, installPreviewForegroundOverlay, installQueueGuard as installQueueGuardAdapter } from "./comfy_adapter.js";
 
 // ── VibeComfy Contract (S2 — Durable Frontend Panel) ─────────────────────
 // This file captures the frontend↔backend contract before feature work.
@@ -109,6 +110,7 @@ const PANEL_STATE = Object.freeze({
 const APPLY_ELIGIBILITY_REASON = Object.freeze({
   APPLYABLE: "applyable",
   NO_CANDIDATE: "no_candidate",
+  MISSING_CONTRACT: "missing_contract",
   NOT_LATEST: "not_latest",
   SUPERSEDED: "superseded",
   SERVER_BLOCKED: "server_blocked",
@@ -161,35 +163,12 @@ const ROUTE_LABELS = Object.freeze({
   "openai-codex": "openai-codex",
 });
 
-const FALLBACK_ROUTE_OPTIONS = Object.freeze({
-  auto: {
-    requested_route: "auto",
-    normalized_route: "arnold",
-    browser_api_key_allowed: false,
-    guidance: "Use local Arnold/Hermes setup for this route. Browser-submitted API keys are not stored.",
-    tos_acknowledgement_required: false,
-  },
-  deepseek: {
-    requested_route: "deepseek",
-    normalized_route: "deepseek",
-    browser_api_key_allowed: true,
-    guidance: "DeepSeek browser key submission is supported and stored locally.",
-    tos_acknowledgement_required: false,
-  },
-  anthropic: {
-    requested_route: "anthropic",
-    normalized_route: "arnold",
-    browser_api_key_allowed: false,
-    guidance: "Anthropic/Claude runs through local Arnold/Hermes. Browser keys are not accepted.",
-    tos_acknowledgement_required: true,
-  },
-  "openai-codex": {
-    requested_route: "openai-codex",
-    normalized_route: "arnold",
-    browser_api_key_allowed: false,
-    guidance: "OpenAI Codex runs through local Arnold/Hermes. Browser keys are not accepted.",
-    tos_acknowledgement_required: false,
-  },
+const ROUTE_STATUS_KIND = Object.freeze({
+  LOADING: "loading_status",
+  READY: "ready",
+  MISSING_OPTIONS: "missing_route_options",
+  MALFORMED: "malformed_status",
+  UNAVAILABLE: "status_unavailable",
 });
 
 const INTENT_NODE_CLASS_TYPES = new Set(["vibecomfy.code", "vibecomfy.loop"]);
@@ -516,34 +495,24 @@ function decorateLiveIntentNodes() {
 }
 
 function applyGraphInPlaceWithIntentDecoration(candidate) {
-  const graph = getLiveGraph();
-  if (!graph || typeof graph.clear !== "function" || typeof graph.configure !== "function") {
+  try {
+    applyGraphCandidateInPlace(app, candidate, {
+      beforeConfigure(nextCandidate) {
+        decorateIntentGraphPayload(nextCandidate);
+      },
+      afterConfigure() {
+        decorateLiveIntentNodes();
+      },
+    });
+  } catch (e) {
+    if (e?.code !== "GRAPH_APPLY_UNAVAILABLE") {
+      throw e;
+    }
     throw agentPanelFailure("CanvasApplyError", "The live LiteGraph instance does not support in-place graph application.", {
       retryable: true,
       graph_unchanged: true,
       next_action: "Retry after the ComfyUI frontend finishes loading, or use the legacy round-trip command.",
     });
-  }
-  decorateIntentGraphPayload(candidate);
-  graph.clear();
-  graph.configure(candidate);
-  decorateLiveIntentNodes();
-  // graph.configure() updates the data model but does NOT repaint the canvas,
-  // so an applied edit (added/removed/rewired nodes) is invisible until some
-  // other interaction forces a redraw. Trigger a repaint explicitly so the
-  // result of Apply is immediately visible in the UI.
-  try {
-    if (typeof graph.change === "function") graph.change();
-    if (typeof graph.setDirtyCanvas === "function") {
-      graph.setDirtyCanvas(true, true);
-    } else if (app?.canvas?.setDirty) {
-      app.canvas.setDirty(true, true);
-    }
-    app?.canvas?.draw?.(true, true);
-  } catch (e) {
-    // Best-effort: the candidate is already applied to the graph data; a failed
-    // redraw must not turn a successful Apply into an error.
-    console.warn("[vibecomfy] post-apply canvas redraw failed (data applied):", e);
   }
 }
 
@@ -587,41 +556,18 @@ function installAgentPreviewOverlay() {
       console.warn("[vibecomfy] drawPreviewOverlay threw:", e);
     }
   };
-
-  // This ComfyUI build assigns an INSTANCE-level `app.canvas.onDrawForeground`
-  // (the prototype method is null) AND reassigns it after we patch — on graph
-  // load / canvas recreation — which silently discards a one-shot wrapper. So we
-  // TAG our wrapper and re-install it via a lightweight guard whenever the live
-  // method is no longer ours, chaining to whatever the build last set.
-  const protoFn = window.LiteGraph?.LGraphCanvas?.prototype?.onDrawForeground;
-  const ensurePatched = function () {
-    const canvas = app?.canvas;
-    if (!canvas) {
+  try {
+    const install = installPreviewForegroundOverlay(app, overlayDraw, { windowObj: window });
+    if (install.polling) {
+      console.warn(`[vibecomfy] preview overlay install degraded: ${install.detail}`);
+    }
+  } catch (e) {
+    if (e?.code === "PREVIEW_FOREGROUND_UNAVAILABLE") {
+      console.warn(`[vibecomfy] preview overlay unavailable: ${e.capability?.detail || e.message}`);
       return;
     }
-    const current = canvas.onDrawForeground;
-    if (current && current.__vibecomfyOverlayWrapper) {
-      return;
-    }
-    const orig = current;
-    const wrapper = function (ctx, ...args) {
-      try {
-        if (orig && orig !== wrapper) {
-          orig.call(this, ctx, ...args);
-        } else if (protoFn) {
-          protoFn.call(this, ctx, ...args);
-        }
-      } catch (e) {
-        console.warn("[vibecomfy] original onDrawForeground threw:", e);
-      }
-      overlayDraw.call(this, ctx);
-    };
-    wrapper.__vibecomfyOverlayWrapper = true;
-    canvas.onDrawForeground = wrapper;
-  };
-  ensurePatched();
-  // Re-assert the wrapper periodically; the build re-creates the canvas method.
-  setInterval(ensurePatched, 1000);
+    throw e;
+  }
 }
 
 async function checkFrontendVersion() {
@@ -1221,59 +1167,180 @@ function buildStatusUrl(route, model) {
   return query ? `/vibecomfy/agent/status?${query}` : "/vibecomfy/agent/status";
 }
 
+function routeStatusState(panel) {
+  return panel?.state?.routeStatus || { kind: ROUTE_STATUS_KIND.LOADING };
+}
+
+function routeOptionsFromStatus(status) {
+  if (!status || typeof status !== "object" || Array.isArray(status)) {
+    return null;
+  }
+  const options = status.route_options;
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    return null;
+  }
+  return options;
+}
+
 function getRouteOptions(panel) {
-  const options = panel.state.statusSnapshot?.route_options;
-  return options && typeof options === "object" ? options : FALLBACK_ROUTE_OPTIONS;
+  return routeOptionsFromStatus(panel.state.statusSnapshot);
 }
 
 function getRouteDescriptor(panel, route = panel.fields.route.value) {
   const normalized = normalizeRoutePreference(route);
-  return getRouteOptions(panel)[normalized] || FALLBACK_ROUTE_OPTIONS[normalized] || FALLBACK_ROUTE_OPTIONS.auto;
+  return getRouteOptions(panel)?.[normalized] || null;
 }
 
-function populateRouteSelect(selectNode, routeOptions) {
-  const existing = Array.from(selectNode.children || []).map((child) => child.value);
-  const desired = Object.keys(ROUTE_LABELS);
-  if (existing.length === desired.length && desired.every((value, index) => existing[index] === value)) {
+function populateRouteSelect(selectNode, routeOptions, {
+  placeholderLabel = "Loading route/model status…",
+  selectedRoute = selectNode.value,
+} = {}) {
+  const ownerDocument = selectNode?.ownerDocument || (typeof document !== "undefined" ? document : null);
+  if (!ownerDocument) {
     return;
   }
+  const preferredRoute = normalizeRoutePreference(selectedRoute);
+  const knownRoutes = Object.keys(ROUTE_LABELS).filter((route) => routeOptions?.[route]);
+  const extraRoutes = Object.keys(routeOptions || {}).filter((route) => !ROUTE_LABELS[route]);
+  const desired = [...knownRoutes, ...extraRoutes];
   clearNode(selectNode);
+  if (!desired.length) {
+    const node = option(preferredRoute, placeholderLabel, ownerDocument);
+    node.disabled = true;
+    node.selected = true;
+    selectNode.appendChild(node);
+    selectNode.value = preferredRoute;
+    return;
+  }
   for (const route of desired) {
-    const descriptor = routeOptions?.[route] || FALLBACK_ROUTE_OPTIONS[route];
-    const label = ROUTE_LABELS[route];
-    const node = option(route, label);
+    const descriptor = routeOptions?.[route] || null;
+    const label = ROUTE_LABELS[route] || route;
+    const node = option(route, label, ownerDocument);
     if (descriptor?.normalized_route && descriptor.normalized_route !== route) {
       node.title = `${label} → ${descriptor.normalized_route}`;
     }
     selectNode.appendChild(node);
   }
+  selectNode.value = desired.includes(preferredRoute) ? preferredRoute : desired[0];
 }
 
 async function refreshAgentStatus(panel, { quiet = false } = {}) {
   const route = normalizeRoutePreference(panel.fields.route.value);
   const model = normalizeModelPreference(panel.fields.model.value);
+  panel.state.routeStatus = {
+    kind: ROUTE_STATUS_KIND.LOADING,
+    requestedRoute: route,
+    model,
+  };
+  if (typeof document !== "undefined") {
+    renderAgentPanel(panel);
+  }
   try {
     const res = await fetch(buildStatusUrl(route, model));
-    const status = await res.json();
+    let status = null;
+    try {
+      status = await res.json();
+    } catch (error) {
+      console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", error);
+      panel.state.statusSnapshot = null;
+      panel.state.routeStatus = {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        requestedRoute: route,
+        model,
+        detail: String(error),
+      };
+      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: "Malformed status payload",
+        selectedRoute: route,
+      });
+      panel.fields.route.value = route;
+      if (typeof document !== "undefined") {
+        renderAgentPanel(panel);
+      }
+      return;
+    }
     if (
       normalizeRoutePreference(panel.fields.route.value) !== route
       || normalizeModelPreference(panel.fields.model.value) !== model
     ) {
       return;
     }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     panel.state.statusSnapshot = status;
-    populateRouteSelect(panel.fields.route, status?.route_options || FALLBACK_ROUTE_OPTIONS);
-    panel.fields.route.value = normalizeRoutePreference(status?.requested_route || route);
+    const requestedRoute = normalizeRoutePreference(status?.requested_route || route);
+    const routeOptions = routeOptionsFromStatus(status);
+    if (!status || typeof status !== "object" || Array.isArray(status)) {
+      console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", status);
+      panel.state.routeStatus = {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        requestedRoute,
+        model,
+      };
+      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: "Malformed status payload",
+        selectedRoute: requestedRoute,
+      });
+      panel.fields.route.value = requestedRoute;
+    } else if (!routeOptions) {
+      console.warn("[vibecomfy] status payload missing route_options", status);
+      panel.state.routeStatus = {
+        kind: ROUTE_STATUS_KIND.MISSING_OPTIONS,
+        requestedRoute,
+        model,
+      };
+      panel.state.settingsMessage = "Status missing route options; route/model controls disabled.";
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: "Route options unavailable",
+        selectedRoute: requestedRoute,
+      });
+      panel.fields.route.value = requestedRoute;
+    } else {
+      populateRouteSelect(panel.fields.route, routeOptions, { selectedRoute: requestedRoute });
+      panel.fields.route.value = requestedRoute;
+      if (!routeOptions[requestedRoute]) {
+        console.warn("[vibecomfy] status payload missing descriptor for requested route", {
+          requestedRoute,
+          routeOptions,
+        });
+        panel.state.routeStatus = {
+          kind: ROUTE_STATUS_KIND.MALFORMED,
+          requestedRoute,
+          model,
+        };
+        panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
+      } else {
+        panel.state.routeStatus = {
+          kind: ROUTE_STATUS_KIND.READY,
+          requestedRoute,
+          model,
+        };
+        if (!quiet) {
+          const availability = status?.provider_available === false ? "provider unavailable" : "provider ready";
+          panel.state.settingsMessage = `${status?.requested_route || route} → ${status?.route || route} (${availability})`;
+        }
+      }
+    }
     if (typeof status?.model === "string" && !panel.fields.model.value.trim()) {
       panel.fields.model.value = status.model;
-    }
-    if (!quiet) {
-      const availability = status?.provider_available === false ? "provider unavailable" : "provider ready";
-      panel.state.settingsMessage = `${status?.requested_route || route} → ${status?.route || route} (${availability})`;
     }
   } catch (e) {
     panel.state.settingsMessage = `Status unavailable: ${String(e)}`;
     panel.state.statusSnapshot = null;
+    panel.state.routeStatus = {
+      kind: ROUTE_STATUS_KIND.UNAVAILABLE,
+      requestedRoute: route,
+      model,
+      detail: String(e),
+    };
+    populateRouteSelect(panel.fields.route, null, {
+      placeholderLabel: "Status unavailable",
+      selectedRoute: route,
+    });
+    panel.fields.route.value = route;
   }
   if (typeof document === "undefined") {
     return;
@@ -1300,36 +1367,55 @@ function normalizeApplyEligibility(payload) {
   };
 }
 
-function compatibilityApplyEligibility(panel) {
-  if (!panel?.state?.candidateGraph) {
-    return {
-      applyable: false,
-      reason: APPLY_ELIGIBILITY_REASON.NO_CANDIDATE,
-      message: "No candidate is available to apply.",
-      warnings: [],
-    };
-  }
-  if (panel.state.canvasApplyAllowed !== true) {
-    return {
-      applyable: false,
-      reason: APPLY_ELIGIBILITY_REASON.SERVER_BLOCKED,
-      message: "Server validation gates blocked Apply.",
-      warnings: [],
-    };
-  }
-  if (panel.state.queueAllowed !== true) {
-    return {
-      applyable: true,
-      reason: APPLY_ELIGIBILITY_REASON.QUEUE_BLOCKED_WARNING,
-      message: "Apply is allowed, but Queue remains blocked for this candidate.",
-      warnings: ["queue_blocked"],
-    };
-  }
+function noCandidateApplyEligibility() {
   return {
-    applyable: true,
-    reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
-    message: "Apply is allowed.",
+    applyable: false,
+    reason: APPLY_ELIGIBILITY_REASON.NO_CANDIDATE,
+    message: "No candidate is available to apply.",
     warnings: [],
+  };
+}
+
+function ensureMissingEligibilityWarning(panel, detail) {
+  if (!panel?.state) {
+    console.warn(`[vibecomfy] ${detail.message}`);
+    return;
+  }
+  const warningKey = [
+    detail.reason,
+    panel.state.turnId || "no-turn",
+    panel.state.candidateGraphHash || "no-candidate-hash",
+  ].join(":");
+  if (panel.state.applyEligibilityWarningKey === warningKey) {
+    return;
+  }
+  panel.state.applyEligibilityWarningKey = warningKey;
+  panel.state.applyEligibilityWarning = detail;
+  panel.state.debugPayload = {
+    ...(panel.state.debugPayload && typeof panel.state.debugPayload === "object"
+      ? panel.state.debugPayload
+      : {}),
+    apply_eligibility_warning: detail,
+  };
+  console.warn(`[vibecomfy] ${detail.message}`);
+}
+
+function missingContractApplyEligibility(panel, detail = {}) {
+  const message = typeof detail.message === "string" && detail.message
+    ? detail.message
+    : "Backend response omitted canonical eligibility for this candidate. Apply is disabled until the contract is present.";
+  const warning = {
+    reason: APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT,
+    message,
+    turn_id: panel?.state?.turnId || null,
+    candidate_graph_hash: panel?.state?.candidateGraphHash || null,
+  };
+  ensureMissingEligibilityWarning(panel, warning);
+  return {
+    applyable: false,
+    reason: APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT,
+    message,
+    warnings: ["missing_contract"],
   };
 }
 
@@ -1457,7 +1543,7 @@ function extractRebaselineRecovery(payload) {
 
 function applyEligibility(panel, liveCanvasSnapshot = null) {
   if (!panel?.state?.candidateGraph) {
-    return compatibilityApplyEligibility(panel);
+    return noCandidateApplyEligibility();
   }
   const submitStructuralHash = panel.state.lastSubmit?.client_structural_graph_hash;
   const liveStructuralHash = liveCanvasSnapshot?.structuralHash;
@@ -1475,7 +1561,13 @@ function applyEligibility(panel, liveCanvasSnapshot = null) {
       warnings: [],
     };
   }
-  return normalizeApplyEligibility(panel.state.applyEligibility) || compatibilityApplyEligibility(panel);
+  const canonicalEligibility = normalizeApplyEligibility(panel.state.applyEligibility);
+  if (canonicalEligibility) {
+    panel.state.applyEligibilityWarning = null;
+    panel.state.applyEligibilityWarningKey = null;
+    return canonicalEligibility;
+  }
+  return missingContractApplyEligibility(panel);
 }
 
 async function buildSubmitSnapshot(panel) {
@@ -1620,7 +1712,7 @@ function createAgentPanel() {
     fontFamily: "monospace",
     fontSize: "12px",
   });
-  populateRouteSelect(routeSelect, FALLBACK_ROUTE_OPTIONS);
+  populateRouteSelect(routeSelect, null, { selectedRoute: "auto" });
   routeSelect.value = "auto";
   const modelInput = document.createElement("input");
   modelInput.id = PANEL_IDS.model;
@@ -1794,6 +1886,8 @@ function createAgentPanel() {
       failure: null,
       applyAllowed: false,
       applyEligibility: null,
+      applyEligibilityWarning: null,
+      applyEligibilityWarningKey: null,
       queueAllowed: false,
       canvasApplyAllowed: false,
       auditRef: null,
@@ -1809,7 +1903,13 @@ function createAgentPanel() {
       lastSubmit: null,
       settingsMessage: null,
       statusSnapshot: null,
+      routeStatus: {
+        kind: ROUTE_STATUS_KIND.LOADING,
+        requestedRoute: "auto",
+        model: null,
+      },
       lastAppliedChanges: null,
+      lastSubmitFieldChanges: null,
       queueGuard: getQueueGuardStateForPanel(),
       previewEnabled: false,
       expandedTurnKeys: {},
@@ -1819,6 +1919,7 @@ function createAgentPanel() {
       chatError: null,
       chatSessionPath: null,
       chatDetailJsonPath: null,
+      chatRehydrateEpoch: 0,
     },
   };
 }
@@ -1828,6 +1929,8 @@ async function _rehydrateChat(panel) {
   if (!panel || !panel.state) {
     return;
   }
+  const requestEpoch = (panel.state.chatRehydrateEpoch || 0) + 1;
+  panel.state.chatRehydrateEpoch = requestEpoch;
   const savedId = _lsGet(LS_ACTIVE_SESSION_KEY);
   if (!savedId) {
     panel.state.chatMessages = [];
@@ -1842,8 +1945,17 @@ async function _rehydrateChat(panel) {
       throw new Error(`Server returned ${res.status}`);
     }
     const payload = await res.json();
+    if (panel.state.chatRehydrateEpoch !== requestEpoch) {
+      return;
+    }
     if (payload && payload.ok === true) {
       panel.state.chatMessages = Array.isArray(payload.messages) ? payload.messages : [];
+      // Normalize field changes on each rehydrated message for chat-bubble rendering (M4b).
+      for (const msg of panel.state.chatMessages) {
+        if (msg && typeof msg === "object") {
+          msg.field_changes = normalizeFieldChangesFromMessage(msg);
+        }
+      }
       panel.state.chatLoaded = true;
       panel.state.chatError = null;
       panel.state.chatSessionPath = typeof payload.session_path === "string" ? payload.session_path : null;
@@ -1857,6 +1969,9 @@ async function _rehydrateChat(panel) {
       throw new Error(payload?.error || "chat endpoint returned ok: false");
     }
   } catch (_e) {
+    if (panel.state.chatRehydrateEpoch !== requestEpoch) {
+      return;
+    }
     // On failure, clear only visible chat/session state — do not disturb
     // the current submit session or canvas.
     panel.state.chatMessages = [];
@@ -1873,6 +1988,19 @@ function _persistActiveSession(sessionId) {
 
 function forgetActiveSession() {
   _lsRemove(LS_ACTIVE_SESSION_KEY);
+}
+
+function rerenderAgentPanelIfMounted(panel = agentPanel) {
+  if (!panel?.root) {
+    return;
+  }
+  if (typeof document === "undefined") {
+    return;
+  }
+  if (panel.root.ownerDocument !== document) {
+    return;
+  }
+  renderAgentPanel(panel);
 }
 
 export function ensureAgentPanel() {
@@ -1895,7 +2023,7 @@ function openAgentPanel() {
   // Creation (ensureAgentPanel) intentionally does not fetch, so this single
   // call covers both first open and reopen.
   _rehydrateChat(panel).then(() => {
-    renderAgentPanel(panel);
+    rerenderAgentPanelIfMounted(panel);
   }).catch((err) => {
     console.warn("[vibecomfy] chat rehydration render failed", err);
   });
@@ -1910,8 +2038,12 @@ function closeAgentPanel(panel) {
   panel.root.style.transform = "translateX(432px)";
 }
 
-function option(value, label) {
-  const node = document.createElement("option");
+function option(value, label, ownerDocument = null) {
+  const doc = ownerDocument || (typeof document !== "undefined" ? document : null);
+  if (!doc) {
+    throw new ReferenceError("document is not defined");
+  }
+  const node = doc.createElement("option");
   node.value = value;
   node.textContent = label;
   return node;
@@ -1999,54 +2131,181 @@ function pushTurnStatus(panel, status, extra = {}) {
 }
 
 // ── Typed response adapter (M2) ──────────────────────────────────────────────
-// Prefers typed envelope fields (contract_version, outcome, candidate, eligibility)
-// and falls back to top-level compatibility fields.  Does NOT change broader
-// M4 UI behavior — this is a narrow mapping shim that will be removed when
-// compatibility fields are deprecated during M4 UI migration planning.
+function candidateGraphFromResult(result) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  const typedGraph = result.candidate?.graph;
+  if (typedGraph && typeof typedGraph === "object") {
+    return typedGraph;
+  }
+  const compatibilityGraph = result.graph;
+  if (compatibilityGraph && typeof compatibilityGraph === "object") {
+    return compatibilityGraph;
+  }
+  return null;
+}
+
+function eligibilityFromResult(result) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  const typedEligibility = result.eligibility;
+  if (typedEligibility && typeof typedEligibility === "object") {
+    return typedEligibility;
+  }
+  const compatibilityEligibility = result.apply_eligibility;
+  if (compatibilityEligibility && typeof compatibilityEligibility === "object") {
+    return compatibilityEligibility;
+  }
+  return null;
+}
+
+function outcomeFromResult(result) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  if (result.outcome && typeof result.outcome === "object") {
+    return result.outcome;
+  }
+  const clarificationQuestion =
+    typeof result.clarification_message === "string" && result.clarification_message
+      ? result.clarification_message
+      : null;
+  if (result.clarification_required === true || clarificationQuestion) {
+    return {
+      kind: "clarify",
+      question: clarificationQuestion,
+    };
+  }
+  return null;
+}
+
+function outcomeRequiresClarification(outcome) {
+  if (!outcome || typeof outcome !== "object") {
+    return false;
+  }
+  return outcome.kind === "clarify" || outcome.kind === "edit+clarify";
+}
+
+function clarificationMessageFromOutcome(outcome, fallbackMessage = null) {
+  if (!outcome || typeof outcome !== "object") {
+    return fallbackMessage;
+  }
+  if (typeof outcome.question === "string" && outcome.question.trim()) {
+    return outcome.question.trim();
+  }
+  return fallbackMessage;
+}
+
+// Canonical typed-envelope normalization only.
+// Compatibility stitching into top-level fields (result.graph, result.apply_eligibility,
+// result.clarification_required, result.clarification_message) has been removed.
+// Consumers MUST use the canonical readers (candidateGraphFromResult, eligibilityFromResult,
+// outcomeFromResult) instead of reading top-level compatibility fields directly.
 function adaptTypedResponse(result) {
   if (!result || typeof result !== "object") {
     return result;
   }
 
-  // candidate.graph → top-level graph (typed envelope candidate payload)
-  if (
-    result.candidate
-    && typeof result.candidate === "object"
-    && result.candidate.graph
-    && typeof result.candidate.graph === "object"
-  ) {
-    if (!result.graph || typeof result.graph !== "object") {
-      result.graph = result.candidate.graph;
+  // Normalize candidate envelope: ensure candidate is a well-formed object when present.
+  if (result.candidate !== undefined) {
+    if (!result.candidate || typeof result.candidate !== "object") {
+      result.candidate = null;
     }
   }
 
-  // eligibility (canonical) → apply_eligibility compatibility mirror
-  if (
-    result.eligibility
-    && typeof result.eligibility === "object"
-    && !result.apply_eligibility
-  ) {
-    result.apply_eligibility = result.eligibility;
+  // Normalize eligibility envelope: ensure eligibility is a well-formed object when present.
+  if (result.eligibility !== undefined) {
+    if (!result.eligibility || typeof result.eligibility !== "object") {
+      result.eligibility = null;
+    }
   }
 
-  // outcome.{kind,question} → clarify compatibility fields
-  if (result.outcome && typeof result.outcome === "object") {
-    if (
-      (result.outcome.kind === "clarify" || result.outcome.kind === "edit+clarify")
-      && result.clarification_required === undefined
-    ) {
-      result.clarification_required = true;
-    }
-    if (
-      typeof result.outcome.question === "string"
-      && result.outcome.question
-      && !result.clarification_message
-    ) {
-      result.clarification_message = result.outcome.question;
+  // Normalize outcome envelope: ensure outcome is a well-formed object when present.
+  if (result.outcome !== undefined) {
+    if (!result.outcome || typeof result.outcome !== "object") {
+      result.outcome = null;
     }
   }
 
   return result;
+}
+
+// ── FieldChange normalization helpers ─────────────────────────────────────
+// Normalize FieldChange objects without positional widget inference.
+// A FieldChange has the canonical shape: { uid, field_path, old, new }
+// These helpers extract and validate FieldChange arrays from submit responses
+// and rehydrate chat messages, storing results on panel state and per-message
+// detail for later chat-bubble rendering (M4b).
+
+function _isFieldChangeLike(item) {
+  return item && typeof item === "object"
+    && typeof item.uid === "string" && item.uid
+    && typeof item.field_path === "string" && item.field_path;
+}
+
+function _normalizeFieldChange(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  if (!_isFieldChangeLike(raw)) return null;
+  return {
+    uid: raw.uid,
+    field_path: raw.field_path,
+    old: "old" in raw ? raw.old : undefined,
+    new: "new" in raw ? raw.new : undefined,
+  };
+}
+
+function _normalizeFieldChangeList(rawList) {
+  if (!Array.isArray(rawList)) return [];
+  const result = [];
+  for (const raw of rawList) {
+    const normalized = _normalizeFieldChange(raw);
+    if (normalized) result.push(normalized);
+  }
+  return result;
+}
+
+// Read field changes from a submit response: outcome.changes and
+// batch_turns[].field_changes. Returns normalized arrays without
+// positional widget inference.
+function normalizeFieldChangesFromSubmit(result) {
+  if (!result || typeof result !== "object") {
+    return { outcomeChanges: [], batchTurnChanges: [] };
+  }
+
+  const outcomeChanges = _normalizeFieldChangeList(
+    result.outcome && typeof result.outcome === "object" ? result.outcome.changes : null,
+  );
+
+  const batchTurnChanges = [];
+  if (Array.isArray(result.batch_turns)) {
+    for (const turn of result.batch_turns) {
+      if (turn && typeof turn === "object") {
+        const turnNumber = typeof turn.turn_number === "number" ? turn.turn_number : null;
+        const changes = _normalizeFieldChangeList(turn.field_changes);
+        batchTurnChanges.push({ turn_number: turnNumber, changes });
+      }
+    }
+  }
+
+  return { outcomeChanges, batchTurnChanges };
+}
+
+// Read field changes from a rehydrate chat message and its nested
+// canonical detail (message.changes, message.outcome?.changes).
+function normalizeFieldChangesFromMessage(message) {
+  if (!message || typeof message !== "object") {
+    return { directChanges: [], outcomeChanges: [] };
+  }
+
+  const directChanges = _normalizeFieldChangeList(message.changes);
+
+  const outcomeChanges = _normalizeFieldChangeList(
+    message.outcome && typeof message.outcome === "object" ? message.outcome.changes : null,
+  );
+
+  return { directChanges, outcomeChanges };
 }
 
 function normalizeBatchTurn(payload, { source = "response", sessionId = null, status = null } = {}) {
@@ -2067,10 +2326,12 @@ function normalizeBatchTurn(payload, { source = "response", sessionId = null, st
   if (!resolvedSessionId || turnNumber == null) {
     return null;
   }
+  const outcome = outcomeFromResult(payload);
   const normalizedStatus =
     status
     || (typeof payload.status === "string" && payload.status)
-    || (payload.clarification_required ? "clarify" : "in_progress");
+    || (outcomeRequiresClarification(outcome) ? "clarify" : "in_progress");
+  const clarificationMessage = clarificationMessageFromOutcome(outcome);
   return {
     entry_type: "batch",
     turn_key: batchTurnKey(resolvedSessionId, turnNumber),
@@ -2080,9 +2341,8 @@ function normalizeBatchTurn(payload, { source = "response", sessionId = null, st
     status: normalizedStatus,
     message: typeof payload.message === "string" ? payload.message : null,
     timestamp: typeof payload.timestamp === "string" ? payload.timestamp : null,
-    clarification_required: Boolean(payload.clarification_required),
-    clarification_message:
-      typeof payload.clarification_message === "string" ? payload.clarification_message : null,
+    clarification_required: outcomeRequiresClarification(outcome),
+    clarification_message: clarificationMessage,
     batch_ok: typeof payload.batch_ok === "boolean" ? payload.batch_ok : null,
     statement_count:
       typeof payload.statement_count === "number" && Number.isFinite(payload.statement_count)
@@ -2202,8 +2462,9 @@ function reconcileResponseBatchTurns(panel, result) {
   const finalIndex = result.batch_turns.length - 1;
   for (let index = 0; index < result.batch_turns.length; index += 1) {
     const turn = result.batch_turns[index];
+    const turnOutcome = outcomeFromResult(turn);
     let status = null;
-    if (turn?.clarification_required) {
+    if (outcomeRequiresClarification(turnOutcome)) {
       status = "clarify";
     } else if (index === finalIndex && typeof result?.done_summary === "string" && result.done_summary) {
       status = "done";
@@ -3044,6 +3305,8 @@ function invalidateCandidateState(panel, { repaint = true } = {}) {
   panel.state.candidateReport = null;
   panel.state.serverSubmitGraphHash = null;
   panel.state.applyEligibility = null;
+  panel.state.applyEligibilityWarning = null;
+  panel.state.applyEligibilityWarningKey = null;
   // Clear preview diff caches (same as clearCandidatePreviewState)
   delete panel.state._previewDiff;
   delete panel.state._previewDiffGraphHash;
@@ -3965,30 +4228,27 @@ function installQueueGuard() {
   if (queueGuardHook) {
     return queueGuardHook.installed;
   }
-  const candidate = {
-    owner: app,
-    key: "queuePrompt",
-    path: "app.queuePrompt",
-  };
-  const original = candidate.owner?.[candidate.key];
-  if (typeof original !== "function") {
-    queueGuardFallbackWarning = "Native queue hook unavailable: `app.queuePrompt` was not found. Queue warnings remain panel-only.";
-    warnQueueGuardFallbackOnce("missing app.queuePrompt");
-    queueGuardHook = { installed: false, path: candidate.path, original: null, wrapper: null };
-    return false;
-  }
 
-  const wrapper = function guardedQueuePrompt(...args) {
-    const active = queueGuardContext;
-    if (active?.queueAllowed === false) {
-      const blockKey = queueGuardTurnKey(active);
-      if (!queueGuardBlockedTurnKeys.has(blockKey)) {
-        queueGuardBlockedTurnKeys.add(blockKey);
-        queueGuardBlockNotice = {
-          at: new Date().toISOString(),
-          message: `Queue blocked for turn ${active.turnId || "unknown"} because queue_allowed=false.`,
+  const report = installQueueGuardAdapter(app, {
+    shouldBlock() {
+      const active = queueGuardContext;
+      if (active?.queueAllowed === false) {
+        return {
           turnId: active.turnId || null,
           sessionId: active.sessionId || null,
+          blockKey: queueGuardTurnKey(active),
+        };
+      }
+      return null;
+    },
+    onBlock(blockInfo) {
+      if (!queueGuardBlockedTurnKeys.has(blockInfo.blockKey)) {
+        queueGuardBlockedTurnKeys.add(blockInfo.blockKey);
+        queueGuardBlockNotice = {
+          at: new Date().toISOString(),
+          message: `Queue blocked for turn ${blockInfo.turnId || "unknown"} because queue_allowed=false.`,
+          turnId: blockInfo.turnId,
+          sessionId: blockInfo.sessionId,
         };
       }
       if (agentPanel) {
@@ -3996,23 +4256,18 @@ function installQueueGuard() {
         renderAgentPanel(agentPanel);
       }
       toast("Queue blocked: this applied turn is canvas-reviewable only.");
-      return null;
-    }
-    return original.apply(this, args);
-  };
+    },
+  });
 
-  try {
-    candidate.owner[candidate.key] = wrapper;
-    candidate.owner[candidate.key] = original;
-  } catch (error) {
-    queueGuardFallbackWarning = `Native queue hook could not be installed safely on \`${candidate.path}\`: ${String(error)}`;
-    warnQueueGuardFallbackOnce(`unsafe ${candidate.path}`);
-    queueGuardHook = { installed: false, path: candidate.path, original, wrapper: null };
+  if (!report.installed) {
+    const fallbackDetail = report.capability?.detail || "app.queuePrompt unavailable";
+    queueGuardFallbackWarning = `Native queue hook unavailable: \`app.queuePrompt\` was not found. Queue warnings remain panel-only.`;
+    warnQueueGuardFallbackOnce(`missing app.queuePrompt (${fallbackDetail})`);
+    queueGuardHook = { installed: false, path: report.path, original: null, wrapper: null };
     return false;
   }
 
-  candidate.owner[candidate.key] = wrapper;
-  queueGuardHook = { installed: true, path: candidate.path, original, wrapper };
+  queueGuardHook = { installed: true, path: report.path, original: report.original, wrapper: report.wrapper };
   queueGuardFallbackWarning = null;
   return true;
 }
@@ -4282,8 +4537,12 @@ function renderDebug(panel) {
 }
 
 function renderSettings(panel) {
+  const routeStatus = routeStatusState(panel);
   const descriptor = getRouteDescriptor(panel);
-  const apiKeyVisible = Boolean(descriptor.browser_api_key_allowed);
+  const controlsReady = routeStatus.kind === ROUTE_STATUS_KIND.READY && Boolean(descriptor);
+  const apiKeyVisible = controlsReady && Boolean(descriptor.browser_api_key_allowed);
+  panel.fields.route.disabled = !controlsReady;
+  panel.fields.model.disabled = !controlsReady;
   setVisible(panel.fields.apiKey, apiKeyVisible, "");
   panel.fields.apiKey.placeholder = apiKeyVisible
     ? "DeepSeek API key"
@@ -4294,6 +4553,26 @@ function renderSettings(panel) {
 
   const statusNode = document.getElementById(PANEL_IDS.settingsStatus);
   const guidanceNode = document.getElementById(PANEL_IDS.settingsGuidance);
+  if (!controlsReady) {
+    if (routeStatus.kind === ROUTE_STATUS_KIND.LOADING) {
+      statusNode.textContent = panel.state.settingsMessage || "Loading route/model status…";
+      guidanceNode.textContent = "Waiting for /vibecomfy/agent/status before enabling route/model controls.";
+    } else if (routeStatus.kind === ROUTE_STATUS_KIND.MISSING_OPTIONS) {
+      statusNode.textContent = panel.state.settingsMessage || "Status missing route options; route/model controls disabled.";
+      guidanceNode.textContent = "The backend returned status without route_options. Check /vibecomfy/agent/status and retry.";
+    } else if (routeStatus.kind === ROUTE_STATUS_KIND.MALFORMED) {
+      statusNode.textContent = panel.state.settingsMessage || "Malformed status payload; route/model controls disabled.";
+      guidanceNode.textContent = "The backend status payload is malformed. Fix /vibecomfy/agent/status and retry.";
+    } else if (routeStatus.kind === ROUTE_STATUS_KIND.UNAVAILABLE) {
+      statusNode.textContent = panel.state.settingsMessage || "Status unavailable.";
+      guidanceNode.textContent = "Could not reach /vibecomfy/agent/status. Retry with Test Provider after restoring the backend.";
+    } else {
+      statusNode.textContent = panel.state.settingsMessage || "Route/model controls unavailable.";
+      guidanceNode.textContent = "";
+    }
+    return;
+  }
+
   const normalizedRoute = descriptor.normalized_route || normalizeRoutePreference(panel.fields.route.value);
   const providerAvailable = panel.state.statusSnapshot?.provider_available;
   const availability = providerAvailable === false ? "provider unavailable" : "provider ready";
@@ -4306,6 +4585,15 @@ function renderSettings(panel) {
 }
 
 export function renderAgentPanel(panel) {
+  if (!panel?.root) {
+    return;
+  }
+  if (typeof document === "undefined") {
+    return;
+  }
+  if (panel.root.ownerDocument !== document) {
+    return;
+  }
   renderMeta(panel);
 
   const phase = panel.state.phase;
@@ -4354,7 +4642,10 @@ export function renderAgentPanel(panel) {
       : undoPending
         ? "Retry Undo Rebaseline"
         : "Undo Last Apply";
-  panel.buttons.settingsSave.disabled = submitting || applying;
+  panel.buttons.settingsSave.disabled =
+    submitting
+    || applying
+    || routeStatusState(panel).kind !== ROUTE_STATUS_KIND.READY;
   panel.buttons.settingsTest.disabled = submitting || applying;
 
   // Always-on preview (no toggle): previewEnabled simply tracks whether there is
@@ -4390,6 +4681,11 @@ async function saveAgentSettings(panel) {
   const route = normalizeRoutePreference(panel.fields.route.value);
   const model = normalizeModelPreference(panel.fields.model.value);
   const descriptor = getRouteDescriptor(panel, route);
+  if (routeStatusState(panel).kind !== ROUTE_STATUS_KIND.READY || !descriptor) {
+    panel.state.settingsMessage = "Route/model controls are unavailable until /vibecomfy/agent/status returns a valid payload.";
+    renderAgentPanel(panel);
+    return;
+  }
   const apiKey = panel.fields.apiKey.value;
 
   panel.state.settingsMessage = `Saved route=${route} model=${model || "default"}`;
@@ -4426,6 +4722,7 @@ async function newAgentConversation(panel) {
   if (!panel) {
     return;
   }
+  panel.state.chatRehydrateEpoch = (panel.state.chatRehydrateEpoch || 0) + 1;
   // Clear candidate state
   panel.state.candidateGraph = null;
   panel.state.candidateGraphHash = null;
@@ -4516,6 +4813,7 @@ async function submitAgentEdit(panel) {
     invalidateCandidateState(panel);
     panel.state.failure = null;
     panel.state.lastAppliedChanges = null;
+    panel.state.lastSubmitFieldChanges = null;
     clearChangedNodeFeedbackVisuals();
     panel.state.lastSubmit = {
       task,
@@ -4567,7 +4865,13 @@ async function submitAgentEdit(panel) {
       if (!res.ok || result?.ok === false || result?.error) {
         throw result || { kind: "RequestError", message: res.statusText };
       }
-      if (!result || typeof result !== "object" || !result.graph || typeof result.graph !== "object") {
+      const outcome = outcomeFromResult(result);
+      const candidateGraph = candidateGraphFromResult(result);
+      if (
+        !result
+        || typeof result !== "object"
+        || (!outcomeRequiresClarification(outcome) && (!candidateGraph || typeof candidateGraph !== "object"))
+      ) {
         throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
           stage: result?.stage || "agent-edit",
           retryable: true,
@@ -4609,27 +4913,30 @@ async function submitAgentEdit(panel) {
       });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+      _rehydrateChat(panel).then(() => { rerenderAgentPanelIfMounted(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
       return;
     } finally {
       panel.state.inFlightSubmit = null;
     }
 
     // Clarify terminal: the agent ended the turn with `clarify("...")` instead of
-    // landing edits. The backend honestly reports clarification_required + a
-    // byte-identical graph (graph_unchanged) + canvas_apply_allowed:false. Branch
-    // out BEFORE the candidate path so we never store result.graph as a candidate
-    // or enter AWAITING_REVIEW — doing so would render an "Apply Candidate" button
-    // over an unchanged graph that does nothing (the original no-op bug). Instead
-    // surface the question and leave the prompt open so the user can answer in the
-    // same session (session_id is preserved for the follow-up turn).
-    if (result.clarification_required === true) {
+    // landing edits. The canonical outcome can arrive without any candidate graph,
+    // so branch out BEFORE the candidate path and never enter AWAITING_REVIEW for
+    // clarify-only turns. Otherwise we'd render an "Apply Candidate" button over a
+    // no-op/unchanged graph. Instead surface the question and leave the prompt open
+    // so the user can answer in the same session.
+    const outcome = outcomeFromResult(result);
+    const candidateGraph = candidateGraphFromResult(result);
+    const eligibility = eligibilityFromResult(result);
+    if (outcomeRequiresClarification(outcome)) {
+      const fallbackMessage =
+        (typeof result.message === "string" && result.message.trim())
+          ? result.message.trim()
+          : null;
       const clarifyMessage =
-        (typeof result.clarification_message === "string" && result.clarification_message.trim())
-          ? result.clarification_message.trim()
-          : (typeof result.message === "string" && result.message.trim())
-            ? result.message.trim()
-            : "The agent needs clarification before it can edit the graph.";
+        clarificationMessageFromOutcome(outcome, fallbackMessage)
+          || fallbackMessage
+          || "The agent needs clarification before it can edit the graph.";
       panel.state.phase = PANEL_STATE.CLARIFY;
       panel.state.sessionId = result.session_id || panel.state.sessionId;
       _persistActiveSession(panel.state.sessionId);
@@ -4650,6 +4957,7 @@ async function submitAgentEdit(panel) {
       panel.state.auditRef = result.audit_ref || null;
       panel.state.queueGuard = getQueueGuardStateForPanel();
       reconcileResponseBatchTurns(panel, result);
+      panel.state.lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result);
       panel.state.debugPayload = {
         ...result,
         last_submit: panel.state.lastSubmit,
@@ -4668,7 +4976,7 @@ async function submitAgentEdit(panel) {
       });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+      _rehydrateChat(panel).then(() => { rerenderAgentPanelIfMounted(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
       return;
     }
 
@@ -4740,32 +5048,33 @@ async function submitAgentEdit(panel) {
       });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+      _rehydrateChat(panel).then(() => { rerenderAgentPanelIfMounted(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
       return;
     }
 
     const candidateGraphHash = typeof result.candidate_graph_hash === "string"
       ? result.candidate_graph_hash
-      : await sha256HexUtf8(canonicalJsonString(result.graph));
+      : await sha256HexUtf8(canonicalJsonString(candidateGraph));
     panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
     panel.state.sessionId = result.session_id || panel.state.sessionId;
     _persistActiveSession(panel.state.sessionId);
     panel.state.turnId = result.turn_id || null;
     syncBaselineFromResponse(panel, result);
     invalidateCandidateState(panel);
-    panel.state.candidateGraph = result.graph || null;
+    panel.state.candidateGraph = candidateGraph || null;
     panel.state.candidateGraphHash = candidateGraphHash;
     panel.state.candidateReport = result.report || null;
     panel.state.serverSubmitGraphHash = typeof result.submit_graph_hash === "string" ? result.submit_graph_hash : null;
     panel.state.message = result.message || null;
     panel.state.failure = null;
-    panel.state.applyEligibility = normalizeApplyEligibility(result.apply_eligibility);
+    panel.state.applyEligibility = normalizeApplyEligibility(eligibility);
     panel.state.applyAllowed = result.apply_allowed !== false && result.canvas_apply_allowed !== false;
     panel.state.canvasApplyAllowed = Boolean(result.canvas_apply_allowed);
     panel.state.queueAllowed = Boolean(result.queue_allowed);
     panel.state.auditRef = result.audit_ref || null;
     panel.state.queueGuard = getQueueGuardStateForPanel();
     reconcileResponseBatchTurns(panel, result);
+    panel.state.lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result);
     panel.state.debugPayload = {
       ...result,
       last_submit: panel.state.lastSubmit,
@@ -4782,7 +5091,7 @@ async function submitAgentEdit(panel) {
     });
     renderAgentPanel(panel);
     // Canonicalize chat through the rehydrate endpoint after visible update.
-    _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+    _rehydrateChat(panel).then(() => { rerenderAgentPanelIfMounted(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
 
     if (panel.state.previewEnabled) {
       if (app?.canvas?.setDirty) {

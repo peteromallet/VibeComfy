@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EXTENSION_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "vibecomfy_roundtrip.js");
+const ADAPTER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "comfy_adapter.js");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -255,6 +256,9 @@ export async function createBrowserHarness({
 
   const app = {
     canvas: {
+      // Instance-level onDrawForeground — ComfyUI 1.39.x assigns a function
+      // at build time. Capability detection checks typeof === 'function'.
+      onDrawForeground: function onDrawForeground(_ctx) { /* ComfyUI default */ },
       graph: {
         serialize() {
           const snapshot = clone(currentGraph);
@@ -359,6 +363,7 @@ export async function createBrowserHarness({
   await writeFile(path.join(scriptsRoot, "app.js"), "export const app = globalThis.__VIBECOMFY_BROWSER_APP__;\n");
   await writeFile(path.join(scriptsRoot, "api.js"), "export const api = globalThis.__VIBECOMFY_BROWSER_API__;\n");
   await writeFile(path.join(webRoot, "vibecomfy_roundtrip.js"), await readFile(EXTENSION_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "comfy_adapter.js"), await readFile(ADAPTER_SOURCE, "utf8"));
 
   const apiEventListeners = {};
   const mockApi = {
@@ -498,6 +503,10 @@ export async function createBrowserHarness({
     registeredExtensions,
     async loadExtension() {
       return loadExtension();
+    },
+    async loadAdapter() {
+      const target = pathToFileURL(path.join(webRoot, "comfy_adapter.js")).href;
+      return import(`${target}?t=${Date.now()}`);
     },
     async setup() {
       const extension = getExtension();
