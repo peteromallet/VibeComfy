@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_contracts import FailureKind, TurnContext, classify_failure, failure_envelope
-from .agent_edit import _SESSION_ROOT, _safe_session_id, handle_agent_edit
+from .agent_edit import _SESSION_ROOT, _safe_session_id, _typed_failure_dict, handle_agent_edit
 from .agent_provider import get_agent_status, handle_credential_submission
 from .agent_session import accept_turn, payload_hash, reject_turn, session_dir_for, turn_dir_for
 from .agent_audit import artifact_ref_for_path, write_audit
@@ -239,11 +239,13 @@ def _handle_agent_edit(
     client_id: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "ingest",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        return _typed_failure_dict(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "ingest",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
     try:
         return handle_agent_edit(
             payload,
@@ -254,7 +256,7 @@ def _handle_agent_edit(
         )
     except Exception as exc:
         stage = "ingest" if isinstance(exc, ValueError) else "route"
-        return classify_failure(stage, exc).to_dict()
+        return _typed_failure_dict(classify_failure(stage, exc))
 
 
 try:

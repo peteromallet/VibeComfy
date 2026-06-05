@@ -103,6 +103,7 @@ class BatchResult:
     statements: tuple[StatementResult, ...] = ()
     diagnostics: tuple[CompactDiagnostic, ...] = ()
     landed_ops: tuple[Any, ...] = ()
+    field_changes: tuple[Any, ...] = ()
 
     def render_diff(self) -> str:
         """Produce a compact diff view of the batch results.
@@ -146,6 +147,17 @@ class BatchResult:
             for i, op in enumerate(self.landed_ops):
                 desc = _render_op_diff(op)
                 parts.append(f"  [{i + 1}] {desc}")
+
+        # -- Field changes ----------------------------------------------------
+        if self.field_changes:
+            parts.append("")
+            parts.append("--- field changes ---")
+            for i, fc in enumerate(self.field_changes):
+                old_repr = _repr_short(fc.old) if fc.old is not None else "None"
+                parts.append(
+                    f"  [{i + 1}] {fc.uid}.{fc.field_path}: "
+                    f"{old_repr} → {_repr_short(fc.new)}"
+                )
 
         return "\n".join(parts)
 
@@ -461,11 +473,13 @@ class EditSession:
             parsed.expanded,
             placement_facts=placement_facts,
         )
+        field_changes = self._collect_field_changes(landed_ops)
         return BatchResult(
             ok=not diagnostics and all(statement.ok for statement in statement_results),
             statements=statement_results,
             diagnostics=diagnostics,
             landed_ops=landed_ops,
+            field_changes=field_changes,
         )
 
     def done(self) -> DoneResult:
@@ -1046,6 +1060,37 @@ class EditSession:
             return None
         return self._resolve_widget_value(node, field)
 
+    def _collect_field_changes(
+        self,
+        landed_ops: tuple[Any, ...],
+    ) -> tuple[Any, ...]:
+        """Collect structured :class:`~vibecomfy.comfy_nodes.agent_contracts.FieldChange`
+        entries from landed ``SetNodeFieldOp`` operations.
+
+        ``old`` values are recovered from the original ledger via
+        :meth:`_original_node_field_value`.  When the original ledger has no
+        matching node or field, ``old`` is ``None``.
+        """
+        from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+        from vibecomfy.porting.edit_ops import SetNodeFieldOp
+
+        changes: list[Any] = []
+        for op in landed_ops:
+            if not isinstance(op, SetNodeFieldOp):
+                continue
+            old = self._original_node_field_value(
+                op.target.scope_path, op.target.uid, op.target.field_path,
+            )
+            changes.append(
+                FieldChange(
+                    uid=op.target.uid,
+                    field_path=op.target.field_path,
+                    old=old,
+                    new=op.value,
+                )
+            )
+        return tuple(changes)
+
     def _node_field_value(
         self, scope_path: str, uid: str, field: str
     ) -> Any:
@@ -1478,6 +1523,31 @@ class EditSession:
                     landed=False,
                     op_kind="done",
                 )
+            if call_name == "clarify":
+                clarify_message = _extract_clarify_call_message(statement.value, env=env)
+                if clarify_message is None:
+                    return StatementResult(
+                        statement_index=item.statement_index,
+                        source=source,
+                        ok=False,
+                        landed=False,
+                        op_kind="clarify",
+                        diagnostics=(
+                            _diag(
+                                "clarify_argument_not_constant_string",
+                                "clarify(...) requires a constant string message.",
+                                severity="error",
+                            ),
+                        ),
+                    )
+                return StatementResult(
+                    statement_index=item.statement_index,
+                    source=source,
+                    ok=True,
+                    landed=False,
+                    op_kind="clarify",
+                    detail={"clarify_message": clarify_message},
+                )
             return self._resolve_query_statement(
                 statement_index=item.statement_index,
                 source=source,
@@ -1663,7 +1733,7 @@ class EditSession:
         statement: StatementResult,
     ) -> tuple[EditOp | None, tuple[CompactDiagnostic, ...]]:
         op_kind = statement.op_kind
-        if op_kind in {None, "done", "query"}:
+        if op_kind in {None, "done", "clarify", "query"}:
             return None, ()
 
         if op_kind == "node_call":
@@ -2682,6 +2752,8 @@ def _validate_call(
         if node.args or node.keywords:
             return [_unsafe(node, "done_arguments_not_allowed", "done() does not accept arguments.")]
         return []
+    if name == "clarify":
+        return _validate_clarify_call(node, env=env, top_level=top_level)
     if not top_level:
         return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
     if node.args:
@@ -2711,6 +2783,50 @@ def _validate_call(
             continue
         issues.extend(_validate_node_call_value(keyword.value, env=env))
     return issues
+
+
+def _validate_clarify_call(
+    node: ast.Call,
+    *,
+    env: Mapping[str, Any],
+    top_level: bool,
+) -> list[CompactDiagnostic]:
+    if not top_level:
+        return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
+    if node.keywords:
+        return [
+            _unsafe(
+                node,
+                "clarify_keywords_not_allowed",
+                "clarify(...) accepts exactly one positional string argument.",
+            )
+        ]
+    if len(node.args) != 1:
+        return [
+            _unsafe(
+                node,
+                "clarify_argument_count_invalid",
+                "clarify(...) accepts exactly one positional string argument.",
+            )
+        ]
+    value, diagnostic = _fold_constant(node.args[0], env=env)
+    if diagnostic is not None:
+        return [
+            _unsafe(
+                node.args[0],
+                "clarify_argument_not_constant_string",
+                "clarify(...) requires a constant string message.",
+            )
+        ]
+    if not isinstance(value, str):
+        return [
+            _unsafe(
+                node.args[0],
+                "clarify_argument_not_string",
+                "clarify(...) requires a string message.",
+            )
+        ]
+    return []
 
 
 def _validate_node_call_value(node: ast.expr, *, env: Mapping[str, Any]) -> list[CompactDiagnostic]:
@@ -2973,6 +3089,110 @@ def _repr_short(value: Any) -> str:
     return s
 
 
+def collect_field_changes_from_ops(
+    landed_ops: tuple[Any, ...],
+    *,
+    original_ledger: Any,
+    schema_provider: Any = None,
+) -> tuple[Any, ...]:
+    """Standalone helper to build ``FieldChange`` objects from landed ops.
+
+    ``original_ledger`` must expose ``resolve_node(scope_path, uid)``
+    returning a node dict or ``None``.  Uses the same node/field lookup
+    pattern as ``EditSession._collect_field_changes`` but does not require
+    an ``EditSession`` instance, so tests and summary consumers can call it
+    directly.
+
+    *schema_provider* is forwarded to ``_resolve_widget_value_from_node``
+    for schema-based field resolution.  When ``None`` the auto provider is
+    tried; pass a custom provider for test fixtures.
+    """
+    from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+    from vibecomfy.porting.edit_ops import SetNodeFieldOp
+
+    changes: list[Any] = []
+    for op in landed_ops:
+        if not isinstance(op, SetNodeFieldOp):
+            continue
+        old = _resolve_original_node_field_value(
+            original_ledger, op.target.scope_path, op.target.uid, op.target.field_path,
+            schema_provider=schema_provider,
+        )
+        changes.append(
+            FieldChange(
+                uid=op.target.uid,
+                field_path=op.target.field_path,
+                old=old,
+                new=op.value,
+            )
+        )
+    return tuple(changes)
+
+
+def _resolve_original_node_field_value(
+    ledger: Any, scope_path: str, uid: str, field: str,
+    *,
+    schema_provider: Any = None,
+) -> Any:
+    """Look up a widget value from a ledger by field name."""
+    node = ledger.resolve_node(scope_path or "", uid)
+    if node is None:
+        return None
+    return _resolve_widget_value_from_node(node, field, schema_provider=schema_provider)
+
+
+def _resolve_widget_value_from_node(
+    node: Mapping[str, Any], field: str,
+    *,
+    schema_provider: Any = None,
+) -> Any:
+    """Resolve a widget value given a node dict and field name.
+
+    Same logic as ``EditSession._resolve_widget_value`` but usable without
+    a session instance.
+    """
+    from vibecomfy.schema import get_schema_provider, schema_for
+
+    wv = node.get("widgets_values")
+    if isinstance(wv, Mapping):
+        return wv.get(field)
+    if not isinstance(wv, list):
+        return None
+    # (a) Try inputs slot order first
+    inputs = node.get("inputs") or []
+    if isinstance(inputs, list):
+        for idx, slot in enumerate(inputs):
+            if isinstance(slot, Mapping) and slot.get("name") == field:
+                if 0 <= idx < len(wv):
+                    return wv[idx]
+                break
+    # (b) Fall back to schema input ordering
+    class_type = str(node.get("type") or node.get("class_type") or "")
+    if class_type:
+        # Try the provided provider, then auto, then None
+        providers = [schema_provider] if schema_provider is not None else []
+        providers.append(get_schema_provider("auto"))
+        providers.append(None)
+        for provider in providers:
+            try:
+                schema = schema_for(provider, class_type)
+            except Exception:
+                continue
+            if schema is None:
+                continue
+            schema_inputs = getattr(schema, "inputs", {}) or {}
+            if isinstance(schema_inputs, Mapping) and field in schema_inputs:
+                ordered_names = list(schema_inputs.keys())
+                try:
+                    idx = ordered_names.index(field)
+                    if 0 <= idx < len(wv):
+                        return wv[idx]
+                except ValueError:
+                    pass
+                break
+    return None
+
+
 def _statement_op_kind(statement: ast.stmt) -> str | None:
     if isinstance(statement, ast.Assign):
         target = statement.targets[0]
@@ -2984,8 +3204,11 @@ def _statement_op_kind(statement: ast.stmt) -> str | None:
     if isinstance(statement, ast.Delete):
         return "remove_node"
     if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
-        if _call_name(statement.value) == "done":
+        call_name = _call_name(statement.value)
+        if call_name == "done":
             return "done"
+        if call_name == "clarify":
+            return "clarify"
         return "query"
     return None
 
@@ -3004,6 +3227,15 @@ def _call_name(node: ast.Call) -> str | None:
     if isinstance(node.func, ast.Name):
         return node.func.id
     return None
+
+
+def _extract_clarify_call_message(node: ast.Call, *, env: Mapping[str, Any]) -> str | None:
+    if _call_name(node) != "clarify" or len(node.args) != 1 or node.keywords:
+        return None
+    value, diagnostic = _fold_constant(node.args[0], env=env)
+    if diagnostic is not None or not isinstance(value, str):
+        return None
+    return value
 
 
 def _link_origin(link: Any) -> tuple[int | None, int]:

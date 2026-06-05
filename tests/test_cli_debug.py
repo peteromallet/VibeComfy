@@ -153,9 +153,7 @@ def test_debug_status_json_uses_live_status_when_reachable(
                 "route": "/vibecomfy/agent/status",
                 "provider_available": True,
                 "credential_present": True,
-                "agent_edit_v2": True,
                 "identity": "agent",
-                "batch_repl": True,
             },
             None,
         ),
@@ -169,9 +167,7 @@ def test_debug_status_json_uses_live_status_when_reachable(
         "route_available": True,
         "provider_available": True,
         "credential_present": True,
-        "agent_edit_v2": True,
         "identity": "agent",
-        "batch_repl": True,
     }
 
 
@@ -180,7 +176,7 @@ def test_debug_status_json_falls_back_when_server_unreachable(
 ) -> None:
     import vibecomfy._agent_edit_debug as debug
 
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_V2", "1")
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LEGACY", "full")
     monkeypatch.setattr(debug, "_listener_pid", lambda: (None, "no lsof"))
     monkeypatch.setattr(debug, "_fetch_runtime_status", lambda: (None, "connection refused"))
     assert _run_cli(["debug", "status", "--json"]) == 0
@@ -188,4 +184,4 @@ def test_debug_status_json_falls_back_when_server_unreachable(
     payload = json.loads(capsys.readouterr().out)
     assert payload["runtime"] is None
     assert payload["runtime_error"] == "connection refused"
-    assert payload["env_flags"]["VIBECOMFY_AGENT_EDIT_V2"] == "1"
+    assert payload["env_flags"]["VIBECOMFY_AGENT_EDIT_LEGACY"] == "full"

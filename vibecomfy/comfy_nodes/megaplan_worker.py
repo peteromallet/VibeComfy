@@ -83,7 +83,7 @@ def main() -> int:
             payload = _extract_json_object(text or "")
             message = payload.get("message")
             if not isinstance(message, str):
-                message = "Applied the requested edit."
+                raise ValueError("Agent JSON must include a string `message` field.")
         if response_contract == "delta":
             delta = payload.get("delta")
             if not isinstance(delta, list):

@@ -772,9 +772,14 @@ def success_envelope(
     graph: dict[str, Any] | None = None,
     report: dict[str, Any] | None = None,
     artifacts: Mapping[str, Any] | None = None,
-    audit_ref: ArtifactRef | None = None,
     version: int = 1,
 ) -> dict[str, Any]:
+    """Build the canonical success response envelope (without ``audit_ref``).
+
+    ``audit_ref`` is intentionally absent from this envelope.  Callers must
+    stage the audit with the returned dict *first*, then insert ``audit_ref``
+    into the response before returning it to the caller.
+    """
     return {
         "ok": True,
         "session_id": context.session_id,
@@ -788,9 +793,68 @@ def success_envelope(
         "graph": graph,
         "report": report or {},
         "artifacts": dict(artifacts or {}),
-        "audit_ref": audit_ref.to_dict() if audit_ref is not None else None,
         "version": version,
     }
+
+
+# ---------------------------------------------------------------------------
+# M2 typed result contracts — FieldChange and TurnOutcome
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FieldChange:
+    """A single field edit landed by an agent batch turn.
+
+    ``old`` is recovered from the original ledger (not a client-side diff),
+    so it is ``None`` when the original ledger has no matching node or field.
+    """
+
+    uid: str
+    field_path: str
+    old: Any
+    new: Any
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "uid": self.uid,
+            "field_path": self.field_path,
+            "old": self.old,
+            "new": self.new,
+        }
+
+
+@dataclass(frozen=True)
+class TurnOutcome:
+    """Typed outcome for a single agent-edit turn.
+
+    ``kind`` is one of:
+
+    * ``"edit"`` — the turn landed edits without a pending clarification.
+    * ``"clarify"`` — the turn needs clarification and landed no edits.
+    * ``"edit+clarify"`` — the turn landed edits *and* still needs a
+      user clarification before it can continue.
+    * ``"failure"`` — the turn failed before producing a candidate.
+    * ``"noop"`` — the turn completed without edits or clarification.
+    * ``"budget"`` — the turn exhausted its allowed edit budget.
+    """
+
+    kind: str
+    changes: tuple[FieldChange, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("edit", "clarify", "edit+clarify", "failure", "noop", "budget"):
+            raise ValueError(
+                "TurnOutcome.kind must be one of "
+                "'edit', 'clarify', 'edit+clarify', 'failure', 'noop', or 'budget', "
+                f"got {self.kind!r}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "changes": [c.to_dict() for c in self.changes],
+        }
 
 
 __all__ = [
@@ -800,10 +864,12 @@ __all__ = [
     "FAILURE_SPECS",
     "FailureEnvelope",
     "FailureKind",
+    "FieldChange",
     "GateResult",
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
     "TurnContext",
+    "TurnOutcome",
     "classify_failure",
     "failure_envelope",
     "success_envelope",

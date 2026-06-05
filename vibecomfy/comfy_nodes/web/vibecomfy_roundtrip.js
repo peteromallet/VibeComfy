@@ -1210,7 +1210,10 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
       panel.fields.model.value = status.model;
     }
     if (!quiet) {
-      const availability = status?.provider_available === false ? "provider unavailable" : "provider ready";
+      const ready = status?.ready;
+      const providerReady = ready !== undefined ? ready : (status?.provider_available !== false);
+      const reasonSuffix = (!providerReady && status?.reason) ? `: ${status.reason}` : "";
+      const availability = providerReady ? "provider ready" : `provider unavailable${reasonSuffix}`;
       panel.state.settingsMessage = `${status?.requested_route || route} → ${status?.route || route} (${availability})`;
     }
   } catch (e) {
@@ -1680,10 +1683,29 @@ function normalizeBatchTurn(payload, { source = "response", sessionId = null, st
   if (!resolvedSessionId || turnNumber == null) {
     return null;
   }
+  const payloadOutcome = payload.outcome && typeof payload.outcome === "object" ? payload.outcome : null;
+  const payloadOutcomeKind =
+    typeof payloadOutcome?.kind === "string" && payloadOutcome.kind
+      ? payloadOutcome.kind
+      : null;
+  const payloadChanges =
+    Array.isArray(payload.changes)
+      ? payload.changes
+      : Array.isArray(payloadOutcome?.changes)
+        ? payloadOutcome.changes
+        : (Array.isArray(payload.field_changes) ? payload.field_changes : []);
+  const clarificationRequired =
+    payload.clarification_required === true
+    || payloadOutcomeKind === "clarify"
+    || payloadOutcomeKind === "edit+clarify";
+  const clarificationMessage =
+    typeof payload.clarification_message === "string" && payload.clarification_message.trim()
+      ? payload.clarification_message
+      : (clarificationRequired && typeof payload.message === "string" ? payload.message : null);
   const normalizedStatus =
     status
     || (typeof payload.status === "string" && payload.status)
-    || (payload.clarification_required ? "clarify" : "in_progress");
+    || (clarificationRequired ? "clarify" : "in_progress");
   return {
     entry_type: "batch",
     turn_key: batchTurnKey(resolvedSessionId, turnNumber),
@@ -1693,9 +1715,17 @@ function normalizeBatchTurn(payload, { source = "response", sessionId = null, st
     status: normalizedStatus,
     message: typeof payload.message === "string" ? payload.message : null,
     timestamp: typeof payload.timestamp === "string" ? payload.timestamp : null,
-    clarification_required: Boolean(payload.clarification_required),
-    clarification_message:
-      typeof payload.clarification_message === "string" ? payload.clarification_message : null,
+    clarification_required: clarificationRequired,
+    clarification_message: clarificationMessage,
+    outcome:
+      payloadOutcomeKind
+        ? {
+            ...(payloadOutcome || {}),
+            kind: payloadOutcomeKind,
+            changes: payloadChanges,
+          }
+        : null,
+    changes: payloadChanges,
     batch_ok: typeof payload.batch_ok === "boolean" ? payload.batch_ok : null,
     statement_count:
       typeof payload.statement_count === "number" && Number.isFinite(payload.statement_count)
@@ -1731,6 +1761,15 @@ function mergeBatchTurnEntry(existing, incoming) {
     ...existing,
     ...incoming,
     status: keepExistingStatus ? existing.status : incoming.status,
+    clarification_message: incoming.clarification_message || existing.clarification_message || null,
+    outcome:
+      incoming.outcome && typeof incoming.outcome === "object"
+        ? incoming.outcome
+        : (existing.outcome && typeof existing.outcome === "object" ? existing.outcome : null),
+    changes:
+      Array.isArray(incoming.changes) && incoming.changes.length
+        ? incoming.changes
+        : (Array.isArray(existing.changes) ? existing.changes : []),
     statements:
       Array.isArray(incoming.statements) && incoming.statements.length
         ? incoming.statements
@@ -1815,8 +1854,12 @@ function reconcileResponseBatchTurns(panel, result) {
   const finalIndex = result.batch_turns.length - 1;
   for (let index = 0; index < result.batch_turns.length; index += 1) {
     const turn = result.batch_turns[index];
+    const turnOutcomeKind =
+      turn?.outcome && typeof turn.outcome === "object" && typeof turn.outcome.kind === "string"
+        ? turn.outcome.kind
+        : null;
     let status = null;
-    if (turn?.clarification_required) {
+    if (turnOutcomeKind === "clarify" || turnOutcomeKind === "edit+clarify" || turn?.clarification_required) {
       status = "clarify";
     } else if (index === finalIndex && typeof result?.done_summary === "string" && result.done_summary) {
       status = "done";
@@ -3743,8 +3786,10 @@ function renderSettings(panel) {
   const statusNode = document.getElementById(PANEL_IDS.settingsStatus);
   const guidanceNode = document.getElementById(PANEL_IDS.settingsGuidance);
   const normalizedRoute = descriptor.normalized_route || normalizeRoutePreference(panel.fields.route.value);
-  const providerAvailable = panel.state.statusSnapshot?.provider_available;
-  const availability = providerAvailable === false ? "provider unavailable" : "provider ready";
+  const ready = panel.state.statusSnapshot?.ready;
+  const providerAvailable = ready !== undefined ? ready : (panel.state.statusSnapshot?.provider_available !== false);
+  const reasonSuffix = (!providerAvailable && panel.state.statusSnapshot?.reason) ? `: ${panel.state.statusSnapshot.reason}` : "";
+  const availability = providerAvailable ? "provider ready" : `provider unavailable${reasonSuffix}`;
   statusNode.textContent = panel.state.settingsMessage
     || `${descriptor.requested_route} → ${normalizedRoute} (${availability})`;
   guidanceNode.textContent = descriptor.guidance || "";

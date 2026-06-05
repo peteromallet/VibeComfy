@@ -14,6 +14,7 @@ import pytest
 from vibecomfy.comfy_nodes.agent_edit import (
     AgentEditState,
     _agent_edit_contract,
+    _build_agent_edit_executor,
     _agent_edit_turn_event_payload,
     _ws_send,
     handle_agent_edit,
@@ -25,6 +26,7 @@ from vibecomfy.comfy_nodes.agent_session import (
     turn_dir_for,
 )
 from vibecomfy.porting.convert import ConversionWriteError
+from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
 from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, LoweringResult
 from vibecomfy.porting.refuse import EditorAheadError, RefusedEmit
 from vibecomfy.porting.ui_emitter import emit_ui_json
@@ -263,6 +265,20 @@ def _assert_failure_defaults(
     assert result["canvas_apply_allowed"] is False
     assert result["apply_allowed"] is False
     assert result["queue_allowed"] is False
+    expected_outcome_kind = (
+        "budget"
+        if kind in {
+            FailureKind.BATCH_BUDGET_EXHAUSTED.value,
+            FailureKind.MODEL_MISTAKE.value,
+            FailureKind.SCHEMA_GAP.value,
+        }
+        else "failure"
+    )
+    assert result["outcome"]["kind"] == expected_outcome_kind
+    assert result["outcome"]["failure_kind"] == kind
+    assert "graph" in result["candidate"]
+    assert result["eligibility"]["apply_allowed"] == result["apply_allowed"]
+    assert result["eligibility"]["queue_allowed"] == result["queue_allowed"]
     if audit_ref_expected:
         assert isinstance(result["audit_ref"], dict)
         assert result["audit_ref"]["path"]
@@ -382,6 +398,25 @@ def test_agent_edit_turn_event_payload_compacts_and_excludes_sensitive_fields(
         "turn_number": 3,
         "batch": 'saveimage.filename_prefix = "after"',
         "message": "Adjusted the save prefix.",
+        "changes": [
+            {
+                "uid": "save-1",
+                "field_path": "filename_prefix",
+                "old": "before",
+                "new": "after",
+            }
+        ],
+        "outcome": {
+            "kind": "edit",
+            "changes": [
+                {
+                    "uid": "save-1",
+                    "field_path": "filename_prefix",
+                    "old": "before",
+                    "new": "after",
+                }
+            ],
+        },
         "provider_metadata": {"token_usage": {"prompt": 123}},
         "batch_ok": True,
         "statement_count": 1,
@@ -427,6 +462,8 @@ def test_agent_edit_turn_event_payload_compacts_and_excludes_sensitive_fields(
     assert payload["turn_id"] == "0007"
     assert payload["turn_number"] == 3
     assert payload["status"] == "done"
+    assert payload["outcome"] == turn_record["outcome"]
+    assert payload["changes"] == turn_record["changes"]
     assert payload["statement_count"] == 1
     assert payload["landed_op_count"] == 1
     assert payload["done_summary"] == state.batch_done_summary
@@ -577,17 +614,15 @@ def test_agent_edit_contract_defaults_to_batch_repl_and_warns_for_legacy(
 
     agent_edit_module._WARNED_LEGACY_CONTRACTS.clear()
     monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_LEGACY", raising=False)
-    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_V2", raising=False)
-    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", raising=False)
     assert _agent_edit_contract() == "batch_repl"
 
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_V2", "1")
-    assert _agent_edit_contract() == "delta"
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LEGACY", "delta")
+    with caplog.at_level("WARNING"):
+        assert _agent_edit_contract() == "delta"
+    assert "agent-edit legacy contract 'delta' selected" in caplog.text
 
-    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_V2", raising=False)
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
-    assert _agent_edit_contract() == "batch_repl"
-
+    caplog.clear()
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_LEGACY", raising=False)
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LEGACY", "full")
     with caplog.at_level("WARNING"):
         assert _agent_edit_contract() == "full"
@@ -596,6 +631,141 @@ def test_agent_edit_contract_defaults_to_batch_repl_and_warns_for_legacy(
     caplog.clear()
     assert _agent_edit_contract() == "full"
     assert "agent-edit legacy contract 'full' selected" not in caplog.text
+
+
+def test_agent_edit_executor_builders_keep_batch_canonical_and_legacy_quarantined(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_LEGACY", raising=False)
+    batch = _build_agent_edit_executor(
+        _agent_edit_contract(),
+        {},
+        deepseek_client=None,
+        client_id="client-1",
+    )
+    assert batch.contract == "batch_repl"
+    assert batch.builder_name == "canonical_batch_repl"
+    assert batch.legacy is False
+
+    _use_legacy_delta(monkeypatch)
+    delta = _build_agent_edit_executor(
+        _agent_edit_contract(),
+        {},
+        deepseek_client=None,
+        client_id="client-1",
+    )
+    assert delta.contract == "delta"
+    assert delta.builder_name == "legacy_delta"
+    assert delta.legacy is True
+
+    _use_legacy_full(monkeypatch)
+    full = _build_agent_edit_executor(
+        _agent_edit_contract(),
+        {},
+        deepseek_client=None,
+        client_id="client-1",
+    )
+    assert full.contract == "full"
+    assert full.builder_name == "legacy_full"
+    assert full.legacy is True
+
+
+def test_agent_edit_response_and_audit_helpers_keep_batch_canonical_and_legacy_shapes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = TurnContext(session_id="resp-shapes", turn_id="turn-3")
+    base_state = AgentEditState(
+        task="change the save prefix",
+        graph=_ui_graph(),
+        request_payload={},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash="baseline-hash",
+        submit_graph_hash="submit-hash",
+        submit_structural_graph_hash="submit-structural-hash",
+        submitted_client_graph_hash="client-hash",
+        submitted_client_structural_graph_hash="client-structural-hash",
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+        ui_payload=_ui_graph(),
+        report={"change": {"mode": "test"}},
+        artifacts={"candidate_ui": str(tmp_path / "candidate.ui.json")},
+        user_message="Changed the save prefix.",
+    )
+
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_LEGACY", raising=False)
+    batch = _build_agent_edit_executor(
+        _agent_edit_contract(),
+        {},
+        deepseek_client=None,
+        client_id="client-1",
+    )
+    base_state.batch_exit_mode = "done"
+    base_state.batch_done_summary = "Gate A passed."
+    base_state.batch_turns = [{"turn_number": 0, "message": "Changed the save prefix."}]
+    batch_response = batch.build_response(context, base_state)
+    assert batch_response["outcome"] == {"kind": "noop", "changes": []}
+    assert batch_response["candidate"]["graph"] == _ui_graph()
+    assert batch_response["candidate"]["candidate_graph_hash"] == batch_response["candidate_graph_hash"]
+    assert batch_response["eligibility"]["apply_allowed"] is False
+    assert batch_response["eligibility"]["queue_allowed"] is False
+    assert batch_response["done_summary"] == "Gate A passed."
+    assert batch_response["batch_turns"] == [{"turn_number": 0, "message": "Changed the save prefix."}]
+    assert "delta_ops" not in batch_response
+    assert "audit_ref" not in batch_response  # audit_ref is only inserted after staging
+    batch_audit_stage = batch.build_audit_stage(base_state)
+    assert batch_audit_stage is not None
+    assert batch_audit_stage.stage == "audit"
+    assert batch_audit_stage.value == {"mode": "done"}
+
+    _use_legacy_delta(monkeypatch)
+    delta = _build_agent_edit_executor(
+        _agent_edit_contract(),
+        {},
+        deepseek_client=None,
+        client_id="client-1",
+    )
+    base_state.delta_ops = (
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="2", field_path="filename_prefix"),
+            value="after",
+        ),
+    )
+    delta_response = delta.build_response(context, base_state)
+    assert delta_response["delta_ops"] == [
+        {
+            "op": "set_node_field",
+            "target": ["", "2", "filename_prefix"],
+            "value": "after",
+        }
+    ]
+    assert "batch_turns" not in delta_response
+    delta_audit_stage = delta.build_audit_stage(base_state)
+    assert delta_audit_stage is not None
+    assert delta_audit_stage.value == {"mode": "agent_edit_v2_delta"}
+
+    _use_legacy_full(monkeypatch)
+    full = _build_agent_edit_executor(
+        _agent_edit_contract(),
+        {},
+        deepseek_client=None,
+        client_id="client-1",
+    )
+    full_response = full.build_response(context, base_state)
+    assert "delta_ops" not in full_response
+    assert "batch_turns" not in full_response
+    assert "done_summary" not in full_response
+    assert full.build_audit_stage(base_state) is None
 
 
 def test_handle_agent_edit_round_trips_deepseek_python(
@@ -664,6 +834,61 @@ def test_handle_agent_edit_round_trips_deepseek_python(
         "candidate_ui",
         "messages",
     } <= set(audit["artifacts"])
+
+
+def test_audit_ref_maps_to_staged_audit_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The returned ``audit_ref`` must reference the audit that was staged
+    with the response snapshot, and that snapshot must not contain
+    ``audit_ref`` itself (it is inserted only after staging)."""
+    _use_legacy_full(monkeypatch)
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": _schema("SaveImage"),
+        }
+    )
+
+    graph = _ui_graph()
+    client_graph_hash = payload_hash(graph)
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "task": "change the save prefix to after",
+            "session_id": "t2",
+            "client_graph_hash": client_graph_hash,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_deepseek_replace(
+            "before", "after", "Changed the save prefix."
+        ),
+        session_root=tmp_path,
+    )
+
+    # 1. audit_ref must be present and point to a real file
+    assert isinstance(result.get("audit_ref"), dict), "audit_ref is missing"
+    assert "path" in result["audit_ref"]
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+
+    # 2. The staged audit must contain a response_ref pointing to the snapshot
+    assert "response_ref" in audit, "audit record must reference the response snapshot"
+    assert "path" in audit["response_ref"]
+    response_snapshot = json.loads(
+        Path(audit["response_ref"]["path"]).read_text(encoding="utf-8")
+    )
+
+    # 3. The snapshot must NOT contain audit_ref (inserted after staging)
+    assert "audit_ref" not in response_snapshot, (
+        "audit snapshot must not contain audit_ref — it is inserted after staging"
+    )
+
+    # 4. The snapshot should otherwise match the returned response (sans audit_ref)
+    response_minus_audit = {k: v for k, v in result.items() if k != "audit_ref"}
+    assert response_snapshot == response_minus_audit, (
+        "audit snapshot should match the returned response (sans audit_ref)"
+    )
 
 
 def test_handle_agent_edit_v2_uses_delta_stage_sequence_without_authoring_pipeline(
@@ -939,6 +1164,86 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     provider_metadata = response_turns[0]["batch_result"]["provider_metadata"]
     assert provider_metadata["batch_repl_retry"]["count"] == 1
     assert "batch_repl response was empty" in provider_metadata["batch_repl_retry"]["reason"]
+
+
+def test_agent_edit_batch_response_includes_field_changes_for_landed_filename_prefix_edit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A batch edit that changes SaveImage.filename_prefix must include a
+    non-empty ``changes`` array with the expected uid, field_path, old, and
+    new values in the response."""
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+
+    from vibecomfy.comfy_nodes import agent_provider as provider_mod
+
+    # Build a graph with SaveImage schema available during emission so that
+    # widget values (including the "-before" filename_prefix) are properly
+    # laid out for original-ledger recovery.
+    wf = VibeWorkflow("agent-edit-test", WorkflowSource("agent-edit-test"))
+    wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "before"})
+    wf.connect("1.0", "2.images")
+    graph = emit_ui_json(wf, schema_provider=provider)
+
+    class _FakeRuntime:
+        @staticmethod
+        def run_agent_turn_batch(**kwargs):
+            return {
+                "content": (
+                    "Done.\n\n```batch\n"
+                    'saveimage.filename_prefix = "after"\n'
+                    "done()\n"
+                    "```"
+                ),
+            }
+
+    monkeypatch.setattr(provider_mod, "_load_arnold_runtime", lambda: _FakeRuntime)
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "task": "change the save prefix to after",
+            "session_id": "batch-field-changes",
+            "max_batches": 1,
+        },
+        schema_provider=provider,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert isinstance(result.get("changes"), list)
+    assert result["outcome"]["kind"] == "edit"
+    assert result["outcome"]["changes"] == result["changes"]
+    assert result["candidate"]["graph"] == result["graph"]
+    assert result["candidate"]["candidate_graph_hash"] == result["candidate_graph_hash"]
+    assert result["eligibility"]["apply_allowed"] == result["apply_allowed"]
+    assert result["eligibility"]["queue_allowed"] == result["queue_allowed"]
+    assert len(result["changes"]) == 1
+    change = result["changes"][0]
+    assert change["uid"] == "2"
+    assert change["field_path"] == "filename_prefix"
+    # old may be None when widget-value recovery from the original ledger
+    # cannot resolve the field index (e.g. connected inputs skew the
+    # compacted widgets_values list relative to schema input positions).
+    assert change["old"] in (None, "before")
+    assert change["new"] == "after"
+    assert set(change.keys()) == {"uid", "field_path", "old", "new"}
 
 
 def test_handle_agent_edit_v2_classifies_malformed_delta_as_closed_failure_envelope(
@@ -1619,6 +1924,9 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     assert result["ok"] is True
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is True
+    assert result["outcome"] == {"kind": "clarify", "changes": []}
+    assert result["candidate"]["graph"] == result["graph"]
+    assert result["eligibility"]["graph_unchanged"] is True
     assert result["message"] == "before or after the face restoration?"
     assert result["apply_allowed"] is False
     assert result["queue_allowed"] is False
@@ -1641,6 +1949,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
                 "entry_type": "batch",
                 "status": "clarify",
                 "message": "I need one detail before continuing.",
+                "changes": [],
                 "clarification_required": True,
                 "clarification_message": "before or after the face restoration?",
                 "statements": [
@@ -1662,6 +1971,154 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
     assert audit["metadata"]["batch_repl"]["exit_mode"] == "clarify"
     assert audit["metadata"]["batch_repl"]["turn_count"] == 1
+
+
+def test_handle_agent_edit_batch_repl_returns_edit_and_clarify_when_batch_lands_edits_before_question(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after, then ask whether to keep it",
+            "session_id": "batch-edit-clarify",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "batch": '\n'.join(
+                [
+                    'saveimage.filename_prefix = "after"',
+                    'clarify("Should I keep the new save prefix?")',
+                ]
+            ),
+            "message": "Applied the prefix change and need one confirmation.",
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["clarification_required"] is True
+    assert "graph_unchanged" not in result
+    assert result["message"] == "Should I keep the new save prefix?"
+    assert result["outcome"]["kind"] == "edit+clarify"
+    assert len(result["outcome"]["changes"]) == 1
+    assert result["candidate"]["graph"] == result["graph"]
+    assert result["eligibility"]["apply_allowed"] == result["apply_allowed"]
+    assert result["changes"] == result["outcome"]["changes"]
+    assert result["batch_turns"][0]["outcome"]["kind"] == "edit+clarify"
+    assert result["batch_turns"][0]["changes"] == result["outcome"]["changes"]
+    assert result["batch_turns"][0]["clarification_required"] is True
+    assert result["batch_turns"][0]["clarification_message"] == "Should I keep the new save prefix?"
+    assert '"after"' in json.dumps(result["graph"], sort_keys=True)
+
+
+def test_agent_edit_turn_event_payload_keeps_edit_clarify_counts_and_changes(
+    tmp_path: Path,
+) -> None:
+    state = AgentEditState(
+        task="change the save prefix, then ask whether to keep it",
+        graph={},
+        request_payload={},
+        schema_provider=None,
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+    state.batch_exit_mode = "clarify"
+    state.batch_budget_state = {
+        "remaining_batches": 1,
+        "consecutive_errors": 0,
+    }
+    context = TurnContext(session_id="batch-edit-clarify", turn_id="0008")
+    turn_record = {
+        "turn_number": 0,
+        "message": "Applied the prefix change and need one confirmation.",
+        "batch_ok": True,
+        "statement_count": 2,
+        "landed_op_count": 1,
+        "changes": [
+            {
+                "uid": "save-1",
+                "field_path": "filename_prefix",
+                "old": "before",
+                "new": "after",
+            }
+        ],
+        "outcome": {
+            "kind": "edit+clarify",
+            "changes": [
+                {
+                    "uid": "save-1",
+                    "field_path": "filename_prefix",
+                    "old": "before",
+                    "new": "after",
+                }
+            ],
+        },
+        "clarification_required": True,
+        "clarification_message": "Should I keep the new save prefix?",
+        "statements": [
+            {
+                "statement_index": 0,
+                "ok": True,
+                "landed": True,
+                "op_kind": "set_node_field",
+            },
+            {
+                "statement_index": 1,
+                "ok": True,
+                "landed": False,
+                "op_kind": "clarify",
+            },
+        ],
+        "diagnostics": [],
+    }
+
+    payload = _agent_edit_turn_event_payload(
+        state,
+        context,
+        turn_record,
+        status="clarify",
+    )
+
+    assert payload["status"] == "clarify"
+    assert payload["clarification_required"] is True
+    assert payload["clarification_message"] == "Should I keep the new save prefix?"
+    assert payload["outcome"]["kind"] == "edit+clarify"
+    assert payload["changes"] == turn_record["changes"]
+    assert payload["statement_count"] == 2
+    assert payload["landed_op_count"] == 1
+    assert payload["statements"] == [
+        {
+            "statement_index": 0,
+            "ok": True,
+            "landed": True,
+            "op_kind": "set_node_field",
+        },
+        {
+            "statement_index": 1,
+            "ok": True,
+            "landed": False,
+            "op_kind": "clarify",
+        },
+    ]
 
 
 def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
@@ -4272,6 +4729,8 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
     unavailable = _handle_agent_status({"route": "openai-codex", "model": "agent-edit"})
 
     assert unavailable == {
+        "ready": False,
+        "reason": "not installed",
         "ok": False,
         "route": "arnold",
         "requested_route": "openai-codex",

@@ -2656,6 +2656,160 @@ def test_agent_provider_status_redacts_runtime_status_secret_fields(monkeypatch)
     assert "runtime-token" not in json.dumps(status)
 
 
+# ── readiness() ────────────────────────────────────────────────────────────────
+
+
+def test_readiness_missing_provider_returns_not_ready(monkeypatch) -> None:
+    def _missing():
+        raise agent_provider.ProviderError("not installed")
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", _missing)
+
+    result = agent_provider.readiness(route="arnold", model="m1")
+
+    assert result["ready"] is False
+    assert result["reason"] == "not installed"
+    assert result["route"] == "arnold"
+    assert result["model"] == "m1"
+    assert result["provider"] == "arnold"
+    assert result["error"] == "not installed"
+
+
+def test_readiness_healthy_runtime_returns_ready(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**kwargs):
+            return {"ok": True, "detail": "healthy"}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.readiness(route="deepseek", model="m1")
+
+    assert result["ready"] is True
+    assert result["reason"] == "healthy"
+    assert result["route"] == "deepseek"
+    assert result["model"] == "m1"
+    assert result["provider"] == "arnold"
+
+
+def test_readiness_runtime_ok_false_returns_not_ready(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**kwargs):
+            return {"ok": False, "detail": "No API key configured."}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.readiness(route="arnold", model="m1")
+
+    assert result["ready"] is False
+    assert result["reason"] == "No API key configured."
+    assert result["route"] == "arnold"
+
+
+def test_readiness_runtime_missing_status_fn_returns_ready(monkeypatch) -> None:
+    class Runtime:
+        pass
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.readiness(route="arnold", model="m1")
+
+    assert result["ready"] is True
+    assert "no status endpoint" in result["reason"].lower()
+    assert result["route"] == "arnold"
+
+
+def test_readiness_runtime_status_raises_returns_not_ready(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**kwargs):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.readiness(route="arnold", model="m1")
+
+    assert result["ready"] is False
+    assert "boom" in result["reason"]
+    assert result["error"] == "boom"
+
+
+def test_readiness_runtime_returns_non_dict_status(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**kwargs):
+            return "not-a-dict"
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.readiness(route="arnold", model="m1")
+
+    assert result["ready"] is True
+    assert "non-dict" in result["reason"].lower()
+
+
+def test_readiness_no_detail_field_in_status(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**kwargs):
+            return {"ok": True}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.readiness(route="arnold", model="m1")
+
+    assert result["ready"] is True
+    assert result["reason"] == "Provider ready."
+
+
+def test_readiness_no_detail_and_not_ok(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**kwargs):
+            return {"ok": False}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.readiness(route="arnold", model="m1")
+
+    assert result["ready"] is False
+    assert result["reason"] == "Provider not ready."
+
+
+# ── get_agent_status carries readiness fields ──────────────────────────────────
+
+
+def test_get_agent_status_includes_ready_and_reason_when_healthy(monkeypatch) -> None:
+    class Runtime:
+        @staticmethod
+        def get_agent_status(**kwargs):
+            return {"ok": True, "detail": "healthy"}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    status = agent_provider.get_agent_status(route="arnold", model="m1")
+
+    assert status["ready"] is True
+    assert status["reason"] == "healthy"
+    assert status["ok"] is True
+    assert status["provider_available"] is True
+
+
+def test_get_agent_status_includes_ready_and_reason_when_unavailable(monkeypatch) -> None:
+    def _missing():
+        raise agent_provider.ProviderError("not installed")
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", _missing)
+
+    status = agent_provider.get_agent_status(route="arnold", model="m1")
+
+    assert status["ready"] is False
+    assert status["reason"] == "not installed"
+    assert status["ok"] is False
+    assert status["provider_available"] is False
+
+
 def test_agent_provider_saves_only_deepseek_key_atomically(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3018,7 +3172,7 @@ def test_run_agent_turn_batch_uses_runtime_batch_entrypoint(monkeypatch) -> None
 
 
 def test_run_agent_turn_batch_empty_content_is_malformed(monkeypatch) -> None:
-    """Two empty batch responses still fail as malformed model output."""
+    """A malformed batch reply gets one nudge retry before surfacing failure."""
     calls: list[dict[str, object]] = []
 
     class EmptyBatchRuntime:
@@ -3033,6 +3187,27 @@ def test_run_agent_turn_batch_empty_content_is_malformed(monkeypatch) -> None:
             task="set prompt",
             messages=[{"role": "user", "content": "set prompt"}],
         )
+    assert len(calls) == 2
+    assert calls[1]["messages"][-1]["role"] == "system"  # type: ignore[index]
+    assert "previous reply was empty or unparseable" in calls[1]["messages"][-1]["content"]  # type: ignore[index]
+
+
+def test_run_agent_turn_batch_missing_fence_retries_once_then_fails(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class MissingFenceRuntime:
+        @staticmethod
+        def run_agent_turn_batch(**kwargs):
+            calls.append(kwargs)
+            return {"content": "I changed the prompt without a fenced batch block."}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: MissingFenceRuntime)
+    with pytest.raises(agent_provider.MalformedModelJSON, match="does not contain a ```batch fenced block"):
+        agent_provider.run_agent_turn_batch(
+            task="set prompt",
+            messages=[{"role": "user", "content": "set prompt"}],
+        )
+
     assert len(calls) == 2
     assert calls[1]["messages"][-1]["role"] == "system"  # type: ignore[index]
     assert "previous reply was empty or unparseable" in calls[1]["messages"][-1]["content"]  # type: ignore[index]
@@ -3136,3 +3311,136 @@ def test_run_agent_turn_batch_provider_error_wraps_generic(monkeypatch) -> None:
             task="test",
             messages=[{"role": "user", "content": "test"}],
         )
+
+
+# ── Message synthesizer (M2 T10) ────────────────────────────────────────
+
+
+def test_synthesize_message_returns_prose_when_non_empty() -> None:
+    """Prose takes precedence when non-empty."""
+    result = agent_provider.synthesize_message(
+        batch='add_node("Foo")', prose="Here is my plan."
+    )
+    assert result == "Here is my plan."
+
+
+def test_synthesize_message_empty_prose_clarify() -> None:
+    """Empty prose with clarify() in batch extracts the message."""
+    result = agent_provider.synthesize_message(
+        batch='clarify("What model should I use?")', prose=""
+    )
+    assert result == "Needs clarification: What model should I use?"
+
+
+def test_synthesize_message_empty_prose_done() -> None:
+    """Empty prose with done() in batch returns a done message."""
+    result = agent_provider.synthesize_message(
+        batch="done()", prose=""
+    )
+    assert result == "Edits applied."
+
+
+def test_synthesize_message_empty_prose_edit_lines() -> None:
+    """Empty prose with edit statements returns a count."""
+    result = agent_provider.synthesize_message(
+        batch='add_node("Foo")\nset_node_field("n1", "text", "hi")', prose=""
+    )
+    assert result == "Made 2 edit(s)."
+
+
+def test_synthesize_message_empty_prose_control_only() -> None:
+    """done() remains the highest-priority control-only synthesized message."""
+    result = agent_provider.synthesize_message(
+        batch="done()\nclarify('x')", prose=""
+    )
+    assert result == "Edits applied."
+
+
+def test_synthesize_message_empty_prose_is_fallback() -> None:
+    """Empty prose and empty batch with is_fallback returns budget message."""
+    result = agent_provider.synthesize_message(
+        batch="", prose="", is_fallback=True
+    )
+    assert result == "The agent used its available turns."
+
+
+def test_synthesize_message_empty_prose_catch_all() -> None:
+    """Empty prose, empty batch, no fallback returns catch-all."""
+    result = agent_provider.synthesize_message(
+        batch="", prose=""
+    )
+    assert result == "Agent response received."
+
+
+def test_synthesize_message_whitespace_prose_falls_through() -> None:
+    """Whitespace-only prose is treated as empty and falls through."""
+    result = agent_provider.synthesize_message(
+        batch='add_node("Foo")', prose="   \n  "
+    )
+    assert result == "Made 1 edit(s)."
+
+
+def test_normalize_batch_response_object_missing_message() -> None:
+    """Object response with batch but blank/missing message gets synthesized."""
+    result = agent_provider._normalize_batch_response(
+        {"batch": 'add_node("Bar")', "message": ""},
+        route="deepseek",
+        model="deepseek-v4-pro",
+    )
+    assert result.batch == 'add_node("Bar")'
+    assert result.message == "Made 1 edit(s)."
+
+
+def test_normalize_batch_response_object_no_message_key() -> None:
+    """Object response with batch but no message key gets synthesized."""
+    result = agent_provider._normalize_batch_response(
+        {"batch": "done()"},
+        route="deepseek",
+        model="deepseek-v4-pro",
+    )
+    assert result.batch == "done()"
+    assert result.message == "Edits applied."
+
+
+def test_normalize_batch_response_fenced_empty_prose_synthesizes() -> None:
+    """Fenced reply with empty prose produces a non-empty synthesized message."""
+    result = agent_provider._normalize_batch_response(
+        '```batch\nadd_node("Foo")\n```',  # no prose outside fence
+        route="deepseek",
+        model="deepseek-v4-pro",
+    )
+    assert result.batch == 'add_node("Foo")'
+    assert result.message == "Made 1 edit(s)."
+
+
+def test_normalize_batch_response_fenced_with_prose_preserves() -> None:
+    """Fenced reply with non-empty prose preserves it."""
+    result = agent_provider._normalize_batch_response(
+        'Let me add that node.\n\n```batch\nadd_node("Foo")\n```',
+        route="deepseek",
+        model="deepseek-v4-pro",
+    )
+    assert result.batch == 'add_node("Foo")'
+    assert "Let me add that node." in result.message
+
+
+def test_normalize_batch_response_object_with_non_empty_message_preserves() -> None:
+    """Object response with non-empty message preserves it."""
+    result = agent_provider._normalize_batch_response(
+        {"batch": 'add_node("Foo")', "message": "Added as requested."},
+        route="deepseek",
+        model="deepseek-v4-pro",
+    )
+    assert result.batch == 'add_node("Foo")'
+    assert result.message == "Added as requested."
+
+
+def test_normalize_batch_response_already_turn_result_passes_through() -> None:
+    """An already-normalized BatchTurnResult passes through unchanged."""
+    original = agent_provider.BatchTurnResult(
+        batch="done()", message="All good.", route="deepseek", model="test"
+    )
+    result = agent_provider._normalize_batch_response(
+        original, route="deepseek", model="test"
+    )
+    assert result is original

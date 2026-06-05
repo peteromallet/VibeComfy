@@ -1630,6 +1630,8 @@ test("VibeComfy provider settings normalize routes, use DeepSeek-only password e
       "/vibecomfy/agent/status?route=deepseek": {
         status: 200,
         body: {
+          ready: true,
+          reason: "",
           ok: true,
           provider_available: true,
           route: "deepseek",
@@ -1651,6 +1653,8 @@ test("VibeComfy provider settings normalize routes, use DeepSeek-only password e
       "/vibecomfy/agent/status?route=anthropic&model=agent-model": {
         status: 200,
         body: {
+          ready: false,
+          reason: "anthropic route uses arnold runtime; check provider configuration",
           ok: false,
           provider_available: false,
           route: "arnold",
@@ -1662,6 +1666,8 @@ test("VibeComfy provider settings normalize routes, use DeepSeek-only password e
       "/vibecomfy/agent/status?route=openai-codex&model=agent-model": {
         status: 200,
         body: {
+          ready: false,
+          reason: "openai-codex route uses arnold runtime; check provider configuration",
           ok: false,
           provider_available: false,
           route: "arnold",
@@ -2440,14 +2446,24 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
           {
             session_id: "session-batch-fallback",
             turn_number: 1,
-            message: "finalizing edits and validating the graph",
+            message: "applied the prefix change and need one confirmation",
             statement_count: 2,
+            changes: [
+              { uid: "uid-2", field_path: "filename_prefix", old: "before", new: "after" },
+            ],
+            outcome: {
+              kind: "edit+clarify",
+              changes: [
+                { uid: "uid-2", field_path: "filename_prefix", old: "before", new: "after" },
+              ],
+            },
+            clarification_message: "Should I keep the new save prefix?",
             statements: [
-              { op_kind: "validate", landed: true, statement_index: 0 },
-              { op_kind: "done", landed: true, statement_index: 1, diagnostics: [{ code: "DONE", message: "batch completed successfully" }] },
+              { op_kind: "assign", landed: true, statement_index: 0 },
+              { op_kind: "clarify", landed: false, statement_index: 1, diagnostics: [{ code: "CLARIFY", message: "needs user confirmation" }] },
             ],
             batch_ok: true,
-            exit_mode: "done",
+            exit_mode: "clarify",
             budget: { remaining_batches: 3, total_used: 2 },
             diagnostics: [{ code: "BATCH_OK", message: "all turns succeeded" }],
           },
@@ -2460,7 +2476,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
     let text = harness.textDump();
     assert.match(text, /Candidate with authoritative batch_turns fallback\./);
     assert.match(text, /analyzing the graph/);
-    assert.match(text, /finalizing edits/);
+    assert.match(text, /need one confirmation/);
     assert.match(text, /Turn 1/);
     assert.match(text, /Turn 2/);
 
@@ -2548,8 +2564,8 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
     assert.match(text, /Final reasoning summary/);
 
     // ── Part 5: absence of raw diff/source/audit paths in batch details ──
-    // Also verify the collapsed Turn 2 row has the expected outcome when expanded.
-    // Expand Turn 2 (freshRows[freshRows.length - 2]) to verify its footer and diagnostics
+    // Also verify Turn 2 picks up clarify status + clarification_message from
+    // outcome.kind/clarification_message even without the legacy alias.
     let turn2Row = freshRows[freshRows.length - 2];
     turn2Row.click();
     await waitFor(() => {
@@ -2557,10 +2573,21 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
       return expanded.length >= 2;
     });
     text = harness.textDump();
-    assert.match(text, /exit: done/);
+    assert.match(text, /Turn 2/);
+    assert.match(text, /clarify/);
+    assert.match(text, /CLARIFY/);
+    assert.match(text, /needs user confirmation/);
     // Turn-level diagnostics from Turn 2
     assert.match(text, /BATCH_OK/);
     assert.match(text, /all turns succeeded/);
+    const reasoningToggles = historyRegion.querySelectorAll(
+      (node) => node.textContent && node.textContent.includes("Reasoning"),
+    );
+    assert(reasoningToggles.length >= 1, "clarify turn should expose a reasoning toggle");
+    reasoningToggles[0].onclick({ stopPropagation() {} });
+    await waitFor(() => /Should I keep the new save prefix\?/.test(harness.textDump()));
+    text = harness.textDump();
+    assert.match(text, /Should I keep the new save prefix\?/);
 
     // These sensitive/internal fields should NOT appear in the batch row rendering
     const expandedText = harness.textDump();

@@ -11,7 +11,9 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     SCAN_CODE_FAILURE_KIND,
     FailureEnvelope,
     FailureKind,
+    FieldChange,
     TurnContext,
+    TurnOutcome,
     classify_failure,
     failure_envelope,
 )
@@ -621,3 +623,161 @@ def test_failure_envelope_invalid_string_kind_raises() -> None:
     """An unrecognised string raises ValueError from the Enum constructor."""
     with pytest.raises(ValueError):
         failure_envelope("NotAKind", "load_python", None)
+
+
+# ---------------------------------------------------------------------------
+# T4: FieldChange and TurnOutcome typed contract serializer tests
+# ---------------------------------------------------------------------------
+
+
+# --- FieldChange ---
+
+
+def test_fieldchange_is_frozen() -> None:
+    fc = FieldChange(uid="n1", field_path="seed", old=42, new=99)
+    with pytest.raises((TypeError, AttributeError)):
+        fc.uid = "n2"  # type: ignore[misc]
+    with pytest.raises((TypeError, AttributeError)):
+        fc.old = 0  # type: ignore[misc]
+
+
+def test_fieldchange_to_dict_roundtrip_via_json() -> None:
+    fc = FieldChange(uid="n1", field_path="seed", old=42, new=99)
+    d = fc.to_dict()
+    assert d == {"uid": "n1", "field_path": "seed", "old": 42, "new": 99}
+    # Verify JSON-roundtrip preserves shape
+    encoded = json.dumps(d)
+    decoded = json.loads(encoded)
+    assert decoded == d
+
+
+def test_fieldchange_old_is_nullable_and_serializes_as_null() -> None:
+    """old=None is included in the serialized dict as `null` (JSON null)."""
+    fc = FieldChange(uid="n1", field_path="seed", old=None, new=99)
+    d = fc.to_dict()
+    assert "old" in d
+    assert d["old"] is None
+    encoded = json.dumps(d)
+    decoded = json.loads(encoded)
+    assert decoded["old"] is None
+
+
+def test_fieldchange_old_is_falsey_zero() -> None:
+    """old=0 is falsey but NOT None — serialized as 0."""
+    fc = FieldChange(uid="n1", field_path="seed", old=0, new=99)
+    d = fc.to_dict()
+    assert d["old"] == 0
+    assert d["old"] is not None
+
+
+def test_fieldchange_old_is_empty_string() -> None:
+    """old='' is falsey but NOT None — serialized as ''."""
+    fc = FieldChange(uid="n1", field_path="name", old="", new="hello")
+    d = fc.to_dict()
+    assert d["old"] == ""
+    assert d["old"] is not None
+
+
+def test_fieldchange_new_can_be_any_jsonish() -> None:
+    """new accepts any JSON-serializable value."""
+    fc = FieldChange(uid="n1", field_path="steps", old=None, new=[1, 2, 3])
+    d = fc.to_dict()
+    assert d["new"] == [1, 2, 3]
+
+
+def test_fieldchange_all_keys_present() -> None:
+    """Every instance includes uid, field_path, old, new."""
+    fc = FieldChange(uid="n1", field_path="a", old="x", new="y")
+    assert set(fc.to_dict().keys()) == {"uid", "field_path", "old", "new"}
+
+
+# --- TurnOutcome ---
+
+
+def test_turnoutcome_edit_kind() -> None:
+    outcome = TurnOutcome(kind="edit", changes=())
+    assert outcome.kind == "edit"
+    d = outcome.to_dict()
+    assert d["kind"] == "edit"
+
+
+def test_turnoutcome_edit_clarify_kind() -> None:
+    outcome = TurnOutcome(kind="edit+clarify", changes=())
+    assert outcome.kind == "edit+clarify"
+    d = outcome.to_dict()
+    assert d["kind"] == "edit+clarify"
+
+
+def test_turnoutcome_rejects_invalid_kind() -> None:
+    with pytest.raises(ValueError, match="must be 'edit' or 'edit\\+clarify'"):
+        TurnOutcome(kind="bad_kind")
+
+
+def test_turnoutcome_rejects_empty_string_kind() -> None:
+    with pytest.raises(ValueError, match="must be 'edit' or 'edit\\+clarify'"):
+        TurnOutcome(kind="")
+
+
+def test_turnoutcome_edit_with_changes() -> None:
+    changes = (
+        FieldChange(uid="n1", field_path="seed", old=1, new=42),
+        FieldChange(uid="n2", field_path="steps", old=None, new=10),
+    )
+    outcome = TurnOutcome(kind="edit", changes=changes)
+    d = outcome.to_dict()
+    assert d["kind"] == "edit"
+    assert len(d["changes"]) == 2
+    assert d["changes"][0]["uid"] == "n1"
+    assert d["changes"][0]["field_path"] == "seed"
+    assert d["changes"][0]["old"] == 1
+    assert d["changes"][0]["new"] == 42
+    assert d["changes"][1]["uid"] == "n2"
+    assert d["changes"][1]["field_path"] == "steps"
+    assert d["changes"][1]["old"] is None
+    assert d["changes"][1]["new"] == 10
+
+
+def test_turnoutcome_edit_clarify_with_changes() -> None:
+    changes = (
+        FieldChange(uid="n1", field_path="cfg", old=1.0, new=2.5),
+    )
+    outcome = TurnOutcome(kind="edit+clarify", changes=changes)
+    d = outcome.to_dict()
+    assert d["kind"] == "edit+clarify"
+    assert len(d["changes"]) == 1
+
+
+def test_turnoutcome_empty_changes() -> None:
+    outcome = TurnOutcome(kind="edit")
+    d = outcome.to_dict()
+    assert d["changes"] == []
+
+
+def test_turnoutcome_is_frozen() -> None:
+    outcome = TurnOutcome(kind="edit")
+    with pytest.raises((TypeError, AttributeError)):
+        outcome.kind = "edit+clarify"  # type: ignore[misc]
+
+
+def test_turnoutcome_to_dict_roundtrip_via_json() -> None:
+    changes = (
+        FieldChange(uid="n1", field_path="seed", old=42, new=99),
+        FieldChange(uid="n2", field_path="steps", old=None, new=10),
+    )
+    outcome = TurnOutcome(kind="edit", changes=changes)
+    d = outcome.to_dict()
+    encoded = json.dumps(d)
+    decoded = json.loads(encoded)
+    assert decoded["kind"] == "edit"
+    assert len(decoded["changes"]) == 2
+    assert decoded["changes"][0] == {"uid": "n1", "field_path": "seed", "old": 42, "new": 99}
+    assert decoded["changes"][1] == {"uid": "n2", "field_path": "steps", "old": None, "new": 10}
+
+
+def test_turnoutcome_changes_tuple_is_hashable() -> None:
+    """The changes tuple is hashable for use in frozen dataclasses."""
+    changes: tuple[FieldChange, ...] = (
+        FieldChange(uid="n1", field_path="a", old=None, new=1),
+    )
+    outcome = TurnOutcome(kind="edit", changes=changes)
+    assert hash(outcome) is not None

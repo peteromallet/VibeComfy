@@ -328,8 +328,8 @@ def _fetch_runtime_status():
         return None, str(e)
 
 def _env_flags():
-    flags = ["VIBECOMFY_AGENT_EDIT_V2", "VIBECOMFY_AGENT_EDIT_IDENTITY",
-             "VIBECOMFY_AGENT_EDIT_BATCH_REPL", "VIBECOMFY_DEEPSEEK_MODEL"]
+    flags = ["VIBECOMFY_AGENT_EDIT_LEGACY", "VIBECOMFY_AGENT_EDIT_IDENTITY",
+             "VIBECOMFY_DEEPSEEK_MODEL"]
     return {f: os.environ.get(f, "-") for f in flags}
 
 def _truthy(value):
@@ -356,9 +356,7 @@ def _runtime_live_flags(runtime):
         "route_available": _truthy(route_available),
         "provider_available": _truthy(runtime.get("provider_available")),
         "credential_present": _truthy(credential_present),
-        "agent_edit_v2": runtime.get("AGENT_EDIT_V2", runtime.get("agent_edit_v2")),
         "identity": runtime.get("IDENTITY", runtime.get("identity")),
-        "batch_repl": runtime.get("BATCH_REPL", runtime.get("batch_repl")),
     }
 
 def _log_tail():

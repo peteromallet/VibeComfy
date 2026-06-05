@@ -1770,6 +1770,35 @@ for i in range(3):
         assert expanded_result.ok is False
         assert expanded_result.diagnostics[0].code == "batch_expanded_statement_cap_exceeded"
 
+    def test_apply_batch_accepts_clarify_special_form_and_preserves_message(self) -> None:
+        from vibecomfy.porting import EditSession
+
+        result = EditSession(_load_flat_fixture_raw()).apply_batch('clarify("Need the checkpoint name.")\n')
+
+        assert result.ok is True
+        assert result.diagnostics == ()
+        assert len(result.statements) == 1
+        assert result.statements[0].op_kind == "clarify"
+        assert result.statements[0].landed is False
+        assert result.statements[0].detail["clarify_message"] == "Need the checkpoint name."
+
+    @pytest.mark.parametrize(
+        ("source", "code"),
+        [
+            ("clarify(message)\n", "clarify_argument_not_constant_string"),
+            ('clarify("one", "two")\n', "clarify_argument_count_invalid"),
+            ('clarify(message="hi")\n', "clarify_keywords_not_allowed"),
+            ("clarify(7)\n", "clarify_argument_not_string"),
+        ],
+    )
+    def test_apply_batch_rejects_malformed_clarify_special_forms(self, source: str, code: str) -> None:
+        from vibecomfy.porting import EditSession
+
+        result = EditSession(_load_flat_fixture_raw()).apply_batch(source)
+
+        assert result.ok is False
+        assert result.diagnostics[0].code == code
+
     @pytest.mark.parametrize(
         ("source", "code"),
         [
@@ -4079,6 +4108,312 @@ if _HYPOTHESIS_AVAILABLE:
                     f"bad_{suffix} = NonExistentClass(x=1, relation='right_of', near=saveimage)\n"
                 )
         return "".join(statements)
+
+    class TestBatchResultFieldChanges:
+        """M2 T5: Structured FieldChange collection from landed SetNodeFieldOp."""
+
+        @staticmethod
+        def _flat_schema_provider() -> Any:
+            """Minimal schema provider for flat.json fixture nodes."""
+            from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+            class SP:
+                def get_schema(self, ct: str):
+                    return {
+                        "CheckpointLoaderSimple": NodeSchema(
+                            "CheckpointLoaderSimple", "core",
+                            {"ckpt_name": InputSpec(type="STRING", required=True)},
+                            [OutputSpec("MODEL", "MODEL"), OutputSpec("CLIP", "CLIP"), OutputSpec("VAE", "VAE")],
+                        ),
+                        "CLIPTextEncode": NodeSchema(
+                            "CLIPTextEncode", "core",
+                            {"text": InputSpec("STRING", required=True), "clip": InputSpec("CLIP", required=True)},
+                            [OutputSpec("CONDITIONING", "CONDITIONING")],
+                        ),
+                        "EmptyLatentImage": NodeSchema(
+                            "EmptyLatentImage", "core",
+                            {"width": InputSpec("INT"), "height": InputSpec("INT"), "batch_size": InputSpec("INT")},
+                            [OutputSpec("LATENT", "LATENT")],
+                        ),
+                        "KSampler": NodeSchema(
+                            "KSampler", "core",
+                            {
+                                "seed": InputSpec("INT"), "steps": InputSpec("INT"), "cfg": InputSpec("FLOAT"),
+                                "sampler_name": InputSpec("STRING"), "scheduler": InputSpec("STRING"),
+                                "denoise": InputSpec("FLOAT"),
+                                "model": InputSpec("MODEL", required=True),
+                                "positive": InputSpec("CONDITIONING", required=True),
+                                "negative": InputSpec("CONDITIONING", required=True),
+                                "latent_image": InputSpec("LATENT", required=True),
+                            },
+                            [OutputSpec("LATENT", "LATENT")],
+                        ),
+                        "VAEDecode": NodeSchema(
+                            "VAEDecode", "core",
+                            {"samples": InputSpec("LATENT", required=True), "vae": InputSpec("VAE", required=True)},
+                            [OutputSpec("IMAGE", "IMAGE")],
+                        ),
+                        "SaveImage": NodeSchema(
+                            "SaveImage", "core",
+                            {"images": InputSpec("IMAGE", required=True), "filename_prefix": InputSpec("STRING", required=True)},
+                            [],
+                        ),
+                        "PrimitiveInt": NodeSchema(
+                            "PrimitiveInt", "core",
+                            {"value": InputSpec("INT")},
+                            [OutputSpec("INT", "value")],
+                        ),
+                        "Reroute": NodeSchema(
+                            "Reroute", "core",
+                            {"": InputSpec("*")},
+                            [OutputSpec("*", "")],
+                        ),
+                    }.get(ct)
+
+            return SP()
+
+        @staticmethod
+        def _flat_session() -> Any:
+            """Create an EditSession for the flat fixture."""
+            from vibecomfy.porting.edit_session import EditSession
+
+            session = EditSession(
+                _load_flat_fixture_raw(),
+                schema_provider=TestBatchResultFieldChanges._flat_schema_provider(),
+            )
+            session.render()
+            return session
+
+        def test_field_changes_original_ledger_old_value(self) -> None:
+            """SetNodeFieldOp produces FieldChange with old from original ledger."""
+            from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+
+            session = self._flat_session()
+
+            # The positive node (uid '2') has widgets_values from the flat fixture
+            code = 'positive.text = "new prompt value"'
+            batch = session.apply_batch(code)
+            assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
+
+            assert len(batch.field_changes) == 1
+            fc = batch.field_changes[0]
+            assert isinstance(fc, FieldChange)
+            assert fc.uid == "2"
+            assert fc.field_path == "text"
+            # Flat fixture: node 2 widgets_values[0] == "beautiful scenery ..."
+            assert isinstance(fc.old, str) and "beautiful" in fc.old  # from original ledger
+            assert fc.new == "new prompt value"
+
+        def test_field_changes_absent_ledger_old_none(self) -> None:
+            """SetNodeFieldOp on a field not in original ledger produces old=None."""
+            from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+            from vibecomfy.porting.edit_ops import SetNodeFieldOp, NodeFieldTarget
+            from vibecomfy.porting.edit_ledger import EditLedger
+            from vibecomfy.porting.edit_session import collect_field_changes_from_ops
+
+            ledger = EditLedger.ingest(_load_flat_fixture_raw())
+
+            # Build a synthetic SetNodeFieldOp targeting a real node but
+            # a field that doesn't exist in the ledger/schema.
+            op = SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget(scope_path="", uid="2", field_path="no_such_widget"),
+                value=42,
+            )
+
+            changes = collect_field_changes_from_ops(
+                (op,), original_ledger=ledger,
+            )
+            assert len(changes) == 1
+            fc = changes[0]
+            assert isinstance(fc, FieldChange)
+            assert fc.uid == "2"
+            assert fc.field_path == "no_such_widget"
+            assert fc.old is None  # field not in original ledger
+            assert fc.new == 42
+
+        def test_field_changes_missing_node_old_none(self) -> None:
+            """SetNodeFieldOp on a node not in original ledger produces old=None."""
+            from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+            from vibecomfy.porting.edit_ops import SetNodeFieldOp, NodeFieldTarget
+            from vibecomfy.porting.edit_ledger import EditLedger
+            from vibecomfy.porting.edit_session import collect_field_changes_from_ops
+
+            ledger = EditLedger.ingest(_load_flat_fixture_raw())
+
+            # Node '999' doesn't exist in the flat fixture
+            op = SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget(scope_path="", uid="999", field_path="text"),
+                value="ghost value",
+            )
+
+            changes = collect_field_changes_from_ops(
+                (op,), original_ledger=ledger,
+            )
+            assert len(changes) == 1
+            fc = changes[0]
+            assert isinstance(fc, FieldChange)
+            assert fc.uid == "999"
+            assert fc.field_path == "text"
+            assert fc.old is None  # node not in original ledger
+            assert fc.new == "ghost value"
+
+        def test_field_changes_empty_when_no_set_node_field_ops(self) -> None:
+            """BatchResult.field_changes is empty when no SetNodeFieldOp lands."""
+            import copy
+            from vibecomfy.porting.edit_session import EditSession
+
+            ui = copy.deepcopy(_load_flat_fixture_raw())
+            ui["last_node_id"] = 8
+            session = EditSession(ui, schema_provider=self._flat_schema_provider())
+            session.render()
+
+            # Add a node (not a SetNodeFieldOp)
+            code = (
+                "extra_save = SaveImage(\n"
+                '    images=vaedecode.image,\n'
+                '    filename_prefix="test",\n'
+                "    near=vaedecode,\n"
+                '    relation="right_of",\n'
+                ")"
+            )
+            batch = session.apply_batch(code)
+            assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
+            assert batch.field_changes == ()
+
+        def test_collect_field_changes_from_ops_standalone(self) -> None:
+            """collect_field_changes_from_ops works standalone with a ledger."""
+            from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+            from vibecomfy.porting.edit_ops import SetNodeFieldOp, NodeFieldTarget
+            from vibecomfy.porting.edit_ledger import EditLedger
+            from vibecomfy.porting.edit_session import collect_field_changes_from_ops
+
+            ledger = EditLedger.ingest(_load_flat_fixture_raw())
+
+            # Build a synthetic SetNodeFieldOp
+            op = SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget(scope_path="", uid="2", field_path="text"),
+                value="synthetic value",
+            )
+
+            changes = collect_field_changes_from_ops(
+                (op,), original_ledger=ledger,
+                schema_provider=self._flat_schema_provider(),
+            )
+            assert len(changes) == 1
+            fc = changes[0]
+            assert isinstance(fc, FieldChange)
+            assert fc.uid == "2"
+            assert fc.field_path == "text"
+            assert fc.old == "beautiful scenery nature glass bottle landscape, purple galaxy bottle,"  # from original ledger
+            assert fc.new == "synthetic value"
+
+        def test_collect_field_changes_from_ops_missing_node_old_none(self) -> None:
+            """collect_field_changes_from_ops returns old=None when node absent from ledger."""
+            from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+            from vibecomfy.porting.edit_ops import SetNodeFieldOp, NodeFieldTarget
+            from vibecomfy.porting.edit_ledger import EditLedger
+            from vibecomfy.porting.edit_session import collect_field_changes_from_ops
+
+            # Empty ledger with no nodes
+            empty_ui: dict[str, Any] = {
+                "last_node_id": 0,
+                "last_link_id": 0,
+                "nodes": [],
+                "links": [],
+                "groups": [],
+                "config": {},
+                "extra": {},
+            }
+            ledger = EditLedger.ingest(empty_ui)
+
+            op = SetNodeFieldOp(
+                op="set_node_field",
+                target=NodeFieldTarget(scope_path="", uid="999", field_path="text"),
+                value="ghost value",
+            )
+
+            changes = collect_field_changes_from_ops(
+                (op,), original_ledger=ledger,
+            )
+            assert len(changes) == 1
+            fc = changes[0]
+            assert isinstance(fc, FieldChange)
+            assert fc.uid == "999"
+            assert fc.field_path == "text"
+            assert fc.old is None  # node not in ledger
+            assert fc.new == "ghost value"
+
+        def test_field_changes_old_value_preserved(self) -> None:
+            """FieldChange.old reflects original ledger value (not working_ui)."""
+            from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+
+            session = self._flat_session()
+
+            # ksampler.seed is 42 in the flat fixture; change it to 999
+            code = 'ksampler.seed = 999'
+            batch = session.apply_batch(code)
+            assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
+
+            assert len(batch.field_changes) == 1
+            fc = batch.field_changes[0]
+            assert isinstance(fc, FieldChange)
+            assert fc.old == 42  # original ledger value, not 999
+            assert fc.new == 999
+
+        def test_field_changes_multiple_set_field_ops(self) -> None:
+            """Multiple SetNodeFieldOps produce multiple FieldChange entries."""
+            from vibecomfy.comfy_nodes.agent_contracts import FieldChange
+
+            session = self._flat_session()
+
+            code = (
+                'positive.text = "new prompt"\n'
+                'ksampler.seed = 999\n'
+            )
+            batch = session.apply_batch(code)
+            assert batch.ok, f"Batch failed: {[d.message for d in batch.diagnostics]}"
+
+            assert len(batch.field_changes) == 2
+            fc0, fc1 = batch.field_changes
+            assert isinstance(fc0, FieldChange)
+            assert isinstance(fc1, FieldChange)
+            # First op: positive.text
+            assert fc0.uid == "2"
+            assert fc0.field_path == "text"
+            assert isinstance(fc0.old, str) and "beautiful" in fc0.old
+            assert fc0.new == "new prompt"
+            # Second op: ksampler.seed
+            assert fc1.uid == "5"
+            assert fc1.field_path == "seed"
+            assert fc1.old == 42
+            assert fc1.new == 999
+
+        def test_field_changes_json_roundtrip(self) -> None:
+            """FieldChange entries in BatchResult survive JSON roundtrip."""
+            import json
+
+            session = self._flat_session()
+
+            code = 'positive.text = "roundtrip test"'
+            batch = session.apply_batch(code)
+            assert batch.ok
+
+            fc = batch.field_changes[0]
+            d = fc.to_dict()
+            expected_old = "beautiful scenery nature glass bottle landscape, purple galaxy bottle,"
+            assert d == {
+                "uid": "2",
+                "field_path": "text",
+                "old": expected_old,
+                "new": "roundtrip test",
+            }
+            # JSON roundtrip
+            encoded = json.dumps(d)
+            decoded = json.loads(encoded)
+            assert decoded == d
 
     class TestSeededPropertyFuzz:
         """Property-based fuzz for edit sessions using Hypothesis.

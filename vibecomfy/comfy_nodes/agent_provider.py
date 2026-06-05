@@ -128,6 +128,10 @@ _BATCH_RETRY_NUDGE = (
     "Your previous reply was empty or unparseable. Reply with prose and exactly "
     "one ```batch fenced block."
 )
+_CLARIFY_SYNTH_RE = re.compile(
+    r'(?m)^\s*clarify\("((?:[^"\\]|\\.)*)"\)\s*$'
+)
+_DONE_SYNTH_RE = re.compile(r'(?m)^\s*done\(\)\s*$')
 
 
 def extract_batch_fence(text: str) -> tuple[str, str]:
@@ -649,6 +653,68 @@ def run_agent_turn_delta(
         raise MalformedModelJSON(str(exc)) from exc
 
 
+def synthesize_message(
+    *,
+    batch: str,
+    prose: str = "",
+    budget_remaining: int | None = None,
+    is_fallback: bool = False,
+) -> str:
+    """Synthesize a non-empty user-facing message when the model didn't provide one.
+
+    Precedence (first match wins):
+
+    1. Non-empty *prose* already supplied by the model.
+    2. ``clarify(\"...\")`` call embedded in *batch* → extract the message.
+    3. ``done()`` call in *batch* → ``"Edits applied."``
+    4. Non-empty batch code with edit-like statements →
+       ``"Made <N> edit(s)."``
+    5. Non-empty batch code (control-only) → ``"Batch processed."``
+    6. Budget/failure fallback (*is_fallback*) → ``"The agent used its
+       available turns."``
+    7. Final catch-all → ``"Agent response received."``
+
+    Returns a non-empty string in all cases.
+    """
+    if prose.strip():
+        return prose.strip()
+
+    # 2: clarify("...")
+    clarify_match = _CLARIFY_SYNTH_RE.search(batch)
+    if clarify_match:
+        msg = clarify_match.group(1)
+        try:
+            msg = json.loads(f'"{msg}"')
+        except json.JSONDecodeError:
+            pass
+        return f"Needs clarification: {msg}"
+
+    # 3: done()
+    if _DONE_SYNTH_RE.search(batch):
+        return "Edits applied."
+
+    # 4: Count edit-like statements (non-control, non-empty lines)
+    if batch.strip():
+        edit_lines = [
+            line for line in batch.splitlines()
+            if line.strip()
+            and not line.strip().startswith("#")
+            and not _CLARIFY_SYNTH_RE.search(line)
+            and not _DONE_SYNTH_RE.search(line)
+        ]
+        if edit_lines:
+            return f"Made {len(edit_lines)} edit(s)."
+        # 5: Non-empty batch but all control-only
+        return "Batch processed."
+
+    # 6: Budget/failure fallback
+    if is_fallback:
+        return "The agent used its available turns."
+
+    # 7: Final catch-all
+    return "Agent response received."
+
+
 def _normalize_batch_response(
     response: Any,
     *,
@@ -661,6 +727,10 @@ def _normalize_batch_response(
     Extracts the ```batch fenced block and surrounding prose via
     :func:`extract_batch_fence`.  The runtime may return a string (the raw
     model response) or a mapping with a ``content`` key.
+
+    When the model supplies an empty/blank user-facing message,
+    :func:`synthesize_message` produces a non-empty fallback so every
+    response carries a user-facing message.
     """
     if isinstance(response, BatchTurnResult):
         return response
@@ -676,6 +746,8 @@ def _normalize_batch_response(
             message = payload.get("message", "")
             if not isinstance(message, str):
                 message = ""
+            if not message.strip():
+                message = synthesize_message(batch=batch_code)
             return BatchTurnResult(
                 batch=batch_code,
                 message=message,
@@ -692,6 +764,8 @@ def _normalize_batch_response(
             "Agent batch_repl response was empty. Expected exactly one ```batch fenced block."
         )
     batch_code, prose = extract_batch_fence(text)
+    if not prose.strip():
+        prose = synthesize_message(batch=batch_code)
     return BatchTurnResult(
         batch=batch_code,
         message=prose,
@@ -777,10 +851,10 @@ def run_agent_turn_batch(
         "response_contract": "batch_repl",
     }
     last_malformed: MalformedModelJSON | None = None
-    # 1 initial + 2 retries: DeepSeek intermittently returns an empty / no-fence
-    # response that parses as MalformedModelJSON; the same prompt usually succeeds
-    # on a later attempt.
-    for attempt in range(3):
+    # 1 initial + 1 deliberate nudge retry. Batch replies occasionally miss the
+    # required fence on the first shot; a single retry keeps the prompt repair
+    # path without blindly replaying the same malformed response multiple times.
+    for attempt in range(2):
         attempt_messages = messages if attempt == 0 else [*messages, {"role": "system", "content": _BATCH_RETRY_NUDGE}]
         try:
             response = _call_batch_runtime(
@@ -807,7 +881,7 @@ def run_agent_turn_batch(
         except TimeoutError:
             raise
         except MalformedModelJSON as exc:
-            if attempt < 2:
+            if attempt < 1:
                 last_malformed = exc
                 LOGGER.warning(
                     "Retrying batch_repl agent turn after malformed model response: %s",
@@ -822,14 +896,92 @@ def run_agent_turn_batch(
     raise last_malformed or MalformedModelJSON("Agent batch_repl response was malformed.")
 
 
-def get_agent_status(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
+def readiness(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
+    """Canonical provider readiness — single source of truth for agent-edit availability.
+
+    Returns a dict with the primary fields ``ready`` (bool) and ``reason`` (str),
+    plus debug/context fields (``route``, ``model``, ``provider``, ``error`` when
+    relevant).
+
+    Consumers should gate on ``ready`` and surface ``reason`` to the user.
+    ``get_agent_status()`` calls this internally and layers compatibility fields
+    on top.
+    """
     route_descriptor = _resolve_agent_route(route)
     selected_route = route_descriptor.normalized_route
     selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
+
     try:
         runtime = _load_arnold_runtime()
     except ProviderError as exc:
         return {
+            "ready": False,
+            "reason": str(exc),
+            "route": selected_route,
+            "model": selected_model,
+            "provider": "arnold",
+            "error": str(exc),
+        }
+
+    status_fn: Callable[..., Any] | None = getattr(runtime, "get_agent_status", None)
+    if status_fn is None:
+        return {
+            "ready": True,
+            "reason": "Arnold runtime loaded (no status endpoint).",
+            "route": selected_route,
+            "model": selected_model,
+            "provider": "arnold",
+        }
+
+    try:
+        status = status_fn(route=selected_route, model=selected_model)
+    except Exception as exc:
+        return {
+            "ready": False,
+            "reason": f"Runtime status check failed: {exc}",
+            "route": selected_route,
+            "model": selected_model,
+            "provider": "arnold",
+            "error": str(exc),
+        }
+
+    if not isinstance(status, Mapping):
+        return {
+            "ready": True,
+            "reason": "Runtime responded (non-dict status).",
+            "route": selected_route,
+            "model": selected_model,
+            "provider": "arnold",
+            "_runtime_status": {},
+        }
+
+    ok = bool(status.get("ok", False))
+    detail = str(status.get("detail", ""))
+    return {
+        "ready": ok,
+        "reason": detail or ("Provider ready." if ok else "Provider not ready."),
+        "route": selected_route,
+        "model": selected_model,
+        "provider": "arnold",
+        "_runtime_status": dict(status),
+    }
+
+
+def get_agent_status(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
+    route_descriptor = _resolve_agent_route(route)
+    selected_route = route_descriptor.normalized_route
+    selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
+
+    ready_info = readiness(route=route, model=model)
+    ready = ready_info.get("ready", False)
+    reason = ready_info.get("reason", "")
+
+    try:
+        runtime = _load_arnold_runtime()
+    except ProviderError as exc:
+        return {
+            "ready": ready,
+            "reason": reason,
             "ok": False,
             "route": selected_route,
             "requested_route": route_descriptor.requested_route,
@@ -842,13 +994,15 @@ def get_agent_status(*, route: str | None = None, model: str | None = None) -> d
             "credential_presence": _credential_presence(),
             "legacy_deepseek_fallback_enabled": False,
         }
-    status_fn: Callable[..., Any] | None = getattr(runtime, "get_agent_status", None)
-    status = status_fn(route=selected_route, model=selected_model) if status_fn else {}
-    if not isinstance(status, Mapping):
-        status = {}
-    runtime_status = _non_secret_mapping(status)
+
+    runtime_status_raw = ready_info.get("_runtime_status", {})
+    if not isinstance(runtime_status_raw, Mapping):
+        runtime_status_raw = {}
+    runtime_status = _non_secret_mapping(runtime_status_raw)
     return {
         **runtime_status,
+        "ready": ready,
+        "reason": reason,
         "ok": bool(runtime_status.get("ok", True)),
         "route": selected_route,
         "requested_route": route_descriptor.requested_route,
@@ -960,8 +1114,10 @@ __all__ = [
     "extract_batch_fence",
     "get_agent_status",
     "handle_credential_submission",
+    "readiness",
     "run_agent_turn_batch",
     "run_agent_turn_delta",
     "run_agent_turn",
     "save_deepseek_api_key",
+    "synthesize_message",
 ]
