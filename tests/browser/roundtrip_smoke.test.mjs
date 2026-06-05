@@ -207,6 +207,27 @@ test("VibeComfy structural graph projection ignores volatile canvas fields but k
     };
 
     const project = extensionModule.buildStructuralGraphProjection;
+    assert.deepEqual(project(graph), {
+      nodes: [
+        {
+          id: 1,
+          type: "Input",
+          mode: null,
+          inputs: [],
+          outputs: ["IMAGE"],
+          widgets_values: ["a prompt", { keep: "value" }],
+        },
+        {
+          id: 2,
+          type: "SaveImage",
+          mode: null,
+          inputs: ["images"],
+          outputs: [],
+          widgets_values: ["prefix"],
+        },
+      ],
+      links: [{ from: 1, out: "IMAGE", to: 2, in: "images", type: "IMAGE" }],
+    });
     assert.deepEqual(project(graph), project(volatileDrift));
     assert.notDeepEqual(project(graph), project(widgetChanged));
     assert.notDeepEqual(project(graph), project(rewired));
@@ -976,7 +997,9 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
   }
 });
 
-test("VibeComfy disables an applyable candidate after backend accept rejection", async () => {
+// ── Lifecycle Contract: A5 Backend accept rejected ──────────────────────
+
+test("Lifecycle A5 backend accept rejected disables an applyable candidate", async () => {
   const SESSION_ID = "session-accept-rejects";
   const candidateGraph = {
     nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } }],
@@ -3033,7 +3056,9 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
   }
 });
 
-test("VibeComfy syncs authoritative baseline state from responses and blocks Submit while rebaseline is pending or in flight", async () => {
+// ── Lifecycle Contract: B2/B5 Rebaseline + submit blocking ──────────────
+
+test("Lifecycle B2/B5 rebaseline sync blocks submit while pending or in flight", async () => {
   const initialGraph = {
     nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
     links: [],
@@ -3114,6 +3139,9 @@ test("VibeComfy syncs authoritative baseline state from responses and blocks Sub
           },
         };
       },
+      "/vibecomfy/agent-edit": async () => {
+        throw new Error("submit must remain blocked while rebaseline is pending or in flight");
+      },
     },
   });
 
@@ -3178,6 +3206,7 @@ test("VibeComfy syncs authoritative baseline state from responses and blocks Sub
     assert.equal(panel.state.rebaselinePending, null);
     assert.equal(panel.state.inFlightRebaseline, null);
     assert.equal(submitButton.disabled, false);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit").length, 0);
     assert.equal(undoButton.disabled, true);
     assert.equal(undoButton.textContent, "Undo Last Apply");
     assert.doesNotMatch(harness.textDump(), /rebaseline pending: undo/);
@@ -4821,7 +4850,9 @@ test("VibeComfy agent panel dispatches chat rehydration fetch with stored sessio
   }
 });
 
-test("VibeComfy rehydrate restores the latest open candidate and Apply controls", async () => {
+// ── Lifecycle Contract: E2/E3 Entry rehydrate transitions ───────────────
+
+test("Lifecycle E2 page reload rehydrate restores the latest open candidate and Apply controls", async () => {
   const SESSION_ID = "sess-rehydrate-candidate";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
   const candidateGraph = {
@@ -4879,14 +4910,149 @@ test("VibeComfy rehydrate restores the latest open candidate and Apply controls"
   globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent === "AWAITING_REVIEW");
 
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.sessionId, SESSION_ID);
+    assert.equal(panel.state.turnId, "0005");
+    assert.equal(panel.state.candidateGraphHash, "rehydrated-candidate-hash");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.match(harness.textDump(), /Candidate restored/);
     assert.match(harness.textDump(), /queue_allowed=false/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("Lifecycle E3 stale rehydrate responses after an epoch bump do not restore prior candidate state", async () => {
+  const SESSION_ID = "sess-rehydrate-stale";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+  const staleCandidateGraph = {
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-stale" } }],
+    links: [],
+  };
+  const freshCandidateGraph = {
+    nodes: [{ id: 3, type: "PreviewImage", properties: { vibecomfy_uid: "uid-fresh" } }],
+    links: [],
+  };
+  let chatRequestCount = 0;
+  let startFirstChatResponse;
+  const firstChatResponseStarted = new Promise((resolve) => {
+    startFirstChatResponse = resolve;
+  });
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          ready: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      [CHAT_URL]: async () => {
+        chatRequestCount += 1;
+        if (chatRequestCount === 1) {
+          return await new Promise((resolve) => {
+            startFirstChatResponse(() => resolve({
+              status: 200,
+              body: {
+                ok: true,
+                exists: true,
+                session_id: SESSION_ID,
+                messages: [
+                  { role: "user", text: "restore old candidate", turn_id: "0004" },
+                  { role: "agent", text: "Stale candidate restored.", turn_id: "0004" },
+                ],
+                latest_candidate: {
+                  session_id: SESSION_ID,
+                  turn_id: "0004",
+                  graph: staleCandidateGraph,
+                  candidate_graph_hash: "stale-candidate-hash",
+                  message: "Stale candidate restored.",
+                  report: { change: { content_edits: { edited: ["uid-stale"] } }, recovery: [] },
+                  canvas_apply_allowed: true,
+                  apply_allowed: true,
+                  queue_allowed: true,
+                  apply_eligibility: {
+                    applyable: true,
+                    reason: "applyable",
+                    message: "Old candidate should not win.",
+                    warnings: [],
+                  },
+                },
+              },
+            }));
+          });
+        }
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            exists: true,
+            session_id: SESSION_ID,
+            messages: [
+              { role: "user", text: "restore fresh candidate", turn_id: "0005" },
+              { role: "agent", text: "Fresh candidate restored.", turn_id: "0005" },
+            ],
+            latest_candidate: {
+              session_id: SESSION_ID,
+              turn_id: "0005",
+              graph: freshCandidateGraph,
+              candidate_graph_hash: "fresh-candidate-hash",
+              message: "Fresh candidate restored.",
+              report: { change: { content_edits: { edited: ["uid-fresh"] } }, recovery: [] },
+              canvas_apply_allowed: true,
+              apply_allowed: true,
+              queue_allowed: true,
+              apply_eligibility: {
+                applyable: true,
+                reason: "applyable",
+                message: "Fresh candidate is ready.",
+                warnings: [],
+              },
+            },
+          },
+        };
+      },
+    },
+  });
+  globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => chatRequestCount === 1);
+
+    const root = harness.document.getElementById("vibecomfy-agent-panel-root");
+    root.dataset.open = "0";
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => chatRequestCount === 2);
+    await waitFor(() => /Fresh candidate restored\./.test(harness.textDump()));
+
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.turnId, "0005");
+    assert.equal(panel.state.candidateGraphHash, "fresh-candidate-hash");
+
+    const releaseFirstChatResponse = await firstChatResponseStarted;
+    releaseFirstChatResponse();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(panel.state.turnId, "0005");
+    assert.equal(panel.state.candidateGraphHash, "fresh-candidate-hash");
+    assert.match(harness.textDump(), /Fresh candidate restored\./);
+    assert.doesNotMatch(harness.textDump(), /Stale candidate restored\./);
   } finally {
     await harness.dispose();
   }
@@ -5095,13 +5261,13 @@ test("VibeComfy agent panel re-fetches chat on reopen and localStorage persists 
   }
 });
 
-// ── T13: Browser smoke tests for submit and New conversation ───────────────
+// ── Lifecycle Contract: C2 New conversation + stale submit cleanup ────────
 // NOTE: The submit flow internally calls _rehydrateChat which triggers
 // the async .then(renderAgentPanel) path. These tests verify the critical
 // contracts through localStorage inspection and request-payload assertions
 // rather than DOM rendering of chat bubbles.
 
-test("VibeComfy agent submit persists session_id, includes it on follow-up, and New conversation clears state", async () => {
+test("Lifecycle C2 new conversation clears state and ignores late submit responses", async () => {
   const graph = {
     nodes: [
       { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
@@ -5111,6 +5277,10 @@ test("VibeComfy agent submit persists session_id, includes it on follow-up, and 
   };
 
   let submitCount = 0;
+  let startSecondSubmitResponse;
+  const secondSubmitStarted = new Promise((resolve) => {
+    startSecondSubmitResponse = resolve;
+  });
 
   const harness = await createBrowserHarness({
     graph,
@@ -5158,25 +5328,48 @@ test("VibeComfy agent submit persists session_id, includes it on follow-up, and 
             },
           };
         }
-        // Second submit: must include session_id from first response.
+        if (submitCount === 2) {
+          assert.equal(
+            body.session_id,
+            "sess-submit-1",
+            `follow-up submit must include session_id=sess-submit-1, got: ${JSON.stringify(body.session_id)}`,
+          );
+          return await new Promise((resolve) => {
+            startSecondSubmitResponse(() => resolve({
+              status: 200,
+              body: {
+                ok: true,
+                session_id: "sess-submit-1",
+                turn_id: "0002",
+                baseline_turn_id: "0001",
+                graph: { nodes: [], links: [] },
+                report: { change: { content_edits: { preserved: [], edited: [], removed_named: [] } }, recovery: [] },
+                apply_allowed: true,
+                canvas_apply_allowed: true,
+                queue_allowed: false,
+                message: "stale candidate 2",
+              },
+            }));
+          });
+        }
         assert.equal(
-          body.session_id,
-          "sess-submit-1",
-          `follow-up submit must include session_id=sess-submit-1, got: ${JSON.stringify(body.session_id)}`,
+          "session_id" in body && body.session_id !== undefined ? body.session_id : undefined,
+          undefined,
+          "submit after New conversation must omit session_id entirely",
         );
         return {
           status: 200,
           body: {
             ok: true,
-            session_id: "sess-submit-1",
-            turn_id: `000${submitCount}`,
-            baseline_turn_id: "0001",
+            session_id: "sess-submit-fresh",
+            turn_id: "0003",
+            baseline_turn_id: null,
             graph: { nodes: [], links: [] },
             report: { change: { content_edits: { preserved: [], edited: [], removed_named: [] } }, recovery: [] },
             apply_allowed: true,
             canvas_apply_allowed: true,
             queue_allowed: false,
-            message: `candidate ${submitCount}`,
+            message: "fresh candidate 3",
           },
         };
       },
@@ -5184,7 +5377,7 @@ test("VibeComfy agent submit persists session_id, includes it on follow-up, and 
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() =>
@@ -5208,15 +5401,16 @@ test("VibeComfy agent submit persists session_id, includes it on follow-up, and 
 
     // ── Second submit: verify payload includes session_id ──────────────────
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "second edit";
-    harness.document.getElementById("vibecomfy-agent-panel-submit").click();
+    const secondSubmitPromise = harness.clickButton("Submit");
 
     await waitFor(() => submitCount >= 2);
-    // The session_id assertion is in the mock handler above.
+    const releaseSecondSubmitResponse = await secondSubmitStarted;
 
     // ── New conversation: verify localStorage cleared, state reset ──────────
     const newConvButtons = harness.findButtons("New conversation");
     assert.ok(newConvButtons.length >= 1, "must have a 'New conversation' button");
     newConvButtons[0].click();
+    await secondSubmitPromise;
 
     // localStorage must be cleared.
     assert.equal(
@@ -5231,20 +5425,18 @@ test("VibeComfy agent submit persists session_id, includes it on follow-up, and 
 
     // Activity section must be cleared.
     assert.doesNotMatch(harness.textDump(), /Turn 1/);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
+
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.sessionId, null);
+    assert.equal(panel.state.candidateGraph, null);
 
     // ── Third submit after New conversation: verify session_id is OMITTED ───
-    // Reset submitCount expectation — third submit should omit session_id.
-    const thirdSubmitPromise = new Promise((resolve) => {
-      const originalHandler = harness.requests.push;
-      // We'll just check the body after the fact.
-      resolve();
-    });
-    await thirdSubmitPromise;
-
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "fresh edit after new conversation";
-    harness.document.getElementById("vibecomfy-agent-panel-submit").click();
+    await harness.clickButton("Submit");
 
     await waitFor(() => submitCount >= 3);
+    await waitFor(() => /fresh candidate 3/.test(harness.textDump()));
 
     // Check the body of the third request — session_id must be absent.
     const agentEditRequests = harness.requests.filter((r) => r.url === "/vibecomfy/agent-edit" && r.method === "POST");
@@ -5255,6 +5447,17 @@ test("VibeComfy agent submit persists session_id, includes it on follow-up, and 
       undefined,
       "third submit after New conversation must omit session_id entirely",
     );
+    assert.equal(globalThis.localStorage.getItem("vibecomfy_active_session_id"), "sess-submit-fresh");
+    assert.equal(panel.state.sessionId, "sess-submit-fresh");
+    assert.equal(panel.state.turnId, "0003");
+
+    releaseSecondSubmitResponse();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(panel.state.sessionId, "sess-submit-fresh");
+    assert.equal(panel.state.turnId, "0003");
+    assert.match(harness.textDump(), /fresh candidate 3/);
+    assert.doesNotMatch(harness.textDump(), /stale candidate 2/);
 
     // ── Verify rebaseline endpoint was NEVER called ─────────────────────────
     const rebaselineRequests = harness.requests.filter(
@@ -5344,6 +5547,108 @@ test("VibeComfy agent submit on failure path still persists session_id for recov
       "sess-fail-1",
       "localStorage must persist session_id even on submit failure",
     );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ── Lifecycle Contract: J3 Reject success invalidates the candidate ──────
+
+test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
+  const SESSION_ID = "session-reject-success";
+  const candidateGraph = {
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-reject-2" } }],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-reject-1" } }], links: [] },
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          ready: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: SESSION_ID,
+          turn_id: "0004",
+          baseline_turn_id: "0003",
+          candidate: { state: "candidate", graph: candidateGraph, graph_hash: "reject-candidate-hash" },
+          eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
+          graph: candidateGraph,
+          report: { change: { content_edits: { edited: ["uid-reject-2"] } }, recovery: [] },
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: true,
+          candidate_graph_hash: "reject-candidate-hash",
+          message: "Candidate ready to reject.",
+        },
+      },
+      "/vibecomfy/agent-edit/reject": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "reject",
+          session_id: SESSION_ID,
+          turn_id: "0004",
+          baseline_turn_id: "0004",
+          baseline_graph_hash: "baseline-after-reject",
+          baseline_graph_hash_kind: "structural",
+          baseline_graph_hash_version: 2,
+          baseline_source: "turn",
+          baseline_rebaseline_id: null,
+          baseline_graph_source_path: "turns/0004/candidate.ui.json",
+          apply_allowed: false,
+          canvas_apply_allowed: false,
+          queue_allowed: false,
+          apply_eligibility: {
+            applyable: false,
+            reason: "no_candidate",
+            message: "No candidate is available to apply.",
+            warnings: [],
+          },
+          audit_ref: { path: "/tmp/reject-success-audit.json" },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": async () => {
+        throw new Error("accept must not fire after a successful reject");
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "reject this candidate";
+    await harness.clickButton("Submit");
+    await waitFor(() => /Candidate ready to reject\./.test(harness.textDump()));
+
+    await harness.clickButton("Reject Candidate");
+    const panel = extensionModule.ensureAgentPanel();
+    const applyButton = harness.document.getElementById("vibecomfy-agent-panel-apply");
+    const rejectButton = harness.document.getElementById("vibecomfy-agent-panel-reject");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/reject").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
+    assert.equal(panel.state.candidateGraph, null);
+    assert.equal(panel.state.candidateGraphHash, null);
+    assert.equal(panel.state.phase, "IDLE");
+    assert.equal(applyButton?.disabled, true);
+    assert.equal(rejectButton?.disabled, true);
   } finally {
     await harness.dispose();
   }
@@ -6880,7 +7185,9 @@ test("VibeComfy blocks submit until status.ready is true and shows composer read
   }
 });
 
-test("VibeComfy Stop aborts the in-flight submit, marks the visible turn cancelled, and only shows Undo in the composer when available", async () => {
+// ── Lifecycle Contract: C1 Stop / abort submit ───────────────────────────
+
+test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and only shows Undo in the composer when available", async () => {
   const candidateGraph = {
     nodes: [
       { id: 1, type: "CheckpointLoaderSimple", properties: { vibecomfy_uid: "uid-1" } },
@@ -6969,7 +7276,7 @@ test("VibeComfy Stop aborts the in-flight submit, marks the visible turn cancell
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -6984,7 +7291,11 @@ test("VibeComfy Stop aborts the in-flight submit, marks the visible turn cancell
 
     assert.match(harness.textDump(), /Request cancelled\./);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled, false);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled, true);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
+    assert.equal(extensionModule.ensureAgentPanel().state.candidateGraph, null);
+    assert.doesNotMatch(harness.textDump(), /Candidate ready after retry\./);
 
     submitMode = "candidate";
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "replace the preview node";

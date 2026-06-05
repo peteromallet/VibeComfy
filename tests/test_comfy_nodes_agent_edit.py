@@ -2802,6 +2802,285 @@ def test_handle_agent_edit_batch_repl_reincludes_render_after_search_only_turn(
     assert second_user.count("Budget: 1 batch(es) remaining out of 2.") == 1
 
 
+def test_handle_agent_edit_batch_repl_repeated_search_only_turns_keep_render_previous_message_and_index(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "ImageScaleBy": NodeSchema(
+                class_type="ImageScaleBy",
+                pack=None,
+                inputs={
+                    "image": InputSpec("IMAGE", required=True),
+                    "scale_by": InputSpec("FLOAT", required=False, default=1.0),
+                },
+                outputs=[OutputSpec("IMAGE", "IMAGE")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    captured_messages: list[list[dict[str, str]]] = []
+    responses = iter(
+        [
+            {
+                "batch": 'search(focus_types=["SaveImage"])',
+                "message": "I checked the SaveImage signature.",
+            },
+            {
+                "batch": 'search(focus_types=["ImageScaleBy"])',
+                "message": "I checked the ImageScaleBy signature next.",
+            },
+            {
+                "batch": "done()",
+                "message": "No graph change is needed.",
+            },
+        ]
+    )
+
+    def _fake_batch_client(messages: list[dict[str, str]]) -> dict[str, str]:
+        captured_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "inspect two node signatures and then stop",
+            "session_id": "batch-search-only-repeat",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert len(captured_messages) == 3
+
+    second_user = captured_messages[1][1]["content"]
+    third_user = captured_messages[2][1]["content"]
+    for user_msg, previous_message, budget_line in (
+        (
+            second_user,
+            "I checked the SaveImage signature.",
+            "Budget: 2 batch(es) remaining out of 3.",
+        ),
+        (
+            third_user,
+            "I checked the ImageScaleBy signature next.",
+            "Budget: 1 batch(es) remaining out of 3.",
+        ),
+    ):
+        assert "Current scratchpad Python (full render):" in user_msg
+        assert "saveimage = SaveImage" in user_msg
+        assert "Node variable index:" in user_msg
+        assert "loadimage = LoadImage" in user_msg
+        assert "saveimage = SaveImage" in user_msg
+        assert "Previous agent message:" in user_msg
+        assert previous_message in user_msg
+        assert budget_line in user_msg
+
+
+def test_handle_agent_edit_batch_repl_budget_exhaustion_reports_final_status_metadata_and_budget_lines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    events: list[tuple[str, dict[str, object], str | None]] = []
+    captured_messages: list[list[dict[str, str]]] = []
+
+    def _capture_ws_send(
+        event: str,
+        payload: dict[str, object],
+        *,
+        client_id: str | None = None,
+    ) -> None:
+        events.append((event, payload, client_id))
+
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._ws_send", _capture_ws_send)
+
+    responses = iter(
+        [
+            {
+                "batch": 'search(focus_types=["SaveImage"])',
+                "message": "I inspected SaveImage first.",
+            },
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "I applied the rename but did not commit yet.",
+            },
+        ]
+    )
+
+    def _fake_batch_client(messages: list[dict[str, str]]) -> dict[str, str]:
+        captured_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "rename the save prefix after checking the node signature",
+            "session_id": "batch-budget-metadata",
+            "max_batches": 2,
+            "max_consecutive_errors": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+        client_id="client-budget-meta",
+    )
+
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.MODEL_MISTAKE.value,
+        stage="agent_batch",
+        audit_ref_expected=True,
+    )
+    assert len(captured_messages) == 2
+    assert "Budget: 2 batch(es) remaining out of 2." in captured_messages[0][0]["content"]
+    assert "Budget: 1 batch(es) remaining out of 2." in captured_messages[1][1]["content"]
+    assert [payload["status"] for _, payload, _ in events] == [
+        "in_progress",
+        "in_progress",
+        "budget_exhausted",
+    ]
+    final_payload = events[-1][1]
+    assert final_payload["exit_mode"] == "budget"
+    assert final_payload["budget"] == {
+        "remaining_batches": 0,
+        "consecutive_errors": 0,
+    }
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    batch_meta = audit["metadata"]["batch_repl"]
+    assert batch_meta["turn_count"] == 2
+    assert batch_meta["exit_mode"] == "budget"
+    assert batch_meta["final_summary"] == "Stopped after 2 batch turn(s); 0 batch(es) remaining."
+    assert batch_meta["budget_state"]["remaining_batches"] == 0
+    assert batch_meta["budget_state"]["consecutive_errors"] == 0
+    request_turns = json.loads(
+        Path(audit["artifacts"]["model_request"]["path"]).read_text(encoding="utf-8")
+    )["turns"]
+    assert [turn["budget_remaining"] for turn in request_turns] == [2, 1]
+
+
+def test_handle_agent_edit_batch_repl_updates_next_prompt_index_after_node_add_and_remove(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "LoadImage": NodeSchema(
+                class_type="LoadImage",
+                pack=None,
+                inputs={"image": InputSpec("STRING")},
+                outputs=[OutputSpec("IMAGE", "image")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "PassThroughImage": NodeSchema(
+                class_type="PassThroughImage",
+                pack=None,
+                inputs={"image": InputSpec("IMAGE", required=True)},
+                outputs=[OutputSpec("IMAGE", "IMAGE")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "ImageScaleBy": NodeSchema(
+                class_type="ImageScaleBy",
+                pack=None,
+                inputs={
+                    "image": InputSpec("IMAGE", required=True),
+                    "scale_by": InputSpec("FLOAT", required=False, default=1.0),
+                },
+                outputs=[OutputSpec("IMAGE", "IMAGE")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    wf = VibeWorkflow("batch-index-refresh", WorkflowSource("batch-index-refresh"))
+    wf.nodes["1"] = VibeNode("1", "LoadImage", inputs={"image": "input.png"})
+    wf.nodes["2"] = VibeNode("2", "PassThroughImage")
+    wf.nodes["3"] = VibeNode("3", "SaveImage", inputs={"filename_prefix": "before"})
+    wf.connect("1.0", "2.image")
+    wf.connect("2.0", "3.images")
+    graph = emit_ui_json(wf, schema_provider=provider)
+
+    captured_messages: list[list[dict[str, str]]] = []
+    responses = iter(
+        [
+            {
+                "batch": "\n".join(
+                    [
+                        "upscaled = ImageScaleBy(image=loadimage.image, scale_by=2.0, near=loadimage)",
+                        "saveimage.images = upscaled.IMAGE",
+                        "del passthroughimage",
+                    ]
+                ),
+                "message": "I inserted the upscale node and removed the passthrough.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready to commit the candidate.",
+            },
+        ]
+    )
+
+    def _fake_batch_client(messages: list[dict[str, str]]) -> dict[str, str]:
+        captured_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "task": "replace the passthrough with an upscale node",
+            "session_id": "batch-index-refresh",
+            "max_batches": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert len(captured_messages) == 2
+    second_user = captured_messages[1][1]["content"]
+    node_index = second_user.split("Node variable index:\n```\n", 1)[1].split("\n```", 1)[0]
+    assert "upscaled = ImageScaleBy" in node_index
+    assert "loadimage = LoadImage" in node_index
+    assert "saveimage = SaveImage" in node_index
+    assert "passthroughimage = PassThroughImage" not in node_index
+
+
 def test_handle_agent_edit_validates_lowered_copy_after_load_python(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

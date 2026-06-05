@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import pathlib
 import shutil
 import subprocess
 
 import pytest
 
 from vibecomfy.comfy_nodes.agent_session import payload_hash, structural_graph_hash
+
+_WORKTREE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def test_browser_harness_smoke() -> None:
@@ -130,12 +133,40 @@ def test_browser_structural_hash_matches_python_structural_graph_hash() -> None:
     if node is None:
         pytest.skip("node is required for browser structural hash parity")
 
+    # Fixture graphs intentionally exercise every divergence risk between the
+    # JS buildStructuralGraphProjection() and the Python
+    # structural_graph_projection():
+    #
+    #   integral floats   — 1.0 → 1; 2.0 → 2; 0.0 → 0; -3.0 → -3
+    #   non-integral      — 1.5, -0.5 stay as-is
+    #   booleans          — True / False preserved (NOT int-coerced)
+    #   preview-like keys — "preview", "videopreview", "_preview",
+    #                        "preview_", "video_preview" stripped
+    #   mixed-format ids  — string "10","2","alpha","02", int -1
+    #   unwired inputs    — link: None filtered out
+    #   dead outputs      — links: [] / links: None filtered out
+    #   endpoint-name     — links projected by slot name, not index
     graphs = [
+        # ── Graph 1: full-structural smoke test ──────────────────────────
         {
             "extra": {"ds": {"scale": 1.0}},
             "nodes": [
                 {
-                    "id": 10,
+                    "id": "10",
+                    "type": "SaveImage",
+                    "pos": [300, 200],
+                    "inputs": [
+                        {"name": "unused_optional", "link": None, "type": "IMAGE"},
+                        {"name": "images", "link": 9, "type": "IMAGE"},
+                    ],
+                    "outputs": [
+                        {"name": "ignored_empty", "links": []},
+                        {"name": "ui_preview", "links": None},
+                    ],
+                    "widgets_values": ["prefix"],
+                },
+                {
+                    "id": "2",
                     "type": "KSampler",
                     "pos": [100, 200],
                     "size": [300, 400],
@@ -143,21 +174,73 @@ def test_browser_structural_hash_matches_python_structural_graph_hash() -> None:
                     "flags": {"collapsed": True},
                     "properties": {"vibecomfy_uid": "volatile"},
                     "mode": 0,
-                    "inputs": [{"name": "model", "link": 99, "type": "MODEL"}],
-                    "outputs": [{"name": "LATENT", "links": [12, 3]}],
-                    "widgets_values": [
-                        123,
-                        {"keep": "value", "videopreview": {"frame": 9, "url": "/view"}},
+                    "inputs": [
+                        {"name": "unwired_seed", "link": None, "type": "INT"},
+                        {"name": "model", "link": 99, "type": "MODEL"},
                     ],
-                }
+                    "outputs": [
+                        {"name": "LATENT", "links": [9]},
+                        {"name": "unused", "links": []},
+                    ],
+                    "widgets_values": [
+                        # direct integral float → int, plus preview-like keys
+                        1.0,
+                        True,
+                        False,
+                        1.5,
+                        {"keep": "value", "videopreview": {"frame": 9, "url": "/view"}},
+                        {"scale": 2.0, "preview": "ignored"},
+                        {
+                            "_preview": "drop-me",
+                            "preview_": "drop-too",
+                            "video_preview": "also-dropped",
+                            "keep_me": 0.0,
+                            "nested": {
+                                "preview_inner": "drop",
+                                "val": -3.0,
+                            },
+                        },
+                    ],
+                },
             ],
-            "links": [[99, 1, 0, 10, 0, "MODEL"], [3, 10, 0, 11, 0, "LATENT"]],
+            "links": [
+                [99, 1, 0, "2", 1, "MODEL"],
+                [9, "2", 0, "10", 1, "IMAGE"],
+                {
+                    "id": 12,
+                    "origin_id": "2",
+                    "origin_slot": 0,
+                    "target_id": "10",
+                    "target_slot": 1,
+                    "type": "IMAGE",
+                },
+            ],
             "groups": [{"title": "ignored"}],
-        }
+        },
+        # ── Graph 2: non-standard ids, non-node/link entries, named slots ─
+        {
+            "nodes": [
+                {"id": "alpha", "type": "Note", "widgets_values": {"keep": True}},
+                {"id": -1, "type": "Input"},
+                "not-a-node",
+                {"id": "02", "type": "Input"},
+            ],
+            "links": [
+                {
+                    "origin_id": "alpha",
+                    "origin_slot": "custom",
+                    "target_id": -1,
+                    "target_slot": "field",
+                    "type": "STRING",
+                },
+                "not-a-link",
+            ],
+        },
     ]
 
     script = """
 import crypto from "node:crypto";
+import { createBrowserHarness } from "./tests/browser/harness.mjs";
 
 function canonicalizeJsonValue(value) {
   if (Array.isArray(value)) return value.map((entry) => canonicalizeJsonValue(entry));
@@ -170,63 +253,32 @@ function canonicalizeJsonValue(value) {
   }
   return value;
 }
-function normalizeStructuralLink(value) {
-  if (Array.isArray(value)) return value.map((entry) => canonicalizeJsonValue(entry));
-  if (value && typeof value === "object") return canonicalizeJsonValue(value);
-  return value;
-}
-function isPreviewLikeKey(key) {
-  return /(?:^|_)(?:video)?preview(?:_|$)/i.test(String(key || ""));
-}
-function normalizeStructuralWidgetValue(value) {
-  if (Array.isArray(value)) return value.map((entry) => normalizeStructuralWidgetValue(entry));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => !isPreviewLikeKey(key))
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entryValue]) => [key, normalizeStructuralWidgetValue(entryValue)]),
-    );
-  }
-  return value;
-}
-function project(graph) {
-  const nodes = Array.isArray(graph?.nodes)
-    ? graph.nodes.map((node) => ({
-        id: node?.id ?? null,
-        type: node?.type ?? null,
-        mode: node?.mode ?? null,
-        inputs: Array.isArray(node?.inputs)
-          ? node.inputs.map((input) => ({ name: input?.name ?? null, link: input?.link ?? null }))
-          : [],
-        outputs: Array.isArray(node?.outputs)
-          ? node.outputs.map((output) => ({
-              name: output?.name ?? null,
-              links: Array.isArray(output?.links) ? [...output.links].sort() : output?.links ?? null,
-            }))
-          : [],
-        widgets_values: normalizeStructuralWidgetValue(node?.widgets_values ?? []),
-      }))
-    : [];
-  nodes.sort((left, right) => {
-    const idCmp = String(left.id ?? "").localeCompare(String(right.id ?? ""), undefined, { numeric: true });
-    return idCmp || String(left.type ?? "").localeCompare(String(right.type ?? ""));
-  });
-  const links = Array.isArray(graph?.links) ? graph.links.map((link) => normalizeStructuralLink(link)) : [];
-  links.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
-  return { nodes, links };
-}
 const graphs = JSON.parse(process.argv[1]);
-const hashes = graphs.map((graph) =>
-  crypto.createHash("sha256").update(JSON.stringify(canonicalizeJsonValue(project(graph))), "utf8").digest("hex"),
-);
-process.stdout.write(JSON.stringify(hashes));
+const harness = await createBrowserHarness({
+  responses: { "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } } },
+});
+try {
+  const extensionModule = await harness.loadExtension();
+  const hashes = graphs.map((graph) =>
+    crypto
+      .createHash("sha256")
+      .update(
+        JSON.stringify(canonicalizeJsonValue(extensionModule.buildStructuralGraphProjection(graph))),
+        "utf8",
+      )
+      .digest("hex"),
+  );
+  process.stdout.write(JSON.stringify(hashes));
+} finally {
+  await harness.dispose();
+}
 """
     result = subprocess.run(
         [node, "--input-type=module", "-e", script, json.dumps(graphs, ensure_ascii=False)],
         capture_output=True,
         text=True,
         check=False,
+        cwd=str(_WORKTREE_ROOT),
     )
 
     assert result.returncode == 0, result.stdout + "\n" + result.stderr

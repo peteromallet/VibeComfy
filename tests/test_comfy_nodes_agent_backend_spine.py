@@ -3572,6 +3572,40 @@ def test_build_batch_messages_later_turn_includes_diff_and_report_only() -> None
     assert "Current scratchpad Python" not in user
 
 
+def test_build_batch_messages_later_turn_can_reinclude_full_render_previous_message_and_fresh_index() -> None:
+    """Later turns can re-include the full render after a no-edit pass."""
+    messages = agent_provider.build_batch_messages(
+        task="double-check the graph and stop",
+        turn_number=2,
+        python_source=(
+            "loadimage = LoadImage(image='input.png')\n"
+            "upscaled = ImageScaleBy(image=loadimage.image, scale_by=2.0)\n"
+            "saveimage = SaveImage(images=upscaled.IMAGE)"
+        ),
+        node_variable_index=(
+            "loadimage = LoadImage\n"
+            "saveimage = SaveImage\n"
+            "upscaled = ImageScaleBy"
+        ),
+        previous_model_message="I inspected the graph and did not apply any edit yet.",
+        report="No statements landed on the previous turn.",
+        budget_remaining=1,
+        max_batches=3,
+    )
+    user = messages[1]["content"]
+
+    assert "Current scratchpad Python (full render):" in user
+    assert "upscaled = ImageScaleBy" in user
+    assert "Node variable index:" in user
+    assert "loadimage = LoadImage" in user
+    assert "saveimage = SaveImage" in user
+    assert "Previous agent message:" in user
+    assert "I inspected the graph and did not apply any edit yet." in user
+    assert "Teaching report from previous turn:" in user
+    assert "No statements landed on the previous turn." in user
+    assert "Budget: 1 batch(es) remaining out of 3." in user
+
+
 def test_build_batch_messages_no_json_delta_wording() -> None:
     """The batch system prompt never mentions JSON delta requirements."""
     # Test both turn 0 and later-turn variants

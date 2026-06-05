@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { applyGraphCandidateInPlace, installPreviewForegroundOverlay, installQueueGuard as installQueueGuardAdapter } from "./comfy_adapter.js";
+import { createAgentEditState, transition } from "./agent_edit_lifecycle.js";
 
 // ── VibeComfy Contract (S2 — Durable Frontend Panel) ─────────────────────
 // This file captures the frontend↔backend contract before feature work.
@@ -988,12 +989,35 @@ function captureLiveCanvasRevision() {
 // view state, properties, and preview blobs do not.
 function _normalizeStructuralLink(value) {
   if (Array.isArray(value)) {
-    return value.map((entry) => canonicalizeJsonValue(entry));
+    return value.map((entry) => _normalizeStructuralLink(entry));
   }
   if (value && typeof value === "object") {
     return canonicalizeJsonValue(value);
   }
   return value;
+}
+
+function _naturalStructuralNodeIdKey(value) {
+  const text = String(value ?? "");
+  if (/^-?\d+$/.test(text)) {
+    return { kind: 0, value: Number.parseInt(text, 10) };
+  }
+  return { kind: 1, value: text };
+}
+
+function _compareNaturalStructuralNodeIds(left, right) {
+  const leftKey = _naturalStructuralNodeIdKey(left);
+  const rightKey = _naturalStructuralNodeIdKey(right);
+  if (leftKey.kind !== rightKey.kind) {
+    return leftKey.kind - rightKey.kind;
+  }
+  if (leftKey.value < rightKey.value) {
+    return -1;
+  }
+  if (leftKey.value > rightKey.value) {
+    return 1;
+  }
+  return 0;
 }
 
 function _isPreviewLikeKey(key) {
@@ -1014,37 +1038,112 @@ function _normalizeStructuralWidgetValue(value) {
   return value;
 }
 
-export function buildStructuralGraphProjection(graph) {
-  const nodes = Array.isArray(graph?.nodes)
-    ? graph.nodes.map((node) => ({
-        id: node?.id ?? null,
-        type: node?.type ?? null,
-        mode: node?.mode ?? null,
-        inputs: Array.isArray(node?.inputs)
-          ? node.inputs.map((input) => ({
-              name: input?.name ?? null,
-              link: input?.link ?? null,
-            }))
-          : [],
-        outputs: Array.isArray(node?.outputs)
-          ? node.outputs.map((output) => ({
-              name: output?.name ?? null,
-              links: Array.isArray(output?.links) ? [...output.links].sort() : output?.links ?? null,
-            }))
-          : [],
-        widgets_values: _normalizeStructuralWidgetValue(node?.widgets_values ?? []),
-      }))
+function _structuralSocketNames(sockets) {
+  return Array.isArray(sockets)
+    ? sockets.map((socket) => (socket && typeof socket === "object" ? socket.name ?? null : null))
     : [];
+}
+
+function _structuralSlotName(names, slot) {
+  if (Number.isInteger(slot) && slot >= 0 && slot < names.length) {
+    return names[slot] ?? null;
+  }
+  return slot ?? null;
+}
+
+export function buildStructuralGraphProjection(graph) {
+  if (!graph || typeof graph !== "object") {
+    return { nodes: [], links: [] };
+  }
+  const rawNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  const inputNames = new Map();
+  const outputNames = new Map();
+  for (const rawNode of rawNodes) {
+    if (!rawNode || typeof rawNode !== "object") {
+      continue;
+    }
+    const nodeId = rawNode.id ?? null;
+    inputNames.set(nodeId, _structuralSocketNames(rawNode.inputs));
+    outputNames.set(nodeId, _structuralSocketNames(rawNode.outputs));
+  }
+
+  const nodes = rawNodes.map((rawNode) => {
+    const node = rawNode && typeof rawNode === "object" ? rawNode : {};
+    const wiredInputs = Array.isArray(node.inputs)
+      ? node.inputs
+          .filter((input) => input && typeof input === "object" && input.link != null && input.name != null)
+          .map((input) => String(input.name))
+          .sort()
+      : [];
+    const liveOutputs = Array.isArray(node.outputs)
+      ? node.outputs
+          .filter((output) => {
+            if (!output || typeof output !== "object" || output.name == null) {
+              return false;
+            }
+            return Array.isArray(output.links) ? output.links.length > 0 : Boolean(output.links);
+          })
+          .map((output) => String(output.name))
+          .sort()
+      : [];
+    return {
+      id: node.id ?? null,
+      type: node.type ?? null,
+      mode: node.mode ?? null,
+      inputs: wiredInputs,
+      outputs: liveOutputs,
+      widgets_values: _normalizeStructuralWidgetValue(node.widgets_values ?? []),
+    };
+  });
   nodes.sort((left, right) => {
-    const leftId = String(left.id ?? "");
-    const rightId = String(right.id ?? "");
-    const idCmp = leftId.localeCompare(rightId, undefined, { numeric: true });
-    return idCmp || String(left.type ?? "").localeCompare(String(right.type ?? ""));
+    const idCmp = _compareNaturalStructuralNodeIds(left.id, right.id);
+    if (idCmp) {
+      return idCmp;
+    }
+    const leftType = String(left.type ?? "");
+    const rightType = String(right.type ?? "");
+    if (leftType < rightType) {
+      return -1;
+    }
+    if (leftType > rightType) {
+      return 1;
+    }
+    return 0;
   });
   const links = Array.isArray(graph?.links)
-    ? graph.links.map((link) => _normalizeStructuralLink(link))
+    ? graph.links
+        .map((link) => {
+          let originId;
+          let originSlot;
+          let targetId;
+          let targetSlot;
+          let linkType;
+          if (Array.isArray(link) && link.length >= 6) {
+            [, originId, originSlot, targetId, targetSlot, linkType] = link;
+          } else if (link && typeof link === "object") {
+            originId = link.origin_id;
+            originSlot = link.origin_slot;
+            targetId = link.target_id;
+            targetSlot = link.target_slot;
+            linkType = link.type;
+          } else {
+            return null;
+          }
+          return {
+            from: originId ?? null,
+            out: _structuralSlotName(outputNames.get(originId ?? null) ?? [], originSlot),
+            to: targetId ?? null,
+            in: _structuralSlotName(inputNames.get(targetId ?? null) ?? [], targetSlot),
+            type: linkType ?? null,
+          };
+        })
+        .filter((link) => link != null)
     : [];
-  links.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  links.sort((left, right) =>
+    JSON.stringify(canonicalizeJsonValue(_normalizeStructuralLink(left))).localeCompare(
+      JSON.stringify(canonicalizeJsonValue(_normalizeStructuralLink(right))),
+    ),
+  );
   return { nodes, links };
 }
 
@@ -1684,74 +1783,13 @@ export function syncBaselineFromResponse(panel, payload) {
   if (!panel?.state || !payload || typeof payload !== "object") {
     return;
   }
-  const hadExplicitSource = Object.prototype.hasOwnProperty.call(payload, "baseline_source");
-  if ("baseline_turn_id" in payload) {
-    panel.state.baselineTurnId = typeof payload.baseline_turn_id === "string"
-      ? payload.baseline_turn_id
-      : null;
-  }
-  if ("baseline_graph_hash" in payload) {
-    panel.state.baselineGraphHash = typeof payload.baseline_graph_hash === "string"
-      ? payload.baseline_graph_hash
-      : null;
-  }
-  if ("baseline_graph_hash_kind" in payload) {
-    panel.state.baselineGraphHashKind = typeof payload.baseline_graph_hash_kind === "string"
-      ? payload.baseline_graph_hash_kind
-      : null;
-  }
-  if ("baseline_graph_hash_version" in payload) {
-    panel.state.baselineGraphHashVersion = Number.isFinite(payload.baseline_graph_hash_version)
-      ? payload.baseline_graph_hash_version
-      : null;
-  }
-  if ("baseline_source" in payload) {
-    panel.state.baselineSource = typeof payload.baseline_source === "string"
-      ? payload.baseline_source
-      : "none";
-  }
-  if ("baseline_rebaseline_id" in payload) {
-    panel.state.baselineRebaselineId = typeof payload.baseline_rebaseline_id === "string"
-      ? payload.baseline_rebaseline_id
-      : null;
-  }
-  if ("baseline_graph_source_path" in payload) {
-    panel.state.baselineGraphSourcePath = typeof payload.baseline_graph_source_path === "string"
-      ? payload.baseline_graph_source_path
-      : null;
-  }
-  if (!hadExplicitSource && payload.action === "accept" && payload.ok === true) {
-    panel.state.baselineSource = "turn";
-    panel.state.baselineRebaselineId = null;
-    panel.state.baselineGraphSourcePath = typeof payload.turn_id === "string"
-      ? `turns/${payload.turn_id}/candidate.ui.json`
-      : null;
-  } else if (
-    !hadExplicitSource
-    && panel.state.baselineTurnId
-    && typeof panel.state.baselineGraphHash === "string"
-    && panel.state.baselineGraphHash
-  ) {
-    panel.state.baselineSource = "turn";
-    panel.state.baselineRebaselineId = null;
-    if (!panel.state.baselineGraphSourcePath) {
-      panel.state.baselineGraphSourcePath = `turns/${panel.state.baselineTurnId}/candidate.ui.json`;
-    }
-  } else if (
-    !hadExplicitSource
-    && panel.state.baselineTurnId == null
-    && panel.state.baselineGraphHash == null
-  ) {
-    panel.state.baselineSource = "none";
-    panel.state.baselineRebaselineId = null;
-    panel.state.baselineGraphSourcePath = null;
-  }
   const recovery = extractRebaselineRecovery(payload);
-  if (recovery) {
-    panel.state.rebaselineRecovery = recovery;
-  } else if (payload.ok === true) {
-    panel.state.rebaselineRecovery = null;
-  }
+  transition(panel, "SYNC_BASELINE", {
+    ...payload,
+    ...(recovery
+      ? { rebaselineRecovery: recovery }
+      : (payload.ok === true ? { clearRebaselineRecovery: true } : {})),
+  });
 }
 
 function normalizeRebaselineRecovery(recovery) {
@@ -2315,41 +2353,12 @@ function createAgentPanel() {
     },
     composerButtons,
     state: {
-      phase: PANEL_STATE.IDLE,
-      sessionId: null,
-      turnId: null,
-      baselineTurnId: null,
-      baselineGraphHash: null,
-      baselineGraphHashKind: null,
-      baselineGraphHashVersion: null,
-      baselineSource: "none",
-      baselineRebaselineId: null,
-      baselineGraphSourcePath: null,
-      candidateGraph: null,
-      candidateGraphHash: null,
-      candidateReport: null,
-      serverSubmitGraphHash: null,
-      message: null,
-      failure: null,
-      applyAllowed: false,
-      applyEligibility: null,
-      applyEligibilityWarning: null,
-      applyEligibilityWarningKey: null,
-      queueAllowed: false,
-      canvasApplyAllowed: false,
-      auditRef: null,
-      debugPayload: null,
+      // Lifecycle-owned fields (authority: agent_edit_lifecycle.js)
+      ...createAgentEditState(),
+      // Non-lifecycle fields (read by store handlers but write-owned elsewhere)
       history: [],
       turns: [],
       undoStack: [],
-      inFlightSubmit: null,
-      submitAbortController: null,
-      submitEpoch: 0,
-      inFlightApply: null,
-      inFlightRebaseline: null,
-      rebaselinePending: null,
-      rebaselineRecovery: null,
-      lastSubmit: null,
       settingsMessage: null,
       statusSnapshot: null,
       routeStatus: {
@@ -2357,9 +2366,6 @@ function createAgentPanel() {
         requestedRoute: "auto",
         model: null,
       },
-      lastAppliedChanges: null,
-      lastSubmitFieldChanges: null,
-      changeDetails: null,
       queueGuard: getQueueGuardStateForPanel(),
       previewEnabled: false,
       expandedTurnKeys: {},
@@ -2371,8 +2377,6 @@ function createAgentPanel() {
       chatError: null,
       chatSessionPath: null,
       chatDetailJsonPath: null,
-      chatRehydrateEpoch: 0,
-      syntheticAgentMessage: null,
     },
   };
 }
@@ -2382,13 +2386,13 @@ async function _rehydrateChat(panel) {
   if (!panel || !panel.state) {
     return;
   }
-  const requestEpoch = (panel.state.chatRehydrateEpoch || 0) + 1;
-  panel.state.chatRehydrateEpoch = requestEpoch;
+  const startObligations = transition(panel, "CHAT_REHYDRATE_START");
+  fulfillLifecycleTransitionObligations(panel, startObligations);
+  const requestEpoch = startObligations.requestEpoch;
   const savedId = _lsGet(LS_ACTIVE_SESSION_KEY);
   if (!savedId) {
-    panel.state.chatMessages = [];
-    panel.state.chatLoaded = false;
-    panel.state.chatError = null;
+    const noSessionObligations = transition(panel, "CHAT_REHYDRATE_NO_SESSION", { requestEpoch });
+    fulfillLifecycleTransitionObligations(panel, noSessionObligations);
     return;
   }
 
@@ -2399,51 +2403,46 @@ async function _rehydrateChat(panel) {
       throw new Error(`Server returned ${res.status}`);
     }
     const payload = await res.json();
-    if (panel.state.chatRehydrateEpoch !== requestEpoch) {
-      return;
-    }
     if (payload && payload.ok === true) {
       if (payload.exists === false) {
-        forgetActiveSession();
-        if (panel.state.sessionId === savedId) {
-          panel.state.sessionId = null;
-        }
-        panel.state.chatMessages = [];
-        panel.state.chatLoaded = true;
-        panel.state.chatError = null;
-        panel.state.chatSessionPath = null;
-        panel.state.chatDetailJsonPath = null;
+        const missingSessionObligations = transition(panel, "CHAT_REHYDRATE_MISSING_SESSION", {
+          requestEpoch,
+          sessionId: savedId,
+        });
+        fulfillLifecycleTransitionObligations(panel, missingSessionObligations);
         return;
       }
-      panel.state.chatMessages = Array.isArray(payload.messages) ? payload.messages : [];
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
       // Normalize field changes on each rehydrated message for chat-bubble rendering (M4b).
-      for (const msg of panel.state.chatMessages) {
+      for (const msg of messages) {
         if (msg && typeof msg === "object") {
           msg.field_changes = normalizeFieldChangesFromMessage(msg);
         }
       }
-      panel.state.chatLoaded = true;
-      panel.state.chatError = null;
-      panel.state.chatSessionPath = typeof payload.session_path === "string" ? payload.session_path : null;
-      panel.state.chatDetailJsonPath = typeof payload.detail_json_path === "string" ? payload.detail_json_path : null;
-      // Keep the sessionId in sync with what the server confirms.
-      if (typeof payload.session_id === "string" && payload.session_id) {
-        panel.state.sessionId = payload.session_id;
-        _lsSet(LS_ACTIVE_SESSION_KEY, payload.session_id);
+      const successObligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+        requestEpoch,
+        messages,
+        chatSessionPath: typeof payload.session_path === "string" ? payload.session_path : null,
+        chatDetailJsonPath: typeof payload.detail_json_path === "string" ? payload.detail_json_path : null,
+        sessionId: typeof payload.session_id === "string" ? payload.session_id : null,
+      });
+      if (successObligations.stale) {
+        return;
       }
+      fulfillLifecycleTransitionObligations(panel, successObligations);
       restoreLatestCandidateFromChat(panel, payload);
     } else {
       throw new Error(payload?.error || "chat endpoint returned ok: false");
     }
   } catch (_e) {
-    if (panel.state.chatRehydrateEpoch !== requestEpoch) {
+    const failureObligations = transition(panel, "CHAT_REHYDRATE_FAILURE", {
+      requestEpoch,
+      chatError: String(_e),
+    });
+    if (failureObligations.stale) {
       return;
     }
-    // On failure, clear only visible chat/session state — do not disturb
-    // the current submit session or canvas.
-    panel.state.chatMessages = [];
-    panel.state.chatLoaded = false;
-    panel.state.chatError = String(_e);
+    fulfillLifecycleTransitionObligations(panel, failureObligations);
   }
 }
 
@@ -2458,51 +2457,41 @@ function restoreLatestCandidateFromChat(panel, payload) {
   if (!panel?.state || !latest || typeof latest !== "object") {
     return;
   }
-  if (panel.state.phase === PANEL_STATE.SUBMITTING || panel.state.phase === PANEL_STATE.APPLYING) {
-    return;
-  }
   const candidateGraph = candidateGraphFromResult(latest);
   if (!candidateGraph || typeof candidateGraph !== "object") {
     return;
   }
   const eligibility = eligibilityFromResult(latest);
-  panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
-  panel.state.sessionId = typeof latest.session_id === "string" && latest.session_id
-    ? latest.session_id
-    : panel.state.sessionId;
-  panel.state.turnId = typeof latest.turn_id === "string" && latest.turn_id
-    ? latest.turn_id
-    : panel.state.turnId;
-  syncBaselineFromResponse(panel, latest);
-  invalidateCandidateState(panel, { repaint: false });
-  panel.state.candidateGraph = candidateGraph;
-  panel.state.candidateGraphHash = typeof latest.candidate_graph_hash === "string"
-    ? latest.candidate_graph_hash
-    : null;
-  panel.state.candidateReport = latest.report && typeof latest.report === "object" ? clonePlainData(latest.report) : null;
-  panel.state.serverSubmitGraphHash = typeof latest.submit_graph_hash === "string" ? latest.submit_graph_hash : null;
-  panel.state.message = typeof latest.message === "string" ? latest.message : null;
-  panel.state.failure = null;
-  panel.state.applyEligibility = normalizeApplyEligibility(eligibility);
-  panel.state.applyAllowed = latest.apply_allowed !== false && latest.canvas_apply_allowed !== false;
-  panel.state.canvasApplyAllowed = Boolean(latest.canvas_apply_allowed);
-  panel.state.queueAllowed = Boolean(latest.queue_allowed);
-  panel.state.auditRef = latest.audit_ref || panel.state.auditRef || null;
-  panel.state.changeDetails = latest.change_details && typeof latest.change_details === "object"
-    ? clonePlainData(latest.change_details)
-    : null;
-  panel.state.debugPayload = scrubDebugPayload({
-    ...latest,
-    restored_from_chat: true,
+  const restoreObligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
+    sessionId: typeof latest.session_id === "string" && latest.session_id ? latest.session_id : null,
+    turnId: typeof latest.turn_id === "string" && latest.turn_id ? latest.turn_id : null,
+    baseline: latest,
+    candidateGraph,
+    candidateGraphHash: typeof latest.candidate_graph_hash === "string"
+      ? latest.candidate_graph_hash
+      : null,
+    candidateReport: latest.report && typeof latest.report === "object" ? clonePlainData(latest.report) : null,
+    serverSubmitGraphHash: typeof latest.submit_graph_hash === "string" ? latest.submit_graph_hash : null,
+    message: typeof latest.message === "string" ? latest.message : null,
+    applyEligibility: normalizeApplyEligibility(eligibility),
+    applyAllowed: latest.apply_allowed !== false && latest.canvas_apply_allowed !== false,
+    canvasApplyAllowed: Boolean(latest.canvas_apply_allowed),
+    queueAllowed: Boolean(latest.queue_allowed),
+    auditRef: latest.audit_ref || panel.state.auditRef || null,
+    changeDetails: latest.change_details && typeof latest.change_details === "object"
+      ? clonePlainData(latest.change_details)
+      : null,
+    debugPayload: scrubDebugPayload({
+      ...latest,
+      restored_from_chat: true,
+    }),
+    lastSubmitFieldChanges: normalizeFieldChangesFromSubmit(latest),
   });
+  if (!restoreObligations.restored) {
+    return;
+  }
+  fulfillLifecycleTransitionObligations(panel, restoreObligations);
   reconcileResponseBatchTurns(panel, latest);
-  panel.state.lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(latest);
-  setQueueGuardContext({
-    sessionId: panel.state.sessionId,
-    turnId: panel.state.turnId,
-    queueAllowed: panel.state.queueAllowed,
-  });
-  panel.state.queueGuard = getQueueGuardStateForPanel();
   rememberTurnDetailSnapshot(panel, {
     turn_id: panel.state.turnId,
     session_id: panel.state.sessionId,
@@ -4267,18 +4256,13 @@ function invalidateCandidateState(panel, { repaint = true } = {}) {
   if (!panel) {
     return;
   }
-  // Clear candidate review fields
-  panel.state.candidateGraph = null;
-  panel.state.candidateGraphHash = null;
-  panel.state.candidateReport = null;
-  panel.state.serverSubmitGraphHash = null;
-  panel.state.applyEligibility = null;
-  panel.state.applyEligibilityWarning = null;
-  panel.state.applyEligibilityWarningKey = null;
-  panel.state.changeDetails = null;
-  // Clear preview diff caches (same as clearCandidatePreviewState)
-  delete panel.state._previewDiff;
-  delete panel.state._previewDiffGraphHash;
+  // Delegate lifecycle field clearing to the store.
+  transition(panel, "INVALIDATE_CANDIDATE", { repaint });
+  clearCandidateInvalidationSideEffects(repaint);
+}
+
+function clearCandidateInvalidationSideEffects(repaint = true) {
+  // Roundtrip-owned side effect: clear overlay draw model cache.
   _overlayDrawModelCache = null;
   // Repaint to clear the always-on candidate preview overlay from the canvas.
   // Callers that have ALREADY repainted (e.g. the post-Apply path, which just
@@ -5334,8 +5318,7 @@ function announceChangedNodes(panel, items) {
     highlighted: [],
   };
   if (!feedback.items.length) {
-    panel.state.lastAppliedChanges = null;
-    return;
+    return null;
   }
 
   const liveHighlightable = feedback.items.filter((item) => item.uid && (item.kind === "edited" || item.kind === "new_auto_placed"));
@@ -5378,7 +5361,7 @@ function announceChangedNodes(panel, items) {
       feedback.unresolved.push(item);
     }
   }
-  panel.state.lastAppliedChanges = feedback;
+  return feedback;
 }
 
 function queueGuardTurnKey(context) {
@@ -6288,23 +6271,8 @@ async function newAgentConversation(panel) {
   }
   if (panel.state.submitAbortController) {
     panel.state.submitAbortController.abort();
-    panel.state.submitAbortController = null;
   }
-  panel.state.submitEpoch = (panel.state.submitEpoch || 0) + 1;
-  panel.state.chatRehydrateEpoch = (panel.state.chatRehydrateEpoch || 0) + 1;
-  // Clear candidate state
-  panel.state.candidateGraph = null;
-  panel.state.candidateGraphHash = null;
-  panel.state.candidateReport = null;
-  panel.state.serverSubmitGraphHash = null;
-  panel.state.message = null;
-  panel.state.applyEligibility = null;
-  panel.state.applyAllowed = false;
-  panel.state.canvasApplyAllowed = false;
-  panel.state.queueAllowed = false;
-  // Clear failure state
-  panel.state.failure = null;
-  panel.state.clarification = null;
+  const obligations = transition(panel, "NEW_CONVERSATION");
   // Clear chat / session state
   panel.state.chatMessages = [];
   panel.state.chatLoaded = false;
@@ -6317,32 +6285,106 @@ async function newAgentConversation(panel) {
   // Clear activity / history
   panel.state.turns = [];
   panel.state.history = [];
-  // Clear session metadata — next submit will omit session_id.
-  setQueueGuardContext(null);
-  panel.state.sessionId = null;
-  panel.state.turnId = null;
-  panel.state.baselineTurnId = null;
-  panel.state.baselineGraphHash = null;
-  panel.state.baselineGraphHashKind = null;
-  panel.state.baselineGraphHashVersion = null;
-  panel.state.baselineSource = "none";
-  panel.state.baselineRebaselineId = null;
-  panel.state.baselineGraphSourcePath = null;
-  panel.state.auditRef = null;
-  panel.state.debugPayload = null;
-  panel.state.lastSubmit = null;
-  panel.state.inFlightSubmit = null;
-  panel.state.inFlightApply = null;
-  panel.state.inFlightRebaseline = null;
-  panel.state.rebaselinePending = null;
-  panel.state.rebaselineRecovery = null;
   panel.state.undoStack = [];
-  panel.state.lastAppliedChanges = null;
   panel.state.previewEnabled = false;
-  panel.state.phase = PANEL_STATE.IDLE;
-  // Clear localStorage — never call /vibecomfy/agent-edit/rebaseline.
-  forgetActiveSession();
-  renderAgentPanel(panel);
+  fulfillLifecycleTransitionObligations(panel, obligations);
+  renderLifecycleTransition(panel, obligations);
+}
+
+// ── Submit helpers (extracted from submitAgentEdit; pure data transformations) ──
+
+/** Build the POST body for /vibecomfy/agent-edit. */
+function buildSubmitBody(snapshot, task, panel) {
+  return {
+    graph: snapshot.graph,
+    task,
+    route: snapshot.route,
+    model: snapshot.model || undefined,
+    session_id: panel.state.sessionId || undefined,
+    client_id: api?.clientId || undefined,
+    client_graph_hash: snapshot.graphHash,
+    client_structural_graph_hash: snapshot.structuralHash,
+    client_live_canvas_token: snapshot.liveCanvasToken,
+    idempotency_key: snapshot.idempotencyKey,
+  };
+}
+
+/** Normalize a caught error into a failure envelope that submitAgentEdit can store. */
+function normalizeSubmitFailure(error) {
+  if (error?.ok === false) {
+    return error;
+  }
+  return agentPanelFailure("NetworkError", String(error), {
+    retryable: true,
+    next_action: "Retry once the local ComfyUI backend responds again.",
+  });
+}
+
+/** Extract outcome / candidate / eligibility from a raw response in one pass. */
+function extractSubmitResponsePayload(result) {
+  const outcome = outcomeFromResult(result);
+  const candidateGraph = candidateGraphFromResult(result);
+  const eligibility = eligibilityFromResult(result);
+  return { outcome, candidateGraph, eligibility };
+}
+
+/** Validate that a result payload is a usable success envelope (clarify or candidate). */
+function isSubmitResponseValid(result, outcome, candidateGraph) {
+  if (!result || typeof result !== "object") {
+    return false;
+  }
+  if (outcomeRequiresClarification(outcome)) {
+    return true; // clarify-only turns do not require a candidate graph
+  }
+  return candidateGraph && typeof candidateGraph === "object";
+}
+
+function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
+  if (obligations.invalidateCandidate) {
+    clearCandidateInvalidationSideEffects(false);
+  }
+  if (obligations.clearCandidatePreview) {
+    clearCandidatePreviewState(panel);
+  }
+  if (obligations.clearChangedNodeFeedbackVisuals) {
+    clearChangedNodeFeedbackVisuals();
+  }
+  if (obligations.persistSession !== undefined) {
+    _persistActiveSession(obligations.persistSession || null);
+  }
+  if (obligations.forgetSession) {
+    forgetActiveSession();
+  }
+  if (obligations.queueGuardClear) {
+    setQueueGuardContext(null);
+  }
+  if (obligations.setQueueGuardContext) {
+    setQueueGuardContext(obligations.setQueueGuardContext);
+  }
+  if (obligations.refreshQueueGuard) {
+    panel.state.queueGuard = getQueueGuardStateForPanel();
+  }
+  if (obligations.toast) {
+    toast(obligations.toast);
+  }
+}
+
+function renderLifecycleTransition(panel, obligations = {}) {
+  if (obligations.render) {
+    renderAgentPanel(panel);
+  }
+  if (obligations.focusPrompt) {
+    const promptEl = document.getElementById(PANEL_IDS.prompt) || panel?.fields?.prompt;
+    if (promptEl && typeof promptEl.focus === "function") {
+      panel.fields.prompt = promptEl;
+      promptEl.focus();
+    }
+  }
+  if (obligations.rehydrateChat) {
+    _rehydrateChat(panel)
+      .then(() => { scheduleRenderAgentPanel("rehydrate", agentPanel); })
+      .catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+  }
 }
 
 async function submitAgentEdit(panel) {
@@ -6353,9 +6395,9 @@ async function submitAgentEdit(panel) {
   if (panel.state.inFlightSubmit) {
     return panel.state.inFlightSubmit;
   }
-  panel.state.inFlightSubmit = (async () => {
-    const submitEpoch = (panel.state.submitEpoch || 0) + 1;
-    panel.state.submitEpoch = submitEpoch;
+  const submitPromise = (async () => {
+    let submitEpoch = null;
+    let submitAbortController = null;
     const isCurrentSubmit = () => panel?.state?.submitEpoch === submitEpoch;
     // Re-resolve the prompt element from the live DOM at submit time: a durable
     // panel re-render can replace the textarea, leaving panel.fields.prompt as a
@@ -6366,97 +6408,105 @@ async function submitAgentEdit(panel) {
     }
     const readinessState = submitReadinessState(panel);
     if (!readinessState.ready) {
-      panel.state.failure = null;
-      panel.state.debugPayload = {
-        readiness: readinessState,
-        route_status: clonePlainData(panel.state.routeStatus),
-        status_snapshot: clonePlainData(panel.state.statusSnapshot),
-      };
-      renderAgentPanel(panel);
+      const obligations = transition(panel, "SUBMIT_READINESS_FAILURE", {
+        debugPayload: {
+          failure: null,
+          readiness: readinessState,
+          route_status: clonePlainData(panel.state.routeStatus),
+          status_snapshot: clonePlainData(panel.state.statusSnapshot),
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
     const task = (promptEl && typeof promptEl.value === "string" ? promptEl.value : "").trim();
     if (!task) {
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = agentPanelFailure("MissingTask", "Enter an edit instruction before submitting.", {
+      const failure = agentPanelFailure("MissingTask", "Enter an edit instruction before submitting.", {
         retryable: true,
         next_action: "Describe the workflow change in the prompt region, then submit again.",
       });
-      panel.state.debugPayload = panel.state.failure;
-      renderAgentPanel(panel);
+      const obligations = transition(panel, "SUBMIT_MISSING_TASK", {
+        failure,
+        debugPayload: failure,
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
+
+    const pendingMessage = `Submitting: ${task.slice(0, 80)}${task.length > 80 ? "..." : ""}`;
+    const startObligations = transition(panel, "SUBMIT_START", {
+      lastSubmit: null,
+      debugPayload: {
+        task,
+      },
+    });
+    submitEpoch = startObligations.submitEpoch;
 
     let snapshot;
     try {
       snapshot = await buildSubmitSnapshot(panel);
       if (!isCurrentSubmit()) {
+        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
     } catch (e) {
       if (!isCurrentSubmit()) {
+        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = agentPanelFailure("SerializeError", String(e), {
+      const failure = agentPanelFailure("SerializeError", String(e), {
         retryable: true,
         next_action: "Make sure the canvas can serialize, then retry.",
       });
-      panel.state.debugPayload = panel.state.failure;
-      renderAgentPanel(panel);
+      const obligations = transition(panel, "SUBMIT_SERIALIZE_ERROR", {
+        failure,
+        debugPayload: failure,
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
-    panel.state.phase = PANEL_STATE.SUBMITTING;
-    panel.state.syntheticAgentMessage = null;
-    invalidateCandidateState(panel);
-    panel.state.failure = null;
-    panel.state.lastAppliedChanges = null;
-    panel.state.lastSubmitFieldChanges = null;
-    clearChangedNodeFeedbackVisuals();
-    panel.state.lastSubmit = {
-      task,
-      route: snapshot.route,
-      model: snapshot.model,
-      client_graph_hash: snapshot.graphHash,
-      client_structural_graph_hash: snapshot.structuralHash,
-      client_live_canvas_token: snapshot.liveCanvasToken,
-      idempotency_key: snapshot.idempotencyKey,
-    };
-    pushHistory(panel, "pending", `Submitting: ${task.slice(0, 80)}${task.length > 80 ? "..." : ""}`);
-    pushTurnStatus(panel, "pending", {
-      task,
-      message: `Submitting: ${task.slice(0, 80)}${task.length > 80 ? "..." : ""}`,
-    });
-    panel.state.debugPayload = {
-      task,
-      route: snapshot.route,
-      model: snapshot.model,
-      client_graph_hash: snapshot.graphHash,
-      client_structural_graph_hash: snapshot.structuralHash,
-      client_live_canvas_token: snapshot.liveCanvasToken,
-      idempotency_key: snapshot.idempotencyKey,
-    };
-    renderAgentPanel(panel);
-
-    let result;
-    let submitAbortController = null;
-    try {
-      submitAbortController = new AbortController();
-      panel.state.submitAbortController = submitAbortController;
-      const body = {
-        graph: snapshot.graph,
+    const submitStartObligations = transition(panel, "SUBMIT_START", {
+      submitEpoch,
+      lastSubmit: {
         task,
         route: snapshot.route,
-        model: snapshot.model || undefined,
-        session_id: panel.state.sessionId || undefined,
-        client_id: api?.clientId || undefined,
+        model: snapshot.model,
         client_graph_hash: snapshot.graphHash,
         client_structural_graph_hash: snapshot.structuralHash,
         client_live_canvas_token: snapshot.liveCanvasToken,
         idempotency_key: snapshot.idempotencyKey,
-      };
+      },
+      debugPayload: {
+        task,
+        route: snapshot.route,
+        model: snapshot.model,
+        client_graph_hash: snapshot.graphHash,
+        client_structural_graph_hash: snapshot.structuralHash,
+        client_live_canvas_token: snapshot.liveCanvasToken,
+        idempotency_key: snapshot.idempotencyKey,
+      },
+    });
+    fulfillLifecycleTransitionObligations(panel, submitStartObligations);
+    // Preserve the epoch allocated before serialization; SUBMIT_START above
+    // returns the current epoch when payload.submitEpoch is supplied.
+    submitEpoch = panel.state.submitEpoch;
+    pushHistory(panel, "pending", pendingMessage);
+    pushTurnStatus(panel, "pending", {
+      task,
+      message: pendingMessage,
+    });
+    renderLifecycleTransition(panel, submitStartObligations);
+
+    let result;
+    try {
+      submitAbortController = new AbortController();
+      transition(panel, "SUBMIT_ABORT_CONTROLLER", { controller: submitAbortController });
+      const body = buildSubmitBody(snapshot, task, panel);
       const res = await fetch("/vibecomfy/agent-edit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -6464,28 +6514,26 @@ async function submitAgentEdit(panel) {
         signal: submitAbortController.signal,
       });
       if (!isCurrentSubmit()) {
+        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
       result = await res.json();
       if (!isCurrentSubmit()) {
+        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
       // Prefer typed envelope fields; fall back to compatibility fields.
       result = adaptTypedResponse(result);
       if (typeof result?.session_id === "string" && result.session_id) {
-        panel.state.sessionId = result.session_id;
+        // Persisting the value remains a side effect, but sessionId itself is
+        // committed through the terminal submit transition below.
         _persistActiveSession(result.session_id);
       }
       if (!res.ok || result?.ok === false || result?.error) {
         throw result || { kind: "RequestError", message: res.statusText };
       }
-      const outcome = outcomeFromResult(result);
-      const candidateGraph = candidateGraphFromResult(result);
-      if (
-        !result
-        || typeof result !== "object"
-        || (!outcomeRequiresClarification(outcome) && (!candidateGraph || typeof candidateGraph !== "object"))
-      ) {
+      const { outcome, candidateGraph } = extractSubmitResponsePayload(result);
+      if (!isSubmitResponseValid(result, outcome, candidateGraph)) {
         throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
           stage: result?.stage || "agent-edit",
           retryable: true,
@@ -6496,51 +6544,43 @@ async function submitAgentEdit(panel) {
       }
     } catch (e) {
       if (!isCurrentSubmit()) {
+        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
       if (e?.name === "AbortError") {
-        panel.state.phase = PANEL_STATE.IDLE;
-        panel.state.failure = null;
-        panel.state.message = "Request cancelled.";
-        panel.state.queueGuard = getQueueGuardStateForPanel();
-        panel.state.syntheticAgentMessage = {
-          role: "agent",
-          text: "Request cancelled.",
-          session_id: panel.state.sessionId || null,
-          synthetic: true,
-          local_id: `cancelled:${Date.now()}`,
-        };
-        panel.state.debugPayload = {
-          cancelled: true,
-          last_submit: panel.state.lastSubmit,
-        };
+        const obligations = transition(panel, "SUBMIT_ABORT", {
+          message: "Request cancelled.",
+          syntheticAgentMessage: {
+            role: "agent",
+            text: "Request cancelled.",
+            session_id: panel.state.sessionId || null,
+            synthetic: true,
+            local_id: `cancelled:${Date.now()}`,
+          },
+          debugPayload: {
+            cancelled: true,
+            last_submit: panel.state.lastSubmit,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
         pushHistory(panel, "cancelled", task);
         pushTurnStatus(panel, "cancelled", {
           session_id: panel.state.sessionId,
           task,
           message: "Request cancelled.",
         });
-        renderAgentPanel(panel);
+        renderLifecycleTransition(panel, obligations);
         return;
       }
-      const failure = e?.ok === false
-        ? e
-        : agentPanelFailure("NetworkError", String(e), {
-            retryable: true,
-            next_action: "Retry once the local ComfyUI backend responds again.",
-          });
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = failure;
-      panel.state.turnId = failure.turn_id || panel.state.turnId;
-      panel.state.sessionId = failure.session_id || panel.state.sessionId;
-      _persistActiveSession(panel.state.sessionId);
-      syncBaselineFromResponse(panel, failure);
-      panel.state.auditRef = failure.audit_ref || null;
-      panel.state.queueGuard = getQueueGuardStateForPanel();
-      panel.state.debugPayload = {
-        ...failure,
-        last_submit: panel.state.lastSubmit,
-      };
+      const failure = normalizeSubmitFailure(e);
+      const obligations = transition(panel, "SUBMIT_NETWORK_FAILURE", {
+        failure,
+        debugPayload: {
+          ...failure,
+          last_submit: panel.state.lastSubmit,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
       pushHistory(panel, "failure", failure.kind || "NetworkError");
       pushTurnStatus(panel, "failed", {
         session_id: failure.session_id,
@@ -6559,15 +6599,13 @@ async function submitAgentEdit(panel) {
         failure,
         message: failure.user_facing_message || failure.message || failure.error,
       });
-      renderAgentPanel(panel);
-      // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { scheduleRenderAgentPanel("rehydrate", agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+      renderLifecycleTransition(panel, obligations);
       return;
     } finally {
-      if (isCurrentSubmit() || panel.state.submitAbortController === submitAbortController) {
-        panel.state.submitAbortController = null;
-        panel.state.inFlightSubmit = null;
-      }
+      transition(panel, "SUBMIT_FINALLY", {
+        clearAbortController: isCurrentSubmit() || panel.state.submitAbortController === submitAbortController,
+        clearInFlightSubmit: isCurrentSubmit() || panel.state.inFlightSubmit === submitPromise,
+      });
     }
 
     // Clarify terminal: the agent ended the turn with `clarify("...")` instead of
@@ -6576,9 +6614,7 @@ async function submitAgentEdit(panel) {
     // clarify-only turns. Otherwise we'd render an "Apply Candidate" button over a
     // no-op/unchanged graph. Instead surface the question and leave the prompt open
     // so the user can answer in the same session.
-    const outcome = outcomeFromResult(result);
-    const candidateGraph = candidateGraphFromResult(result);
-    const eligibility = eligibilityFromResult(result);
+    const { outcome, candidateGraph, eligibility } = extractSubmitResponsePayload(result);
     if (outcomeRequiresClarification(outcome) && !candidateGraph) {
       const fallbackMessage =
         (typeof result.message === "string" && result.message.trim())
@@ -6588,31 +6624,23 @@ async function submitAgentEdit(panel) {
         clarificationMessageFromOutcome(outcome, fallbackMessage)
           || fallbackMessage
           || "The agent needs clarification before it can edit the graph.";
-      panel.state.phase = PANEL_STATE.CLARIFY;
-      panel.state.sessionId = result.session_id || panel.state.sessionId;
-      _persistActiveSession(panel.state.sessionId);
-      panel.state.turnId = result.turn_id || null;
-      syncBaselineFromResponse(panel, result);
-      invalidateCandidateState(panel);
-      panel.state.clarification = {
+      const clarification = {
         message: clarifyMessage,
         turn_id: result.turn_id || null,
         session_id: result.session_id || null,
       };
-      panel.state.message = clarifyMessage;
-      panel.state.failure = null;
-      panel.state.canvasApplyAllowed = false;
-      panel.state.applyAllowed = false;
-      panel.state.applyEligibility = null;
-      panel.state.queueAllowed = false;
-      panel.state.auditRef = result.audit_ref || null;
-      panel.state.queueGuard = getQueueGuardStateForPanel();
+      const obligations = transition(panel, "CLARIFY_ONLY_RESPONSE", {
+        result,
+        clarification,
+        message: clarifyMessage,
+        lastSubmitFieldChanges: normalizeFieldChangesFromSubmit(result),
+        debugPayload: {
+          ...result,
+          last_submit: panel.state.lastSubmit,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
       reconcileResponseBatchTurns(panel, result);
-      panel.state.lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result);
-      panel.state.debugPayload = {
-        ...result,
-        last_submit: panel.state.lastSubmit,
-      };
       pushHistory(panel, "clarify", clarifyMessage);
       pushTurnStatus(panel, "clarify", {
         session_id: result.session_id,
@@ -6631,9 +6659,7 @@ async function submitAgentEdit(panel) {
         clarification: panel.state.clarification,
         message: clarifyMessage,
       });
-      renderAgentPanel(panel);
-      // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { scheduleRenderAgentPanel("rehydrate", agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
@@ -6641,25 +6667,30 @@ async function submitAgentEdit(panel) {
     try {
       arrivalSnapshot = await buildCanvasSnapshot();
       if (!isCurrentSubmit()) {
+        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
     } catch (e) {
       if (!isCurrentSubmit()) {
+        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
-      panel.state.phase = PANEL_STATE.ERROR;
-      syncBaselineFromResponse(panel, result);
-      panel.state.failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas after the candidate arrived: ${String(e)}`, {
+      const failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas after the candidate arrived: ${String(e)}`, {
         retryable: true,
         graph_unchanged: true,
         next_action: "Make sure the current canvas can serialize, then submit again.",
       });
-      panel.state.debugPayload = {
-        ...panel.state.failure,
-        last_submit: panel.state.lastSubmit,
-        response: result,
-      };
-      renderAgentPanel(panel);
+      const obligations = transition(panel, "ARRIVAL_SERIALIZE_FAILURE", {
+        result,
+        failure,
+        debugPayload: {
+          ...failure,
+          last_submit: panel.state.lastSubmit,
+          response: result,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
@@ -6673,50 +6704,42 @@ async function submitAgentEdit(panel) {
       ? result.candidate_graph_hash
       : await sha256HexUtf8(canonicalJsonString(candidateGraph));
     if (!isCurrentSubmit()) {
+      transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
       return;
     }
-    panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
-    panel.state.sessionId = result.session_id || panel.state.sessionId;
-    _persistActiveSession(panel.state.sessionId);
-    panel.state.turnId = result.turn_id || null;
-    syncBaselineFromResponse(panel, result);
-    invalidateCandidateState(panel);
-    panel.state.candidateGraph = candidateGraph || null;
-    panel.state.candidateGraphHash = candidateGraphHash;
-    panel.state.candidateReport = result.report || null;
-    panel.state.serverSubmitGraphHash = typeof result.submit_graph_hash === "string" ? result.submit_graph_hash : null;
-    panel.state.message = result.message || null;
-    panel.state.failure = null;
-    panel.state.clarification = outcomeRequiresClarification(outcome)
-      ? {
-          message: clarificationMessageFromOutcome(outcome, result.message || null),
-          turn_id: result.turn_id || null,
-          session_id: result.session_id || null,
-        }
-      : null;
-    panel.state.applyEligibility = normalizeApplyEligibility(eligibility);
-    panel.state.applyAllowed = result.apply_allowed !== false && result.canvas_apply_allowed !== false;
-    panel.state.canvasApplyAllowed = Boolean(result.canvas_apply_allowed);
-    panel.state.queueAllowed = Boolean(result.queue_allowed);
-    panel.state.auditRef = result.audit_ref || null;
-    setQueueGuardContext({
-      sessionId: panel.state.sessionId,
-      turnId: panel.state.turnId,
-      queueAllowed: panel.state.queueAllowed,
-    });
-    panel.state.queueGuard = getQueueGuardStateForPanel();
-    reconcileResponseBatchTurns(panel, result);
-    panel.state.lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result);
-    panel.state.changeDetails = result.change_details && typeof result.change_details === "object"
+    const normalizedEligibility = normalizeApplyEligibility(eligibility);
+    const changeDetails = result.change_details && typeof result.change_details === "object"
       ? clonePlainData(result.change_details)
       : null;
-    panel.state.debugPayload = scrubDebugPayload({
+    const lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result);
+    const candidateDebugPayload = scrubDebugPayload({
       ...result,
       last_submit: panel.state.lastSubmit,
       arrival_structural_mismatch: structuralChangedForDiagnostics,
       arrival_client_graph_hash: arrivalSnapshot.graphHash,
       arrival_client_structural_graph_hash: arrivalSnapshot.structuralHash,
     });
+    const candidateObligations = transition(panel,
+      outcomeRequiresClarification(outcome) ? "EDIT_CLARIFY_RESPONSE" : "OK_CANDIDATE_RESPONSE",
+      {
+        result,
+        candidateGraph,
+        candidateGraphHash,
+        clarification: outcomeRequiresClarification(outcome)
+          ? {
+              message: clarificationMessageFromOutcome(outcome, result.message || null),
+              turn_id: result.turn_id || null,
+              session_id: result.session_id || null,
+            }
+          : null,
+        applyEligibility: normalizedEligibility,
+        lastSubmitFieldChanges,
+        changeDetails,
+        debugPayload: candidateDebugPayload,
+      },
+    );
+    fulfillLifecycleTransitionObligations(panel, candidateObligations);
+    reconcileResponseBatchTurns(panel, result);
     pushHistory(panel, "candidate", result.turn_id ? `turn ${result.turn_id}` : "candidate");
     pushTurnStatus(panel, "candidate", {
       session_id: result.session_id,
@@ -6732,7 +6755,7 @@ async function submitAgentEdit(panel) {
       session_id: result.session_id,
       candidateGraphPresent: Boolean(candidateGraph),
       candidateReport: result.report || null,
-      applyEligibility: normalizeApplyEligibility(eligibility),
+      applyEligibility: normalizedEligibility,
       queueAllowed: Boolean(result.queue_allowed),
       canvasApplyAllowed: Boolean(result.canvas_apply_allowed),
       auditRef: result.audit_ref || null,
@@ -6744,9 +6767,7 @@ async function submitAgentEdit(panel) {
       changeDetails: panel.state.changeDetails,
       message: result.message || null,
     });
-    renderAgentPanel(panel);
-    // Canonicalize chat through the rehydrate endpoint after visible update.
-    _rehydrateChat(panel).then(() => { scheduleRenderAgentPanel("rehydrate", agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
+    renderLifecycleTransition(panel, candidateObligations);
 
     if (panel.state.previewEnabled) {
       if (app?.canvas?.setDirty) {
@@ -6758,6 +6779,7 @@ async function submitAgentEdit(panel) {
     }
   })();
 
+  transition(panel, "SUBMIT_IN_FLIGHT", { promise: submitPromise });
   return panel.state.inFlightSubmit;
 }
 
@@ -6767,25 +6789,22 @@ function stopAgentSubmit(panel) {
     renderAgentPanel(panel);
     return false;
   }
-  panel.state.submitEpoch = (panel.state.submitEpoch || 0) + 1;
   controller.abort();
-  panel.state.submitAbortController = null;
-  panel.state.inFlightSubmit = null;
-  panel.state.phase = PANEL_STATE.IDLE;
-  panel.state.failure = null;
-  panel.state.message = "Request cancelled.";
-  panel.state.queueGuard = getQueueGuardStateForPanel();
-  panel.state.syntheticAgentMessage = {
-    role: "agent",
-    text: "Request cancelled.",
-    session_id: panel.state.sessionId || null,
-    synthetic: true,
-    local_id: `cancelled:${Date.now()}`,
-  };
-  panel.state.debugPayload = {
-    cancelled: true,
-    last_submit: panel.state.lastSubmit,
-  };
+  const obligations = transition(panel, "STOP_ABORT", {
+    message: "Request cancelled.",
+    syntheticAgentMessage: {
+      role: "agent",
+      text: "Request cancelled.",
+      session_id: panel.state.sessionId || null,
+      synthetic: true,
+      local_id: `cancelled:${Date.now()}`,
+    },
+    debugPayload: {
+      cancelled: true,
+      last_submit: panel.state.lastSubmit,
+    },
+  });
+  fulfillLifecycleTransitionObligations(panel, obligations);
   const task = panel.state.lastSubmit?.task || "";
   pushHistory(panel, "cancelled", task);
   pushTurnStatus(panel, "cancelled", {
@@ -6793,49 +6812,55 @@ function stopAgentSubmit(panel) {
     task,
     message: "Request cancelled.",
   });
-  renderAgentPanel(panel);
+  renderLifecycleTransition(panel, obligations);
   return true;
 }
 
 async function applyAgentCandidate(panel) {
   if (!panel.state.candidateGraph) {
+    transition(panel, "APPLY_PREFLIGHT_BLOCKED", { reason: "no_candidate" });
     return;
   }
   if (!panel.state.sessionId || !panel.state.turnId) {
-    panel.state.phase = PANEL_STATE.ERROR;
-    panel.state.failure = agentPanelFailure("MissingRequiredField", "Cannot apply a candidate without session_id and turn_id.", {
+    const failure = agentPanelFailure("MissingRequiredField", "Cannot apply a candidate without session_id and turn_id.", {
       retryable: false,
       graph_unchanged: true,
       next_action: "Submit the edit again to get a complete candidate envelope.",
     });
-    panel.state.debugPayload = panel.state.failure;
-    renderAgentPanel(panel);
+    const obligations = transition(panel, "APPLY_MISSING_FIELDS", {
+      failure,
+      debugPayload: failure,
+    });
+    fulfillLifecycleTransitionObligations(panel, obligations);
+    renderLifecycleTransition(panel, obligations);
     return;
   }
   if (panel.state.inFlightApply) {
     return panel.state.inFlightApply;
   }
 
-  panel.state.inFlightApply = (async () => {
+  const applyPromise = (async () => {
     let beforeApply;
     try {
       beforeApply = await buildCanvasSnapshot();
     } catch (e) {
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas before Apply: ${String(e)}`, {
+      const failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas before Apply: ${String(e)}`, {
         retryable: true,
         graph_unchanged: true,
       });
-      panel.state.debugPayload = panel.state.failure;
-      renderAgentPanel(panel);
+      const obligations = transition(panel, "APPLY_SERIALIZE_ERROR", {
+        failure,
+        debugPayload: failure,
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
     const expectedHash = panel.state.lastSubmit?.client_graph_hash;
     const eligibility = applyEligibility(panel, beforeApply);
     if (!eligibility.applyable) {
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = agentPanelFailure(
+      const failure = agentPanelFailure(
         eligibility.reason === APPLY_ELIGIBILITY_REASON.STALE_CANVAS
           ? "StaleStateMismatch"
           : "ApplyBlocked",
@@ -6856,9 +6881,13 @@ async function applyAgentCandidate(panel) {
           apply_eligibility: eligibility,
         },
       );
-      panel.state.debugPayload = panel.state.failure;
-      clearCandidatePreviewState(panel);
-      renderAgentPanel(panel);
+      const obligations = transition(panel, "APPLY_ELIGIBILITY_BLOCKED", {
+        failure,
+        debugPayload: failure,
+        clearCandidatePreview: true,
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
@@ -6879,13 +6908,15 @@ async function applyAgentCandidate(panel) {
       idempotency_key: acceptKey,
     };
 
-    panel.state.phase = PANEL_STATE.APPLYING;
-    panel.state.failure = null;
-    panel.state.debugPayload = {
-      applying_turn_id: panel.state.turnId,
-      accept_request: acceptBody,
-    };
-    renderAgentPanel(panel);
+    const startedObligations = transition(panel, "APPLY_STARTED", {
+      acceptBody,
+      debugPayload: {
+        applying_turn_id: panel.state.turnId,
+        accept_request: acceptBody,
+      },
+    });
+    fulfillLifecycleTransitionObligations(panel, startedObligations);
+    renderLifecycleTransition(panel, startedObligations);
 
     let accepted;
     try {
@@ -6924,25 +6955,23 @@ async function applyAgentCandidate(panel) {
       const authoritativeBackendReject =
         e?.ok === false
         && !["MalformedResponse", "AcceptError", "NetworkError"].includes(String(e?.kind || ""));
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = failure;
-      if (authoritativeBackendReject) {
-        panel.state.applyEligibility = disabledApplyEligibility(
-          APPLY_ELIGIBILITY_REASON.SUPERSEDED,
-          failure.user_facing_message || failure.message || "The backend rejected this candidate.",
-          ["backend_rejected"],
-        );
-        panel.state.applyAllowed = false;
-        panel.state.canvasApplyAllowed = false;
-        panel.state.queueAllowed = false;
-        setQueueGuardContext(null);
-      }
-      syncBaselineFromResponse(panel, failure);
-      panel.state.auditRef = failure.audit_ref || panel.state.auditRef;
-      panel.state.debugPayload = {
-        ...failure,
-        accept_request: acceptBody,
-      };
+      const obligations = transition(panel, "ACCEPT_REJECTED", {
+        failure,
+        acceptBody,
+        authoritativeBackendReject,
+        disabledApplyEligibility: authoritativeBackendReject
+          ? disabledApplyEligibility(
+              APPLY_ELIGIBILITY_REASON.SUPERSEDED,
+              failure.user_facing_message || failure.message || "The backend rejected this candidate.",
+              ["backend_rejected"],
+            )
+          : null,
+        debugPayload: {
+          ...failure,
+          accept_request: acceptBody,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
       pushHistory(panel, "failure", failure.kind || "AcceptError");
       pushTurnStatus(panel, "failed", {
         session_id: failure.session_id || panel.state.sessionId,
@@ -6960,14 +6989,13 @@ async function applyAgentCandidate(panel) {
         failure,
         message: failure.user_facing_message || failure.message || failure.error,
       });
-      renderAgentPanel(panel);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
     const currentBeforeLoad = await buildCanvasSnapshot();
     if (currentBeforeLoad.liveCanvasToken !== beforeApply.liveCanvasToken) {
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = agentPanelFailure("StaleStateMismatch", "The canvas changed while Apply was waiting for backend acceptance. Candidate loading is blocked.", {
+      const failure = agentPanelFailure("StaleStateMismatch", "The canvas changed while Apply was waiting for backend acceptance. Candidate loading is blocked.", {
         retryable: true,
         graph_unchanged: true,
         next_action: "Submit a new edit from the current canvas.",
@@ -6978,9 +7006,12 @@ async function applyAgentCandidate(panel) {
         expected_live_canvas_token: beforeApply.liveCanvasToken,
         accept_response: accepted,
       });
-      panel.state.debugPayload = panel.state.failure;
-      clearCandidatePreviewState(panel);
-      renderAgentPanel(panel);
+      const obligations = transition(panel, "STALE_CANVAS_APPLY", {
+        failure,
+        debugPayload: failure,
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
 
@@ -7005,14 +7036,17 @@ async function applyAgentCandidate(panel) {
             next_action: "Retry Apply or inspect the raw response in the debug panel.",
             accept_response: accepted,
           });
-      panel.state.phase = PANEL_STATE.ERROR;
-      panel.state.failure = failure;
-      panel.state.auditRef = failure.audit_ref || panel.state.auditRef;
-      panel.state.debugPayload = {
-        ...failure,
+      const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
+        failure,
         accepted,
-        undo_stack_depth: panel.state.undoStack.length,
-      };
+        undoStackDepth: panel.state.undoStack.length,
+        debugPayload: {
+          ...failure,
+          accepted,
+          undo_stack_depth: panel.state.undoStack.length,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
       pushHistory(panel, "failure", failure.kind || "CanvasApplyError");
       pushTurnStatus(panel, "failed", {
         session_id: failure.session_id || panel.state.sessionId,
@@ -7030,10 +7064,10 @@ async function applyAgentCandidate(panel) {
         failure,
         message: failure.user_facing_message || failure.message || failure.error,
       });
-      renderAgentPanel(panel);
+      renderLifecycleTransition(panel, obligations);
       return;
     }
-    announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
+    const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
     pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
     pushTurnStatus(panel, "applied", {
       turn_id: panel.state.turnId,
@@ -7042,20 +7076,18 @@ async function applyAgentCandidate(panel) {
       audit_ref: accepted.audit_ref || panel.state.auditRef,
       raw_payload: accepted,
     });
-    panel.state.phase = PANEL_STATE.IDLE;
-    syncBaselineFromResponse(panel, accepted);
-    panel.state.baselineTurnId = panel.state.baselineTurnId || panel.state.turnId || null;
-    panel.state.auditRef = accepted.audit_ref || panel.state.auditRef;
-    // applyGraphInPlaceWithIntentDecoration already repainted the canvas above and
-    // the panel is now IDLE (overlay won't draw), so skip the redundant repaint.
-    invalidateCandidateState(panel, { repaint: false });
-    panel.state.message = "Candidate accepted and applied locally.";
-    setQueueGuardContext(null);
-    panel.state.queueGuard = getQueueGuardStateForPanel();
-    panel.state.debugPayload = {
+    const successObligations = transition(panel, "APPLY_SUCCESS", {
       accepted,
-      undo_stack_depth: panel.state.undoStack.length,
-    };
+      lastAppliedChanges,
+      undoStackDepth: panel.state.undoStack.length,
+      message: "Candidate accepted and applied locally.",
+      toast: "Agent candidate applied",
+      debugPayload: {
+        accepted,
+        undo_stack_depth: panel.state.undoStack.length,
+      },
+    });
+    fulfillLifecycleTransitionObligations(panel, successObligations);
     rememberTurnDetailSnapshot(panel, {
       turn_id: accepted.turn_id || panel.state.turnId,
       session_id: accepted.session_id || panel.state.sessionId,
@@ -7066,14 +7098,14 @@ async function applyAgentCandidate(panel) {
       },
       message: panel.state.message,
     });
-    renderAgentPanel(panel);
-    toast("Agent candidate applied");
+    renderLifecycleTransition(panel, successObligations);
   })();
 
+  transition(panel, "APPLY_IN_FLIGHT", { promise: applyPromise });
   try {
     return await panel.state.inFlightApply;
   } finally {
-    panel.state.inFlightApply = null;
+    transition(panel, "APPLY_FINALLY", { clearInFlightApply: true });
   }
 }
 
@@ -7086,14 +7118,16 @@ async function rejectAgentCandidate(panel) {
   try {
     snapshot = await buildCanvasSnapshot();
   } catch (e) {
-    panel.state.phase = PANEL_STATE.ERROR;
-    panel.state.failure = agentPanelFailure("SerializeError", String(e), {
+    const failure = agentPanelFailure("SerializeError", String(e), {
       retryable: true,
       graph_unchanged: true,
       next_action: "Make sure the canvas can serialize, then retry Reject.",
     });
-    panel.state.debugPayload = panel.state.failure;
-    renderAgentPanel(panel);
+    const obligations = transition(panel, "REJECT_FAILURE", {
+      failure,
+      debugPayload: failure,
+    });
+    if (obligations.render) renderAgentPanel(panel);
     return;
   }
 
@@ -7110,13 +7144,14 @@ async function rejectAgentCandidate(panel) {
     idempotency_key: rejectKey,
   };
 
-  panel.state.phase = PANEL_STATE.APPLYING;
-  panel.state.failure = null;
-  panel.state.debugPayload = {
-    rejecting_turn_id: panel.state.turnId,
-    reject_request: rejectBody,
-  };
-  renderAgentPanel(panel);
+  const startObligations = transition(panel, "REJECT_STARTED", {
+    rejectBody,
+    debugPayload: {
+      rejecting_turn_id: panel.state.turnId,
+      reject_request: rejectBody,
+    },
+  });
+  if (startObligations.render) renderAgentPanel(panel);
 
   let rejected;
   try {
@@ -7137,14 +7172,16 @@ async function rejectAgentCandidate(panel) {
           graph_unchanged: true,
           next_action: "Retry Reject after the backend responds again.",
         });
-    panel.state.phase = PANEL_STATE.ERROR;
-    panel.state.failure = failure;
-    syncBaselineFromResponse(panel, failure);
-    panel.state.auditRef = failure.audit_ref || panel.state.auditRef;
-    panel.state.debugPayload = {
-      ...failure,
-      reject_request: rejectBody,
-    };
+    const obligations = transition(panel, "REJECT_FAILURE", {
+      failure,
+      rejectBody,
+      debugPayload: {
+        ...failure,
+        reject_request: rejectBody,
+      },
+    });
+    const recovery = extractRebaselineRecovery(failure);
+    transition(panel, "REBASELINE_RECOVERY_SYNC", { rebaselineRecovery: recovery });
     pushHistory(panel, "failure", failure.kind || "RejectError");
       pushTurnStatus(panel, "failed", {
         session_id: failure.session_id || panel.state.sessionId,
@@ -7162,7 +7199,7 @@ async function rejectAgentCandidate(panel) {
         failure,
         message: failure.user_facing_message || failure.message || failure.error,
       });
-      renderAgentPanel(panel);
+      if (obligations.render) renderAgentPanel(panel);
     return;
   }
 
@@ -7174,18 +7211,24 @@ async function rejectAgentCandidate(panel) {
     audit_ref: rejected.audit_ref || panel.state.auditRef,
     raw_payload: rejected,
   });
-  panel.state.phase = PANEL_STATE.IDLE;
-  syncBaselineFromResponse(panel, rejected);
-  invalidateCandidateState(panel);
-  setQueueGuardContext(null);
-  panel.state.message = "Candidate rejected and cleared from the panel.";
-  panel.state.failure = null;
-  panel.state.auditRef = rejected.audit_ref || panel.state.auditRef;
-  panel.state.queueGuard = getQueueGuardStateForPanel();
-  panel.state.debugPayload = {
+
+  const obligations = transition(panel, "REJECT_SUCCESS", {
     rejected,
-    graph_unchanged: true,
-  };
+    message: "Candidate rejected and cleared from the panel.",
+    toast: "Agent candidate rejected",
+    debugPayload: {
+      rejected,
+      graph_unchanged: true,
+    },
+  });
+
+  fulfillLifecycleTransitionObligations(panel, obligations);
+
+  const recovery = extractRebaselineRecovery(rejected);
+  transition(panel, "REBASELINE_RECOVERY_SYNC", {
+    ...(recovery ? { rebaselineRecovery: recovery } : { clearRebaselineRecovery: rejected.ok === true }),
+  });
+
   rememberTurnDetailSnapshot(panel, {
     turn_id: rejected.turn_id || panel.state.turnId,
     session_id: rejected.session_id || panel.state.sessionId,
@@ -7196,8 +7239,8 @@ async function rejectAgentCandidate(panel) {
     },
     message: panel.state.message,
   });
-  renderAgentPanel(panel);
-  toast("Agent candidate rejected");
+
+  renderLifecycleTransition(panel, obligations);
 }
 
 export async function postAgentRebaseline(
@@ -7218,7 +7261,7 @@ export async function postAgentRebaseline(
     });
   }
 
-  panel.state.inFlightRebaseline = (async () => {
+  const rebaselinePromise = (async () => {
     let body = null;
     let rebaselineReason = "continue_from_canvas";
     try {
@@ -7237,14 +7280,17 @@ export async function postAgentRebaseline(
         baselineGraphHash: expectedBaselineGraphHash,
         structuralHash: snapshot.structuralHash,
       });
-      panel.state.rebaselinePending = {
+      const rebaselinePending = {
         reason: rebaselineReason,
         last_known_baseline_graph_hash: expectedBaselineGraphHash,
         client_graph_hash: snapshot.graphHash,
         client_structural_graph_hash: snapshot.structuralHash,
         idempotency_key: idempotencyKey,
       };
-      renderAgentPanel(panel);
+      const startedObligations = transition(panel, "REBASELINE_STARTED", {
+        rebaselinePending,
+      });
+      renderLifecycleTransition(panel, startedObligations);
 
       body = {
         session_id: panel.state.sessionId,
@@ -7265,13 +7311,15 @@ export async function postAgentRebaseline(
       if (!res.ok || result?.ok === false || result?.error) {
         throw result || { kind: "RebaselineError", message: res.statusText };
       }
-      syncBaselineFromResponse(panel, result);
-      panel.state.auditRef = result.audit_ref || panel.state.auditRef;
-      panel.state.rebaselinePending = null;
-      panel.state.debugPayload = {
-        rebaseline_request: body,
-        rebaseline_response: result,
-      };
+      const successObligations = transition(panel, "REBASELINE_SUCCESS", {
+        result,
+        rebaselineRequest: body,
+        debugPayload: {
+          rebaseline_request: body,
+          rebaseline_response: result,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, successObligations);
       return result;
     } catch (e) {
       const failure = e?.ok === false
@@ -7281,28 +7329,35 @@ export async function postAgentRebaseline(
             graph_unchanged: true,
             next_action: "Retry the rebaseline request after the backend responds again.",
           });
-      syncBaselineFromResponse(panel, failure);
-      panel.state.rebaselinePending = {
-        ...(panel.state.rebaselinePending || {}),
-        reason: rebaselineReason,
-        retryable: Boolean(failure.retryable),
-        failure_kind: failure.kind || null,
-        failure_stage: failure.stage || null,
-        message: failure.user_facing_message || failure.message || failure.error || null,
-      };
-      panel.state.auditRef = failure.audit_ref || panel.state.auditRef;
-      panel.state.debugPayload = {
-        ...failure,
-        rebaseline_request: body,
-      };
+      const failureObligations = transition(panel, "REBASELINE_FAILURE", {
+        failure,
+        rebaselineRequest: body,
+        rebaselineRecovery: extractRebaselineRecovery(failure),
+        rebaselinePendingPatch: {
+          reason: rebaselineReason,
+          retryable: Boolean(failure.retryable),
+          failure_kind: failure.kind || null,
+          failure_stage: failure.stage || null,
+          message: failure.user_facing_message || failure.message || failure.error || null,
+        },
+        debugPayload: {
+          ...failure,
+          rebaseline_request: body,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, failureObligations);
       throw failure;
     } finally {
-      panel.state.inFlightRebaseline = null;
-      renderAgentPanel(panel);
+      const finallyObligations = transition(panel, "REBASELINE_FINALLY", {
+        clearInFlightRebaseline: true,
+      });
+      renderLifecycleTransition(panel, finallyObligations);
     }
   })();
 
-  return panel.state.inFlightRebaseline;
+  transition(panel, "REBASELINE_IN_FLIGHT", { promise: rebaselinePromise });
+
+  return rebaselinePromise;
 }
 
 async function rebaselineCurrentCanvas(panel) {
@@ -7314,37 +7369,36 @@ async function rebaselineCurrentCanvas(panel) {
   if (panel.state.inFlightRebaseline) {
     return panel.state.inFlightRebaseline;
   }
-  panel.state.phase = PANEL_STATE.IDLE;
-  panel.state.message = "Current canvas queued for stale-state recovery rebaseline.";
-  renderAgentPanel(panel);
+  const queuedObligations = transition(panel, "STALE_RECOVERY_REBASELINE_QUEUED");
+  renderLifecycleTransition(panel, queuedObligations);
   try {
     const result = await postAgentRebaseline(panel, {
       reason: "stale_state_recovery",
       lastKnownBaselineGraphHash: recovery.last_known_baseline_graph_hash ?? null,
     });
-    invalidateCandidateState(panel);
-    panel.state.failure = null;
-    panel.state.rebaselineRecovery = null;
-    panel.state.phase = PANEL_STATE.IDLE;
-    panel.state.message = "Current canvas rebaselined. Resubmitting from this canvas...";
-    panel.state.auditRef = result.audit_ref || panel.state.auditRef;
-    panel.state.debugPayload = {
-      stale_state_recovery: true,
-      rebaseline_response: result,
-    };
-    renderAgentPanel(panel);
-    toast("Current canvas rebaselined");
+    const successObligations = transition(panel, "STALE_RECOVERY_REBASELINE_SUCCESS", {
+      auditRef: result.audit_ref || panel.state.auditRef,
+      message: "Current canvas rebaselined. Resubmitting from this canvas...",
+      toast: "Current canvas rebaselined",
+      debugPayload: {
+        stale_state_recovery: true,
+        rebaseline_response: result,
+      },
+    });
+    fulfillLifecycleTransitionObligations(panel, successObligations);
+    renderLifecycleTransition(panel, successObligations);
     await submitAgentEdit(panel);
     return result;
   } catch (failure) {
-    panel.state.rebaselineRecovery = extractRebaselineRecovery(failure) || recovery;
-    panel.state.phase = PANEL_STATE.ERROR;
-    panel.state.message = "Current canvas rebaseline failed. Review the evidence and retry.";
-    panel.state.debugPayload = {
-      ...(panel.state.debugPayload || {}),
-      stale_state_recovery: true,
-    };
-    renderAgentPanel(panel);
+    const failureObligations = transition(panel, "STALE_RECOVERY_REBASELINE_FAILURE", {
+      rebaselineRecovery: extractRebaselineRecovery(failure) || recovery,
+      message: "Current canvas rebaseline failed. Review the evidence and retry.",
+      debugPayload: {
+        ...(panel.state.debugPayload || {}),
+        stale_state_recovery: true,
+      },
+    });
+    renderLifecycleTransition(panel, failureObligations);
     return null;
   }
 }
@@ -7359,20 +7413,13 @@ async function undoLastApply(panel) {
   if (panel.state.inFlightRebaseline) {
     return panel.state.inFlightRebaseline;
   }
-  clearChangedNodeFeedbackVisuals();
   await app.loadGraphData(previous.graph);
-  panel.state.lastAppliedChanges = null;
-  setQueueGuardContext(null);
-  panel.state.phase = PANEL_STATE.IDLE;
-  panel.state.failure = null;
-  panel.state.message = "Previous graph restored locally. Rebaselining undo state...";
-  panel.state.queueGuard = getQueueGuardStateForPanel();
-  panel.state.debugPayload = {
-    undone_turn_id: previous.turn_id || null,
-    restored_graph_hash: previous.client_graph_hash || null,
-    undo_stack_depth: panel.state.undoStack.length,
-  };
-  renderAgentPanel(panel);
+  const restoreObligations = transition(panel, "UNDO_LOCAL_RESTORE", {
+    previous,
+    undoStackDepth: panel.state.undoStack.length,
+  });
+  fulfillLifecycleTransitionObligations(panel, restoreObligations);
+  renderLifecycleTransition(panel, restoreObligations);
   try {
     const result = await postAgentRebaseline(panel, {
       reason: "undo",
@@ -7382,7 +7429,6 @@ async function undoLastApply(panel) {
         ?? panel.state.baselineGraphHash
         ?? null,
     });
-    panel.state.undoStack.pop();
     pushHistory(panel, "undo", previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph");
     pushTurnStatus(panel, "undone", {
       turn_id: previous.turn_id || null,
@@ -7391,19 +7437,14 @@ async function undoLastApply(panel) {
       audit_ref: result.audit_ref || panel.state.auditRef,
       raw_payload: result,
     });
-    panel.state.phase = PANEL_STATE.IDLE;
-    panel.state.failure = null;
-    panel.state.auditRef = result.audit_ref || panel.state.auditRef;
-    panel.state.message = "Previous graph restored and rebaselined locally.";
-    panel.state.queueGuard = getQueueGuardStateForPanel();
-    panel.state.debugPayload = {
-      rebaseline_response: result,
-      undone_turn_id: previous.turn_id || null,
-      restored_graph_hash: previous.client_graph_hash || null,
-      undo_stack_depth: panel.state.undoStack.length,
-    };
-    renderAgentPanel(panel);
-    toast("Previous graph restored");
+    const successObligations = transition(panel, "UNDO_REBASELINE_SUCCESS", {
+      previous,
+      result,
+      undoStackDepth: panel.state.undoStack.length - 1,
+      toast: "Previous graph restored",
+    });
+    fulfillLifecycleTransitionObligations(panel, successObligations);
+    renderLifecycleTransition(panel, successObligations);
     return result;
   } catch (failure) {
     const normalizedFailure = failure && typeof failure === "object"
@@ -7413,17 +7454,13 @@ async function undoLastApply(panel) {
           graph_unchanged: true,
           next_action: "Retry Undo Rebaseline after the backend responds again.",
         });
-    panel.state.phase = PANEL_STATE.ERROR;
-    panel.state.failure = normalizedFailure;
-    panel.state.rebaselineRecovery = extractRebaselineRecovery(normalizedFailure) || panel.state.rebaselineRecovery;
-    panel.state.message = "Previous graph restored locally, but the undo rebaseline failed. Retry Undo Rebaseline.";
-    panel.state.debugPayload = {
-      ...(panel.state.debugPayload || {}),
-      undone_turn_id: previous.turn_id || null,
-      restored_graph_hash: previous.client_graph_hash || null,
-      undo_stack_depth: panel.state.undoStack.length,
-    };
-    renderAgentPanel(panel);
+    const failureObligations = transition(panel, "UNDO_REBASELINE_FAILURE", {
+      previous,
+      failure: normalizedFailure,
+      rebaselineRecovery: extractRebaselineRecovery(normalizedFailure) || panel.state.rebaselineRecovery,
+      undoStackDepth: panel.state.undoStack.length,
+    });
+    renderLifecycleTransition(panel, failureObligations);
     return null;
   }
 }

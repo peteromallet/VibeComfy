@@ -152,7 +152,7 @@ Response assembly points with `apply_eligibility`:
 Browser authority rule:
 
 - The browser uses `applyEligibility(panel, liveCanvasSnapshot)` in [vibecomfy_roundtrip.js](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js:1422).
-- Structural authority comparison is `liveCanvasSnapshot.structuralHash` versus `panel.state.lastSubmit.client_structural_graph_hash`.
+- Client-side structural hash comparison is a diagnostic parity check only (`liveCanvasSnapshot.structuralHash` versus `panel.state.lastSubmit.client_structural_graph_hash`). It is **not** Apply authority — backend CAS is the single Apply authority. `client_structural_graph_hash` is submitted as a backend-parity snapshot in submit/rebaseline payloads and is never used by the backend to decide Apply eligibility.
 - `client_live_canvas_token` is only a local guard around async apply and rebaseline races. It is captured by `captureLiveCanvasToken()`, checked before local configure in the apply path, and never sent back as backend CAS authority.
 
 Implemented browser-side rebaseline state fields in [vibecomfy_roundtrip.js](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js:1736):
@@ -499,3 +499,70 @@ A future milestone (targeted after M4 UI migration) must add:
 - Process lifecycle management requires cross-cutting changes (provider state, route handlers, session cleanup) that would expand M2 beyond its contract-settling mandate.
 - The M4 UI already has a client-side dismiss path; real cancellation becomes valuable once the UI migration settles and users can meaningfully interact with long-running turns.
 - Naming and timing for cancellation must be called out explicitly during M4 UI migration planning, alongside compatibility field removal.
+
+## 8. Iteration context contract
+
+The batch-REPL provider iterates through multiple turns within a single submit, managed by `_stage_agent_batch_repl()` in [agent_edit.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_edit.py:1773). Each turn is a full model round-trip through `run_agent_turn_batch()` in [agent_provider.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_provider.py:899).
+
+### 8.1 Budget and loop guard
+
+The iteration is bounded by two counters declared at the start of `_stage_agent_batch_repl()`:
+
+- `max_batches`: maximum number of model round-trips (default from `state.batch_max_turns`, floor 1).
+- `max_consecutive_errors`: maximum tolerable consecutive error turns before the loop breaks (default from `state.batch_max_consecutive_errors`, floor 1).
+
+The loop tracks `consecutive_errors` (reset to 0 on a successful turn) and `total_landed` (cumulative count of landed ops across all turns). Budget state is written into `state.batch_budget_state` after every turn with the keys `max_batches`, `max_consecutive_errors`, `remaining_batches`, `remaining_consecutive_errors`, and `consecutive_errors`.
+
+If `consecutive_errors >= max_consecutive_errors`, the loop breaks immediately and exits with `batch_exit_mode = "budget"` (see §8.3).
+
+### 8.2 Turn iteration
+
+The loop runs `for turn_number in range(max_batches)` with the following per-turn invariants:
+
+1. **Message construction**: `build_batch_messages()` in [agent_provider.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_provider.py:182) builds a `[system, user]` message pair. Turn 0 always includes the full Python render, typed signatures, available node names, the node-variable index, budget, and (when provided) a compact "Recent conversation" block. Later turns include the node-variable index on every iteration; the full render is re-included only when the previous turn landed zero ops (a no-edit search/report turn). All turns include `previous_model_message` (the model's own prose from the prior turn), a diff block, and a teaching report when available.
+
+2. **Model call**: `run_agent_turn_batch()` calls the Arnold/Hermes runtime with the prepared messages. Internally it retries up to 3 times on `MalformedModelJSON` (empty or no-fence responses), appending `_BATCH_RETRY_NUDGE` as an additional system message on retries 1 and 2. `AuthError` and `TimeoutError` are re-raised immediately; `ProviderError` and `MissingRequiredField` are raised without retry.
+
+3. **Batch fencing**: `extract_batch_fence()` in [agent_provider.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_provider.py:152) enforces exactly one ` ```batch ` fenced block per response. Zero or multiple fences raise `MalformedModelJSON`. The prose outside the fence becomes the user-visible agent message.
+
+4. **Clarify split**: `split_terminal_clarify()` detects a `clarify("...")` call within the batch code. When present, the clarify message is extracted and the remaining batch code (if any) is executed. If only a `clarify()` call exists with no editable batch, the loop exits immediately (see §8.3).
+
+5. **Batch application**: `session.apply_batch(editable_batch)` applies the fenced code to the in-memory EditSession. It returns a `BatchResult` with `ok`, `diagnostics`, `statements`, `landed_ops`, and `field_changes`.
+
+6. **State update**: After each turn the loop writes `state.python_after`, `state.ui_payload`, `state.batch_turn_count`, `state.batch_budget_state`, appends a `turn_record` to `state.batch_turns`, and persists the model request/response artifacts.
+
+### 8.3 Exit modes
+
+The batch loop exits through one of five modes stored in `state.batch_exit_mode`:
+
+| Mode | Constant | Trigger |
+|------|----------|---------|
+| `done` | `_BATCH_EXIT_DONE` | `done()` call accepted; at least one edit landed. |
+| `noop` | `_BATCH_EXIT_NOOP` | `done()` call accepted; zero edits ever landed. |
+| `pure_clarify` | `_BATCH_EXIT_PURE_CLARIFY` | `clarify()` call with no batch code and no prior landed edits. |
+| `edit_clarify` | `_BATCH_EXIT_EDIT_CLARIFY` | `clarify()` call with prior landed edits (or with batch code that also landed). |
+| `budget` | `_BATCH_EXIT_BUDGET` | Loop exhausted `max_batches` or `max_consecutive_errors`. |
+
+### 8.4 `done()` refusal
+
+The loop does **not** blindly honor a `done()` call. Two refusal cases are enforced, each bounded to at most 2 nudges so a genuine no-change request still commits:
+
+1. **No-edit done** (`total_landed == 0` and `done_noop_nudges < 2`): The model called `done()` but nothing ever landed. The loop sends a hint instructing the model to construct/wire nodes or confirm the no-change intent with a second `done()`.
+
+2. **Error-before-done** (`turn_has_errors` and `done_error_nudges < 2`): Some statements in the current batch failed to land. The loop sends a hint with the diagnostic details and forces one more turn so the model can fix the failed statements.
+
+When `done()` is refused, `last_report` is amended with the refusal hint and `continue` restarts the loop without counting the turn as done.
+
+### 8.5 Conversation context injection
+
+On turn 0 only, `build_batch_messages()` injects a "Recent conversation" block derived from `conversation_messages` (passed through from the submit route). Each message is compacted to `Role: text` with a 200-character truncation limit. Compact change annotations (`[op_kind | ...]`) are appended when the message carries 3 or fewer changes. This block is placed before "User request:" in the turn-0 user message.
+
+### 8.6 Provider retry contract
+
+`run_agent_turn_batch()` in [agent_provider.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_provider.py:899) implements exactly 3 attempts (1 initial + 2 retries). On retries 1 and 2:
+
+- `_BATCH_RETRY_NUDGE` is appended as an additional system message.
+- `audit_metadata` records `batch_repl_retry` with `count` and `reason`.
+- After all 3 attempts fail, the last `MalformedModelJSON` is raised.
+
+`AuthError` (permission denied) and `TimeoutError` are never retried. `ProviderError` and `MissingRequiredField` are never retried.
