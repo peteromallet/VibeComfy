@@ -1877,13 +1877,10 @@ function forgetActiveSession() {
 
 export function ensureAgentPanel() {
   if (!agentPanel) {
+    // Create the panel shell only. Chat rehydration happens on open
+    // (openAgentPanel), not on mere creation, so extension setup and launcher
+    // wiring don't trigger a premature/duplicate chat fetch.
     agentPanel = createAgentPanel();
-    // Kick off async rehydration (best-effort; render will follow).
-    _rehydrateChat(agentPanel).then(() => {
-      if (agentPanel) {
-        renderAgentPanel(agentPanel);
-      }
-    });
   }
   return agentPanel;
 }
@@ -1894,9 +1891,13 @@ function openAgentPanel() {
   panel.root.style.pointerEvents = "auto";
   panel.root.style.transform = "translateX(0)";
   panel.state.queueGuard = getQueueGuardStateForPanel();
-  // Rehydrate chat on open (best-effort).
+  // Rehydrate chat on open (best-effort) — exactly one fetch per open.
+  // Creation (ensureAgentPanel) intentionally does not fetch, so this single
+  // call covers both first open and reopen.
   _rehydrateChat(panel).then(() => {
     renderAgentPanel(panel);
+  }).catch((err) => {
+    console.warn("[vibecomfy] chat rehydration render failed", err);
   });
   renderAgentPanel(panel);
   refreshAgentStatus(panel, { quiet: true });
@@ -4608,7 +4609,7 @@ async function submitAgentEdit(panel) {
       });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
+      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
       return;
     } finally {
       panel.state.inFlightSubmit = null;
@@ -4667,7 +4668,7 @@ async function submitAgentEdit(panel) {
       });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
+      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
       return;
     }
 
@@ -4739,7 +4740,7 @@ async function submitAgentEdit(panel) {
       });
       renderAgentPanel(panel);
       // Canonicalize chat through the rehydrate endpoint.
-      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
+      _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
       return;
     }
 
@@ -4781,7 +4782,7 @@ async function submitAgentEdit(panel) {
     });
     renderAgentPanel(panel);
     // Canonicalize chat through the rehydrate endpoint after visible update.
-    _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); });
+    _rehydrateChat(panel).then(() => { if (agentPanel) renderAgentPanel(agentPanel); }).catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
 
     if (panel.state.previewEnabled) {
       if (app?.canvas?.setDirty) {
