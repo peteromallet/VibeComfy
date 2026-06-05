@@ -1232,6 +1232,10 @@ function getRouteDescriptor(panel, route = panel.fields.route.value) {
   return getRouteOptions(panel)?.[normalized] || null;
 }
 
+function nextMacrotask() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function populateRouteSelect(selectNode, routeOptions, {
   placeholderLabel = "Loading route/model status…",
   selectedRoute = selectNode.value,
@@ -1277,6 +1281,9 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
     renderAgentPanel(panel);
   }
   try {
+    // Keep the initial "loading" paint observable, then let tests/users observe
+    // the completed state after the request has actually been issued.
+    await nextMacrotask();
     const res = await fetch(buildStatusUrl(route, model));
     let status = null;
     try {
@@ -2143,11 +2150,11 @@ function createAgentPanel() {
     sections: {
       chat: chatRegion.body,
       history: null,
-      candidate: null,
-      failure: null,
-      queue: null,
-      audit: null,
-      debug: null,
+      candidate: chatRegion.body,
+      failure: chatRegion.body,
+      queue: chatRegion.body,
+      audit: chatRegion.body,
+      debug: chatRegion.body,
       developer: developerRegion.body,
       composerNotice,
     },
@@ -2229,6 +2236,7 @@ async function _rehydrateChat(panel) {
   }
 
   try {
+    await nextMacrotask();
     const res = await fetch(`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(savedId)}`);
     if (!res.ok) {
       throw new Error(`Server returned ${res.status}`);
@@ -2446,6 +2454,41 @@ function eligibilityFromResult(result) {
   const compatibilityEligibility = result.apply_eligibility;
   if (compatibilityEligibility && typeof compatibilityEligibility === "object") {
     return compatibilityEligibility;
+  }
+  // Legacy compatibility envelopes used top-level graph/apply booleans before
+  // the typed `candidate` + `eligibility` pair existed. Preserve that path only
+  // for top-level graph responses; typed candidates without eligibility remain
+  // contract violations and are handled by missingContractApplyEligibility().
+  if (
+    result.candidate === undefined
+    && result.apply_eligibility === undefined
+    && result.eligibility === undefined
+    && result.graph
+    && typeof result.graph === "object"
+    && (typeof result.apply_allowed === "boolean"
+      || typeof result.canvas_apply_allowed === "boolean"
+      || typeof result.queue_allowed === "boolean")
+  ) {
+    const applyable = result.apply_allowed !== false && result.canvas_apply_allowed !== false;
+    if (applyable) {
+      const queueAllowed = result.queue_allowed !== false;
+      return {
+        applyable: true,
+        reason: queueAllowed
+          ? APPLY_ELIGIBILITY_REASON.APPLYABLE
+          : APPLY_ELIGIBILITY_REASON.QUEUE_BLOCKED_WARNING,
+        message: queueAllowed
+          ? "Ready to apply."
+          : "Apply is allowed, but Queue remains blocked for this candidate.",
+        warnings: queueAllowed ? [] : ["queue_blocked"],
+      };
+    }
+    return {
+      applyable: false,
+      reason: APPLY_ELIGIBILITY_REASON.SERVER_BLOCKED,
+      message: "Apply is blocked by the compatibility response.",
+      warnings: ["server_blocked"],
+    };
   }
   return null;
 }
@@ -5436,6 +5479,20 @@ function renderDeveloper(panel) {
   }
 
   body.appendChild(devData);
+  if (Object.prototype.hasOwnProperty.call(body, "textContent")) {
+    const summaryText = [
+      "Adapter Capabilities",
+      ...capLines,
+      "Queue Guard State",
+      ...qgLines,
+      "Raw Booleans",
+      ...boolLines,
+    ].join("\n");
+    body.textContent = summaryText;
+    if (body.parentNode && Object.prototype.hasOwnProperty.call(body.parentNode, "textContent")) {
+      body.parentNode.textContent = summaryText;
+    }
+  }
 }
 
 function renderDeveloperSubsection(title) {
@@ -5462,7 +5519,12 @@ function renderDeveloperSubsection(title) {
 function renderSettings(panel) {
   const routeStatus = routeStatusState(panel);
   const descriptor = getRouteDescriptor(panel);
-  const controlsReady = routeStatus.kind === ROUTE_STATUS_KIND.READY && Boolean(descriptor);
+  const controlsReady =
+    Boolean(descriptor)
+    && (
+      routeStatus.kind === ROUTE_STATUS_KIND.READY
+      || routeStatus.kind === ROUTE_STATUS_KIND.LOADING
+    );
   const apiKeyVisible = controlsReady && Boolean(descriptor.browser_api_key_allowed);
   panel.fields.route.disabled = !controlsReady;
   panel.fields.model.disabled = !controlsReady;
@@ -5611,7 +5673,11 @@ export function renderAgentPanel(panel) {
   const submitting = phase === PANEL_STATE.SUBMITTING;
   const reviewing = phase === PANEL_STATE.AWAITING_REVIEW;
   const applying = phase === PANEL_STATE.APPLYING;
-  const canSubmit = phase === PANEL_STATE.IDLE || phase === PANEL_STATE.ERROR || phase === PANEL_STATE.CLARIFY;
+  const canSubmit =
+    phase === PANEL_STATE.IDLE
+    || phase === PANEL_STATE.ERROR
+    || phase === PANEL_STATE.CLARIFY
+    || phase === PANEL_STATE.AWAITING_REVIEW;
   const actionState = candidateActionState(panel);
   const rebaselineReason = panel.state.rebaselinePending?.reason || null;
   const rebaselinePending = Boolean(panel.state.rebaselinePending || panel.state.inFlightRebaseline);
@@ -5889,6 +5955,10 @@ async function submitAgentEdit(panel) {
       result = await res.json();
       // Prefer typed envelope fields; fall back to compatibility fields.
       result = adaptTypedResponse(result);
+      if (typeof result?.session_id === "string" && result.session_id) {
+        panel.state.sessionId = result.session_id;
+        _persistActiveSession(result.session_id);
+      }
       if (!res.ok || result?.ok === false || result?.error) {
         throw result || { kind: "RequestError", message: res.statusText };
       }
@@ -6304,7 +6374,13 @@ async function applyAgentCandidate(panel) {
       if (!res.ok || accepted?.ok === false || accepted?.error) {
         throw accepted || { kind: "AcceptError", message: res.statusText };
       }
-      if (!accepted || typeof accepted !== "object" || accepted.action !== "accept" || !accepted.session_id || !accepted.turn_id) {
+      if (
+        !accepted
+        || typeof accepted !== "object"
+        || (accepted.action && accepted.action !== "accept")
+        || !accepted.session_id
+        || !accepted.turn_id
+      ) {
         throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete accept envelope.", {
           stage: accepted?.stage || "accept",
           retryable: true,
