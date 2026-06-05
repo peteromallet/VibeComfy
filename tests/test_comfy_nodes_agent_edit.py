@@ -19,9 +19,13 @@ from vibecomfy.comfy_nodes.agent_edit import (
     _batch_warning_sentence,
     _landed_edit_lead,
     _run_batch_repl_product_path,
+    _safe_session_id,
     _synthesize_batch_repl_message,
+    _write_turn_chat_artifact,
     _ws_send,
     handle_agent_edit,
+    read_session_chat,
+    read_session_json,
     split_terminal_clarify,
 )
 from vibecomfy.porting.edit_types import FieldChange
@@ -36,6 +40,7 @@ from vibecomfy.comfy_nodes.agent_contracts import (
 )
 from vibecomfy.comfy_nodes.agent_session import (
     payload_hash,
+    session_dir_for,
     structural_graph_hash,
     turn_dir_for,
 )
@@ -725,6 +730,7 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
                 "route": "router",
                 "model": "model-x",
                 "client_id": "client-7",
+                "conversation_messages": None,
             }
         else:
             pytest.fail(f"unexpected stage {name}")
@@ -5469,3 +5475,400 @@ def test_synthesize_message_all_messages_are_non_empty() -> None:
         msg = _synthesize_batch_repl_message(state, outcome=outcome, failure=failure)
         assert len(msg) > 0, f"Empty message for outcome={outcome}, failure={failure}"
         assert msg[-1] in ".!?", f"Message not sentence-shaped: {msg!r}"
+
+
+# ── T2: Backend persistence tests ───────────────────────────────────────────
+
+
+def test_batch_repl_ingest_writes_request_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``batch_repl`` product path write ``request.json`` during ingest."""
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _fake_batch_client(_messages):
+        return {"batch": "done()", "message": "Done."}
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "write request.json test",
+            "session_id": "batch-request-json",
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result.get("ok") is True
+    turn_dir = turn_dir_for(tmp_path, "batch-request-json", str(result["turn_id"]))
+    request_path = turn_dir / "request.json"
+    assert request_path.is_file(), f"request.json not found at {request_path}"
+    on_disk = json.loads(request_path.read_text(encoding="utf-8"))
+    assert on_disk["task"] == "write request.json test"
+
+
+def test_chat_json_written_for_allocated_success_response(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``chat.json`` is written for an allocated success response in the
+    ``batch_repl`` path."""
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _fake_batch_client(_messages):
+        return {"batch": "done()", "message": "Successfully applied the edit."}
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "chat json success test",
+            "session_id": "batch-chat-success",
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=_fake_batch_client,
+        session_root=tmp_path,
+    )
+
+    assert result.get("ok") is True
+    turn_dir = turn_dir_for(tmp_path, "batch-chat-success", str(result["turn_id"]))
+    chat_path = turn_dir / "chat.json"
+    assert chat_path.is_file(), f"chat.json not found at {chat_path}"
+    on_disk = json.loads(chat_path.read_text(encoding="utf-8"))
+    assert on_disk["session_id"] == "batch-chat-success"
+    assert on_disk["turn_id"] == str(result["turn_id"])
+    messages = on_disk["messages"]
+    assert len(messages) >= 2
+    assert messages[0]["role"] == "user"
+    assert messages[0]["text"] == "chat json success test"
+    assert messages[1]["role"] == "agent"
+    assert len(messages[1]["text"]) > 0
+
+
+def test_chat_json_written_for_allocated_stage_blocked_response(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``chat.json`` is written for an allocated stage-blocked (failure)
+    response in the ``batch_repl`` path."""
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _blocked_runner(state, context, **_kwargs):
+        raise _StageBlocked(
+            StageResult(
+                stage="agent_batch",
+                ok=False,
+                blocking=True,
+                issues=(),
+            ),
+            failure_envelope(
+                FailureKind.MODEL_MISTAKE,
+                "agent_batch",
+                context,
+                agent_failure_context={"explanation": "intentional test block"},
+            ),
+        )
+
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_run_batch_repl_product_path",
+        _blocked_runner,
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "chat json block test",
+            "session_id": "batch-chat-blocked",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    assert result.get("ok") is False
+    turn_id = str(result["turn_id"])
+    turn_dir = turn_dir_for(tmp_path, "batch-chat-blocked", turn_id)
+    chat_path = turn_dir / "chat.json"
+    assert chat_path.is_file(), f"chat.json not found at {chat_path}"
+    on_disk = json.loads(chat_path.read_text(encoding="utf-8"))
+    assert on_disk["session_id"] == "batch-chat-blocked"
+    assert on_disk["turn_id"] == turn_id
+
+
+def test_no_chat_json_for_pre_allocation_validation_failure() -> None:
+    """Early pre-allocation validation failures (e.g. missing ``task``) do
+    not write ``chat.json``."""
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=Path("/tmp/test-pre-alloc-failure"),
+    )
+
+    assert result.get("ok") is False
+    # 'task' missing -> pre-allocation failure; no turn_dir should exist
+    assert "turn_id" not in result
+
+
+# ── T5: Backend reader/detail route tests ────────────────────────────────────
+
+
+def _write_chat_artifact(
+    turn_dir: Path, session_id: str, turn_id: str, user_text: str, agent_text: str
+) -> None:
+    """Write a minimal chat.json for a single turn."""
+    turn_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "messages": [
+            {"role": "user", "text": user_text, "turn_id": turn_id},
+            {"role": "agent", "text": agent_text, "turn_id": turn_id},
+        ],
+    }
+    (turn_dir / "chat.json").write_text(
+        json.dumps(record, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _write_request_response_fallback(
+    turn_dir: Path, task: str, agent_message: str
+) -> None:
+    """Write request.json + response.json (no chat.json) for fallback testing."""
+    turn_dir.mkdir(parents=True, exist_ok=True)
+    (turn_dir / "request.json").write_text(
+        json.dumps({"task": task}) + "\n", encoding="utf-8"
+    )
+    (turn_dir / "response.json").write_text(
+        json.dumps({"message": agent_message, "ok": True}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_read_session_chat_deterministic_sorting(tmp_path: Path) -> None:
+    """Turn directories are read in deterministic sorted order (zero-padded integers)."""
+    session_id = "sort-test"
+    turns_dir = session_dir_for(tmp_path, session_id) / "turns"
+
+    # Create turns out of order: 0003, 0001, 0002, 0010, 0000
+    for tid in ("0003", "0001", "0002", "0010", "0000"):
+        _write_chat_artifact(
+            turns_dir / tid, session_id, tid,
+            f"user {tid}", f"agent {tid}",
+        )
+
+    result = read_session_chat(tmp_path, session_id, max_messages=20)
+    assert result["ok"] is True
+    messages = result["messages"]
+    # Should be sorted: 0000, 0001, 0002, 0003, 0010 → 10 messages (2 per turn)
+    assert len(messages) == 10
+    assert messages[0]["turn_id"] == "0000"
+    assert messages[2]["turn_id"] == "0001"
+    assert messages[4]["turn_id"] == "0002"
+    assert messages[6]["turn_id"] == "0003"
+    assert messages[8]["turn_id"] == "0010"
+
+
+def test_read_session_chat_last_five_messages(tmp_path: Path) -> None:
+    """Returns exactly the last five display messages in chronological order."""
+    session_id = "last-five-test"
+    turns_dir = session_dir_for(tmp_path, session_id) / "turns"
+
+    # Create 5 turns (2 messages each = 10 messages total)
+    for tid in ("0000", "0001", "0002", "0003", "0004"):
+        _write_chat_artifact(
+            turns_dir / tid, session_id, tid,
+            f"user-{tid}", f"agent-{tid}",
+        )
+
+    result = read_session_chat(tmp_path, session_id, max_messages=5)
+    assert result["ok"] is True
+    messages = result["messages"]
+    # Default max_messages=5; last 5 of 10 chronological messages
+    assert len(messages) == 5
+    # Should be: agent-0002, user-0003, agent-0003, user-0004, agent-0004
+    assert messages[0]["role"] == "agent"
+    assert messages[0]["turn_id"] == "0002"
+    assert messages[1]["role"] == "user"
+    assert messages[1]["turn_id"] == "0003"
+    assert messages[4]["role"] == "agent"
+    assert messages[4]["turn_id"] == "0004"
+
+
+def test_read_session_chat_fallback_from_request_response(tmp_path: Path) -> None:
+    """Falls back to request.json + response.json when chat.json is absent."""
+    session_id = "fallback-test"
+    turns_dir = session_dir_for(tmp_path, session_id) / "turns"
+    turn_dir = turns_dir / "0000"
+
+    _write_request_response_fallback(turn_dir, "add a node", "I added a node.")
+
+    result = read_session_chat(tmp_path, session_id, max_messages=5)
+    assert result["ok"] is True
+    messages = result["messages"]
+    assert len(messages) == 2
+    assert messages[0]["role"] == "user"
+    assert messages[0]["text"] == "add a node"
+    assert messages[1]["role"] == "agent"
+    assert "I added a node" in messages[1]["text"]
+
+
+def test_read_session_chat_skips_turns_missing_artifacts(tmp_path: Path) -> None:
+    """Skips turn directories that have no chat.json and no request.json+response.json."""
+    session_id = "skip-test"
+    turns_dir = session_dir_for(tmp_path, session_id) / "turns"
+
+    # Turn 0000: valid chat.json
+    _write_chat_artifact(
+        turns_dir / "0000", session_id, "0000",
+        "user-0", "agent-0",
+    )
+    # Turn 0001: empty dir (no artifacts)
+    (turns_dir / "0001").mkdir(parents=True, exist_ok=True)
+    # Turn 0002: valid fallback (request.json + response.json, no chat.json)
+    _write_request_response_fallback(
+        turns_dir / "0002", "do something", "Did something.",
+    )
+    # Turn 0003: corrupted json (unreadable)
+    (turns_dir / "0003").mkdir(parents=True, exist_ok=True)
+    (turns_dir / "0003" / "chat.json").write_text("not valid json", encoding="utf-8")
+    # Turn 0004: valid chat.json
+    _write_chat_artifact(
+        turns_dir / "0004", session_id, "0004",
+        "user-4", "agent-4",
+    )
+
+    result = read_session_chat(tmp_path, session_id, max_messages=20)
+    assert result["ok"] is True
+    messages = result["messages"]
+    # Turns 0001 (empty) and 0003 (corrupted) should be skipped
+    # Turns 0000 (2 msgs), 0002 (2 msgs), 0004 (2 msgs) = 6 messages
+    assert len(messages) == 6
+    turn_ids = {m["turn_id"] for m in messages}
+    assert turn_ids == {"0000", "0002", "0004"}
+
+
+def test_read_session_chat_sanitized_session_enforcement(tmp_path: Path) -> None:
+    """Session IDs with path-traversal characters are sanitized before use."""
+    malicious_id = "../../etc/passwd"
+    safe_id = _safe_session_id(malicious_id)
+    turns_dir = session_dir_for(tmp_path, safe_id) / "turns"
+
+    _write_chat_artifact(
+        turns_dir / "0000", safe_id, "0000",
+        "legit user", "legit agent",
+    )
+
+    result = read_session_chat(tmp_path, malicious_id, max_messages=5)
+    # Must succeed — the sanitized id maps to the same directory we wrote
+    assert result["ok"] is True
+    assert result["session_id"] == safe_id
+    assert len(result["messages"]) == 2
+
+
+def test_read_session_chat_metadata_fields(tmp_path: Path) -> None:
+    """Returns session_path, latest_turn_path, and detail metadata."""
+    session_id = "meta-test"
+    turns_dir = session_dir_for(tmp_path, session_id) / "turns"
+
+    _write_chat_artifact(
+        turns_dir / "0000", session_id, "0000",
+        "first user", "first agent",
+    )
+    _write_chat_artifact(
+        turns_dir / "0001", session_id, "0001",
+        "second user", "second agent",
+    )
+
+    result = read_session_chat(tmp_path, session_id, max_messages=5)
+    assert result["ok"] is True
+    assert "session_path" in result
+    assert result["session_path"].endswith(session_id)
+    assert result["latest_turn_id"] == "0001"
+    assert "detail_json_path" in result
+    assert result["detail_json_path"] is not None
+    assert "response.json" in result["detail_json_path"]
+
+
+def test_read_session_json_turn_summaries_and_artifacts(tmp_path: Path) -> None:
+    """read_session_json returns sorted turn summaries with artifact paths."""
+    session_id = "session-json-test"
+    turns_dir = session_dir_for(tmp_path, session_id) / "turns"
+
+    # Turn 0000: full chat.json + request.json + response.json
+    td0 = turns_dir / "0000"
+    _write_chat_artifact(td0, session_id, "0000", "user-0", "agent-0")
+    (td0 / "request.json").write_text(
+        json.dumps({"task": "user-0"}) + "\n", encoding="utf-8"
+    )
+    (td0 / "response.json").write_text(
+        json.dumps({"message": "agent-0", "ok": True}) + "\n", encoding="utf-8"
+    )
+
+    # Turn 0001: fallback only (request.json + response.json, no chat.json)
+    _write_request_response_fallback(
+        turns_dir / "0001", "fallback task", "fallback response",
+    )
+
+    result = read_session_json(tmp_path, session_id, max_messages=10)
+    assert result["ok"] is True
+    assert result["session_id"] == session_id
+    assert result["turn_count"] == 2
+    assert len(result["turns"]) == 2
+
+    # Turn 0000 should have all three artifacts
+    t0 = result["turns"][0]
+    assert t0["turn_id"] == "0000"
+    assert "chat.json" in t0
+    assert "request.json" in t0
+    assert "response.json" in t0
+    assert t0.get("message_count") == 2
+
+    # Turn 0001 should have only request.json and response.json
+    t1 = result["turns"][1]
+    assert t1["turn_id"] == "0001"
+    assert "chat.json" not in t1
+    assert "request.json" in t1
+    assert "response.json" in t1
+
+    # Last-five messages should be present
+    assert "messages" in result
+    assert len(result["messages"]) == 4  # 2 turns × 2 messages
+
+
+def test_read_session_json_empty_session(tmp_path: Path) -> None:
+    """Empty session (no turns) returns empty lists with ok=True."""
+    session_id = "empty-session"
+    # Don't create a turns directory at all
+    result = read_session_json(tmp_path, session_id)
+    assert result["ok"] is True
+    assert result["turn_count"] == 0
+    assert result["turns"] == []
+    assert result["messages"] == []
+    assert result["latest_turn_id"] is None
+
+
+def test_read_session_json_sanitized_session(tmp_path: Path) -> None:
+    """Sanitized session id enforcement in read_session_json."""
+    malicious_id = "../escape"
+    safe_id = _safe_session_id(malicious_id)
+    turns_dir = session_dir_for(tmp_path, safe_id) / "turns"
+
+    _write_chat_artifact(
+        turns_dir / "0000", safe_id, "0000",
+        "safe user", "safe agent",
+    )
+
+    result = read_session_json(tmp_path, malicious_id, max_messages=5)
+    assert result["ok"] is True
+    assert result["session_id"] == safe_id
+    assert len(result["turns"]) == 1
+    assert len(result["messages"]) == 2

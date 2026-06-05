@@ -190,13 +190,15 @@ def build_batch_messages(
     report: str = "",
     budget_remaining: int = 12,
     max_batches: int = 12,
+    conversation_messages: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     """Build messages for the batch-REPL wire protocol.
 
     Turn 0 includes the full Python render, in-graph typed signatures, a compact
-    names-only node index, and budget. Later turns include only the diff,
-    structured teaching report, remaining budget, and task — no full Python
-    re-dump.
+    names-only node index, budget, and (when provided) a compact ``Recent
+    conversation`` block injected before ``User request:``.  Later turns include
+    only the diff, structured teaching report, remaining budget, and task — no
+    full Python re-dump.
 
     The system prompt describes prose + a single ```batch fenced block with
     ``done()`` and ``clarify(\"...\")`` as in-batch calls.  It does **not**
@@ -248,6 +250,44 @@ def build_batch_messages(
         "```"
     )
     if turn_number == 0:
+        # ── Recent conversation (injected only on turn 0) ──────────────
+        conversation_block = ""
+        if conversation_messages:
+            compact_lines: list[str] = []
+            for msg in conversation_messages:
+                if not isinstance(msg, dict):
+                    continue
+                role = msg.get("role", "unknown")
+                label = {"user": "User", "agent": "Agent"}.get(role, role.title())
+                text = str(msg.get("text", "")).strip()
+                if not text:
+                    continue
+                # Truncate long messages.
+                if len(text) > 200:
+                    text = text[:197] + "..."
+                line = f"{label}: {text}"
+                # Append compact changes only when present and cheap.
+                changes = msg.get("changes")
+                if isinstance(changes, list) and len(changes) <= 3:
+                    change_strs: list[str] = []
+                    for ch in changes:
+                        if isinstance(ch, dict):
+                            ch_text = str(ch.get("op_kind")
+                                         or ch.get("source")
+                                         or ch.get("op")
+                                         or "")
+                            if ch_text:
+                                change_strs.append(ch_text)
+                    if change_strs:
+                        line += f"  [{' | '.join(change_strs)}]"
+                compact_lines.append(line)
+            if compact_lines:
+                conversation_block = (
+                    "Recent conversation:\n"
+                    + "\n".join(compact_lines)
+                    + "\n\n"
+                )
+
         catalog_block = ""
         if signature_catalog:
             catalog_block = (
@@ -262,6 +302,7 @@ def build_batch_messages(
                 f"```\n{available_node_names}\n```"
             )
         user = (
+            f"{conversation_block}"
             f"User request:\n{task}\n\n"
             "Current scratchpad Python (full render):\n"
             "```python\n"

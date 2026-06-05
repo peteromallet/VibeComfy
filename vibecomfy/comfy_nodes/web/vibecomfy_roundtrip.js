@@ -219,6 +219,42 @@ const INTENT_STYLE_BY_KIND = Object.freeze({
 const LOWERED_DIFF_COLOR = "#02d4b3";
 const LOWERED_BADGE = "lowered";
 
+// ── localStorage helpers (safe wrappers — tolerate missing/throwing storage) ─
+const LS_ACTIVE_SESSION_KEY = "vibecomfy_active_session_id";
+
+function _lsGet(key) {
+  try {
+    if (typeof localStorage === "undefined" || localStorage === null) {
+      return null;
+    }
+    return localStorage.getItem(key);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function _lsSet(key, value) {
+  try {
+    if (typeof localStorage === "undefined" || localStorage === null) {
+      return;
+    }
+    localStorage.setItem(key, value);
+  } catch (_e) {
+    // Best-effort: silently swallow set errors (private browsing, quota, etc.)
+  }
+}
+
+function _lsRemove(key) {
+  try {
+    if (typeof localStorage === "undefined" || localStorage === null) {
+      return;
+    }
+    localStorage.removeItem(key);
+  } catch (_e) {
+    // Best-effort.
+  }
+}
+
 // ── Shared VibeComfy palette ────────────────────────────────────────────────
 // Union of both feature palettes kept in ONE block: the preview-overlay diff
 // keys (added/edited/removed/pending) and the turn-progress status-feed keys
@@ -1649,6 +1685,8 @@ function createAgentPanel() {
   settingsRegion.body.appendChild(settingsStatus);
   settingsRegion.body.appendChild(settingsGuidance);
 
+  // Chat section: persisted conversation bubbles (M3 — conversation slice & memory).
+  const chatRegion = panelSection("vibecomfy-agent-panel-region-chat", "Chat");
   const historyRegion = panelSection(PANEL_IDS.historyRegion, "Activity");
   const candidateRegion = panelSection(PANEL_IDS.candidateRegion, "Candidate");
   const failureRegion = panelSection(PANEL_IDS.failureRegion, "Failure");
@@ -1656,10 +1694,10 @@ function createAgentPanel() {
   const auditRegion = panelSection(PANEL_IDS.auditRegion, "Audit");
   const debugRegion = panelSection(PANEL_IDS.debugRegion, "Debug");
 
-  // History carries the LIVE turn feed during a run, so it sits directly below
-  // the prompt (the "chat box") — the user reads progress right where they typed.
-  // Settings drops below it.
+  // Chat sits directly below the prompt (the "chat box") — the user reads
+  // persisted conversation right where they typed. Live activity rows follow.
   body.appendChild(promptRegion.section);
+  body.appendChild(chatRegion.section);
   body.appendChild(historyRegion.section);
   body.appendChild(settingsRegion.section);
   body.appendChild(candidateRegion.section);
@@ -1726,6 +1764,7 @@ function createAgentPanel() {
       settingsTest,
     },
     sections: {
+      chat: chatRegion.body,
       history: historyRegion.body,
       candidate: candidateRegion.body,
       failure: failureRegion.body,
@@ -1771,13 +1810,77 @@ function createAgentPanel() {
       queueGuard: getQueueGuardStateForPanel(),
       previewEnabled: false,
       expandedTurnKeys: {},
+      // Chat / session rehydration state (M3)
+      chatMessages: [],
+      chatLoaded: false,
+      chatError: null,
+      chatSessionPath: null,
+      chatDetailJsonPath: null,
     },
   };
+}
+
+// ── Chat rehydration ──────────────────────────────────────────────────────
+async function _rehydrateChat(panel) {
+  if (!panel || !panel.state) {
+    return;
+  }
+  const savedId = _lsGet(LS_ACTIVE_SESSION_KEY);
+  if (!savedId) {
+    panel.state.chatMessages = [];
+    panel.state.chatLoaded = false;
+    panel.state.chatError = null;
+    return;
+  }
+
+  try {
+    const res = await fetch(`/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(savedId)}`);
+    if (!res.ok) {
+      throw new Error(`Server returned ${res.status}`);
+    }
+    const payload = await res.json();
+    if (payload && payload.ok === true) {
+      panel.state.chatMessages = Array.isArray(payload.messages) ? payload.messages : [];
+      panel.state.chatLoaded = true;
+      panel.state.chatError = null;
+      panel.state.chatSessionPath = typeof payload.session_path === "string" ? payload.session_path : null;
+      panel.state.chatDetailJsonPath = typeof payload.detail_json_path === "string" ? payload.detail_json_path : null;
+      // Keep the sessionId in sync with what the server confirms.
+      if (typeof payload.session_id === "string" && payload.session_id) {
+        panel.state.sessionId = payload.session_id;
+        _lsSet(LS_ACTIVE_SESSION_KEY, payload.session_id);
+      }
+    } else {
+      throw new Error(payload?.error || "chat endpoint returned ok: false");
+    }
+  } catch (_e) {
+    // On failure, clear only visible chat/session state — do not disturb
+    // the current submit session or canvas.
+    panel.state.chatMessages = [];
+    panel.state.chatLoaded = false;
+    panel.state.chatError = String(_e);
+  }
+}
+
+function _persistActiveSession(sessionId) {
+  if (typeof sessionId === "string" && sessionId) {
+    _lsSet(LS_ACTIVE_SESSION_KEY, sessionId);
+  }
+}
+
+function forgetActiveSession() {
+  _lsRemove(LS_ACTIVE_SESSION_KEY);
 }
 
 export function ensureAgentPanel() {
   if (!agentPanel) {
     agentPanel = createAgentPanel();
+    // Kick off async rehydration (best-effort; render will follow).
+    _rehydrateChat(agentPanel).then(() => {
+      if (agentPanel) {
+        renderAgentPanel(agentPanel);
+      }
+    });
   }
   return agentPanel;
 }
@@ -1788,6 +1891,10 @@ function openAgentPanel() {
   panel.root.style.pointerEvents = "auto";
   panel.root.style.transform = "translateX(0)";
   panel.state.queueGuard = getQueueGuardStateForPanel();
+  // Rehydrate chat on open (best-effort).
+  _rehydrateChat(panel).then(() => {
+    renderAgentPanel(panel);
+  });
   renderAgentPanel(panel);
   refreshAgentStatus(panel, { quiet: true });
   return panel;
@@ -2618,25 +2725,151 @@ function _renderDurableTurnRow(body, panel, entry, index) {
   body.appendChild(turnCard);
 }
 
-function renderHistory(panel) {
-  _injectProgressPulseStyle();
-  const body = panel.sections.history;
+// ── Chat thread rendering (M3 — persisted conversation bubbles) ──────────
+
+function renderChatThread(panel) {
+  const body = panel.sections.chat;
   clearNode(body);
-  if (!panel.state.turns.length && !panel.state.history.length) {
-    body.appendChild(muted("No turn history yet. Open the panel once and submit a prompt to seed durable state."));
+
+  // Session link — clickable link to the safe session JSON route.
+  if (panel.state.chatSessionPath || panel.state.sessionId) {
+    const linkRow = el("div");
+    Object.assign(linkRow.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      marginBottom: "8px",
+      paddingBottom: "6px",
+      borderBottom: "1px solid #282a32",
+    });
+    const sessionLabel = panel.state.chatSessionPath || `out/editor_sessions/${panel.state.sessionId}`;
+    const link = el("a", `session: ${sessionLabel}`);
+    link.href = `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(panel.state.sessionId || "")}`;
+    link.target = "_blank";
+    link.rel = "noopener";
+    Object.assign(link.style, {
+      color: "#9ed0ff",
+      fontSize: "10px",
+      fontFamily: "monospace",
+      textDecoration: "none",
+      cursor: "pointer",
+    });
+    linkRow.appendChild(link);
+    body.appendChild(linkRow);
+  }
+
+  if (!panel.state.chatMessages || !panel.state.chatMessages.length) {
+    if (panel.state.chatLoaded) {
+      body.appendChild(muted("No conversation history for this session."));
+    } else if (panel.state.chatError) {
+      const errEl = el("div", `Chat unavailable: ${panel.state.chatError}`);
+      errEl.style.color = "#ffb86c";
+      errEl.style.fontSize = "11px";
+      body.appendChild(errEl);
+    } else {
+      body.appendChild(muted("Chat will load on panel open."));
+    }
     return;
   }
 
+  // Render user/agent chat bubbles
+  for (const msg of panel.state.chatMessages) {
+    if (!msg || typeof msg !== "object" || !msg.role) {
+      continue;
+    }
+    const isUser = msg.role === "user";
+    const bubble = el("div");
+    Object.assign(bubble.style, {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: isUser ? "flex-end" : "flex-start",
+      marginBottom: "6px",
+      maxWidth: "100%",
+    });
+
+    const label = el("span", isUser ? "You" : "Agent");
+    Object.assign(label.style, {
+      fontSize: "9px",
+      fontWeight: "700",
+      color: isUser ? "#7db6ff" : "#02d4b3",
+      textTransform: "uppercase",
+      letterSpacing: "0.05em",
+      marginBottom: "2px",
+    });
+    bubble.appendChild(label);
+
+    const text = el("div", String(msg.text || ""));
+    Object.assign(text.style, {
+      fontSize: "12px",
+      color: isUser ? "#d1d6e0" : "#c4ccd6",
+      background: isUser ? "#1a2436" : "#0f2a26",
+      padding: "6px 10px",
+      borderRadius: isUser ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
+      maxWidth: "92%",
+      wordBreak: "break-word",
+      whiteSpace: "pre-wrap",
+      lineHeight: "1.4",
+    });
+    bubble.appendChild(text);
+
+    body.appendChild(bubble);
+  }
+}
+
+// ── Activity row rendering (live turn progress) ───────────────────────────
+
+function renderActivityRows(panel) {
+  _injectProgressPulseStyle();
+  const body = panel.sections.history;
+  clearNode(body);
+
+  // Build a set of turn_ids already represented in chat bubbles (to avoid
+  // duplicating completed agent responses as activity rows).
+  const chatTurnIds = new Set();
+  if (panel.state.chatLoaded && Array.isArray(panel.state.chatMessages)) {
+    for (const msg of panel.state.chatMessages) {
+      if (msg && typeof msg.turn_id === "string") {
+        chatTurnIds.add(msg.turn_id);
+      }
+    }
+  }
+
+  const hasTurns = panel.state.turns.length > 0;
+  const hasLegacy = panel.state.history.length > 0;
+
+  if (!hasTurns && !hasLegacy) {
+    // Only show empty-state message if chat is also empty.
+    if (!panel.state.chatLoaded || !panel.state.chatMessages.length) {
+      body.appendChild(muted("No turn history yet. Open the panel once and submit a prompt to seed durable state."));
+    }
+    return;
+  }
+
+  // Render batch/durable turns, skipping terminal ones whose agent response
+  // is already shown in the chat thread.
+  let renderedCount = 0;
   for (let index = 0; index < panel.state.turns.length; index += 1) {
     const entry = panel.state.turns[index];
-    if (entry && entry.entry_type === "batch") {
+    if (!entry) {
+      continue;
+    }
+    // Skip terminal (non-progress) turns whose turn_id is already in chat.
+    // In-progress turns always show — they're live, not yet persisted.
+    const isTerminal = BATCH_TERMINAL_STATUSES.has(entry.status);
+    const turnId = entry.turn_id;
+    if (isTerminal && typeof turnId === "string" && chatTurnIds.has(turnId)) {
+      continue;
+    }
+
+    if (entry.entry_type === "batch") {
       _renderBatchTurnRow(body, panel, entry, index);
     } else {
       _renderDurableTurnRow(body, panel, entry, index);
     }
+    renderedCount += 1;
   }
 
-  // Also render legacy history entries that don't have turn counterparts
+  // Also render legacy history entries that don't have turn counterparts.
   for (const hEntry of panel.state.history) {
     const hasTurn = panel.state.turns.some(
       (t) => t.timestamp === hEntry.at,
@@ -2650,7 +2883,17 @@ function renderHistory(panel) {
     appendTextLine(line, `${hEntry.kind} \u2014 ${hEntry.message}`, "#edf2f7");
     appendTextLine(line, hEntry.at, "#8d93a1");
     body.appendChild(line);
+    renderedCount += 1;
   }
+
+  if (renderedCount === 0 && panel.state.chatLoaded) {
+    body.appendChild(muted("All completed turns are shown in Chat above."));
+  }
+}
+
+function renderHistory(panel) {
+  renderChatThread(panel);
+  renderActivityRows(panel);
 }
 
 function collectDiffRows(report) {

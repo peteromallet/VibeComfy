@@ -3891,3 +3891,97 @@ def test_run_agent_turn_batch_provider_error_wraps_generic(monkeypatch) -> None:
             task="test",
             messages=[{"role": "user", "content": "test"}],
         )
+
+
+# ── T2: Backend persistence tests ───────────────────────────────────────────
+
+
+def test_no_key_edit_turn_writes_response_json(tmp_path: Path) -> None:
+    """``record_idempotent_response`` with ``idempotency_key=None`` still writes
+    ``response.json`` so every allocated turn has a durable response artifact."""
+    root = tmp_path / "sessions"
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload={"task": "edit no-key", "graph": {"nodes": [], "links": []}},
+    )
+    response = {"ok": True, "turn_id": str(allocation.context.turn_id), "result": "done"}
+    response_path = allocation.turn_dir / "response.json"
+
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=response_path,
+        operation="edit",
+        turn_id=str(allocation.context.turn_id),
+    )
+
+    assert response_path.is_file()
+    on_disk = json.loads(response_path.read_text(encoding="utf-8"))
+    assert on_disk["ok"] is True
+    assert on_disk["turn_id"] == str(allocation.context.turn_id)
+
+
+def test_record_response_creates_parent_directories(tmp_path: Path) -> None:
+    """``record_idempotent_response`` creates parent directories for
+    ``response.json`` even when the turn directory does not yet exist."""
+    root = tmp_path / "sessions"
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload={"task": "edit mkdir", "graph": {"nodes": [], "links": []}},
+    )
+    # Remove the turn dir that allocate_turn creates so we can prove mkdir works.
+    import shutil
+    shutil.rmtree(allocation.turn_dir)
+    assert not allocation.turn_dir.exists()
+
+    response = {"ok": True, "turn_id": str(allocation.context.turn_id)}
+    response_path = allocation.turn_dir / "response.json"
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=response_path,
+        operation="edit",
+        turn_id=str(allocation.context.turn_id),
+    )
+
+    assert response_path.is_file()
+
+
+def test_record_response_creates_parent_dirs_with_idempotency_key(tmp_path: Path) -> None:
+    """Parent directories are also created when an idempotency key is supplied."""
+    root = tmp_path / "sessions"
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload={"task": "edit with key", "graph": {"nodes": [], "links": []}},
+        idempotency_key="parent-dir-key",
+    )
+    import shutil
+    shutil.rmtree(allocation.turn_dir)
+    assert not allocation.turn_dir.exists()
+
+    response = {"ok": True, "turn_id": str(allocation.context.turn_id)}
+    response_path = allocation.turn_dir / "response.json"
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="parent-dir-key",
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=response_path,
+        operation="edit",
+        turn_id=str(allocation.context.turn_id),
+    )
+
+    assert response_path.is_file()

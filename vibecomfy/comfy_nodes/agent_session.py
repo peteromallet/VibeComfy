@@ -941,6 +941,10 @@ def record_idempotent_response(
     candidate_graph_hash = _mapping_graph_hash(response)
     candidate_structural_graph_hash = _mapping_graph_structural_hash(response)
     agent_edit_protocol = "v2_delta" if isinstance(response.get("delta_ops"), list) else "v1"
+    # Always write response.json for all allocated edit turns, even without an
+    # idempotency key, so every completed turn has a durable response artifact.
+    response_path.parent.mkdir(parents=True, exist_ok=True)
+    response_path.write_text(json.dumps(response, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if key is None:
         if scope == "edit" and turn_id is not None:
             session_dir = session_dir_for(session_root, session_id)
@@ -956,8 +960,6 @@ def record_idempotent_response(
                     turn_record["agent_edit_protocol"] = agent_edit_protocol
                     write_state_atomic(session_dir, state)
         return None
-    response_path.parent.mkdir(parents=True, exist_ok=True)
-    response_path.write_text(json.dumps(response, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     response_digest = payload_hash(response)
     record = {
         "request_hash": request_hash,

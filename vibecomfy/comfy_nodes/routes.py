@@ -13,7 +13,7 @@ from .agent_contracts import (
     derive_apply_eligibility,
     failure_envelope,
 )
-from .agent_edit import _SESSION_ROOT, _safe_session_id, handle_agent_edit
+from .agent_edit import _SESSION_ROOT, _safe_session_id, handle_agent_edit, read_session_chat, read_session_json
 from .agent_provider import readiness, handle_credential_submission
 from .agent_session import accept_turn, payload_hash, rebaseline_session, reject_turn, session_dir_for, turn_dir_for
 from .agent_audit import artifact_ref_for_path, write_audit
@@ -321,6 +321,58 @@ def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]
     return status
 
 
+def _handle_agent_edit_chat(
+    params: dict[str, Any],
+    *,
+    session_root: Any = None,
+) -> dict[str, Any]:
+    """Rehydrate the last N conversation messages for a session."""
+    session_id_raw = params.get("session_id")
+    if not isinstance(session_id_raw, str) or not session_id_raw.strip():
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "chat",
+            agent_failure_context={"explanation": "`session_id` is required."},
+        ).to_dict()
+
+    root = _root(session_root)
+    max_messages = 5
+    if isinstance(params.get("max_messages"), int) and int(params.get("max_messages", 0)) > 0:
+        max_messages = int(params["max_messages"])
+
+    try:
+        return read_session_chat(root, session_id_raw, max_messages=max_messages)
+    except Exception as exc:
+        return classify_failure("chat", exc).to_dict()
+
+
+def _handle_agent_edit_session_json(
+    params: dict[str, Any],
+    *,
+    session_root: Any = None,
+) -> dict[str, Any]:
+    """Return session metadata, sorted turn summaries with artifact paths,
+    and last-five messages for a sanitized session id.  No browsing, search,
+    indexes, or arbitrary path reads."""
+    session_id_raw = params.get("session_id")
+    if not isinstance(session_id_raw, str) or not session_id_raw.strip():
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "session-json",
+            agent_failure_context={"explanation": "`session_id` is required."},
+        ).to_dict()
+
+    root = _root(session_root)
+    max_messages = 5
+    if isinstance(params.get("max_messages"), int) and int(params.get("max_messages", 0)) > 0:
+        max_messages = int(params["max_messages"])
+
+    try:
+        return read_session_json(root, session_id_raw, max_messages=max_messages)
+    except Exception as exc:
+        return classify_failure("session-json", exc).to_dict()
+
+
 def _handle_agent_credentials(
     payload: Any,
     *,
@@ -474,6 +526,16 @@ try:
     @_PromptServer.instance.routes.get("/vibecomfy/agent/status")
     async def agent_status_route(request):  # type: ignore[no-untyped-def]
         return _web.json_response(_handle_agent_status(dict(request.query)))
+
+    @_PromptServer.instance.routes.get("/vibecomfy/agent-edit/chat")
+    async def agent_edit_chat_route(request):  # type: ignore[no-untyped-def]
+        result = _handle_agent_edit_chat(dict(request.query))
+        return _web.json_response(result, status=400 if result.get("ok") is False else 200)
+
+    @_PromptServer.instance.routes.get("/vibecomfy/agent-edit/session-json")
+    async def agent_edit_session_json_route(request):  # type: ignore[no-untyped-def]
+        result = _handle_agent_edit_session_json(dict(request.query))
+        return _web.json_response(result, status=400 if result.get("ok") is False else 200)
 
     @_PromptServer.instance.routes.post("/vibecomfy/agent/credentials")
     async def agent_credentials_route(request):  # type: ignore[no-untyped-def]

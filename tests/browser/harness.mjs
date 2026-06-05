@@ -419,6 +419,34 @@ export async function createBrowserHarness({
   if (!hadCrypto) {
     globalThis.crypto = (await import("node:crypto")).webcrypto;
   }
+  // ── localStorage fake (used by frontend session persistence) ─────────
+  const _localStorageStore = new Map();
+  globalThis.localStorage = {
+    getItem(key) {
+      const val = _localStorageStore.get(String(key));
+      return val === undefined ? null : val;
+    },
+    setItem(key, value) {
+      _localStorageStore.set(String(key), String(value));
+    },
+    removeItem(key) {
+      _localStorageStore.delete(String(key));
+    },
+    clear() {
+      _localStorageStore.clear();
+    },
+    get length() {
+      return _localStorageStore.size;
+    },
+    key(index) {
+      const keys = [..._localStorageStore.keys()];
+      return keys[index] || null;
+    },
+    // Expose store for test assertions.
+    _dump() {
+      return Object.fromEntries(_localStorageStore);
+    },
+  };
   globalThis.console = {
     ...originalConsole,
     log: (...args) => consoleCapture.log.push(args.map(String).join(" ")),

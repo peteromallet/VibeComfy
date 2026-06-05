@@ -58,6 +58,7 @@ from .agent_session import (
     allocate_turn,
     payload_hash,
     record_idempotent_response,
+    session_dir_for,
     structural_graph_hash,
     turn_dir_for,
 )
@@ -737,6 +738,344 @@ def _field_changes_payload(changes: tuple[FieldChange, ...]) -> list[dict[str, A
     return [change.to_dict() for change in changes]
 
 
+def _write_turn_chat_artifact(
+    state: AgentEditState,
+    context: TurnContext,
+    response: dict[str, Any],
+    contract: str,
+) -> None:
+    """Best-effort write of ``chat.json`` for an allocated, completed edit turn.
+
+    ``response.json`` is the durable turn artifact; ``chat.json`` is a
+    JSON-canonical UI convenience.  Failures here are logged and swallowed.
+    """
+    turn_dir = state.turn_dir
+    chat_path = turn_dir / "chat.json"
+
+    agent_text: str = response.get("message", "")
+    if not isinstance(agent_text, str) or not agent_text.strip():
+        agent_text = "The agent edit turn completed."
+
+    # Extract structured changes by contract shape.
+    changes: list[dict[str, Any]] | None = None
+    if contract == "batch_repl":
+        outcome = response.get("outcome")
+        if isinstance(outcome, Mapping):
+            raw = outcome.get("changes")
+            if isinstance(raw, list):
+                changes = [_json_safe(c) for c in raw]
+        if changes is None and state.batch_field_changes:
+            changes = _field_changes_payload(state.batch_field_changes)
+    elif contract == "delta":
+        delta_ops = response.get("delta_ops")
+        if isinstance(delta_ops, list):
+            changes = _json_safe(delta_ops)
+
+    agent_msg: dict[str, Any] = {
+        "role": "agent",
+        "text": agent_text,
+        "turn_id": context.turn_id,
+    }
+    outcome_payload = response.get("outcome")
+    if isinstance(outcome_payload, Mapping):
+        agent_msg["outcome"] = dict(outcome_payload)
+    if changes is not None:
+        agent_msg["changes"] = changes
+
+    chat_record: dict[str, Any] = {
+        "session_id": context.session_id,
+        "turn_id": context.turn_id,
+        "session_path": str(state.session_dir),
+        "turn_path": str(turn_dir),
+        "response_path": str(turn_dir / "response.json"),
+        "detail_json_path": str(turn_dir / "response.json"),
+        "messages": [
+            {
+                "role": "user",
+                "text": state.task,
+                "turn_id": context.turn_id,
+            },
+            agent_msg,
+        ],
+    }
+
+    try:
+        turn_dir.mkdir(parents=True, exist_ok=True)
+        chat_path.write_text(
+            json.dumps(chat_record, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        LOGGER.warning(
+            "chat.json write failed for turn %s (best-effort): %s",
+            context.turn_id,
+            exc,
+        )
+
+
+def read_session_chat(
+    session_root: Path,
+    session_id: str,
+    *,
+    max_messages: int = 5,
+) -> dict[str, Any]:
+    """Read conversation history for a session from persisted turn artifacts.
+
+    Scans turn directories under the session root in deterministic order,
+    reads ``chat.json`` where present, falls back to same-turn
+    ``request.json`` + ``response.json``, and returns the last
+    *max_messages* display messages with session metadata.
+
+    Returns:
+        dict with keys: ``ok``, ``session_id``, ``session_path``,
+        ``latest_turn_id``, ``detail_json_path``, ``messages``.
+    """
+    safe_id = _safe_session_id(session_id)
+    session_dir = session_dir_for(session_root, safe_id)
+    turns_dir = session_dir / "turns"
+
+    if not turns_dir.is_dir():
+        return {
+            "ok": True,
+            "session_id": safe_id,
+            "session_path": str(session_dir),
+            "latest_turn_id": None,
+            "detail_json_path": None,
+            "messages": [],
+        }
+
+    # Sort turn directories deterministically (zero-padded integers).
+    try:
+        turn_ids: list[str] = sorted(
+            [d.name for d in turns_dir.iterdir() if d.is_dir()],
+        )
+    except OSError:
+        turn_ids = []
+
+    all_messages: list[dict[str, Any]] = []
+    latest_turn_id: str | None = None
+
+    for turn_id in turn_ids:
+        turn_dir = turns_dir / turn_id
+        chat_path = turn_dir / "chat.json"
+        chat_record: dict[str, Any] | None = None
+
+        # Try chat.json first.
+        if chat_path.is_file():
+            try:
+                chat_record = json.loads(chat_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        # Fall back to request.json + response.json.
+        if chat_record is None:
+            request_path = turn_dir / "request.json"
+            response_path = turn_dir / "response.json"
+            if request_path.is_file() and response_path.is_file():
+                try:
+                    request = json.loads(request_path.read_text(encoding="utf-8"))
+                    response = json.loads(response_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue  # skip unrecoverable turn
+                agent_text: str = response.get("message", "")
+                if not isinstance(agent_text, str) or not agent_text.strip():
+                    agent_text = "The agent edit turn completed."
+                chat_record = {
+                    "session_id": safe_id,
+                    "turn_id": turn_id,
+                    "session_path": str(session_dir),
+                    "turn_path": str(turn_dir),
+                    "response_path": str(response_path),
+                    "detail_json_path": str(response_path),
+                    "messages": [
+                        {
+                            "role": "user",
+                            "text": request.get("task", ""),
+                            "turn_id": turn_id,
+                        },
+                        {
+                            "role": "agent",
+                            "text": agent_text,
+                            "turn_id": turn_id,
+                        },
+                    ],
+                }
+
+        if chat_record is None:
+            continue
+
+        # Extract display messages from the chat record.
+        messages = chat_record.get("messages", [])
+        if isinstance(messages, list):
+            for msg in messages:
+                if isinstance(msg, dict) and msg.get("role") in ("user", "agent"):
+                    all_messages.append({
+                        "role": msg["role"],
+                        "text": msg.get("text", ""),
+                        "turn_id": msg.get("turn_id", turn_id),
+                    })
+        latest_turn_id = turn_id
+
+    # Take the last N messages for display.
+    display_messages = all_messages[-max_messages:] if max_messages > 0 else all_messages
+
+    return {
+        "ok": True,
+        "session_id": safe_id,
+        "session_path": str(session_dir),
+        "latest_turn_id": latest_turn_id,
+        "detail_json_path": (
+            str(turns_dir / latest_turn_id / "response.json")
+            if latest_turn_id
+            else None
+        ),
+        "messages": display_messages,
+    }
+
+
+def read_session_json(
+    session_root: Path,
+    session_id: str,
+    *,
+    max_messages: int = 5,
+) -> dict[str, Any]:
+    """Return session metadata, sorted turn summaries, and last-five messages.
+
+    This is the JSON detail route helper — it returns turn-level artifact
+    paths (``request.json``, ``response.json``, ``chat.json``) for each
+    persisted turn alongside the same last-five display messages as
+    ``read_session_chat``.  It does **not** browse, search, index, or read
+    arbitrary paths.
+    """
+    safe_id = _safe_session_id(session_id)
+    session_dir = session_dir_for(session_root, safe_id)
+    turns_dir = session_dir / "turns"
+
+    session_meta = {
+        "session_id": safe_id,
+        "session_path": str(session_dir),
+        "turns_dir": str(turns_dir),
+    }
+
+    if not turns_dir.is_dir():
+        return {
+            **session_meta,
+            "ok": True,
+            "latest_turn_id": None,
+            "detail_json_path": None,
+            "turn_count": 0,
+            "turns": [],
+            "messages": [],
+        }
+
+    # Deterministic sort of turn directories.
+    try:
+        turn_names: list[str] = sorted(
+            [d.name for d in turns_dir.iterdir() if d.is_dir()],
+        )
+    except OSError:
+        turn_names = []
+
+    turn_summaries: list[dict[str, Any]] = []
+    all_messages: list[dict[str, Any]] = []
+    latest_turn_id: str | None = None
+
+    for turn_name in turn_names:
+        turn_dir = turns_dir / turn_name
+        summary: dict[str, Any] = {
+            "turn_id": turn_name,
+            "turn_path": str(turn_dir),
+        }
+
+        # Artifact paths — only note what is actually present.
+        for artifact_name in ("request.json", "response.json", "chat.json"):
+            artifact_path = turn_dir / artifact_name
+            if artifact_path.is_file():
+                summary[artifact_name] = str(artifact_path)
+
+        # Reuse the chat-reader logic for message extraction.
+        chat_path = turn_dir / "chat.json"
+        chat_record: dict[str, Any] | None = None
+
+        if chat_path.is_file():
+            try:
+                chat_record = json.loads(chat_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        if chat_record is None:
+            request_path = turn_dir / "request.json"
+            response_path = turn_dir / "response.json"
+            if request_path.is_file() and response_path.is_file():
+                try:
+                    request = json.loads(request_path.read_text(encoding="utf-8"))
+                    response = json.loads(response_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    summary["error"] = "unreadable artifacts"
+                    turn_summaries.append(summary)
+                    continue
+                agent_text: str = response.get("message", "")
+                if not isinstance(agent_text, str) or not agent_text.strip():
+                    agent_text = "The agent edit turn completed."
+                chat_record = {
+                    "session_id": safe_id,
+                    "turn_id": turn_name,
+                    "session_path": str(session_dir),
+                    "turn_path": str(turn_dir),
+                    "response_path": str(response_path),
+                    "detail_json_path": str(response_path),
+                    "messages": [
+                        {
+                            "role": "user",
+                            "text": request.get("task", ""),
+                            "turn_id": turn_name,
+                        },
+                        {
+                            "role": "agent",
+                            "text": agent_text,
+                            "turn_id": turn_name,
+                        },
+                    ],
+                }
+
+        if chat_record is None:
+            summary["error"] = "no readable artifacts"
+            turn_summaries.append(summary)
+            continue
+
+        messages = chat_record.get("messages", [])
+        if isinstance(messages, list):
+            for msg in messages:
+                if isinstance(msg, dict) and msg.get("role") in ("user", "agent"):
+                    all_messages.append({
+                        "role": msg["role"],
+                        "text": msg.get("text", ""),
+                        "turn_id": msg.get("turn_id", turn_name),
+                    })
+
+        summary["message_count"] = len(
+            [m for m in messages if isinstance(m, dict) and m.get("role") in ("user", "agent")]
+        )
+        turn_summaries.append(summary)
+        latest_turn_id = turn_name
+
+    display_messages = all_messages[-max_messages:] if max_messages > 0 else all_messages
+
+    return {
+        **session_meta,
+        "ok": True,
+        "latest_turn_id": latest_turn_id,
+        "detail_json_path": (
+            str(turns_dir / latest_turn_id / "response.json")
+            if latest_turn_id
+            else None
+        ),
+        "turn_count": len(turn_summaries),
+        "turns": turn_summaries,
+        "messages": display_messages,
+    }
+
+
 def _compact_diag_to_dict(diagnostic: Any) -> dict[str, Any]:
     return {
         "code": getattr(diagnostic, "code", type(diagnostic).__name__),
@@ -1137,6 +1476,7 @@ def _stage_agent_batch_repl(
     route: str | None = None,
     model: str | None = None,
     client_id: str | None = None,
+    conversation_messages: list[dict[str, Any]] | None = None,
 ) -> StageResult:
     from vibecomfy.porting.edit_session import EditSession
 
@@ -1194,6 +1534,7 @@ def _stage_agent_batch_repl(
             report=last_report,
             budget_remaining=budget_remaining,
             max_batches=max_batches,
+            conversation_messages=conversation_messages if turn_number == 0 else None,
         )
         request_entry = {
             "turn_number": turn_number,
@@ -2340,6 +2681,7 @@ def _run_batch_repl_product_path(
     route: str | None = None,
     model: str | None = None,
     client_id: str | None = None,
+    conversation_messages: list[dict[str, Any]] | None = None,
 ) -> AgentEditState:
     _run_stage("ingest", state, context, _stage_ingest_v2)
     _run_stage(
@@ -2351,6 +2693,7 @@ def _run_batch_repl_product_path(
         route=route,
         model=model,
         client_id=client_id,
+        conversation_messages=conversation_messages,
     )
     return state
 
@@ -2625,6 +2968,19 @@ def handle_agent_edit(
     route = payload.get("route") if isinstance(payload.get("route"), str) else None
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
 
+    # Load session-local last-five conversation messages for prompt memory.
+    # Only the batch_repl product path injects them (SD2); delta/full-dev
+    # paths persist chat artifacts but do not receive prompt memory in this
+    # slim v1 milestone.
+    conversation_messages: list[dict[str, Any]] | None = None
+    if contract == "batch_repl":
+        try:
+            chat = read_session_chat(root, session_id, max_messages=5)
+            if chat.get("ok") and isinstance(chat.get("messages"), list):
+                conversation_messages = chat["messages"]
+        except Exception:
+            conversation_messages = None
+
     try:
         if contract == "batch_repl":
             state = _run_batch_repl_product_path(
@@ -2634,6 +2990,7 @@ def handle_agent_edit(
                 route=route,
                 model=model,
                 client_id=client_id,
+                conversation_messages=conversation_messages,
             )
         elif contract == "delta":
             state = _run_delta_dev_path(
@@ -2658,6 +3015,7 @@ def handle_agent_edit(
             contract=contract,
             failure=blocked.failure or classify_failure(blocked.result.stage, blocked, context),
         )
+        _write_turn_chat_artifact(state, context, response, contract)
         record_idempotent_response(
             session_root=root,
             session_id=session_id,
@@ -2709,6 +3067,7 @@ def handle_agent_edit(
             audit_error=str(exc),
         )
         return _product_failure_response(failure)
+    _write_turn_chat_artifact(state, context, response, contract)
     record_idempotent_response(
         session_root=root,
         session_id=session_id,
