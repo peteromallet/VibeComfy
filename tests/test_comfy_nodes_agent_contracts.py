@@ -46,6 +46,11 @@ def test_failure_kind_enum_matches_closed_contract_exactly() -> None:
         "EditorOnlyNodeQueueBlocker",
         "AuditWriteWarning",
         "AuditWriteFailure",
+        "BatchBudgetExhausted",
+        "ClarificationRequired",
+        "ModelMistake",
+        "Unrepresentable",
+        "SchemaGap",
     ]
 
 
@@ -709,12 +714,12 @@ def test_turnoutcome_edit_clarify_kind() -> None:
 
 
 def test_turnoutcome_rejects_invalid_kind() -> None:
-    with pytest.raises(ValueError, match="must be 'edit' or 'edit\\+clarify'"):
+    with pytest.raises(ValueError, match="must be one of"):
         TurnOutcome(kind="bad_kind")
 
 
 def test_turnoutcome_rejects_empty_string_kind() -> None:
-    with pytest.raises(ValueError, match="must be 'edit' or 'edit\\+clarify'"):
+    with pytest.raises(ValueError, match="must be one of"):
         TurnOutcome(kind="")
 
 
