@@ -225,6 +225,25 @@ def _gates_to_dict(context: TurnContext | None) -> dict[str, bool]:
 
 def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:
     payload = dict(value or {})
+
+    # ── typed outcome.changes (FieldChange list) ──────────────────────────
+    outcome_changes: list[dict[str, Any]] = []
+    outcome = payload.get("outcome")
+    if isinstance(outcome, Mapping):
+        changes = outcome.get("changes")
+        if isinstance(changes, list):
+            outcome_changes = [
+                {
+                    "uid": str(change.get("uid", "")),
+                    "field_path": str(change.get("field_path", "")),
+                    "old": change.get("old"),
+                    "new": change.get("new"),
+                }
+                for change in changes
+                if isinstance(change, Mapping)
+            ]
+
+    # ── legacy delta_ops ──────────────────────────────────────────────────
     delta_ops = payload.get("delta_ops")
     delta_ops_mapping = dict(delta_ops) if isinstance(delta_ops, Mapping) else {}
     diagnostics = delta_ops_mapping.get("diagnostics")
@@ -254,11 +273,23 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
     op_count = payload.get("op_count")
     if not isinstance(op_count, int):
         op_count = len(normalized_delta_ops["ops"])
-    return {
+
+    result: dict[str, Any] = {
         "enabled": bool(payload.get("enabled")),
         "op_count": op_count,
         "delta_ops": normalized_delta_ops,
     }
+
+    # ── surface typed outcome.changes when present ────────────────────────
+    if outcome_changes:
+        result["outcome_changes"] = outcome_changes
+
+    # ── skip cleanly when delta data is absent (no delta_ops key) ─────────
+    if not isinstance(delta_ops, Mapping) and not outcome_changes:
+        result.pop("delta_ops", None)
+        result.pop("op_count", None)
+
+    return result
 
 
 def write_audit(

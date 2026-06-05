@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .agent_audit import redact_closed_set
+from .agent_contracts import AGENT_EDIT_TURN_CONTRACT_VERSION
 
 
 LOGGER = logging.getLogger(__name__)
@@ -125,9 +126,27 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 _BATCH_FENCE_RE = re.compile(r"```batch\s*\n(.*?)```", re.DOTALL)
 _BATCH_RETRY_NUDGE = (
-    "Your previous reply was empty or unparseable. Reply with prose and exactly "
-    "one ```batch fenced block."
+    "Your previous reply was empty or unparseable. Reply with user-facing prose "
+    "(one sentence telling the user what you are doing) followed by exactly "
+    "one ```batch fenced block containing your edit statements."
 )
+
+
+def normalize_user_message(message: str | None) -> str:
+    if not isinstance(message, str):
+        return ""
+    return " ".join(message.strip().split())
+
+
+def ensure_sentence_message(message: str | None, *, fallback: str) -> str:
+    text = normalize_user_message(message)
+    if not text:
+        text = normalize_user_message(fallback)
+    if not text:
+        text = "The agent edit turn completed."
+    if text[-1] not in ".!?":
+        text = f"{text}."
+    return text
 
 
 def extract_batch_fence(text: str) -> tuple[str, str]:
@@ -214,9 +233,11 @@ def build_batch_messages(
         "Placement:\n"
         "Optional `near=anchor_var` placement hint; never set coordinates.\n\n"
         "Envelope:\n"
-        "Prose + exactly one ```batch fenced block. No JSON.\n"
-        "One batch per turn. `clarify(\"...\")` is an alternate terminal\n"
-        "when intent is genuinely missing.\n\n"
+        "Start with user-facing prose (one sentence), then exactly one\n"
+        "```batch fenced block. Never respond with only a fenced\n"
+        "block — the prose is required. No JSON. One batch per turn.\n"
+        "`clarify(\"...\")` is an alternate terminal when intent is\n"
+        "genuinely missing.\n\n"
         f"Budget: {budget_remaining} batch(es) remaining out of {max_batches}.\n\n"
         "Worked example (PLACEHOLDER names — substitute your graph's real ones):\n"
         "Add 2x upscale after the decode node, feed the existing save node:\n"
@@ -435,6 +456,67 @@ def _credential_presence() -> dict[str, bool]:
 def _non_secret_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
     redacted = redact_closed_set(dict(value)).value
     return redacted if isinstance(redacted, dict) else {}
+
+
+def _resolve_route_and_model(
+    route: str | None,
+    model: str | None,
+) -> tuple[AgentRouteDescriptor, str, str]:
+    route_descriptor = _resolve_agent_route(route)
+    selected_route = route_descriptor.normalized_route
+    selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
+    return route_descriptor, selected_route, selected_model
+
+
+def _provider_status_metadata(
+    *,
+    route_descriptor: AgentRouteDescriptor,
+    selected_route: str,
+    selected_model: str,
+    provider_available: bool,
+) -> dict[str, Any]:
+    return {
+        "route": selected_route,
+        "requested_route": route_descriptor.requested_route,
+        "model": selected_model,
+        "provider": "arnold",
+        "provider_available": provider_available,
+        "contract_version": AGENT_EDIT_TURN_CONTRACT_VERSION,
+        "route_metadata": route_descriptor.to_dict(),
+        "route_options": _supported_browser_route_options(),
+        "credential_presence": _credential_presence(),
+        "legacy_deepseek_fallback_enabled": False,
+    }
+
+
+def _normalize_readiness_payload(
+    payload: Mapping[str, Any] | None,
+    *,
+    provider_available: bool,
+    default_reason: str,
+) -> dict[str, Any]:
+    runtime_payload = _non_secret_mapping(payload or {})
+    ready_value = runtime_payload.get("ready")
+    if ready_value is None:
+        ready_value = runtime_payload.get("ok")
+    ready = bool(ready_value)
+
+    reason = runtime_payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        for fallback_key in ("detail", "error", "message"):
+            fallback = runtime_payload.get(fallback_key)
+            if isinstance(fallback, str) and fallback.strip():
+                reason = fallback.strip()
+                break
+        else:
+            reason = default_reason
+
+    normalized = dict(runtime_payload)
+    normalized.pop("ok", None)
+    normalized["ready"] = ready
+    normalized["reason"] = reason
+    normalized["provider_available"] = provider_available
+    return normalized
 
 
 def _load_arnold_runtime() -> Any:
@@ -673,9 +755,7 @@ def _normalize_batch_response(
             text = content
         elif isinstance(payload.get("batch"), str):
             batch_code = payload["batch"]
-            message = payload.get("message", "")
-            if not isinstance(message, str):
-                message = ""
+            message = normalize_user_message(payload.get("message", ""))
             return BatchTurnResult(
                 batch=batch_code,
                 message=message,
@@ -692,9 +772,12 @@ def _normalize_batch_response(
             "Agent batch_repl response was empty. Expected exactly one ```batch fenced block."
         )
     batch_code, prose = extract_batch_fence(text)
+    # Preserve prose as-is (possibly empty); the backend synthesizer
+    # (_synthesize_batch_repl_message) owns final message filling.
+    message = prose.strip()
     return BatchTurnResult(
         batch=batch_code,
-        message=prose,
+        message=message,
         route=route,
         model=model,
         audit_metadata=audit_metadata or {},
@@ -822,44 +905,58 @@ def run_agent_turn_batch(
     raise last_malformed or MalformedModelJSON("Agent batch_repl response was malformed.")
 
 
-def get_agent_status(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
-    route_descriptor = _resolve_agent_route(route)
-    selected_route = route_descriptor.normalized_route
-    selected_model = model or os.getenv("VIBECOMFY_AGENT_MODEL", DEFAULT_MODEL)
+def readiness(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
+    route_descriptor, selected_route, selected_model = _resolve_route_and_model(route, model)
     try:
         runtime = _load_arnold_runtime()
     except ProviderError as exc:
         return {
-            "ok": False,
-            "route": selected_route,
-            "requested_route": route_descriptor.requested_route,
-            "model": selected_model,
-            "provider": "arnold",
-            "provider_available": False,
+            **_provider_status_metadata(
+                route_descriptor=route_descriptor,
+                selected_route=selected_route,
+                selected_model=selected_model,
+                provider_available=False,
+            ),
+            "ready": False,
+            "reason": str(exc),
             "error": str(exc),
-            "route_metadata": route_descriptor.to_dict(),
-            "route_options": _supported_browser_route_options(),
-            "credential_presence": _credential_presence(),
-            "legacy_deepseek_fallback_enabled": False,
         }
-    status_fn: Callable[..., Any] | None = getattr(runtime, "get_agent_status", None)
-    status = status_fn(route=selected_route, model=selected_model) if status_fn else {}
-    if not isinstance(status, Mapping):
-        status = {}
-    runtime_status = _non_secret_mapping(status)
+
+    readiness_fn: Callable[..., Any] | None = getattr(runtime, "readiness", None)
+    if callable(readiness_fn):
+        raw_status = readiness_fn(route=selected_route, model=selected_model)
+    else:
+        status_fn: Callable[..., Any] | None = getattr(runtime, "get_agent_status", None)
+        raw_status = status_fn(route=selected_route, model=selected_model) if status_fn else {}
+    if not isinstance(raw_status, Mapping):
+        raw_status = {}
+
     return {
-        **runtime_status,
-        "ok": bool(runtime_status.get("ok", True)),
-        "route": selected_route,
-        "requested_route": route_descriptor.requested_route,
-        "model": selected_model,
-        "provider": "arnold",
-        "provider_available": True,
-        "route_metadata": route_descriptor.to_dict(),
-        "route_options": _supported_browser_route_options(),
-        "credential_presence": _credential_presence(),
-        "legacy_deepseek_fallback_enabled": False,
+        **_normalize_readiness_payload(
+            raw_status,
+            provider_available=True,
+            default_reason="Provider ready." if raw_status.get("ok", True) else "Provider is unavailable.",
+        ),
+        **_provider_status_metadata(
+            route_descriptor=route_descriptor,
+            selected_route=selected_route,
+            selected_model=selected_model,
+            provider_available=True,
+        ),
     }
+
+
+def get_agent_status(*, route: str | None = None, model: str | None = None) -> dict[str, Any]:
+    readiness_payload = readiness(route=route, model=model)
+    ready = bool(readiness_payload.get("ready"))
+    status = {
+        **readiness_payload,
+        "ok": ready,
+        "readiness": "ready" if ready else "unavailable",
+    }
+    if not ready and not status.get("provider_available") and "error" not in status:
+        status["error"] = str(status.get("reason") or "Provider is unavailable.")
+    return status
 
 
 def _hermes_env_path(path: Path | None = None) -> Path:
@@ -957,9 +1054,12 @@ __all__ = [
     "build_batch_messages",
     "build_delta_messages",
     "build_messages",
+    "ensure_sentence_message",
     "extract_batch_fence",
+    "readiness",
     "get_agent_status",
     "handle_credential_submission",
+    "normalize_user_message",
     "run_agent_turn_batch",
     "run_agent_turn_delta",
     "run_agent_turn",

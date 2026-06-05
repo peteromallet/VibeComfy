@@ -13,12 +13,27 @@ import pytest
 
 from vibecomfy.comfy_nodes.agent_edit import (
     AgentEditState,
+    _StageBlocked,
     _agent_edit_contract,
     _agent_edit_turn_event_payload,
+    _batch_warning_sentence,
+    _landed_edit_lead,
+    _run_batch_repl_product_path,
+    _synthesize_batch_repl_message,
     _ws_send,
     handle_agent_edit,
+    split_terminal_clarify,
 )
-from vibecomfy.comfy_nodes.agent_contracts import FailureKind, StageResult, TurnContext
+from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.comfy_nodes.agent_contracts import (
+    AGENT_EDIT_TURN_CONTRACT_VERSION,
+    FailureEnvelope,
+    FailureKind,
+    StageResult,
+    TurnContext,
+    TurnOutcome,
+    failure_envelope,
+)
 from vibecomfy.comfy_nodes.agent_session import (
     payload_hash,
     structural_graph_hash,
@@ -82,12 +97,43 @@ def _batch_repl_provider() -> _Provider:
     )
 
 
-def _use_legacy_full(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LEGACY", "full")
+def _use_dev_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS", "1")
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL", "full")
 
 
-def _use_legacy_delta(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LEGACY", "delta")
+def _use_dev_delta(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS", "1")
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL", "delta")
+
+
+def test_split_terminal_clarify_detects_terminal_line_and_inline_calls() -> None:
+    line_level = split_terminal_clarify(
+        'saveimage.filename_prefix = "after"\nclarify("Should I rename it too?")'
+    )
+    assert line_level.batch == 'saveimage.filename_prefix = "after"'
+    assert line_level.message == "Should I rename it too?"
+
+    inline = split_terminal_clarify(
+        'saveimage.filename_prefix = "after"; clarify("Use the same stem?")'
+    )
+    assert inline.batch == 'saveimage.filename_prefix = "after"'
+    assert inline.message == "Use the same stem?"
+
+
+def test_split_terminal_clarify_rejects_strings_comments_nested_and_non_terminal_calls() -> None:
+    cases = [
+        'note = "clarify(\\"not a call\\")"',
+        '# clarify("not a call")\nsaveimage.filename_prefix = "after"',
+        'wrapper(clarify("nested"))',
+        'clarify("first")\nsaveimage.filename_prefix = "after"',
+        'clarify("first"); clarify("second")',
+        'clarify(question="keyword form is not terminal protocol")',
+    ]
+    for batch in cases:
+        result = split_terminal_clarify(batch)
+        assert result.batch == batch
+        assert result.message is None
 
 
 def _ui_graph() -> dict:
@@ -268,6 +314,26 @@ def _assert_failure_defaults(
         assert result["audit_ref"]["path"]
     else:
         assert result["audit_ref"] is None
+
+
+def _assert_product_failure_contract(
+    result: dict,
+    *,
+    failure_kind: str,
+    stage: str,
+) -> None:
+    assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
+    assert isinstance(result["message"], str)
+    assert result["message"].strip()
+    assert result["outcome"]["kind"] == "failure"
+    assert result["outcome"]["failure_kind"] == failure_kind
+    assert result["outcome"]["stage"] == stage
+    assert "candidate" in result
+    assert "eligibility" in result
+    assert result["eligibility"] == result["apply_eligibility"]
+    assert "audit_ref" in result
+    assert "debug" in result
+    assert result["debug"]["failure"]["kind"] == failure_kind
 
 
 def test_ws_send_prefers_send_sync_and_targets_sid(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -576,33 +642,310 @@ def test_agent_edit_contract_defaults_to_batch_repl_and_warns_for_legacy(
     from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
 
     agent_edit_module._WARNED_LEGACY_CONTRACTS.clear()
+    agent_edit_module._WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS.clear()
     monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_LEGACY", raising=False)
     monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_V2", raising=False)
     monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", raising=False)
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS", raising=False)
+    monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL", raising=False)
     assert _agent_edit_contract() == "batch_repl"
 
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_V2", "1")
-    assert _agent_edit_contract() == "delta"
+    with caplog.at_level("WARNING"):
+        assert _agent_edit_contract() == "batch_repl"
+    assert "ignoring legacy public protocol env vars (VIBECOMFY_AGENT_EDIT_V2)" in caplog.text
 
+    caplog.clear()
     monkeypatch.delenv("VIBECOMFY_AGENT_EDIT_V2", raising=False)
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     assert _agent_edit_contract() == "batch_repl"
 
-    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LEGACY", "full")
+    with caplog.at_level("WARNING"):
+        monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LEGACY", "full")
+        assert _agent_edit_contract() == "batch_repl"
+    assert "ignoring legacy public protocol env vars (VIBECOMFY_AGENT_EDIT_LEGACY)" in caplog.text
+
+    caplog.clear()
+    assert _agent_edit_contract() == "batch_repl"
+    assert "ignoring legacy public protocol env vars" not in caplog.text
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS", "1")
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL", "bogus")
+    assert _agent_edit_contract() == "batch_repl"
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL", "full")
     with caplog.at_level("WARNING"):
         assert _agent_edit_contract() == "full"
     assert "agent-edit legacy contract 'full' selected" in caplog.text
 
-    caplog.clear()
-    assert _agent_edit_contract() == "full"
-    assert "agent-edit legacy contract 'full' selected" not in caplog.text
+
+def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_returns_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    state = AgentEditState(
+        task="change the save prefix",
+        graph=_ui_graph(),
+        request_payload={},
+        schema_provider=None,
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+    )
+    context = TurnContext(session_id="runner-session", turn_id="runner-turn")
+    calls: list[tuple[str, object]] = []
+
+    def _fake_run_stage(name, passed_state, passed_context, fn, *args, **kwargs):
+        calls.append((name, fn))
+        assert passed_state is state
+        assert passed_context is context
+        assert not args
+        if name == "ingest":
+            assert fn is agent_edit_module._stage_ingest_v2
+            assert kwargs == {}
+        elif name == "agent_batch":
+            assert fn is agent_edit_module._stage_agent_batch_repl
+            assert kwargs == {
+                "deepseek_client": "client",
+                "route": "router",
+                "model": "model-x",
+                "client_id": "client-7",
+            }
+        else:
+            pytest.fail(f"unexpected stage {name}")
+        return StageResult(stage=name, ok=True, blocking=False)
+
+    monkeypatch.setattr(agent_edit_module, "_run_stage", _fake_run_stage)
+
+    returned = _run_batch_repl_product_path(
+        state,
+        context,
+        deepseek_client="client",  # type: ignore[arg-type]
+        route="router",
+        model="model-x",
+        client_id="client-7",
+    )
+
+    assert returned is state
+    assert [name for name, _fn in calls] == ["ingest", "agent_batch"]
+
+
+def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _blocked_runner(state, context, **_kwargs):
+        raise _StageBlocked(
+            StageResult(
+                stage="agent_batch",
+                ok=False,
+                blocking=True,
+                issues=({"code": "runner_blocked", "message": "runner blocked"},),
+            ),
+            failure_envelope(
+                FailureKind.MODEL_MISTAKE,
+                "agent_batch",
+                context,
+                agent_failure_context={"explanation": "runner blocked"},
+            ),
+        )
+
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_run_batch_repl_product_path",
+        _blocked_runner,
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "batch-runner-blocked",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.MODEL_MISTAKE.value,
+        stage="agent_batch",
+        audit_ref_expected=True,
+    )
+    _assert_product_failure_contract(
+        result,
+        failure_kind=FailureKind.MODEL_MISTAKE.value,
+        stage="agent_batch",
+    )
+    assert result["agent_failure_context"]["explanation"] == "runner blocked"
+
+
+def test_handle_agent_edit_batch_repl_uses_product_response_builder_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    builder_calls: list[str] = []
+
+    def _fake_runner(state, _context, **_kwargs):
+        state.user_message = "product path"
+        state.batch_exit_mode = "done"
+        return state
+
+    def _batch_builder(state, context):
+        builder_calls.append("batch")
+        assert state.user_message == "product path"
+        assert context.turn_id
+        return {"ok": True, "builder": "batch", "message": state.user_message}
+
+    monkeypatch.setattr(agent_edit_module, "_run_batch_repl_product_path", _fake_runner)
+    monkeypatch.setattr(agent_edit_module, "_build_batch_repl_response", _batch_builder)
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_build_dev_success_response",
+        lambda *_args, **_kwargs: pytest.fail("dev success builder should not run for batch_repl"),
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "batch-product-builder",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    assert builder_calls == ["batch"]
+    assert result["builder"] == "batch"
+    assert result["message"] == "product path"
+
+
+def test_handle_agent_edit_dev_delta_uses_dev_success_builder_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    _use_dev_delta(monkeypatch)
+    builder_calls: list[str] = []
+
+    def _fake_runner(state, _context, **_kwargs):
+        state.user_message = "dev success"
+        return state
+
+    def _dev_builder(state, context, *, contract):
+        builder_calls.append(contract)
+        assert state.user_message == "dev success"
+        assert context.turn_id
+        return {"ok": True, "builder": contract, "message": state.user_message}
+
+    monkeypatch.setattr(agent_edit_module, "_run_delta_dev_path", _fake_runner)
+    monkeypatch.setattr(agent_edit_module, "_build_dev_success_response", _dev_builder)
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_build_batch_repl_response",
+        lambda *_args, **_kwargs: pytest.fail("batch builder should not run for dev delta"),
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "dev-delta-builder",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    assert builder_calls == ["delta"]
+    assert result["builder"] == "delta"
+    assert result["message"] == "dev success"
+
+
+def test_handle_agent_edit_dev_delta_uses_dev_failure_builder_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+
+    _use_dev_delta(monkeypatch)
+
+    def _blocked_runner(_state, context, **_kwargs):
+        raise _StageBlocked(
+            StageResult(
+                stage="agent_delta",
+                ok=False,
+                blocking=True,
+                issues=({"code": "dev_runner_blocked", "message": "dev runner blocked"},),
+            ),
+            failure_envelope(
+                FailureKind.MODEL_MISTAKE,
+                "agent_delta",
+                context,
+                agent_failure_context={"explanation": "dev runner blocked"},
+            ),
+        )
+
+    monkeypatch.setattr(agent_edit_module, "_run_delta_dev_path", _blocked_runner)
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_build_batch_repl_failure_response",
+        lambda *_args, **_kwargs: pytest.fail("batch failure builder should not run for dev delta"),
+    )
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_build_dev_failure_response",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "builder": "dev-failure",
+            "message": "dev runner blocked",
+        },
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "session_id": "dev-delta-failure-builder",
+        },
+        schema_provider=_batch_repl_provider(),
+        session_root=tmp_path,
+    )
+
+    assert result == {
+        "ok": False,
+        "builder": "dev-failure",
+        "message": "dev runner blocked",
+    }
 
 
 def test_handle_agent_edit_round_trips_deepseek_python(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -666,7 +1009,7 @@ def test_handle_agent_edit_round_trips_deepseek_python(
     } <= set(audit["artifacts"])
 
 
-def test_handle_agent_edit_v2_uses_delta_stage_sequence_without_authoring_pipeline(
+def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring_pipeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -676,7 +1019,7 @@ def test_handle_agent_edit_v2_uses_delta_stage_sequence_without_authoring_pipeli
             "SaveImage": _schema("SaveImage"),
         }
     )
-    _use_legacy_delta(monkeypatch)
+    _use_dev_delta(monkeypatch)
 
     def _fake_delta(messages):
         prompt = messages[-1]["content"]
@@ -941,7 +1284,7 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     assert "batch_repl response was empty" in provider_metadata["batch_repl_retry"]["reason"]
 
 
-def test_handle_agent_edit_v2_classifies_malformed_delta_as_closed_failure_envelope(
+def test_handle_agent_edit_dev_delta_classifies_malformed_delta_as_closed_failure_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -951,7 +1294,7 @@ def test_handle_agent_edit_v2_classifies_malformed_delta_as_closed_failure_envel
             "SaveImage": _schema("SaveImage"),
         }
     )
-    _use_legacy_delta(monkeypatch)
+    _use_dev_delta(monkeypatch)
 
     result = handle_agent_edit(
         {
@@ -976,10 +1319,12 @@ def test_handle_agent_edit_v2_classifies_malformed_delta_as_closed_failure_envel
     dumped = json.dumps(result, sort_keys=True)
     assert "EditOpParseError" not in dumped
     assert "ValueError" not in dumped
+    assert "contract_version" not in result
+    assert "outcome" not in result
     assert "Unsupported edit op 'bogus'." == result["agent_failure_context"]["explanation"]
 
 
-def test_handle_agent_edit_v2_classifies_provider_error_as_closed_failure_envelope(
+def test_handle_agent_edit_dev_delta_classifies_provider_error_as_closed_failure_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -989,7 +1334,7 @@ def test_handle_agent_edit_v2_classifies_provider_error_as_closed_failure_envelo
             "SaveImage": _schema("SaveImage"),
         }
     )
-    _use_legacy_delta(monkeypatch)
+    _use_dev_delta(monkeypatch)
 
     from vibecomfy.comfy_nodes import agent_provider as provider_mod
 
@@ -1018,23 +1363,25 @@ def test_handle_agent_edit_v2_classifies_provider_error_as_closed_failure_envelo
     assert "ProviderError(" not in json.dumps(result, sort_keys=True)
 
 
-# ── M2 T4 — flag-off regression tests ────────────────────────────────────
+# ── Dev-only parity coverage ──────────────────────────────────────────
 
 
-def test_flag_off_legacy_stage_order_and_prompt_unchanged_with_batch_repl_unset(
+def test_flag_off_dev_full_stage_order_and_prompt_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When VIBECOMFY_AGENT_EDIT_BATCH_REPL is explicitly unset (and V2 is
-    unset), the legacy pipeline stage order, provider prompt shape, and
-    response artifacts remain identical to the pre-batch-REPL codebase."""
+    """When the dev-only full protocol is enabled
+    (VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS=1,
+    VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL=full), the pipeline stage order,
+    provider prompt shape, and response artifacts remain identical to the
+    pre-batch-REPL codebase full-protocol path."""
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
             "SaveImage": _schema("SaveImage"),
         }
     )
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
 
     from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
     from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
@@ -1051,7 +1398,7 @@ def test_flag_off_legacy_stage_order_and_prompt_unchanged_with_batch_repl_unset(
         {
             "graph": _ui_graph(),
             "task": "change the save prefix to after",
-            "session_id": "flag-off-legacy",
+            "session_id": "flag-off-dev-full",
         },
         schema_provider=provider,
         deepseek_client=_fake_deepseek_replace(
@@ -1062,11 +1409,11 @@ def test_flag_off_legacy_stage_order_and_prompt_unchanged_with_batch_repl_unset(
 
     # ── stage order ──────────────────────────────────────────────────
     assert result["ok"] is True
-    # Legacy path records StageResults for ingest, convert, agent, load_python,
-    # lower, validate, emit, queue_validate, and summarize.  The audit stage is
-    # recorded as a StageResult only in the v2 path (for agent_edit_v2 metadata
-    # injection); the legacy path calls _stage_audit directly without a preceding
-    # _record, so "audit" does not appear in the captured stage_results.
+    # Dev-only full path records StageResults for ingest, convert, agent,
+    # load_python, lower, validate, emit, queue_validate, and summarize.  The audit
+    # stage is recorded as a StageResult only in the delta path (for agent_edit_v2
+    # metadata injection); the full path calls _stage_audit directly without a
+    # preceding _record, so "audit" does not appear in the captured stage_results.
     assert stage_order == [
         "ingest",
         "convert",
@@ -1078,12 +1425,12 @@ def test_flag_off_legacy_stage_order_and_prompt_unchanged_with_batch_repl_unset(
         "queue_validate",
         "summarize",
     ]
-    # Authoring / delta stages must NOT appear in the legacy path.
+    # Authoring / delta stages must NOT appear in the dev-only full path.
     assert {"project", "agent_delta", "apply_delta"}.isdisjoint(stage_order)
 
     # ── provider prompt shape ─────────────────────────────────────────
     request = json.loads(Path(result["artifacts"]["model_request"]).read_text(encoding="utf-8"))
-    # Legacy prompt is simple JSON with keys `python` + `message` — never delta.
+    # Full-protocol prompt is simple JSON with keys `python` + `message` — never delta.
     assert "response_contract" not in request
     system = request["messages"][0]["content"]
     user = request["messages"][1]["content"]
@@ -1100,9 +1447,9 @@ def test_flag_off_legacy_stage_order_and_prompt_unchanged_with_batch_repl_unset(
     assert "after_python" in result["artifacts"]
     assert Path(result["artifacts"]["before_python"]).name == "before.py"
     assert Path(result["artifacts"]["after_python"]).name == "after.py"
-    # V2-only artifact must NOT leak into the legacy path.
+    # Delta-only artifact must NOT leak into the full path.
     assert "projection" not in result["artifacts"]
-    # delta_ops must NOT leak into the legacy response.
+    # delta_ops must NOT leak into the full-protocol response.
     assert "delta_ops" not in result
 
     # ── audit shape ───────────────────────────────────────────────────
@@ -1114,21 +1461,22 @@ def test_flag_off_legacy_stage_order_and_prompt_unchanged_with_batch_repl_unset(
     assert "response_contract" not in json.dumps(audit)
 
 
-def test_flag_off_v2_delta_stage_order_and_prompt_unchanged_with_batch_repl_unset(
+def test_flag_off_dev_delta_stage_order_and_prompt_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When VIBECOMFY_AGENT_EDIT_BATCH_REPL is explicitly unset but
-    VIBECOMFY_AGENT_EDIT_V2=1, the v2 JSON-delta pipeline stage order,
+    """When the dev-only delta protocol is enabled
+    (VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS=1,
+    VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL=delta), the pipeline stage order,
     provider prompt shape, ``response_contract=\"delta\"`` marker, and
-    response artifacts remain identical to the pre-batch-REPL codebase."""
+    response artifacts remain identical to the pre-batch-REPL delta path."""
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
             "SaveImage": _schema("SaveImage"),
         }
     )
-    _use_legacy_delta(monkeypatch)
+    _use_dev_delta(monkeypatch)
 
     def _fake_delta(messages):
         prompt = messages[-1]["content"]
@@ -1178,7 +1526,7 @@ def test_flag_off_v2_delta_stage_order_and_prompt_unchanged_with_batch_repl_unse
         "summarize",
         "audit",
     ]
-    # Authoring / legacy stages must NOT appear in the v2 delta path.
+    # Authoring / full-protocol stages must NOT appear in the dev-only delta path.
     assert {"convert", "agent", "load_python", "lower", "validate", "emit"}.isdisjoint(stage_order)
 
     # ── provider prompt shape ─────────────────────────────────────────
@@ -1195,7 +1543,7 @@ def test_flag_off_v2_delta_stage_order_and_prompt_unchanged_with_batch_repl_unse
     # ── response artifacts ────────────────────────────────────────────
     assert "projection" in result["artifacts"]
     assert Path(result["artifacts"]["projection"]).name == "projection.txt"
-    # Legacy-only artifacts must NOT leak into the v2 path.
+    # Full-protocol artifacts must NOT leak into the delta path.
     assert "python" not in result["artifacts"]
     assert "before_python" not in result["artifacts"]
     assert "after_python" not in result["artifacts"]
@@ -1537,6 +1885,9 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
     )
     issue = result["agent_failure_context"]["issues"][0]
     assert issue["code"] == "batch_budget_exhausted"
+    assert result["message"] == (
+        "Applied 1 edit. I ran out of batch budget before completing the remaining changes."
+    )
     assert issue["detail"]["turn_count"] == 1
     assert issue["detail"]["budget_state"]["consecutive_errors"] == 1
 
@@ -1545,7 +1896,7 @@ def test_handle_agent_edit_batch_repl_reports_partial_success_hints_dependency_c
     assert batch_meta["turn_count"] == 1
     assert batch_meta["budget_state"]["remaining_batches"] == 3
     assert batch_meta["budget_state"]["consecutive_errors"] == 1
-    assert batch_meta["exit_mode"] == ""
+    assert batch_meta["exit_mode"] == "budget"
     assert batch_meta["final_summary"] == "Stopped after 1 batch turn(s); 3 batch(es) remaining."
     assert "Batch summary: 1 landed, 3 failed, 3 batch diagnostic(s), 3 batch(es) remaining, 1 consecutive error turn(s)." in batch_meta["feedback"]
     assert "✓ Statement 1: set_node_field" in batch_meta["feedback"]
@@ -1617,9 +1968,19 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     )
 
     assert result["ok"] is True
+    assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
+    assert result["outcome"] == {
+        "kind": "clarify",
+        "question": "before or after the face restoration?",
+    }
+    assert result["candidate"] is None
+    assert result["eligibility"] == result["apply_eligibility"]
+    assert result["debug"]["gates"] == result["gates"]
+    assert result["debug"]["hashes"]["candidate_graph_hash"] == result["candidate_graph_hash"]
+    assert result["debug"]["batch_repl"]["exit_mode"] == "pure_clarify"
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is True
-    assert result["message"] == "before or after the face restoration?"
+    assert result["message"] == "I need clarification before continuing."
     assert result["apply_allowed"] is False
     assert result["queue_allowed"] is False
     assert result["apply_eligibility"]["reason"] == "no_candidate"
@@ -1632,6 +1993,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     assert result["batch_turns"][0]["message"] == "I need one detail before continuing."
     assert result["batch_turns"][0]["clarification_required"] is True
     assert result["batch_turns"][0]["clarification_message"] == "before or after the face restoration?"
+    assert result["batch_turns"][0]["field_changes"] == []
     assert events == [
         (
             "vibecomfy.agent_edit.turn",
@@ -1650,7 +2012,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
                         "message": "before or after the face restoration?",
                     }
                 ],
-                "exit_mode": "clarify",
+                "exit_mode": "pure_clarify",
                 "budget": {
                     "remaining_batches": 2,
                     "consecutive_errors": 0,
@@ -1661,7 +2023,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     ]
 
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
-    assert audit["metadata"]["batch_repl"]["exit_mode"] == "clarify"
+    assert audit["metadata"]["batch_repl"]["exit_mode"] == "pure_clarify"
     assert audit["metadata"]["batch_repl"]["turn_count"] == 1
 
 
@@ -1704,24 +2066,54 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     )
 
     assert result["ok"] is True
+    assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert result["apply_allowed"] is True
     assert result["queue_allowed"] is False
-    assert result["message"].endswith(result["done_summary"])
+    assert result["candidate"]["state"] == "candidate"
+    assert result["candidate"]["graph"] == result["graph"]
+    assert result["candidate"]["graph_hash"] == result["candidate_graph_hash"]
+    assert result["candidate"]["structural_graph_hash"] == result["candidate_structural_graph_hash"]
+    assert result["eligibility"] == result["apply_eligibility"]
+    assert result["debug"]["gates"] == result["gates"]
+    assert result["debug"]["hashes"]["candidate_graph_hash"] == result["candidate_graph_hash"]
+    assert result["debug"]["batch_repl"]["exit_mode"] == "done"
+    assert result["message"].startswith("Applied 1 edit.")
+    assert result["done_summary"] in result["message"]
     assert result["done_summary"].startswith("Gate A passed:")
     assert "Gate B passed:" in result["done_summary"]
     assert "Set saveimage.filename_prefix" in result["done_summary"]
     assert "after" in result["done_summary"]
     assert result["report"]["done_summary"] == result["done_summary"]
+    assert result["outcome"] == {
+        "kind": "edit",
+        "changes": [
+            {
+                "uid": "2",
+                "field_path": "filename_prefix",
+                "old": None,
+                "new": "after",
+            }
+        ],
+    }
     assert len(result["batch_turns"]) == 2
     assert result["batch_turns"][0]["turn_number"] == 0
     assert result["batch_turns"][0]["batch_ok"] is True
     assert result["batch_turns"][0]["statement_count"] == 1
     assert result["batch_turns"][0]["landed_op_count"] == 1
+    assert result["batch_turns"][0]["field_changes"] == [
+        {
+            "uid": "2",
+            "field_path": "filename_prefix",
+            "old": None,
+            "new": "after",
+        }
+    ]
     assert result["batch_turns"][0]["diff"]
     assert result["batch_turns"][0]["report"]
     assert result["batch_turns"][1]["turn_number"] == 1
     assert result["batch_turns"][1]["statements"][0]["op_kind"] == "done"
     assert result["batch_turns"][1]["message"] == "Ready to commit the candidate."
+    assert result["batch_turns"][1]["field_changes"] == []
 
     graph_text = json.dumps(result["graph"], sort_keys=True)
     assert "after" in graph_text
@@ -1739,6 +2131,259 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     assert events[1][1]["turn_number"] == 1
     assert events[1][1]["exit_mode"] == "done"
     assert events[1][1]["done_summary"] == result["done_summary"]
+
+
+def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarify_outcome(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Adjusted the save prefix.",
+            },
+            {
+                "batch": 'clarify("Should I also rename the file stem?")',
+                "message": "I need one more detail before I continue.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix, then ask if the file stem should change too",
+            "session_id": "batch-edit-clarify",
+            "max_batches": 4,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
+    assert result["clarification_required"] is True
+    assert result["graph_unchanged"] is False
+    assert result["apply_allowed"] is True
+    assert result["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert result["candidate_graph_hash"] == payload_hash(result["graph"])
+    assert result["message"] == "Applied 1 edit. I still need clarification before continuing."
+    assert result["outcome"] == {
+        "kind": "edit+clarify",
+        "changes": [
+            {
+                "uid": "2",
+                "field_path": "filename_prefix",
+                "old": None,
+                "new": "after",
+            }
+        ],
+        "question": "Should I also rename the file stem?",
+    }
+    assert result["batch_turns"][0]["field_changes"] == [
+        {
+            "uid": "2",
+            "field_path": "filename_prefix",
+            "old": None,
+            "new": "after",
+        }
+    ]
+    assert result["batch_turns"][1]["field_changes"] == []
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["metadata"]["batch_repl"]["exit_mode"] == "edit_clarify"
+
+
+def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_keeps_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix, then ask if the file stem should change too",
+            "session_id": "batch-inline-edit-clarify",
+            "max_batches": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "batch": 'saveimage.filename_prefix = "after"; clarify("Should I also rename the file stem?")',
+            "message": "Adjusted the prefix and need one more detail.",
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["graph_unchanged"] is False
+    assert result["apply_allowed"] is True
+    assert result["candidate_graph_hash"] == payload_hash(result["graph"])
+    assert result["message"] == "Applied 1 edit. I still need clarification before continuing."
+    assert result["outcome"] == {
+        "kind": "edit+clarify",
+        "changes": [
+            {
+                "uid": "2",
+                "field_path": "filename_prefix",
+                "old": None,
+                "new": "after",
+            }
+        ],
+        "question": "Should I also rename the file stem?",
+    }
+    assert len(result["batch_turns"]) == 1
+    assert result["batch_turns"][0]["landed_op_count"] == 1
+    assert result["batch_turns"][0]["clarification_required"] is True
+    assert result["batch_turns"][0]["field_changes"] == result["outcome"]["changes"]
+
+
+@pytest.mark.parametrize(
+    ("session_id", "batch", "expected_prefix"),
+    [
+        (
+            "batch-comment-clarify-text",
+            '# clarify("not a call")\nsaveimage.filename_prefix = "after"\ndone()',
+            "after",
+        ),
+        (
+            "batch-string-clarify-text",
+            'saveimage.filename_prefix = "clarify(\\"not a call\\")"\ndone()',
+            'clarify("not a call")',
+        ),
+    ],
+)
+def test_handle_agent_edit_batch_repl_ignores_clarify_inside_comments_and_strings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    session_id: str,
+    batch: str,
+    expected_prefix: str,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix and finish",
+            "session_id": session_id,
+            "max_batches": 1,
+            "max_consecutive_errors": 1,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "batch": batch,
+            "message": "Applied the requested change.",
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"] == {
+        "kind": "edit",
+        "changes": [
+            {
+                "uid": "2",
+                "field_path": "filename_prefix",
+                "old": None,
+                "new": expected_prefix,
+            }
+        ],
+    }
+    assert not result.get("clarification_required", False)
+    assert result["batch_turns"][0]["batch"] == batch
+    assert "clarification_required" not in result["batch_turns"][0]
+    assert result["batch_turns"][0]["field_changes"] == result["outcome"]["changes"]
+
+
+@pytest.mark.parametrize(
+    ("session_id", "batch", "failure_kind", "diagnostic_code"),
+    [
+        (
+            "batch-non-terminal-clarify",
+            'clarify("first")\nsaveimage.filename_prefix = "after"',
+            FailureKind.MODEL_MISTAKE.value,
+            "unsupported_query_call",
+        ),
+        (
+            "batch-nested-clarify",
+            'saveimage.filename_prefix = str(clarify("nested"))',
+            FailureKind.UNREPRESENTABLE.value,
+            "nested_call_not_allowed",
+        ),
+        (
+            "batch-malformed-clarify",
+            'saveimage.filename_prefix = "after"; clarify("unterminated"',
+            FailureKind.MODEL_MISTAKE.value,
+            "batch_syntax_error",
+        ),
+    ],
+)
+def test_handle_agent_edit_batch_repl_rejects_malformed_or_non_terminal_clarify_shapes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    session_id: str,
+    batch: str,
+    failure_kind: str,
+    diagnostic_code: str,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix and finish",
+            "session_id": session_id,
+            "max_batches": 1,
+            "max_consecutive_errors": 1,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "batch": batch,
+            "message": "Tried to finish the request.",
+        },
+        session_root=tmp_path,
+    )
+
+    _assert_failure_defaults(
+        result,
+        kind=failure_kind,
+        stage="agent_batch",
+        audit_ref_expected=True,
+    )
+    _assert_product_failure_contract(
+        result,
+        failure_kind=failure_kind,
+        stage="agent_batch",
+    )
+    assert not result.get("clarification_required", False)
+    assert "question" not in result["outcome"]
+
+    audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["metadata"]["batch_repl"]["exit_mode"] == "budget"
+    response_turns = json.loads(
+        Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
+    )["turns"]
+    turn0 = response_turns[0]["batch_result"]
+    assert turn0["batch"] == batch
+    assert "clarification_required" not in turn0
+    assert any(
+        diagnostic["code"] == diagnostic_code
+        for diagnostic in (
+            list(turn0.get("diagnostics") or [])
+            + [
+                diagnostic
+                for statement in turn0.get("statements") or []
+                for diagnostic in statement.get("diagnostics") or []
+            ]
+        )
+    )
 
 
 def test_handle_agent_edit_batch_repl_refused_done_skips_emit_and_budget_failure_emits_terminal(
@@ -1866,6 +2511,17 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
     assert result["ok"] is True
     assert result["apply_allowed"] is True
     assert result["done_summary"].startswith("Gate A passed:")
+    assert result["outcome"] == {
+        "kind": "edit",
+        "changes": [
+            {
+                "uid": "2",
+                "field_path": "images",
+                "old": {"uid": "1", "output_slot": 2, "scope_path": ""},
+                "new": {"uid": "n1", "output_slot": "IMAGE", "scope_path": ""},
+            }
+        ],
+    }
 
     nodes = result["graph"]["nodes"]
     scale_node = next(node for node in nodes if node["type"] == "ImageScaleBy")
@@ -1893,6 +2549,14 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
         Path(audit["artifacts"]["model_response"]["path"]).read_text(encoding="utf-8")
     )["turns"][0]["batch_result"]
     assert turn0["landed_op_count"] == 2
+    assert turn0["field_changes"] == [
+        {
+            "uid": "2",
+            "field_path": "images",
+            "old": {"uid": "1", "output_slot": 2, "scope_path": ""},
+            "new": {"uid": "n1", "output_slot": "IMAGE", "scope_path": ""},
+        }
+    ]
     assert [item["op_kind"] for item in turn0["statements"]] == [
         "node_call",
         "upsert_link",
@@ -1990,6 +2654,23 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
     assert result["done_summary"].startswith("Gate A passed:")
     assert "Rewired saveimage.images" in result["done_summary"]
     assert "Set saveimage.filename_prefix" in result["done_summary"]
+    assert result["outcome"] == {
+        "kind": "edit",
+        "changes": [
+            {
+                "uid": "3",
+                "field_path": "images",
+                "old": {"uid": "2", "output_slot": 3, "scope_path": ""},
+                "new": {"uid": "1", "output_slot": "image", "scope_path": ""},
+            },
+            {
+                "uid": "3",
+                "field_path": "filename_prefix",
+                "old": None,
+                "new": "after",
+            }
+        ],
+    }
     assert len(captured_messages) == 4
     assert "Teaching report from previous turn:" in captured_messages[2][1]["content"]
     assert "unknown_target_field: SaveImage has no editable field or input named 'not_a_field'." in captured_messages[2][1]["content"]
@@ -2038,14 +2719,23 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
         "done()",
     ]
     assert response_turns[1]["batch_result"]["batch_ok"] is False
+    assert response_turns[1]["batch_result"]["field_changes"] == []
     assert response_turns[2]["batch_result"]["batch_ok"] is True
+    assert response_turns[2]["batch_result"]["field_changes"] == [
+        {
+            "uid": "3",
+            "field_path": "filename_prefix",
+            "old": None,
+            "new": "after",
+        }
+    ]
 
 
 def test_handle_agent_edit_validates_lowered_copy_after_load_python(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2154,7 +2844,7 @@ def test_handle_agent_edit_blocks_on_lowering_failure_before_validate_or_emit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2214,7 +2904,7 @@ def test_handle_agent_edit_threads_synthetic_lowered_provenance_without_emitting
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2318,7 +3008,7 @@ def test_handle_agent_edit_audit_threads_complete_lowering_metadata_and_keeps_qu
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2427,7 +3117,7 @@ def test_handle_agent_edit_uses_agent_generated_loader(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2505,9 +3195,62 @@ def test_handle_agent_edit_input_failures_return_frozen_envelopes(
         stage="ingest",
         audit_ref_expected=False,
     )
+    _assert_product_failure_contract(
+        result,
+        failure_kind=FailureKind.MISSING_REQUIRED_FIELD.value,
+        stage="ingest",
+    )
     assert result["agent_failure_context"]["explanation"] == explanation
     assert result["retryable"] is True
     assert "turn_id" not in result
+
+
+def test_handle_agent_edit_batch_repl_audit_failure_includes_typed_product_failure_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent_edit._stage_audit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Adjusted the save prefix.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready to commit the candidate.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after and finish",
+            "session_id": "batch-audit-failure",
+            "max_batches": 4,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    _assert_failure_defaults(
+        result,
+        kind=FailureKind.AUDIT_WRITE_FAILURE.value,
+        stage="audit",
+        audit_ref_expected=False,
+    )
+    _assert_product_failure_contract(
+        result,
+        failure_kind=FailureKind.AUDIT_WRITE_FAILURE.value,
+        stage="audit",
+    )
+    assert result["audit_error"] == "disk full"
 
 
 # ── T7: focused agent-edit provenance & hostile-rejection tests ──────────
@@ -2518,7 +3261,7 @@ def test_agent_edit_nodes_never_user_confirmed(
     monkeypatch: pytest.MonkeyPatch,
     _headless_gate_context: GateContext,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     """Prove that model-edited Python loaded through the agent-edit path
     carries ``agent_generated`` provenance, never ``user_confirmed``.
 
@@ -2596,7 +3339,7 @@ def test_agent_edit_rejects_hostile_model_output(
     monkeypatch: pytest.MonkeyPatch,
     _headless_gate_context: GateContext,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     """Hostile model output (command execution via ``os.system``) is rejected
     by the AST scanner before execution and before any gate interaction."""
     provider = _Provider(
@@ -2643,7 +3386,7 @@ def test_agent_edit_rejects_hostile_canary_no_execution(
     monkeypatch: pytest.MonkeyPatch,
     _headless_gate_context: GateContext,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     """Hostile model output that writes a canary file at module level is
     rejected before execution — the canary file must not exist."""
     provider = _Provider(
@@ -2687,7 +3430,7 @@ def test_agent_edit_rejects_multiple_hostile_bypass_classes(
     monkeypatch: pytest.MonkeyPatch,
     _headless_gate_context: GateContext,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     """A representative set of hostile bypass classes is rejected before
     execution through the agent-edit path. Each fixture is fed as model
     output and must produce ``AgentGeneratedLoadError``."""
@@ -2737,7 +3480,7 @@ def test_agent_edit_rejects_malformed_syntax_from_model(
     monkeypatch: pytest.MonkeyPatch,
     _headless_gate_context: GateContext,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     """Malformed Python syntax from the model is caught in the load_python
     phase and never executed."""
     provider = _Provider(
@@ -2770,7 +3513,7 @@ def test_agent_edit_stage_failure_keeps_untouched_gates_false_and_writes_audit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2816,7 +3559,7 @@ def test_agent_edit_uses_provider_seam_and_classifies_provider_unavailable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2854,7 +3597,7 @@ def test_agent_edit_classifies_provider_malformed_and_missing_fields(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2913,7 +3656,7 @@ def test_agent_edit_convert_stage_classifies_known_errors(
     exc_factory,
     expected_kind: str,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -2950,7 +3693,7 @@ def test_agent_edit_hostile_loader_failure_keeps_exact_failure_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -3017,7 +3760,7 @@ def test_agent_edit_emit_stage_classifies_refusal_and_editor_ahead(
     exc: Exception,
     expected_kind: str,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -3056,7 +3799,7 @@ def test_agent_edit_idempotency_conflict_returns_stale_state_mismatch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -3106,7 +3849,7 @@ def test_agent_edit_stale_submit_fails_at_ingest_via_state_match_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
 
     provider = _Provider(
@@ -3183,7 +3926,7 @@ def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
 
     provider = _Provider(
@@ -3245,7 +3988,7 @@ def test_agent_edit_submit_after_accept_still_blocks_real_structural_divergence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
 
     provider = _Provider(
@@ -3311,7 +4054,7 @@ def test_agent_edit_queue_blockers_keep_canvas_apply_true_but_queue_false(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -3367,7 +4110,7 @@ def test_agent_edit_unknown_transition_audit_failure_does_not_rollback_session_s
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     from vibecomfy.comfy_nodes import agent_audit, agent_edit as agent_edit_module
     from vibecomfy.comfy_nodes.agent_session import read_state
 
@@ -3416,7 +4159,7 @@ def test_agent_edit_writes_unknown_transition_audit_with_unknown_turn_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     from vibecomfy.comfy_nodes.agent_session import read_state
 
     provider = _Provider(
@@ -3460,7 +4203,7 @@ def test_agent_edit_audit_failure_returns_exact_failure_envelope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     provider = _Provider(
         {
             "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
@@ -4032,7 +4775,7 @@ def test_route_edit_idempotency_replays_same_request_body(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _use_legacy_full(monkeypatch)
+    _use_dev_full(monkeypatch)
     """Route-level same-body replay for the edit endpoint: sending the
     same payload with the same idempotency key returns the identical
     success response.
@@ -4301,11 +5044,15 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
 
     assert unavailable == {
         "ok": False,
+        "ready": False,
+        "reason": "not installed",
+        "readiness": "unavailable",
         "route": "arnold",
         "requested_route": "openai-codex",
         "model": "agent-edit",
         "provider": "arnold",
         "provider_available": False,
+        "contract_version": "agent_edit_turn_v2",
         "error": "not installed",
         "route_metadata": {
             "requested_route": "openai-codex",
@@ -4412,3 +5159,313 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
     assert audit_payload["artifacts"]["request"]["deepseek_api_key"] == "<REDACTED>"
     assert audit_payload["artifacts"]["request"]["credential_payload"] == "<REDACTED>"
     assert "deepseek-secret" not in json.dumps(audit_payload)
+
+
+# ── message-synthesis tests (T24) ─────────────────────────────────────────
+
+
+def _make_state(**overrides: Any) -> AgentEditState:
+    """Create a minimal AgentEditState for message-synthesis testing."""
+    from pathlib import Path as _Path
+
+    defaults: dict[str, Any] = {
+        "task": "test task",
+        "graph": {},
+        "request_payload": {},
+        "schema_provider": None,
+        "baseline_graph_hash": None,
+        "submit_graph_hash": None,
+        "submit_structural_graph_hash": None,
+        "submitted_client_graph_hash": None,
+        "submitted_client_structural_graph_hash": None,
+        "session_dir": _Path("/tmp/test_session"),
+        "turn_dir": _Path("/tmp/test_session/turn_001"),
+        "request_path": _Path("/tmp/test_session/request.json"),
+        "original_ui_path": _Path("/tmp/test_session/original.json"),
+        "before_py_path": _Path("/tmp/test_session/before.py"),
+        "after_py_path": _Path("/tmp/test_session/after.py"),
+        "projection_path": _Path("/tmp/test_session/projection.json"),
+        "model_request_path": _Path("/tmp/test_session/model_request.json"),
+        "model_response_path": _Path("/tmp/test_session/model_response.json"),
+        "candidate_ui_path": _Path("/tmp/test_session/candidate.json"),
+        "messages_path": _Path("/tmp/test_session/messages.json"),
+        "user_message": "",
+        "batch_field_changes": (),
+        "batch_done_summary": "",
+        "batch_final_summary": "",
+        "batch_exit_mode": "",
+    }
+    defaults.update(overrides)
+    return AgentEditState(**defaults)
+
+
+def test_synthesize_message_empty_prose_with_valid_batch_fence() -> None:
+    """Empty user_message with no outcome still produces a non-empty sentence."""
+    state = _make_state(user_message="")
+    msg = _synthesize_batch_repl_message(state)
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+    assert "completed" in msg.lower() or "edit" in msg.lower()
+
+
+def test_synthesize_message_empty_prose_with_noop_outcome() -> None:
+    """Empty prose with explicit noop outcome produces a sensible message."""
+    state = _make_state(user_message="")
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.noop())
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+
+
+def test_synthesize_message_noop_done_with_summary() -> None:
+    """No-op done() with a summary message uses that summary."""
+    state = _make_state(
+        user_message="",
+        batch_done_summary="All requested changes already match the current graph",
+        batch_exit_mode="noop",
+    )
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.noop())
+    assert "All requested changes already match the current graph" in msg
+
+
+def test_synthesize_message_noop_done_without_summary_falls_back() -> None:
+    """No-op done() without summary falls back to default message."""
+    state = _make_state(user_message="", batch_exit_mode="noop")
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.noop())
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+    assert "graph" in msg.lower()
+
+
+def test_synthesize_message_diagnostic_only_turn() -> None:
+    """A turn that only produces diagnostics (no edits) gets a noop message."""
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="noop",
+        batch_done_summary="",
+    )
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.noop(reason="Diagnostic scan complete"))
+    # The reason is stored on the outcome but not used by the synthesis for noop;
+    # the synthesis uses batch_done_summary, which is empty, so it falls back.
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+
+
+def test_synthesize_message_budget_exhaustion() -> None:
+    """Budget exhaustion produces the expected budget message."""
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="budget",
+        batch_final_summary="Too many turns without progress",
+    )
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.budget())
+    assert "budget" in msg.lower() or "ran out" in msg.lower()
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+
+
+def test_synthesize_message_budget_exhaustion_with_landed_edits() -> None:
+    """Budget exhaustion outcome produces plain budget message (no lead for outcome path)."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="budget",
+        batch_final_summary="Could not finish all edits",
+        batch_field_changes=(
+            FieldChange(uid="widget", field_path="seed", old=1, new=9),
+            FieldChange(uid="widget", field_path="steps", old=20, new=30),
+        ),
+    )
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.budget())
+    # Budget outcome path returns the budget message directly; lead is only added
+    # in the failure path (where failure + _BATCH_EXIT_BUDGET combines lead + warning).
+    assert "budget" in msg.lower() or "ran out" in msg.lower()
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+
+
+def test_synthesize_message_partial_success_with_diagnostics() -> None:
+    """Partial success: some edits landed, failure set (with budget exit) — lead + warning."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    failure = failure_envelope(
+        FailureKind.MODEL_MISTAKE,
+        "agent_batch",
+        TurnContext(session_id="s1", turn_id="t1"),
+    )
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="budget",
+        batch_final_summary="Some edits could not be applied",
+        batch_field_changes=(
+            FieldChange(uid="node1", field_path="x", old=0, new=100),
+        ),
+    )
+    msg = _synthesize_batch_repl_message(state, failure=failure)
+    assert "Applied 1 edit" in msg
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+
+
+def test_synthesize_message_partial_success_with_diagnostics_no_lead() -> None:
+    """Partial success with failure but zero landed edits — just the warning."""
+    failure = failure_envelope(
+        FailureKind.VALIDATION_ERROR,
+        "lower",
+        TurnContext(session_id="s1", turn_id="t1"),
+    )
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="",
+        batch_field_changes=(),
+    )
+    msg = _synthesize_batch_repl_message(state, failure=failure)
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+    assert "Applied" not in msg  # No lead for zero edits
+
+
+def test_synthesize_message_landed_edit_lead_single() -> None:
+    """Single landed edit produces 'Applied 1 edit.' lead."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    state = _make_state(
+        batch_field_changes=(FieldChange(uid="a", field_path="p", old=1, new=2),),
+    )
+    lead = _landed_edit_lead(state)
+    assert lead == "Applied 1 edit."
+
+
+def test_synthesize_message_landed_edit_lead_multiple() -> None:
+    """Multiple landed edits produce 'Applied N edits.' lead."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    state = _make_state(
+        batch_field_changes=(
+            FieldChange(uid="a", field_path="p", old=1, new=2),
+            FieldChange(uid="b", field_path="q", old=3, new=4),
+            FieldChange(uid="c", field_path="r", old=5, new=6),
+        ),
+    )
+    lead = _landed_edit_lead(state)
+    assert lead == "Applied 3 edits."
+
+
+def test_synthesize_message_landed_edit_lead_zero() -> None:
+    """Zero landed edits produces empty lead string."""
+    state = _make_state(batch_field_changes=())
+    lead = _landed_edit_lead(state)
+    assert lead == ""
+
+
+def test_synthesize_message_edit_outcome_with_done_summary() -> None:
+    """Edit outcome with done_summary combines lead + summary."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="done",
+        batch_done_summary="The candidate is ready",
+        batch_field_changes=(
+            FieldChange(uid="widget", field_path="seed", old=1, new=9),
+        ),
+    )
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.edit())
+    assert "Applied 1 edit" in msg
+    assert "The candidate is ready" in msg
+
+
+def test_synthesize_message_clarify_outcome() -> None:
+    """Pure clarify produces the expected clarification message."""
+    state = _make_state(user_message="", batch_exit_mode="pure_clarify")
+    msg = _synthesize_batch_repl_message(state, outcome=TurnOutcome.clarify())
+    assert "clarification" in msg.lower()
+
+
+def test_synthesize_message_edit_clarify_outcome() -> None:
+    """Edit+clarify combines lead + clarification warning."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="edit_clarify",
+        batch_field_changes=(
+            FieldChange(uid="a", field_path="x", old=0, new=1),
+        ),
+    )
+    msg = _synthesize_batch_repl_message(
+        state, outcome=TurnOutcome.edit_and_clarify(question="Should I continue?")
+    )
+    assert "Applied 1 edit" in msg
+    assert "clarification" in msg.lower()
+
+
+def test_synthesize_message_failure_budget_with_lead() -> None:
+    """Failure with budget exit and landed edits gives lead + budget message."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    failure = failure_envelope(
+        FailureKind.MODEL_MISTAKE,
+        "agent_batch",
+        TurnContext(session_id="s1", turn_id="t1"),
+    )
+    state = _make_state(
+        user_message="",
+        batch_exit_mode="budget",
+        batch_final_summary="Budget exhausted",
+        batch_field_changes=(
+            FieldChange(uid="n1", field_path="a", old=0, new=1),
+        ),
+    )
+    msg = _synthesize_batch_repl_message(state, failure=failure)
+    assert "Applied 1 edit" in msg
+    assert "budget" in msg.lower() or "ran out" in msg.lower()
+
+
+def test_synthesize_message_failure_non_budget() -> None:
+    """Non-budget failure produces a warning about unlanded edits."""
+    failure = failure_envelope(
+        FailureKind.VALIDATION_ERROR,
+        "lower",
+        TurnContext(session_id="s1", turn_id="t1"),
+    )
+    state = _make_state(user_message="")
+    msg = _synthesize_batch_repl_message(state, failure=failure)
+    assert len(msg) > 0
+    assert msg[-1] in ".!?"
+    # Non-budget failure gets the "did not land" / "stopped before applying" message
+    assert "did not land" in msg.lower() or "stopped" in msg.lower() or "validation" in msg.lower()
+
+
+def test_synthesize_message_all_messages_are_non_empty() -> None:
+    """Every code path produces a non-empty sentence-shaped message."""
+    from vibecomfy.porting.edit_types import FieldChange
+
+    scenarios: list[tuple[AgentEditState, TurnOutcome | None, FailureEnvelope | None]] = [
+        # (state, outcome, failure)
+        (_make_state(), None, None),
+        (_make_state(), TurnOutcome.edit(), None),
+        (_make_state(), TurnOutcome.noop(), None),
+        (_make_state(), TurnOutcome.clarify(), None),
+        (_make_state(), TurnOutcome.budget(), None),
+        (
+            _make_state(
+                batch_field_changes=(FieldChange(uid="x", field_path="y", old=1, new=2),),
+            ),
+            TurnOutcome.edit_and_clarify(),
+            None,
+        ),
+        (
+            _make_state(),
+            None,
+            failure_envelope(
+                FailureKind.MODEL_MISTAKE,
+                "agent_batch",
+                TurnContext(session_id="s1", turn_id="t1"),
+            ),
+        ),
+    ]
+    for state, outcome, failure in scenarios:
+        msg = _synthesize_batch_repl_message(state, outcome=outcome, failure=failure)
+        assert len(msg) > 0, f"Empty message for outcome={outcome}, failure={failure}"
+        assert msg[-1] in ".!?", f"Message not sentence-shaped: {msg!r}"

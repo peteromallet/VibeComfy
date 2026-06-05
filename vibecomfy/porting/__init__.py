@@ -26,6 +26,7 @@ from vibecomfy.porting.edit_session import (
     OutputSlotInfo,
     StatementResult,
 )
+from vibecomfy.porting.edit_types import FieldChange
 from vibecomfy.porting.parity import (
     class_type_counter,
     compile_equivalent,
@@ -77,6 +78,7 @@ __all__ = [
     "DoneResult",
     "EditSession",
     "EmissionDiagnostic",
+    "FieldChange",
     "encode_slot_names",
     "emit_agent_edit_python",
     "emit_available_node_signatures",

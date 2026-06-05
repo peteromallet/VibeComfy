@@ -5,16 +5,23 @@ import json
 import pytest
 
 from vibecomfy.comfy_nodes.agent_contracts import (
+    AGENT_EDIT_TURN_CONTRACT_VERSION,
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,
     FAILURE_SPECS,
     SCAN_CODE_FAILURE_KIND,
     FailureEnvelope,
     FailureKind,
+    TURN_OUTCOME_KINDS,
     TurnContext,
+    TurnOutcome,
     classify_failure,
     failure_envelope,
+    product_failure_envelope_fields,
+    success_envelope,
+    turn_envelope,
 )
+from vibecomfy.porting.edit_types import FieldChange
 from vibecomfy.security.agent_generated_loader import (
     AgentGeneratedLoadError,
     ScanFailure,
@@ -143,6 +150,119 @@ def test_failure_envelope_shape_is_frozen_and_uses_apply_alias() -> None:
 
     with pytest.raises(TypeError):
         failure.agent_failure_context["other"] = "nope"  # type: ignore[index]
+
+
+def test_turn_outcome_kinds_are_closed_and_ordered() -> None:
+    assert TURN_OUTCOME_KINDS == (
+        "edit",
+        "clarify",
+        "edit+clarify",
+        "failure",
+        "noop",
+        "budget",
+    )
+
+
+def test_turn_outcome_to_dict_serializes_edit_and_clarify_discriminants() -> None:
+    outcome = TurnOutcome.edit_and_clarify(
+        changes=(
+            FieldChange(
+                uid="node-7",
+                field_path="widgets.seed",
+                old={"value": 7},
+                new={"value": 9},
+            ),
+        ),
+        question="Should I also rename the output prefix?",
+    )
+
+    assert outcome.to_dict() == {
+        "kind": "edit+clarify",
+        "changes": [
+            {
+                "uid": "node-7",
+                "field_path": "widgets.seed",
+                "old": {"value": 7},
+                "new": {"value": 9},
+            }
+        ],
+        "question": "Should I also rename the output prefix?",
+    }
+
+
+def test_turn_outcome_failure_to_dict_includes_required_discriminants() -> None:
+    failure = failure_envelope(
+        FailureKind.TIMEOUT_ERROR,
+        "agent_response",
+        TurnContext(session_id="s1", turn_id="0001"),
+        agent_failure_context={"explanation": "provider timed out"},
+    )
+
+    assert TurnOutcome.from_failure(failure).to_dict() == {
+        "kind": "failure",
+        "failure_kind": FailureKind.TIMEOUT_ERROR.value,
+        "stage": "agent_response",
+        "retryable": True,
+        "next_action": "retry with the same request",
+        "graph_unchanged": True,
+    }
+
+
+def test_product_failure_outcome_payload_keeps_contract_version_and_context() -> None:
+    failure = failure_envelope(
+        FailureKind.MISSING_REQUIRED_FIELD,
+        "agent_response",
+        TurnContext(session_id="s1"),
+        agent_failure_context={"explanation": "missing python"},
+    )
+    payload = failure.to_dict()
+    payload.update(product_failure_envelope_fields(failure))
+
+    assert payload["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
+    assert payload["outcome"]["kind"] == "failure"
+    assert payload["outcome"]["failure_kind"] == FailureKind.MISSING_REQUIRED_FIELD.value
+    assert payload["candidate"] is None
+    assert payload["eligibility"]["reason"] == "server_blocked"
+    assert payload["audit_ref"] is None
+    assert payload["debug"]["failure"]["kind"] == FailureKind.MISSING_REQUIRED_FIELD.value
+
+
+def test_turn_envelope_serializes_versioned_product_contract() -> None:
+    context = TurnContext(session_id="s1", turn_id="0001")
+    context.set_gate("python_load_ok", True)
+    eligibility = context.apply_eligibility
+
+    payload = turn_envelope(
+        message="  Updated the save prefix.  ",
+        outcome=TurnOutcome.edit(),
+        candidate={"state": "candidate", "graph_hash": "abc123"},
+        eligibility=eligibility,
+        debug={"gates": context.gate_snapshot()},
+    )
+
+    assert payload == {
+        "contract_version": AGENT_EDIT_TURN_CONTRACT_VERSION,
+        "message": "Updated the save prefix.",
+        "outcome": {"kind": "edit", "changes": []},
+        "candidate": {"state": "candidate", "graph_hash": "abc123"},
+        "eligibility": eligibility.to_dict(),
+        "audit_ref": None,
+        "debug": {"gates": context.gate_snapshot()},
+    }
+
+
+def test_success_envelope_keeps_canonical_and_compatibility_eligibility_fields() -> None:
+    context = TurnContext(session_id="s1", turn_id="0001")
+    context.set_gate("python_load_ok", True)
+
+    payload = success_envelope(
+        context,
+        message="Applied the requested edit.",
+        graph={"nodes": [], "links": []},
+    )
+
+    assert payload["eligibility"] == context.apply_eligibility.to_dict()
+    assert payload["apply_eligibility"] == payload["eligibility"]
 
 
 # ---------------------------------------------------------------------------

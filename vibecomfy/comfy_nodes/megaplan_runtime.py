@@ -97,6 +97,30 @@ def _resolve_deepseek_key() -> str | None:
     return os.getenv("DEEPSEEK_API_KEY")
 
 
+def _normalize_route(route: str | None) -> str:
+    normalized = (route or "arnold").strip().lower()
+    if normalized in {"auto", "anthropic", "openai-codex"}:
+        return "arnold"
+    return normalized or "arnold"
+
+
+def _default_model_for_route(route: str, model: str | None) -> str:
+    if model:
+        return model
+    return _DEEPSEEK_MODEL if route == "deepseek" else _ARNOLD_MODEL
+
+
+def _has_arnold_credential() -> bool:
+    return bool(
+        os.getenv("ANTHROPIC_API_KEY")
+        or os.getenv("ANTHROPIC_TOKEN")
+        or os.getenv("OPENROUTER_API_KEY")
+        or os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
+        or Path("~/.claude/.credentials.json").expanduser().exists()
+        or Path("~/.hermes/.anthropic_oauth.json").expanduser().exists()
+    )
+
+
 def _split_messages(messages: Sequence[Mapping[str, Any]] | None) -> tuple[str | None, str | None]:
     """Return (system_message, user_message) from VibeComfy's built messages."""
     system_msg: str | None = None
@@ -200,7 +224,7 @@ def run_agent_turn(
 
     Returns ``{"python": <str>, "message": <str>}`` as VibeComfy expects.
     """
-    normalized = (route or "arnold").strip().lower()
+    normalized = _normalize_route(route)
     system_msg, user_msg = _split_messages(messages)
     if user_msg is None:
         # Fall back to reconstructing the user message from the raw inputs.
@@ -238,7 +262,7 @@ def run_agent_turn_delta(
     messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one v2 agent-edit turn and return ``{"delta": [...], "message": str}``."""
-    normalized = (route or "arnold").strip().lower()
+    normalized = _normalize_route(route)
     system_msg, user_msg = _split_messages(messages)
     if user_msg is None:
         user_msg = (
@@ -272,7 +296,7 @@ def run_agent_turn_batch(
     messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one batch-REPL agent-edit turn and return raw model content."""
-    normalized = (route or "arnold").strip().lower()
+    normalized = _normalize_route(route)
     system_msg, user_msg = _split_messages(messages)
     if user_msg is None:
         user_msg = f"User request:\n{task}"
@@ -296,42 +320,32 @@ def run_agent_turn_batch(
     return {"content": result["content"]}
 
 
-def get_agent_status(*, route: str, model: str | None = None) -> dict[str, Any]:
-    """Report whether the selected route can actually run a turn.
-
-    VibeComfy's wrapper forces ``provider_available=True`` once this module
-    imports; the ``ok`` flag below is the real readiness gate.
-    """
-    normalized = (route or "arnold").strip().lower()
+def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
+    """Report backend readiness without depending on agent_provider."""
+    normalized = _normalize_route(route)
     backend = "megaplan.agent.run_agent.AIAgent"
     if normalized == "deepseek":
         key = _resolve_deepseek_key()
         return {
-            "ok": bool(key),
+            "ready": bool(key),
             "backend": backend,
-            "model": model or _DEEPSEEK_MODEL,
+            "route": normalized,
+            "model": _default_model_for_route(normalized, model),
             "base_url": _DEEPSEEK_BASE_URL,
             "deepseek_key_present": bool(key),
-            "detail": (
+            "reason": (
                 "DeepSeek key resolved; ready to run agent-edit turns."
                 if key
                 else "No DEEPSEEK_API_KEY in environment or ~/.hermes/.env."
             ),
         }
-    # arnold / auto / anthropic / openai-codex
-    has_anthropic = bool(
-        os.getenv("ANTHROPIC_API_KEY")
-        or os.getenv("ANTHROPIC_TOKEN")
-        or os.getenv("OPENROUTER_API_KEY")
-        or os.getenv("CLAUDE_CODE_OAUTH_TOKEN")
-        or (Path("~/.claude/.credentials.json").expanduser().exists())
-        or (Path("~/.hermes/.anthropic_oauth.json").expanduser().exists())
-    )
+    has_anthropic = _has_arnold_credential()
     return {
-        "ok": has_anthropic,
+        "ready": has_anthropic,
         "backend": backend,
-        "model": model or _ARNOLD_MODEL,
-        "detail": (
+        "route": normalized,
+        "model": _default_model_for_route(normalized, model),
+        "reason": (
             "Arnold/Hermes (Claude) credential resolved via local OAuth/API key."
             if has_anthropic
             else "No Anthropic/OpenRouter credential found for the Arnold route."
@@ -339,4 +353,20 @@ def get_agent_status(*, route: str, model: str | None = None) -> dict[str, Any]:
     }
 
 
-__all__ = ["run_agent_turn", "run_agent_turn_delta", "run_agent_turn_batch", "get_agent_status"]
+def get_agent_status(*, route: str, model: str | None = None) -> dict[str, Any]:
+    """Compatibility wrapper around readiness().
+
+    Prefer readiness(); this legacy shape remains for callers that still expect
+    status-like fields.
+    """
+    payload = readiness(route=route, model=model)
+    ready = bool(payload.get("ready"))
+    return {
+        **payload,
+        "ok": ready,
+        "detail": str(payload.get("reason") or ""),
+        "readiness": "ready" if ready else "unavailable",
+    }
+
+
+__all__ = ["run_agent_turn", "run_agent_turn_delta", "run_agent_turn_batch", "readiness", "get_agent_status"]

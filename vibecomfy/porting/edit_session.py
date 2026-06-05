@@ -24,6 +24,7 @@ from vibecomfy.porting.edit_ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
+from vibecomfy.porting.edit_types import FieldChange
 from vibecomfy.porting.emitter import EmissionDiagnostic, emit_agent_edit_python
 from vibecomfy.porting.edit_projection import HELPER_NODE_TYPES, MODE_LABELS
 from vibecomfy.porting.layout.placement import (
@@ -55,6 +56,7 @@ _RAW_COORDINATE_HINT_NAMES = frozenset({"pos", "position", "coords", "x", "y"})
 _SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)
 _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
 _MODE_LABEL_TO_VALUE = {str(label): mode for mode, label in MODE_LABELS.items()}
+_UNRESOLVED_OLD_VALUE = object()
 
 
 class _ConstantFoldError(Exception):
@@ -103,6 +105,7 @@ class BatchResult:
     statements: tuple[StatementResult, ...] = ()
     diagnostics: tuple[CompactDiagnostic, ...] = ()
     landed_ops: tuple[Any, ...] = ()
+    field_changes: tuple[FieldChange, ...] = ()
 
     def render_diff(self) -> str:
         """Produce a compact diff view of the batch results.
@@ -461,11 +464,16 @@ class EditSession:
             parsed.expanded,
             placement_facts=placement_facts,
         )
+        field_changes, statement_results = self._build_field_changes(
+            landed_ops,
+            statement_results,
+        )
         return BatchResult(
             ok=not diagnostics and all(statement.ok for statement in statement_results),
             statements=statement_results,
             diagnostics=diagnostics,
             landed_ops=landed_ops,
+            field_changes=field_changes,
         )
 
     def done(self) -> DoneResult:
@@ -1043,7 +1051,7 @@ class EditSession:
         """Look up a widget value from the original ledger by field name."""
         node = self.original_ledger.resolve_node(scope_path or "", uid)
         if node is None:
-            return None
+            return _UNRESOLVED_OLD_VALUE
         return self._resolve_widget_value(node, field)
 
     def _node_field_value(
@@ -1090,12 +1098,124 @@ class EditSession:
                 pass
         return None
 
-    def _original_node_mode(self, scope_path: str, uid: str) -> int:
+    def _original_node_mode(self, scope_path: str, uid: str) -> Any:
         """Look up the original mode of a node from the original ledger."""
         node = self.original_ledger.resolve_node(scope_path or "", uid)
         if node is not None:
             return node.get("mode", 0)
-        return 0
+        return _UNRESOLVED_OLD_VALUE
+
+    def _build_field_changes(
+        self,
+        landed_ops: tuple[EditOp, ...],
+        statement_results: tuple[StatementResult, ...],
+    ) -> tuple[tuple[FieldChange, ...], tuple[StatementResult, ...]]:
+        if not landed_ops:
+            return (), statement_results
+
+        field_changes: list[FieldChange] = []
+        unresolved_by_statement: dict[int, list[CompactDiagnostic]] = {}
+        landed_statement_indexes = [i for i, statement in enumerate(statement_results) if statement.landed]
+
+        for op_index, op in enumerate(landed_ops):
+            if op_index >= len(landed_statement_indexes):
+                break
+            statement_index = landed_statement_indexes[op_index]
+            change, unresolved = self._field_change_from_landed_op(op)
+            if change is not None:
+                field_changes.append(change)
+            if unresolved is not None:
+                unresolved_by_statement.setdefault(statement_index, []).append(unresolved)
+
+        if not unresolved_by_statement:
+            return tuple(field_changes), statement_results
+
+        updated_results: list[StatementResult] = list(statement_results)
+        for statement_index, extras in unresolved_by_statement.items():
+            statement = updated_results[statement_index]
+            updated_results[statement_index] = StatementResult(
+                statement_index=statement.statement_index,
+                source=statement.source,
+                ok=statement.ok,
+                diagnostics=statement.diagnostics + tuple(extras),
+                landed=statement.landed,
+                op_kind=statement.op_kind,
+                detail=dict(statement.detail),
+                touched_uids=statement.touched_uids,
+                dependency_cause=statement.dependency_cause,
+                teaching_hint=statement.teaching_hint,
+            )
+        return tuple(field_changes), tuple(updated_results)
+
+    def _field_change_from_landed_op(
+        self, op: EditOp
+    ) -> tuple[FieldChange | None, CompactDiagnostic | None]:
+        if isinstance(op, SetNodeFieldOp):
+            old = self._original_node_field_value(
+                op.target.scope_path, op.target.uid, op.target.field_path
+            )
+            new = op.value
+            field_path = op.target.field_path
+            uid = op.target.uid
+        elif isinstance(op, SetModeOp):
+            old = self._original_node_mode(op.target.scope_path, op.target.uid)
+            new = op.mode
+            field_path = "mode"
+            uid = op.target.uid
+        elif isinstance(op, UpsertLinkOp):
+            old = self._original_link_value(
+                op.target.scope_path, op.target.uid, op.target.input_field
+            )
+            new = self._link_ref_value(op.source)
+            field_path = op.target.input_field
+            uid = op.target.uid
+        elif isinstance(op, RemoveLinkOp) and op.target is not None:
+            old = self._original_link_value(
+                op.target.scope_path, op.target.uid, op.target.input_field
+            )
+            new = None
+            field_path = op.target.input_field
+            uid = op.target.uid
+        else:
+            return None, None
+
+        unresolved = None
+        if old is _UNRESOLVED_OLD_VALUE:
+            unresolved = _diag(
+                "field_change_old_unresolved",
+                (
+                    f"Could not resolve the original value for {uid}.{field_path}; "
+                    "emitting the landed change with old=None."
+                ),
+                severity="info",
+                detail={"uid": uid, "field_path": field_path},
+            )
+            old = None
+        return FieldChange(uid=uid, field_path=field_path, old=old, new=new), unresolved
+
+    def _original_link_value(self, scope_path: str, uid: str, input_field: str) -> Any:
+        node = self.original_ledger.resolve_node(scope_path or "", uid)
+        if node is None:
+            return _UNRESOLVED_OLD_VALUE
+        resolved = self._find_link_to_target_in_ledger(
+            self.original_ledger, scope_path, uid, input_field
+        )
+        if resolved is None:
+            return None
+        src_uid, output_slot = resolved
+        return {
+            "scope_path": scope_path,
+            "uid": src_uid,
+            "output_slot": output_slot,
+        }
+
+    @staticmethod
+    def _link_ref_value(source: LinkSourceRef) -> dict[str, Any]:
+        return {
+            "scope_path": source.scope_path,
+            "uid": source.uid,
+            "output_slot": source.output_slot,
+        }
 
     def _node_mode(self, scope_path: str, uid: str) -> int:
         """Look up the current mode of a node from the working ledger."""
@@ -2682,6 +2802,14 @@ def _validate_call(
         if node.args or node.keywords:
             return [_unsafe(node, "done_arguments_not_allowed", "done() does not accept arguments.")]
         return []
+    if name == "clarify":
+        return [
+            _unsafe(
+                node,
+                "unsupported_query_call",
+                "Only search(...) and done() are supported as top-level query calls.",
+            )
+        ]
     if not top_level:
         return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
     if node.args:

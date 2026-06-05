@@ -14,7 +14,7 @@ from .agent_contracts import (
     failure_envelope,
 )
 from .agent_edit import _SESSION_ROOT, _safe_session_id, handle_agent_edit
-from .agent_provider import get_agent_status, handle_credential_submission
+from .agent_provider import readiness, handle_credential_submission
 from .agent_session import accept_turn, payload_hash, rebaseline_session, reject_turn, session_dir_for, turn_dir_for
 from .agent_audit import artifact_ref_for_path, write_audit
 
@@ -309,7 +309,16 @@ def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]
     params = params or {}
     route = params.get("route") if isinstance(params.get("route"), str) else None
     model = params.get("model") if isinstance(params.get("model"), str) else None
-    return get_agent_status(route=route, model=model)
+    ready_payload = readiness(route=route, model=model)
+    ok = bool(ready_payload.get("ready"))
+    status: dict[str, Any] = {
+        **ready_payload,
+        "ok": ok,
+        "readiness": "ready" if ok else "unavailable",
+    }
+    if not ok and not status.get("provider_available") and "error" not in status:
+        status["error"] = str(status.get("reason") or "Provider is unavailable.")
+    return status
 
 
 def _handle_agent_credentials(

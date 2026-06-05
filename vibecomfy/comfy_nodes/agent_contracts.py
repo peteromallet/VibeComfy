@@ -6,6 +6,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from vibecomfy.porting.edit_types import FieldChange
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
 
 DEFAULT_GATE_NAMES: tuple[str, ...] = (
@@ -18,6 +19,8 @@ DEFAULT_GATE_NAMES: tuple[str, ...] = (
     "queue_validate_ok",
     "state_match_ok",
 )
+
+AGENT_EDIT_TURN_CONTRACT_VERSION = "agent_edit_turn_v2"
 
 CANVAS_APPLY_GATE_NAMES: tuple[str, ...] = (
     "python_load_ok",
@@ -36,6 +39,15 @@ APPLY_ELIGIBILITY_REASONS: tuple[str, ...] = (
     "server_blocked",
     "stale_canvas",
     "queue_blocked_warning",
+)
+
+TURN_OUTCOME_KINDS: tuple[str, ...] = (
+    "edit",
+    "clarify",
+    "edit+clarify",
+    "failure",
+    "noop",
+    "budget",
 )
 
 
@@ -94,11 +106,13 @@ def apply_eligibility_payload(
     canvas_apply_allowed: bool,
     queue_allowed: bool,
 ) -> dict[str, Any]:
+    eligibility_payload = eligibility.to_dict()
     return {
         "canvas_apply_allowed": bool(canvas_apply_allowed),
         "apply_allowed": eligibility.applyable,
         "queue_allowed": bool(queue_allowed),
-        "apply_eligibility": eligibility.to_dict(),
+        "eligibility": eligibility_payload,
+        "apply_eligibility": eligibility_payload,
     }
 
 
@@ -627,6 +641,173 @@ class FailureEnvelope:
         return payload
 
 
+@dataclass(frozen=True)
+class TurnOutcome:
+    kind: str
+    changes: tuple[FieldChange, ...] = ()
+    question: str | None = None
+    failure_kind: FailureKind | None = None
+    stage: str | None = None
+    retryable: bool | None = None
+    next_action: str | None = None
+    graph_unchanged: bool | None = None
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in TURN_OUTCOME_KINDS:
+            raise ValueError(f"Unknown TurnOutcome kind {self.kind!r}")
+        object.__setattr__(self, "changes", tuple(self.changes))
+        if self.failure_kind is not None:
+            object.__setattr__(self, "failure_kind", _coerce_failure_kind(self.failure_kind))
+        if self.kind == "failure":
+            required = {
+                "failure_kind": self.failure_kind,
+                "stage": self.stage,
+                "retryable": self.retryable,
+                "next_action": self.next_action,
+                "graph_unchanged": self.graph_unchanged,
+            }
+            missing = [name for name, value in required.items() if value is None]
+            if missing:
+                raise ValueError(
+                    "Failure TurnOutcome requires "
+                    + ", ".join(sorted(missing))
+                )
+        else:
+            failure_fields = (
+                self.failure_kind,
+                self.stage,
+                self.retryable,
+                self.next_action,
+                self.graph_unchanged,
+            )
+            if any(value is not None for value in failure_fields):
+                raise ValueError(
+                    "Only failure TurnOutcome values may carry failure metadata"
+                )
+        if self.kind not in {"edit", "edit+clarify"} and self.changes:
+            raise ValueError(
+                "Only edit TurnOutcome values may carry field changes"
+            )
+
+    @classmethod
+    def edit(cls, *, changes: tuple[FieldChange, ...] = ()) -> "TurnOutcome":
+        return cls(kind="edit", changes=changes)
+
+    @classmethod
+    def clarify(cls, *, question: str | None = None) -> "TurnOutcome":
+        return cls(kind="clarify", question=question)
+
+    @classmethod
+    def edit_and_clarify(
+        cls,
+        *,
+        changes: tuple[FieldChange, ...] = (),
+        question: str | None = None,
+    ) -> "TurnOutcome":
+        return cls(kind="edit+clarify", changes=changes, question=question)
+
+    @classmethod
+    def noop(cls, *, reason: str | None = None) -> "TurnOutcome":
+        return cls(kind="noop", reason=reason)
+
+    @classmethod
+    def budget(cls, *, reason: str | None = None) -> "TurnOutcome":
+        return cls(kind="budget", reason=reason)
+
+    @classmethod
+    def from_failure(cls, failure: FailureEnvelope) -> "TurnOutcome":
+        return cls(
+            kind="failure",
+            failure_kind=failure.kind,
+            stage=failure.stage,
+            retryable=failure.retryable,
+            next_action=failure.next_action,
+            graph_unchanged=failure.graph_unchanged,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"kind": self.kind}
+        if self.kind in {"edit", "edit+clarify"}:
+            payload["changes"] = [change.to_dict() for change in self.changes]
+        if self.kind in {"clarify", "edit+clarify"} and self.question is not None:
+            payload["question"] = self.question
+        if self.kind == "failure":
+            payload.update(
+                {
+                    "failure_kind": self.failure_kind.value,
+                    "stage": self.stage,
+                    "retryable": self.retryable,
+                    "next_action": self.next_action,
+                    "graph_unchanged": self.graph_unchanged,
+                }
+            )
+        if self.kind in {"noop", "budget"} and self.reason is not None:
+            payload["reason"] = self.reason
+        return payload
+
+
+def failure_outcome_payload(failure: FailureEnvelope) -> dict[str, Any]:
+    payload = TurnOutcome.from_failure(failure).to_dict()
+    payload["agent_failure_context"] = _thaw_jsonish(failure.agent_failure_context)
+    return payload
+
+
+def product_failure_envelope_fields(failure: FailureEnvelope) -> dict[str, Any]:
+    message = failure.message.strip() if failure.message.strip() else failure.user_facing_message
+    eligibility = failure.apply_eligibility
+    return turn_envelope(
+        message=message,
+        outcome=failure_outcome_payload(failure),
+        candidate=None,
+        eligibility=eligibility,
+        audit_ref=failure.audit_ref,
+        debug={
+            "failure": {
+                "kind": failure.kind.value,
+                "stage": failure.stage,
+                "agent_failure_context": _thaw_jsonish(failure.agent_failure_context),
+                "audit_error": failure.audit_error,
+            }
+        },
+    )
+
+
+def turn_envelope(
+    *,
+    message: str,
+    outcome: TurnOutcome | Mapping[str, Any],
+    candidate: Mapping[str, Any] | None,
+    eligibility: ApplyEligibility | Mapping[str, Any],
+    audit_ref: ArtifactRef | Mapping[str, Any] | None = None,
+    debug: Mapping[str, Any] | None = None,
+    contract_version: str = AGENT_EDIT_TURN_CONTRACT_VERSION,
+) -> dict[str, Any]:
+    text = message.strip()
+    outcome_payload = outcome.to_dict() if isinstance(outcome, TurnOutcome) else dict(outcome)
+    if not text:
+        text = "The agent edit turn completed."
+    if isinstance(eligibility, ApplyEligibility):
+        eligibility_payload = eligibility.to_dict()
+    else:
+        eligibility_payload = dict(eligibility)
+    if isinstance(audit_ref, ArtifactRef):
+        audit_payload = audit_ref.to_dict()
+    elif isinstance(audit_ref, Mapping):
+        audit_payload = dict(audit_ref)
+    else:
+        audit_payload = None
+    return {
+        "contract_version": contract_version,
+        "message": text,
+        "outcome": outcome_payload,
+        "candidate": dict(candidate) if candidate is not None else None,
+        "eligibility": eligibility_payload,
+        "audit_ref": audit_payload,
+        "debug": _thaw_jsonish(_freeze_jsonish(debug or {})),
+    }
+
+
 def _lookup_status_code(value: Any) -> int | None:
     if isinstance(value, Mapping):
         status = value.get("http_status") or value.get("status_code")
@@ -941,6 +1122,7 @@ def success_envelope(
 
 
 __all__ = [
+    "AGENT_EDIT_TURN_CONTRACT_VERSION",
     "ArtifactRef",
     "APPLY_ELIGIBILITY_REASONS",
     "ApplyEligibility",
@@ -952,10 +1134,14 @@ __all__ = [
     "GateResult",
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
+    "TURN_OUTCOME_KINDS",
     "TurnContext",
+    "TurnOutcome",
     "apply_eligibility_payload",
     "classify_failure",
     "derive_apply_eligibility",
     "failure_envelope",
+    "product_failure_envelope_fields",
     "success_envelope",
+    "turn_envelope",
 ]

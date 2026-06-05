@@ -1887,6 +1887,57 @@ function pushTurnStatus(panel, status, extra = {}) {
   return entry;
 }
 
+// ── Typed response adapter (M2) ──────────────────────────────────────────────
+// Prefers typed envelope fields (contract_version, outcome, candidate, eligibility)
+// and falls back to top-level compatibility fields.  Does NOT change broader
+// M4 UI behavior — this is a narrow mapping shim that will be removed when
+// compatibility fields are deprecated during M4 UI migration planning.
+function adaptTypedResponse(result) {
+  if (!result || typeof result !== "object") {
+    return result;
+  }
+
+  // candidate.graph → top-level graph (typed envelope candidate payload)
+  if (
+    result.candidate
+    && typeof result.candidate === "object"
+    && result.candidate.graph
+    && typeof result.candidate.graph === "object"
+  ) {
+    if (!result.graph || typeof result.graph !== "object") {
+      result.graph = result.candidate.graph;
+    }
+  }
+
+  // eligibility (canonical) → apply_eligibility compatibility mirror
+  if (
+    result.eligibility
+    && typeof result.eligibility === "object"
+    && !result.apply_eligibility
+  ) {
+    result.apply_eligibility = result.eligibility;
+  }
+
+  // outcome.{kind,question} → clarify compatibility fields
+  if (result.outcome && typeof result.outcome === "object") {
+    if (
+      (result.outcome.kind === "clarify" || result.outcome.kind === "edit+clarify")
+      && result.clarification_required === undefined
+    ) {
+      result.clarification_required = true;
+    }
+    if (
+      typeof result.outcome.question === "string"
+      && result.outcome.question
+      && !result.clarification_message
+    ) {
+      result.clarification_message = result.outcome.question;
+    }
+  }
+
+  return result;
+}
+
 function normalizeBatchTurn(payload, { source = "response", sessionId = null, status = null } = {}) {
   if (!payload || typeof payload !== "object") {
     return null;
@@ -4216,6 +4267,8 @@ async function submitAgentEdit(panel) {
         body: JSON.stringify(body),
       });
       result = await res.json();
+      // Prefer typed envelope fields; fall back to compatibility fields.
+      result = adaptTypedResponse(result);
       if (!res.ok || result?.ok === false || result?.error) {
         throw result || { kind: "RequestError", message: res.statusText };
       }

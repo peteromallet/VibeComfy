@@ -168,3 +168,334 @@ Implemented browser-side rebaseline state fields in [vibecomfy_roundtrip.js](/Us
 - `rebaselineRecovery`
 
 The browser syncs those fields with `syncBaselineFromResponse()` in [vibecomfy_roundtrip.js](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js:1300) and sends rebaseline requests with `postAgentRebaseline()` in [vibecomfy_roundtrip.js](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js:4788).
+
+## 3. Typed TurnOutcome contract
+
+The typed outcome model lives in `TurnOutcome` within [agent_contracts.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_contracts.py:643). Every turn produces exactly one `TurnOutcome` whose `kind` is one of the discriminants declared in `TURN_OUTCOME_KINDS`. The contract version is `agent_edit_turn_v2` (see `AGENT_EDIT_TURN_CONTRACT_VERSION`).
+
+`TurnOutcome` constructors — `TurnOutcome.edit()`, `TurnOutcome.clarify()`, `TurnOutcome.edit_and_clarify()`, `TurnOutcome.noop()`, `TurnOutcome.budget()`, and `TurnOutcome.from_failure()` — enforce internal invariants: only `failure` may carry failure metadata, and only `edit` / `edit+clarify` may carry field changes. Serialization is via `TurnOutcome.to_dict()`.
+
+### 3.1 `edit` outcome
+
+An edit turn that produced two field changes (a widget value update and a title change on node `abc123`).
+
+```json
+{
+  "kind": "edit",
+  "changes": [
+    {
+      "uid": "abc123",
+      "field_path": "widgets_values[0]",
+      "old": 512,
+      "new": 768
+    },
+    {
+      "uid": "abc123",
+      "field_path": "title",
+      "old": "Old Title",
+      "new": "New Title"
+    }
+  ]
+}
+```
+
+Construction:
+
+```python
+from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.comfy_nodes.agent_contracts import TurnOutcome
+
+outcome = TurnOutcome.edit(
+    changes=(
+        FieldChange(uid="abc123", field_path="widgets_values[0]", old=512, new=768),
+        FieldChange(uid="abc123", field_path="title", old="Old Title", new="New Title"),
+    )
+)
+# outcome.to_dict() produces the JSON shape above
+```
+
+An edit with no landed field changes produces an empty `changes` list:
+
+```json
+{
+  "kind": "edit",
+  "changes": []
+}
+```
+
+### 3.2 `clarify` outcome
+
+A turn where the agent needs clarification before proceeding (no graph mutation occurred).
+
+```json
+{
+  "kind": "clarify",
+  "question": "Which resolution should I use for the upscale — 2x or 4x?"
+}
+```
+
+Construction:
+
+```python
+outcome = TurnOutcome.clarify(question="Which resolution should I use for the upscale — 2x or 4x?")
+```
+
+A `clarify` outcome must not carry `changes` or any failure metadata — the constructor raises `ValueError` if any are provided.
+
+### 3.3 `edit+clarify` outcome
+
+A turn where some edits landed but the agent still needs additional input. The outcome carries both `changes` and a `question`.
+
+```json
+{
+  "kind": "edit+clarify",
+  "changes": [
+    {
+      "uid": "def456",
+      "field_path": "widgets_values[0]",
+      "old": "v1.5",
+      "new": "v2.0"
+    }
+  ],
+  "question": "I updated the checkpoint — should I also adjust the scheduler?"
+}
+```
+
+Construction:
+
+```python
+outcome = TurnOutcome.edit_and_clarify(
+    changes=(
+        FieldChange(uid="def456", field_path="widgets_values[0]", old="v1.5", new="v2.0"),
+    ),
+    question="I updated the checkpoint — should I also adjust the scheduler?",
+)
+```
+
+### 3.4 Failure, noop, and budget outcomes
+
+These are documented for completeness but are separate from the edit/clarify surface.
+
+**`failure`** — constructed via `TurnOutcome.from_failure(envelope)` or directly with all required failure fields. Serialized shape:
+
+```json
+{
+  "kind": "failure",
+  "failure_kind": "SyntaxError",
+  "stage": "ingest",
+  "retryable": true,
+  "next_action": "wait and retry; agent should fix syntax",
+  "graph_unchanged": true,
+  "changes": []
+}
+```
+
+**`noop`** — the agent deliberately produced no edits (e.g. "nothing to do").
+
+```json
+{
+  "kind": "noop",
+  "reason": "The graph already contains the requested nodes."
+}
+```
+
+**`budget`** — the agent exhausted its batch budget without completing.
+
+```json
+{
+  "kind": "budget",
+  "reason": "Batch budget of 5 turns exhausted before completing the task."
+}
+```
+
+## 4. Typed turn envelope
+
+The product `batch_repl` response envelope is assembled by `turn_envelope()` in [agent_contracts.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_contracts.py:776) and by the batch response builders in [agent_edit.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_edit.py:2143). The canonical typed shape is:
+
+```json
+{
+  "contract_version": "agent_edit_turn_v2",
+  "message": "Applied 1 edit. Gate A passed: updated the save prefix to after.",
+  "outcome": {
+    "kind": "edit",
+    "changes": [
+      {
+        "uid": "2",
+        "field_path": "filename_prefix",
+        "old": null,
+        "new": "after"
+      }
+    ]
+  },
+  "candidate": {
+    "state": "candidate",
+    "graph": { "nodes": [], "links": [] },
+    "graph_hash": "candidate-ui-hash",
+    "structural_graph_hash": "candidate-structural-hash",
+    "baseline_graph_hash": "baseline-structural-hash-or-null",
+    "submit_graph_hash": "submit-ui-hash",
+    "submit_structural_graph_hash": "submit-structural-hash"
+  },
+  "eligibility": {
+    "applyable": true,
+    "reason": "applyable",
+    "message": "Apply is allowed.",
+    "warnings": []
+  },
+  "audit_ref": {
+    "path": "out/editor_sessions/session-123/turns/0001/audit/audit.json"
+  },
+  "debug": {
+    "gates": {
+      "python_load_ok": true,
+      "lower_ok": true,
+      "ir_validate_ok": true,
+      "ui_emit_ok": true,
+      "ui_fidelity_ok": true,
+      "ui_load_safe_ok": true,
+      "queue_validate_ok": false,
+      "state_match_ok": true
+    },
+    "hashes": {
+      "baseline_graph_hash": "baseline-structural-hash-or-null",
+      "submit_graph_hash": "submit-ui-hash",
+      "submit_structural_graph_hash": "submit-structural-hash",
+      "submitted_client_graph_hash": "submitted-client-ui-hash-or-null",
+      "submitted_client_structural_graph_hash": "submitted-client-structural-hash-or-null",
+      "candidate_graph_hash": "candidate-ui-hash",
+      "candidate_structural_graph_hash": "candidate-structural-hash",
+      "client_graph_hash": "submitted-client-ui-hash-or-null"
+    },
+    "batch_repl": {
+      "turn_count": 2,
+      "exit_mode": "done",
+      "done_summary": "Gate A passed: updated the save prefix to after.",
+      "final_summary": "Gate A passed: updated the save prefix to after.",
+      "budget_state": {
+        "max_batches": 4,
+        "max_consecutive_errors": 2,
+        "remaining_batches": 2,
+        "remaining_consecutive_errors": 2,
+        "consecutive_errors": 0
+      }
+    }
+  }
+}
+```
+
+Compatibility fields intentionally remain at the top level during M2:
+
+- `graph`, `gates`, `report`, `artifacts`, and `batch_turns`
+- hash fields such as `baseline_graph_hash`, `submit_graph_hash`, `submit_structural_graph_hash`, `candidate_graph_hash`, and `candidate_structural_graph_hash`
+- apply booleans: `canvas_apply_allowed`, `apply_allowed`, and `queue_allowed`
+- compatibility eligibility mirror: `apply_eligibility`
+- clarify/no-op compatibility flags such as `clarification_required`, `graph_unchanged`, and `done_summary`
+
+Rules for the split:
+
+- `eligibility` is the canonical typed location for apply eligibility.
+- `apply_eligibility` is a temporary compatibility mirror and must match `eligibility`.
+- `debug.gates` is sourced from `context.gate_snapshot()`; the legacy top-level `gates` field remains for compatibility during M2.
+
+Deprecation note:
+
+- Compatibility fields stay in place through M2. Naming and timing for removal must be called out explicitly during the planned M4 UI migration, rather than being removed opportunistically in backend work.
+
+## 5. Provider readiness
+
+The canonical readiness contract is `agent_provider.readiness(route, model)` in [agent_provider.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_provider.py:905). All status routes and UI consumers must derive their availability signal from this single entry point. No caller should compute readiness independently.
+
+### 5.1 Readiness payload shape
+
+```json
+{
+  "ready": true,
+  "reason": "Anthropic/OpenRouter credential resolved via local OAuth/API key.",
+  "backend": "megaplan.agent.run_agent.AIAgent",
+  "route": "anthropic",
+  "model": "claude-opus-4-5",
+  "base_url": null,
+  "deepseek_key_present": false,
+  "provider": "arnold",
+  "provider_available": true,
+  "contract_version": "agent_edit_turn_v2",
+  "requested_route": "anthropic",
+  "route_metadata": { "requested_route": "anthropic", "normalized_route": "anthropic" },
+  "route_options": ["anthropic", "deepseek"],
+  "credential_presence": {
+    "arnold_api_key": true,
+    "hermes_api_key": true,
+    "deepseek_api_key": false
+  },
+  "legacy_deepseek_fallback_enabled": false
+}
+```
+
+Key fields:
+
+| Field | Meaning |
+|-------|---------|
+| `ready` | `true` when the provider can accept agent-edit turns; `false` when a credential or runtime is missing. This is the single authority for availability. |
+| `reason` | Human-readable explanation of the readiness state. For unavailable states this is surfaced as the `error` field in status responses. |
+| `provider_available` | Whether the Arnold runtime itself loaded successfully (distinct from credential readiness). |
+| `contract_version` | Always `"agent_edit_turn_v2"` in product responses. |
+| `credential_presence` | Boolean presence flags for each supported credential. Never contains secret values — only `true`/`false`. |
+| `route_options` | Routes the browser may select from the provider dropdown. |
+
+### 5.2 Readiness resolution flow
+
+1. **Route/model resolution**: `_resolve_route_and_model()` normalizes the requested route (e.g. `"deepseek"` → `"deepseek"`, `None` → default `"anthropic"`) and selects the model from the explicit parameter or `VIBECOMFY_AGENT_MODEL`.
+
+2. **Runtime load**: `_load_arnold_runtime()` is called exactly once. If it raises `ProviderError`, readiness returns `ready: false` immediately with the error as `reason`. The runtime is never re-imported inside a single readiness call.
+
+3. **Delegate to runtime**: When the runtime loads, `agent_provider.readiness()` prefers `runtime.readiness(route, model)` if the runtime exposes that callable. This is the backend-local readiness path implemented in [megaplan_runtime.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/megaplan_runtime.py:323). If `readiness` is absent, it falls back to `runtime.get_agent_status(route, model)`.
+
+4. **Normalize**: `_normalize_readiness_payload()` extracts `ready` (falling back to `ok` for legacy runtimes), picks a non-empty `reason` (falling back through `detail`, `error`, `message`, then a default), and strips all secret fields from the runtime payload via `_non_secret_mapping()` → `redact_closed_set()`.
+
+5. **Merge metadata**: `_provider_status_metadata()` attaches route/model metadata, credential presence (booleans only), supported route options, and the contract version. These are provider-owned fields, never derived from runtime internals.
+
+### 5.3 Secret redaction
+
+`_non_secret_mapping()` passes the runtime payload through `redact_closed_set()`, which removes any keys matching known secret patterns (API key substrings, token fields, authorization headers). Credential presence is reported as boolean flags only — `credential_presence.arnold_api_key: true` confirms a key exists but never exposes its value. This guarantee holds for both the `available` and `unavailable` paths.
+
+### 5.4 get_agent_status() — compatibility wrapper
+
+`get_agent_status()` in [agent_provider.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_provider.py:946) is a thin compatibility wrapper around `readiness()`. It calls `readiness()`, derives `ok` strictly from `ready`, and adds legacy fields (`readiness: "ready" | "unavailable"`, `error` for unavailable-credential cases). Callers migrating to the typed contract should call `readiness()` directly.
+
+### 5.5 Route integration
+
+`_handle_agent_status()` in [routes.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/routes.py:308) calls `readiness()` directly, derives `ok` from `ready`, and reports one clear unavailable-credential reason via the `error` field. No independent readiness computation exists in the routes layer — the provider is the single source of truth.
+
+### 5.6 Backend-local readiness
+
+`megaplan_runtime.readiness(route, model)` in [megaplan_runtime.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/megaplan_runtime.py:323) provides backend-specific readiness without importing `agent_provider`. It normalizes the route, resolves credentials directly (e.g. `DEEPSEEK_API_KEY` from environment or `~/.hermes/.env` for deepseek; Arnold OAuth/API key for anthropic), and returns `ready` with a descriptive `reason`. This keeps the dependency direction clean: the provider depends on the runtime, not vice versa.
+
+## 6. Cancellation (deferred)
+
+Cancellation is not implemented in M2. The M4 "Stop" button in the UI is dismiss-UI-only — it hides the agent panel client-side but does not interrupt a running turn, terminate a provider process, or produce a `cancelled` outcome.
+
+### 6.1 Current behaviour
+
+- Pressing "Stop" in the M4 UI removes the agent panel from the DOM and stops polling for results.
+- The backend turn continues to execute to completion (or budget exhaustion).
+- No `/cancel` endpoint exists. No process handle is stored.
+- No `cancelled` outcome kind exists in `TurnOutcome`.
+
+### 6.2 Required work for real cancellation
+
+A future milestone (targeted after M4 UI migration) must add:
+
+1. **`Popen` process management**: The agent provider must retain a `subprocess.Popen` handle (or equivalent) for each active turn so it can send a termination signal.
+
+2. **Handle registry**: A session-scoped registry mapping `session_id` → active process handles, so the cancel handler can locate the right process.
+
+3. **`/cancel` endpoint**: A new route (`POST /vibecomfy/agent-edit/cancel`) that accepts `session_id`, looks up the active handle, sends `SIGTERM` (or platform equivalent), and returns a cancellation acknowledgment.
+
+4. **Cancelled outcomes**: A new `TurnOutcome.cancelled()` constructor and `"kind": "cancelled"` discriminant, with a `reason` field describing what was cancelled and when. Cancelled turns must produce a valid turn envelope with `outcome.kind == "cancelled"`, an empty `changes` list, and `graph_unchanged: true`.
+
+### 6.3 Rationale for deferral
+
+- M2 is scoped to typed result contracts, protocol collapse, and provider readiness — all synchronous, single-turn concerns.
+- Process lifecycle management requires cross-cutting changes (provider state, route handlers, session cleanup) that would expand M2 beyond its contract-settling mandate.
+- The M4 UI already has a client-side dismiss path; real cancellation becomes valuable once the UI migration settles and users can meaningfully interact with long-running turns.
+- Naming and timing for cancellation must be called out explicitly during M4 UI migration planning, alongside compatibility field removal.

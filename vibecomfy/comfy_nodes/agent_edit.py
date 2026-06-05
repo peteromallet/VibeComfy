@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import dataclasses
 import difflib
 import json
@@ -25,12 +26,16 @@ from .agent_contracts import (
     FailureKind,
     StageResult,
     TurnContext,
+    TurnOutcome,
     apply_eligibility_payload,
     classify_failure,
     derive_apply_eligibility,
     failure_envelope,
+    product_failure_envelope_fields,
     success_envelope,
+    turn_envelope,
 )
+from vibecomfy.porting.edit_types import FieldChange
 from .agent_gates import (
     apply_stage_gate_updates,
     derive_gates,
@@ -43,6 +48,7 @@ from .agent_provider import (
     build_batch_messages,
     build_delta_messages,
     build_messages,
+    ensure_sentence_message,
     run_agent_turn,
     run_agent_turn_batch,
     run_agent_turn_delta,
@@ -65,6 +71,7 @@ DeepSeekClient = Callable[[list[dict[str, str]]], dict[str, str]]
 _SESSION_ROOT = Path("out/editor_sessions")
 LOGGER = logging.getLogger(__name__)
 _WARNED_LEGACY_CONTRACTS: set[str] = set()
+_WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS: set[str] = set()
 
 
 @dataclass
@@ -112,6 +119,7 @@ class AgentEditState:
     batch_session: EditSession | None = None
     batch_signature_catalog: str = ""
     batch_turns: list[dict[str, Any]] = field(default_factory=list)
+    batch_field_changes: tuple[FieldChange, ...] = ()
     batch_budget_state: dict[str, Any] = field(default_factory=dict)
     batch_turn_count: int = 0
     batch_max_turns: int = 20
@@ -227,6 +235,93 @@ def _artifact(path: Path) -> ArtifactRef:
 
 def _duration_ms(start: float) -> int:
     return max(0, int((time.monotonic() - start) * 1000))
+
+
+def _total_landed_edit_count(state: AgentEditState) -> int:
+    count = len(state.batch_field_changes)
+    if count > 0:
+        return count
+    total = 0
+    for turn in state.batch_turns:
+        landed = turn.get("landed_op_count")
+        if isinstance(landed, int) and landed > 0:
+            total += landed
+    return total
+
+
+def _landed_edit_lead(state: AgentEditState) -> str:
+    count = _total_landed_edit_count(state)
+    if count <= 0:
+        return ""
+    noun = "edit" if count == 1 else "edits"
+    return f"Applied {count} {noun}."
+
+
+def _batch_warning_sentence(
+    state: AgentEditState,
+    *,
+    failure: FailureEnvelope | None = None,
+    outcome: TurnOutcome | None = None,
+) -> str:
+    if failure is not None:
+        if state.batch_exit_mode == _BATCH_EXIT_BUDGET:
+            return ensure_sentence_message(
+                "I ran out of batch budget before completing the remaining changes",
+                fallback=state.batch_final_summary or failure.message,
+            )
+        return ensure_sentence_message(
+            "Some requested edits did not land, so I stopped before applying the rest",
+            fallback=failure.message or failure.user_facing_message,
+        )
+    if outcome is not None and outcome.kind == "edit+clarify":
+        return "I still need clarification before continuing."
+    return ""
+
+
+def _synthesize_batch_repl_message(
+    state: AgentEditState,
+    *,
+    outcome: TurnOutcome | None = None,
+    failure: FailureEnvelope | None = None,
+) -> str:
+    lead = _landed_edit_lead(state)
+    if failure is not None:
+        warning = _batch_warning_sentence(state, failure=failure)
+        if lead:
+            return f"{lead} {warning}".strip()
+        return warning
+    if outcome is None:
+        return ensure_sentence_message(state.user_message, fallback="The agent edit turn completed.")
+    if outcome.kind == "edit":
+        if state.batch_done_summary:
+            tail = ensure_sentence_message(
+                state.batch_done_summary,
+                fallback="The candidate is ready to apply.",
+            )
+            if lead:
+                return f"{lead} {tail}".strip()
+            return tail
+        if lead:
+            return lead
+        return ensure_sentence_message(state.user_message, fallback="The candidate is ready to apply.")
+    if outcome.kind == "edit+clarify":
+        warning = _batch_warning_sentence(state, outcome=outcome)
+        if lead:
+            return f"{lead} {warning}".strip()
+        return warning
+    if outcome.kind == "clarify":
+        return "I need clarification before continuing."
+    if outcome.kind == "budget":
+        return ensure_sentence_message(
+            "I ran out of batch budget before completing the requested changes",
+            fallback=state.batch_final_summary or state.user_message,
+        )
+    if outcome.kind == "noop":
+        return ensure_sentence_message(
+            state.batch_done_summary,
+            fallback="No graph changes were applied.",
+        )
+    return ensure_sentence_message(state.user_message, fallback="The agent edit turn completed.")
 
 
 def _normalize_test_client_response(response: dict[str, str]) -> AgentTurnResult:
@@ -461,6 +556,18 @@ _CLARIFY_CALL_RE = re.compile(
     r'(?m)^\s*clarify\("((?:[^"\\]|\\.)*)"\)\s*$'
 )
 
+_BATCH_EXIT_PURE_CLARIFY = "pure_clarify"
+_BATCH_EXIT_EDIT_CLARIFY = "edit_clarify"
+_BATCH_EXIT_DONE = "done"
+_BATCH_EXIT_BUDGET = "budget"
+_BATCH_EXIT_NOOP = "noop"
+
+
+@dataclass(frozen=True)
+class TerminalClarifySplit:
+    batch: str
+    message: str | None
+
 
 def _extract_clarify_message(batch: str) -> str | None:
     matches = _CLARIFY_CALL_RE.findall(batch)
@@ -470,6 +577,97 @@ def _extract_clarify_message(batch: str) -> str | None:
         return json.loads(f'"{matches[0]}"')
     except json.JSONDecodeError:
         return matches[0]
+
+
+def _is_terminal_clarify_expr(node: ast.stmt) -> bool:
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return False
+    call = node.value
+    if not isinstance(call.func, ast.Name) or call.func.id != "clarify":
+        return False
+    return (
+        len(call.args) == 1
+        and not call.keywords
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    )
+
+
+def _contains_clarify_call(node: ast.AST) -> bool:
+    return any(
+        isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Name)
+        and child.func.id == "clarify"
+        for child in ast.walk(node)
+    )
+
+
+def _offset_from_ast_position(batch: str, lineno: int, col_offset: int) -> int:
+    lines = batch.splitlines(keepends=True)
+    if lineno <= 0:
+        return 0
+    before = sum(len(line) for line in lines[: lineno - 1])
+    line = lines[lineno - 1] if lineno - 1 < len(lines) else ""
+    # AST column offsets are UTF-8 byte offsets. Convert them back to Python
+    # character offsets before slicing the original source string.
+    char_col = len(line.encode("utf-8")[:col_offset].decode("utf-8", errors="ignore"))
+    return before + char_col
+
+
+def _decode_clarify_literal(raw: str) -> str:
+    try:
+        return json.loads(f'"{raw}"')
+    except json.JSONDecodeError:
+        return raw
+
+
+def _split_terminal_clarify_line_regex(batch: str) -> TerminalClarifySplit:
+    matches = list(_CLARIFY_CALL_RE.finditer(batch))
+    if not matches:
+        return TerminalClarifySplit(batch=batch, message=None)
+    terminal_match = matches[-1]
+    if any(match.start() != terminal_match.start() for match in matches[:-1]):
+        return TerminalClarifySplit(batch=batch, message=None)
+    trailing_lines = batch[terminal_match.end() :].splitlines()
+    if any(line.strip() and not line.lstrip().startswith("#") for line in trailing_lines):
+        return TerminalClarifySplit(batch=batch, message=None)
+    return TerminalClarifySplit(
+        batch=batch[: terminal_match.start()].rstrip(),
+        message=_decode_clarify_literal(terminal_match.group(1)),
+    )
+
+
+def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
+    """Split a final top-level clarify("...") call from editable batch code."""
+    try:
+        module = ast.parse(batch)
+    except SyntaxError:
+        return _split_terminal_clarify_line_regex(batch)
+    if not module.body:
+        return TerminalClarifySplit(batch=batch, message=None)
+
+    terminal = module.body[-1]
+    if not _is_terminal_clarify_expr(terminal):
+        return TerminalClarifySplit(batch=batch, message=None)
+    if any(_contains_clarify_call(stmt) for stmt in module.body[:-1]):
+        return TerminalClarifySplit(batch=batch, message=None)
+
+    call = terminal.value
+    assert isinstance(call, ast.Call)
+    message_node = call.args[0]
+    assert isinstance(message_node, ast.Constant)
+    start = _offset_from_ast_position(batch, terminal.lineno, terminal.col_offset)
+    editable_batch = batch[:start].rstrip()
+    if editable_batch.endswith(";"):
+        editable_batch = editable_batch[:-1].rstrip()
+    return TerminalClarifySplit(batch=editable_batch, message=message_node.value)
+
+
+def _batch_has_landed_edits(state: "AgentEditState") -> bool:
+    return any(
+        isinstance(turn, Mapping) and int(turn.get("landed_op_count", 0)) > 0
+        for turn in state.batch_turns
+    )
 
 
 def _batch_budget_failure_kind(turns: list[dict[str, Any]]) -> FailureKind:
@@ -535,6 +733,10 @@ def _json_safe(value: Any) -> Any:
     return json.loads(json.dumps(value, default=str))
 
 
+def _field_changes_payload(changes: tuple[FieldChange, ...]) -> list[dict[str, Any]]:
+    return [change.to_dict() for change in changes]
+
+
 def _compact_diag_to_dict(diagnostic: Any) -> dict[str, Any]:
     return {
         "code": getattr(diagnostic, "code", type(diagnostic).__name__),
@@ -567,15 +769,37 @@ def _warn_legacy_contract_once(contract: str) -> None:
     )
 
 
+def _warn_ignored_public_protocol_envs_once(env_names: tuple[str, ...]) -> None:
+    unseen = tuple(name for name in env_names if name not in _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS)
+    if not unseen:
+        return
+    _WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS.update(unseen)
+    LOGGER.warning(
+        "agent-edit ignoring legacy public protocol env vars (%s); product protocol is always "
+        "'batch_repl'. For dev-only legacy protocols set "
+        "VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS=1 and "
+        "VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL=delta|full.",
+        ", ".join(unseen),
+    )
+
+
 def _agent_edit_contract() -> str:
-    legacy = os.getenv("VIBECOMFY_AGENT_EDIT_LEGACY")
-    if legacy in {"delta", "full"}:
-        _warn_legacy_contract_once(legacy)
-        return legacy
-    if os.getenv("VIBECOMFY_AGENT_EDIT_V2") == "1":
-        return "delta"
-    if os.getenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL") == "1":
-        return "batch_repl"
+    ignored_public_envs = tuple(
+        name
+        for name in (
+            "VIBECOMFY_AGENT_EDIT_LEGACY",
+            "VIBECOMFY_AGENT_EDIT_V2",
+            "VIBECOMFY_AGENT_EDIT_BATCH_REPL",
+        )
+        if os.getenv(name) is not None
+    )
+    if ignored_public_envs:
+        _warn_ignored_public_protocol_envs_once(ignored_public_envs)
+    if os.getenv("VIBECOMFY_AGENT_EDIT_ALLOW_DEV_PROTOCOLS") == "1":
+        dev_protocol = os.getenv("VIBECOMFY_AGENT_EDIT_DEV_PROTOCOL")
+        if dev_protocol in {"delta", "full"}:
+            _warn_legacy_contract_once(dev_protocol)
+            return dev_protocol
     return "batch_repl"
 
 
@@ -990,14 +1214,20 @@ def _stage_agent_batch_repl(
                 messages,
                 route=route,
                 model=model,
-            )
+        )
 
         state.provider_metadata = dict(turn_result.audit_metadata or {})
         state.user_message = turn_result.message
-        clarify_message = _extract_clarify_message(turn_result.batch)
-        if clarify_message is not None:
+        clarify_split = split_terminal_clarify(turn_result.batch)
+        clarify_message = clarify_split.message
+        editable_batch = clarify_split.batch if clarify_message is not None else turn_result.batch
+        if clarify_message is not None and not editable_batch.strip():
             state.batch_turn_count = turn_number + 1
-            state.batch_exit_mode = "clarify"
+            state.batch_exit_mode = (
+                _BATCH_EXIT_EDIT_CLARIFY
+                if _batch_has_landed_edits(state)
+                else _BATCH_EXIT_PURE_CLARIFY
+            )
             state.batch_final_summary = (
                 f"Clarification requested after {state.batch_turn_count} batch turn(s)."
             )
@@ -1027,6 +1257,7 @@ def _stage_agent_batch_repl(
                 "provider_metadata": _json_safe(dict(turn_result.audit_metadata or {})),
                 "clarification_required": True,
                 "clarification_message": clarify_message,
+                "field_changes": [],
             }
             state.batch_turns.append(turn_record)
             response_log.append(
@@ -1080,9 +1311,20 @@ def _stage_agent_batch_repl(
                     _artifact(state.messages_path),
                 ),
                 value={"mode": "clarification_required", "graph_unchanged": True},
+                gate_updates={
+                    "python_load_ok": True,
+                    "lower_ok": True,
+                    "ir_validate_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                    "state_match_ok": True,
+                }
+                if state.batch_exit_mode == _BATCH_EXIT_EDIT_CLARIFY
+                else {},
             )
 
-        batch_result = session.apply_batch(turn_result.batch)
+        batch_result = session.apply_batch(editable_batch)
         next_render = session.render()
         state.python_after = next_render
         state.after_py_path.write_text(next_render, encoding="utf-8")
@@ -1103,6 +1345,7 @@ def _stage_agent_batch_repl(
             consecutive_errors=consecutive_errors,
             budget_remaining=max_batches - (turn_number + 1),
         )
+        state.batch_field_changes = state.batch_field_changes + tuple(batch_result.field_changes)
         turn_record = {
             "turn_number": turn_number,
             "batch": turn_result.batch,
@@ -1115,9 +1358,13 @@ def _stage_agent_batch_repl(
             "landed_op_count": len(batch_result.landed_ops),
             "diagnostics": report_json["diagnostics"],
             "statements": report_json["statements"],
+            "field_changes": _field_changes_payload(batch_result.field_changes),
             "diff": diff_text,
             "report": report_text,
         }
+        if clarify_message is not None:
+            turn_record["clarification_required"] = True
+            turn_record["clarification_message"] = clarify_message
         state.batch_turns.append(turn_record)
         state.batch_feedback = report_text
         state.batch_turn_count = turn_number + 1
@@ -1150,6 +1397,57 @@ def _stage_agent_batch_repl(
             )
             + "\n"
         )
+
+        if clarify_message is not None:
+            state.batch_exit_mode = (
+                _BATCH_EXIT_EDIT_CLARIFY
+                if _batch_has_landed_edits(state)
+                else _BATCH_EXIT_PURE_CLARIFY
+            )
+            state.batch_final_summary = (
+                f"Clarification requested after {state.batch_turn_count} batch turn(s)."
+            )
+            state.user_message = clarify_message
+            state.report = {
+                "clarification_required": True,
+                "graph_unchanged": state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY,
+                "queue_blockers": [],
+            }
+            _emit_agent_edit_turn_event(
+                state,
+                _context,
+                turn_record,
+                client_id=client_id,
+                status="clarify",
+            )
+            return StageResult(
+                stage="agent_batch",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                artifacts=(
+                    _artifact(state.after_py_path),
+                    _artifact(state.model_request_path),
+                    _artifact(state.model_response_path),
+                    _artifact(state.candidate_ui_path),
+                    _artifact(state.messages_path),
+                ),
+                value={
+                    "mode": "clarification_required",
+                    "graph_unchanged": state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY,
+                },
+                gate_updates={
+                    "python_load_ok": True,
+                    "lower_ok": True,
+                    "ir_validate_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                    "state_match_ok": True,
+                }
+                if state.batch_exit_mode == _BATCH_EXIT_EDIT_CLARIFY
+                else {},
+            )
 
         current_render = next_render
         last_diff = diff_text
@@ -1218,7 +1516,9 @@ def _stage_agent_batch_repl(
                 "remaining_consecutive_errors": max(0, max_consecutive_errors - consecutive_errors),
                 "consecutive_errors": consecutive_errors,
             }
-            state.batch_exit_mode = "done"
+            state.batch_exit_mode = (
+                _BATCH_EXIT_DONE if _batch_has_landed_edits(state) else _BATCH_EXIT_NOOP
+            )
             state.batch_done_summary = done_result.summary
             state.batch_final_summary = done_result.summary
             if not done_result.ok:
@@ -1304,6 +1604,7 @@ def _stage_agent_batch_repl(
             break
 
     failure_kind = _batch_budget_failure_kind(state.batch_turns)
+    state.batch_exit_mode = _BATCH_EXIT_BUDGET
     state.batch_final_summary = (
         f"Stopped after {state.batch_turn_count} batch turn(s); "
         f"{state.batch_budget_state.get('remaining_batches', 0)} batch(es) remaining."
@@ -1747,6 +2048,59 @@ def _failure_response(
     state: AgentEditState,
     context: TurnContext,
     failure: FailureEnvelope,
+    *,
+    contract: str = "batch_repl",
+) -> dict[str, Any]:
+    if contract != "batch_repl":
+        return _build_dev_failure_response(state, context, failure=failure)
+    return _build_batch_repl_failure_response(state, context, failure=failure)
+
+
+def _product_failure_response(failure: FailureEnvelope) -> dict[str, Any]:
+    response = failure.to_dict()
+    response.update(product_failure_envelope_fields(failure))
+    return response
+
+
+def _build_compatibility_response_fields(state: AgentEditState) -> dict[str, Any]:
+    candidate_graph_hash = payload_hash(state.ui_payload)
+    candidate_structural_graph_hash = structural_graph_hash(state.ui_payload)
+    return {
+        "baseline_graph_hash": state.baseline_graph_hash,
+        "submit_graph_hash": state.submit_graph_hash,
+        "submit_structural_graph_hash": state.submit_structural_graph_hash,
+        "submitted_client_graph_hash": state.submitted_client_graph_hash,
+        "submitted_client_structural_graph_hash": state.submitted_client_structural_graph_hash,
+        "candidate_graph_hash": candidate_graph_hash,
+        "candidate_structural_graph_hash": candidate_structural_graph_hash,
+        "client_graph_hash": state.submitted_client_graph_hash,
+    }
+
+
+def _build_candidate_payload(
+    state: AgentEditState,
+    *,
+    compatibility_fields: Mapping[str, Any],
+    has_candidate: bool,
+) -> dict[str, Any] | None:
+    if not has_candidate:
+        return None
+    return {
+        "state": "candidate",
+        "graph": state.ui_payload,
+        "graph_hash": compatibility_fields["candidate_graph_hash"],
+        "structural_graph_hash": compatibility_fields["candidate_structural_graph_hash"],
+        "baseline_graph_hash": compatibility_fields["baseline_graph_hash"],
+        "submit_graph_hash": compatibility_fields["submit_graph_hash"],
+        "submit_structural_graph_hash": compatibility_fields["submit_structural_graph_hash"],
+    }
+
+
+def _legacy_failure_response(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    failure: FailureEnvelope,
 ) -> dict[str, Any]:
     derive_gates(
         context,
@@ -1789,6 +2143,138 @@ def _failure_response(
             if isinstance(recovery, Mapping):
                 response["rebaseline_recovery"] = dict(recovery)
                 break
+    return response
+
+
+def _build_batch_repl_failure_response(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    failure: FailureEnvelope,
+) -> dict[str, Any]:
+    response = _legacy_failure_response(state, context, failure=failure)
+    legacy_audit_ref = response.get("audit_ref")
+    compatibility_fields = _build_compatibility_response_fields(state)
+    response.update(compatibility_fields)
+    response.update(product_failure_envelope_fields(failure))
+    if legacy_audit_ref is not None:
+        response["audit_ref"] = legacy_audit_ref
+    response["eligibility"] = response["apply_eligibility"]
+    response["message"] = _synthesize_batch_repl_message(state, failure=failure)
+    response["debug"] = {
+        **response["debug"],
+        "gates": context.gate_snapshot(),
+        "hashes": dict(compatibility_fields),
+    }
+    return response
+
+
+def _build_dev_failure_response(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    failure: FailureEnvelope,
+) -> dict[str, Any]:
+    response = _legacy_failure_response(state, context, failure=failure)
+    response.update(_build_compatibility_response_fields(state))
+    return response
+
+
+def _build_batch_repl_response(
+    state: AgentEditState,
+    context: TurnContext,
+) -> dict[str, Any]:
+    has_candidate = state.batch_exit_mode in {_BATCH_EXIT_EDIT_CLARIFY, _BATCH_EXIT_DONE}
+    compatibility_fields = _build_compatibility_response_fields(state)
+    response_apply_eligibility = derive_apply_eligibility(
+        context,
+        has_candidate=has_candidate,
+        candidate_state="candidate",
+    )
+    response = success_envelope(
+        context,
+        message=state.user_message,
+        graph=state.ui_payload,
+        report=state.report,
+        artifacts=state.artifacts,
+        apply_eligibility=response_apply_eligibility,
+        canvas_apply_allowed=context.canvas_apply_allowed if has_candidate else False,
+        queue_allowed=context.queue_allowed if has_candidate else False,
+    )
+    if state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY:
+        outcome = TurnOutcome.clarify(question=state.user_message or None)
+    elif state.batch_exit_mode == _BATCH_EXIT_EDIT_CLARIFY:
+        question = state.user_message or None
+        outcome = TurnOutcome.edit_and_clarify(
+            changes=state.batch_field_changes,
+            question=question,
+        )
+    elif state.batch_exit_mode == _BATCH_EXIT_DONE:
+        outcome = TurnOutcome.edit(changes=state.batch_field_changes)
+    elif state.batch_exit_mode == _BATCH_EXIT_BUDGET:
+        outcome = TurnOutcome.budget(reason=state.batch_final_summary or None)
+    else:
+        outcome = TurnOutcome.noop(reason=state.batch_done_summary or state.user_message or None)
+    message = _synthesize_batch_repl_message(state, outcome=outcome)
+    response.update(
+        turn_envelope(
+            message=message,
+            outcome=outcome,
+            candidate=_build_candidate_payload(
+                state,
+                compatibility_fields=compatibility_fields,
+                has_candidate=has_candidate,
+            ),
+            eligibility=response_apply_eligibility,
+            audit_ref=None,
+            debug={
+                "gates": context.gate_snapshot(),
+                "hashes": dict(compatibility_fields),
+                "batch_repl": {
+                    "turn_count": state.batch_turn_count,
+                    "exit_mode": state.batch_exit_mode,
+                    "done_summary": state.batch_done_summary,
+                    "final_summary": state.batch_final_summary,
+                    "budget_state": _json_safe(state.batch_budget_state),
+                },
+            },
+        )
+    )
+    response.update(compatibility_fields)
+    if state.batch_exit_mode in {_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY}:
+        response["clarification_required"] = True
+        response["graph_unchanged"] = state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY
+    elif state.batch_done_summary:
+        response["done_summary"] = state.batch_done_summary
+    response["batch_turns"] = _json_safe(state.batch_turns)
+    return response
+
+
+def _build_dev_success_response(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    contract: str,
+) -> dict[str, Any]:
+    response = success_envelope(
+        context,
+        message=state.user_message,
+        graph=state.ui_payload,
+        report=state.report,
+        artifacts=state.artifacts,
+        apply_eligibility=derive_apply_eligibility(
+            context,
+            has_candidate=True,
+            candidate_state="candidate",
+        ),
+        canvas_apply_allowed=context.canvas_apply_allowed,
+        queue_allowed=context.queue_allowed,
+    )
+    response.update(_build_compatibility_response_fields(state))
+    if contract == "delta":
+        from vibecomfy.porting.edit_ops import op_to_dict
+
+        response["delta_ops"] = [op_to_dict(op) for op in state.delta_ops]
     return response
 
 
@@ -1844,6 +2330,80 @@ def _is_provider_exception(exc: Exception) -> bool:
         "ProviderError",
     }
     return any(type_.__name__ in provider_exception_names for type_ in type(exc).__mro__)
+
+
+def _run_batch_repl_product_path(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    deepseek_client: DeepSeekClient | None = None,
+    route: str | None = None,
+    model: str | None = None,
+    client_id: str | None = None,
+) -> AgentEditState:
+    _run_stage("ingest", state, context, _stage_ingest_v2)
+    _run_stage(
+        "agent_batch",
+        state,
+        context,
+        _stage_agent_batch_repl,
+        deepseek_client=deepseek_client,
+        route=route,
+        model=model,
+        client_id=client_id,
+    )
+    return state
+
+
+def _run_delta_dev_path(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    deepseek_client: DeepSeekClient | None = None,
+    route: str | None = None,
+    model: str | None = None,
+) -> AgentEditState:
+    _run_stage("ingest", state, context, _stage_ingest_v2)
+    _run_stage("project", state, context, _stage_project_v2)
+    _run_stage(
+        "agent_delta",
+        state,
+        context,
+        _stage_agent_delta,
+        deepseek_client=deepseek_client,
+        route=route,
+        model=model,
+    )
+    _run_stage("apply_delta", state, context, _stage_apply_delta)
+    _run_stage("summarize", state, context, _stage_summarize_v2)
+    return state
+
+
+def _run_full_dev_path(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    deepseek_client: DeepSeekClient | None = None,
+    route: str | None = None,
+    model: str | None = None,
+) -> AgentEditState:
+    _run_stage("ingest", state, context, _stage_ingest)
+    _run_stage("convert", state, context, _stage_convert)
+    _run_stage(
+        "agent",
+        state,
+        context,
+        _stage_agent,
+        deepseek_client=deepseek_client,
+        route=route,
+        model=model,
+    )
+    _run_stage("load_python", state, context, _stage_load_python)
+    _run_stage("lower", state, context, _stage_lower)
+    _run_stage("validate", state, context, _stage_validate)
+    _run_stage("emit", state, context, _stage_emit)
+    _run_stage("summarize", state, context, _stage_summarize)
+    return state
 
 
 _RUNTIME_OBJECT_INFO_PATH: list[str] = []
@@ -1937,28 +2497,31 @@ def handle_agent_edit(
     from vibecomfy.schema import get_schema_provider
 
     if not isinstance(payload, dict):
-        return failure_envelope(
+        failure = failure_envelope(
             FailureKind.MISSING_REQUIRED_FIELD,
             "ingest",
             agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        )
+        return _product_failure_response(failure)
 
     task = payload.get("task")
     graph = payload.get("graph")
     if not isinstance(task, str) or not task.strip():
-        return failure_envelope(
+        failure = failure_envelope(
             FailureKind.MISSING_REQUIRED_FIELD,
             "ingest",
             agent_failure_context={"explanation": "`task` is required."},
-        ).to_dict()
+        )
+        return _product_failure_response(failure)
     if not isinstance(graph, dict):
-        return failure_envelope(
+        failure = failure_envelope(
             FailureKind.MISSING_REQUIRED_FIELD,
             "ingest",
             agent_failure_context={
                 "explanation": "`graph` must be a ComfyUI UI JSON object."
             },
-        ).to_dict()
+        )
+        return _product_failure_response(failure)
 
     if schema_provider is None:
         schema_provider = _default_runtime_schema_provider()
@@ -1982,9 +2545,10 @@ def handle_agent_edit(
                 failure=allocation.conflict.failure,
                 request=payload,
             )
-            return dataclasses.replace(allocation.conflict.failure, audit_ref=audit_ref).to_dict()
+            failure = dataclasses.replace(allocation.conflict.failure, audit_ref=audit_ref)
         except Exception:
-            return allocation.conflict.failure.to_dict()
+            failure = allocation.conflict.failure
+        return _product_failure_response(failure)
 
     context = allocation.context
     context.client_graph_hash = payload.get("client_graph_hash") if isinstance(payload.get("client_graph_hash"), str) else None
@@ -2058,52 +2622,42 @@ def handle_agent_edit(
 
     contract = _agent_edit_contract()
 
+    route = payload.get("route") if isinstance(payload.get("route"), str) else None
+    model = payload.get("model") if isinstance(payload.get("model"), str) else None
+
     try:
         if contract == "batch_repl":
-            _run_stage("ingest", state, context, _stage_ingest_v2)
-            _run_stage(
-                "agent_batch",
+            state = _run_batch_repl_product_path(
                 state,
                 context,
-                _stage_agent_batch_repl,
                 deepseek_client=deepseek_client,
-                route=payload.get("route") if isinstance(payload.get("route"), str) else None,
-                model=payload.get("model") if isinstance(payload.get("model"), str) else None,
+                route=route,
+                model=model,
                 client_id=client_id,
             )
         elif contract == "delta":
-            _run_stage("ingest", state, context, _stage_ingest_v2)
-            _run_stage("project", state, context, _stage_project_v2)
-            _run_stage(
-                "agent_delta",
+            state = _run_delta_dev_path(
                 state,
                 context,
-                _stage_agent_delta,
                 deepseek_client=deepseek_client,
-                route=payload.get("route") if isinstance(payload.get("route"), str) else None,
-                model=payload.get("model") if isinstance(payload.get("model"), str) else None,
+                route=route,
+                model=model,
             )
-            _run_stage("apply_delta", state, context, _stage_apply_delta)
-            _run_stage("summarize", state, context, _stage_summarize_v2)
         else:
-            _run_stage("ingest", state, context, _stage_ingest)
-            _run_stage("convert", state, context, _stage_convert)
-            _run_stage(
-                "agent",
+            state = _run_full_dev_path(
                 state,
                 context,
-                _stage_agent,
                 deepseek_client=deepseek_client,
-                route=payload.get("route") if isinstance(payload.get("route"), str) else None,
-                model=payload.get("model") if isinstance(payload.get("model"), str) else None,
+                route=route,
+                model=model,
             )
-            _run_stage("load_python", state, context, _stage_load_python)
-            _run_stage("lower", state, context, _stage_lower)
-            _run_stage("validate", state, context, _stage_validate)
-            _run_stage("emit", state, context, _stage_emit)
-            _run_stage("summarize", state, context, _stage_summarize)
     except _StageBlocked as blocked:
-        response = _failure_response(state, context, blocked.failure or classify_failure(blocked.result.stage, blocked, context))
+        response = _failure_response(
+            state,
+            context,
+            contract=contract,
+            failure=blocked.failure or classify_failure(blocked.result.stage, blocked, context),
+        )
         record_idempotent_response(
             session_root=root,
             session_id=session_id,
@@ -2117,47 +2671,12 @@ def handle_agent_edit(
         )
         return response
 
-    has_candidate = not (contract == "batch_repl" and state.batch_exit_mode == "clarify")
-    response_apply_eligibility = derive_apply_eligibility(
-        context,
-        has_candidate=has_candidate,
-        candidate_state="candidate",
-    )
-    response = success_envelope(
-        context,
-        message=state.user_message,
-        graph=state.ui_payload,
-        report=state.report,
-        artifacts=state.artifacts,
-        apply_eligibility=response_apply_eligibility,
-        canvas_apply_allowed=context.canvas_apply_allowed if has_candidate else False,
-        queue_allowed=context.queue_allowed if has_candidate else False,
-    )
-    candidate_graph_hash = payload_hash(state.ui_payload)
-    candidate_structural_graph_hash = structural_graph_hash(state.ui_payload)
-    response.update(
-        {
-            "baseline_graph_hash": state.baseline_graph_hash,
-            "submit_graph_hash": state.submit_graph_hash,
-            "submit_structural_graph_hash": state.submit_structural_graph_hash,
-            "submitted_client_graph_hash": state.submitted_client_graph_hash,
-            "submitted_client_structural_graph_hash": state.submitted_client_structural_graph_hash,
-            "candidate_graph_hash": candidate_graph_hash,
-            "candidate_structural_graph_hash": candidate_structural_graph_hash,
-            "client_graph_hash": state.submitted_client_graph_hash,
-        }
-    )
     if contract == "delta":
-        from vibecomfy.porting.edit_ops import op_to_dict
-
-        response["delta_ops"] = [op_to_dict(op) for op in state.delta_ops]
-    if contract == "batch_repl":
-        if state.batch_exit_mode == "clarify":
-            response["clarification_required"] = True
-            response["graph_unchanged"] = True
-        elif state.batch_done_summary:
-            response["done_summary"] = state.batch_done_summary
-        response["batch_turns"] = _json_safe(state.batch_turns)
+        response = _build_dev_success_response(state, context, contract=contract)
+    elif contract == "batch_repl":
+        response = _build_batch_repl_response(state, context)
+    else:
+        response = _build_dev_success_response(state, context, contract=contract)
     try:
         if contract == "delta":
             _record(
@@ -2189,7 +2708,7 @@ def handle_agent_edit(
             agent_failure_context={"explanation": str(exc)},
             audit_error=str(exc),
         )
-        return failure.to_dict()
+        return _product_failure_response(failure)
     record_idempotent_response(
         session_root=root,
         session_id=session_id,
@@ -2343,7 +2862,7 @@ def _agent_edit_turn_event_payload(
     exit_mode = getattr(state, "batch_exit_mode", "")
     if exit_mode:
         payload["exit_mode"] = exit_mode
-    if exit_mode == "done" and getattr(state, "batch_done_summary", ""):
+    if exit_mode in {_BATCH_EXIT_DONE, _BATCH_EXIT_NOOP} and getattr(state, "batch_done_summary", ""):
         payload["done_summary"] = str(state.batch_done_summary)[:500]
 
     # Budget snapshot

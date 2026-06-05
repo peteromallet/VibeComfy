@@ -1666,8 +1666,10 @@ class TestPublicM1SurfaceImports:
             CompactDiagnostic,
             DoneResult,
             EditSession,
+            FieldChange,
             StatementResult,
         )
+        from vibecomfy.porting import edit_session as edit_session_module
 
         session = EditSession(_load_flat_fixture_raw())
         rendered = session.render()
@@ -1682,6 +1684,8 @@ class TestPublicM1SurfaceImports:
         assert StatementResult.__name__ == "StatementResult"
         assert DoneResult.__name__ == "DoneResult"
         assert CompactDiagnostic.__name__ == "CompactDiagnostic"
+        assert FieldChange.__module__ == "vibecomfy.porting.edit_types"
+        assert edit_session_module.FieldChange is FieldChange
 
 
 # =====================================================================
@@ -1769,6 +1773,14 @@ for i in range(3):
         )
         assert expanded_result.ok is False
         assert expanded_result.diagnostics[0].code == "batch_expanded_statement_cap_exceeded"
+
+    def test_parse_error_batch_result_has_no_field_changes(self) -> None:
+        from vibecomfy.porting import EditSession
+
+        result = EditSession(_load_flat_fixture_raw()).apply_batch("done(\n")
+
+        assert result.ok is False
+        assert result.field_changes == ()
 
     @pytest.mark.parametrize(
         ("source", "code"),
@@ -2085,6 +2097,7 @@ class TestEditSessionPrimitiveLowering:
         return session
 
     def test_apply_batch_lowers_literal_assignment_to_set_node_field_op(self) -> None:
+        from vibecomfy.porting import FieldChange
         from vibecomfy.porting.edit_ops import SetNodeFieldOp
 
         session = self._primitive_session()
@@ -2092,12 +2105,58 @@ class TestEditSessionPrimitiveLowering:
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], SetNodeFieldOp)
+        assert result.field_changes == (
+            FieldChange(uid="widget", field_path="seed", old=1, new=9),
+        )
         assert result.statements[0].landed is True
         widget = session.ledger.resolve_node("", "widget")
         assert widget is not None
         assert widget["widgets_values"][0] == 9
 
+    def test_apply_batch_field_changes_use_original_ledger_for_repeated_writes(self) -> None:
+        from vibecomfy.porting import FieldChange
+
+        session = self._primitive_session()
+
+        first = session.apply_batch("widget.seed = 9\n")
+        second = session.apply_batch("widget.seed = 11\n")
+
+        assert first.field_changes == (
+            FieldChange(uid="widget", field_path="seed", old=1, new=9),
+        )
+        assert second.field_changes == (
+            FieldChange(uid="widget", field_path="seed", old=1, new=11),
+        )
+
+    def test_apply_batch_marks_unresolved_old_values_distinct_from_json_null(self) -> None:
+        from vibecomfy.porting import FieldChange
+
+        session = self._primitive_session()
+
+        created = session.apply_batch(
+            """
+sampler = KSampler(
+    seed=42,
+    steps=20,
+    cfg=7.5,
+    sampler_name="euler",
+    scheduler="normal",
+)
+"""
+        )
+        assert created.ok is True
+        minted_uid = created.statements[0].detail["minted_uid"]
+
+        result = session.apply_batch("sampler.seed = 99\n")
+
+        assert result.ok is True
+        assert result.field_changes == (
+            FieldChange(uid=minted_uid, field_path="seed", old=None, new=99),
+        )
+        assert result.statements[0].diagnostics[-1].code == "field_change_old_unresolved"
+
     def test_apply_batch_lowers_schema_less_dict_widget_assignment_to_set_node_field_op(self) -> None:
+        from vibecomfy.porting import FieldChange
         from vibecomfy.porting import EditSession
         from vibecomfy.porting.edit_ops import SetNodeFieldOp
 
@@ -2131,6 +2190,14 @@ class TestEditSessionPrimitiveLowering:
 
         assert result.ok is True
         assert isinstance(result.landed_ops[0], SetNodeFieldOp)
+        assert result.field_changes == (
+            FieldChange(
+                uid="dict-widget",
+                field_path="filename_prefix",
+                old="LTX-2",
+                new="qa_run",
+            ),
+        )
         node = session.ledger.resolve_node("", "dict-widget")
         assert node is not None
         assert node["widgets_values"] == {
@@ -2138,6 +2205,45 @@ class TestEditSessionPrimitiveLowering:
             "filename_prefix": "qa_run",
             "format": "video/h264-mp4",
         }
+
+    def test_apply_batch_schema_less_field_changes_keep_original_old_value(self) -> None:
+        from vibecomfy.porting import EditSession, FieldChange
+
+        raw = {
+            "last_node_id": 1,
+            "last_link_id": 0,
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "UnknownWidgetNode",
+                    "mode": 0,
+                    "pos": [0, 0],
+                    "size": [210, 58],
+                    "inputs": [],
+                    "outputs": [],
+                    "widgets_values": {
+                        "filename_prefix": "LTX-2",
+                    },
+                    "properties": {"vibecomfy_uid": "dict-widget"},
+                },
+            ],
+            "links": [],
+        }
+        session = EditSession(raw, schema_provider=self._schema_provider())
+        session.uid_by_name.update({"dict_widget": "dict-widget"})
+        session.name_by_uid.update({"dict-widget": "dict_widget"})
+
+        session.apply_batch("dict_widget.filename_prefix = 'qa_run'\n")
+        result = session.apply_batch("dict_widget.filename_prefix = 'qa_final'\n")
+
+        assert result.field_changes == (
+            FieldChange(
+                uid="dict-widget",
+                field_path="filename_prefix",
+                old="LTX-2",
+                new="qa_final",
+            ),
+        )
 
     def test_apply_batch_rejects_unknown_schema_less_dict_widget_field(self) -> None:
         from vibecomfy.porting import EditSession

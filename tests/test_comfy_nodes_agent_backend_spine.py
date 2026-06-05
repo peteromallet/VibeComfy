@@ -3127,6 +3127,8 @@ def test_agent_provider_status_reports_unavailable_without_secret_values(monkeyp
     status = agent_provider.get_agent_status(route="openai-codex", model="m1")
 
     assert status["ok"] is False
+    assert status["ready"] is False
+    assert status["reason"] == "not installed"
     assert status["provider_available"] is False
     assert status["route"] == "arnold"
     assert status["requested_route"] == "openai-codex"
@@ -3219,6 +3221,8 @@ def test_agent_provider_status_uses_runtime_status_without_leaking_secrets(monke
     status = agent_provider.get_agent_status(route="deepseek", model="m1")
 
     assert status["ok"] is True
+    assert status["ready"] is True
+    assert status["reason"] == "healthy"
     assert status["provider_available"] is True
     assert calls == [{"route": "deepseek", "model": "m1"}]
     assert status["route"] == "deepseek"
@@ -3231,6 +3235,46 @@ def test_agent_provider_status_uses_runtime_status_without_leaking_secrets(monke
     }
     assert "secret-value" not in json.dumps(status)
     assert "hermes-secret" not in json.dumps(status)
+
+
+def test_agent_provider_readiness_prefers_runtime_readiness_and_status_derives_ok(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class Runtime:
+        @staticmethod
+        def readiness(**kwargs):
+            calls.append(("readiness", kwargs))
+            return {
+                "ready": False,
+                "ok": True,
+                "reason": "credential missing",
+                "api_key": "runtime-secret",
+            }
+
+        @staticmethod
+        def get_agent_status(**kwargs):
+            calls.append(("get_agent_status", kwargs))
+            return {"ok": True, "detail": "should not be used"}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    readiness = agent_provider.readiness(route="anthropic", model="m1")
+    status = agent_provider.get_agent_status(route="anthropic", model="m1")
+
+    assert calls == [
+        ("readiness", {"route": "arnold", "model": "m1"}),
+        ("readiness", {"route": "arnold", "model": "m1"}),
+    ]
+    assert readiness["ready"] is False
+    assert readiness["reason"] == "credential missing"
+    assert readiness["provider_available"] is True
+    assert readiness["route"] == "arnold"
+    assert readiness["requested_route"] == "anthropic"
+    assert "runtime-secret" not in json.dumps(readiness)
+    assert status["ok"] is False
+    assert status["ready"] is False
+    assert status["reason"] == "credential missing"
+    assert status["readiness"] == "unavailable"
 
 
 def test_agent_provider_status_redacts_runtime_status_secret_fields(monkeypatch) -> None:
@@ -3249,6 +3293,8 @@ def test_agent_provider_status_redacts_runtime_status_secret_fields(monkeypatch)
     status = agent_provider.get_agent_status()
 
     assert status["ok"] is True
+    assert status["ready"] is True
+    assert status["reason"] == "healthy"
     assert status["detail"] == "healthy"
     assert "runtime-secret" not in json.dumps(status)
     assert "runtime-token" not in json.dumps(status)
@@ -3380,6 +3426,66 @@ def test_extract_batch_fence_empty_fence_is_valid() -> None:
     assert "Maybe later." in prose
 
 
+def test_extract_batch_fence_empty_prose_valid_fence_passes() -> None:
+    """Empty prose (no user-facing message) with a valid ```batch fence is accepted.
+
+    The backend synthesizer owns final message filling, so the parser must allow
+    empty prose and pass it through without raising MalformedModelJSON.
+    """
+    text = "```batch\nset_node_field('n1', 'text', 'hello')\n```"
+    batch_code, prose = agent_provider.extract_batch_fence(text)
+    assert batch_code == "set_node_field('n1', 'text', 'hello')"
+    assert prose == ""
+
+
+def test_normalize_batch_response_empty_prose_passes_to_synthesizer() -> None:
+    """_normalize_batch_response with empty prose + valid fence succeeds.
+
+    The message field may be empty; the synthesizer guarantees a non-empty
+    sentence-shaped final message downstream.
+    """
+    result = agent_provider._normalize_batch_response(
+        "```batch\ndone()\n```",
+        route="test",
+        model=None,
+    )
+    assert result.batch == "done()"
+    assert result.message == ""
+
+
+def test_extract_batch_fence_prose_only_raises_malformed_deterministically() -> None:
+    """Prose-only responses with no ```batch fence fail deterministically.
+
+    Multiple prose shapes must all raise MalformedModelJSON with the same
+    error class and a predictable message fragment — no silent pass-through.
+    """
+    prose_only_examples = [
+        "Here is my plan to update the checkpoint.",
+        "I changed the seed to 42.",
+        "Done. The image should look sharper now.",
+        "No edits needed.",
+        "Let me think about this...",
+        "The workflow looks correct.",
+    ]
+    for example in prose_only_examples:
+        with pytest.raises(
+            agent_provider.MalformedModelJSON, match="does not contain"
+        ):
+            agent_provider.extract_batch_fence(example)
+
+
+def test_normalize_batch_response_prose_only_raises_malformed() -> None:
+    """_normalize_batch_response with prose-only content raises MalformedModelJSON."""
+    with pytest.raises(
+        agent_provider.MalformedModelJSON, match="does not contain"
+    ):
+        agent_provider._normalize_batch_response(
+            "Just some helpful prose with no code block.",
+            route="test",
+            model=None,
+        )
+
+
 def test_build_batch_messages_turn_zero_includes_full_python_scoped_catalog_and_names() -> None:
     """Turn 0 messages include render, in-graph signatures, and names-only index."""
     messages = agent_provider.build_batch_messages(
@@ -3410,7 +3516,9 @@ def test_build_batch_messages_turn_zero_includes_full_python_scoped_catalog_and_
     assert "Output rule" in system
     assert "Known limits" in system
     assert "Envelope" in system
-    assert "Prose + exactly one" in system
+    assert "user-facing prose" in system
+    assert "exactly one" in system
+    assert "Never respond with only a fenced" in system
     assert "```batch" in system
     assert "ImageScaleBy(image=<decode_var>.IMAGE" in system
     assert "do NOT search for them" in system
@@ -3704,6 +3812,55 @@ def test_megaplan_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch
     assert calls[0]["system_msg"] == "system batch prompt"
     assert calls[0]["user_msg"] == "user batch prompt"
     assert calls[0]["agent_kwargs"]["model"] == "deepseek-v4-pro"
+
+
+def test_megaplan_runtime_readiness_normalizes_route_and_status_wraps_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    readiness = megaplan_runtime.readiness(route="anthropic")
+    status = megaplan_runtime.get_agent_status(route="anthropic")
+
+    assert readiness == {
+        "ready": False,
+        "backend": "megaplan.agent.run_agent.AIAgent",
+        "route": "arnold",
+        "model": "anthropic/claude-opus-4.6",
+        "reason": "No Anthropic/OpenRouter credential found for the Arnold route.",
+    }
+    assert status["ok"] is False
+    assert status["ready"] is False
+    assert status["route"] == "arnold"
+    assert status["detail"] == readiness["reason"]
+    assert status["readiness"] == "unavailable"
+
+
+def test_megaplan_runtime_readiness_reports_deepseek_key_presence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(megaplan_runtime, "_resolve_deepseek_key", lambda: "test-key")
+
+    readiness = megaplan_runtime.readiness(route="deepseek", model="deepseek-chat")
+    status = megaplan_runtime.get_agent_status(route="deepseek", model="deepseek-chat")
+
+    assert readiness == {
+        "ready": True,
+        "backend": "megaplan.agent.run_agent.AIAgent",
+        "route": "deepseek",
+        "model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com/v1",
+        "deepseek_key_present": True,
+        "reason": "DeepSeek key resolved; ready to run agent-edit turns.",
+    }
+    assert status["ok"] is True
+    assert status["ready"] is True
+    assert status["detail"] == readiness["reason"]
+    assert status["readiness"] == "ready"
 
 
 def test_run_agent_turn_batch_rejects_missing_fence(monkeypatch) -> None:
