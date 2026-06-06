@@ -630,6 +630,16 @@ function clearNode(node) {
   }
 }
 
+function appendChildOnce(parent, child) {
+  if (!parent || !child) {
+    return child;
+  }
+  if (child.parentNode && typeof child.parentNode.removeChild === "function") {
+    child.parentNode.removeChild(child);
+  }
+  return parent.appendChild(child);
+}
+
 function panelSection(id, title) {
   const section = el("section");
   section.id = id;
@@ -3636,6 +3646,7 @@ function _renderBatchTurnRow(body, panel, entry, index) {
       panel.state.expandedTurnKeys[turnKey] = true;
     }
     renderHistory(panel);
+    renderActivityRows(panel);
   };
 
   // ── Collapsed view (always visible) ──────────────────────────────────
@@ -3918,22 +3929,36 @@ function collectThreadMessageEntries(panel) {
 }
 
 function ensureChatThreadMounts(body) {
-  let sessionRow = null;
-  let olderMount = null;
-  let messagesMount = null;
-  let emptyMount = null;
-  let activityMount = null;
+  const mounts = {
+    sessionRow: [],
+    olderMount: [],
+    messagesMount: [],
+    emptyMount: [],
+    activityMount: [],
+  };
   for (const child of Array.from(body.children || [])) {
     if (child?.dataset?.vibecomfyChatSessionRow === "1") {
-      sessionRow = child;
+      mounts.sessionRow.push(child);
     } else if (child?.dataset?.vibecomfyChatOlderMount === "1") {
-      olderMount = child;
+      mounts.olderMount.push(child);
     } else if (child?.dataset?.vibecomfyChatMessages === "1") {
-      messagesMount = child;
+      mounts.messagesMount.push(child);
     } else if (child?.dataset?.vibecomfyChatEmpty === "1") {
-      emptyMount = child;
+      mounts.emptyMount.push(child);
     } else if (child?.dataset?.vibecomfyChatActivity === "1") {
-      activityMount = child;
+      mounts.activityMount.push(child);
+    }
+  }
+  let sessionRow = mounts.sessionRow[0] || null;
+  let olderMount = mounts.olderMount[0] || null;
+  let messagesMount = mounts.messagesMount[0] || null;
+  let emptyMount = mounts.emptyMount[0] || null;
+  let activityMount = mounts.activityMount[0] || null;
+  for (const list of Object.values(mounts)) {
+    for (const duplicate of list.slice(1)) {
+      if (duplicate?.parentNode === body) {
+        body.removeChild(duplicate);
+      }
     }
   }
   if (!sessionRow) {
@@ -3996,11 +4021,16 @@ function ensureChatThreadMounts(body) {
       overflowWrap: "anywhere",
     });
   }
-  body.appendChild(sessionRow);
-  body.appendChild(olderMount);
-  body.appendChild(messagesMount);
-  body.appendChild(activityMount);
-  body.appendChild(emptyMount);
+  sessionRow.dataset.vibecomfyChatSessionRow = "1";
+  olderMount.dataset.vibecomfyChatOlderMount = "1";
+  messagesMount.dataset.vibecomfyChatMessages = "1";
+  activityMount.dataset.vibecomfyChatActivity = "1";
+  emptyMount.dataset.vibecomfyChatEmpty = "1";
+  appendChildOnce(body, sessionRow);
+  appendChildOnce(body, olderMount);
+  appendChildOnce(body, messagesMount);
+  appendChildOnce(body, activityMount);
+  appendChildOnce(body, emptyMount);
   return { sessionRow, olderMount, messagesMount, emptyMount, activityMount };
 }
 
@@ -4239,7 +4269,7 @@ function reconcileChatBubbles(panel, messagesMount, displayEntries) {
     nextBubbleMap[key] = bubbleEntry;
     nextSignatures[key] = signature;
     nextKeyOrder.push(key);
-    messagesMount.appendChild(bubbleEntry.node);
+    appendChildOnce(messagesMount, bubbleEntry.node);
   }
 
   for (const [key, bubbleEntry] of Object.entries(priorBubbleMap)) {
@@ -7573,6 +7603,23 @@ async function applyAgentCandidate(panel) {
         debugPayload: failure,
       });
       fulfillLifecycleTransitionObligations(panel, obligations);
+      pushHistory(panel, "failure", failure.kind || "StaleStateMismatch");
+      pushTurnStatus(panel, "failed", {
+        session_id: failure.session_id || panel.state.sessionId,
+        turn_id: failure.turn_id || panel.state.turnId,
+        baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
+        failure_kind: failure.kind || "StaleStateMismatch",
+        failure_stage: failure.stage || "frontend",
+        message: failure.user_facing_message || failure.message || failure.error,
+        audit_ref: failure.audit_ref,
+        raw_payload: failure,
+      });
+      rememberTurnDetailSnapshot(panel, {
+        turn_id: failure.turn_id || panel.state.turnId,
+        session_id: failure.session_id || panel.state.sessionId,
+        failure,
+        message: failure.user_facing_message || failure.message || failure.error,
+      });
       renderLifecycleTransition(panel, obligations);
       return;
     }

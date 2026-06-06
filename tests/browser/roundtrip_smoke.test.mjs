@@ -86,6 +86,18 @@ async function waitFor(predicate, { attempts = 50 } = {}) {
   throw new Error("waitFor timed out");
 }
 
+function expandAgentBubbleDetails(root) {
+  const toggles = root.querySelectorAll(
+    (node) => node.textContent === "\u25b6 details" || node.textContent === "\u25bc details",
+  );
+  for (const toggle of toggles) {
+    if (toggle.textContent === "\u25b6 details") {
+      toggle.click();
+    }
+  }
+  return toggles.length;
+}
+
 test("VibeComfy browser canonical hash helper sorts object keys while preserving array order", () => {
   for (const payload of CANONICAL_HASH_PAYLOADS) {
     assert.match(sha256HexUtf8(payload), /^[0-9a-f]{64}$/);
@@ -991,6 +1003,8 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
+    // M2 T13 makes per-bubble details lazy; expand before asserting detail-only feedback.
+    expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes were highlighted on the canvas temporarily\./);
   } finally {
     await harness.dispose();
@@ -1439,6 +1453,8 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "make it safer";
     await harness.clickButton("Submit");
 
+    // M2 T13 keeps candidate report rows behind collapsed lazy bubble details.
+    expandAgentBubbleDetails(harness.document.body);
     const successText = harness.textDump();
     assert.match(successText, /Candidate blocked for queue review\./);
     assert.match(successText, /canvasApplyAllowed.*false/);
@@ -1461,6 +1477,7 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "break it";
     await harness.clickButton("Submit");
 
+    expandAgentBubbleDetails(harness.document.body);
     const failureText = harness.textDump();
     assert.match(failureText, /ValidationError @ emit/);
     assert.match(failureText, /backend stage: emit \(0.75\)/);
@@ -1834,6 +1851,8 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     assert.deepEqual(harness.graphDirtyCanvasCalls, [[true, true]]);
     assert.deepEqual(harness.canvasDrawCalls, [[true, true]]);
     assert.equal(harness.app.canvas.graph._nodes.find((node) => node.id === 2)?.boxcolor, "#ffc107");
+    // M2 T13 keeps applied-node feedback behind collapsed lazy bubble details.
+    expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes were highlighted on the canvas temporarily\./);
     assert.match(harness.textDump(), /Edited uid-2/);
     assert.match(harness.textDump(), /undo_stack_depth/);
@@ -1849,8 +1868,10 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     assert.deepEqual(harness.getCurrentGraph(), initialGraph);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 1);
     assert.equal(rebaselineBodies.length, 1);
-    assert.match(harness.textDump(), /undone_turn_id/);
-    assert.match(harness.textDump(), /"0002"/);
+    expandAgentBubbleDetails(harness.document.body);
+    assert.match(harness.textDump(), /undone/);
+    assert.match(harness.textDump(), /restored pre-apply graph for turn 0002/);
+    assert.match(harness.textDump(), /\/tmp\/rebaseline-undo-audit\.json/);
     assert.match(harness.textDump(), /undo_stack_depth/);
     assert.match(harness.textDump(), /rebaseline_response/);
     assert.equal(undoButton.disabled, true);
@@ -2330,6 +2351,7 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
     await harness.clickButton("Apply Candidate");
 
     assert.match(harness.textDump(), /canvas changed while Apply was waiting for backend acceptance/i);
+    expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /expected_live_canvas_token/);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
@@ -2419,6 +2441,7 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
     await harness.clickButton("Submit");
     await harness.clickButton("Apply Candidate");
 
+    expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes listed here because live node lookup was unavailable\./);
     assert.match(harness.textDump(), /Edited uid-missing/);
     assert.match(harness.textDump(), /Native queue hook unavailable: `app\.queuePrompt` was not found\./);
@@ -3653,6 +3676,8 @@ test("VibeComfy turn history tracks pending/candidate/applied/rejected/failed st
     assert.match(afterFailureText, /applied/i);
     assert.match(afterFailureText, /failed/i);
 
+    // M2 T13 keeps audit details in the lazy bubble pane.
+    expandAgentBubbleDetails(harness.document.body);
     // Audit region should have a download button
     assert.match(harness.textDump(), /Download Audit Envelope/);
   } finally {
@@ -3782,6 +3807,7 @@ test("VibeComfy agent turn websocket listener ignores closed or foreign sessions
     });
     await submitPromise;
 
+    expandAgentBubbleDetails(harness.document.body);
     const text = harness.textDump();
     assert.equal(submitBodies[0].client_id, harness.api.clientId);
     assert.match(text, /Candidate after batch replay\./);
@@ -3921,6 +3947,7 @@ test("VibeComfy lowered recovery entries are informational and do not block queu
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "lower a loop";
     await harness.clickButton("Submit");
 
+    expandAgentBubbleDetails(harness.document.body);
     const text = harness.textDump();
 
     // lowered diff row appears with teal color
@@ -4013,6 +4040,7 @@ test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vib
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a code intent";
     await harness.clickButton("Submit");
 
+    expandAgentBubbleDetails(harness.document.body);
     const text = harness.textDump();
 
     // queue is blocked because vibecomfy.code is in the graph nodes (graph-scan fallback)
@@ -4237,6 +4265,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
     // ── Part 5: absence of raw diff/source/audit paths in batch details ──
     // Also verify the collapsed Turn 2 row has the expected outcome when expanded.
     // Expand Turn 2 (freshRows[freshRows.length - 2]) to verify its footer and diagnostics
+    freshRows = chatRegion.querySelectorAll((node) => node.className === "vibecomfy-batch-row");
     let turn2Row = freshRows[freshRows.length - 2];
     turn2Row.click();
     await waitFor(() => {
@@ -4257,9 +4286,19 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
     assert.doesNotMatch(expandedText, /provider_metadata/i);
     assert.doesNotMatch(expandedText, /raw_json/i);
 
-    // Click both rows again to collapse
-    turn1Row.click();
-    turn2Row.click();
+    // Click currently expanded rows again to collapse. Activity rows repaint on
+    // each toggle, so re-query instead of retaining stale row references.
+    for (let guard = 0; guard < 4; guard += 1) {
+      const expandedRows = chatRegion.querySelectorAll(
+        (node) =>
+          node.className === "vibecomfy-batch-row"
+          && node.querySelectorAll((child) => child.className === "vibecomfy-batch-expanded").length > 0,
+      );
+      if (!expandedRows.length) {
+        break;
+      }
+      expandedRows[0].click();
+    }
     await waitFor(() => {
       const expanded = harness.document.body.querySelectorAll((node) => node.className === "vibecomfy-batch-expanded");
       return expanded.length === 0;
@@ -5084,6 +5123,7 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
     assert.equal(panel.state.candidateGraphHash, "rehydrated-candidate-hash");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.match(harness.textDump(), /Candidate restored/);
+    expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /queue_allowed=false/);
   } finally {
     await harness.dispose();
@@ -5330,11 +5370,11 @@ test("VibeComfy chat thread shows the session link, caps collapsed history at th
       visibleMessages,
       Array.from({ length: 30 }, (_, index) => `message ${index + 6}`),
     );
-    assert.doesNotMatch(harness.textDump(), /message 1/);
-    assert.doesNotMatch(harness.textDump(), /message 2/);
-    assert.doesNotMatch(harness.textDump(), /message 3/);
-    assert.doesNotMatch(harness.textDump(), /message 4/);
-    assert.doesNotMatch(harness.textDump(), /message 5/);
+    assert(!visibleMessages.includes("message 1"));
+    assert(!visibleMessages.includes("message 2"));
+    assert(!visibleMessages.includes("message 3"));
+    assert(!visibleMessages.includes("message 4"));
+    assert(!visibleMessages.includes("message 5"));
 
     const showEarlierButton = chatRegion.querySelectorAll(
       (node) => node.tagName === "BUTTON" && node.textContent === "Show earlier messages",
@@ -7855,7 +7895,8 @@ test("VibeComfy resetThreadRenderState clears all threadState fields and is call
     assert.ok(typeof panel.threadState.bubbleMap === "object", "bubbleMap should exist");
     assert.equal(panel.threadState.expandedOlder, false);
     assert.ok(typeof panel.threadState.signatures === "object", "signatures should exist");
-    assert.equal(panel.threadState.lastVisibleKeySet, null);
+    assert(panel.threadState.lastVisibleKeySet instanceof Set, "lastVisibleKeySet should track visible keys after render");
+    assert.equal(panel.threadState.lastVisibleKeySet.size, 2);
 
     // Mutate threadState to verify reset clears it
     panel.threadState.renderedKeyOrder = ["turn:0001:user", "turn:0001:agent"];
