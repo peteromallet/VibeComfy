@@ -370,7 +370,7 @@ def _human_change_phrase(
         if old_link and not new_link:
             old_label = _resolve_endpoint_label(change.old, labels, graph)
             return f"disconnected {subject} from {old_label}"
-    if change.old is None:
+    if change.old is None or change.old is _ABSENT_FIELD_OLD:
         return f"set {subject} to {_display_value(change.new)}"
     return (
         f"updated {subject} from "
@@ -418,7 +418,7 @@ def _operation_detail_payload(changes: tuple[FieldChange, ...]) -> list[dict[str
             **change.to_dict(),
             "summary": (
                 f"Set {_change_subject(change)} to {_display_value(change.new)}."
-                if change.old is None
+                if change.old is None or change.old is _ABSENT_FIELD_OLD
                 else (
                     f"Changed {_change_subject(change)} from "
                     f"{_display_value(change.old)} to {_display_value(change.new)}."
@@ -1017,7 +1017,7 @@ def _original_ui_field_value(graph: Mapping[str, Any], change: FieldChange) -> A
         if widget_value is not _MISSING_FIELD_CHANGE_OLD:
             return widget_value
         return _MISSING_FIELD_CHANGE_OLD
-    return _MISSING_FIELD_CHANGE_OLD
+    return _ABSENT_FIELD_OLD  # node not found in original UI graph — genuinely absent
 
 
 def _repair_field_changes_from_original_ui(
@@ -1031,7 +1031,7 @@ def _repair_field_changes_from_original_ui(
     for change in changes:
         if change.old is None:
             old = _original_ui_field_value(graph, change)
-            if old is not _MISSING_FIELD_CHANGE_OLD:
+            if old is not _MISSING_FIELD_CHANGE_OLD and old is not _ABSENT_FIELD_OLD:
                 repaired.append(
                     FieldChange(
                         uid=change.uid,
@@ -1044,10 +1044,11 @@ def _repair_field_changes_from_original_ui(
                 continue
             # Genuinely absent from original UI — keep old=None as the
             # normalised absent marker (serialises as null via to_dict()).
+            # _ABSENT_FIELD_OLD is the internal sentinel; FieldChange stores None.
             repaired.append(change)
             continue
         old = _original_ui_field_value(graph, change)
-        if old is _MISSING_FIELD_CHANGE_OLD or old == change.old:
+        if old is _MISSING_FIELD_CHANGE_OLD or old is _ABSENT_FIELD_OLD or old == change.old:
             repaired.append(change)
             continue
         repaired.append(

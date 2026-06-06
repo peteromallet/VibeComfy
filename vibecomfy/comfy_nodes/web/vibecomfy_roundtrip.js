@@ -8,6 +8,8 @@ import {
   transition,
 } from "./agent_edit_lifecycle.js";
 
+export { RENDER_SECTIONS };
+
 // ── VibeComfy Contract (S2 — Durable Frontend Panel) ─────────────────────
 // This file captures the frontend↔backend contract before feature work.
 // Backend contract authority: vibecomfy/comfy_nodes/agent_contracts.py.
@@ -3955,6 +3957,8 @@ function ensureChatThreadMounts(body) {
       display: "grid",
       gap: "6px",
       minWidth: "0",
+      maxWidth: "100%",
+      overflowWrap: "anywhere",
     });
   }
   if (!emptyMount) {
@@ -3964,6 +3968,8 @@ function ensureChatThreadMounts(body) {
       display: "none",
       gap: "6px",
       minWidth: "0",
+      maxWidth: "100%",
+      overflowWrap: "anywhere",
     });
   }
   if (!olderMount) {
@@ -3973,6 +3979,8 @@ function ensureChatThreadMounts(body) {
       display: "none",
       marginBottom: "6px",
       minWidth: "0",
+      maxWidth: "100%",
+      overflowWrap: "anywhere",
     });
   }
   if (!activityMount) {
@@ -3984,6 +3992,8 @@ function ensureChatThreadMounts(body) {
       paddingTop: "8px",
       borderTop: "1px solid #282a32",
       minWidth: "0",
+      maxWidth: "100%",
+      overflowWrap: "anywhere",
     });
   }
   body.appendChild(sessionRow);
@@ -4101,6 +4111,7 @@ function renderChatBubbleNode(bubble, panel, msg, messageKey, messageIndex) {
     fontSize: "10px",
     maxWidth: "100%",
     minWidth: "0",
+    overflowWrap: "anywhere",
   });
 
   const detailToggle = el("span", "\u25b6 details");
@@ -4125,7 +4136,8 @@ function renderChatBubbleNode(bubble, panel, msg, messageKey, messageIndex) {
     alignItems: "baseline",
     maxWidth: "100%",
     minWidth: "0",
-    overflow: "hidden",
+    maxHeight: "360px",
+    overflow: "auto",
     overflowWrap: "anywhere",
     wordBreak: "break-word",
   });
@@ -6585,7 +6597,15 @@ function renderPanelMetaAndStatus(panel) {
   renderMeta(panel);
 
   const phase = panel.state.phase;
-  panel.status.textContent = phase === PANEL_STATE.CLARIFY ? "NEEDS YOUR INPUT" : phase;
+  const STATUS_LABELS = {
+    [PANEL_STATE.IDLE]: "Ready",
+    [PANEL_STATE.SUBMITTING]: "\u2026",
+    [PANEL_STATE.CLARIFY]: "Needs Your Input",
+    [PANEL_STATE.AWAITING_REVIEW]: "Review Changes",
+    [PANEL_STATE.APPLYING]: "\u2026",
+    [PANEL_STATE.ERROR]: "Error",
+  };
+  panel.status.textContent = STATUS_LABELS[phase] || phase;
   panel.status.style.color =
     phase === PANEL_STATE.ERROR
       ? "#ff8d8d"

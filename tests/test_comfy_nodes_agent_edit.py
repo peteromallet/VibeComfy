@@ -2200,7 +2200,7 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
             {
                 "uid": "2",
                 "field_path": "filename_prefix",
-                "old": None,
+                "old": "before",
                 "new": "after",
             }
         ],
@@ -2210,7 +2210,7 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
         {
             "uid": "2",
             "field_path": "filename_prefix",
-            "old": None,
+            "old": "before",
             "new": "after",
         }
     ]
@@ -2252,7 +2252,7 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
             {
                 "uid": "2",
                 "field_path": "filename_prefix",
-                "old": None,
+                "old": "before",
                 "new": "after",
             }
         ],
@@ -2312,7 +2312,7 @@ def test_handle_agent_edit_batch_repl_ignores_clarify_inside_comments_and_string
             {
                 "uid": "2",
                 "field_path": "filename_prefix",
-                "old": None,
+                "old": "before",
                 "new": expected_prefix,
             }
         ],
@@ -2688,7 +2688,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
             {
                 "uid": "3",
                 "field_path": "filename_prefix",
-                "old": None,
+                "old": "before",
                 "new": "after",
             }
         ],
@@ -2753,7 +2753,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
         {
             "uid": "3",
             "field_path": "filename_prefix",
-            "old": None,
+            "old": "before",
             "new": "after",
         }
     ]
@@ -5885,8 +5885,8 @@ def test_humanized_edit_message_mixed_absent_and_present() -> None:
         ),
     )
     msg = _humanized_edit_message(state)
-    assert "set SaveImage filename_prefix to output" in msg.lower()
-    assert "updated KSampler steps from 20 to 30" in msg.lower()
+    assert "set saveimage filename_prefix to output" in msg.lower()
+    assert "updated ksampler steps from 20 to 30" in msg.lower()
 
 
 def test_absent_field_old_not_serialized_in_to_dict() -> None:
