@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from .agent_contracts import (
     FailureKind,
@@ -96,7 +96,84 @@ def _validated_failure_response(
     failure: Any,
 ) -> dict[str, Any]:
     response = failure.to_dict() if hasattr(failure, "to_dict") else dict(failure)
+    if stage == "accept":
+        _promote_accept_rebaseline_recovery(response)
+    recovery = _extract_failure_recovery(response)
+    if recovery is not None:
+        response.setdefault("rebaseline_recovery", recovery)
+        outcome = response.get("outcome")
+        if isinstance(outcome, Mapping) and outcome.get("kind") == "error":
+            response["outcome"] = {
+                **dict(outcome),
+                "rebaseline_recovery": dict(outcome.get("rebaseline_recovery"))
+                if isinstance(outcome.get("rebaseline_recovery"), Mapping)
+                else recovery,
+            }
     return ensure_agent_edit_response_contract(response, stage=stage)
+
+
+def _promote_accept_rebaseline_recovery(response: dict[str, Any]) -> None:
+    if response.get("kind") != FailureKind.STALE_STATE_MISMATCH.value:
+        return
+    context = response.get("agent_failure_context")
+    if not isinstance(context, Mapping):
+        return
+    issues = context.get("issues")
+    if isinstance(issues, list):
+        for issue in issues:
+            if isinstance(issue, Mapping) and isinstance(issue.get("rebaseline_recovery"), Mapping):
+                return
+    reason = context.get("reason")
+    recovery = {
+        "action": "rebaseline",
+        "endpoint": "/vibecomfy/agent-edit/rebaseline",
+        "reason": reason if isinstance(reason, str) and reason else "stale_state_recovery",
+    }
+    issue = {
+        "code": "stale_state_mismatch",
+        "detail": context.get("explanation")
+        if isinstance(context.get("explanation"), str)
+        else "Accept request no longer matches the authoritative baseline.",
+        "rebaseline_recovery": recovery,
+    }
+    response.setdefault("rebaseline_recovery", recovery)
+    response["agent_failure_context"] = {
+        **dict(context),
+        "issues": [*issues, issue] if isinstance(issues, list) else [issue],
+    }
+
+
+def _extract_failure_recovery(response: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(response, Mapping):
+        return None
+    top_level = response.get("rebaseline_recovery")
+    if isinstance(top_level, Mapping):
+        return dict(top_level)
+    contexts: list[Any] = [response.get("agent_failure_context")]
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        outcome_recovery = outcome.get("rebaseline_recovery")
+        if isinstance(outcome_recovery, Mapping):
+            return dict(outcome_recovery)
+        contexts.append(outcome.get("agent_failure_context"))
+    debug = response.get("debug")
+    if isinstance(debug, Mapping):
+        failure_debug = debug.get("failure")
+        if isinstance(failure_debug, Mapping):
+            contexts.append(failure_debug.get("agent_failure_context"))
+    for context in contexts:
+        if not isinstance(context, Mapping):
+            continue
+        issues = context.get("issues")
+        if not isinstance(issues, list):
+            continue
+        for issue in issues:
+            if not isinstance(issue, Mapping):
+                continue
+            recovery = issue.get("rebaseline_recovery")
+            if isinstance(recovery, Mapping):
+                return dict(recovery)
+    return None
 
 
 def _validated_success_response(
@@ -463,22 +540,26 @@ def _handle_agent_edit(
     client_id: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
+        return _validated_failure_response(
             "ingest",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "ingest",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            ),
+        )
     try:
-        return handle_agent_edit(
+        result = handle_agent_edit(
             payload,
             schema_provider=schema_provider,
             deepseek_client=deepseek_client,
             session_root=session_root,
             client_id=client_id,
         )
+        return ensure_agent_edit_response_contract(result, stage="submit")
     except Exception as exc:
         stage = "ingest" if isinstance(exc, ValueError) else "route"
-        return classify_failure(stage, exc).to_dict()
+        return _validated_failure_response(stage, classify_failure(stage, exc))
 
 
 try:

@@ -7,6 +7,12 @@ import {
   normalizeObligationDirtySections,
   transition,
 } from "./agent_edit_lifecycle.js";
+import {
+  normalizeAgentEditResponse,
+  readLatestCandidate,
+  readRebaselineRecovery,
+  extractRebaselineRecovery,
+} from "./agent_edit_response_contract.js";
 
 export { RENDER_SECTIONS };
 
@@ -1822,7 +1828,10 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
   if (typeof document === "undefined") {
     return;
   }
-  markAgentPanelDirtyAfterCommit(panel, SETTINGS_STATUS_RENDER_SECTIONS, "status");
+  const statusDirtySections = Array.isArray(panel?.state?.chatMessages) && panel.state.chatMessages.length
+    ? [...SETTINGS_STATUS_RENDER_SECTIONS, RENDER_SECTIONS.META, RENDER_SECTIONS.THREAD]
+    : SETTINGS_STATUS_RENDER_SECTIONS;
+  markAgentPanelDirtyAfterCommit(panel, statusDirtySections, "status");
 }
 
 function submitReadinessState(panel) {
@@ -1953,7 +1962,7 @@ export function syncBaselineFromResponse(panel, payload) {
   if (!panel?.state || !payload || typeof payload !== "object") {
     return;
   }
-  const recovery = extractRebaselineRecovery(payload);
+  const recovery = payload.rebaselineRecovery || null;
   transition(panel, "SYNC_BASELINE", {
     ...payload,
     ...(recovery
@@ -1962,59 +1971,7 @@ export function syncBaselineFromResponse(panel, payload) {
   });
 }
 
-function normalizeRebaselineRecovery(recovery) {
-  if (!recovery || typeof recovery !== "object") {
-    return null;
-  }
-  return {
-    action: typeof recovery.action === "string" ? recovery.action : null,
-    endpoint: typeof recovery.endpoint === "string" ? recovery.endpoint : null,
-    reason: typeof recovery.reason === "string" ? recovery.reason : null,
-    last_known_baseline_graph_hash:
-      typeof recovery.last_known_baseline_graph_hash === "string"
-        ? recovery.last_known_baseline_graph_hash
-        : null,
-    submit_graph_hash:
-      typeof recovery.submit_graph_hash === "string" ? recovery.submit_graph_hash : null,
-    submit_structural_graph_hash:
-      typeof recovery.submit_structural_graph_hash === "string"
-        ? recovery.submit_structural_graph_hash
-        : null,
-    client_graph_hash:
-      typeof recovery.client_graph_hash === "string" ? recovery.client_graph_hash : null,
-    client_structural_graph_hash:
-      typeof recovery.client_structural_graph_hash === "string"
-        ? recovery.client_structural_graph_hash
-        : null,
-  };
-}
 
-function extractRebaselineRecovery(payload) {
-  if (!payload || typeof payload !== "object") {
-    return null;
-  }
-  const topLevel = normalizeRebaselineRecovery(payload.rebaseline_recovery);
-  if (topLevel) {
-    return topLevel;
-  }
-  const issueSources = [
-    payload.agent_failure_context?.issues,
-    payload.outcome?.agent_failure_context?.issues,
-    payload.debug?.failure?.agent_failure_context?.issues,
-  ];
-  for (const issues of issueSources) {
-    if (!Array.isArray(issues)) {
-      continue;
-    }
-    for (const issue of issues) {
-      const recovery = normalizeRebaselineRecovery(issue?.rebaseline_recovery);
-      if (recovery) {
-        return recovery;
-      }
-    }
-  }
-  return null;
-}
 
 function synthesizeStaleRebaselineRecovery(payload, panel = null, actionBody = null) {
   if (!payload || typeof payload !== "object") {
@@ -2056,7 +2013,11 @@ function synthesizeStaleRebaselineRecovery(payload, panel = null, actionBody = n
 }
 
 function recoveryForFailure(payload, panel = null, actionBody = null) {
-  return extractRebaselineRecovery(payload) || synthesizeStaleRebaselineRecovery(payload, panel, actionBody);
+  const extracted = readRebaselineRecovery(payload, { endpoint: "recoveryForFailure", allowLegacy: true });
+  if (extracted) {
+    return extracted;
+  }
+  return synthesizeStaleRebaselineRecovery(payload, panel, actionBody);
 }
 
 function applyEligibility(panel, liveCanvasSnapshot = null) {
@@ -2095,7 +2056,12 @@ function candidateGraphPresentForBubble(message, snapshot = null) {
   if (snapshot && Object.prototype.hasOwnProperty.call(snapshot, "candidateGraphPresent")) {
     return Boolean(snapshot.candidateGraphPresent);
   }
-  return Boolean(candidateGraphFromResult(message));
+  const candidateGraph = message?.candidateGraph
+    || message?.candidate?.graph
+    || message?.response?.candidateGraph
+    || message?.response?.candidate?.graph
+    || null;
+  return Boolean(candidateGraph && typeof candidateGraph === "object");
 }
 
 function snapshotEligibilityForBubble(message, snapshot = null) {
@@ -2103,7 +2069,13 @@ function snapshotEligibilityForBubble(message, snapshot = null) {
   if (normalizedSnapshot) {
     return normalizedSnapshot;
   }
-  const normalizedMessage = normalizeApplyEligibility(eligibilityFromResult(message));
+  const normalizedMessage = normalizeApplyEligibility(
+    message?.eligibility
+      || message?.response?.eligibility
+      || message?.apply_eligibility
+      || message?.response?.apply_eligibility
+      || null,
+  );
   if (normalizedMessage) {
     return normalizedMessage;
   }
@@ -2811,7 +2783,8 @@ async function _rehydrateChat(panel) {
     if (!res.ok) {
       throw new Error(`Server returned ${res.status}`);
     }
-    const payload = await res.json();
+    const rawPayload = await res.json();
+    const payload = normalizeChatRehydratePayload(rawPayload);
     if (payload && payload.ok === true) {
       if (payload.exists === false) {
         const missingSessionObligations = transition(panel, "CHAT_REHYDRATE_MISSING_SESSION", {
@@ -2826,24 +2799,25 @@ async function _rehydrateChat(panel) {
       // Normalize field changes on each rehydrated message for chat-bubble rendering (M4b).
       for (const msg of messages) {
         if (msg && typeof msg === "object") {
-          msg.field_changes = normalizeFieldChangesFromMessage(msg);
+          msg.field_changes = normalizeFieldChangesFromMessage(msg.raw || msg);
         }
       }
       const successObligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
         requestEpoch,
         messages,
-        chatSessionPath: typeof payload.session_path === "string" ? payload.session_path : null,
-        chatDetailJsonPath: typeof payload.detail_json_path === "string" ? payload.detail_json_path : null,
-        sessionId: typeof payload.session_id === "string" ? payload.session_id : null,
+        chatSessionPath: payload.sessionPath,
+        chatDetailJsonPath: payload.detailJsonPath,
+        sessionId: payload.sessionId,
       });
       if (successObligations.stale) {
         return;
       }
       fulfillAgentPanelCommitObligations(panel, successObligations, "rehydrate");
       resetThreadRenderState(panel);
+      renderAgentPanel(panel, { dirtySections: [RENDER_SECTIONS.META, RENDER_SECTIONS.THREAD] });
       restoreLatestCandidateFromChat(panel, payload);
     } else {
-      throw new Error(payload?.error || "chat endpoint returned ok: false");
+      throw new Error(payload.raw?.error || "chat endpoint returned ok: false");
     }
   } catch (_e) {
     const failureObligations = transition(panel, "CHAT_REHYDRATE_FAILURE", {
@@ -2865,47 +2839,46 @@ function _persistActiveSession(sessionId) {
 }
 
 function restoreLatestCandidateFromChat(panel, payload) {
-  const latest = payload?.latest_candidate;
+  const latest = payload?.latestCandidate || null;
   if (!panel?.state || !latest || typeof latest !== "object") {
     return;
   }
-  // No-op turns carry nothing to restore — restoring one would drag the panel
-  // back into review after _handleNoopResponse settled it in IDLE.
-  if (latest.outcome && typeof latest.outcome === "object" && latest.outcome.kind === "noop") {
-    return;
+  switch (latest.outcome?.kind || null) {
+    case "candidate":
+      break;
+    case "noop":
+    case "clarify":
+    case "error":
+    default:
+      return;
   }
-  if (latest.graph_unchanged === true && latest.apply_allowed === false) {
-    return;
-  }
-  const candidateGraph = candidateGraphFromResult(latest);
+  const candidateGraph = latest.candidateGraph;
   if (!candidateGraph || typeof candidateGraph !== "object") {
     return;
   }
-  const eligibility = eligibilityFromResult(latest);
+  const eligibility = latest.eligibility;
   const restoreObligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
-    sessionId: typeof latest.session_id === "string" && latest.session_id ? latest.session_id : null,
-    turnId: typeof latest.turn_id === "string" && latest.turn_id ? latest.turn_id : null,
+    sessionId: latest.sessionId || null,
+    turnId: latest.turnId || null,
     baseline: latest,
     candidateGraph,
-    candidateGraphHash: typeof latest.candidate_graph_hash === "string"
-      ? latest.candidate_graph_hash
-      : null,
+    candidateGraphHash: latest.candidateGraphHash || null,
     candidateReport: latest.report && typeof latest.report === "object" ? clonePlainData(latest.report) : null,
-    serverSubmitGraphHash: typeof latest.submit_graph_hash === "string" ? latest.submit_graph_hash : null,
+    serverSubmitGraphHash: latest.submitGraphHash || null,
     message: typeof latest.message === "string" ? latest.message : null,
     applyEligibility: normalizeApplyEligibility(eligibility),
-    applyAllowed: latest.apply_allowed !== false && latest.canvas_apply_allowed !== false,
-    canvasApplyAllowed: Boolean(latest.canvas_apply_allowed),
-    queueAllowed: Boolean(latest.queue_allowed),
-    auditRef: latest.audit_ref || panel.state.auditRef || null,
-    changeDetails: latest.change_details && typeof latest.change_details === "object"
-      ? clonePlainData(latest.change_details)
+    applyAllowed: latest.applyAllowed !== false && latest.canvasApplyAllowed !== false,
+    canvasApplyAllowed: Boolean(latest.canvasApplyAllowed),
+    queueAllowed: Boolean(latest.queueAllowed),
+    auditRef: latest.auditRef || panel.state.auditRef || null,
+    changeDetails: latest.raw?.change_details && typeof latest.raw.change_details === "object"
+      ? clonePlainData(latest.raw.change_details)
       : null,
     debugPayload: scrubDebugPayload({
-      ...latest,
+      ...(latest.raw || latest),
       restored_from_chat: true,
     }),
-    lastSubmitFieldChanges: normalizeFieldChangesFromSubmit(latest),
+    lastSubmitFieldChanges: normalizeFieldChangesFromSubmit(latest.raw || latest),
   });
   if (!restoreObligations.restored) {
     return;
@@ -3293,144 +3266,11 @@ function pushTurnStatus(panel, status, extra = {}) {
   return entry;
 }
 
-// ── Typed response adapter (M2) ──────────────────────────────────────────────
-function resultHasNoCandidateEligibility(result) {
-  return result?.candidate === null
-    || result?.apply_eligibility?.reason === APPLY_ELIGIBILITY_REASON.NO_CANDIDATE
-    || result?.apply_eligibility?.reason === "no_candidate";
-}
-
-function resultHasExplicitNoopOutcome(result) {
-  return result?.outcome && typeof result.outcome === "object" && result.outcome.kind === "noop";
-}
-
-function resultLooksLikeNoopResponse(result) {
-  if (!result || typeof result !== "object") {
-    return false;
-  }
-  if (resultHasExplicitNoopOutcome(result)) {
-    return true;
-  }
-  return result.graph_unchanged === true
-    && result.apply_allowed === false
-    && result.canvas_apply_allowed === false
-    && result.queue_allowed === false;
-}
-
-function candidateGraphFromResult(result) {
-  if (!result || typeof result !== "object") {
-    return null;
-  }
-  if (
-    result.graph_unchanged === true
-    && (resultHasNoCandidateEligibility(result) || resultLooksLikeNoopResponse(result))
-  ) {
-    return null;
-  }
-  if (resultHasExplicitNoopOutcome(result)) {
-    return null;
-  }
-  const typedGraph = result.candidate?.graph;
-  if (typedGraph && typeof typedGraph === "object") {
-    return typedGraph;
-  }
-  const namedCompatibilityGraph = result.candidate_graph;
-  if (namedCompatibilityGraph && typeof namedCompatibilityGraph === "object") {
-    return namedCompatibilityGraph;
-  }
-  const compatibilityGraph = result.graph;
-  if (compatibilityGraph && typeof compatibilityGraph === "object") {
-    return compatibilityGraph;
-  }
-  return null;
-}
-
-function eligibilityFromResult(result) {
-  if (!result || typeof result !== "object") {
-    return null;
-  }
-  const typedEligibility = result.eligibility;
-  if (typedEligibility && typeof typedEligibility === "object") {
-    return typedEligibility;
-  }
-  const compatibilityEligibility = result.apply_eligibility;
-  if (compatibilityEligibility && typeof compatibilityEligibility === "object") {
-    return compatibilityEligibility;
-  }
-  // Legacy compatibility envelopes used top-level graph/apply booleans before
-  // the typed `candidate` + `eligibility` pair existed. Preserve that path only
-  // for top-level graph responses; typed candidates without eligibility remain
-  // contract violations and are handled by missingContractApplyEligibility().
-  if (
-    result.candidate === undefined
-    && result.apply_eligibility === undefined
-    && result.eligibility === undefined
-    && result.graph
-    && typeof result.graph === "object"
-    && (typeof result.apply_allowed === "boolean"
-      || typeof result.canvas_apply_allowed === "boolean"
-      || typeof result.queue_allowed === "boolean")
-  ) {
-    const applyable = result.apply_allowed !== false && result.canvas_apply_allowed !== false;
-    if (applyable) {
-      const queueAllowed = result.queue_allowed !== false;
-      return {
-        applyable: true,
-        reason: queueAllowed
-          ? APPLY_ELIGIBILITY_REASON.APPLYABLE
-          : APPLY_ELIGIBILITY_REASON.QUEUE_BLOCKED_WARNING,
-        message: queueAllowed
-          ? "Ready to apply."
-          : "Apply is allowed, but Queue remains blocked for this candidate.",
-        warnings: queueAllowed ? [] : ["queue_blocked"],
-      };
-    }
-    return {
-      applyable: false,
-      reason: APPLY_ELIGIBILITY_REASON.SERVER_BLOCKED,
-      message: "Apply is blocked by the compatibility response.",
-      warnings: ["server_blocked"],
-    };
-  }
-  return null;
-}
-
-function outcomeFromResult(result) {
-  if (!result || typeof result !== "object") {
-    return null;
-  }
-  if (result.outcome && typeof result.outcome === "object") {
-    return result.outcome;
-  }
-  if (
-    result.graph_unchanged === true
-    && (resultHasNoCandidateEligibility(result) || resultLooksLikeNoopResponse(result))
-  ) {
-    return {
-      kind: "noop",
-      reason: typeof result.message === "string" && result.message.trim()
-        ? result.message.trim()
-        : null,
-    };
-  }
-  const clarificationQuestion =
-    typeof result.clarification_message === "string" && result.clarification_message
-      ? result.clarification_message
-      : null;
-  if (result.clarification_required === true || clarificationQuestion) {
-    return {
-      kind: "clarify",
-      question: clarificationQuestion,
-    };
-  }
-  return null;
-}
-
 function outcomeRequiresClarification(outcome) {
   if (!outcome || typeof outcome !== "object") {
     return false;
   }
-  return outcome.kind === "clarify" || outcome.kind === "edit+clarify";
+  return outcome.kind === "clarify";
 }
 
 function outcomeIsNoop(outcome) {
@@ -3447,38 +3287,145 @@ function clarificationMessageFromOutcome(outcome, fallbackMessage = null) {
   return fallbackMessage;
 }
 
-// Canonical typed-envelope normalization only.
-// Compatibility stitching into top-level fields (result.graph, result.apply_eligibility,
-// result.clarification_required, result.clarification_message) has been removed.
-// Consumers MUST use the canonical readers (candidateGraphFromResult, eligibilityFromResult,
-// outcomeFromResult) instead of reading top-level compatibility fields directly.
-function adaptTypedResponse(result) {
-  if (!result || typeof result !== "object") {
-    return result;
-  }
+function outcomeHasClarificationPrompt(outcome) {
+  return typeof clarificationMessageFromOutcome(outcome) === "string";
+}
 
-  // Normalize candidate envelope: ensure candidate is a well-formed object when present.
-  if (result.candidate !== undefined) {
-    if (!result.candidate || typeof result.candidate !== "object") {
-      result.candidate = null;
-    }
+function normalizeChatMessagePayload(message) {
+  if (!message || typeof message !== "object") {
+    return message;
   }
+  const response = message.response && typeof message.response === "object"
+    ? normalizeAgentEditResponse(message.response, {
+      endpoint: "chat:message-response",
+      allowLegacy: true,
+    })
+    : null;
+  const outcome = message.outcome && typeof message.outcome === "object"
+    ? normalizeAgentEditResponse(
+      {
+        ...message,
+        outcome: message.outcome,
+      },
+      {
+        endpoint: "chat:message-outcome",
+        allowLegacy: true,
+      },
+    ).outcome
+    : response?.outcome || null;
+  const candidateGraph = message.candidateGraph
+    || message.candidate?.graph
+    || message.candidate_graph
+    || message.graph
+    || response?.candidateGraph
+    || null;
+  const eligibility = message.eligibility
+    || message.apply_eligibility
+    || response?.eligibility
+    || null;
+  return {
+    ...message,
+    raw: message,
+    role: typeof message.role === "string" ? message.role : null,
+    text: typeof message.text === "string" ? message.text : null,
+    turnId: typeof message.turnId === "string" ? message.turnId : (typeof message.turn_id === "string" ? message.turn_id : null),
+    sessionId: typeof message.sessionId === "string" ? message.sessionId : (typeof message.session_id === "string" ? message.session_id : null),
+    entryType: typeof message.entryType === "string" ? message.entryType : (typeof message.entry_type === "string" ? message.entry_type : null),
+    timestamp: typeof message.timestamp === "string" ? message.timestamp : null,
+    response,
+    outcome,
+    candidateGraph,
+    eligibility,
+  };
+}
 
-  // Normalize eligibility envelope: ensure eligibility is a well-formed object when present.
-  if (result.eligibility !== undefined) {
-    if (!result.eligibility || typeof result.eligibility !== "object") {
-      result.eligibility = null;
-    }
+function normalizeChatRehydratePayload(rawPayload) {
+  if (!rawPayload || typeof rawPayload !== "object") {
+    throw new Error("chat endpoint must return an object");
   }
+  return {
+    ...rawPayload,
+    raw: rawPayload,
+    ok: typeof rawPayload.ok === "boolean" ? rawPayload.ok : null,
+    exists: typeof rawPayload.exists === "boolean" ? rawPayload.exists : null,
+    sessionId: typeof rawPayload.sessionId === "string"
+      ? rawPayload.sessionId
+      : (typeof rawPayload.session_id === "string" ? rawPayload.session_id : null),
+    sessionPath: typeof rawPayload.sessionPath === "string"
+      ? rawPayload.sessionPath
+      : (typeof rawPayload.session_path === "string" ? rawPayload.session_path : null),
+    detailJsonPath: typeof rawPayload.detailJsonPath === "string"
+      ? rawPayload.detailJsonPath
+      : (typeof rawPayload.detail_json_path === "string" ? rawPayload.detail_json_path : null),
+    latestCandidate:
+      rawPayload.latestCandidate && typeof rawPayload.latestCandidate === "object"
+        ? normalizeAgentEditResponse(rawPayload.latestCandidate, { endpoint: "chat:latest_candidate", allowLegacy: true })
+        : (rawPayload.latest_candidate && typeof rawPayload.latest_candidate === "object"
+          ? normalizeAgentEditResponse(rawPayload.latest_candidate, { endpoint: "chat:latest_candidate", allowLegacy: true })
+          : null),
+    messages: Array.isArray(rawPayload.messages)
+      ? rawPayload.messages.map((message) => normalizeChatMessagePayload(message))
+      : [],
+  };
+}
 
-  // Normalize outcome envelope: ensure outcome is a well-formed object when present.
-  if (result.outcome !== undefined) {
-    if (!result.outcome || typeof result.outcome !== "object") {
-      result.outcome = null;
-    }
+function normalizeAuxiliaryAgentPayload(rawPayload, endpoint) {
+  if (!rawPayload || typeof rawPayload !== "object") {
+    throw new Error(`${endpoint} response must be an object`);
   }
-
-  return result;
+  const looksLikeOutcomeEnvelope =
+    (rawPayload.outcome && typeof rawPayload.outcome === "object")
+    || (rawPayload.candidate && typeof rawPayload.candidate === "object")
+    || (rawPayload.graph && typeof rawPayload.graph === "object")
+    || rawPayload.clarification_required === true
+    || rawPayload.graph_unchanged === true;
+  if (looksLikeOutcomeEnvelope) {
+    return normalizeAgentEditResponse(rawPayload, { endpoint, allowLegacy: true });
+  }
+  return {
+    ...rawPayload,
+    raw: rawPayload,
+    ok: typeof rawPayload.ok === "boolean" ? rawPayload.ok : null,
+    action: typeof rawPayload.action === "string" ? rawPayload.action : null,
+    message: typeof rawPayload.message === "string" ? rawPayload.message : null,
+    sessionId: typeof rawPayload.sessionId === "string"
+      ? rawPayload.sessionId
+      : (typeof rawPayload.session_id === "string" ? rawPayload.session_id : null),
+    turnId: typeof rawPayload.turnId === "string"
+      ? rawPayload.turnId
+      : (typeof rawPayload.turn_id === "string" ? rawPayload.turn_id : null),
+    baselineTurnId: typeof rawPayload.baselineTurnId === "string"
+      ? rawPayload.baselineTurnId
+      : (typeof rawPayload.baseline_turn_id === "string" ? rawPayload.baseline_turn_id : null),
+    baselineGraphHash: typeof rawPayload.baselineGraphHash === "string"
+      ? rawPayload.baselineGraphHash
+      : (typeof rawPayload.baseline_graph_hash === "string" ? rawPayload.baseline_graph_hash : null),
+    baselineGraphHashKind: typeof rawPayload.baselineGraphHashKind === "string"
+      ? rawPayload.baselineGraphHashKind
+      : (typeof rawPayload.baseline_graph_hash_kind === "string" ? rawPayload.baseline_graph_hash_kind : null),
+    baselineGraphHashVersion:
+      rawPayload.baselineGraphHashVersion ?? rawPayload.baseline_graph_hash_version ?? null,
+    baselineSource: typeof rawPayload.baselineSource === "string"
+      ? rawPayload.baselineSource
+      : (typeof rawPayload.baseline_source === "string" ? rawPayload.baseline_source : null),
+    baselineRebaselineId: typeof rawPayload.baselineRebaselineId === "string"
+      ? rawPayload.baselineRebaselineId
+      : (typeof rawPayload.baseline_rebaseline_id === "string" ? rawPayload.baseline_rebaseline_id : null),
+    baselineGraphSourcePath: typeof rawPayload.baselineGraphSourcePath === "string"
+      ? rawPayload.baselineGraphSourcePath
+      : (typeof rawPayload.baseline_graph_source_path === "string" ? rawPayload.baseline_graph_source_path : null),
+    submitGraphHash: typeof rawPayload.submitGraphHash === "string"
+      ? rawPayload.submitGraphHash
+      : (typeof rawPayload.submit_graph_hash === "string" ? rawPayload.submit_graph_hash : null),
+    queueAllowed:
+      typeof rawPayload.queueAllowed === "boolean"
+        ? rawPayload.queueAllowed
+        : (typeof rawPayload.queue_allowed === "boolean" ? rawPayload.queue_allowed : null),
+    auditRef: rawPayload.auditRef && typeof rawPayload.auditRef === "object"
+      ? clonePlainData(rawPayload.auditRef)
+      : (rawPayload.audit_ref && typeof rawPayload.audit_ref === "object" ? clonePlainData(rawPayload.audit_ref) : null),
+    rebaselineRecovery: extractRebaselineRecovery(rawPayload),
+  };
 }
 
 // ── FieldChange normalization helpers ─────────────────────────────────────
@@ -3585,7 +3532,7 @@ function normalizeBatchTurn(payload, { source = "response", sessionId = null, st
   if (!resolvedSessionId || turnNumber == null) {
     return null;
   }
-  const outcome = outcomeFromResult(payload);
+  const outcome = payload.outcome && typeof payload.outcome === "object" ? payload.outcome : null;
   const normalizedStatus =
     status
     || (typeof payload.status === "string" && payload.status)
@@ -3934,7 +3881,7 @@ function reconcileResponseBatchTurns(panel, result) {
   }
   panel.state.turns = nextTurns;
   const finalIndex = result.batch_turns.length - 1;
-  const resultHasCandidate = Boolean(candidateGraphFromResult(result));
+  const resultHasCandidate = Boolean(result?.candidateGraph && typeof result.candidateGraph === "object");
   for (let index = 0; index < result.batch_turns.length; index += 1) {
     const turn = result.batch_turns[index];
     const turnPayload =
@@ -3943,7 +3890,10 @@ function reconcileResponseBatchTurns(panel, result) {
       && result.done_summary
         ? { ...turn, done_summary: turn.done_summary || result.done_summary }
         : turn;
-    const turnOutcome = outcomeFromResult(turnPayload);
+    const turnOutcome =
+      (index === finalIndex && result?.outcome && typeof result.outcome === "object")
+        ? result.outcome
+        : (turnPayload?.outcome && typeof turnPayload.outcome === "object" ? turnPayload.outcome : null);
     let status = null;
     if (outcomeRequiresClarification(turnOutcome)) {
       status = "clarify";
@@ -8061,26 +8011,22 @@ function normalizeSubmitFailure(error) {
   });
 }
 
-/** Extract outcome / candidate / eligibility from a raw response in one pass. */
-function extractSubmitResponsePayload(result) {
-  const outcome = outcomeFromResult(result);
-  const candidateGraph = candidateGraphFromResult(result);
-  const eligibility = eligibilityFromResult(result);
-  return { outcome, candidateGraph, eligibility };
-}
-
 /** Validate that a result payload is a usable success envelope (clarify or candidate). */
-function isSubmitResponseValid(result, outcome, candidateGraph) {
-  if (!result || typeof result !== "object") {
+function isSubmitResponseValid(outcome, candidateGraph) {
+  if (!outcome || typeof outcome !== "object") {
     return false;
   }
-  if (outcomeRequiresClarification(outcome)) {
-    return true; // clarify-only turns do not require a candidate graph
+  switch (outcome.kind) {
+    case "clarify":
+    case "noop":
+      return true;
+    case "candidate":
+      return Boolean(candidateGraph && typeof candidateGraph === "object");
+    case "error":
+      return false;
+    default:
+      return false;
   }
-  if (outcomeIsNoop(outcome)) {
-    return true; // no-op turns intentionally have no candidate graph
-  }
-  return candidateGraph && typeof candidateGraph === "object";
 }
 
 export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
@@ -8267,29 +8213,43 @@ async function submitAgentEdit(panel) {
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
-      result = await res.json();
+      const rawResult = await res.json();
+      try {
+        result = normalizeAgentEditResponse(rawResult, { endpoint: "submit", allowLegacy: true });
+      } catch (error) {
+        if (res.ok) {
+          throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
+            stage: rawResult?.stage || "agent-edit",
+            retryable: true,
+            graph_unchanged: true,
+            next_action: "Retry the request or inspect the raw response in the debug panel.",
+            raw_response: rawResult,
+            cause: String(error),
+          });
+        }
+        throw error;
+      }
       if (!isCurrentSubmit()) {
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
-      // Prefer typed envelope fields; fall back to compatibility fields.
-      result = adaptTypedResponse(result);
-      if (typeof result?.session_id === "string" && result.session_id) {
+      if (typeof result.sessionId === "string" && result.sessionId) {
         // Persisting the value remains a side effect, but sessionId itself is
         // committed through the terminal submit transition below.
-        _persistActiveSession(result.session_id);
+        _persistActiveSession(result.sessionId);
       }
-      if (!res.ok || result?.ok === false || result?.error) {
-        throw result || { kind: "RequestError", message: res.statusText };
+      if (!res.ok || result?.ok === false || result.raw?.error) {
+        throw result.raw || { kind: "RequestError", message: res.statusText };
       }
-      const { outcome, candidateGraph } = extractSubmitResponsePayload(result);
-      if (!isSubmitResponseValid(result, outcome, candidateGraph)) {
+      const outcome = result.outcome;
+      const candidateGraph = result.candidateGraph;
+      if (!isSubmitResponseValid(outcome, candidateGraph)) {
         throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
-          stage: result?.stage || "agent-edit",
+          stage: result.raw?.stage || "agent-edit",
           retryable: true,
           graph_unchanged: true,
           next_action: "Retry the request or inspect the raw response in the debug panel.",
-          raw_response: result,
+          raw_response: result.raw,
         });
       }
     } catch (e) {
@@ -8364,7 +8324,9 @@ async function submitAgentEdit(panel) {
     // clarify-only turns. Otherwise we'd render an "Apply Candidate" button over a
     // no-op/unchanged graph. Instead surface the question and leave the prompt open
     // so the user can answer in the same session.
-    const { outcome, candidateGraph, eligibility } = extractSubmitResponsePayload(result);
+    const outcome = result.outcome;
+    const candidateGraph = result.candidateGraph;
+    const eligibility = result.eligibility;
     if (outcomeRequiresClarification(outcome) && !candidateGraph) {
       const fallbackMessage =
         (typeof result.message === "string" && result.message.trim())
@@ -8376,36 +8338,36 @@ async function submitAgentEdit(panel) {
           || "The agent needs clarification before it can edit the graph.";
       const clarification = {
         message: clarifyMessage,
-        turn_id: result.turn_id || null,
-        session_id: result.session_id || null,
+        turn_id: result.turnId || null,
+        session_id: result.sessionId || null,
       };
       const obligations = transition(panel, "CLARIFY_ONLY_RESPONSE", {
-        result,
+        result: result.raw || result,
         clarification,
         message: clarifyMessage,
-        lastSubmitFieldChanges: normalizeFieldChangesFromSubmit(result),
+        lastSubmitFieldChanges: normalizeFieldChangesFromSubmit(result.raw || result),
         debugPayload: {
-          ...result,
+          ...(result.raw || result),
           last_submit: panel.state.lastSubmit,
         },
       });
       fulfillLifecycleTransitionObligations(panel, obligations);
-      reconcileResponseBatchTurns(panel, result);
+      reconcileResponseBatchTurns(panel, result.raw || result);
       pushHistory(panel, "clarify", clarifyMessage);
       pushTurnStatus(panel, "clarify", {
-        session_id: result.session_id,
-        turn_id: result.turn_id,
-        baseline_turn_id: result.baseline_turn_id,
+        session_id: result.sessionId,
+        turn_id: result.turnId,
+        baseline_turn_id: result.baselineTurnId,
         task,
         message: clarifyMessage,
         clarification_required: true,
         clarification_message: clarifyMessage,
-        audit_ref: result.audit_ref,
-        raw_payload: result,
+        audit_ref: result.auditRef,
+        raw_payload: result.raw || result,
       });
       rememberTurnDetailSnapshot(panel, {
-        turn_id: result.turn_id,
-        session_id: result.session_id,
+        turn_id: result.turnId,
+        session_id: result.sessionId,
         clarification: panel.state.clarification,
         message: clarifyMessage,
       });
@@ -8420,36 +8382,36 @@ async function submitAgentEdit(panel) {
           : (typeof outcome.reason === "string" && outcome.reason.trim())
             ? outcome.reason.trim()
             : "No change needed.";
-      const lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result);
-      const changeDetails = result.change_details && typeof result.change_details === "object"
-        ? clonePlainData(result.change_details)
+      const lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result.raw || result);
+      const changeDetails = result.raw?.change_details && typeof result.raw.change_details === "object"
+        ? clonePlainData(result.raw.change_details)
         : null;
       const obligations = transition(panel, "NOOP_RESPONSE", {
-        result,
+        result: result.raw || result,
         message: noopMessage,
         lastSubmitFieldChanges,
         changeDetails,
         debugPayload: {
-          ...result,
+          ...(result.raw || result),
           last_submit: panel.state.lastSubmit,
         },
       });
       fulfillLifecycleTransitionObligations(panel, obligations);
-      reconcileResponseBatchTurns(panel, result);
+      reconcileResponseBatchTurns(panel, result.raw || result);
       pushHistory(panel, "noop", noopMessage);
       pushTurnStatus(panel, "noop", {
-        session_id: result.session_id,
-        turn_id: result.turn_id,
-        baseline_turn_id: result.baseline_turn_id,
+        session_id: result.sessionId,
+        turn_id: result.turnId,
+        baseline_turn_id: result.baselineTurnId,
         task,
         message: noopMessage,
         graph_unchanged: true,
-        audit_ref: result.audit_ref,
-        raw_payload: result,
+        audit_ref: result.auditRef,
+        raw_payload: result.raw || result,
       });
       rememberTurnDetailSnapshot(panel, {
-        turn_id: result.turn_id,
-        session_id: result.session_id,
+        turn_id: result.turnId,
+        session_id: result.sessionId,
         outcome,
         message: noopMessage,
         changeDetails,
@@ -8476,12 +8438,12 @@ async function submitAgentEdit(panel) {
         next_action: "Make sure the current canvas can serialize, then submit again.",
       });
       const obligations = transition(panel, "ARRIVAL_SERIALIZE_FAILURE", {
-        result,
+        result: result.raw || result,
         failure,
         debugPayload: {
           ...failure,
           last_submit: panel.state.lastSubmit,
-          response: result,
+          response: result.raw || result,
         },
       });
       fulfillLifecycleTransitionObligations(panel, obligations);
@@ -8495,36 +8457,38 @@ async function submitAgentEdit(panel) {
       && expectedArrivalStructuralHash
       && arrivalSnapshot.structuralHash !== expectedArrivalStructuralHash;
 
-    const candidateGraphHash = typeof result.candidate_graph_hash === "string"
-      ? result.candidate_graph_hash
-      : await sha256HexUtf8(canonicalJsonString(candidateGraph));
+    const candidateGraphHash = result.candidateGraphHash
+      || (result.raw?.candidate_graph_hash && typeof result.raw.candidate_graph_hash === "string"
+        ? result.raw.candidate_graph_hash
+        : null)
+      || await sha256HexUtf8(canonicalJsonString(candidateGraph));
     if (!isCurrentSubmit()) {
       transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
       return;
     }
     const normalizedEligibility = normalizeApplyEligibility(eligibility);
-    const changeDetails = result.change_details && typeof result.change_details === "object"
-      ? clonePlainData(result.change_details)
+    const changeDetails = result.raw?.change_details && typeof result.raw.change_details === "object"
+      ? clonePlainData(result.raw.change_details)
       : null;
-    const lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result);
+    const lastSubmitFieldChanges = normalizeFieldChangesFromSubmit(result.raw || result);
     const candidateDebugPayload = scrubDebugPayload({
-      ...result,
+      ...(result.raw || result),
       last_submit: panel.state.lastSubmit,
       arrival_structural_mismatch: structuralChangedForDiagnostics,
       arrival_client_graph_hash: arrivalSnapshot.graphHash,
       arrival_client_structural_graph_hash: arrivalSnapshot.structuralHash,
     });
     const candidateObligations = transition(panel,
-      outcomeRequiresClarification(outcome) ? "EDIT_CLARIFY_RESPONSE" : "OK_CANDIDATE_RESPONSE",
+      outcomeHasClarificationPrompt(outcome) ? "EDIT_CLARIFY_RESPONSE" : "OK_CANDIDATE_RESPONSE",
       {
-        result,
+        result: result.raw || result,
         candidateGraph,
         candidateGraphHash,
-        clarification: outcomeRequiresClarification(outcome)
+        clarification: outcomeHasClarificationPrompt(outcome)
           ? {
               message: clarificationMessageFromOutcome(outcome, result.message || null),
-              turn_id: result.turn_id || null,
-              session_id: result.session_id || null,
+              turn_id: result.turnId || null,
+              session_id: result.sessionId || null,
             }
           : null,
         applyEligibility: normalizedEligibility,
@@ -8534,28 +8498,28 @@ async function submitAgentEdit(panel) {
       },
     );
     fulfillLifecycleTransitionObligations(panel, candidateObligations);
-    reconcileResponseBatchTurns(panel, result);
-    pushHistory(panel, "candidate", result.turn_id ? `turn ${result.turn_id}` : "candidate");
+    reconcileResponseBatchTurns(panel, result.raw || result);
+    pushHistory(panel, "candidate", result.turnId ? `turn ${result.turnId}` : "candidate");
     pushTurnStatus(panel, "candidate", {
-      session_id: result.session_id,
-      turn_id: result.turn_id,
-      baseline_turn_id: result.baseline_turn_id,
+      session_id: result.sessionId,
+      turn_id: result.turnId,
+      baseline_turn_id: result.baselineTurnId,
       task,
-      message: result.message || (result.turn_id ? `turn ${result.turn_id}` : "candidate"),
-      audit_ref: result.audit_ref,
-      raw_payload: result,
+      message: result.message || (result.turnId ? `turn ${result.turnId}` : "candidate"),
+      audit_ref: result.auditRef,
+      raw_payload: result.raw || result,
     });
     rememberTurnDetailSnapshot(panel, {
-      turn_id: result.turn_id,
-      session_id: result.session_id,
+      turn_id: result.turnId,
+      session_id: result.sessionId,
       candidateGraphPresent: Boolean(candidateGraph),
       candidateReport: result.report || null,
       applyEligibility: normalizedEligibility,
-      queueAllowed: Boolean(result.queue_allowed),
-      canvasApplyAllowed: Boolean(result.canvas_apply_allowed),
-      auditRef: result.audit_ref || null,
+      queueAllowed: Boolean(result.queueAllowed),
+      canvasApplyAllowed: Boolean(result.canvasApplyAllowed),
+      auditRef: result.auditRef || null,
       debugPayload: {
-        ...scrubDebugPayload(result),
+        ...scrubDebugPayload(result.raw || result),
         last_submit: panel.state.lastSubmit,
       },
       fieldChanges: panel.state.lastSubmitFieldChanges,
@@ -8720,23 +8684,24 @@ async function applyAgentCandidate(panel) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(acceptBody),
       });
-      accepted = await res.json();
-      if (!res.ok || accepted?.ok === false || accepted?.error) {
-        throw accepted || { kind: "AcceptError", message: res.statusText };
+      const rawAccepted = await res.json();
+      accepted = normalizeAuxiliaryAgentPayload(rawAccepted, "accept");
+      if (!res.ok || accepted?.ok === false || accepted.raw?.error) {
+        throw accepted.raw || { kind: "AcceptError", message: res.statusText };
       }
       if (
         !accepted
         || typeof accepted !== "object"
-        || (accepted.action && accepted.action !== "accept")
-        || !accepted.session_id
-        || !accepted.turn_id
+        || (accepted.raw?.action && accepted.raw.action !== "accept")
+        || !accepted.sessionId
+        || !accepted.turnId
       ) {
         throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete accept envelope.", {
-          stage: accepted?.stage || "accept",
+          stage: accepted.raw?.stage || "accept",
           retryable: true,
           graph_unchanged: true,
           next_action: "Retry Apply or inspect the raw response in the debug panel.",
-          raw_response: accepted,
+          raw_response: accepted.raw,
         });
       }
     } catch (e) {
@@ -8750,7 +8715,7 @@ async function applyAgentCandidate(panel) {
       const authoritativeBackendReject =
         e?.ok === false
         && !["MalformedResponse", "AcceptError", "NetworkError"].includes(String(e?.kind || ""));
-      const recovery = recoveryForFailure(failure, panel, acceptBody);
+      const recovery = accepted?.rebaselineRecovery || recoveryForFailure(failure, panel, acceptBody);
       const obligations = transition(panel, "ACCEPT_REJECTED", {
         failure,
         acceptBody,
@@ -8802,7 +8767,7 @@ async function applyAgentCandidate(panel) {
         expected_graph_hash: stateCheckGraphHash,
         client_live_canvas_token: currentBeforeLoad.liveCanvasToken,
         expected_live_canvas_token: beforeApply.liveCanvasToken,
-        accept_response: accepted,
+        accept_response: accepted.raw || accepted,
       });
       const obligations = transition(panel, "STALE_CANVAS_APPLY", {
         failure,
@@ -8837,7 +8802,7 @@ async function applyAgentCandidate(panel) {
       turn_id: panel.state.turnId,
       graph: currentBeforeLoad.graph,
       client_graph_hash: currentBeforeLoad.graphHash,
-      accepted_baseline_graph_hash: accepted.baseline_graph_hash || panel.state.baselineGraphHash || null,
+      accepted_baseline_graph_hash: accepted.baselineGraphHash || panel.state.baselineGraphHash || null,
       captured_at: new Date().toISOString(),
     });
     panel.state.undoStack = panel.state.undoStack.slice(-16);
@@ -8852,16 +8817,16 @@ async function applyAgentCandidate(panel) {
             retryable: true,
             graph_unchanged: false,
             next_action: "Retry Apply or inspect the raw response in the debug panel.",
-            accept_response: accepted,
+            accept_response: accepted.raw || accepted,
           });
       const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
         failure,
-        accepted,
+        accepted: accepted.raw || accepted,
         syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "canvas_apply"),
         undoStackDepth: panel.state.undoStack.length,
         debugPayload: {
           ...failure,
-          accepted,
+          accepted: accepted.raw || accepted,
           undo_stack_depth: panel.state.undoStack.length,
         },
       });
@@ -8890,13 +8855,13 @@ async function applyAgentCandidate(panel) {
     pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
     pushTurnStatus(panel, "applied", {
       turn_id: panel.state.turnId,
-      baseline_turn_id: accepted.baseline_turn_id || panel.state.turnId,
+      baseline_turn_id: accepted.baselineTurnId || panel.state.turnId,
       message: panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate",
-      audit_ref: accepted.audit_ref || panel.state.auditRef,
-      raw_payload: accepted,
+      audit_ref: accepted.auditRef || panel.state.auditRef,
+      raw_payload: accepted.raw || accepted,
     });
     const successObligations = transition(panel, "APPLY_SUCCESS", {
-      accepted,
+      accepted: accepted.raw || accepted,
       lastAppliedChanges,
       undoStackDepth: panel.state.undoStack.length,
       message: "Candidate accepted and applied locally.",
@@ -8908,11 +8873,11 @@ async function applyAgentCandidate(panel) {
     });
     fulfillLifecycleTransitionObligations(panel, successObligations);
     rememberTurnDetailSnapshot(panel, {
-      turn_id: accepted.turn_id || panel.state.turnId,
-      session_id: accepted.session_id || panel.state.sessionId,
-      auditRef: accepted.audit_ref || panel.state.auditRef,
+      turn_id: accepted.turnId || panel.state.turnId,
+      session_id: accepted.sessionId || panel.state.sessionId,
+      auditRef: accepted.auditRef || panel.state.auditRef,
       debugPayload: {
-        accepted,
+        accepted: accepted.raw || accepted,
         undo_stack_depth: panel.state.undoStack.length,
       },
       message: panel.state.message,
@@ -8979,9 +8944,10 @@ async function rejectAgentCandidate(panel) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(rejectBody),
     });
-    rejected = await res.json();
-    if (!res.ok || rejected?.ok === false || rejected?.error) {
-      throw rejected || { kind: "RejectError", message: res.statusText };
+    const rawRejected = await res.json();
+    rejected = normalizeAuxiliaryAgentPayload(rawRejected, "reject");
+    if (!res.ok || rejected?.ok === false || rejected.raw?.error) {
+      throw rejected.raw || { kind: "RejectError", message: res.statusText };
     }
   } catch (e) {
     const failure = e?.ok === false
@@ -9025,35 +8991,35 @@ async function rejectAgentCandidate(panel) {
   pushHistory(panel, "rejected", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
   pushTurnStatus(panel, "rejected", {
     turn_id: panel.state.turnId,
-    baseline_turn_id: rejected.baseline_turn_id || panel.state.baselineTurnId,
+    baseline_turn_id: rejected.baselineTurnId || panel.state.baselineTurnId,
     message: panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate",
-    audit_ref: rejected.audit_ref || panel.state.auditRef,
-    raw_payload: rejected,
+    audit_ref: rejected.auditRef || panel.state.auditRef,
+    raw_payload: rejected.raw || rejected,
   });
 
   const obligations = transition(panel, "REJECT_SUCCESS", {
-    rejected,
+    rejected: rejected.raw || rejected,
     message: "Candidate rejected and cleared from the panel.",
     toast: "Agent candidate rejected",
     debugPayload: {
-      rejected,
+      rejected: rejected.raw || rejected,
       graph_unchanged: true,
     },
   });
 
   fulfillLifecycleTransitionObligations(panel, obligations);
 
-  const recovery = extractRebaselineRecovery(rejected);
+  const recovery = rejected.rebaselineRecovery || null;
   transition(panel, "REBASELINE_RECOVERY_SYNC", {
     ...(recovery ? { rebaselineRecovery: recovery } : { clearRebaselineRecovery: rejected.ok === true }),
   });
 
   rememberTurnDetailSnapshot(panel, {
-    turn_id: rejected.turn_id || panel.state.turnId,
-    session_id: rejected.session_id || panel.state.sessionId,
-    auditRef: rejected.audit_ref || panel.state.auditRef,
+    turn_id: rejected.turnId || panel.state.turnId,
+    session_id: rejected.sessionId || panel.state.sessionId,
+    auditRef: rejected.auditRef || panel.state.auditRef,
     debugPayload: {
-      rejected,
+      rejected: rejected.raw || rejected,
       graph_unchanged: true,
     },
     message: panel.state.message,
@@ -9126,16 +9092,17 @@ export async function postAgentRebaseline(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const result = await res.json();
-      if (!res.ok || result?.ok === false || result?.error) {
-        throw result || { kind: "RebaselineError", message: res.statusText };
+      const rawRebaseline = await res.json();
+      const result = normalizeAuxiliaryAgentPayload(rawRebaseline, "rebaseline");
+      if (!res.ok || result?.ok === false || result.raw?.error) {
+        throw result.raw || { kind: "RebaselineError", message: res.statusText };
       }
       const successObligations = transition(panel, "REBASELINE_SUCCESS", {
-        result,
+        result: result.raw || result,
         rebaselineRequest: body,
         debugPayload: {
           rebaseline_request: body,
-          rebaseline_response: result,
+          rebaseline_response: result.raw || result,
         },
       });
       fulfillLifecycleTransitionObligations(panel, successObligations);
@@ -9196,12 +9163,12 @@ async function rebaselineCurrentCanvas(panel) {
       lastKnownBaselineGraphHash: recovery.last_known_baseline_graph_hash ?? null,
     });
     const successObligations = transition(panel, "STALE_RECOVERY_REBASELINE_SUCCESS", {
-      auditRef: result.audit_ref || panel.state.auditRef,
+      auditRef: result.auditRef || panel.state.auditRef,
       message: "Current canvas rebaselined. Resubmitting from this canvas...",
       toast: "Current canvas rebaselined",
       debugPayload: {
         stale_state_recovery: true,
-        rebaseline_response: result,
+        rebaseline_response: result.raw || result,
       },
     });
     fulfillLifecycleTransitionObligations(panel, successObligations);
@@ -9251,14 +9218,14 @@ async function undoLastApply(panel) {
     pushHistory(panel, "undo", previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph");
     pushTurnStatus(panel, "undone", {
       turn_id: previous.turn_id || null,
-      baseline_turn_id: result.baseline_turn_id || null,
+      baseline_turn_id: result.baselineTurnId || null,
       message: previous.turn_id ? `restored pre-apply graph for turn ${previous.turn_id}` : "restored previous graph",
-      audit_ref: result.audit_ref || panel.state.auditRef,
-      raw_payload: result,
+      audit_ref: result.auditRef || panel.state.auditRef,
+      raw_payload: result.raw || result,
     });
     const successObligations = transition(panel, "UNDO_REBASELINE_SUCCESS", {
       previous,
-      result,
+      result: result.raw || result,
       undoStackDepth: panel.state.undoStack.length - 1,
       toast: "Previous graph restored",
     });

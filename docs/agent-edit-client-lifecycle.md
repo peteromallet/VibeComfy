@@ -14,14 +14,20 @@ submit and rebaseline payloads; it never blocks Apply locally.
 
 ## 1. Phase taxonomy
 
-| Phase | Meaning |
-|---|---|
-| `IDLE` | Shell open, ready for prompt entry |
-| `SUBMITTING` | `POST /vibecomfy/agent-edit` in-flight |
-| `CLARIFY` | Agent asked a clarification question; no candidate to review |
-| `AWAITING_REVIEW` | Candidate received; Apply / Reject available |
-| `APPLYING` | Local in-place graph apply or reject in progress (proof-only) |
-| `ERROR` | Request failed; failure region becomes primary |
+Every phase transition is driven by the public `outcome.kind` dispatched from a
+normalized agent-edit response (see `docs/agent-edit-response-contract.md` for
+the full public union of `candidate`, `noop`, `clarify`, `error`). The legacy
+internal kinds `edit` and `edit+clarify` are normalized to `candidate` before
+dispatch and are never surfaced as public lifecycle outcomes.
+
+| Phase | Meaning | Driven by |
+|---|---|---|
+| `IDLE` | Shell open, ready for prompt entry | Entry, `noop` outcome, apply/reject success, stop/new-conversation |
+| `SUBMITTING` | `POST /vibecomfy/agent-edit` in-flight | Submit start |
+| `CLARIFY` | Agent asked a clarification question; no candidate to review | `clarify` outcome |
+| `AWAITING_REVIEW` | Candidate received; Apply / Reject available | `candidate` outcome |
+| `APPLYING` | Local in-place graph apply or reject in progress (proof-only) | Apply / reject start |
+| `ERROR` | Request failed; failure region becomes primary | `error` outcome, preflight failures |
 
 ### 1.1 Entry events (not phases)
 
@@ -124,20 +130,34 @@ browser smoke test.
 | S2 | Submit readiness failure | Any | `ERROR` | Set failure/debugPayload from readiness state | None | — | Repaint | "VibeComfy blocks submit until status.ready is true and shows composer readiness text" |
 | S3 | Submit missing task | `IDLE`, `CLARIFY`, `ERROR` | `ERROR` | Set failure `MissingTask` | None | — | Repaint | "VibeComfy blocks submit until status.ready is true and shows composer readiness text" |
 | S4 | Submit serialize error | `SUBMITTING` | `ERROR` | Set failure `SerializeError` | None | Check `submitEpoch` stale-guard | Repaint | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
-| S5 | Submit network/backend failure | `SUBMITTING` | `ERROR` | Set failure, sync baseline, persist session, clear queue guard, push failure history/turn, snapshot turn detail; if the failure carries `rebaseline_recovery`, store it for the stale recovery action | None | Check `submitEpoch` stale-guard; abort controller cleared in finally | Repaint; trigger `_rehydrateChat` | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses"; "VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-resubmits" |
+| S5 | Submit network/backend failure | `SUBMITTING` | `ERROR` | Set failure, sync baseline, persist session, clear queue guard, push failure history/turn, snapshot turn detail; if the failure carries `rebaselineRecovery` (extracted by the response-contract boundary), store it for the stale recovery action | None | Check `submitEpoch` stale-guard; abort controller cleared in finally | Repaint; trigger `_rehydrateChat` | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses"; "VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-resubmits" |
 | S6 | Submit abort (AbortError) | `SUBMITTING` | `IDLE` | Clear failure, set cancel message, push cancelled history/turn, set synthetic agent message | None (abort already signaled) | Check `submitEpoch` stale-guard; abort controller cleared in finally | Repaint | "Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and only shows Undo in the composer when available" |
 | S7 | Submit stale epoch | `SUBMITTING` | (no change) | None | None | `submitEpoch` mismatch → return early | None | "Lifecycle C2 new conversation clears state and ignores late submit responses" (epoch gated) |
 
 ### 3.2 Submit response transitions
 
+Every row dispatches on the public `outcome.kind` from the normalized response.
+The legacy internal kinds `edit` and `edit+clarify` are normalized to `candidate`
+before dispatch (see §3.2.1) and are never visible to transition handlers.
+
 | # | Event | From | To | Local invalidations | Backend obligation | Epoch/race | Render | Covering test |
 |---|---|---|---|---|---|---|---|---|
-| R1 | Clarify-only response | `SUBMITTING` | `CLARIFY` | Set `clarification`, clear candidate, set phase CLARIFY, persist session, sync baseline, clear apply/gate fields, reconcile batch turns | None further (response already received) | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy renders a clarify turn as a question, not a no-op candidate" |
-| R2 | Edit+clarify response | `SUBMITTING` | `AWAITING_REVIEW` | Set candidate graph/hash/report, eligibility, `clarification`, baseline sync, queue guard restore | None further | Check `submitEpoch` stale-guard; arrival snapshot for diagnostics | Repaint; trigger `_rehydrateChat` | "VibeComfy preserves Apply controls for edit+clarify candidates" |
-| R3 | Ok candidate response | `SUBMITTING` | `AWAITING_REVIEW` | Set candidate graph/hash/report, eligibility, baseline sync, queue guard restore; structural drift on arrival is diagnostic only | None further | Check `submitEpoch` stale-guard; arrival snapshot for diagnostics | Repaint; trigger `_rehydrateChat` | "VibeComfy does not use client structural hash drift as a local candidate blocker" |
-| R4 | No-op response | `SUBMITTING` | `IDLE` | Clear candidate and clarification, sync baseline, persist session, clear apply/gate fields, keep prompt available, reconcile batch turns | None further (response already received) | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy renders no-op edit turns without entering review" |
-| R5 | Malformed candidate response | `SUBMITTING` | `ERROR` | Set failure `MalformedResponse` | None | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
-| R6 | Arrival serialize failure | `SUBMITTING` | `ERROR` | Set failure `SerializeError` with arrival context, sync baseline | None | Check `submitEpoch` stale-guard | Repaint | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
+| R1 | `clarify` outcome | `SUBMITTING` | `CLARIFY` | Set `clarification`, clear candidate, set phase CLARIFY, persist session, sync baseline, clear apply/gate fields, reconcile batch turns | None further (response already received) | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy renders a clarify turn as a question, not a no-op candidate" |
+| R2 | `candidate` outcome | `SUBMITTING` | `AWAITING_REVIEW` | Set candidate graph/hash/report, eligibility, baseline sync, queue guard restore; if the candidate carries a `clarification` (legacy `edit+clarify` normalized to `candidate`), also set `clarification`; structural drift on arrival is diagnostic only | None further | Check `submitEpoch` stale-guard; arrival snapshot for diagnostics | Repaint; trigger `_rehydrateChat` | "VibeComfy preserves Apply controls for edit+clarify candidates"; "VibeComfy does not use client structural hash drift as a local candidate blocker" |
+| R3 | `noop` outcome | `SUBMITTING` | `IDLE` | Clear candidate and clarification, sync baseline, persist session, clear apply/gate fields, keep prompt available, reconcile batch turns | None further (response already received) | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy renders no-op edit turns without entering review" |
+| R4 | `error` outcome (malformed) | `SUBMITTING` | `ERROR` | Set failure `MalformedResponse` | None | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
+| R5 | `error` outcome (serialize) | `SUBMITTING` | `ERROR` | Set failure `SerializeError` with arrival context, sync baseline | None | Check `submitEpoch` stale-guard | Repaint | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
+
+#### 3.2.1 Legacy `edit+clarify` normalization
+
+The internal outcome kind `edit+clarify` is normalized to public `candidate` by
+`normalizeAgentEditResponse()` in `agent_edit_response_contract.js` before any
+transition handler sees the response.  A `candidate` outcome that carries a
+`clarification` field is functionally identical to the legacy `edit+clarify`:
+the candidate graph is presented for review, Apply is enabled, and the
+clarification question is displayed in the notice banner.  No transition handler
+checks for `edit+clarify` — all handlers dispatch on `outcome.kind ===
+'candidate'` and optionally read `outcome.clarification`.
 
 ### 3.3 Apply transitions
 
@@ -190,8 +210,8 @@ browser smoke test.
 
 | # | Event | From | To | Local invalidations | Backend obligation | Epoch/race | Render | Covering test |
 |---|---|---|---|---|---|---|---|---|
-| H1 | Hand-edit detection at submit | `SUBMITTING` | `ERROR` on backend CAS mismatch | `client_structural_graph_hash` submitted for backend CAS comparison; stale failure stores `rebaseline_recovery` and renders `Rebaseline & retry` | Backend CAS rejects structural mismatch as `StaleStateMismatch`; recovery button calls `/rebaseline` with current canvas then resubmits the failed prompt | — | Repaint on failure and after recovery | "VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-resubmits" |
-| H2 | Stale canvas at apply | `AWAITING_REVIEW` | `ERROR` | Diagnostic structural parity check (live structural hash vs `lastSubmit.client_structural_graph_hash`); `applyEligibility()` gates on canonical backend eligibility, not on the structural hash. Accept-stage stale failures use the same `Rebaseline & retry` flow as submit-stage stale failures; if the backend omits `rebaseline_recovery`, the client synthesizes the stale recovery descriptor from the live panel state and accept request. | Backend CAS via `POST /accept` | `liveCanvasToken` double-checked before configure | Repaint | "VibeComfy Apply relies on backend CAS to block structural drift even when the live canvas revision is unchanged"; "Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task" |
+| H1 | Hand-edit detection at submit | `SUBMITTING` | `ERROR` on backend CAS mismatch | `client_structural_graph_hash` submitted for backend CAS comparison; stale failure stores `rebaselineRecovery` (extracted by the response-contract boundary) and renders `Rebaseline & retry` | Backend CAS rejects structural mismatch as `StaleStateMismatch`; recovery button calls `/rebaseline` with current canvas then resubmits the failed prompt | — | Repaint on failure and after recovery | "VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-resubmits" |
+| H2 | Stale canvas at apply | `AWAITING_REVIEW` | `ERROR` | Diagnostic structural parity check (live structural hash vs `lastSubmit.client_structural_graph_hash`); `applyEligibility()` gates on canonical backend eligibility, not on the structural hash. Accept-stage stale failures use the same `Rebaseline & retry` flow as submit-stage stale failures; if the backend omits `rebaselineRecovery`, the client synthesizes the stale recovery descriptor from the live panel state and accept request. | Backend CAS via `POST /accept` | `liveCanvasToken` double-checked before configure | Repaint | "VibeComfy Apply relies on backend CAS to block structural drift even when the live canvas revision is unchanged"; "Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task" |
 
 ### 3.9 Superseded candidate invalidation
 
@@ -257,9 +277,9 @@ store owns this call site.
 
 `invalidateCandidateState(panel)` must be called:
 - At submit start (before entering SUBMITTING)
-- On clarify-only response (before setting clarification)
-- On no-op response
-- On candidate arrival (before setting new candidate)
+- On `clarify` outcome (before setting clarification)
+- On `noop` outcome
+- On `candidate` outcome arrival (before setting new candidate)
 - On apply success (after canvas mutation)
 - On reject success (after backend confirmation)
 - On rebaseline success
@@ -318,13 +338,12 @@ pollute the fresh session.
 |---|---|
 | S1 (submit start) | "VibeComfy agent submit sends canonical graph hash, normalized route/model fields, idempotency key, and dedupes in-flight submits" |
 | S2, S3 (readiness/missing-task) | "VibeComfy blocks submit until status.ready is true and shows composer readiness text" |
-| S4, S5, R5, R6 (serialize/network/malformed failures) | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
+| S4, S5, R4, R5 (serialize/network/malformed failures) | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
 | S6, C1 (abort/stop) | "Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and only shows Undo in the composer when available" |
-| R1 (clarify-only) | "VibeComfy renders a clarify turn as a question, not a no-op candidate" |
-| R2 (edit+clarify) | "VibeComfy preserves Apply controls for edit+clarify candidates" |
-| R3 (ok candidate, no local structural block) | "VibeComfy does not use client structural hash drift as a local candidate blocker" |
+| R1 (`clarify` outcome) | "VibeComfy renders a clarify turn as a question, not a no-op candidate" |
+| R2 (`candidate` outcome) | "VibeComfy preserves Apply controls for edit+clarify candidates"; "VibeComfy does not use client structural hash drift as a local candidate blocker" |
 | H1 (stale submit recovery) | "VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-resubmits" |
-| R4 (no-op) | "VibeComfy renders no-op edit turns without entering review" |
+| R3 (`noop` outcome) | "VibeComfy renders no-op edit turns without entering review" |
 | A1–A4 (apply flow) | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
 | A3 (missing eligibility) | "VibeComfy disables Apply and warns when a candidate arrives without canonical eligibility" |
 | A5 (backend accept rejection) | "Lifecycle A5 backend accept rejected disables an applyable candidate"; "Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task" |

@@ -1859,6 +1859,392 @@ test("STALE_RECOVERY_REBASELINE success and failure transitions own recovery-spe
   });
 });
 
+// ── Accept-stage stale recovery lifecycle ───────────────────────────────────
+
+test("ACCEPT_REJECTED with normalized rebaselineRecovery stores camelCase recovery from payload", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.APPLYING,
+    applyEligibility: { applyable: true, reason: "applyable" },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: true,
+  });
+  const staleFailure = {
+    ok: false,
+    kind: "StaleStateMismatch",
+    message: "Baseline has moved since candidate was submitted",
+    audit_ref: { path: "/tmp/stale-accept-audit.json" },
+    baseline_turn_id: "0010",
+    baseline_graph_hash: "base-after-move",
+  };
+
+  const obligations = transition(panel, "ACCEPT_REJECTED", {
+    failure: staleFailure,
+    acceptBody: { idempotency_key: "accept:stale" },
+    authoritativeBackendReject: true,
+    disabledApplyEligibility: {
+      applyable: false,
+      reason: "superseded",
+      warnings: ["stale_state"],
+    },
+    rebaselineRecovery: {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "stale_state_recovery",
+      last_known_baseline_graph_hash: "base-before-move",
+    },
+  });
+
+  assert.deepEqual(obligations, { render: true, queueGuardClear: true, refreshQueueGuard: true });
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.deepEqual(panel.state.failure, staleFailure);
+  // Normalized rebaselineRecovery from payload (camelCase direct path — stored as-is)
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "base-before-move",
+  });
+  // Baseline synced from failure payload
+  assert.equal(panel.state.baselineTurnId, "0010");
+  assert.equal(panel.state.baselineGraphHash, "base-after-move");
+  assert.deepEqual(panel.state.auditRef, { path: "/tmp/stale-accept-audit.json" });
+  // Queue and apply gates disabled for authoritative reject
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+});
+
+test("REBASELINE_RECOVERY_SYNC stores normalized rebaselineRecovery without rendering", () => {
+  const panel = makePanel({
+    failure: { kind: "StaleStateMismatch" },
+    rebaselineRecovery: { action: "rebaseline", reason: "old_recovery" },
+  });
+
+  const obligations = transition(panel, "REBASELINE_RECOVERY_SYNC", {
+    rebaselineRecovery: {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "stale_state_recovery",
+      last_known_baseline_graph_hash: "baseline-after-reject",
+    },
+  });
+
+  assert.deepEqual(obligations, { render: false });
+  // CamelCase direct path — stored as-is without null-padding
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "baseline-after-reject",
+  });
+  // Existing state preserved
+  assert.deepEqual(panel.state.failure, { kind: "StaleStateMismatch" });
+});
+
+test("REBASELINE_RECOVERY_SYNC extracts recovery from snake_case rebaseline_recovery in raw payload", () => {
+  const panel = makePanel();
+
+  const obligations = transition(panel, "REBASELINE_RECOVERY_SYNC", {
+    rebaseline_recovery: {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "stale_state_recovery",
+      last_known_baseline_graph_hash: "raw-baseline",
+    },
+  });
+
+  assert.deepEqual(obligations, { render: false });
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "raw-baseline",
+    submit_graph_hash: null,
+    submit_structural_graph_hash: null,
+    client_graph_hash: null,
+    client_structural_graph_hash: null,
+  });
+});
+
+test("REBASELINE_RECOVERY_SYNC extracts recovery from nested agent_failure_context.issues in raw payload", () => {
+  const panel = makePanel();
+
+  const obligations = transition(panel, "REBASELINE_RECOVERY_SYNC", {
+    agent_failure_context: {
+      issues: [
+        {},
+        {
+          rebaseline_recovery: {
+            action: "rebaseline",
+            endpoint: "/vibecomfy/agent-edit/rebaseline",
+            reason: "stale_state_recovery",
+            last_known_baseline_graph_hash: "nested-baseline",
+          },
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(obligations, { render: false });
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "nested-baseline",
+    submit_graph_hash: null,
+    submit_structural_graph_hash: null,
+    client_graph_hash: null,
+    client_structural_graph_hash: null,
+  });
+});
+
+test("REBASELINE_RECOVERY_SYNC with null rebaselineRecovery clears existing recovery", () => {
+  const panel = makePanel({
+    rebaselineRecovery: { action: "rebaseline", reason: "stale_state_recovery" },
+  });
+
+  const obligations = transition(panel, "REBASELINE_RECOVERY_SYNC", {
+    rebaselineRecovery: null,
+  });
+
+  assert.deepEqual(obligations, { render: false });
+  assert.equal(panel.state.rebaselineRecovery, null);
+});
+
+test("SUBMIT_BACKEND_FAILURE stores rebaselineRecovery from stale failure with SUBMIT_NETWORK_FAILURE parity", () => {
+  const failure = {
+    kind: "StaleStateMismatch",
+    message: "Baseline moved at submit time",
+    session_id: "sess-backend-failure",
+    turn_id: "0003",
+    baseline_turn_id: "0002",
+    baseline_graph_hash: "base-backend",
+    audit_ref: { path: "/tmp/backend-failure-audit.json" },
+    rebaseline_recovery: {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "stale_state_recovery",
+      last_known_baseline_graph_hash: "base-submit-target",
+    },
+  };
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-old",
+    turnId: "0001",
+    lastSubmit: { task: "add node" },
+  });
+
+  const obligations = transition(panel, "SUBMIT_BACKEND_FAILURE", { failure });
+
+  assert.deepEqual(obligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    persistSession: "sess-backend-failure",
+    refreshQueueGuard: true,
+    rehydrateChat: true,
+  });
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.deepEqual(panel.state.failure, failure);
+  assert.equal(panel.state.sessionId, "sess-backend-failure");
+  assert.equal(panel.state.turnId, "0003");
+  assert.equal(panel.state.baselineTurnId, "0002");
+  assert.equal(panel.state.baselineGraphHash, "base-backend");
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "base-submit-target",
+    submit_graph_hash: null,
+    submit_structural_graph_hash: null,
+    client_graph_hash: null,
+    client_structural_graph_hash: null,
+  });
+  assert.deepEqual(panel.state.auditRef, { path: "/tmp/backend-failure-audit.json" });
+});
+
+test("Accept-stage stale recovery full chain: ACCEPT_REJECTED → REBASELINE_RECOVERY_SYNC → STALE_RECOVERY_REBASELINE_QUEUED → STALE_RECOVERY_REBASELINE_SUCCESS", () => {
+  // Step 1: ACCEPT_REJECTED stores stale recovery
+  const panel = makePanel({
+    phase: PANEL_STATE.APPLYING,
+    candidateGraph: { nodes: [{ id: 5 }] },
+    candidateGraphHash: "candidate-hash-stale",
+    applyEligibility: { applyable: true },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: true,
+  });
+  const staleFailure = {
+    ok: false,
+    kind: "StaleStateMismatch",
+    message: "Baseline advanced",
+    audit_ref: { path: "/tmp/chain-audit.json" },
+    baseline_turn_id: "0020",
+    baseline_graph_hash: "base-chain",
+  };
+
+  const acceptObligations = transition(panel, "ACCEPT_REJECTED", {
+    failure: staleFailure,
+    acceptBody: { idempotency_key: "accept:chain" },
+    authoritativeBackendReject: true,
+    disabledApplyEligibility: {
+      applyable: false,
+      reason: "superseded",
+    },
+    rebaselineRecovery: {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "stale_state_recovery",
+      last_known_baseline_graph_hash: "base-original",
+    },
+  });
+
+  assert.deepEqual(acceptObligations, { render: true, queueGuardClear: true, refreshQueueGuard: true });
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  // CamelCase direct path — stored as-is
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "base-original",
+  });
+
+  // Step 2: REBASELINE_RECOVERY_SYNC — re-syncs same recovery (no render)
+  const syncObligations = transition(panel, "REBASELINE_RECOVERY_SYNC", {
+    rebaselineRecovery: {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "stale_state_recovery",
+      last_known_baseline_graph_hash: "base-original",
+    },
+  });
+  assert.deepEqual(syncObligations, { render: false });
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "base-original",
+  });
+
+  // Step 3: STALE_RECOVERY_REBASELINE_QUEUED — transitions to IDLE, recovery still held
+  const queuedObligations = transition(panel, "STALE_RECOVERY_REBASELINE_QUEUED");
+  assert.deepEqual(queuedObligations, { render: true });
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.message, "Current canvas queued for stale-state recovery rebaseline.");
+  // recovery still present during in-flight rebaseline
+  assert.ok(panel.state.rebaselineRecovery);
+
+  // Step 4: STALE_RECOVERY_REBASELINE_SUCCESS — clears failure, recovery, and candidate
+  const successObligations = transition(panel, "STALE_RECOVERY_REBASELINE_SUCCESS", {
+    auditRef: { path: "/tmp/chain-recovery-success.json" },
+    message: "Current canvas rebaselined. Resubmitting from this canvas...",
+    toast: "Current canvas rebaselined",
+    debugPayload: {
+      stale_state_recovery: true,
+      rebaseline_response: { rebaseline_id: "recovery-chain-0001" },
+    },
+  });
+  assert.deepEqual(successObligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    invalidateCandidate: true,
+    toast: "Current canvas rebaselined",
+  });
+  assert.equal(panel.state.failure, null);
+  assert.equal(panel.state.rebaselineRecovery, null);
+  assert.equal(panel.state.candidateGraph, null);
+  assert.equal(panel.state.candidateGraphHash, null);
+  assert.deepEqual(panel.state.auditRef, { path: "/tmp/chain-recovery-success.json" });
+});
+
+test("Submit-stage stale recovery full chain: SUBMIT_BACKEND_FAILURE → REBASELINE_RECOVERY_SYNC → STALE_RECOVERY_REBASELINE_QUEUED → STALE_RECOVERY_REBASELINE_SUCCESS", () => {
+  // Step 1: SUBMIT_BACKEND_FAILURE stores stale recovery
+  const failure = {
+    kind: "StaleStateMismatch",
+    message: "Baseline moved at submit time",
+    session_id: "sess-submit-chain",
+    turn_id: "0006",
+    baseline_turn_id: "0005",
+    baseline_graph_hash: "base-submit-chain",
+    audit_ref: { path: "/tmp/submit-chain-audit.json" },
+    rebaseline_recovery: {
+      action: "rebaseline",
+      endpoint: "/vibecomfy/agent-edit/rebaseline",
+      reason: "stale_state_recovery",
+      last_known_baseline_graph_hash: "base-submit-original",
+    },
+  };
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-old",
+    turnId: "0003",
+    lastSubmit: { task: "change sampler cfg" },
+  });
+
+  const failObligations = transition(panel, "SUBMIT_BACKEND_FAILURE", { failure });
+
+  assert.deepEqual(failObligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    persistSession: "sess-submit-chain",
+    refreshQueueGuard: true,
+    rehydrateChat: true,
+  });
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.turnId, "0006");
+  assert.equal(panel.state.baselineTurnId, "0005");
+  assert.equal(panel.state.baselineGraphHash, "base-submit-chain");
+  assert.deepEqual(panel.state.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/vibecomfy/agent-edit/rebaseline",
+    reason: "stale_state_recovery",
+    last_known_baseline_graph_hash: "base-submit-original",
+    submit_graph_hash: null,
+    submit_structural_graph_hash: null,
+    client_graph_hash: null,
+    client_structural_graph_hash: null,
+  });
+
+  // Step 2: REBASELINE_RECOVERY_SYNC
+  assert.deepEqual(
+    transition(panel, "REBASELINE_RECOVERY_SYNC", {
+      rebaselineRecovery: {
+        action: "rebaseline",
+        endpoint: "/vibecomfy/agent-edit/rebaseline",
+        reason: "stale_state_recovery",
+        last_known_baseline_graph_hash: "base-submit-original",
+      },
+    }),
+    { render: false },
+  );
+
+  // Step 3: STALE_RECOVERY_REBASELINE_QUEUED
+  assert.deepEqual(
+    transition(panel, "STALE_RECOVERY_REBASELINE_QUEUED"),
+    { render: true },
+  );
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+
+  // Step 4: STALE_RECOVERY_REBASELINE_SUCCESS
+  assert.deepEqual(
+    transition(panel, "STALE_RECOVERY_REBASELINE_SUCCESS", {
+      auditRef: { path: "/tmp/submit-recovery-success.json" },
+      message: "Current canvas rebaselined. Resubmitting from this canvas...",
+      toast: "Current canvas rebaselined",
+    }),
+    {
+      render: true,
+      dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+      invalidateCandidate: true,
+      toast: "Current canvas rebaselined",
+    },
+  );
+  assert.equal(panel.state.failure, null);
+  assert.equal(panel.state.rebaselineRecovery, null);
+});
+
+// ── Undo flow ───────────────────────────────────────────────────────────────
+
 test("UNDO_LOCAL_RESTORE clears local apply feedback and queue guard state before undo rebaseline", () => {
   const panel = makePanel({
     phase: PANEL_STATE.APPLYING,

@@ -7412,6 +7412,116 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
   }
 });
 
+test("Lifecycle E2 chat rehydrate ignores latest_candidate entries whose public outcome is not candidate", async () => {
+  const graph = {
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } }],
+    links: [],
+  };
+  const cases = [
+    {
+      name: "noop",
+      latestCandidate: {
+        session_id: "sess-rehydrate-noop",
+        turn_id: "0005",
+        outcome: { kind: "noop", reason: "No change needed." },
+        candidate: { graph },
+        candidate_graph_hash: "noop-should-not-restore",
+        message: "No change needed.",
+        canvas_apply_allowed: false,
+        apply_allowed: false,
+        queue_allowed: false,
+      },
+    },
+    {
+      name: "clarify",
+      latestCandidate: {
+        session_id: "sess-rehydrate-clarify",
+        turn_id: "0005",
+        outcome: { kind: "clarify", question: "Which node should change?" },
+        candidate: { graph },
+        candidate_graph_hash: "clarify-should-not-restore",
+        message: "Which node should change?",
+        canvas_apply_allowed: false,
+        apply_allowed: false,
+        queue_allowed: false,
+      },
+    },
+    {
+      name: "error",
+      latestCandidate: {
+        session_id: "sess-rehydrate-error",
+        turn_id: "0005",
+        outcome: { kind: "error", failureKind: "StaleStateMismatch", nextAction: "Submit again." },
+        candidate: { graph },
+        candidate_graph_hash: "error-should-not-restore",
+        message: "Submit again.",
+        canvas_apply_allowed: false,
+        apply_allowed: false,
+        queue_allowed: false,
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const SESSION_ID = `sess-rehydrate-noncandidate-${testCase.name}`;
+    const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+    const harness = await createBrowserHarness({
+      responses: {
+        "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+        "/vibecomfy/agent/status?route=auto": {
+          status: 200,
+          body: {
+            ok: true,
+            ready: true,
+            provider_available: true,
+            route: "deepseek",
+            requested_route: "auto",
+            route_options: {
+              auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+              deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+            },
+          },
+        },
+        [CHAT_URL]: {
+          status: 200,
+          body: {
+            ok: true,
+            exists: true,
+            session_id: SESSION_ID,
+            messages: [
+              { role: "user", text: "restore session", turn_id: "0005" },
+              { role: "agent", text: `Latest ${testCase.name} outcome should not restore review.`, turn_id: "0005" },
+            ],
+            latest_candidate: {
+              ...testCase.latestCandidate,
+              session_id: SESSION_ID,
+            },
+          },
+        },
+      },
+    });
+    globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+
+    try {
+      const extensionModule = await harness.loadExtension();
+      await harness.setup();
+      await harness.invokeCommand("VibeComfy.AgentEdit");
+      await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
+
+      const panel = extensionModule.ensureAgentPanel();
+      assert.equal(panel.state.sessionId, SESSION_ID, `${testCase.name} should still rehydrate the session`);
+      assert.equal(panel.state.candidateGraph, null, `${testCase.name} should not restore a candidate graph`);
+      assert.equal(panel.state.candidateGraphHash, null, `${testCase.name} should not restore a candidate hash`);
+      assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
+      assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
+      assert.doesNotMatch(harness.textDump(), /Review Changes/);
+    } finally {
+      await harness.dispose();
+      globalThis.localStorage.removeItem("vibecomfy_active_session_id");
+    }
+  }
+});
+
 test("Lifecycle E3 same-session rehydrate can commit after an epoch bump until a newer response lands", async () => {
   const SESSION_ID = "sess-rehydrate-same-session-stale-before-commit";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;

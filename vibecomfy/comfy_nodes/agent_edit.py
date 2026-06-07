@@ -1394,6 +1394,48 @@ def _write_turn_chat_artifact(
         )
 
 
+def _stamped_turn_response_outcome(
+    response: Mapping[str, Any] | None,
+    *,
+    stage: str = "submit",
+) -> dict[str, Any] | None:
+    if not isinstance(response, Mapping):
+        return None
+    try:
+        stamped = ensure_agent_edit_response_contract(dict(response), stage=stage)
+    except Exception:
+        return None
+    outcome = stamped.get("outcome")
+    return dict(outcome) if isinstance(outcome, Mapping) else None
+
+
+def _stamped_message_outcome(
+    outcome: Mapping[str, Any] | None,
+    *,
+    stage: str = "chat",
+) -> dict[str, Any] | None:
+    if not isinstance(outcome, Mapping):
+        return None
+    try:
+        stamped = ensure_agent_edit_response_contract(
+            {"ok": True, "outcome": dict(outcome)},
+            stage=stage,
+        )
+    except Exception:
+        return None
+    public_outcome = stamped.get("outcome")
+    return dict(public_outcome) if isinstance(public_outcome, Mapping) else None
+
+
+def _read_turn_response_payload(turn_dir: Path) -> dict[str, Any]:
+    response_path = turn_dir / "response.json"
+    try:
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(response) if isinstance(response, Mapping) else {}
+
+
 def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) -> dict[str, Any] | None:
     try:
         state = read_state(session_dir)
@@ -1407,19 +1449,9 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
         if not isinstance(turn_state, Mapping) or turn_state.get("state") != "candidate":
             continue
         turn_dir = session_dir / "turns" / turn_id
-        response_path = turn_dir / "response.json"
-        try:
-            response = json.loads(response_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            response = {}
-        if not isinstance(response, Mapping):
-            response = {}
-        # No-op turns have nothing to restore/apply — never surface them as the
-        # session's latest candidate (they would drag the panel back into review).
-        outcome = response.get("outcome")
-        if isinstance(outcome, Mapping) and outcome.get("kind") == "noop":
-            continue
-        if response.get("graph_unchanged") is True and response.get("apply_allowed") is False:
+        response = _read_turn_response_payload(turn_dir)
+        outcome = _stamped_turn_response_outcome(response, stage="submit")
+        if outcome is None or outcome.get("kind") != "candidate":
             continue
         candidate_path = turn_dir / "candidate.ui.json"
         graph = response.get("graph")
@@ -1432,7 +1464,7 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             continue
         candidate = response.get("candidate")
         eligibility = response.get("apply_eligibility") or response.get("eligibility")
-        return {
+        latest_candidate = {
             "turn_id": turn_id,
             "session_id": session_dir.name,
             "baseline_turn_id": response.get("baseline_turn_id"),
@@ -1454,7 +1486,9 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "audit_ref": _json_safe(response.get("audit_ref")) if isinstance(response.get("audit_ref"), Mapping) else None,
             "change_details": _json_safe(response.get("change_details")) if isinstance(response.get("change_details"), Mapping) else None,
             "batch_turns": _json_safe(response.get("batch_turns")) if isinstance(response.get("batch_turns"), list) else [],
+            "outcome": outcome,
         }
+        return latest_candidate
     return None
 
 
@@ -1507,6 +1541,8 @@ def read_session_chat(
         turn_dir = turns_dir / turn_id
         chat_path = turn_dir / "chat.json"
         chat_record: dict[str, Any] | None = None
+        response = _read_turn_response_payload(turn_dir)
+        fallback_agent_outcome = _stamped_turn_response_outcome(response, stage="submit")
 
         # Try chat.json first.
         if chat_path.is_file():
@@ -1549,6 +1585,8 @@ def read_session_chat(
                         },
                     ],
                 }
+                if fallback_agent_outcome is not None:
+                    chat_record["messages"][1]["outcome"] = fallback_agent_outcome
 
         if chat_record is None:
             continue
@@ -1558,11 +1596,17 @@ def read_session_chat(
         if isinstance(messages, list):
             for msg in messages:
                 if isinstance(msg, dict) and msg.get("role") in ("user", "agent"):
-                    all_messages.append({
+                    display_msg = {
                         "role": msg["role"],
                         "text": msg.get("text", ""),
                         "turn_id": msg.get("turn_id", turn_id),
-                    })
+                    }
+                    stamped_outcome = _stamped_message_outcome(msg.get("outcome"))
+                    if msg["role"] == "agent" and stamped_outcome is None:
+                        stamped_outcome = fallback_agent_outcome
+                    if msg["role"] == "agent" and stamped_outcome is not None:
+                        display_msg["outcome"] = stamped_outcome
+                    all_messages.append(display_msg)
         latest_turn_id = turn_id
 
     # Take the last N messages for display.
