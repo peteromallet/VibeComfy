@@ -6,10 +6,14 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EXTENSION_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "vibecomfy_roundtrip.js");
+const PANEL_RUNTIME_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_runtime.js");
+const PANEL_SCHEDULER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_scheduler.js");
+const PANEL_THREAD_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_thread.js");
+const PANEL_OVERLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_overlay.js");
+const PANEL_COMPOSER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_composer.js");
 const LIFECYCLE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_lifecycle.js");
 const ADAPTER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "comfy_adapter.js");
 const RESPONSE_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_response_contract.js");
-const PANEL_RUNTIME_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "panel_runtime.js");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -607,10 +611,14 @@ export async function createBrowserHarness({
   await writeFile(path.join(scriptsRoot, "app.js"), "export const app = globalThis.__VIBECOMFY_BROWSER_APP__;\n");
   await writeFile(path.join(scriptsRoot, "api.js"), "export const api = globalThis.__VIBECOMFY_BROWSER_API__;\n");
   await writeFile(path.join(webRoot, "vibecomfy_roundtrip.js"), await readFile(EXTENSION_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "panel_runtime.js"), await readFile(PANEL_RUNTIME_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "panel_scheduler.js"), await readFile(PANEL_SCHEDULER_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "panel_thread.js"), await readFile(PANEL_THREAD_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "panel_overlay.js"), await readFile(PANEL_OVERLAY_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "panel_composer.js"), await readFile(PANEL_COMPOSER_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agent_edit_lifecycle.js"), await readFile(LIFECYCLE_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "comfy_adapter.js"), await readFile(ADAPTER_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agent_edit_response_contract.js"), await readFile(RESPONSE_CONTRACT_SOURCE, "utf8"));
-  await writeFile(path.join(webRoot, "panel_runtime.js"), await readFile(PANEL_RUNTIME_SOURCE, "utf8"));
 
   const apiEventListeners = {};
   const mockApi = {
