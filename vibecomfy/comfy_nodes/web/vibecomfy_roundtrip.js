@@ -19,6 +19,13 @@ import {
   readRebaselineRecovery,
   extractRebaselineRecovery,
 } from "./agent_edit_response_contract.js";
+import {
+  currentAgentPanel,
+  nextAgentPanelId,
+  panelRuntime,
+  panelsCreatedCount,
+  setCurrentAgentPanel,
+} from "./panel_runtime.js";
 
 export { RENDER_SECTIONS };
 
@@ -153,7 +160,6 @@ const AGENT_PANEL_RENDER_TIMEOUT_MS = 100;
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
 const AGENT_PANEL_SECTION_RENDER_RETRY_LIMIT = 3;
 const AGENT_SIDEBAR_TAB_ID = "vibecomfy.agent-edit";
-const AGENT_PANEL_SINGLETON_KEY = "__vibecomfyAgentPanelSingleton";
 const AGENT_PANEL_MOUNT_MODE = Object.freeze({
   LAUNCHER: "launcher",
   SIDEBAR: "sidebar",
@@ -316,89 +322,6 @@ function hexToRgba(hex, alpha) {
   const b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${typeof alpha === "number" ? alpha : 1})`;
 }
-let agentPanel = null;
-let agentSidebarTabRegistered = false;
-let agentTurnEventListener = null;
-let agentTurnEventListenerRegistered = false;
-let changedNodeFeedbackTimer = null;
-let changedNodeFeedbackVisuals = [];
-let queueGuardHook = null;
-let queueGuardContext = null;
-let queueGuardFallbackWarning = null;
-let queueGuardFallbackWarned = false;
-let queueGuardBlockNotice = null;
-let queueGuardBlockedTurnKeys = new Set();
-let _previewForegroundInstallReport = null;
-let _adapterCapabilities = null;
-let _progressPulseInjected = false;
-let _scheduledAgentPanelRender = null;
-let _scheduledAgentPanelRenderQueued = false;
-let _agentPanelFlushCount = 0;
-let _lastAgentPanelFlushReason = "";
-let _agentPanelCreationCounter = 0;
-let _lastThreadRender = null;
-let _lastNoticeRender = null;
-let _statusCommitAt = null;
-let _rehydrateCommitAt = null;
-let _marksAfterCommit = 0;
-let _overlayDrawModelCache = null;
-
-function agentPanelSingletonHost() {
-  return typeof window !== "undefined" ? window : null;
-}
-
-function agentPanelSingletonRecord(create = false) {
-  const host = agentPanelSingletonHost();
-  if (!host) {
-    return null;
-  }
-  const current = host[AGENT_PANEL_SINGLETON_KEY];
-  if (current && typeof current === "object") {
-    return current;
-  }
-  if (!create) {
-    return null;
-  }
-  const record = { panel: null, panelsCreated: 0 };
-  host[AGENT_PANEL_SINGLETON_KEY] = record;
-  return record;
-}
-
-function currentAgentPanel() {
-  const sharedPanel = agentPanelSingletonRecord(false)?.panel || null;
-  if (sharedPanel) {
-    agentPanel = sharedPanel;
-    return sharedPanel;
-  }
-  return agentPanel;
-}
-
-function setCurrentAgentPanel(panel) {
-  agentPanel = panel || null;
-  const record = agentPanelSingletonRecord(true);
-  if (record) {
-    record.panel = agentPanel;
-  }
-  return agentPanel;
-}
-
-function panelsCreatedCount() {
-  const sharedCount = agentPanelSingletonRecord(false)?.panelsCreated;
-  return Number.isFinite(sharedCount) ? sharedCount : _agentPanelCreationCounter;
-}
-
-function nextAgentPanelId() {
-  const record = agentPanelSingletonRecord(true);
-  if (record) {
-    const nextCount = Number.isFinite(record.panelsCreated) ? record.panelsCreated + 1 : 1;
-    record.panelsCreated = nextCount;
-    _agentPanelCreationCounter = nextCount;
-    return `${Date.now()}-${nextCount}`;
-  }
-  _agentPanelCreationCounter += 1;
-  return `${Date.now()}-${_agentPanelCreationCounter}`;
-}
-
 function isIntentClassType(classType) {
   return INTENT_NODE_CLASS_TYPES.has(String(classType || "").trim());
 }
@@ -1175,7 +1098,8 @@ function installIntentNodeFallback() {
 }
 
 function installAgentPreviewOverlay() {
-  if (app?.__vibecomfyAgentPreviewOverlayInstalled && _previewForegroundInstallReport) {
+  const runtime = panelRuntime();
+  if (app?.__vibecomfyAgentPreviewOverlayInstalled && runtime._previewForegroundInstallReport) {
     return;
   }
   // Draw the pending-candidate preview overlay onto whatever canvas/context
@@ -1203,14 +1127,19 @@ function installAgentPreviewOverlay() {
   app.__vibecomfyAgentPreviewOverlayDraw = overlayDraw;
   try {
     const install = installPreviewForegroundOverlay(app, overlayDraw, { windowObj: window });
-    _previewForegroundInstallReport = install;
+    runtime._previewForegroundInstallReport = install;
     app.__vibecomfyAgentPreviewOverlayInstalled = true;
     if (install.polling) {
       console.warn(`[vibecomfy] preview overlay install degraded: ${install.detail}`);
     }
   } catch (e) {
     if (e?.code === "PREVIEW_FOREGROUND_UNAVAILABLE") {
-      _previewForegroundInstallReport = { capability: e.capability, strategy: "unavailable", degraded: true, detail: e.message };
+      runtime._previewForegroundInstallReport = {
+        capability: e.capability,
+        strategy: "unavailable",
+        degraded: true,
+        detail: e.message,
+      };
       console.warn(`[vibecomfy] preview overlay unavailable: ${e.capability?.detail || e.message}`);
       return;
     }
@@ -3513,18 +3442,20 @@ function isAgentPanelRootConnected(panel) {
 }
 
 function hasPendingAgentPanelFlush() {
-  return Boolean(_scheduledAgentPanelRenderQueued || _scheduledAgentPanelRender);
+  const runtime = panelRuntime();
+  return Boolean(runtime._scheduledAgentPanelRenderQueued || runtime._scheduledAgentPanelRender);
 }
 
 function noteAgentPanelCommit(panel, commitKind) {
+  const runtime = panelRuntime();
   const at = new Date().toISOString();
   if (commitKind === "status") {
-    _statusCommitAt = at;
+    runtime._statusCommitAt = at;
     if (panel?.state) {
       panel.state.statusCommitAt = at;
     }
   } else if (commitKind === "rehydrate") {
-    _rehydrateCommitAt = at;
+    runtime._rehydrateCommitAt = at;
     if (panel?.state) {
       panel.state.rehydrateCommitAt = at;
     }
@@ -3539,9 +3470,10 @@ function markAgentPanelDirtyAfterCommit(panel, sections, commitKind) {
   noteAgentPanelCommit(panel, commitKind);
   const normalized = normalizeDirtySectionList(sections);
   if (Array.isArray(normalized) && normalized.length) {
-    _marksAfterCommit += 1;
+    const runtime = panelRuntime();
+    runtime._marksAfterCommit += 1;
     if (panel.state) {
-      panel.state.marksAfterCommit = _marksAfterCommit;
+      panel.state.marksAfterCommit = runtime._marksAfterCommit;
     }
   }
   return markAgentPanelDirty(panel, normalized);
@@ -3630,18 +3562,19 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
   if (fallbackSections !== undefined) {
     markAgentPanelDirty(panel, fallbackSections, { schedule: false });
   }
-  _scheduledAgentPanelRender = {
+  const runtime = panelRuntime();
+  runtime._scheduledAgentPanelRender = {
     panel,
     reason,
     fallbackSections,
     dirtyOnly: Boolean(options.dirtyOnly),
   };
   const flush = () => {
-    const scheduled = _scheduledAgentPanelRender;
-    _scheduledAgentPanelRender = null;
-    _scheduledAgentPanelRenderQueued = false;
-    _agentPanelFlushCount += 1;
-    _lastAgentPanelFlushReason = typeof scheduled?.reason === "string" ? scheduled.reason : "";
+    const scheduled = runtime._scheduledAgentPanelRender;
+    runtime._scheduledAgentPanelRender = null;
+    runtime._scheduledAgentPanelRenderQueued = false;
+    runtime._agentPanelFlushCount += 1;
+    runtime._lastAgentPanelFlushReason = typeof scheduled?.reason === "string" ? scheduled.reason : "";
     if (isAgentPanelRootConnected(scheduled?.panel)) {
       if (
         scheduled.dirtyOnly
@@ -3656,10 +3589,10 @@ export function scheduleRenderAgentPanel(reason = "scheduled", panel = currentAg
       });
     }
   };
-  if (_scheduledAgentPanelRenderQueued) {
+  if (runtime._scheduledAgentPanelRenderQueued) {
     return;
   }
-  _scheduledAgentPanelRenderQueued = true;
+  runtime._scheduledAgentPanelRenderQueued = true;
   let flushed = false;
   let timeoutId = null;
   const flushOnce = () => {
@@ -3693,12 +3626,10 @@ export function ensureAgentPanel() {
   if (existingPanel) {
     return existingPanel;
   }
-  if (!agentPanel) {
-    // Create the panel shell only. Chat rehydration happens on open
-    // (openAgentPanel), not on mere creation, so extension setup and launcher
-    // wiring don't trigger a premature/duplicate chat fetch.
-    setCurrentAgentPanel(createAgentPanel());
-  }
+  // Create the panel shell only. Chat rehydration happens on open
+  // (openAgentPanel), not on mere creation, so extension setup and launcher
+  // wiring don't trigger a premature/duplicate chat fetch.
+  setCurrentAgentPanel(createAgentPanel());
   return currentAgentPanel();
 }
 
@@ -4553,10 +4484,11 @@ function ensureAgentTurnListener() {
   if (api?.__vibecomfyAgentTurnListenerRegistered || typeof api?.addEventListener !== "function") {
     return;
   }
-  agentTurnEventListener = handleAgentTurnEvent;
+  const runtime = panelRuntime();
+  runtime.agentTurnEventListener = handleAgentTurnEvent;
   // Event name MUST match the backend emit string in agent_edit.py (_ws_send).
-  api.addEventListener("vibecomfy.agent_edit.turn", agentTurnEventListener);
-  agentTurnEventListenerRegistered = true;
+  api.addEventListener("vibecomfy.agent_edit.turn", runtime.agentTurnEventListener);
+  runtime.agentTurnEventListenerRegistered = true;
   api.__vibecomfyAgentTurnListenerRegistered = true;
 }
 
@@ -4570,8 +4502,9 @@ function renderMeta(panel) {
 
 // ── Progress pulse animation (injected once) ──────────────────────────────
 function _injectProgressPulseStyle() {
-  if (_progressPulseInjected) return;
-  _progressPulseInjected = true;
+  const runtime = panelRuntime();
+  if (runtime._progressPulseInjected) return;
+  runtime._progressPulseInjected = true;
   const style = el("style");
   style.textContent = `
     @keyframes vibecomfy-progress-pulse {
@@ -5505,6 +5438,7 @@ function computeThreadDisplayEntries(panel, threadEntries) {
 }
 
 function renderChatThread(panel) {
+  const runtime = panelRuntime();
   const body = panel.sections.chat;
   const { sessionRow, olderMount, messagesMount, emptyMount, activityMount } = ensureChatThreadMounts(body);
   // Keep the legacy internal activity mount empty when the canonical history
@@ -5516,14 +5450,14 @@ function renderChatThread(panel) {
 
   const threadEntries = collectThreadMessageEntries(panel);
   if (!threadEntries.length) {
-    _lastThreadRender = {
+    runtime._lastThreadRender = {
       panelId: panel?.panelId || null,
       messagesSeen: 0,
       branch: "picker",
       at: new Date().toISOString(),
     };
     if (panel) {
-      panel.lastThreadRender = _lastThreadRender;
+      panel.lastThreadRender = runtime._lastThreadRender;
     }
     renderShowEarlierMessages(panel, olderMount, 0);
     clearNode(messagesMount);
@@ -5547,14 +5481,14 @@ function renderChatThread(panel) {
   emptyMount.style.display = "none";
   clearNode(emptyMount);
   const { displayEntries, hiddenCount } = computeThreadDisplayEntries(panel, threadEntries);
-  _lastThreadRender = {
+  runtime._lastThreadRender = {
     panelId: panel?.panelId || null,
     messagesSeen: threadEntries.length,
     branch: "messages",
     at: new Date().toISOString(),
   };
   if (panel) {
-    panel.lastThreadRender = _lastThreadRender;
+    panel.lastThreadRender = runtime._lastThreadRender;
   }
   renderShowEarlierMessages(panel, olderMount, hiddenCount);
   reconcileChatBubbles(panel, messagesMount, displayEntries);
@@ -5562,6 +5496,7 @@ function renderChatThread(panel) {
 }
 
 function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
+  const runtime = panelRuntime();
   const routeStatus = routeStatusState(panel);
   const readinessState = submitReadinessState(panel);
   let threadEntries = [];
@@ -5576,11 +5511,11 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
   return {
     panelId: panel?.panelId || null,
     panelsCreated: panelsCreatedCount(),
-    lastThreadRender: _lastThreadRender,
-    lastNoticeRender: _lastNoticeRender,
-    statusCommitAt: _statusCommitAt,
-    rehydrateCommitAt: _rehydrateCommitAt,
-    marksAfterCommit: _marksAfterCommit,
+    lastThreadRender: runtime._lastThreadRender,
+    lastNoticeRender: runtime._lastNoticeRender,
+    statusCommitAt: runtime._statusCommitAt,
+    rehydrateCommitAt: runtime._rehydrateCommitAt,
+    marksAfterCommit: runtime._marksAfterCommit,
     phase: panel?.state?.phase || null,
     readiness: {
       kind: routeStatus.kind || null,
@@ -5603,8 +5538,8 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
     debugError,
     mountMode: panel?.state?.mountMode || null,
     flushPending: hasPendingAgentPanelFlush(),
-    flushCount: _agentPanelFlushCount,
-    lastFlushReason: _lastAgentPanelFlushReason,
+    flushCount: runtime._agentPanelFlushCount,
+    lastFlushReason: runtime._lastAgentPanelFlushReason,
     mountedCheck: isAgentPanelRootConnected(panel),
     epochs: {
       status: Number.isFinite(panel?.state?.statusRequestEpoch) ? panel.state.statusRequestEpoch : 0,
@@ -5991,7 +5926,7 @@ function clearCandidatePreviewState(panel) {
   }
   delete panel.state._previewDiff;
   delete panel.state._previewDiffGraphHash;
-  _overlayDrawModelCache = null;
+  panelRuntime()._overlayDrawModelCache = null;
   try {
     const graph = getLiveGraph();
     if (graph) {
@@ -6007,7 +5942,7 @@ function clearCandidatePreviewState(panel) {
 
 function clearCandidateInvalidationSideEffects(repaint = true) {
   // Roundtrip-owned side effect: clear overlay draw model cache.
-  _overlayDrawModelCache = null;
+  panelRuntime()._overlayDrawModelCache = null;
   // Repaint to clear the always-on candidate preview overlay from the canvas.
   // Callers that have ALREADY repainted (e.g. the post-Apply path, which just
   // ran applyGraphInPlaceWithIntentDecoration -> setDirtyCanvas and is now IDLE
@@ -6525,9 +6460,10 @@ function _overlayDrawCacheKey(diff, candidateGraph) {
 }
 
 function _buildOverlayDrawModel(ctx, diff, candidateGraph) {
+  const runtime = panelRuntime();
   const key = _overlayDrawCacheKey(diff, candidateGraph);
-  if (_overlayDrawModelCache?.key === key) {
-    return _overlayDrawModelCache.model;
+  if (runtime._overlayDrawModelCache?.key === key) {
+    return runtime._overlayDrawModelCache.model;
   }
   const liveByUid = new Map();
   for (const node of getLiveGraphNodes(getLiveGraph())) {
@@ -6568,7 +6504,7 @@ function _buildOverlayDrawModel(ctx, diff, candidateGraph) {
     ghostDimsByUid,
     unresolvedWarnCount: 0,
   };
-  _overlayDrawModelCache = { key, model };
+  runtime._overlayDrawModelCache = { key, model };
   return model;
 }
 
@@ -7268,11 +7204,12 @@ function lookupLiveNodeByUid(uid) {
 }
 
 function clearChangedNodeFeedbackVisuals() {
-  if (changedNodeFeedbackTimer != null && typeof clearTimeout === "function") {
-    clearTimeout(changedNodeFeedbackTimer);
+  const runtime = panelRuntime();
+  if (runtime.changedNodeFeedbackTimer != null && typeof clearTimeout === "function") {
+    clearTimeout(runtime.changedNodeFeedbackTimer);
   }
-  changedNodeFeedbackTimer = null;
-  for (const entry of changedNodeFeedbackVisuals) {
+  runtime.changedNodeFeedbackTimer = null;
+  for (const entry of runtime.changedNodeFeedbackVisuals) {
     if (!entry?.node) {
       continue;
     }
@@ -7280,10 +7217,11 @@ function clearChangedNodeFeedbackVisuals() {
     entry.node.bgcolor = entry.original.bgcolor;
     entry.node.boxcolor = entry.original.boxcolor;
   }
-  changedNodeFeedbackVisuals = [];
+  runtime.changedNodeFeedbackVisuals = [];
 }
 
 function announceChangedNodes(panel, items) {
+  const runtime = panelRuntime();
   clearChangedNodeFeedbackVisuals();
   const feedback = {
     items: items || [],
@@ -7302,7 +7240,7 @@ function announceChangedNodes(panel, items) {
       feedback.unresolved.push(item);
       continue;
     }
-    changedNodeFeedbackVisuals.push({
+    runtime.changedNodeFeedbackVisuals.push({
       node,
       original: {
         color: node.color,
@@ -7316,14 +7254,14 @@ function announceChangedNodes(panel, items) {
     feedback.highlighted.push(item);
   }
 
-  if (changedNodeFeedbackVisuals.length) {
+  if (runtime.changedNodeFeedbackVisuals.length) {
     feedback.mode = "visual";
     if (typeof setTimeout === "function") {
-      changedNodeFeedbackTimer = setTimeout(() => {
+      runtime.changedNodeFeedbackTimer = setTimeout(() => {
         clearChangedNodeFeedbackVisuals();
       }, 4000);
-      if (typeof changedNodeFeedbackTimer?.unref === "function") {
-        changedNodeFeedbackTimer.unref();
+      if (typeof runtime.changedNodeFeedbackTimer?.unref === "function") {
+        runtime.changedNodeFeedbackTimer.unref();
       }
     }
   } else {
@@ -7346,19 +7284,21 @@ function queueGuardTurnKey(context) {
 }
 
 function getQueueGuardStateForPanel() {
+  const runtime = panelRuntime();
   return {
-    hookInstalled: Boolean(queueGuardHook?.installed),
-    hookPath: queueGuardHook?.path || null,
-    fallbackWarning: queueGuardFallbackWarning,
-    activeContext: queueGuardContext,
-    lastBlockNotice: queueGuardBlockNotice,
+    hookInstalled: Boolean(runtime.queueGuardHook?.installed),
+    hookPath: runtime.queueGuardHook?.path || null,
+    fallbackWarning: runtime.queueGuardFallbackWarning,
+    activeContext: runtime.queueGuardContext,
+    lastBlockNotice: runtime.queueGuardBlockNotice,
   };
 }
 
 function setQueueGuardContext(nextContext) {
-  queueGuardContext = nextContext || null;
-  if (!queueGuardContext || queueGuardContext.queueAllowed !== false) {
-    queueGuardBlockNotice = null;
+  const runtime = panelRuntime();
+  runtime.queueGuardContext = nextContext || null;
+  if (!runtime.queueGuardContext || runtime.queueGuardContext.queueAllowed !== false) {
+    runtime.queueGuardBlockNotice = null;
   }
   const panel = currentAgentPanel();
   if (panel) {
@@ -7367,21 +7307,23 @@ function setQueueGuardContext(nextContext) {
 }
 
 function warnQueueGuardFallbackOnce(reason) {
-  if (queueGuardFallbackWarned) {
+  const runtime = panelRuntime();
+  if (runtime.queueGuardFallbackWarned) {
     return;
   }
-  queueGuardFallbackWarned = true;
+  runtime.queueGuardFallbackWarned = true;
   console.warn(`VibeComfy: queue guard fallback active (${reason})`);
 }
 
 function installQueueGuard() {
-  if (queueGuardHook) {
-    return queueGuardHook.installed;
+  const runtime = panelRuntime();
+  if (runtime.queueGuardHook) {
+    return runtime.queueGuardHook.installed;
   }
 
   const report = installQueueGuardAdapter(app, {
     shouldBlock() {
-      const active = queueGuardContext;
+      const active = runtime.queueGuardContext;
       if (active?.queueAllowed === false) {
         return {
           turnId: active.turnId || null,
@@ -7392,9 +7334,9 @@ function installQueueGuard() {
       return null;
     },
     onBlock(blockInfo) {
-      if (!queueGuardBlockedTurnKeys.has(blockInfo.blockKey)) {
-        queueGuardBlockedTurnKeys.add(blockInfo.blockKey);
-        queueGuardBlockNotice = {
+      if (!runtime.queueGuardBlockedTurnKeys.has(blockInfo.blockKey)) {
+        runtime.queueGuardBlockedTurnKeys.add(blockInfo.blockKey);
+        runtime.queueGuardBlockNotice = {
           at: new Date().toISOString(),
           message: `Queue blocked for turn ${blockInfo.turnId || "unknown"} because queue_allowed=false.`,
           turnId: blockInfo.turnId,
@@ -7412,14 +7354,14 @@ function installQueueGuard() {
 
   if (!report.installed) {
     const fallbackDetail = report.capability?.detail || "app.queuePrompt unavailable";
-    queueGuardFallbackWarning = `Native queue hook unavailable: \`app.queuePrompt\` was not found. Queue warnings remain panel-only.`;
+    runtime.queueGuardFallbackWarning = "Native queue hook unavailable: `app.queuePrompt` was not found. Queue warnings remain panel-only.";
     warnQueueGuardFallbackOnce(`missing app.queuePrompt (${fallbackDetail})`);
-    queueGuardHook = { installed: false, path: report.path, original: null, wrapper: null };
+    runtime.queueGuardHook = { installed: false, path: report.path, original: null, wrapper: null };
     return false;
   }
 
-  queueGuardHook = { installed: true, path: report.path, original: report.original, wrapper: report.wrapper };
-  queueGuardFallbackWarning = null;
+  runtime.queueGuardHook = { installed: true, path: report.path, original: report.original, wrapper: report.wrapper };
+  runtime.queueGuardFallbackWarning = null;
   return true;
 }
 
@@ -7873,6 +7815,7 @@ function renderDebug(panel) {
 
 // ── Adapter capability snapshot for developer section ──────────────────────
 function adapterCapabilitySnapshot() {
+  const runtime = panelRuntime();
   const graphApply = {
     available: typeof app?.canvas?.graph?.clear === "function" && typeof app?.canvas?.graph?.configure === "function",
     detail: typeof app?.canvas?.graph?.clear === "function" && typeof app?.canvas?.graph?.configure === "function"
@@ -7880,18 +7823,18 @@ function adapterCapabilitySnapshot() {
       : "No live graph instance with clear + configure found.",
     path: "app.canvas.graph",
   };
-  const previewForeground = _previewForegroundInstallReport?.capability || {
+  const previewForeground = runtime._previewForegroundInstallReport?.capability || {
     available: false,
     detail: "Preview foreground install not attempted.",
     path: "app.canvas.onDrawForeground",
   };
-  const previewStrategy = _previewForegroundInstallReport?.strategy || null;
-  const previewPolling = _previewForegroundInstallReport?.polling === true;
+  const previewStrategy = runtime._previewForegroundInstallReport?.strategy || null;
+  const previewPolling = runtime._previewForegroundInstallReport?.polling === true;
   const queueGuard = {
-    available: Boolean(queueGuardHook?.installed),
-    detail: queueGuardHook?.installed ? "app.queuePrompt is wrapped." : "app.queuePrompt guard not installed.",
-    path: queueGuardHook?.path || "app.queuePrompt",
-    fallbackWarning: queueGuardFallbackWarning || null,
+    available: Boolean(runtime.queueGuardHook?.installed),
+    detail: runtime.queueGuardHook?.installed ? "app.queuePrompt is wrapped." : "app.queuePrompt guard not installed.",
+    path: runtime.queueGuardHook?.path || "app.queuePrompt",
+    fallbackWarning: runtime.queueGuardFallbackWarning || null,
   };
   return {
     graphApply,
@@ -7905,6 +7848,7 @@ function adapterCapabilitySnapshot() {
 }
 
 function renderDeveloper(panel) {
+  const runtime = panelRuntime();
   const body = panel?.sections?.developer;
   if (!body) {
     return;
@@ -7948,7 +7892,7 @@ function renderDeveloper(panel) {
     qgState.fallbackWarning ? `fallbackWarning: ${qgState.fallbackWarning}` : null,
     qgState.activeContext ? `activeContext: turn=${qgState.activeContext.turnId || "?"} queueAllowed=${qgState.activeContext.queueAllowed}` : "activeContext: none",
     qgState.lastBlockNotice ? `lastBlock: ${qgState.lastBlockNotice.at || "?"} — ${qgState.lastBlockNotice.message}` : "lastBlockNotice: none",
-    `blockedTurnKeys: ${queueGuardBlockedTurnKeys.size}`,
+    `blockedTurnKeys: ${runtime.queueGuardBlockedTurnKeys.size}`,
   ].filter(Boolean);
   for (const line of qgLines) {
     qgSection.appendChild(el("div", line));
@@ -8132,13 +8076,14 @@ function renderComposerNotice(panel, readinessState) {
   if (!notice) {
     return;
   }
-  _lastNoticeRender = {
+  const runtime = panelRuntime();
+  runtime._lastNoticeRender = {
     panelId: panel?.panelId || null,
     readySeen: Boolean(readinessState?.ready),
     at: new Date().toISOString(),
   };
   if (panel) {
-    panel.lastNoticeRender = _lastNoticeRender;
+    panel.lastNoticeRender = runtime._lastNoticeRender;
   }
   clearNode(notice);
   let hasContent = false;
@@ -10146,11 +10091,12 @@ function ensureAgentLauncher() {
 }
 
 function ensureAgentSidebarTab() {
+  const runtime = panelRuntime();
   const manager = app?.extensionManager;
   if (!manager || typeof manager.registerSidebarTab !== "function") {
     return false;
   }
-  if (agentSidebarTabRegistered) {
+  if (runtime.agentSidebarTabRegistered) {
     return true;
   }
   const tab = {
@@ -10164,7 +10110,7 @@ function ensureAgentSidebarTab() {
   };
   try {
     manager.registerSidebarTab(tab);
-    agentSidebarTabRegistered = true;
+    runtime.agentSidebarTabRegistered = true;
     return true;
   } catch (error) {
     try {
@@ -10174,7 +10120,7 @@ function ensureAgentSidebarTab() {
         "pi pi-sparkles",
         mountAgentSidebarPanel,
       );
-      agentSidebarTabRegistered = true;
+      runtime.agentSidebarTabRegistered = true;
       return true;
     } catch (fallbackError) {
       console.warn("[vibecomfy] failed to register agent sidebar tab", fallbackError || error);
