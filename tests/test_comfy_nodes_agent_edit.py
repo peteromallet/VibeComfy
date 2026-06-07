@@ -4882,7 +4882,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
 
     graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2"]}], "links": []}
     candidate_graph = {
-        "nodes": [{"id": 2, "type": "SaveImage", "widgets_values": ["v2-candidate"]}],
+        "nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2-candidate"]}],
         "links": [],
     }
     client_hash = "browser-hash-v2"
@@ -4898,6 +4898,17 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         },
     )
     turn_id = str(allocation.context.turn_id)
+    (allocation.turn_dir / "request.json").write_text(
+        json.dumps(
+            {
+                "graph": graph,
+                "task": "edit v2",
+                "client_graph_hash": client_hash,
+                "client_live_canvas_token": live_token,
+            }
+        ),
+        encoding="utf-8",
+    )
     record_idempotent_response(
         session_root=tmp_path,
         session_id="s-v2-lock",
@@ -4908,7 +4919,13 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "ok": True,
             "turn_id": turn_id,
             "graph": candidate_graph,
-            "delta_ops": [{"op": "set_mode", "target": {"scope_path": [], "uid": "2"}, "mode": 4}],
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "1", "widgets_values.0"],
+                    "value": "v2-candidate",
+                }
+            ],
         },
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
@@ -4922,6 +4939,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "session_id": "s-v2-lock",
             "turn_id": turn_id,
             "client_graph_hash": client_hash,
+            "live_graph": graph,
             "client_live_canvas_token": live_token,
             "submit_graph_hash": submit_hash,
             "candidate_graph_hash": "wrong-candidate-hash",
@@ -4938,6 +4956,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "session_id": "s-v2-lock",
             "turn_id": turn_id,
             "client_graph_hash": client_hash,
+            "live_graph": graph,
             "client_live_canvas_token": live_token,
             "submit_graph_hash": "wrong-submit-hash",
             "candidate_graph_hash": candidate_hash,
@@ -4954,6 +4973,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
             "session_id": "s-v2-lock",
             "turn_id": turn_id,
             "client_graph_hash": client_hash,
+            "live_graph": graph,
             "client_live_canvas_token": "live:rev:2:browser-hash-v2",
             "submit_graph_hash": submit_hash,
             "candidate_graph_hash": candidate_hash,
@@ -4970,6 +4990,114 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
         == "live:rev:2:browser-hash-v2"
     )
     assert accepted["apply_eligibility"]["reason"] == "superseded"
+
+
+def test_agent_edit_accept_route_forwards_live_graph_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes import routes
+
+    live_graph = {"nodes": [{"id": 1, "type": "SaveImage"}], "links": []}
+    captured: dict[str, object] = {}
+
+    def fake_accept_turn(**kwargs):
+        captured.update(kwargs)
+        return {
+            "ok": True,
+            "action": "accept",
+            "session_id": "s-live-route",
+            "turn_id": "0001",
+            "baseline_turn_id": "0000",
+            "baseline_graph_hash": "baseline-structural-hash",
+            "baseline_graph_hash_kind": "structural",
+            "accepted_state": "accepted",
+            "submit_graph_hash": "submit-ui-hash",
+            "candidate_graph_hash": "candidate-ui-hash",
+        }
+
+    monkeypatch.setattr(routes, "accept_turn", fake_accept_turn)
+
+    response = routes._handle_agent_edit_accept(
+        {
+            "session_id": "s-live-route",
+            "turn_id": "0001",
+            "client_graph_hash": "live-ui-hash",
+            "live_graph": live_graph,
+            "submit_graph_hash": "submit-ui-hash",
+            "candidate_graph_hash": "candidate-ui-hash",
+            "idempotency_key": "accept-live-graph",
+        },
+        session_root=tmp_path,
+    )
+
+    assert response["ok"] is True
+    assert captured["client_graph_hash"] == "live-ui-hash"
+    assert captured["request_payload"]["live_graph"] == live_graph
+    assert "graph" not in captured["request_payload"]
+
+
+def test_agent_edit_v2_accept_fails_closed_without_live_graph(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.agent_session import (
+        allocate_turn,
+        record_idempotent_response,
+    )
+    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+
+    graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2"]}], "links": []}
+    candidate_graph = {
+        "nodes": [{"id": 2, "type": "SaveImage", "widgets_values": ["v2-candidate"]}],
+        "links": [],
+    }
+    client_hash = "browser-hash-v2"
+    live_token = "live:rev:2:browser-hash-v2"
+    allocation = allocate_turn(
+        session_root=tmp_path,
+        session_id="s-v2-no-live-graph",
+        request_payload={
+            "graph": graph,
+            "task": "edit v2",
+            "client_graph_hash": client_hash,
+            "client_live_canvas_token": live_token,
+        },
+    )
+    turn_id = str(allocation.context.turn_id)
+    record_idempotent_response(
+        session_root=tmp_path,
+        session_id="s-v2-no-live-graph",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={
+            "ok": True,
+            "turn_id": turn_id,
+            "graph": candidate_graph,
+            "delta_ops": [{"op": "set_mode", "target": {"scope_path": [], "uid": "2"}, "mode": 4}],
+        },
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+    submit_hash = payload_hash(graph)
+    candidate_hash = payload_hash(candidate_graph)
+
+    result = _handle_agent_edit_accept(
+        {
+            "session_id": "s-v2-no-live-graph",
+            "turn_id": turn_id,
+            "client_graph_hash": client_hash,
+            "client_live_canvas_token": live_token,
+            "submit_graph_hash": submit_hash,
+            "candidate_graph_hash": candidate_hash,
+            "idempotency_key": "accept-v2-no-live-graph",
+        },
+        session_root=tmp_path,
+    )
+    assert result["ok"] is False, result
+    assert result["kind"] == FailureKind.MISSING_REQUIRED_FIELD.value
+    assert "live_graph" in result["agent_failure_context"]["explanation"]
 
 
 def test_agent_edit_rebaseline_route_returns_no_candidate_apply_eligibility(

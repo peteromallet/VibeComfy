@@ -8,6 +8,7 @@ import {
   createAgentEditState,
   transition,
   normalizeObligationDirtySections,
+  normalizeDeltaOpsFromSubmit,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ function assertCandidateDefaults(state) {
   assert.equal(state.applyEligibilityWarning, null);
   assert.equal(state.applyEligibilityWarningKey, null);
   assert.equal(state.changeDetails, null);
+  assert.equal(state.deltaOps, null);
 }
 
 const ALL_RENDER_DIRTY_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
@@ -78,9 +80,9 @@ test("PANEL_STATE exports frozen phase taxonomy with 6 phases matching the contr
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 39 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 40 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 39);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 40);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -108,14 +110,15 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 39 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatRehydrateEpoch"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatRehydrateCommittedEpoch"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("syntheticAgentMessage"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 39);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 40);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 39 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 40 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -126,9 +129,9 @@ test("createAgentEditState initializes all 39 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 39 fields
+  // No extra own keys beyond the 40 fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 39);
+  assert.equal(ownKeys.length, 40);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -195,6 +198,429 @@ test("createAgentEditState returns independent objects on each call", () => {
 
   assert.equal(b.phase, PANEL_STATE.IDLE);
   assert.equal(b.baselineTurnId, null);
+});
+
+// ── normalizeDeltaOpsFromSubmit ─────────────────────────────────────────────
+
+test("normalizeDeltaOpsFromSubmit returns null for non-object input", () => {
+  assert.equal(normalizeDeltaOpsFromSubmit(null), null);
+  assert.equal(normalizeDeltaOpsFromSubmit(undefined), null);
+  assert.equal(normalizeDeltaOpsFromSubmit("string"), null);
+  assert.equal(normalizeDeltaOpsFromSubmit(42), null);
+});
+
+test("normalizeDeltaOpsFromSubmit returns null when delta_ops is absent", () => {
+  assert.equal(normalizeDeltaOpsFromSubmit({}), null);
+  assert.equal(normalizeDeltaOpsFromSubmit({ ok: true }), null);
+});
+
+test("normalizeDeltaOpsFromSubmit returns null when delta_ops is not an array", () => {
+  assert.equal(normalizeDeltaOpsFromSubmit({ delta_ops: "not-array" }), null);
+  assert.equal(normalizeDeltaOpsFromSubmit({ delta_ops: 123 }), null);
+  assert.equal(normalizeDeltaOpsFromSubmit({ delta_ops: {} }), null);
+});
+
+test("normalizeDeltaOpsFromSubmit returns empty array for empty delta_ops", () => {
+  assert.deepEqual(normalizeDeltaOpsFromSubmit({ delta_ops: [] }), []);
+});
+
+test("normalizeDeltaOpsFromSubmit normalizes valid delta_ops entries", () => {
+  const result = {
+    delta_ops: [
+      { op: "set_node_field", target: ["nodes", 3, "widgets_values", 0], value: "hello" },
+      { op: "set_mode", target: ["mode"], value: 4 },
+    ],
+  };
+  const normalized = normalizeDeltaOpsFromSubmit(result);
+  assert.ok(Array.isArray(normalized));
+  assert.equal(normalized.length, 2);
+  assert.equal(normalized[0].op, "set_node_field");
+  assert.equal(normalized[1].op, "set_mode");
+  // Keys must be sorted
+  assert.deepEqual(Object.keys(normalized[0]), ["op", "target", "value"]);
+});
+
+test("normalizeDeltaOpsFromSubmit skips entries without a valid op string", () => {
+  const result = {
+    delta_ops: [
+      { op: "set_node_field", target: ["nodes", 1], value: "keep" },
+      { not_an_op: true },
+      { op: "", target: [] },
+      {},
+      null,
+      "invalid",
+      { op: "set_mode", target: ["mode"], value: 0 },
+    ],
+  };
+  const normalized = normalizeDeltaOpsFromSubmit(result);
+  assert.equal(normalized.length, 2);
+  assert.equal(normalized[0].op, "set_node_field");
+  assert.equal(normalized[1].op, "set_mode");
+});
+
+test("normalizeDeltaOpsFromSubmit returns null when all entries are invalid", () => {
+  const result = {
+    delta_ops: [
+      { not_an_op: true },
+      { op: "" },
+    ],
+  };
+  assert.equal(normalizeDeltaOpsFromSubmit(result), null);
+});
+
+// ── deltaOps lifecycle ──────────────────────────────────────────────────────
+
+test("OK_CANDIDATE_RESPONSE extracts and stores deltaOps from V2 submit result", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", 3, "widgets_values", 0], value: "a cat" },
+    { op: "set_mode", target: ["mode"], value: 4 },
+  ];
+
+  const obligations = transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-v2",
+      turn_id: "t-v2",
+      delta_ops: deltaOps,
+      message: "V2 candidate ready",
+      submit_graph_hash: "abc123",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [] },
+    candidateGraphHash: "hash-v2",
+    applyEligibility: { applyable: true },
+  });
+
+  assert.equal(obligations.render, true);
+  assert.equal(obligations.invalidateCandidate, true);
+  assert.ok(Array.isArray(panel.state.deltaOps));
+  assert.equal(panel.state.deltaOps.length, 2);
+  assert.equal(panel.state.deltaOps[0].op, "set_node_field");
+  assert.equal(panel.state.deltaOps[0].value, "a cat");
+  assert.equal(panel.state.deltaOps[1].op, "set_mode");
+  assert.equal(panel.state.deltaOps[1].value, 4);
+});
+
+test("OK_CANDIDATE_RESPONSE preserves deltaOps through review (survives non-clearing transitions)", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", 1, "widgets_values", 0], value: "sunset" },
+  ];
+
+  // Step 1: candidate arrives with delta_ops
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-review",
+      turn_id: "t-review",
+      delta_ops: deltaOps,
+      message: "Review candidate",
+      submit_graph_hash: "hash-review",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [] },
+    candidateGraphHash: "ch-review",
+    applyEligibility: { applyable: true },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.ok(Array.isArray(panel.state.deltaOps));
+  assert.equal(panel.state.deltaOps.length, 1);
+
+  // Step 2: SYNC_BASELINE does not clear deltaOps
+  transition(panel, "SYNC_BASELINE", {
+    baseline_turn_id: "t-review",
+    baseline_graph_hash: "new-baseline",
+  });
+  assert.ok(Array.isArray(panel.state.deltaOps), "deltaOps survives SYNC_BASELINE");
+  assert.equal(panel.state.deltaOps[0].value, "sunset");
+
+  // Step 3: a no-op transition doesn't clear deltaOps
+  transition(panel, "INIT");
+  assert.ok(Array.isArray(panel.state.deltaOps), "deltaOps survives INIT (no-op)");
+  assert.equal(panel.state.deltaOps[0].value, "sunset");
+});
+
+test("OK_CANDIDATE_RESPONSE sets deltaOps to null when submit result has malformed delta_ops", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-malformed",
+      turn_id: "t-malformed",
+      delta_ops: "not-an-array", // malformed
+      message: "Bad delta_ops",
+      submit_graph_hash: "hash-bad",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [] },
+    candidateGraphHash: "ch-bad",
+    applyEligibility: { applyable: true },
+  });
+
+  assert.equal(panel.state.deltaOps, null, "malformed delta_ops must produce null");
+});
+
+test("OK_CANDIDATE_RESPONSE sets deltaOps to null when all delta_ops entries are invalid", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-invalid",
+      turn_id: "t-invalid",
+      delta_ops: [
+        { not_an_op: true },
+        { op: "" },
+      ],
+      message: "All invalid entries",
+      submit_graph_hash: "hash-inv",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [] },
+    candidateGraphHash: "ch-inv",
+    applyEligibility: { applyable: true },
+  });
+
+  assert.equal(panel.state.deltaOps, null, "all-invalid entries must produce null");
+});
+
+test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE extracts deltaOps from baseline.raw", () => {
+  const panel = makePanel({ phase: PANEL_STATE.ERROR });
+  const deltaOps = [
+    { op: "upsert_link", target: ["links", 10], value: { origin_id: 5, origin_slot: 0, target_id: 8, target_slot: 0 } },
+  ];
+  const candidateGraph = { nodes: [{ id: 10 }] };
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
+    sessionId: "sess-rehydrate",
+    turnId: "t-rehydrate",
+    baseline: {
+      baseline_turn_id: "t-base",
+      baseline_graph_hash: "base-hash",
+      raw: { delta_ops: deltaOps },
+    },
+    candidateGraph,
+    candidateGraphHash: "rehydrate-hash",
+    message: "Restored from rehydrate",
+    applyEligibility: { applyable: true },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: false,
+  });
+
+  assert.equal(obligations.render, false);
+  assert.equal(obligations.restored, true);
+  assert.ok(Array.isArray(panel.state.deltaOps));
+  assert.equal(panel.state.deltaOps.length, 1);
+  assert.equal(panel.state.deltaOps[0].op, "upsert_link");
+});
+
+test("deltaOps survives the full review cycle from OK_CANDIDATE_RESPONSE through non-clearing transitions", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", 2, "inputs", "seed"], value: 42 },
+    { op: "remove_node", target: ["nodes", 99] },
+  ];
+
+  // Candidate arrives
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-full",
+      turn_id: "t-full",
+      delta_ops: deltaOps,
+      message: "Full review",
+      report: { changed: true },
+      submit_graph_hash: "hash-full",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [{ id: 2 }, { id: 99 }] },
+    candidateGraphHash: "ch-full",
+    applyEligibility: { applyable: true },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.deltaOps.length, 2);
+
+  // SYNC_BASELINE — should preserve
+  transition(panel, "SYNC_BASELINE", {
+    baseline_turn_id: "t-full",
+    baseline_graph_hash: "synced-baseline",
+  });
+  assert.equal(panel.state.deltaOps.length, 2, "deltaOps survives SYNC_BASELINE during review");
+
+  // SUBMIT_IN_FLIGHT — should preserve (render-only)
+  transition(panel, "SUBMIT_IN_FLIGHT", { promise: Promise.resolve() });
+  assert.equal(panel.state.deltaOps.length, 2, "deltaOps survives SUBMIT_IN_FLIGHT");
+
+  // SUBMIT_ABORT_CONTROLLER — should preserve (render-only)
+  transition(panel, "SUBMIT_ABORT_CONTROLLER", { controller: { aborted: false } });
+  assert.equal(panel.state.deltaOps.length, 2, "deltaOps survives SUBMIT_ABORT_CONTROLLER");
+});
+
+// ── deltaOps clearing transitions ───────────────────────────────────────────
+
+test("SUBMIT_START clears deltaOps via INVALIDATE_CANDIDATE", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    deltaOps: [{ op: "set_node_field", target: ["nodes", 1], value: "test" }],
+  });
+
+  transition(panel, "SUBMIT_START", { lastSubmit: { task: "new submit" } });
+
+  assert.equal(panel.state.deltaOps, null, "SUBMIT_START must clear deltaOps");
+  assert.equal(panel.state.phase, PANEL_STATE.SUBMITTING);
+});
+
+test("SUBMIT_ABORT clears deltaOps (cancel)", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-1",
+    deltaOps: [{ op: "set_mode", target: ["mode"], value: 2 }],
+  });
+
+  transition(panel, "SUBMIT_ABORT");
+
+  assert.equal(panel.state.deltaOps, null, "SUBMIT_ABORT must clear deltaOps");
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+});
+
+test("STOP_ABORT clears deltaOps", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-2",
+    deltaOps: [{ op: "reorder", target: ["nodes"], value: [3, 1, 2] }],
+    submitAbortController: { aborted: false },
+    inFlightSubmit: Promise.resolve(),
+  });
+
+  transition(panel, "STOP_ABORT");
+
+  assert.equal(panel.state.deltaOps, null, "STOP_ABORT must clear deltaOps");
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+});
+
+test("REJECT_SUCCESS clears deltaOps via INVALIDATE_CANDIDATE", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    deltaOps: [{ op: "set_node_field", target: ["nodes", 5, "widgets_values", 0], value: "rejected-value" }],
+    candidateGraph: { nodes: [{ id: 5 }] },
+    candidateGraphHash: "reject-hash",
+    turnId: "t-reject",
+  });
+
+  transition(panel, "REJECT_SUCCESS", {
+    rejected: { turn_id: "t-reject" },
+    message: "Candidate rejected.",
+  });
+
+  assert.equal(panel.state.deltaOps, null, "REJECT_SUCCESS must clear deltaOps");
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.candidateGraph, null);
+  assertCandidateDefaults(panel.state);
+});
+
+test("REBASELINE_SUCCESS clears deltaOps directly", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    deltaOps: [{ op: "add_node", target: ["nodes", "new-uid"], value: { type: "KSampler" } }],
+    rebaselinePending: { original_turn_id: "t-old" },
+  });
+
+  transition(panel, "REBASELINE_SUCCESS", {
+    result: {
+      baseline_turn_id: "t-new",
+      baseline_graph_hash: "rebaseline-hash",
+      baseline_source: "rebaseline",
+      audit_ref: { path: "audit.json" },
+    },
+  });
+
+  assert.equal(panel.state.deltaOps, null, "REBASELINE_SUCCESS must clear deltaOps directly");
+  assert.equal(panel.state.rebaselinePending, null);
+  assert.equal(panel.state.baselineTurnId, "t-new");
+});
+
+test("INVALIDATE_CANDIDATE clears deltaOps alongside other candidate fields", () => {
+  const panel = makePanel({
+    candidateGraph: { nodes: [{ id: 1 }] },
+    candidateGraphHash: "inv-hash",
+    candidateReport: { change: true },
+    serverSubmitGraphHash: "inv-submit-hash",
+    applyEligibility: { applyable: true },
+    applyEligibilityWarning: "warn",
+    applyEligibilityWarningKey: "key-1",
+    changeDetails: { changes: [{ op: "set", path: "/nodes/1" }] },
+    deltaOps: [{ op: "set_node_field", target: ["nodes", 1, "widgets_values", 0], value: "clear-me" }],
+  });
+
+  const obligations = transition(panel, "INVALIDATE_CANDIDATE");
+
+  assert.deepEqual(obligations, { render: true });
+  assertCandidateDefaults(panel.state);
+});
+
+test("deltaOps is cleared and then repopulated across a submit→review→clear→new submit lifecycle", () => {
+  const panel = makePanel({ phase: PANEL_STATE.IDLE });
+
+  // First submit cycle: candidate arrives with delta_ops
+  transition(panel, "SUBMIT_START", { lastSubmit: { task: "edit prompt" } });
+  assert.equal(panel.state.deltaOps, null, "cleared on submit start");
+
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-cycle",
+      turn_id: "t-1",
+      delta_ops: [{ op: "set_node_field", target: ["nodes", 1, "widgets_values", 0], value: "cycle-1" }],
+      message: "First candidate",
+      submit_graph_hash: "hash-1",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [{ id: 1 }] },
+    candidateGraphHash: "ch-1",
+    applyEligibility: { applyable: true },
+  });
+  assert.equal(panel.state.deltaOps[0].value, "cycle-1", "deltaOps populated after candidate");
+
+  // Reject clears
+  transition(panel, "REJECT_SUCCESS", {
+    rejected: { turn_id: "t-1" },
+    message: "Rejected first candidate.",
+  });
+  assert.equal(panel.state.deltaOps, null, "cleared on reject");
+
+  // Second submit cycle
+  transition(panel, "SUBMIT_START", { lastSubmit: { task: "edit cfg" } });
+  assert.equal(panel.state.deltaOps, null, "still null after second submit start");
+
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-cycle",
+      turn_id: "t-2",
+      delta_ops: [{ op: "set_mode", target: ["mode"], value: 3 }],
+      message: "Second candidate",
+      submit_graph_hash: "hash-2",
+      canvas_apply_allowed: true,
+      queue_allowed: false,
+    },
+    candidateGraph: { nodes: [{ id: 2 }] },
+    candidateGraphHash: "ch-2",
+    applyEligibility: { applyable: true },
+  });
+  assert.equal(panel.state.deltaOps[0].op, "set_mode", "deltaOps repopulated for second candidate");
+  assert.equal(panel.state.deltaOps[0].value, 3);
+
+  // Cancel clears
+  const controller = { aborted: false };
+  panel.state.submitAbortController = controller;
+  panel.state.inFlightSubmit = Promise.resolve();
+  panel.state.phase = PANEL_STATE.SUBMITTING;
+  transition(panel, "STOP_ABORT");
+  assert.equal(panel.state.deltaOps, null, "cleared on stop abort");
 });
 
 // ── INIT ────────────────────────────────────────────────────────────────────

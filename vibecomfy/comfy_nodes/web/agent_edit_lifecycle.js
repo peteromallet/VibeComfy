@@ -136,6 +136,9 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
 
   // Synthetic chat
   "syntheticAgentMessage",
+
+  // V2 delta ops (mutation intent from submit response)
+  "deltaOps",
 ]);
 
 // ── createAgentEditState ───────────────────────────────────────────────────
@@ -207,6 +210,9 @@ export function createAgentEditState() {
 
     // Synthetic chat
     syntheticAgentMessage: null,
+
+    // V2 delta ops (mutation intent from submit response)
+    deltaOps: null,
   };
 }
 
@@ -487,6 +493,46 @@ function _obligations({ render = false, dirtySections, ...extras } = {}) {
   return normalizeObligationDirtySections(obligations);
 }
 
+// ── normalizeDeltaOpsFromSubmit ────────────────────────────────────────────
+// Extracts and normalizes ``delta_ops`` from a V2 submit response.
+// Returns a stable plain array of normalized delta-op objects (shallow-cloned,
+// keys sorted), or ``null`` when absent/invalid.
+//
+// The backend places ``delta_ops`` as a top-level JSON array in the V2
+// submit response when ``agent_edit_protocol == "v2_delta"``.  Each entry is
+// a plain dict with at least ``op`` and ``target`` string keys.
+export function normalizeDeltaOpsFromSubmit(result) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+
+  const raw = result.delta_ops;
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+
+  if (raw.length === 0) {
+    return [];
+  }
+
+  const normalized = [];
+  for (let i = 0; i < raw.length; i++) {
+    const entry = raw[i];
+    if (!entry || typeof entry !== "object" || typeof entry.op !== "string" || !entry.op) {
+      continue;
+    }
+    // Shallow-clone with sorted keys for deterministic shape.
+    const keys = Object.keys(entry).sort();
+    const clone = {};
+    for (const k of keys) {
+      clone[k] = entry[k];
+    }
+    normalized.push(clone);
+  }
+
+  return normalized.length > 0 ? normalized : null;
+}
+
 // ── Internal handlers ──────────────────────────────────────────────────────
 
 function _handleSyncBaseline(panel, payload) {
@@ -588,6 +634,9 @@ function _handleInvalidateCandidate(panel, payload) {
   panel.state.applyEligibilityWarningKey = null;
   panel.state.changeDetails = null;
 
+  // Clear V2 delta ops — mutation intent is invalidated with the candidate.
+  panel.state.deltaOps = null;
+
   // Clear preview diff caches (these are transient keys that live on state
   // but are not lifecycle-owned; we clean them up here as the candidate
   // invalidation logically invalidates any preview derived from it).
@@ -636,6 +685,7 @@ function _handleSubmitFailure(panel, payload) {
 function _handleSubmitAbort(panel, payload) {
   panel.state.phase = PANEL_STATE.IDLE;
   panel.state.failure = null;
+  panel.state.deltaOps = null;
   panel.state.message = payload?.message || "Request cancelled.";
   panel.state.syntheticAgentMessage = payload?.syntheticAgentMessage || {
     role: "agent",
@@ -767,6 +817,7 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.auditRef = result.audit_ref || null;
   panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
   panel.state.changeDetails = payload?.changeDetails || null;
+  panel.state.deltaOps = normalizeDeltaOpsFromSubmit(result);
   panel.state.debugPayload = payload?.debugPayload || {
     ...result,
     last_submit: panel.state.lastSubmit,
@@ -803,6 +854,7 @@ function _handleStopAbort(panel, payload) {
   panel.state.inFlightSubmit = null;
   panel.state.phase = PANEL_STATE.IDLE;
   panel.state.failure = null;
+  panel.state.deltaOps = null;
   panel.state.message = payload?.message || "Request cancelled.";
   panel.state.syntheticAgentMessage = payload?.syntheticAgentMessage || {
     role: "agent",
@@ -950,6 +1002,7 @@ function _handleChatRehydrateRestoreLatestCandidate(panel, payload) {
   panel.state.auditRef = payload?.auditRef || panel.state.auditRef || null;
   panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
   panel.state.changeDetails = payload?.changeDetails || null;
+  panel.state.deltaOps = normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || {});
   panel.state.debugPayload = payload?.debugPayload || null;
   return _obligations({
     render: false,
@@ -1154,6 +1207,7 @@ function _handleRebaselineSuccess(panel, payload) {
   });
   panel.state.auditRef = result.audit_ref || panel.state.auditRef;
   panel.state.rebaselinePending = null;
+  panel.state.deltaOps = null;
   panel.state.debugPayload = payload?.debugPayload || {
     rebaseline_request: payload?.rebaselineRequest || null,
     rebaseline_response: result,

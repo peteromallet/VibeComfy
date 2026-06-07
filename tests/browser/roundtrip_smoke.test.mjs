@@ -177,7 +177,8 @@ test("VibeComfy browser canonical hash helper sorts object keys while preserving
 });
 
 test("VibeComfy structural graph projection ignores volatile canvas fields but keeps real edits", async () => {
-  const harness = await createBrowserHarness({
+  let harness;
+  harness = await createBrowserHarness({
     responses: {
       "/system_stats": {
         status: 200,
@@ -336,7 +337,7 @@ test("VibeComfy browser harness loads the extension, captures commands, loadGrap
   let firstSubmit;
   let duplicateSubmit;
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     const extension = harness.getExtension();
     assert.equal(extension.name, "VibeComfy.Roundtrip");
     assert.equal(harness.getCommands().length, 2);
@@ -388,7 +389,7 @@ test("VibeComfy beforeRegisterNodeDef decorates intent node prototypes and degra
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     const extension = harness.getExtension();
     assert.equal(typeof extension.beforeRegisterNodeDef, "function");
 
@@ -598,7 +599,7 @@ test("VibeComfy disables Submit while provider readiness is loading", async () =
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled, true);
@@ -674,7 +675,7 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
 
   let submitPromise;
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -752,7 +753,7 @@ test("VibeComfy renders a clarify turn as a question, not a no-op candidate", as
 
   let submitPromise;
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -991,7 +992,7 @@ test("VibeComfy renders no-op edit turns without entering review", async () => {
 
   let submitPromise;
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -1066,7 +1067,7 @@ test("VibeComfy treats graph-unchanged all-gates-false candidate responses as no
 
   let submitPromise;
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -1256,7 +1257,7 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -1325,7 +1326,7 @@ test("VibeComfy failure bubble uses envelope user_facing_message for MalformedMo
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -2408,6 +2409,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
         assert.equal(body.session_id, "session-apply");
         assert.match(body.turn_id, /^000[245]$/);
         assert.equal(body.client_graph_hash, initialGraphHash);
+        assert.deepEqual(body.live_graph, harness.getCurrentGraph());
         if (body.turn_id === "0002") {
           assert.equal(body.client_live_canvas_token, "live:rev:1");
         } else {
@@ -2605,7 +2607,8 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
   const initialGraphHash = sha256HexUtf8(initialGraph);
   assert.notEqual(sha256HexUtf8(driftedGraph), initialGraphHash);
 
-  const harness = await createBrowserHarness({
+  let harness;
+  harness = await createBrowserHarness({
     graph: initialGraph,
     responses: {
       "/system_stats": {
@@ -2652,6 +2655,7 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
         assert.equal(body.session_id, "session-apply-drift");
         assert.equal(body.turn_id, "0001");
         assert.equal(body.client_graph_hash, initialGraphHash);
+        assert.deepEqual(body.live_graph, harness.getCurrentGraph());
         assert.equal(body.client_live_canvas_token, "live:rev:1");
         assert.equal(body.submit_graph_hash, initialGraphHash);
         assert.equal(body.candidate_graph_hash, sha256HexUtf8(candidateGraph));
@@ -2977,6 +2981,7 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
       },
       "/vibecomfy/agent-edit/accept": async ({ options }) => {
         const body = JSON.parse(options.body);
+        assert.deepEqual(body.live_graph, harness.getCurrentGraph());
         assert.equal(body.submit_graph_hash, initialGraphHash);
         assert.equal(body.candidate_graph_hash, candidateGraphHash);
         assert.equal(body.client_live_canvas_token, "live:rev:1");
@@ -3011,6 +3016,849 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.deepEqual(harness.getCurrentGraph(), initialGraph);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-accept drift, and reports verified canvas changes", async () => {
+  const initialGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Input",
+        properties: { vibecomfy_uid: "producer-1" },
+        outputs: [{ name: "IMAGE", links: [41, 42] }],
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "saver-1" },
+        widgets_values: ["before"],
+        inputs: [{ name: "images", link: 41 }],
+        outputs: [],
+      },
+      {
+        id: 3,
+        type: "Note",
+        properties: { vibecomfy_uid: "unrelated-1", note: "before" },
+        inputs: [],
+        outputs: [],
+      },
+    ],
+    links: [[41, 1, 0, 2, 0, "IMAGE"]],
+  };
+  const candidateGraph = {
+    nodes: [
+      initialGraph.nodes[0],
+      initialGraph.nodes[1],
+      initialGraph.nodes[2],
+      {
+        id: 4,
+        type: "PreviewImage",
+        properties: { vibecomfy_uid: "preview-1" },
+        inputs: [],
+        outputs: [],
+      },
+    ],
+    links: [[41, 1, 0, 2, 0, "IMAGE"]],
+  };
+  const deltaOps = [
+    { op: "add_node", scope_path: "preview-1", class_type: "PreviewImage", fields: {}, inputs: {} },
+  ];
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-v2-scoped-apply",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
+          graph: candidateGraph,
+          delta_ops: deltaOps,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          candidate_graph_hash: sha256HexUtf8(candidateGraph),
+          report: { change: { content_edits: { preserved: ["producer-1"], edited: ["saver-1", "preview-1"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        assert.equal(body.session_id, "session-v2-scoped-apply");
+        assert.equal(body.turn_id, "0001");
+        assert.equal(Array.isArray(body.live_graph?.nodes), true);
+        assert.equal(body.live_graph.nodes.length, 3);
+        harness.setCurrentGraph({
+          ...body.live_graph,
+          nodes: body.live_graph.nodes.map((node) => (
+            node.properties?.vibecomfy_uid === "unrelated-1"
+              ? { ...node, properties: { ...node.properties, note: "after-accept-unrelated-drift" } }
+              : node
+          )),
+        });
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "accept",
+            session_id: "session-v2-scoped-apply",
+            turn_id: "0001",
+            baseline_turn_id: "0001",
+            delta_ops: deltaOps,
+            scoped_accept_verification: {
+              ok: true,
+              entries: [
+                {
+                  op: "add_node",
+                  target: ["nodes", "preview-1"],
+                  expected_old: { sentinel: "node_absent" },
+                  actual_before: { sentinel: "node_absent" },
+                  desired_new: { uid: "preview-1", id: 4, type: "PreviewImage" },
+                  status: "ok",
+                },
+              ],
+            },
+          },
+        };
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped apply";
+
+    await harness.clickButton("Submit");
+    await harness.clickButton("Apply Candidate");
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.graphAddCalls.length, 1);
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.debugPayload?.canvas_apply_verification?.local_precheck?.ok, true);
+    assert.equal(panel.state.debugPayload?.canvas_apply_verification?.local_postcheck?.ok, true);
+    expandAgentBubbleDetails(harness.document.body);
+    assert.match(harness.textDump(), /Applied - 1 changes verified on canvas\./);
+    assert.match(harness.textDump(), /canvas_apply/);
+    assert.match(harness.textDump(), /canvas_apply_verification/);
+    assert.doesNotMatch(harness.textDump(), /StaleStateMismatch/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy v2 Apply blocks when the touched region drifts after backend accept, even if delta ops only exist in panel state", async () => {
+  const initialGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "saver-1" },
+        widgets_values: ["before"],
+        inputs: [],
+        outputs: [],
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        ...initialGraph.nodes[0],
+        widgets_values: ["after"],
+      },
+    ],
+    links: [],
+  };
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", "saver-1", "widgets_values", 0], value: "after" },
+  ];
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-v2-scoped-conflict",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
+          graph: candidateGraph,
+          delta_ops: deltaOps,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          candidate_graph_hash: sha256HexUtf8(candidateGraph),
+          report: { change: { content_edits: { preserved: [], edited: ["saver-1"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": async () => {
+        harness.setCurrentGraph(candidateGraph.nodes ? {
+          nodes: [
+            {
+              ...candidateGraph.nodes[0],
+              widgets_values: ["interloper"],
+            },
+          ],
+          links: [],
+        } : initialGraph);
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "accept",
+            session_id: "session-v2-scoped-conflict",
+            turn_id: "0001",
+            baseline_turn_id: "0001",
+            scoped_accept_verification: {
+              ok: true,
+              entries: [
+                {
+                  op: "set_node_field",
+                  target: ["nodes", "saver-1", "widgets_values", 0],
+                  expected_old: "before",
+                  actual_before: "before",
+                  desired_new: "after",
+                  status: "ok",
+                },
+              ],
+            },
+          },
+        };
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped conflict";
+
+    await harness.clickButton("Submit");
+    await harness.clickButton("Apply Candidate");
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.graphFieldWriteCalls.length, 0);
+    assert.equal(harness.graphConnectCalls.length, 0);
+    assert.equal(harness.graphDisconnectCalls.length, 0);
+    assert.equal(harness.getCurrentGraph().nodes[0].widgets_values[0], "interloper");
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.debugPayload?.canvas_apply_verification?.local_precheck?.ok, false);
+    expandAgentBubbleDetails(harness.document.body);
+    assert.match(harness.textDump(), /touched region changed after backend acceptance/i);
+    assert.match(harness.textDump(), /conflict/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy v2 Apply refuses a touched-link race before mutation and reports scoped conflict diagnostics", async () => {
+  const initialGraph = {
+    last_link_id: 1,
+    nodes: [
+      {
+        id: 1,
+        type: "Loader",
+        properties: { vibecomfy_uid: "producer-a" },
+        outputs: [{ name: "IMAGE", links: [] }],
+      },
+      {
+        id: 2,
+        type: "Loader",
+        properties: { vibecomfy_uid: "producer-b" },
+        outputs: [{ name: "IMAGE", links: [] }],
+      },
+      {
+        id: 3,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "saver-1" },
+        inputs: [{ name: "images", link: null }],
+        outputs: [],
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    last_link_id: 11,
+    nodes: [
+      {
+        ...initialGraph.nodes[0],
+        outputs: [{ name: "IMAGE", links: [11] }],
+      },
+      initialGraph.nodes[1],
+      {
+        ...initialGraph.nodes[2],
+        inputs: [{ name: "images", link: 11 }],
+      },
+    ],
+    links: [[11, 1, 0, 3, 0, "IMAGE"]],
+  };
+  const racedGraph = {
+    last_link_id: 12,
+    nodes: [
+      initialGraph.nodes[0],
+      {
+        ...initialGraph.nodes[1],
+        outputs: [{ name: "IMAGE", links: [12] }],
+      },
+      {
+        ...initialGraph.nodes[2],
+        inputs: [{ name: "images", link: 12 }],
+      },
+    ],
+    links: [[12, 2, 0, 3, 0, "IMAGE"]],
+  };
+  const deltaOps = [
+    { op: "upsert_link", from: ["nodes", "producer-a", "IMAGE"], to: ["nodes", "saver-1", "images"] },
+  ];
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-v2-link-conflict",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          apply_eligibility: {
+            applyable: true,
+            reason: "queue_blocked_warning",
+            message: "Apply is allowed, but Queue remains blocked for this candidate.",
+            warnings: ["queue_blocked"],
+          },
+          graph: candidateGraph,
+          delta_ops: deltaOps,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          candidate_graph_hash: sha256HexUtf8(candidateGraph),
+          report: { change: { content_edits: { preserved: ["producer-b"], edited: ["producer-a", "saver-1"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": async () => {
+        harness.setCurrentGraph(racedGraph);
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "accept",
+            session_id: "session-v2-link-conflict",
+            turn_id: "0001",
+            baseline_turn_id: "0001",
+            delta_ops: deltaOps,
+            scoped_accept_verification: {
+              ok: true,
+              entries: [
+                {
+                  op: "upsert_link",
+                  target: ["nodes", "saver-1", "images"],
+                  expected_old: { sentinel: "link_absent" },
+                  actual_before: { sentinel: "link_absent" },
+                  desired_new: { origin_id: 1, origin_slot: 0, target_id: 3, target_slot: 0, type: "IMAGE" },
+                  status: "ok",
+                },
+              ],
+            },
+          },
+        };
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped link conflict";
+
+    await harness.clickButton("Submit");
+    await harness.clickButton("Apply Candidate");
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.equal(harness.loadGraphDataCalls.length, 0);
+    assert.equal(harness.graphConnectCalls.length, 0);
+    assert.equal(harness.graphDisconnectCalls.length, 0);
+    assert.equal(harness.getCurrentGraph().links[0][0], 12);
+    assert.equal(harness.getCurrentGraph().links[0][1], 2);
+    assert.equal(harness.getCurrentGraph().links[0][3], 3);
+    const panel = (await harness.loadExtension()).ensureAgentPanel();
+    assert.equal(panel.state.debugPayload?.canvas_apply_verification?.local_precheck?.ok, false);
+    expandAgentBubbleDetails(harness.document.body);
+    assert.match(harness.textDump(), /touched region changed after backend acceptance/i);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy v2 Apply rolls back a post-apply verification miss and reports rollback diagnostics through the existing failure path", async () => {
+  const initialGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "saver-1" },
+        widgets_values: ["before"],
+        inputs: [],
+        outputs: [],
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        ...initialGraph.nodes[0],
+        widgets_values: ["after"],
+      },
+    ],
+    links: [],
+  };
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", "saver-1", "widgets_values", 0], value: "after" },
+  ];
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-v2-rollback-success",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          graph: candidateGraph,
+          delta_ops: deltaOps,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          candidate_graph_hash: sha256HexUtf8(candidateGraph),
+          report: { change: { content_edits: { preserved: ["saver-1"], edited: ["saver-1"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "accept",
+          session_id: "session-v2-rollback-success",
+          turn_id: "0001",
+          baseline_turn_id: "0001",
+          delta_ops: deltaOps,
+          scoped_accept_verification: {
+            ok: true,
+            entries: [
+              {
+                op: "set_node_field",
+                target: ["nodes", "saver-1", "widgets_values", 0],
+                expected_old: "before",
+                actual_before: "before",
+                desired_new: "after",
+                status: "ok",
+              },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "rollback scoped apply";
+    await harness.clickButton("Submit");
+
+    const originalSerialize = harness.app.canvas.graph.serialize.bind(harness.app.canvas.graph);
+    let corruptedPostcheck = false;
+    harness.app.canvas.graph.serialize = function serializeWithPostcheckCorruption() {
+      const liveNode = harness.getLiveNodes().find((node) => node.properties?.vibecomfy_uid === "saver-1");
+      if (!corruptedPostcheck && liveNode?.widgets_values?.[0] === "after") {
+        liveNode.widgets_values[0] = "after-corrupted";
+        corruptedPostcheck = true;
+      }
+      return originalSerialize();
+    };
+
+    await harness.clickButton("Apply Candidate");
+    const panel = extensionModule.ensureAgentPanel();
+    await waitFor(() => panel.state.failure?.kind === "CanvasApplyError");
+
+    assert.equal(harness.getCurrentGraph().nodes[0].widgets_values[0], "before");
+    assert.equal(panel.state.failure?.graph_unchanged, true);
+    assert.equal(panel.state.failure?.canvas_apply?.rollback?.restored, true);
+    assert.equal(panel.state.failure?.canvas_apply?.rollback?.restored_via, "inverse_delta");
+    assert.equal(panel.state.undoStack.length, 1);
+    assert.notEqual(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
+    assert.doesNotMatch(harness.textDump(), /Applied - 1 changes verified on canvas\./);
+
+    expandAgentBubbleDetails(harness.document.body);
+    assert.match(harness.textDump(), /restored to the pre-apply snapshot/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy v2 Apply preserves undo diagnostics when post-apply verification rollback cannot fully restore the canvas", async () => {
+  const initialGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "saver-1" },
+        widgets_values: ["before"],
+        inputs: [],
+        outputs: [],
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        ...initialGraph.nodes[0],
+        widgets_values: ["after"],
+      },
+    ],
+    links: [],
+  };
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", "saver-1", "widgets_values", 0], value: "after" },
+  ];
+
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-v2-rollback-failure",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          graph: candidateGraph,
+          delta_ops: deltaOps,
+          submit_graph_hash: sha256HexUtf8(initialGraph),
+          candidate_graph_hash: sha256HexUtf8(candidateGraph),
+          report: { change: { content_edits: { preserved: ["saver-1"], edited: ["saver-1"], removed_named: [] } }, recovery: [] },
+        },
+      },
+      "/vibecomfy/agent-edit/accept": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "accept",
+          session_id: "session-v2-rollback-failure",
+          turn_id: "0001",
+          baseline_turn_id: "0001",
+          delta_ops: deltaOps,
+          scoped_accept_verification: {
+            ok: true,
+            entries: [
+              {
+                op: "set_node_field",
+                target: ["nodes", "saver-1", "widgets_values", 0],
+                expected_old: "before",
+                actual_before: "before",
+                desired_new: "after",
+                status: "ok",
+              },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "rollback failure diagnostics";
+    await harness.clickButton("Submit");
+
+    const originalSerialize = harness.app.canvas.graph.serialize.bind(harness.app.canvas.graph);
+    let corruptionStage = 0;
+    harness.app.canvas.graph.serialize = function serializeWithRollbackFailure() {
+      const liveNode = harness.getLiveNodes().find((node) => node.properties?.vibecomfy_uid === "saver-1");
+      if (corruptionStage === 0 && liveNode?.widgets_values?.[0] === "after") {
+        liveNode.widgets_values[0] = "after-corrupted";
+        corruptionStage = 1;
+      } else if (corruptionStage === 1 && liveNode?.widgets_values?.[0] === "before") {
+        liveNode.widgets_values[0] = "still-broken";
+        corruptionStage = 2;
+      }
+      return originalSerialize();
+    };
+    harness.app.loadGraphData = async function blockedRestore() {
+      throw new Error("whole graph restore blocked");
+    };
+
+    await harness.clickButton("Apply Candidate");
+    const panel = extensionModule.ensureAgentPanel();
+    await waitFor(() => panel.state.failure?.kind === "CanvasApplyError");
+
+    assert.equal(harness.getCurrentGraph().nodes[0].widgets_values[0], "still-broken");
+    assert.equal(panel.state.failure?.graph_unchanged, false);
+    assert.equal(panel.state.failure?.canvas_apply?.rollback?.restored, false);
+    assert.equal(panel.state.failure?.canvas_apply?.rollback?.undo_snapshot_available, true);
+    assert.equal(panel.state.failure?.canvas_apply?.rollback?.attempts.length, 2);
+    assert.equal(panel.state.failure?.canvas_apply?.rollback?.attempts[1]?.strategy, "whole_graph_restore");
+    assert.equal(panel.state.undoStack.length, 1);
+    assert.equal(panel.state.debugPayload?.canvas_apply_verification?.local_postcheck?.ok, false);
+    assert.equal(panel.state.debugPayload?.canvas_apply_verification?.rollback?.restored, false);
+    assert.notEqual(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
+    assert.doesNotMatch(harness.textDump(), /Applied - 1 changes verified on canvas\./);
+
+    expandAgentBubbleDetails(harness.document.body);
+    assert.match(harness.textDump(), /undo snapshot remains available/);
+    assert.match(harness.textDump(), /rollback/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy keeps the full candidate graph available for preview overlay in scoped review mode", async () => {
+  const liveGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Input",
+        pos: [40, 40],
+        properties: { vibecomfy_uid: "uid-1" },
+        outputs: [{ name: "IMAGE", links: [5] }],
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        pos: [260, 40],
+        properties: { vibecomfy_uid: "uid-2" },
+        inputs: [{ name: "images", link: 5 }],
+      },
+    ],
+    links: [[5, 1, 0, 2, 0, "IMAGE"]],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Input",
+        pos: [40, 40],
+        properties: { vibecomfy_uid: "uid-1" },
+        outputs: [{ name: "IMAGE", links: [9] }],
+      },
+      {
+        id: 3,
+        type: "PreviewImage",
+        pos: [260, 40],
+        properties: { vibecomfy_uid: "uid-3" },
+        inputs: [{ name: "images", link: 9 }],
+      },
+    ],
+    links: [[9, 1, 0, 3, 0, "IMAGE"]],
+  };
+  const candidateReport = {
+    change: {
+      content_edits: {
+        preserved: ["uid-1"],
+        edited: ["uid-3"],
+        removed_named: ["uid-2"],
+      },
+    },
+    recovery: [],
+  };
+  const deltaOps = [
+    { op: "set_node_field", target: ["nodes", "uid-1", "widgets_values", 0], value: "preview-only-intent" },
+  ];
+
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-v2-overlay",
+          turn_id: "0001",
+          baseline_turn_id: null,
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: false,
+          graph: candidateGraph,
+          delta_ops: deltaOps,
+          report: candidateReport,
+          submit_graph_hash: sha256HexUtf8(liveGraph),
+          candidate_graph_hash: sha256HexUtf8(candidateGraph),
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "preview preservation";
+
+    await harness.clickButton("Submit");
+
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.deltaOps.length, 1);
+    assert.equal(panel.state.candidateGraph.nodes.length, 2);
+    const diff = extensionModule.computePreviewDiff(panel.state.candidateGraph, panel.state.candidateReport);
+    assert.equal(diff.removed.length, 1);
+    assert.equal(diff.removed[0].uid, "uid-2");
+    assert.equal(diff.added.length, 1);
+    assert.equal(diff.added[0].uid, "uid-3");
+    const drawOps = await harness.drawPreviewOverlay({ ...diff, _candidateGraph: panel.state.candidateGraph });
+    assert.ok(drawOps.some((op) => op.kind === "fillText" && String(op.args[0]).includes("PreviewImage")));
+    assert.deepEqual(harness.getCurrentGraph(), liveGraph);
   } finally {
     await harness.dispose();
   }
@@ -8913,6 +9761,1014 @@ test("VibeComfy comfy_adapter applies candidate graphs in place with clear-befor
     assert.equal(harness.app.canvas.graph._nodes[0].boxcolor, "#123456");
     assert.deepEqual(harness.graphDirtyCanvasCalls, [[true, true]]);
     assert.deepEqual(harness.canvasDrawCalls, [[true, true]]);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter reports harness-only delta apply fallback when real LiteGraph mutation hooks are absent", async () => {
+  const harness = await createBrowserHarness();
+
+  try {
+    const adapter = await harness.loadAdapter();
+    const capability = adapter.detectGraphDeltaApply(harness.app);
+
+    assert.equal(capability.available, true);
+    assert.equal(capability.strategy, "harness-serialize-configure");
+    assert.equal(capability.fallback, true);
+    assert.match(capability.detail, /Harness-only/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply preflights all supported ops, resolves UID before id, and materializes candidate payloads", async () => {
+  const graph = {
+    last_link_id: 7,
+    nodes: [
+      {
+        id: "uid-conflict",
+        type: "TextNode",
+        widgets: [{ name: "prompt" }, { name: "seed" }],
+        widgets_values: ["keep-id-node", 999],
+        properties: { vibecomfy_uid: "id-node" },
+      },
+      {
+        id: 1,
+        type: "TextNode",
+        widgets: [{ name: "prompt" }, { name: "seed" }],
+        widgets_values: ["old prompt", 123],
+        outputs: [{ name: "text", links: [7] }],
+        properties: { vibecomfy_uid: "uid-conflict" },
+      },
+      {
+        id: 2,
+        type: "Sampler",
+        mode: 0,
+        widgets: [{ name: "cfg" }, { name: "steps" }],
+        widgets_values: [7, 20],
+        inputs: [
+          { name: "text", link: 7 },
+          { name: "image", link: null },
+        ],
+        properties: { vibecomfy_uid: "consumer" },
+      },
+      {
+        id: 4,
+        type: "PreviewImage",
+        properties: { vibecomfy_uid: "delete-me" },
+      },
+    ],
+    links: [[7, 1, 0, 2, 0, "STRING"]],
+  };
+  const candidateGraph = {
+    last_link_id: 11,
+    nodes: [
+      {
+        id: "uid-conflict",
+        type: "TextNode",
+        widgets: [{ name: "prompt" }, { name: "seed" }],
+        widgets_values: ["keep-id-node", 999],
+        properties: { vibecomfy_uid: "id-node" },
+      },
+      {
+        id: 1,
+        type: "TextNode",
+        widgets: [{ name: "prompt" }, { name: "seed" }],
+        widgets_values: ["new prompt", 123],
+        outputs: [{ name: "text", links: [10] }],
+        properties: { vibecomfy_uid: "uid-conflict" },
+      },
+      {
+        id: 2,
+        type: "Sampler",
+        mode: 4,
+        widgets: [{ name: "steps" }, { name: "cfg" }],
+        widgets_values: [20, 7],
+        inputs: [
+          { name: "text", link: null },
+          { name: "image", link: 10 },
+        ],
+        properties: { vibecomfy_uid: "consumer" },
+      },
+      {
+        id: 3,
+        type: "ImageNode",
+        outputs: [{ name: "image", links: [10] }],
+        properties: { vibecomfy_uid: "producer-b", marker: "from-candidate" },
+      },
+    ],
+    links: [[10, 3, 0, 2, 1, "IMAGE"]],
+  };
+
+  const harness = await createBrowserHarness({ graph });
+
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "set_node_field", target: ["nodes", "uid-conflict", "widgets_values", 0], value: "ignored-op-value" },
+        { op: "set_mode", target: { uid: "consumer", scope_path: [] }, mode: 999 },
+        { op: "reorder", target: { uid: "consumer" }, axis: "widgets", order: ["steps", "cfg"] },
+        {
+          op: "add_node",
+          scope_path: "producer-b",
+          class_type: "ImageNode",
+          fields: {},
+          inputs: {},
+        },
+        {
+          op: "upsert_link",
+          from: ["nodes", "producer-b", "image"],
+          to: ["nodes", "consumer", "image"],
+        },
+        {
+          op: "remove_link",
+          to: ["nodes", "consumer", "text"],
+        },
+        { op: "remove_node", target: ["nodes", "delete-me"] },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "harness-serialize-configure");
+    assert.equal(result.plan.length, 7);
+    assert.equal(harness.graphClearCalls.length, 1);
+    assert.equal(harness.graphConfigureCalls.length, 1);
+    assert.equal(harness.loadGraphDataCalls.length, 0, "delta apply should not fall back to loadGraphData");
+
+    const configured = harness.graphConfigureCalls[0];
+    const idNode = configured.nodes.find((node) => node.id === "uid-conflict");
+    const uidNode = configured.nodes.find((node) => node.properties?.vibecomfy_uid === "uid-conflict");
+    const consumer = configured.nodes.find((node) => node.properties?.vibecomfy_uid === "consumer");
+    const added = configured.nodes.find((node) => node.properties?.vibecomfy_uid === "producer-b");
+
+    assert.equal(idNode.widgets_values[0], "keep-id-node", "id match must not win over UID match");
+    assert.equal(uidNode.widgets_values[0], "new prompt", "set_node_field should resolve target by UID first");
+    assert.equal(consumer.mode, 4, "set_mode should materialize desired mode from candidate graph");
+    assert.deepEqual(consumer.widgets.map((widget) => widget.name), ["steps", "cfg"]);
+    assert.deepEqual(consumer.widgets_values, [20, 7]);
+    assert.equal(added.properties.marker, "from-candidate", "add_node should copy payload from candidate graph");
+    assert.deepEqual(configured.links, [[10, 3, 0, 2, 1, "IMAGE"]], "link payload should come from candidate graph");
+    assert.equal(configured.nodes.some((node) => node.properties?.vibecomfy_uid === "delete-me"), false);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply fails closed before mutation when preflight cannot materialize a candidate payload", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        inputs: [{ name: "image", link: null }],
+        properties: { vibecomfy_uid: "consumer" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = JSON.parse(JSON.stringify(graph));
+  const harness = await createBrowserHarness({ graph });
+
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          {
+            op: "upsert_link",
+            from: ["nodes", "missing-producer", "image"],
+            to: ["nodes", "consumer", "image"],
+          },
+        ],
+        candidateGraph,
+      }),
+      /materialize candidate link payload|resolve from endpoint node/,
+    );
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ── T17: Scoped delta apply adapter tests ──────────────────────────────────
+
+test("VibeComfy comfy_adapter delta apply set_node_field mutates only the target widget value and preserves unrelated nodes/fields/positions", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "TextNode",
+        widgets: [{ name: "prompt" }, { name: "seed" }],
+        widgets_values: ["blue sky", 42],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "text-1" },
+      },
+      {
+        id: 2,
+        type: "Sampler",
+        widgets: [{ name: "cfg" }, { name: "steps" }],
+        widgets_values: [7.5, 30],
+        mode: 0,
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "TextNode",
+        widgets: [{ name: "prompt" }, { name: "seed" }],
+        widgets_values: ["red sunset", 42],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "text-1" },
+      },
+      {
+        id: 2,
+        type: "Sampler",
+        widgets: [{ name: "cfg" }, { name: "steps" }],
+        widgets_values: [7.5, 30],
+        mode: 0,
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "set_node_field", target: ["nodes", "text-1", "widgets_values", 0], value: "red sunset" },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "set_node_field");
+
+    // Only the target widget value changed; unrelated node unchanged
+    const liveNodes = harness.getLiveNodes();
+    const textNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "text-1");
+    const samplerNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "sampler-1");
+    assert.equal(textNode.widgets_values[0], "red sunset", "target widget value should be updated");
+    assert.equal(textNode.widgets_values[1], 42, "unrelated widget value should be preserved");
+    assert.deepEqual(samplerNode.widgets_values, [7.5, 30], "unrelated node should be untouched");
+    assert.equal(samplerNode.mode, 0, "unrelated node mode should be untouched");
+    assert.deepEqual(textNode.pos, [100, 200], "target node position should be preserved");
+    assert.deepEqual(samplerNode.pos, [400, 200], "unrelated node position should be preserved");
+
+    harness.assertNoWholeGraphOps("set_node_field scoped apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply set_mode mutates only mode and preserves unrelated fields", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        mode: 0,
+        widgets: [{ name: "cfg" }, { name: "steps" }],
+        widgets_values: [7, 20],
+        pos: [300, 150],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        mode: 0,
+        pos: [600, 150],
+        properties: { vibecomfy_uid: "vae-1" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        mode: 4,
+        widgets: [{ name: "cfg" }, { name: "steps" }],
+        widgets_values: [7, 20],
+        pos: [300, 150],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        mode: 0,
+        pos: [600, 150],
+        properties: { vibecomfy_uid: "vae-1" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "set_mode", target: { uid: "sampler-1", scope_path: [] }, mode: 4 },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "set_mode");
+    assert.equal(result.plan[0].mode, 4);
+
+    const liveNodes = harness.getLiveNodes();
+    const samplerNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "sampler-1");
+    const vaeNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "vae-1");
+    assert.equal(samplerNode.mode, 4, "target mode should be updated");
+    assert.deepEqual(samplerNode.widgets_values, [7, 20], "widget values should be preserved");
+    assert.deepEqual(samplerNode.pos, [300, 150], "target node position should be preserved");
+    assert.equal(vaeNode.mode, 0, "unrelated node mode should be preserved");
+
+    harness.assertNoWholeGraphOps("set_mode scoped apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply reorder mutates only target node widget order and preserves values", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        widgets: [{ name: "cfg" }, { name: "steps" }, { name: "sampler_name" }],
+        widgets_values: [7, 20, "euler"],
+        pos: [200, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+      {
+        id: 2,
+        type: "CLIPLoader",
+        widgets: [{ name: "clip_name1" }, { name: "clip_name2" }],
+        widgets_values: ["sd_xl", "refiner"],
+        pos: [500, 200],
+        properties: { vibecomfy_uid: "clip-1" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        widgets: [{ name: "steps" }, { name: "sampler_name" }, { name: "cfg" }],
+        widgets_values: [20, "euler", 7],
+        pos: [200, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+      {
+        id: 2,
+        type: "CLIPLoader",
+        widgets: [{ name: "clip_name1" }, { name: "clip_name2" }],
+        widgets_values: ["sd_xl", "refiner"],
+        pos: [500, 200],
+        properties: { vibecomfy_uid: "clip-1" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "reorder", target: { uid: "sampler-1" }, axis: "widgets", order: ["steps", "sampler_name", "cfg"] },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "reorder");
+
+    const liveNodes = harness.getLiveNodes();
+    const samplerNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "sampler-1");
+    const clipNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "clip-1");
+    assert.deepEqual(samplerNode.widgets.map((w) => w.name), ["steps", "sampler_name", "cfg"], "widget order should be reordered");
+    assert.deepEqual(samplerNode.widgets_values, [20, "euler", 7], "widget values should follow reorder");
+    assert.deepEqual(clipNode.widgets.map((w) => w.name), ["clip_name1", "clip_name2"], "unrelated node widget order should be preserved");
+    assert.deepEqual(clipNode.widgets_values, ["sd_xl", "refiner"], "unrelated node widget values should be preserved");
+    assert.deepEqual(samplerNode.pos, [200, 200], "reordered node position should be preserved");
+    assert.deepEqual(clipNode.pos, [500, 200], "unrelated node position should be preserved");
+
+    harness.assertNoWholeGraphOps("reorder scoped apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply upsert_link adds a new link and preserves unrelated links", async () => {
+  const graph = {
+    last_link_id: 5,
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [3] }],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        inputs: [{ name: "samples", link: 3 }],
+        outputs: [{ name: "image", links: [] }],
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "vae" },
+      },
+      {
+        id: 3,
+        type: "SaveImage",
+        inputs: [{ name: "images", link: null }],
+        pos: [700, 200],
+        properties: { vibecomfy_uid: "saver" },
+      },
+    ],
+    links: [[3, 1, 0, 2, 0, "LATENT"]],
+  };
+  const candidateGraph = {
+    last_link_id: 10,
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [3] }],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        inputs: [{ name: "samples", link: 3 }],
+        outputs: [{ name: "image", links: [10] }],
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "vae" },
+      },
+      {
+        id: 3,
+        type: "SaveImage",
+        inputs: [{ name: "images", link: 10 }],
+        pos: [700, 200],
+        properties: { vibecomfy_uid: "saver" },
+      },
+    ],
+    links: [
+      [3, 1, 0, 2, 0, "LATENT"],
+      [10, 2, 0, 3, 0, "IMAGE"],
+    ],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "upsert_link", from: ["nodes", "vae", "image"], to: ["nodes", "saver", "images"] },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "upsert_link");
+
+    // Verify existing link (3) is preserved
+    const liveLinks = harness.getLiveLinks();
+    assert.ok(liveLinks[String(3)], "existing link should be preserved as link 3");
+
+    // Verify new link exists
+    const link10 = liveLinks[String(10)];
+    assert.ok(link10, "newly upserted link should exist as link 10");
+
+    harness.assertNoWholeGraphOps("upsert_link scoped apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply remove_link removes only the target link and preserves unrelated links", async () => {
+  const graph = {
+    last_link_id: 7,
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [5, 7] }],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        inputs: [
+          { name: "samples", link: 5 },
+          { name: "vae", link: 7 },
+        ],
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "vae" },
+      },
+    ],
+    links: [
+      [5, 1, 0, 2, 0, "LATENT"],
+      [7, 1, 0, 2, 1, "VAE"],
+    ],
+  };
+  const candidateGraph = {
+    last_link_id: 7,
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [7] }],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        inputs: [
+          { name: "samples", link: null },
+          { name: "vae", link: 7 },
+        ],
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "vae" },
+      },
+    ],
+    links: [[7, 1, 0, 2, 1, "VAE"]],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "remove_link", to: ["nodes", "vae", "samples"] },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "remove_link");
+
+    const liveLinks = harness.getLiveLinks();
+    assert.equal(liveLinks[String(5)], undefined, "removed link should be absent");
+    assert.ok(liveLinks[String(7)], "unrelated link should be preserved");
+
+    const vaeNode = harness.getLiveNodes().find((n) => n.properties?.vibecomfy_uid === "vae");
+    assert.equal(vaeNode.inputs[0].link, null, "removed link input slot should be cleared");
+    assert.equal(vaeNode.inputs[1].link, 7, "unrelated input link should be preserved");
+
+    harness.assertNoWholeGraphOps("remove_link scoped apply");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply add_node adds the node and preserves existing nodes", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "saver", marker: "from-candidate" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "add_node", scope_path: "saver", class_type: "SaveImage", fields: {}, inputs: {} },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "add_node");
+
+    // graph.add should have been called
+    assert.ok(harness.graphAddCalls.length >= 1, "graph.add should be called for add_node");
+    assert.equal(harness.graphClearCalls.length, 0, "graph.clear should not be called");
+    assert.equal(harness.graphConfigureCalls.length, 0, "graph.configure should not be called");
+
+    // Existing node should still be present
+    const liveNodes = harness.getLiveNodes();
+    const loaderNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "loader");
+    assert.ok(loaderNode, "existing node should be preserved");
+    assert.deepEqual(loaderNode.pos, [100, 200], "existing node position should be preserved");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply remove_node removes the node and preserves unrelated nodes", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "delete-me" },
+      },
+      {
+        id: 3,
+        type: "VAEDecode",
+        pos: [700, 200],
+        properties: { vibecomfy_uid: "vae" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 3,
+        type: "VAEDecode",
+        pos: [700, 200],
+        properties: { vibecomfy_uid: "vae" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "remove_node", target: ["nodes", "delete-me"] },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "remove_node");
+    assert.equal(result.plan[0].alreadyAbsent, false);
+
+    // graph.remove should have been called
+    assert.ok(harness.graphRemoveCalls.length >= 1, "graph.remove should be called for remove_node");
+    assert.equal(harness.graphClearCalls.length, 0, "graph.clear should not be called");
+
+    // Deleted node should be gone
+    const liveNodes = harness.getLiveNodes();
+    const deletedNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "delete-me");
+    assert.equal(deletedNode, undefined, "target node should be removed");
+
+    // Unrelated nodes should be preserved
+    const loaderNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "loader");
+    const vaeNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "vae");
+    assert.ok(loaderNode, "unrelated node should be preserved");
+    assert.ok(vaeNode, "unrelated node should be preserved");
+    assert.deepEqual(loaderNode.pos, [100, 200], "unrelated node position should be preserved");
+    assert.deepEqual(vaeNode.pos, [700, 200], "unrelated node position should be preserved");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply throws before mutation when set_node_field targets a non-existent node", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        widgets: [{ name: "cfg" }],
+        widgets_values: [7],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        widgets: [{ name: "cfg" }],
+        widgets_values: [7],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "set_node_field", target: ["nodes", "non-existent-uid", "widgets_values", 0], value: "new" },
+        ],
+        candidateGraph,
+      }),
+      /Could not resolve node/,
+    );
+
+    // No mutation should have occurred
+    assert.deepEqual(harness.getCurrentGraph(), graph, "graph should be unchanged after preflight throw");
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply throws before mutation when set_mode targets a non-existent node", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        mode: 0,
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = JSON.parse(JSON.stringify(graph));
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "set_mode", target: { uid: "ghost-node", scope_path: [] }, mode: 4 },
+        ],
+        candidateGraph,
+      }),
+      /Could not resolve node/,
+    );
+
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply throws before mutation when add_node collides with an existing UID", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "already-here" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "already-here" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "already-here" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "add_node", scope_path: "already-here", class_type: "SaveImage", fields: {}, inputs: {} },
+        ],
+        candidateGraph,
+      }),
+      /Cannot add node.*already exists/,
+    );
+
+    assert.equal(harness.graphAddCalls.length, 0, "graph.add should not be called");
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply throws before mutation when reorder targets a non-existent node", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "Sampler",
+        widgets: [{ name: "cfg" }],
+        widgets_values: [7],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "sampler-1" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = JSON.parse(JSON.stringify(graph));
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "reorder", target: { uid: "no-such-node" }, axis: "widgets", order: ["cfg"] },
+        ],
+        candidateGraph,
+      }),
+      /Could not resolve node/,
+    );
+
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply throws before mutation when unsupported delta op kind is used", async () => {
+  const graph = {
+    nodes: [{ id: 1, type: "Empty", pos: [100, 200], properties: { vibecomfy_uid: "node-1" } }],
+    links: [],
+  };
+  const candidateGraph = JSON.parse(JSON.stringify(graph));
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [{ op: "unsupported_future_op", target: ["nodes", "node-1"] }],
+        candidateGraph,
+      }),
+      /Unsupported delta op kind/,
+    );
+
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter delta apply preserves unrelated node positions, sizes, and top-level properties across multi-op mutation", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        widgets: [{ name: "image" }],
+        widgets_values: ["input.png"],
+        pos: [50, 100],
+        size: [300, 200],
+        properties: { vibecomfy_uid: "loader", NodeNameForSearches: "MyLoader" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        mode: 0,
+        pos: [350, 100],
+        size: [250, 150],
+        properties: { vibecomfy_uid: "vae", NodeNameForSearches: "MyVAE" },
+      },
+      {
+        id: 3,
+        type: "SaveImage",
+        widgets: [{ name: "filename_prefix" }],
+        widgets_values: ["output"],
+        pos: [650, 100],
+        size: [280, 180],
+        properties: { vibecomfy_uid: "saver", NodeNameForSearches: "MySaver" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        widgets: [{ name: "image" }],
+        widgets_values: ["changed.png"],
+        pos: [50, 100],
+        size: [300, 200],
+        properties: { vibecomfy_uid: "loader", NodeNameForSearches: "MyLoader" },
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        mode: 4,
+        pos: [350, 100],
+        size: [250, 150],
+        properties: { vibecomfy_uid: "vae", NodeNameForSearches: "MyVAE" },
+      },
+      {
+        id: 3,
+        type: "SaveImage",
+        widgets: [{ name: "filename_prefix" }],
+        widgets_values: ["output"],
+        pos: [650, 100],
+        size: [280, 180],
+        properties: { vibecomfy_uid: "saver", NodeNameForSearches: "MySaver" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        { op: "set_node_field", target: ["nodes", "loader", "widgets_values", 0], value: "changed.png" },
+        { op: "set_mode", target: { uid: "vae", scope_path: [] }, mode: 4 },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 2);
+
+    const liveNodes = harness.getLiveNodes();
+    const loader = liveNodes.find((n) => n.properties?.vibecomfy_uid === "loader");
+    const vae = liveNodes.find((n) => n.properties?.vibecomfy_uid === "vae");
+    const saver = liveNodes.find((n) => n.properties?.vibecomfy_uid === "saver");
+
+    // Mutations applied
+    assert.equal(loader.widgets_values[0], "changed.png");
+    assert.equal(vae.mode, 4);
+
+    // Untouched fields and nodes preserved
+    assert.deepEqual(loader.pos, [50, 100]);
+    assert.deepEqual(loader.size, [300, 200]);
+    assert.equal(loader.properties.NodeNameForSearches, "MyLoader");
+    assert.deepEqual(vae.pos, [350, 100]);
+    assert.deepEqual(vae.size, [250, 150]);
+    assert.equal(vae.properties.NodeNameForSearches, "MyVAE");
+    assert.deepEqual(saver.pos, [650, 100]);
+    assert.deepEqual(saver.size, [280, 180]);
+    assert.equal(saver.properties.NodeNameForSearches, "MySaver");
+    assert.equal(saver.widgets_values[0], "output");
+
+    harness.assertNoWholeGraphOps("multi-op scoped apply");
   } finally {
     await harness.dispose();
   }

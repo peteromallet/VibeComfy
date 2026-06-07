@@ -252,6 +252,7 @@ export async function createBrowserHarness({
   graph,
   responses = {},
   withQueuePrompt = true,
+  withGraphMutation = false,
 } = {}) {
   const document = new FakeDocument();
   const requests = [];
@@ -268,6 +269,13 @@ export async function createBrowserHarness({
   const toasts = [];
   const registeredExtensions = [];
   const registeredSidebarTabs = [];
+  const graphAddCalls = [];
+  const graphRemoveCalls = [];
+  const graphConnectCalls = [];
+  const graphDisconnectCalls = [];
+  const graphFieldWriteCalls = [];
+  const graphModeWriteCalls = [];
+  const graphReorderWriteCalls = [];
   let liveCanvasRevision = 1;
   let currentGraph = clone(
     graph || {
@@ -285,24 +293,26 @@ export async function createBrowserHarness({
       for (var _li = 0; _li < linksArray.length; _li += 1) {
         var link = linksArray[_li];
         if (Array.isArray(link)) {
-          map[_li] = link;
+          map[String(link[0])] = link;
         } else if (link && typeof link === 'object') {
-          map[_li] = link;
+          var linkId = link.id ?? _li;
+          map[String(linkId)] = link;
         }
       }
     }
     return map;
   }
 
-  function syncLiveGraphNodes() {
-    app.canvas.graph._vibecomfyLiveCanvasToken = `rev:${liveCanvasRevision}`;
-    app.canvas.graph.links = _buildLiveLinkMap(currentGraph?.links);
-    app.canvas.graph._nodes = (currentGraph?.nodes || []).map((node) => ({
+  function _buildLiveNode(node) {
+    return {
       id: node.id,
       type: node.type,
       properties: clone(node.properties || {}),
       inputs: clone(node.inputs || []),
       outputs: clone(node.outputs || []),
+      widgets: clone(node.widgets || null),
+      widgets_values: clone(node.widgets_values || null),
+      mode: node.mode !== undefined ? node.mode : undefined,
       pos: Array.isArray(node.pos) ? [...node.pos] : [0, 0],
       size: Array.isArray(node.size) ? [...node.size] : [200, 100],
       getConnectionPos(isInput, slotIndex) {
@@ -312,17 +322,85 @@ export async function createBrowserHarness({
         if (isInput) return [nx, ny + TITLE_H + slotIndex * SLOT_H + SLOT_H / 2];
         return [nx + nw, ny + TITLE_H + slotIndex * SLOT_H + SLOT_H / 2];
       },
-    }));
+      __vibecomfyOriginal: clone(node),
+    };
+  }
+
+  function _resetGraphLinks(sourceLinks) {
+    app.canvas.graph.links = _buildLiveLinkMap(sourceLinks);
+  }
+
+  function _initGraphLinks(sourceLinks) {
+    var links = app.canvas.graph.links;
+    if (!links || typeof links !== "object" || Array.isArray(links)) {
+      links = _buildLiveLinkMap(sourceLinks);
+      app.canvas.graph.links = links;
+    }
+    return links;
+  }
+
+  function syncLiveGraphNodes() {
+    app.canvas.graph._vibecomfyLiveCanvasToken = `rev:${liveCanvasRevision}`;
+    _initGraphLinks(currentGraph?.links);
+    app.canvas.graph._nodes = (currentGraph?.nodes || []).map(_buildLiveNode);
+  }
+
+  function _serializeLiveGraphState() {
+    var snapshot = clone(currentGraph || {});
+    var priorNodes = Array.isArray(currentGraph?.nodes) ? currentGraph.nodes : [];
+    var priorByUid = new Map();
+    var priorById = new Map();
+    for (var _pi = 0; _pi < priorNodes.length; _pi += 1) {
+      var priorNode = priorNodes[_pi];
+      var priorUid = priorNode?.properties?.vibecomfy_uid ?? priorNode?.uid ?? priorNode?.id ?? null;
+      if (priorUid !== null && priorUid !== undefined) {
+        priorByUid.set(String(priorUid), priorNode);
+      }
+      if (priorNode?.id !== null && priorNode?.id !== undefined) {
+        priorById.set(String(priorNode.id), priorNode);
+      }
+    }
+    snapshot.nodes = (app.canvas.graph._nodes || []).map((node) => {
+      var uid = node?.properties?.vibecomfy_uid ?? node?.uid ?? node?.id ?? null;
+      var prior = (uid !== null && uid !== undefined ? priorByUid.get(String(uid)) : null) || priorById.get(String(node.id)) || null;
+      var originalShape = node?.__vibecomfyOriginal && typeof node.__vibecomfyOriginal === "object"
+        ? node.__vibecomfyOriginal
+        : {};
+      var serialized = clone(prior || originalShape || {});
+      serialized.id = node.id;
+      serialized.type = node.type;
+      serialized.properties = clone(node.properties || {});
+      if (Object.prototype.hasOwnProperty.call(serialized, "inputs")) serialized.inputs = clone(node.inputs || []);
+      if (Object.prototype.hasOwnProperty.call(serialized, "outputs")) serialized.outputs = clone(node.outputs || []);
+      if (Object.prototype.hasOwnProperty.call(serialized, "widgets")) serialized.widgets = clone(node.widgets || null);
+      if (Object.prototype.hasOwnProperty.call(serialized, "widgets_values")) serialized.widgets_values = clone(node.widgets_values || null);
+      if (node.mode !== undefined || Object.prototype.hasOwnProperty.call(serialized, "mode")) serialized.mode = node.mode;
+      if (Array.isArray(node.pos) || Array.isArray(serialized.pos)) serialized.pos = Array.isArray(node.pos) ? [...node.pos] : [0, 0];
+      if (Object.prototype.hasOwnProperty.call(serialized, "size")) serialized.size = Array.isArray(node.size) ? [...node.size] : [200, 100];
+      if (node.boxcolor !== undefined || Object.prototype.hasOwnProperty.call(serialized, "boxcolor")) serialized.boxcolor = node.boxcolor;
+      if (node.bgcolor !== undefined || Object.prototype.hasOwnProperty.call(serialized, "bgcolor")) serialized.bgcolor = node.bgcolor;
+      if (node.color !== undefined || Object.prototype.hasOwnProperty.call(serialized, "color")) serialized.color = node.color;
+      return serialized;
+    });
+    var liveLinks = app.canvas.graph.links;
+    if (liveLinks && typeof liveLinks === "object" && !Array.isArray(liveLinks)) {
+      snapshot.links = Object.values(liveLinks).map((link) => clone(link));
+    } else {
+      snapshot.links = clone(snapshot.links || []);
+    }
+    currentGraph = clone(snapshot);
+    return snapshot;
   }
 
   const app = {
+    __vibecomfyAllowDeltaSerializeConfigureFallback: true,
     canvas: {
       // Instance-level onDrawForeground — ComfyUI 1.39.x assigns a function
       // at build time. Capability detection checks typeof === 'function'.
       onDrawForeground: function onDrawForeground(_ctx) { /* ComfyUI default */ },
       graph: {
         serialize() {
-          const snapshot = clone(currentGraph);
+          const snapshot = withGraphMutation ? _serializeLiveGraphState() : clone(currentGraph);
           serializeCalls.push(snapshot);
           return snapshot;
         },
@@ -332,6 +410,7 @@ export async function createBrowserHarness({
           operationLog.push({ kind: "graph.clear" });
           liveCanvasRevision += 1;
           currentGraph = { nodes: [], links: [] };
+          _resetGraphLinks([]);
           syncLiveGraphNodes();
         },
         configure(nextGraph) {
@@ -340,6 +419,7 @@ export async function createBrowserHarness({
           operationLog.push({ kind: "graph.configure", graph: snapshot });
           liveCanvasRevision += 1;
           currentGraph = snapshot;
+          _resetGraphLinks(snapshot?.links);
           syncLiveGraphNodes();
         },
         change() {
@@ -349,6 +429,50 @@ export async function createBrowserHarness({
         setDirtyCanvas(fg, bg) {
           graphDirtyCanvasCalls.push([fg, bg]);
           operationLog.push({ kind: "graph.setDirtyCanvas", fg, bg });
+        },
+        add(node) {
+          if (!withGraphMutation) {
+            throw new Error("graph.add is not available; set withGraphMutation=true on createBrowserHarness.");
+          }
+          if (!node || typeof node !== "object") {
+            throw new Error("graph.add requires a valid node object.");
+          }
+          graphAddCalls.push(clone(node));
+          operationLog.push({ kind: "graph.add", nodeId: node.id, type: node.type });
+          app.canvas.graph._nodes.push(node);
+        },
+        remove(node) {
+          if (!withGraphMutation) {
+            throw new Error("graph.remove is not available; set withGraphMutation=true on createBrowserHarness.");
+          }
+          if (!node || typeof node !== "object") {
+            throw new Error("graph.remove requires a valid node object.");
+          }
+          const nodeId = node.id;
+          const index = app.canvas.graph._nodes.indexOf(node);
+          if (index < 0) {
+            // Node not found; still log for diagnostics.
+            operationLog.push({ kind: "graph.remove", nodeId, alreadyAbsent: true });
+            return;
+          }
+          app.canvas.graph._nodes.splice(index, 1);
+          graphRemoveCalls.push(clone(node));
+          operationLog.push({ kind: "graph.remove", nodeId });
+          // Clean up links connected to the removed node.
+          var links = app.canvas.graph.links;
+          if (links && typeof links === "object") {
+            var keysToDelete = [];
+            for (var _key in links) {
+              if (!Object.prototype.hasOwnProperty.call(links, _key)) continue;
+              var link = links[_key];
+              if (link && (String(link.origin_id) === String(nodeId) || String(link.target_id) === String(nodeId))) {
+                keysToDelete.push(_key);
+              }
+            }
+            for (var _ki = 0; _ki < keysToDelete.length; _ki += 1) {
+              delete links[keysToDelete[_ki]];
+            }
+          }
         },
       },
       draw(fg, bg) {
@@ -376,6 +500,7 @@ export async function createBrowserHarness({
       operationLog.push({ kind: "loadGraphData", graph: snapshot });
       liveCanvasRevision += 1;
       currentGraph = snapshot;
+      _resetGraphLinks(snapshot?.links);
       syncLiveGraphNodes();
     },
   };
@@ -391,6 +516,15 @@ export async function createBrowserHarness({
   LiteGraphCanvas.prototype.getCanvasMenuOptions = function getCanvasMenuOptions() {
     return [{ content: "Original", callback: () => null }];
   };
+
+  const LiteGraphFactory = withGraphMutation ? {
+    createNode(type) {
+      if (typeof type !== "string" || !type) {
+        return null;
+      }
+      return _buildLiveNode({ id: Date.now() + Math.random(), type, properties: {}, inputs: [], outputs: [], pos: [0, 0], size: [200, 100] });
+    },
+  } : null;
 
   const fetchImpl = async (url, options = {}) => {
     const key = String(url);
@@ -532,7 +666,12 @@ export async function createBrowserHarness({
   };
 
   globalThis.document = document;
-  globalThis.window = { document, LiteGraph: { LGraphCanvas: LiteGraphCanvas } };
+  globalThis.window = {
+    document,
+    LiteGraph: withGraphMutation
+      ? { LGraphCanvas: LiteGraphCanvas, createNode: LiteGraphFactory.createNode.bind(LiteGraphFactory) }
+      : { LGraphCanvas: LiteGraphCanvas },
+  };
   globalThis.fetch = fetchImpl;
   globalThis.__VIBECOMFY_BROWSER_APP__ = app;
   globalThis.__VIBECOMFY_BROWSER_API__ = mockApi;
@@ -617,6 +756,14 @@ export async function createBrowserHarness({
     toasts,
     registeredExtensions,
     registeredSidebarTabs,
+    graphAddCalls,
+    graphRemoveCalls,
+    graphConnectCalls,
+    graphDisconnectCalls,
+    graphFieldWriteCalls,
+    graphModeWriteCalls,
+    graphReorderWriteCalls,
+    withGraphMutation,
     async loadExtension() {
       return loadExtension();
     },
@@ -676,10 +823,12 @@ export async function createBrowserHarness({
     setCurrentGraph(nextGraph) {
       liveCanvasRevision += 1;
       currentGraph = clone(nextGraph);
+      _resetGraphLinks(currentGraph?.links);
       syncLiveGraphNodes();
     },
     setCurrentGraphWithoutRevisionBump(nextGraph) {
       currentGraph = clone(nextGraph);
+      _resetGraphLinks(currentGraph?.links);
       syncLiveGraphNodes();
     },
     bumpLiveCanvasToken() {
@@ -701,6 +850,49 @@ export async function createBrowserHarness({
     },
     getLiveNodes() {
       return app.canvas.graph._nodes;
+    },
+    getLiveLinks() {
+      return app.canvas.graph.links;
+    },
+    recordFieldWrite(nodeUid, fieldPath, value) {
+      var entry = { nodeUid, fieldPath: [...fieldPath], value: clone(value), timestamp: Date.now() };
+      graphFieldWriteCalls.push(entry);
+      operationLog.push({ kind: "graph.fieldWrite", nodeUid, fieldPath: [...fieldPath] });
+      return entry;
+    },
+    recordModeWrite(nodeUid, mode) {
+      var entry = { nodeUid, mode, timestamp: Date.now() };
+      graphModeWriteCalls.push(entry);
+      operationLog.push({ kind: "graph.modeWrite", nodeUid, mode });
+      return entry;
+    },
+    recordReorderWrite(nodeUid, axis, order) {
+      var entry = { nodeUid, axis, order: Array.isArray(order) ? [...order] : order, timestamp: Date.now() };
+      graphReorderWriteCalls.push(entry);
+      operationLog.push({ kind: "graph.reorderWrite", nodeUid, axis });
+      return entry;
+    },
+    recordConnect(sourceNodeId, sourceSlot, targetNodeId, targetSlot, linkType) {
+      var entry = { sourceNodeId, sourceSlot, targetNodeId, targetSlot, linkType: linkType ?? null, timestamp: Date.now() };
+      graphConnectCalls.push(entry);
+      operationLog.push({ kind: "graph.connect", sourceNodeId, sourceSlot, targetNodeId, targetSlot });
+      return entry;
+    },
+    recordDisconnect(linkId) {
+      var entry = { linkId, timestamp: Date.now() };
+      graphDisconnectCalls.push(entry);
+      operationLog.push({ kind: "graph.disconnect", linkId });
+      return entry;
+    },
+    assertNoGraphClearOrConfigure(msg) {
+      var label = msg || "Scoped V2 apply must not call graph.clear() or graph.configure()";
+      assert.equal(graphClearCalls.length, 0, `${label}: graph.clear() was called ${graphClearCalls.length} time(s)`);
+      assert.equal(graphConfigureCalls.length, 0, `${label}: graph.configure() was called ${graphConfigureCalls.length} time(s)`);
+    },
+    assertNoWholeGraphOps(msg) {
+      var label = msg || "Scoped V2 apply must not use wholesale graph operations";
+      this.assertNoGraphClearOrConfigure(label);
+      assert.equal(loadGraphDataCalls.length, 0, `${label}: loadGraphData was called ${loadGraphDataCalls.length} time(s)`);
     },
     async dispose() {
       if (originalDocument === undefined) delete globalThis.document;

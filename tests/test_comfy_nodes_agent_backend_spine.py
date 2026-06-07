@@ -48,6 +48,22 @@ from vibecomfy.comfy_nodes.agent_gates import (
 )
 from vibecomfy.comfy_nodes.agent_session import (
     STRUCTURAL_PROJECTION_VERSION,
+    _SENTINEL_LINK_ABSENT,
+    _SENTINEL_NO_VALUE,
+    _SENTINEL_NODE_ABSENT,
+    _build_graph_index,
+    _build_scoped_validation_plan,
+    _build_v2_accept_evidence,
+    _canonical_node_uid,
+    _find_node_in_graph,
+    _load_turn_delta_ops,
+    _load_turn_request_graph,
+    _normalize_link_endpoint,
+    _normalize_target_uid,
+    _read_field_value_from_node,
+    _read_link_source_endpoint,
+    _resolve_submit_value_for_op,
+    _split_field_path,
     accept_turn,
     allocate_turn,
     payload_hash,
@@ -1198,7 +1214,11 @@ def test_v2_accept_records_live_canvas_token_mismatch_diagnostic_and_updates_bas
     request["client_live_canvas_token"] = "live:rev:1:client-v2-same-canvas"
     allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
     turn_id = str(allocation.context.turn_id)
-    candidate_graph = {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}
+    (allocation.turn_dir / "request.json").write_text(json.dumps(request), encoding="utf-8")
+    candidate_graph = {
+        "nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2-candidate"]}],
+        "links": [],
+    }
     record_idempotent_response(
         session_root=root,
         session_id="s1",
@@ -1209,7 +1229,13 @@ def test_v2_accept_records_live_canvas_token_mismatch_diagnostic_and_updates_bas
             "ok": True,
             "turn_id": turn_id,
             "graph": candidate_graph,
-            "delta_ops": [{"op": "set_mode", "target": {"scope_path": [], "uid": "2"}, "mode": 4}],
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "1", "widgets_values.0"],
+                    "value": "v2-candidate",
+                }
+            ],
         },
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
@@ -1226,6 +1252,7 @@ def test_v2_accept_records_live_canvas_token_mismatch_diagnostic_and_updates_bas
         request_payload={
             "turn_id": turn_id,
             "action": "accept",
+            "live_graph": request["graph"],
             "submit_graph_hash": submit_graph_hash,
             "candidate_graph_hash": candidate_graph_hash,
             "client_live_canvas_token": "live:rev:2:client-v2-same-canvas",
@@ -1244,6 +1271,23 @@ def test_v2_accept_records_live_canvas_token_mismatch_diagnostic_and_updates_bas
         accepted["diagnostics"][0]["detail"]["client_live_canvas_token"]
         == "live:rev:2:client-v2-same-canvas"
     )
+    # V2 accept response MUST include scoped_accept_verification.
+    scoped_ver = accepted.get("scoped_accept_verification")
+    assert scoped_ver is not None, "V2 accept response missing scoped_accept_verification"
+    assert scoped_ver["ok"] is True
+    assert isinstance(scoped_ver["entries"], list)
+    assert len(scoped_ver["entries"]) == 1
+    entry = scoped_ver["entries"][0]
+    assert entry["op"] == "set_node_field"
+    assert entry["target"] == ["nodes", "1", "widgets_values.0"]
+    assert entry["status"] == "ok"  # live matches submit, clean delta region
+    # V2 accept response MUST echo delta_ops.
+    delta_echo = accepted.get("delta_ops")
+    assert delta_echo is not None, "V2 accept response missing delta_ops echo"
+    assert isinstance(delta_echo, list)
+    assert len(delta_echo) == 1
+    assert delta_echo[0]["op"] == "set_node_field"
+    assert delta_echo[0]["value"] == "v2-candidate"
     state = read_state(root / "s1")
     assert state["baseline_turn_id"] == turn_id
     assert state["baseline_graph_hash"] == structural_graph_hash(candidate_graph)
@@ -4107,3 +4151,3222 @@ def test_record_response_creates_parent_dirs_with_idempotency_key(tmp_path: Path
     )
 
     assert response_path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# V2 scoped accept evidence tests (T2)
+# ---------------------------------------------------------------------------
+
+
+def test_v2_accept_evidence_derives_old_values_from_submit_graph_when_fieldchange_absent(
+    tmp_path: Path,
+) -> None:
+    """V2 scoped accept evidence derives expected old values from the
+    submit-time graph when the response contains ``delta_ops`` but no
+    FieldChange arrays."""
+    root = tmp_path / "sessions"
+    session_dir = root / "s1"
+
+    # Build a submit graph with known field values so we can assert
+    # old-value resolution later.
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 10,
+                "type": "CLIPTextEncode",
+                "mode": 0,
+                "widgets": [{"name": "text"}, {"name": "clip"}],
+                "widgets_values": ["a cat sitting", None],
+                "properties": {"vibecomfy_uid": "node-uid-1"},
+            },
+            {
+                "id": 20,
+                "type": "CheckpointLoaderSimple",
+                "widgets": [{"name": "ckpt_name"}],
+                "widgets_values": ["sd_xl_base.safetensors"],
+                "properties": {"vibecomfy_uid": "node-uid-2"},
+            },
+        ],
+        "links": [],
+    }
+
+    request = {
+        "graph": submit_graph,
+        "client_graph_hash": "client-no-fieldchange",
+        "client_live_canvas_token": "live:rev:1:no-fieldchange",
+        "task": "replace text prompt",
+    }
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+
+    # Persist the submit request so evidence loading can find it.
+    request_path = allocation.turn_dir / "request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    # Record an edit response with delta_ops but NO FieldChange arrays.
+    delta_ops = [
+        {
+            "op": "set_node_field",
+            "target": ["nodes", "node-uid-1", "text"],
+            "value": "a dog running",
+        },
+    ]
+    candidate_graph = {
+        "nodes": [
+            {
+                "id": 10,
+                "type": "CLIPTextEncode",
+                "widgets": [{"name": "text"}, {"name": "clip"}],
+                "widgets_values": ["a dog running", None],
+                "properties": {"vibecomfy_uid": "node-uid-1"},
+            },
+            {
+                "id": 20,
+                "type": "CheckpointLoaderSimple",
+                "widgets": [{"name": "ckpt_name"}],
+                "widgets_values": ["sd_xl_base.safetensors"],
+                "properties": {"vibecomfy_uid": "node-uid-2"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={
+            "ok": True,
+            "turn_id": turn_id,
+            "graph": candidate_graph,
+            "delta_ops": delta_ops,
+            # Deliberately omit FieldChange arrays.
+        },
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    # --- Evidence loading ---
+    evidence = _build_v2_accept_evidence(
+        session_dir=session_dir, turn_id=turn_id, turn_record=read_state(session_dir)["turns"][turn_id],
+    )
+
+    # Evidence must load successfully.
+    assert evidence["loaded_ok"] is True, f"Evidence loading failed: {evidence['diagnostics']}"
+    assert evidence["protocol"] == "v2_delta"
+    assert evidence["submit_graph"] is not None
+    assert evidence["delta_ops"] is not None
+    assert len(evidence["delta_ops"]) == 1
+    assert evidence["delta_ops"][0]["op"] == "set_node_field"
+
+    # --- Old-value resolution from submit graph ---
+    # The set_node_field op targets uid "node-uid-1" field "text".
+    # The submit graph has "a cat sitting" at that position.
+    resolved_value, error = _resolve_submit_value_for_op(
+        submit_graph=evidence["submit_graph"],
+        op=evidence["delta_ops"][0],
+    )
+    assert error is None, f"Resolution error: {error}"
+    assert resolved_value == "a cat sitting", (
+        f"Expected old value 'a cat sitting' from submit graph, got {resolved_value!r}"
+    )
+
+    # --- Accept must succeed (evidence loads ok, gate unchanged) ---
+    submit_graph_hash = payload_hash(submit_graph)
+    candidate_graph_hash = payload_hash(candidate_graph)
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=request["client_graph_hash"],
+        request_payload={
+            "turn_id": turn_id,
+            "action": "accept",
+            "live_graph": submit_graph,
+            "submit_graph_hash": submit_graph_hash,
+            "candidate_graph_hash": candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:no-fieldchange",
+        },
+    )
+    assert isinstance(accepted, dict)
+    assert accepted["ok"] is True
+    assert accepted["candidate_graph_hash"] == candidate_graph_hash
+
+
+def test_v2_accept_evidence_delta_ops_wins_over_fieldchange(
+    tmp_path: Path,
+) -> None:
+    """``delta_ops`` is authoritative when both ``delta_ops`` and
+    FieldChange-style evidence exist in the response."""
+    root = tmp_path / "sessions"
+    session_dir = root / "s1"
+
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "mode": 0,
+                "widgets": [{"name": "filename_prefix"}],
+                "widgets_values": ["ComfyUI"],
+                "properties": {"vibecomfy_uid": "uid-1"},
+            },
+        ],
+        "links": [],
+    }
+
+    request = {
+        "graph": submit_graph,
+        "client_graph_hash": "client-delta-wins",
+        "client_live_canvas_token": "live:rev:1:delta-wins",
+        "task": "change prefix",
+    }
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+
+    # Persist the submit request so evidence loading can find it.
+    request_path = allocation.turn_dir / "request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+
+    delta_ops = [
+        {
+            "op": "set_node_field",
+            "target": ["nodes", "uid-1", "filename_prefix"],
+            "value": "DeltaPrefix",
+        },
+    ]
+    # Simulate legacy FieldChange-style evidence alongside delta_ops.
+    field_change_legacy = [
+        {
+            "node_id": 1,
+            "field": "widgets_values",
+            "old_value": "OldPrefix",
+            "new_value": "FieldChangePrefix",
+        },
+    ]
+    candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets": [{"name": "filename_prefix"}],
+                "widgets_values": ["DeltaPrefix"],
+                "properties": {"vibecomfy_uid": "uid-1"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response={
+            "ok": True,
+            "turn_id": turn_id,
+            "graph": candidate_graph,
+            "delta_ops": delta_ops,
+            "field_changes": field_change_legacy,  # legacy evidence
+        },
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    # --- Evidence loading ---
+    evidence = _build_v2_accept_evidence(
+        session_dir=session_dir, turn_id=turn_id, turn_record=read_state(session_dir)["turns"][turn_id],
+    )
+
+    assert evidence["loaded_ok"] is True
+    assert evidence["delta_ops"] is not None
+    assert len(evidence["delta_ops"]) == 1
+
+    # --- delta_ops is the authoritative mutation-intent source ---
+    # The delta_op says the new value is "DeltaPrefix".  The legacy
+    # field_change says "FieldChangePrefix".  The evidence layer must
+    # load delta_ops and treat it as intent; FieldChange is ignored
+    # by the evidence loading path.
+    delta_op = evidence["delta_ops"][0]
+    assert delta_op["op"] == "set_node_field"
+    assert delta_op["value"] == "DeltaPrefix"
+
+    # Resolve old value from submit graph (submit graph has "ComfyUI").
+    resolved_old, error = _resolve_submit_value_for_op(
+        submit_graph=evidence["submit_graph"],
+        op=delta_op,
+    )
+    assert error is None
+    assert resolved_old == "ComfyUI", (
+        f"Expected old value from submit graph 'ComfyUI', got {resolved_old!r}"
+    )
+
+    # The loaded delta_ops must NOT contain the FieldChange old value.
+    assert delta_op.get("value") != "FieldChangePrefix"
+
+    # --- Prove delta_ops-driven accept works ---
+    submit_graph_hash = payload_hash(submit_graph)
+    candidate_graph_hash = payload_hash(candidate_graph)
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=request["client_graph_hash"],
+        request_payload={
+            "turn_id": turn_id,
+            "action": "accept",
+            "live_graph": submit_graph,
+            "submit_graph_hash": submit_graph_hash,
+            "candidate_graph_hash": candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:delta-wins",
+        },
+    )
+    assert isinstance(accepted, dict)
+    assert accepted["ok"] is True
+
+
+def test_scoped_graph_helpers_resolve_uid_id_aliases_and_preserve_json_null() -> None:
+    graph = {
+        "nodes": [
+            {
+                "id": 12,
+                "type": "SamplerCustom",
+                "mode": 2,
+                "widgets": [{"name": "text"}, {"name": "seed"}],
+                "widgets_values": [None, 123],
+                "inputs": [{"name": "model", "link": 7}],
+                "outputs": [{"name": "samples", "links": [7]}],
+                "properties": {"vibecomfy_uid": "uid-12"},
+            }
+        ],
+        "links": [[7, 12, 0, 12, 0, "MODEL"]],
+    }
+
+    node_by_uid = _find_node_in_graph(graph, "uid-12")
+    node_by_id = _find_node_in_graph(graph, "12")
+
+    assert node_by_uid is not None
+    assert node_by_id is node_by_uid
+    assert _read_field_value_from_node(node_by_uid, "text") is None
+    assert _read_field_value_from_node(node_by_uid, "mode") == 2
+    assert _read_field_value_from_node(node_by_uid, "widgets_values[1]") == 123
+    assert _read_field_value_from_node(node_by_uid, "inputs.model.link") == 7
+    assert _read_field_value_from_node(node_by_uid, "outputs.samples.links.0") == 7
+    assert _read_field_value_from_node(node_by_uid, "missing_field") is _SENTINEL_NO_VALUE
+
+
+def test_scoped_validation_plan_builds_entries_with_aliases_links_and_sentinels() -> None:
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "mode": 0,
+                "inputs": [{"name": "model", "link": 99}],
+                "widgets": [{"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [20, 6.5],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+            {
+                "id": 4,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "doomed"},
+            },
+            {
+                "id": 5,
+                "type": "Consumer",
+                "inputs": [{"name": "clip", "link": 199}],
+                "properties": {"vibecomfy_uid": "unlink-me"},
+            },
+        ],
+        "links": [
+            [99, 1, 0, 3, 0, "MODEL"],
+            [199, 1, 0, 5, 0, "CLIP"],
+        ],
+    }
+    live_graph = json.loads(json.dumps(submit_graph))
+    candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [199]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "mode": 4,
+                "inputs": [{"name": "model", "link": 101}],
+                "widgets": [{"name": "cfg"}, {"name": "steps"}],
+                "widgets_values": [6.5, 30],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+            {
+                "id": 8,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "new-node"},
+            },
+            {
+                "id": 5,
+                "type": "Consumer",
+                "inputs": [{"name": "clip", "link": None}],
+                "properties": {"vibecomfy_uid": "unlink-me"},
+            },
+        ],
+        "links": [[101, 2, 0, 3, 0, "MODEL"]],
+    }
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=live_graph,
+        candidate_graph=candidate_graph,
+        delta_ops=[
+            {"op": "set_node_field", "target": ["nodes", "consumer", "steps"], "value": 30},
+            {"op": "set_mode", "target": {"scope_path": [], "uid": "consumer"}, "mode": 4},
+            {
+                "op": "reorder",
+                "target": {"uid": "consumer"},
+                "axis": "widgets",
+                "order": ["cfg", "steps"],
+            },
+            {
+                "op": "upsert_link",
+                "from": ["nodes", "producer-b", 0],
+                "to": ["nodes", "consumer", "model"],
+            },
+            {"op": "remove_link", "to": ["nodes", "unlink-me", "clip"]},
+            {
+                "op": "add_node",
+                "scope_path": "new-node",
+                "class_type": "PreviewImage",
+                "fields": {},
+                "inputs": {},
+            },
+            {"op": "remove_node", "target": ["nodes", "doomed"]},
+        ],
+    )
+
+    assert plan["ok"] is True
+    assert [entry["status"] for entry in plan["entries"]] == [
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+        "ok",
+    ]
+    assert plan["entries"][0]["expected_old"] == 20
+    assert plan["entries"][0]["actual_before"] == 20
+    assert plan["entries"][0]["desired_new"] == 30
+    assert plan["entries"][1]["expected_old"] == 0
+    assert plan["entries"][1]["actual_before"] == 0
+    assert plan["entries"][1]["desired_new"] == 4
+    assert plan["entries"][2]["expected_old"] == ("steps", "cfg")
+    assert plan["entries"][2]["actual_before"] == ("steps", "cfg")
+    assert plan["entries"][2]["desired_new"] == ("cfg", "steps")
+    assert plan["entries"][3]["expected_old"] == {"uid": "producer-a", "output_slot": 0}
+    assert plan["entries"][3]["actual_before"] == {"uid": "producer-a", "output_slot": 0}
+    assert plan["entries"][3]["desired_new"] == {"uid": "producer-b", "output_slot": 0}
+    assert plan["entries"][4]["expected_old"] == {"uid": "producer-a", "output_slot": 0}
+    assert plan["entries"][4]["actual_before"] == {"uid": "producer-a", "output_slot": 0}
+    assert plan["entries"][4]["desired_new"] == {"sentinel": "link_absent"}
+    assert plan["entries"][5]["expected_old"] == {"sentinel": "node_absent"}
+    assert plan["entries"][5]["actual_before"] == {"sentinel": "node_absent"}
+    assert plan["entries"][5]["desired_new"] == {
+        "uid": "new-node",
+        "id": 8,
+        "type": "PreviewImage",
+    }
+    assert plan["entries"][6]["desired_new"] == {"sentinel": "node_absent"}
+
+
+def test_scoped_validation_plan_treats_live_desired_values_as_non_conflicting() -> None:
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "mode": 0,
+                "inputs": [{"name": "model", "link": 99}],
+                "widgets": [{"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [20, 6.5],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[99, 1, 0, 3, 0, "MODEL"]],
+    }
+    live_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": []}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "mode": 4,
+                "inputs": [{"name": "model", "link": 101}],
+                "widgets": [{"name": "cfg"}, {"name": "steps"}],
+                "widgets_values": [6.5, 30],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[101, 2, 0, 3, 0, "MODEL"]],
+    }
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=live_graph,
+        candidate_graph=live_graph,
+        delta_ops=[
+            {"op": "set_node_field", "target": ["nodes", "consumer", "steps"], "value": 30},
+            {"op": "set_mode", "target": {"uid": "consumer"}, "mode": 4},
+            {
+                "op": "reorder",
+                "target": {"uid": "consumer"},
+                "axis": "widgets",
+                "order": ["cfg", "steps"],
+            },
+            {
+                "op": "upsert_link",
+                "from": ["nodes", "producer-b", 0],
+                "to": ["nodes", "consumer", "model"],
+            },
+        ],
+    )
+
+    assert plan["ok"] is True
+    assert [entry["status"] for entry in plan["entries"]] == [
+        "already_applied",
+        "already_applied",
+        "already_applied",
+        "already_applied",
+    ]
+
+
+def test_scoped_validation_plan_remove_node_replacement_conflicts_on_uid_mismatch() -> None:
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 4,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "doomed"},
+            }
+        ],
+        "links": [],
+    }
+    live_graph = {
+        "nodes": [
+            {
+                "id": 4,
+                "type": "Note",
+                "properties": {"vibecomfy_uid": "replacement"},
+            }
+        ],
+        "links": [],
+    }
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=live_graph,
+        candidate_graph=None,
+        delta_ops=[{"op": "remove_node", "target": ["nodes", 4]}],
+    )
+
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == {
+        "uid": "doomed",
+        "id": 4,
+        "type": "PreviewImage",
+    }
+    assert plan["entries"][0]["actual_before"] == {
+        "uid": "replacement",
+        "id": 4,
+        "type": "Note",
+    }
+
+
+# ---------------------------------------------------------------------------
+# T8: Backend matrix tests for clean and drifted V2 scoped validation across
+#     every op kind: set_node_field, set_mode, reorder, upsert_link,
+#     remove_link, add_node, remove_node, and unsupported ops.
+# ---------------------------------------------------------------------------
+
+
+def test_scoped_validation_matrix_set_node_field_clean_drifted_and_noop() -> None:
+    """set_node_field: ok (clean), conflict (drifted), noop (desired==old)."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [20, 6.5],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    clean_live = json.loads(json.dumps(submit_graph))
+    drifted_live = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [99, 6.5],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+
+    # ── Clean: live == submit ──────────────────────────────────────────────
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "set_node_field",
+                "target": ["nodes", "sampler-1", "steps"],
+                "value": 30,
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == 20
+    assert plan["entries"][0]["actual_before"] == 20
+    assert plan["entries"][0]["desired_new"] == 30
+
+    # ── Drifted: live differs from submit ──────────────────────────────────
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=drifted_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "set_node_field",
+                "target": ["nodes", "sampler-1", "steps"],
+                "value": 30,
+            },
+        ],
+    )
+    assert plan["ok"] is True  # conflicts don't flip ok
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == 20
+    assert plan["entries"][0]["actual_before"] == 99
+
+    # ── Noop: desired == expected_old ──────────────────────────────────────
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "set_node_field",
+                "target": ["nodes", "sampler-1", "steps"],
+                "value": 20,  # same as submit
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "noop"
+
+
+def test_scoped_validation_matrix_set_mode_clean_drifted_and_noop() -> None:
+    """set_mode: ok (clean), conflict (drifted), noop (desired==old)."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 0,
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    clean_live = json.loads(json.dumps(submit_graph))
+    drifted_live = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 2,
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+
+    # Clean
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {"op": "set_mode", "target": {"uid": "sampler-1"}, "mode": 4},
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == 0
+
+    # Drifted
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=drifted_live,
+        candidate_graph=None,
+        delta_ops=[
+            {"op": "set_mode", "target": {"uid": "sampler-1"}, "mode": 4},
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == 0
+    assert plan["entries"][0]["actual_before"] == 2
+
+    # Noop
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {"op": "set_mode", "target": {"uid": "sampler-1"}, "mode": 0},
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "noop"
+
+
+def test_scoped_validation_matrix_reorder_clean_drifted_and_noop() -> None:
+    """reorder: ok (clean), conflict (drifted), noop (desired==old)."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}, {"name": "seed"}],
+                "widgets_values": [20, 6.5, 42],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    clean_live = json.loads(json.dumps(submit_graph))
+    drifted_live = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "cfg"}, {"name": "seed"}, {"name": "steps"}],
+                "widgets_values": [6.5, 42, 20],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+
+    desired_order = ("cfg", "steps", "seed")
+    old_order = ("steps", "cfg", "seed")
+
+    # Clean
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "reorder",
+                "target": {"uid": "sampler-1"},
+                "axis": "widgets",
+                "order": list(desired_order),
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == old_order
+
+    # Drifted
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=drifted_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "reorder",
+                "target": {"uid": "sampler-1"},
+                "axis": "widgets",
+                "order": list(desired_order),
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == old_order
+    assert plan["entries"][0]["actual_before"] == ("cfg", "seed", "steps")
+
+    # Noop
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "reorder",
+                "target": {"uid": "sampler-1"},
+                "axis": "widgets",
+                "order": ["steps", "cfg", "seed"],
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "noop"
+
+
+def test_scoped_validation_matrix_upsert_link_clean_and_noop() -> None:
+    """upsert_link: ok (clean), noop (desired==old).  Truly drifted source is
+    covered by test_scoped_validation_matrix_upsert_link_truly_drifted_source."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "inputs": [{"name": "model", "link": 99}],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[99, 1, 0, 3, 0, "MODEL"]],
+    }
+    clean_live = json.loads(json.dumps(submit_graph))
+
+    # Clean: live still has the old link from producer-a
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "upsert_link",
+                "from": ["nodes", "producer-b", 0],
+                "to": ["nodes", "consumer", "model"],
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == {"uid": "producer-a", "output_slot": 0}
+
+    # Noop: desired == expected_old
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "upsert_link",
+                "from": ["nodes", "producer-a", 0],
+                "to": ["nodes", "consumer", "model"],
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "noop"
+
+
+def test_scoped_validation_matrix_upsert_link_truly_drifted_source() -> None:
+    """upsert_link: conflict when live source differs from both submit source
+    AND desired source (i.e. a third-party drift)."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [888]}],
+                "properties": {"vibecomfy_uid": "producer-c"},
+            },
+            {
+                "id": 4,
+                "type": "KSampler",
+                "inputs": [{"name": "model", "link": 99}],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[99, 1, 0, 4, 0, "MODEL"]],
+    }
+    drifted_live = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [888]}],
+                "properties": {"vibecomfy_uid": "producer-c"},
+            },
+            {
+                "id": 4,
+                "type": "KSampler",
+                "inputs": [{"name": "model", "link": 888}],  # ← drifted to producer-c
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[888, 3, 0, 4, 0, "MODEL"]],
+    }
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=drifted_live,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "upsert_link",
+                "from": ["nodes", "producer-b", 0],
+                "to": ["nodes", "consumer", "model"],
+            },
+        ],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == {"uid": "producer-a", "output_slot": 0}
+    # actual_before is producer-c (neither expected_old nor desired_new)
+    assert plan["entries"][0]["actual_before"] == {"uid": "producer-c", "output_slot": 0}
+
+
+def test_scoped_validation_matrix_remove_link_clean_already_absent_and_drifted() -> None:
+    """remove_link: ok (clean), already_absent (live already removed), conflict
+    (live has a different link source)."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "Consumer",
+                "inputs": [{"name": "model", "link": 99}],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[99, 1, 0, 3, 0, "MODEL"]],
+    }
+    clean_live = json.loads(json.dumps(submit_graph))
+    already_absent_live = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "Consumer",
+                "inputs": [{"name": "model", "link": None}],  # already unwired
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [],
+    }
+    drifted_live = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "Consumer",
+                "inputs": [{"name": "model", "link": 101}],  # different source
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[101, 2, 0, 3, 0, "MODEL"]],
+    }
+
+    remove_op = {"op": "remove_link", "to": ["nodes", "consumer", "model"]}
+
+    # Clean: live still has the same link
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[remove_op],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == {
+        "uid": "producer-a",
+        "output_slot": 0,
+    }
+
+    # Already absent: live already removed the link
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=already_absent_live,
+        candidate_graph=None,
+        delta_ops=[remove_op],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "already_absent"
+
+    # Drifted: live has a different link source
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=drifted_live,
+        candidate_graph=None,
+        delta_ops=[remove_op],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == {
+        "uid": "producer-a",
+        "output_slot": 0,
+    }
+    assert plan["entries"][0]["actual_before"] == {
+        "uid": "producer-b",
+        "output_slot": 0,
+    }
+
+
+def test_scoped_validation_matrix_add_node_uid_collision() -> None:
+    """add_node: ok when node absent, conflict when UID already exists in live."""
+    submit_graph: dict = {"nodes": [], "links": []}
+    clean_live: dict = {"nodes": [], "links": []}
+    collided_live = {
+        "nodes": [
+            {
+                "id": 99,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "new-node"},
+            },
+        ],
+        "links": [],
+    }
+
+    add_op = {
+        "op": "add_node",
+        "scope_path": "new-node",
+        "class_type": "PreviewImage",
+        "fields": {},
+        "inputs": {},
+    }
+
+    # Clean: node absent in live
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=clean_live,
+        candidate_graph=None,
+        delta_ops=[add_op],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == {"sentinel": "node_absent"}
+
+    # UID collision: live already has a node with the same UID
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=collided_live,
+        candidate_graph=None,
+        delta_ops=[add_op],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == {"sentinel": "node_absent"}
+    assert plan["entries"][0]["actual_before"] == {
+        "uid": "new-node",
+        "id": 99,
+        "type": "PreviewImage",
+    }
+
+
+def test_scoped_validation_matrix_remove_node_present_already_gone() -> None:
+    """remove_node: ok (node present), already_absent (node already gone)."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 4,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "doomed"},
+            },
+        ],
+        "links": [],
+    }
+    live_with_node = json.loads(json.dumps(submit_graph))
+    live_gone: dict = {"nodes": [], "links": []}
+
+    remove_op = {"op": "remove_node", "target": ["nodes", "doomed"]}
+
+    # Present → same node is still there → ok
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=live_with_node,
+        candidate_graph=None,
+        delta_ops=[remove_op],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == {
+        "uid": "doomed",
+        "id": 4,
+        "type": "PreviewImage",
+    }
+
+    # Already gone → node absent in live → already_absent
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=live_gone,
+        candidate_graph=None,
+        delta_ops=[remove_op],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "already_absent"
+
+
+def test_scoped_validation_matrix_unsupported_op_kinds() -> None:
+    """Unsupported/unknown op kinds produce unscopable status and diagnostics."""
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Note",
+                "properties": {"vibecomfy_uid": "note-1"},
+            },
+        ],
+        "links": [],
+    }
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=graph,
+        live_graph=graph,
+        candidate_graph=None,
+        delta_ops=[
+            {"op": "future_op_v3"},
+            {"op": "invalid/unsupported"},
+            {},  # missing op key entirely
+        ],
+    )
+    assert plan["ok"] is False
+    statuses = [entry["status"] for entry in plan["entries"]]
+    assert statuses == ["unscopable", "unscopable", "unscopable"]
+    assert len(plan["diagnostics"]) == 3
+    assert plan["diagnostics"][0]["code"] == "unsupported_delta_op"
+    assert plan["diagnostics"][1]["code"] == "unsupported_delta_op"
+    assert plan["diagnostics"][2]["code"] == "unsupported_delta_op"
+
+
+def test_scoped_validation_matrix_cross_op_kind_conflict_statuses() -> None:
+    """Every op kind can produce 'conflict' status when live and submit diverge.
+    This test covers the drifted path for set_node_field, set_mode,
+    reorder, upsert_link, remove_link, add_node, and remove_node
+    in a single plan for quick matrix verification."""
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 0,
+                "widgets": [{"name": "steps"}, {"name": "cfg"}, {"name": "seed"}],
+                "widgets_values": [20, 6.5, 42],
+                "inputs": [{"name": "model", "link": 99}],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+            {
+                "id": 2,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 5,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [888]}],
+                "properties": {"vibecomfy_uid": "producer-c"},
+            },
+            {
+                "id": 4,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "doomed"},
+            },
+        ],
+        "links": [[99, 2, 0, 1, 0, "MODEL"]],
+    }
+    # Live graph where every region has drifted *to a third value*:
+    # - widgets_values[0] changed from 20 to 77 (≠ desired 30)
+    # - mode changed from 0 to 3 (≠ desired 4)
+    # - widget order is ("seed","steps","cfg") — neither submit ("steps","cfg","seed")
+    #   nor desired ("cfg","steps","seed")
+    # - link switched to producer-c (≠ submit producer-a, ≠ desired producer-b)
+    # - doomed node replaced with different uid
+    # - a new node "collider" already exists (add_node collision)
+    live_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 3,
+                "widgets": [{"name": "seed"}, {"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [42, 77, 6.5],
+                "inputs": [{"name": "model", "link": 888}],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+            {
+                "id": 2,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 3,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [101]}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 5,
+                "type": "CheckpointLoaderSimple",
+                "outputs": [{"name": "model", "links": [888]}],
+                "properties": {"vibecomfy_uid": "producer-c"},
+            },
+            {
+                "id": 4,
+                "type": "Note",
+                "properties": {"vibecomfy_uid": "replacement"},
+            },
+            {
+                "id": 99,
+                "type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "collider"},
+            },
+        ],
+        "links": [[888, 5, 0, 1, 0, "MODEL"]],
+    }
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=live_graph,
+        candidate_graph=None,
+        delta_ops=[
+            {
+                "op": "set_node_field",
+                "target": ["nodes", "consumer", "steps"],
+                "value": 30,
+            },
+            {
+                "op": "set_mode",
+                "target": {"uid": "consumer"},
+                "mode": 4,
+            },
+            {
+                "op": "reorder",
+                "target": {"uid": "consumer"},
+                "axis": "widgets",
+                "order": ["cfg", "steps", "seed"],
+            },
+            {
+                "op": "upsert_link",
+                "from": ["nodes", "producer-b", 0],
+                "to": ["nodes", "consumer", "model"],
+            },
+            {
+                "op": "remove_link",
+                "to": ["nodes", "consumer", "model"],
+            },
+            {
+                "op": "add_node",
+                "scope_path": "collider",
+                "class_type": "PreviewImage",
+                "fields": {},
+                "inputs": {},
+            },
+            {
+                "op": "remove_node",
+                "target": ["nodes", "doomed"],
+            },
+        ],
+    )
+
+    assert plan["ok"] is True  # no unscopable entries
+    statuses = [entry["status"] for entry in plan["entries"]]
+    assert statuses == [
+        "conflict",        # set_node_field: 77 != 20
+        "conflict",        # set_mode: 3 != 0
+        "conflict",        # reorder: ("seed","steps","cfg") ≠ ("steps","cfg","seed")
+        "conflict",        # upsert_link: producer-c:0 ≠ producer-a:0
+        "conflict",        # remove_link: producer-c:0 origin (diff source)
+        "conflict",        # add_node: collider already exists
+        "already_absent",  # remove_node: doomed uid absent from live (replaced by different-uid node)
+    ]
+
+    # Spot-check a few entries
+    assert plan["entries"][0]["expected_old"] == 20
+    assert plan["entries"][0]["actual_before"] == 77
+    assert plan["entries"][1]["expected_old"] == 0
+    assert plan["entries"][1]["actual_before"] == 3
+    assert plan["entries"][2]["expected_old"] == ("steps", "cfg", "seed")
+    assert plan["entries"][2]["actual_before"] == ("seed", "steps", "cfg")
+    assert plan["entries"][6]["expected_old"] == {
+        "uid": "doomed",
+        "id": 4,
+        "type": "PreviewImage",
+    }
+    # doomed uid ("doomed") is absent from live (replaced by different-uid node)
+    assert plan["entries"][6]["actual_before"] == {"sentinel": "node_absent"}
+
+
+# ---------------------------------------------------------------------------
+# T6: Focused helper tests for graph indexing, value-resolution, field paths,
+#     mode, link endpoint normalization, and unresolvable-op diagnostics.
+# ---------------------------------------------------------------------------
+
+
+def test_graph_index_resolves_nodes_by_uid_and_litegraph_id() -> None:
+    """_build_graph_index and _find_node_in_graph resolve nodes by both
+    vibecomfy UID and LiteGraph id, including string/int id fallback."""
+
+    graph = {
+        "nodes": [
+            {
+                "id": 7,
+                "type": "CLIPTextEncode",
+                "widgets": [{"name": "text"}],
+                "widgets_values": ["a cat sitting"],
+                "properties": {"vibecomfy_uid": "clip-uid-1"},
+            },
+            {
+                "id": 99,
+                "type": "KSampler",
+                "mode": 0,
+                "properties": {},  # no vibecomfy_uid -- falls back to id
+            },
+        ],
+        "links": [],
+    }
+
+    # Resolve by vibecomfy UID
+    node_by_uid = _find_node_in_graph(graph, "clip-uid-1")
+    assert node_by_uid is not None
+    assert node_by_uid["id"] == 7
+    assert node_by_uid["type"] == "CLIPTextEncode"
+
+    # Resolve by int LiteGraph id
+    node_by_int_id = _find_node_in_graph(graph, "7")
+    assert node_by_int_id is node_by_uid
+
+    # Resolve by string LiteGraph id (no UID available)
+    node_by_str_id = _find_node_in_graph(graph, "99")
+    assert node_by_str_id is not None
+    assert node_by_str_id["id"] == 99
+    assert node_by_str_id["type"] == "KSampler"
+
+    # Also resolve by int (direct)
+    index = _build_graph_index(graph)
+    found_by_int = index.nodes_by_id.get(99)
+    assert found_by_int is not None
+    assert found_by_int["id"] == 99
+
+    # Missing node returns None
+    missing = _find_node_in_graph(graph, "nonexistent")
+    assert missing is None
+
+
+def test_read_field_value_distinguishes_json_null_from_missing_field() -> None:
+    """_read_field_value_from_node returns Python None for JSON null values
+    and _SENTINEL_NO_VALUE for fields that do not exist on the node."""
+
+    node = {
+        "id": 1,
+        "type": "TestNode",
+        "widgets": [
+            {"name": "prompt"},
+            {"name": "cfg"},
+            {"name": "empty_str"},
+            {"name": "zero_val"},
+            {"name": "bool_false"},
+        ],
+        "widgets_values": ["hello world", None, "", 0, False],
+        "inputs": [{"name": "model", "link": None}],
+    }
+
+    # JSON null → Python None (not sentinel)
+    assert _read_field_value_from_node(node, "cfg") is None
+
+    # Present string value
+    assert _read_field_value_from_node(node, "prompt") == "hello world"
+
+    # Empty string (present, not missing)
+    assert _read_field_value_from_node(node, "empty_str") == ""
+
+    # Zero value (present, not sentinel — falsy but not missing)
+    assert _read_field_value_from_node(node, "zero_val") == 0
+
+    # Boolean False (present, not sentinel)
+    assert _read_field_value_from_node(node, "bool_false") is False
+
+    # Missing field → sentinel
+    assert _read_field_value_from_node(node, "nonexistent_widget") is _SENTINEL_NO_VALUE
+
+    # Top-level missing key → sentinel
+    assert _read_field_value_from_node(node, "mode") is _SENTINEL_NO_VALUE
+
+    # inputs.model.link is None (present but JSON null)
+    assert _read_field_value_from_node(node, "inputs.model.link") is None
+
+    # inputs.model (not existing input name when accessed as widget) 
+    # inputs.model resolves through the inputs path in _read_field_value_from_node
+    input_model = _read_field_value_from_node(node, "inputs.model")
+    assert isinstance(input_model, dict)
+    assert input_model.get("name") == "model"
+    assert input_model.get("link") is None
+
+
+def test_read_field_value_covers_widgets_widgets_values_inputs_outputs_and_top_level() -> None:
+    """_read_field_value_from_node handles field paths for widgets,
+    widgets_values, inputs, outputs, top-level fields, and nested dotted paths
+    with bracket-index notation."""
+
+    node = {
+        "id": 5,
+        "type": "SamplerCustom",
+        "mode": 2,
+        "widgets": [{"name": "steps"}, {"name": "denoise"}],
+        "widgets_values": [20, 0.75],
+        "inputs": [
+            {"name": "model", "link": 42},
+            {"name": "positive", "link": 11},
+        ],
+        "outputs": [
+            {"name": "latent", "links": [99]},
+        ],
+        "extra_top_level": "top-value",
+    }
+
+    # Simple widget name lookup (flat)
+    assert _read_field_value_from_node(node, "steps") == 20
+    assert _read_field_value_from_node(node, "denoise") == 0.75
+
+    # widgets_values bracket access
+    assert _read_field_value_from_node(node, "widgets_values[0]") == 20
+    assert _read_field_value_from_node(node, "widgets_values.1") == 0.75
+
+    # widgets named socket access
+    assert _read_field_value_from_node(node, "widgets.steps") == {"name": "steps"}
+    assert _read_field_value_from_node(node, "widgets.steps.name") == "steps"
+
+    # inputs named socket access
+    assert _read_field_value_from_node(node, "inputs.model") == {
+        "name": "model",
+        "link": 42,
+    }
+    assert _read_field_value_from_node(node, "inputs.model.link") == 42
+
+    # outputs named socket access + list indexing
+    assert _read_field_value_from_node(node, "outputs.latent.links.0") == 99
+
+    # Top-level field
+    assert _read_field_value_from_node(node, "extra_top_level") == "top-value"
+
+    # Top-level field that is a Mapping
+    assert _read_field_value_from_node(node, "widgets") == node["widgets"]
+
+    # Out of range widgets_values index → sentinel
+    assert (
+        _read_field_value_from_node(node, "widgets_values[99]") is _SENTINEL_NO_VALUE
+    )
+
+
+def test_read_field_value_mode_special_case() -> None:
+    """_read_field_value_from_node handles the 'mode' field path specially:
+    returns the value of the 'mode' key from the node dict, or sentinel
+    when absent."""
+
+    node_with_mode = {"id": 1, "type": "KSampler", "mode": 4}
+    node_with_mode_zero = {"id": 2, "type": "KSampler", "mode": 0}
+    node_without_mode = {"id": 3, "type": "CheckpointLoaderSimple"}
+
+    # Mode present
+    assert _read_field_value_from_node(node_with_mode, "mode") == 4
+
+    # Mode zero (falsy but present)
+    assert _read_field_value_from_node(node_with_mode_zero, "mode") == 0
+
+    # Mode absent → sentinel
+    assert (
+        _read_field_value_from_node(node_without_mode, "mode") is _SENTINEL_NO_VALUE
+    )
+
+    # mode when there's also a widget named "mode": the special-case
+    # field_path == "mode" check at the top of _read_field_value_from_node
+    # runs before the widget-value path, so it returns the top-level "mode"
+    # key value (or sentinel if absent), not the widget value.
+    node_mode_widget = {
+        "id": 4,
+        "type": "TestNode",
+        "mode": 3,
+        "widgets": [{"name": "mode"}],
+        "widgets_values": ["widget_mode_value"],
+    }
+    assert _read_field_value_from_node(node_mode_widget, "mode") == 3
+
+    # If there's a widget called "mode" but no top-level "mode" key,
+    # the field_path="mode" early-exit returns sentinel (not the widget value).
+    node_mode_widget_no_top = {
+        "id": 5,
+        "type": "TestNode",
+        "widgets": [{"name": "mode"}],
+        "widgets_values": ["widget_mode_value"],
+    }
+    assert (
+        _read_field_value_from_node(node_mode_widget_no_top, "mode")
+        is _SENTINEL_NO_VALUE
+    )
+
+
+def test_normalize_link_endpoint_produces_correct_refs_and_rejects_invalid() -> None:
+    """_normalize_link_endpoint returns {'uid': ..., 'output_slot': ...}
+    for valid (node_alias, output_slot) pairs and _SENTINEL_NO_VALUE
+    for invalid or missing inputs."""
+
+    # Valid string alias + int slot
+    result = _normalize_link_endpoint("producer-a", 0)
+    assert result == {"uid": "producer-a", "output_slot": 0}
+
+    # Valid int alias + int slot
+    result = _normalize_link_endpoint(12, 2)
+    assert result == {"uid": "12", "output_slot": 2}
+
+    # Valid string alias + string slot (preserved as-is)
+    result = _normalize_link_endpoint("producer-b", "samples")
+    assert result == {"uid": "producer-b", "output_slot": "samples"}
+
+    # None node_alias → sentinel
+    assert _normalize_link_endpoint(None, 0) is _SENTINEL_NO_VALUE
+
+    # None output_slot → sentinel
+    assert _normalize_link_endpoint("producer-c", None) is _SENTINEL_NO_VALUE
+
+    # Non-int/str node_alias (e.g. a dict) → sentinel
+    assert _normalize_link_endpoint({"bad": "alias"}, 0) is _SENTINEL_NO_VALUE
+
+    # Zero output_slot is valid (not None)
+    result = _normalize_link_endpoint("producer-d", 0)
+    assert result == {"uid": "producer-d", "output_slot": 0}
+
+
+def test_normalize_target_uid_resolves_dict_and_list_forms() -> None:
+    """_normalize_target_uid extracts a string uid/id from dict and list
+    target representations."""
+
+    # Dict with uid key
+    assert _normalize_target_uid({"uid": "abc-123"}) == "abc-123"
+
+    # Dict with node_uid key
+    assert _normalize_target_uid({"node_uid": "xyz-456"}) == "xyz-456"
+
+    # Dict with id key
+    assert _normalize_target_uid({"id": 42}) == "42"
+
+    # Dict with node_id key
+    assert _normalize_target_uid({"node_id": 99}) == "99"
+
+    # Dict with scope_path key
+    assert _normalize_target_uid({"scope_path": "sp-1"}) == "sp-1"
+
+    # Dict with empty scope_path
+    assert _normalize_target_uid({"scope_path": ""}) is None
+
+    # Dict precedence: uid wins over all others
+    assert (
+        _normalize_target_uid({"uid": "uid-first", "id": 99, "node_id": 77})
+        == "uid-first"
+    )
+
+    # List target: [prefix, uid, ...]
+    assert _normalize_target_uid(["nodes", "list-uid", "field"]) == "list-uid"
+
+    # List target: [prefix, int_id, ...]
+    assert _normalize_target_uid(["nodes", 123, "field"]) == "123"
+
+    # List too short
+    assert _normalize_target_uid(["nodes"]) is None
+
+    # None/empty
+    assert _normalize_target_uid(None) is None
+    assert _normalize_target_uid({}) is None
+
+
+def test_canonical_node_uid_prefers_vibecomfy_uid_over_litegraph_id() -> None:
+    """_canonical_node_uid returns the vibecomfy_uid if available,
+    falling back to the LiteGraph id as a string."""
+
+    node_both = {
+        "id": 10,
+        "type": "TestNode",
+        "properties": {"vibecomfy_uid": "vuid-10"},
+    }
+    assert _canonical_node_uid(node_both) == "vuid-10"
+
+    node_only_id = {"id": 42, "type": "TestNode", "properties": {}}
+    assert _canonical_node_uid(node_only_id) == "42"
+
+    node_only_id_str = {
+        "id": "custom-str-id",
+        "type": "TestNode",
+        "properties": {},
+    }
+    assert _canonical_node_uid(node_only_id_str) == "custom-str-id"
+
+    node_neither = {"type": "TestNode", "properties": {}}
+    assert _canonical_node_uid(node_neither) is None
+
+    # Empty vibecomfy_uid string should fall through to id
+    node_empty_uid = {
+        "id": 55,
+        "type": "TestNode",
+        "properties": {"vibecomfy_uid": ""},
+    }
+    assert _canonical_node_uid(node_empty_uid) == "55"
+
+
+def test_split_field_path_normalizes_bracket_and_dot_notation() -> None:
+    """_split_field_path produces segment lists for dot-notation,
+    bracket-notation, and mixed paths."""
+
+    assert _split_field_path("widgets_values[0]") == ["widgets_values", "0"]
+    assert _split_field_path("inputs.model.link") == ["inputs", "model", "link"]
+    assert _split_field_path("outputs.latent.links[0]") == [
+        "outputs",
+        "latent",
+        "links",
+        "0",
+    ]
+    assert _split_field_path("widgets.steps.name") == ["widgets", "steps", "name"]
+    assert _split_field_path("mode") == ["mode"]
+    assert _split_field_path("simple_widget") == ["simple_widget"]
+    # Multiple brackets
+    assert _split_field_path("a[0][1].b") == ["a", "0", "1", "b"]
+
+
+def test_read_link_source_endpoint_resolves_origin_and_handles_missing() -> None:
+    """_read_link_source_endpoint resolves the link origin (node_uid,
+    output_slot) for a wired input; returns sentinels for missing nodes,
+    inputs, or links."""
+
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Producer",
+                "outputs": [{"name": "model", "links": [99]}],
+                "properties": {"vibecomfy_uid": "producer-a"},
+            },
+            {
+                "id": 2,
+                "type": "ProducerB",
+                "outputs": [{"name": "model", "links": []}],
+                "properties": {"vibecomfy_uid": "producer-b"},
+            },
+            {
+                "id": 3,
+                "type": "Consumer",
+                "inputs": [
+                    {"name": "model", "link": 99},
+                    {"name": "unwired", "link": None},
+                ],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [[99, 1, 0, 3, 0, "MODEL"]],
+    }
+    index = _build_graph_index(graph)
+
+    # Wired link resolves to origin
+    result = _read_link_source_endpoint(index, target_uid="consumer", input_field="model")
+    assert result == {"uid": "producer-a", "output_slot": 0}
+
+    # Link absent (link is None → _SENTINEL_LINK_ABSENT)
+    result = _read_link_source_endpoint(
+        index, target_uid="consumer", input_field="unwired"
+    )
+    assert result is _SENTINEL_LINK_ABSENT
+
+    # Missing node → _SENTINEL_NODE_ABSENT
+    result = _read_link_source_endpoint(
+        index, target_uid="nonexistent", input_field="model"
+    )
+    assert result is _SENTINEL_NODE_ABSENT
+
+    # Missing input → _SENTINEL_NO_VALUE
+    result = _read_link_source_endpoint(
+        index, target_uid="consumer", input_field="nonexistent_input"
+    )
+    assert result is _SENTINEL_NO_VALUE
+
+
+def test_unresolvable_recognized_ops_fail_closed_with_diagnostics() -> None:
+    """Recognized delta ops that cannot be resolved (missing target node,
+    invalid field paths, missing link endpoints) produce 'unscopable' status
+    and diagnostics entries in the validation plan."""
+
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 0,
+                "widgets": [{"name": "steps"}],
+                "widgets_values": [20],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    live_graph = json.loads(json.dumps(submit_graph))
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph,
+        live_graph=live_graph,
+        candidate_graph=None,
+        delta_ops=[
+            # set_node_field without "value" and without candidate_graph
+            # → candidate resolution fails → unscopable
+            {
+                "op": "set_node_field",
+                "target": ["nodes", "sampler-1", "text"],
+            },
+            # set_mode without "mode" key and without candidate_graph
+            # → candidate resolution fails → unscopable
+            {
+                "op": "set_mode",
+                "target": {"uid": "sampler-1"},
+            },
+            # reorder with missing order list → unscopable
+            {
+                "op": "reorder",
+                "target": {"uid": "sampler-1"},
+            },
+            # remove_link without resolvable target → unscopable
+            {
+                "op": "remove_link",
+            },
+            # unsupported op kind → unscopable
+            {
+                "op": "unknown_future_op",
+            },
+        ],
+    )
+
+    # All entries should have unscopable status
+    statuses = [entry["status"] for entry in plan["entries"]]
+    assert all(s == "unscopable" for s in statuses), f"Expected all unscopable, got {statuses}"
+
+    # Plan should not be ok
+    assert plan["ok"] is False
+
+    # Diagnostics should be present for every entry
+    assert len(plan["diagnostics"]) == 5
+    assert [diag["code"] for diag in plan["diagnostics"]] == [
+        "unscopable_delta_op",
+        "unscopable_delta_op",
+        "unscopable_delta_op",
+        "unscopable_delta_op",
+        "unsupported_delta_op",
+    ]
+    for diag in plan["diagnostics"]:
+        assert diag["severity"] == "error"
+
+
+def test_unscopable_remove_link_and_unsupported_op_kind_produce_diagnostics() -> None:
+    """remove_link ops that cannot resolve a target, and unrecognized op
+    kinds, produce unscopable status with diagnostics."""
+
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Consumer",
+                "inputs": [{"name": "model", "link": None}],
+                "properties": {"vibecomfy_uid": "consumer"},
+            },
+        ],
+        "links": [],
+    }
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=graph,
+        live_graph=graph,
+        candidate_graph=None,
+        delta_ops=[
+            # remove_link without target
+            {"op": "remove_link"},
+            # Unrecognized op kind
+            {"op": "unknown_future_op", "payload": "whatever"},
+        ],
+    )
+
+    statuses = [entry["status"] for entry in plan["entries"]]
+    assert statuses == ["unscopable", "unscopable"]
+    assert plan["ok"] is False
+
+    assert len(plan["diagnostics"]) == 2
+    # First diagnostic should mention the remove_link error
+    assert plan["diagnostics"][0]["op"] == "remove_link"
+    assert plan["diagnostics"][0]["code"] == "unscopable_delta_op"
+    # Second diagnostic should mention the unsupported op
+    assert plan["diagnostics"][1]["op"] == "unknown_future_op"
+    assert plan["diagnostics"][1]["code"] == "unsupported_delta_op"
+    assert "Unsupported delta op kind" in plan["diagnostics"][1]["message"]
+
+
+def test_scoped_sentinel_payload_round_trips_sentinels() -> None:
+    """_scoped_sentinel_payload converts sentinel objects to payload-safe dicts
+    and passes through non-sentinel values unchanged."""
+    from vibecomfy.comfy_nodes.agent_session import _scoped_sentinel_payload
+
+    assert _scoped_sentinel_payload(_SENTINEL_NO_VALUE) == {"sentinel": "missing_value"}
+    assert _scoped_sentinel_payload(_SENTINEL_LINK_ABSENT) == {"sentinel": "link_absent"}
+    assert _scoped_sentinel_payload(_SENTINEL_NODE_ABSENT) == {"sentinel": "node_absent"}
+    assert _scoped_sentinel_payload(None) is None
+    assert _scoped_sentinel_payload(0) == 0
+    assert _scoped_sentinel_payload("hello") == "hello"
+    assert _scoped_sentinel_payload({"key": "val"}) == {"key": "val"}
+
+
+def test_resolve_submit_value_for_op_dispatches_to_correct_per_op_handler() -> None:
+    """_resolve_submit_value_for_op dispatches to the correct per-op resolver
+    and returns (value, error_message)."""
+
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 0,
+                "widgets": [{"name": "steps"}],
+                "widgets_values": [20],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+
+    # set_node_field resolves expected old from submit graph
+    # (note: the "value" key in the op is for desired_new, not expected_old)
+    value, err = _resolve_submit_value_for_op(
+        submit_graph=graph,
+        op={"op": "set_node_field", "target": ["nodes", "sampler-1", "steps"], "value": 30},
+    )
+    assert err is None
+    assert value == 20  # submit graph has widgets_values[0] == 20 for "steps"
+
+    # set_mode resolves mode from submit graph
+    value, err = _resolve_submit_value_for_op(
+        submit_graph=graph,
+        op={"op": "set_mode", "target": {"uid": "sampler-1"}, "mode": 2},
+    )
+    assert err is None
+    assert value == 0  # submit graph mode is 0
+
+    # add_node resolves expected absence
+    value, err = _resolve_submit_value_for_op(
+        submit_graph=graph,
+        op={"op": "add_node", "scope_path": "new-node", "class_type": "PreviewImage"},
+    )
+    assert err is None
+    assert value is _SENTINEL_NODE_ABSENT
+
+    # remove_node resolves expected presence
+    value, err = _resolve_submit_value_for_op(
+        submit_graph=graph,
+        op={"op": "remove_node", "target": ["nodes", "sampler-1"]},
+    )
+    assert err is None
+    assert isinstance(value, dict)
+    assert value["uid"] == "sampler-1"
+    assert value["id"] == 1
+
+    # remove_node for nonexistent returns sentinel
+    value, err = _resolve_submit_value_for_op(
+        submit_graph=graph,
+        op={"op": "remove_node", "target": ["nodes", "nonexistent"]},
+    )
+    assert err is None
+    assert value is _SENTINEL_NODE_ABSENT
+
+    # Unsupported op kind
+    value, err = _resolve_submit_value_for_op(
+        submit_graph=graph,
+        op={"op": "bogus_op"},
+    )
+    assert value is None
+    assert err is not None
+    assert "Unsupported delta op kind" in err
+
+    # Missing op kind
+    value, err = _resolve_submit_value_for_op(
+        submit_graph=graph,
+        op={"payload": "no op key"},
+    )
+    assert value is None
+    assert err is not None
+    assert "Missing or invalid op kind" in err
+
+
+# ── T10: Accept-gate regression tests ───────────────────────────────────────
+
+
+def test_v2_accept_unrelated_whole_graph_drift_succeeds_with_diagnostic_mismatch_evidence(
+    tmp_path: Path,
+) -> None:
+    """V2 scoped accept succeeds when unrelated whole-graph regions drift,
+    but the touched region matches the submit-time graph.  The structural CAS
+    mismatch is recorded as a diagnostic, not a blocking failure."""
+    root = tmp_path / "sessions"
+
+    # 1. Accept a V1 turn to establish a baseline.
+    v1_request = _request_graph("baseline-anchor")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    v1_candidate = _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=v1,
+        graph={
+            "nodes": [
+                {"id": 1, "type": "SaveImage", "widgets_values": ["baseline-anchor"]},
+            ],
+            "links": [],
+        },
+    )
+    accepted_v1 = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+    assert isinstance(accepted_v1, dict)
+    baseline_hash_after_v1 = structural_graph_hash(v1_candidate)
+
+    # 2. Allocate a V2 turn whose submit graph has two nodes.  The turn
+    #    captures the current baseline snapshot (from V1).
+    v2_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-submit-node1"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+            {
+                "id": 2,
+                "type": "PreviewImage",
+                "widgets_values": ["v2-submit-node2"],
+                "properties": {"vibecomfy_uid": "node-2"},
+            },
+        ],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-drift-ok",
+        "task": "edit v2 drift",
+        "client_live_canvas_token": "live:rev:1:v2-drift-ok",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+    v2_candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-candidate-val"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+            {
+                "id": 2,
+                "type": "PreviewImage",
+                "widgets_values": ["v2-submit-node2"],
+                "properties": {"vibecomfy_uid": "node-2"},
+            },
+        ],
+        "links": [],
+    }
+    # delta_ops only touch node-1
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2_id,
+            "graph": v2_candidate_graph,
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "node-1", "widgets_values.0"],
+                    "value": "v2-candidate-val",
+                },
+            ],
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    # 3. Manually shift the baseline so the V2 turn sees a structural CAS
+    #    mismatch, without accepting another turn (which would supersede the
+    #    V2 turn into "unknown" state).  Also delete the turn's structural
+    #    hash and nullify baseline_turn_id so read_state won't normalize
+    #    the baseline back to the V1 candidate.
+    state = read_state(root / "s1")
+    v2_turn_record = state["turns"][v2_id]
+    del v2_turn_record["candidate_structural_graph_hash"]
+    del v2_turn_record["candidate_structural_graph_hash_version"]
+    state["baseline_turn_id"] = None
+    state["baseline_graph_hash"] = structural_graph_hash(
+        {"nodes": [{"id": 77, "type": "PreviewImage"}], "links": []}
+    )
+    state["baseline_graph_hash_kind"] = "structural"
+    state["baseline_graph_hash_version"] = 2
+    state["baseline_source"] = "rebaseline"
+    state["baseline_rebaseline_id"] = "manual-shift"
+    state["baseline_graph_source_path"] = "_rebaseline/manual-shift/graph.ui.json"
+    write_state_atomic(root / "s1", state)
+    shifted_baseline_hash = state["baseline_graph_hash"]
+    assert shifted_baseline_hash != baseline_hash_after_v1
+
+    # 4. Accept the V2 turn with a live_graph whose *touched* region (node-1)
+    #    matches the submit graph, but the *unrelated* region (node-2) differs
+    #    from the submit graph.  This creates a structural CAS mismatch that
+    #    should be diagnostic-only for V2.
+    v2_live_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-submit-node1"],  # matches submit
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+            {
+                "id": 2,
+                "type": "PreviewImage",
+                "widgets_values": ["drifted-unrelated-value"],  # unrelated drift
+                "properties": {"vibecomfy_uid": "node-2"},
+            },
+        ],
+        "links": [],
+    }
+
+    accepted_v2 = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2_id,
+            "action": "accept",
+            "live_graph": v2_live_graph,
+            "submit_graph_hash": v2_submit_graph_hash,
+            "candidate_graph_hash": v2_candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:v2-drift-ok",
+        },
+    )
+
+    # V2 scoped accept MUST succeed — the touched region (node-1) is clean.
+    assert isinstance(accepted_v2, dict), (
+        f"Expected V2 accept to succeed despite unrelated drift, "
+        f"got failure: {accepted_v2}"
+    )
+    assert accepted_v2["ok"] is True
+
+    # Diagnostics MUST include the whole_graph_hash_mismatch evidence.
+    diagnostics = accepted_v2.get("diagnostics", [])
+    hash_mismatch_diags = [
+        d for d in diagnostics if d["code"] == "whole_graph_hash_mismatch"
+    ]
+    assert len(hash_mismatch_diags) > 0, (
+        f"Expected whole_graph_hash_mismatch diagnostic when baseline shifted "
+        f"under a V2 accept, got diagnostics: {diagnostics}"
+    )
+    assert hash_mismatch_diags[0]["severity"] == "info"
+    assert "v2 used scoped validation instead" in hash_mismatch_diags[0]["message"]
+
+    # The accepted response must reference the V2 turn.
+    assert accepted_v2["baseline_turn_id"] == v2_id
+    state = read_state(root / "s1")
+    assert state["turns"][v2_id]["state"] == "accepted"
+
+
+def test_v2_accept_touched_region_drift_fails_with_scoped_issue_details(
+    tmp_path: Path,
+) -> None:
+    """V2 scoped accept fails when the *same* field targeted by delta_ops has
+    drifted in the live canvas.  The failure payload carries scoped issue
+    details including node_uid, field_path, expected_old, and actual_before."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish a baseline with a V1 accept.
+    v1_request = _request_graph("baseline-for-touched")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=v1,
+        graph={
+            "nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["baseline"]}],
+            "links": [],
+        },
+    )
+    accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+
+    # 2. Allocate a V2 turn whose submit graph has a specific widget value.
+    v2_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [20, 6.5],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-touched",
+        "task": "edit v2 touched drift",
+        "client_live_canvas_token": "live:rev:1:v2-touched",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+
+    v2_candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [30, 6.5],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2_id,
+            "graph": v2_candidate_graph,
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "sampler-1", "steps"],
+                    "value": 30,
+                },
+            ],
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    # 3. Manually shift the baseline so there is a whole-graph CAS mismatch
+    #    diagnostic, but the real blocking gate is scoped validation.
+    #    We must NOT accept another turn, since that would supersede the
+    #    pending V2 turn into "unknown" state.  Delete the turn's structural
+    #    hash and nullify baseline_turn_id so read_state won't normalize back.
+    state = read_state(root / "s1")
+    v2_turn_record = state["turns"][v2_id]
+    del v2_turn_record["candidate_structural_graph_hash"]
+    del v2_turn_record["candidate_structural_graph_hash_version"]
+    state["baseline_turn_id"] = None
+    state["baseline_graph_hash"] = structural_graph_hash(
+        {"nodes": [{"id": 99, "type": "Note"}], "links": []}
+    )
+    state["baseline_graph_hash_kind"] = "structural"
+    state["baseline_graph_hash_version"] = 2
+    state["baseline_source"] = "rebaseline"
+    state["baseline_rebaseline_id"] = "manual-shift-touched"
+    state["baseline_graph_source_path"] = (
+        "_rebaseline/manual-shift-touched/graph.ui.json"
+    )
+    write_state_atomic(root / "s1", state)
+
+    # 4. Accept the V2 turn with a live_graph where steps=99 (drifted from
+    #    the submit-time value of 20).  The touched region has changed.
+    v2_drifted_live = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}],
+                "widgets_values": [99, 6.5],  # steps drifted from 20 → 99
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+
+    failure = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2_id,
+            "action": "accept",
+            "live_graph": v2_drifted_live,
+            "submit_graph_hash": v2_submit_graph_hash,
+            "candidate_graph_hash": v2_candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:v2-touched",
+        },
+    )
+
+    # V2 scoped accept MUST fail — the touched region drifted.
+    assert not isinstance(failure, dict), (
+        f"Expected V2 scoped accept to fail on touched-region drift, "
+        f"got success: {failure}"
+    )
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+
+    # The failure must carry scoped issues.
+    issues = failure.agent_failure_context.get("issues", [])
+    assert len(issues) > 0, (
+        f"Expected scoped issue details in agent_failure_context.issues, "
+        f"got: {failure.agent_failure_context}"
+    )
+
+    # The issue for the drifted op must have scoped details.
+    drifted_issues = [
+        iss for iss in issues
+        if iss.get("op") == "set_node_field" and iss.get("code") == "scoped_conflict"
+    ]
+    assert len(drifted_issues) > 0, (
+        f"Expected scoped_conflict issue for set_node_field, got issues: {issues}"
+    )
+    issue = drifted_issues[0]
+
+    # node_uid identifies the affected node.
+    assert issue.get("node_uid") == "sampler-1"
+    # field_path identifies the drifted field.
+    assert issue.get("field_path") == "steps"
+    # expected_old is the submit-time value (20).
+    assert issue.get("expected_old") == 20
+    # actual_before is the drifted live value (99).
+    assert issue.get("actual_before") == 99
+    # status must be conflict.
+    assert issue.get("status") == "conflict"
+    # rebaseline_recovery must be present and contain the right fields.
+    recovery = issue.get("rebaseline_recovery")
+    assert recovery is not None, "scoped_conflict issue missing rebaseline_recovery"
+    assert recovery["action"] == "rebaseline"
+
+    # The turn must remain in candidate state (not accepted).
+    state = read_state(root / "s1")
+    assert state["turns"][v2_id]["state"] == "candidate"
+
+
+def test_v2_accept_missing_evidence_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """V2 scoped accept fails closed when persisted evidence (submit graph or
+    delta_ops) cannot be loaded from the turn directory."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish baseline.
+    v1_request = _request_graph("baseline-ev")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=v1)
+    accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+
+    # 2. Allocate a V2 turn and write delta_ops in the response, but do NOT
+    #    write request.json — the submit graph will be missing at accept time.
+    v2_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-ev"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-missing-ev",
+        "task": "edit v2 missing evidence",
+        "client_live_canvas_token": "live:rev:1:v2-missing-ev",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    # DELIBERATELY skip writing request.json — evidence loading will fail.
+
+    v2_candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-candidate-ev"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2_id,
+            "graph": v2_candidate_graph,
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "node-1", "widgets_values.0"],
+                    "value": "v2-candidate-ev",
+                },
+            ],
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    # 3. Accept the V2 turn — evidence loading will fail because request.json
+    #    is missing.
+    failure = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2_id,
+            "action": "accept",
+            "live_graph": v2_submit_graph,
+            "submit_graph_hash": v2_submit_graph_hash,
+            "candidate_graph_hash": v2_candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:v2-missing-ev",
+        },
+    )
+
+    # V2 accept MUST fail closed when evidence cannot be loaded.
+    assert not isinstance(failure, dict), (
+        f"Expected V2 accept to fail closed on missing evidence, "
+        f"got success: {failure}"
+    )
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+
+    # The failure explanation must indicate evidence loading failure.
+    explanation = failure.agent_failure_context.get("explanation", "")
+    assert "could not load" in explanation.lower() or "evidence" in explanation.lower(), (
+        f"Expected evidence-loading failure explanation, "
+        f"got: {failure.agent_failure_context}"
+    )
+
+    # Issues must be present.
+    issues = failure.agent_failure_context.get("issues", [])
+    assert len(issues) > 0, (
+        f"Expected issues for failed evidence loading, "
+        f"got: {failure.agent_failure_context}"
+    )
+
+    # The turn must remain in candidate state.
+    state = read_state(root / "s1")
+    assert state["turns"][v2_id]["state"] == "candidate"
+
+    # ── Second scenario: V2 turn with no delta_ops in response ──────────────
+    # When delta_ops is missing from the response, the turn is classified as
+    # V1, not V2.  But we can also test what happens when delta_ops is empty.
+    v2b_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2b-ev"],
+                "properties": {"vibecomfy_uid": "node-1b"},
+            },
+        ],
+        "links": [],
+    }
+    v2b_request = {
+        "graph": v2b_submit_graph,
+        "client_graph_hash": "client-v2b-empty-delta",
+        "task": "edit v2b empty delta",
+        "client_live_canvas_token": "live:rev:1:v2b-empty",
+    }
+    v2b = allocate_turn(
+        session_root=root, session_id="s1", request_payload=v2b_request
+    )
+    v2b_id = str(v2b.context.turn_id)
+    (v2b.turn_dir / "request.json").write_text(
+        json.dumps(v2b_request), encoding="utf-8"
+    )
+    v2b_candidate = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2b-candidate"],
+                "properties": {"vibecomfy_uid": "node-1b"},
+            },
+        ],
+        "links": [],
+    }
+    # Record response with empty delta_ops list
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2b.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2b_id,
+            "graph": v2b_candidate,
+            "delta_ops": [],  # empty delta_ops list
+        },
+        response_path=v2b.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2b_id,
+    )
+    v2b_submit_hash = payload_hash(v2b_submit_graph)
+    v2b_candidate_hash = payload_hash(v2b_candidate)
+
+    failure2 = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2b_id,
+        client_graph_hash=v2b_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2b_id,
+            "action": "accept",
+            "live_graph": v2b_submit_graph,
+            "submit_graph_hash": v2b_submit_hash,
+            "candidate_graph_hash": v2b_candidate_hash,
+            "client_live_canvas_token": "live:rev:1:v2b-empty",
+        },
+    )
+
+    # An empty delta_ops still classifies as v2_delta, but scoped validation
+    # with no ops should succeed (the acceptance gate passes).
+    assert isinstance(failure2, dict), (
+        f"Expected V2 accept with empty delta_ops to succeed (no ops to validate), "
+        f"got failure: {failure2}"
+    )
+    assert failure2["ok"] is True
+
+
+def test_v1_accept_structural_cas_drift_blocks_as_before(
+    tmp_path: Path,
+) -> None:
+    """Legacy V1 accept path still blocks on structural CAS mismatch.
+    This is the existing behaviour and must not regress."""
+    root = tmp_path / "sessions"
+
+    # 1. Accept a first V1 turn to set a baseline.
+    first_request = _request_graph("v1-cas-first")
+    first = allocate_turn(
+        session_root=root, session_id="s1", request_payload=first_request
+    )
+    first_id = str(first.context.turn_id)
+    first_candidate = _record_candidate_response(
+        root=root, session_id="s1", allocation=first,
+    )
+    accepted_first = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=first_id,
+        client_graph_hash=payload_hash(first_request["graph"]),
+        request_payload={"turn_id": first_id, "action": "accept"},
+    )
+    assert isinstance(accepted_first, dict)
+
+    # 2. Allocate a second V1 turn (no delta_ops → agent_edit_protocol == "v1").
+    second_request = _request_graph("v1-cas-second")
+    second = allocate_turn(
+        session_root=root, session_id="s1", request_payload=second_request
+    )
+    second_id = str(second.context.turn_id)
+    _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=second,
+    )
+
+    # 3. Manually shift the baseline to a different structural hash so the
+    #    second turn's expected baseline no longer matches.
+    state = read_state(root / "s1")
+    state["baseline_turn_id"] = None
+    state["baseline_graph_hash"] = structural_graph_hash(
+        {"nodes": [{"id": 77, "type": "PreviewImage"}], "links": []}
+    )
+    state["baseline_graph_hash_kind"] = "structural"
+    state["baseline_graph_hash_version"] = 2
+    state["baseline_source"] = "rebaseline"
+    state["baseline_rebaseline_id"] = "manual-v1-drift"
+    state["baseline_graph_source_path"] = "_rebaseline/manual-v1-drift/graph.ui.json"
+    write_state_atomic(root / "s1", state)
+
+    # 4. Accept the second V1 turn — MUST fail on structural CAS mismatch.
+    failure = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=second_id,
+        client_graph_hash=payload_hash(second_request["graph"]),
+        request_payload={"turn_id": second_id, "action": "accept"},
+    )
+
+    assert not isinstance(failure, dict), (
+        f"Expected V1 accept to block on structural CAS mismatch, "
+        f"got success: {failure}"
+    )
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+    assert (
+        failure.agent_failure_context["reason"]
+        == "structural_baseline_cas_mismatch"
+    )
+    assert (
+        failure.agent_failure_context["expected_baseline_graph_hash"]
+        == structural_graph_hash(first_candidate)
+    )
+    assert (
+        failure.agent_failure_context["submitted_baseline_graph_hash"]
+        == structural_graph_hash(first_candidate)
+    )
+
+    # The turn must remain in candidate state (not accepted).
+    state = read_state(root / "s1")
+    assert state["turns"][second_id]["state"] == "candidate"
+    # The baseline must not have changed.
+    assert state["baseline_source"] == "rebaseline"
+    assert state["baseline_graph_hash"] != structural_graph_hash(first_candidate)
+
+
+# ── T12: V2 successful accept diagnostics and response payload tests ────────
+
+
+def test_v2_accept_response_scoped_verification_semantics(
+    tmp_path: Path,
+) -> None:
+    """Prove that a successful V2 accept response carries scoped_accept_verification
+    with correct entries structure (op, target, expected_old, actual_before,
+    desired_new, status) and echoes delta_ops stably."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish a baseline with a V1 accept.
+    v1_request = _request_graph("baseline-scoped-ver")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=v1,
+        graph={
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "KSampler",
+                    "widgets": [{"name": "steps"}, {"name": "cfg"}, {"name": "seed"}],
+                    "widgets_values": [20, 7.0, 42],
+                    "properties": {"vibecomfy_uid": "sampler-1"},
+                }
+            ],
+            "links": [],
+        },
+    )
+    accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+
+    # 2. Allocate a V2 turn with multiple delta_ops touching different fields.
+    v2_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}, {"name": "seed"}],
+                "widgets_values": [20, 7.0, 42],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-scoped-ver",
+        "task": "edit v2 scoped verification",
+        "client_live_canvas_token": "live:rev:1:v2-scoped-ver",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+
+    v2_candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "widgets": [{"name": "steps"}, {"name": "cfg"}, {"name": "seed"}],
+                "widgets_values": [30, 7.0, 99],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2_id,
+            "graph": v2_candidate_graph,
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "sampler-1", "steps"],
+                    "value": 30,
+                },
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "sampler-1", "seed"],
+                    "value": 99,
+                },
+            ],
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    # 3. Accept the V2 turn with a live_graph that matches the submit graph
+    #    (no drift).  This should succeed cleanly.
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2_id,
+            "action": "accept",
+            "live_graph": v2_submit_graph,  # live == submit, no drift
+            "submit_graph_hash": v2_submit_graph_hash,
+            "candidate_graph_hash": v2_candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:v2-scoped-ver",
+        },
+    )
+
+    assert isinstance(accepted, dict)
+    assert accepted["ok"] is True
+
+    # scoped_accept_verification MUST be present.
+    scoped_ver = accepted.get("scoped_accept_verification")
+    assert scoped_ver is not None, (
+        f"Expected scoped_accept_verification in V2 accept response, "
+        f"got keys: {sorted(accepted.keys())}"
+    )
+    assert scoped_ver["ok"] is True
+    assert isinstance(scoped_ver["entries"], list)
+    assert len(scoped_ver["entries"]) == 2, (
+        f"Expected 2 entries for 2 delta_ops, got {len(scoped_ver['entries'])}"
+    )
+
+    # First entry: set_node_field on steps (20 → 30)
+    e0 = scoped_ver["entries"][0]
+    assert e0["op"] == "set_node_field"
+    assert e0["target"] == ["nodes", "sampler-1", "steps"]
+    assert e0["expected_old"] == 20      # submit-time value
+    assert e0["actual_before"] == 20      # live value matches submit
+    assert e0["desired_new"] == 30        # candidate value
+    assert e0["status"] == "ok"
+
+    # Second entry: set_node_field on seed (42 → 99)
+    e1 = scoped_ver["entries"][1]
+    assert e1["op"] == "set_node_field"
+    assert e1["target"] == ["nodes", "sampler-1", "seed"]
+    assert e1["expected_old"] == 42
+    assert e1["actual_before"] == 42
+    assert e1["desired_new"] == 99
+    assert e1["status"] == "ok"
+
+    # delta_ops MUST be echoed.
+    delta_echo = accepted.get("delta_ops")
+    assert delta_echo is not None, "V2 accept response missing delta_ops echo"
+    assert isinstance(delta_echo, list)
+    assert len(delta_echo) == 2
+    assert delta_echo[0]["op"] == "set_node_field"
+    assert delta_echo[0]["value"] == 30
+    assert delta_echo[1]["op"] == "set_node_field"
+    assert delta_echo[1]["value"] == 99
+
+
+def test_v2_accept_baseline_hash_updates_to_candidate_structural_hash(
+    tmp_path: Path,
+) -> None:
+    """Prove that a successful V2 accept updates the session baseline hash to
+    the candidate structural hash (not the submit or live structural hash)."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish a baseline with a V1 accept.
+    v1_request = _request_graph("baseline-bh-update")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    v1_candidate = _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=v1,
+        graph={
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "SaveImage",
+                    "widgets_values": ["v1-baseline"],
+                    "properties": {"vibecomfy_uid": "node-1"},
+                }
+            ],
+            "links": [],
+        },
+    )
+    accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+    v1_structural = structural_graph_hash(v1_candidate)
+
+    # 2. Allocate a V2 turn with a different candidate graph.
+    v2_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-submit"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-bh-update",
+        "task": "edit v2 bh update",
+        "client_live_canvas_token": "live:rev:1:v2-bh-update",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+
+    v2_candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["v2-candidate-bh"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2_id,
+            "graph": v2_candidate_graph,
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "node-1", "widgets_values.0"],
+                    "value": "v2-candidate-bh",
+                }
+            ],
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+    v2_candidate_structural = structural_graph_hash(v2_candidate_graph)
+
+    # The candidate structural hash MUST differ from the V1 baseline hash,
+    # otherwise we wouldn't be proving that it *updates*.
+    assert v2_candidate_structural != v1_structural, (
+        "Test fixture error: V2 candidate structural hash unexpectedly "
+        "matches V1 baseline structural hash"
+    )
+
+    # 3. Accept the V2 turn.
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2_id,
+            "action": "accept",
+            "live_graph": v2_submit_graph,
+            "submit_graph_hash": v2_submit_graph_hash,
+            "candidate_graph_hash": v2_candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:v2-bh-update",
+        },
+    )
+
+    assert isinstance(accepted, dict)
+    assert accepted["ok"] is True
+
+    # The response baseline hash MUST be the candidate structural hash.
+    assert accepted["baseline_graph_hash"] == v2_candidate_structural
+    assert accepted["baseline_graph_hash_kind"] == "structural"
+    assert accepted["baseline_turn_id"] == v2_id
+
+    # The persisted state MUST match.
+    state = read_state(root / "s1")
+    assert state["baseline_graph_hash"] == v2_candidate_structural
+    assert state["baseline_graph_hash_kind"] == "structural"
+    assert state["baseline_turn_id"] == v2_id
+    assert state["baseline_source"] == "turn"
+
+    # The turn MUST be marked accepted.
+    assert state["turns"][v2_id]["state"] == "accepted"
+
+
+def test_v2_accept_idempotent_replay_returns_stable_scoped_verification_and_delta_ops(
+    tmp_path: Path,
+) -> None:
+    """Repeated V2 accept with the same idempotency key and request body
+    returns the identical response, including scoped_accept_verification
+    and delta_ops echo."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish baseline.
+    v1_request = _request_graph("baseline-idem-v2")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=v1,
+        graph={
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "SaveImage",
+                    "widgets_values": ["idem-base"],
+                    "properties": {"vibecomfy_uid": "node-1"},
+                }
+            ],
+            "links": [],
+        },
+    )
+    accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+
+    # 2. Allocate a V2 turn.
+    v2_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["idem-submit"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-idem",
+        "task": "edit v2 idem",
+        "client_live_canvas_token": "live:rev:1:v2-idem",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+
+    v2_candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["idem-candidate"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2_id,
+            "graph": v2_candidate_graph,
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "node-1", "widgets_values.0"],
+                    "value": "idem-candidate",
+                }
+            ],
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    accept_payload = {
+        "turn_id": v2_id,
+        "action": "accept",
+        "live_graph": v2_submit_graph,
+        "submit_graph_hash": v2_submit_graph_hash,
+        "candidate_graph_hash": v2_candidate_graph_hash,
+        "client_live_canvas_token": "live:rev:1:v2-idem",
+    }
+
+    # 3. First accept with idempotency key.
+    first = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload=dict(accept_payload),
+        idempotency_key="v2-accept-idem-1",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert isinstance(first, dict)
+    assert first["ok"] is True
+
+    # The first response MUST carry scoped_accept_verification and delta_ops.
+    assert "scoped_accept_verification" in first
+    assert "delta_ops" in first
+
+    # 4. Replay the same accept — MUST return the identical dict.
+    replayed = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload=dict(accept_payload),
+        idempotency_key="v2-accept-idem-1",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert replayed == first, (
+        f"Idempotent replay returned a different response.\n"
+        f"First: {json.dumps(first, sort_keys=True, default=str)}\n"
+        f"Replay: {json.dumps(replayed, sort_keys=True, default=str)}"
+    )
+
+    # The replayed response MUST still carry scoped_accept_verification and delta_ops.
+    assert "scoped_accept_verification" in replayed
+    assert "delta_ops" in replayed
+    assert replayed["scoped_accept_verification"] == first["scoped_accept_verification"]
+    assert replayed["delta_ops"] == first["delta_ops"]
+
+
+def test_v2_accept_audit_record_written_with_scoped_response_fields(
+    tmp_path: Path,
+) -> None:
+    """Prove that a successful V2 accept writes an idempotency record that
+    captures the full response (including scoped_accept_verification and
+    delta_ops) and that the record fields are consistent."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish baseline.
+    v1_request = _request_graph("baseline-audit")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    _record_candidate_response(
+        root=root,
+        session_id="s1",
+        allocation=v1,
+        graph={
+            "nodes": [
+                {
+                    "id": 1,
+                    "type": "SaveImage",
+                    "widgets_values": ["audit-base"],
+                    "properties": {"vibecomfy_uid": "node-1"},
+                }
+            ],
+            "links": [],
+        },
+    )
+    accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+
+    # 2. Allocate a V2 turn.
+    v2_submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["audit-submit"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-audit",
+        "task": "edit v2 audit",
+        "client_live_canvas_token": "live:rev:1:v2-audit",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+
+    v2_candidate_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "widgets_values": ["audit-candidate"],
+                "properties": {"vibecomfy_uid": "node-1"},
+            },
+        ],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True,
+            "turn_id": v2_id,
+            "graph": v2_candidate_graph,
+            "delta_ops": [
+                {
+                    "op": "set_node_field",
+                    "target": ["nodes", "node-1", "widgets_values.0"],
+                    "value": "audit-candidate",
+                }
+            ],
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit",
+        turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    accept_payload = {
+        "turn_id": v2_id,
+        "action": "accept",
+        "live_graph": v2_submit_graph,
+        "submit_graph_hash": v2_submit_graph_hash,
+        "candidate_graph_hash": v2_candidate_graph_hash,
+        "client_live_canvas_token": "live:rev:1:v2-audit",
+    }
+
+    # 3. Accept with idempotency key and response_writer.
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload=dict(accept_payload),
+        idempotency_key="v2-accept-audit-1",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert isinstance(accepted, dict)
+    assert accepted["ok"] is True
+    assert "scoped_accept_verification" in accepted
+    assert "delta_ops" in accepted
+
+    # 4. Read the session state and verify the audit record.
+    state = read_state(root / "s1")
+    records = state.get("idempotency_records", {})
+    record = records.get("accept:v2-accept-audit-1")
+    assert record is not None, (
+        f"Expected idempotency record for key 'accept:v2-accept-audit-1', "
+        f"got keys: {sorted(records.keys())}"
+    )
+
+    # The record MUST reference the correct operation and turn.
+    assert record["operation"] == "accept"
+    assert record["turn_id"] == v2_id
+    assert isinstance(record["request_hash"], str)
+    assert isinstance(record["response_hash"], str)
+    assert isinstance(record["response_path"], str)
+    assert isinstance(record["created_at"], str)
+
+    # The response written to disk MUST be loadable and MUST include
+    # scoped_accept_verification and delta_ops.
+    response_path = Path(record["response_path"])
+    assert response_path.exists(), f"Response file not found at {response_path}"
+    written_response = json.loads(response_path.read_text(encoding="utf-8"))
+    assert written_response["ok"] is True
+    assert "scoped_accept_verification" in written_response
+    assert "delta_ops" in written_response
+    assert written_response["scoped_accept_verification"]["ok"] is True

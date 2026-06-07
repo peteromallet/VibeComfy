@@ -390,6 +390,42 @@ def test_failure_envelope_to_dict_promotes_nested_recovery_without_dropping_cont
     }
 
 
+def test_ensure_agent_edit_response_contract_accepts_scoped_conflict_recovery_issue() -> None:
+    recovery = {
+        "action": "rebaseline",
+        "endpoint": "/vibecomfy/agent-edit/rebaseline",
+        "reason": "scoped_accept_conflict",
+        "submit_graph_hash": "submit-hash",
+        "candidate_graph_hash": "candidate-hash",
+    }
+
+    payload = ensure_agent_edit_response_contract(
+        {
+            "ok": False,
+            "kind": FailureKind.STALE_STATE_MISMATCH.value,
+            "stage": "accept",
+            "retryable": False,
+            "next_action": "resubmit from the current canvas",
+            "graph_unchanged": True,
+            "agent_failure_context": {
+                "explanation": "Scoped accept verification failed.",
+                "issues": [
+                    {
+                        "code": "scoped_conflict",
+                        "detail": "Node 2 prompt drifted after submit.",
+                        "rebaseline_recovery": recovery,
+                    }
+                ],
+            },
+        },
+        stage="accept",
+    )
+
+    assert payload["rebaseline_recovery"] == recovery
+    assert payload["outcome"]["rebaseline_recovery"] == recovery
+    assert payload["agent_failure_context"]["issues"][0]["rebaseline_recovery"] == recovery
+
+
 def test_turn_envelope_serializes_versioned_product_contract() -> None:
     context = TurnContext(session_id="s1", turn_id="0001")
     context.set_gate("python_load_ok", True)

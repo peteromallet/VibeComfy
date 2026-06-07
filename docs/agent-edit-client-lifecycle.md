@@ -89,6 +89,7 @@ These fields are mutated exclusively through the lifecycle store. No ad-hoc
 | `lastAppliedChanges` | `array\|null` | Changed-node feedback from last apply |
 | `lastSubmitFieldChanges` | `array\|null` | Normalized field changes from submit response |
 | `changeDetails` | `object\|null` | Change detail metadata for preview overlay |
+| `deltaOps` | `array\|null` | V2 mutation intent (normalized `delta_ops` from submit response); authoritative for scoped apply |
 | `chatRehydrateEpoch` | `number` | Monotonic counter for stale rehydrate gating |
 | `syntheticAgentMessage` | `object\|null` | Locally generated agent chat message |
 
@@ -106,12 +107,17 @@ These fields are mutated exclusively through the lifecycle store. No ad-hoc
 |---|---|
 | HTTP requests (`fetch`) | `vibecomfy_roundtrip.js` |
 | Graph serialization (`app.canvas.graph.serialize()`) | `vibecomfy_roundtrip.js` |
-| Canvas mutation (`applyGraphInPlaceWithIntentDecoration`, `app.loadGraphData`) | `vibecomfy_roundtrip.js` |
+| Canvas mutation — V1 whole-graph (`applyGraphInPlaceWithIntentDecoration`, `app.loadGraphData`) | `vibecomfy_roundtrip.js` |
+| Canvas mutation — V2 scoped delta (`applyGraphDeltaInPlace`) | `vibecomfy_roundtrip.js` |
+| Scoped pre-apply precondition recheck (`validateScopedCanvasPreconditions`) | `vibecomfy_roundtrip.js` |
+| Scoped post-apply result verification (`verifyScopedCanvasResults`) | `vibecomfy_roundtrip.js` |
+| Post-mutation rollback on verification failure | `vibecomfy_roundtrip.js` |
 | DOM construction and rendering | `vibecomfy_roundtrip.js` |
 | Live canvas token capture | `vibecomfy_roundtrip.js` |
 | Queue guard context (`setQueueGuardContext`) | `vibecomfy_roundtrip.js` |
 | `localStorage` persistence | `vibecomfy_roundtrip.js` |
 | Chat rehydration (`_rehydrateChat`) | `vibecomfy_roundtrip.js` |
+| `deltaOps` normalization and lifecycle clearing | `agent_edit_lifecycle.js` |
 | State transitions and field authority | `agent_edit_lifecycle.js` |
 
 ---
@@ -126,7 +132,7 @@ browser smoke test.
 
 | # | Event | From | To | Local invalidations | Backend obligation | Epoch/race | Render | Covering test |
 |---|---|---|---|---|---|---|---|---|
-| S1 | Submit start (readiness ok) | `IDLE`, `CLARIFY`, `ERROR` | `SUBMITTING` | Invalidate candidate, clear failure/lastAppliedChanges/lastSubmitFieldChanges/feedback visuals; set `lastSubmit`; push pending history | `POST /vibecomfy/agent-edit` (constructed by roundtrip) | Increment `submitEpoch`; abort controller stored | Repaint | "VibeComfy agent submit sends canonical graph hash, normalized route/model fields, idempotency key, and dedupes in-flight submits" |
+| S1 | Submit start (readiness ok) | `IDLE`, `CLARIFY`, `ERROR` | `SUBMITTING` | Invalidate candidate, clear failure/lastAppliedChanges/lastSubmitFieldChanges/deltaOps/feedback visuals; set `lastSubmit`; push pending history | `POST /vibecomfy/agent-edit` (constructed by roundtrip) | Increment `submitEpoch`; abort controller stored | Repaint | "VibeComfy agent submit sends canonical graph hash, normalized route/model fields, idempotency key, and dedupes in-flight submits" |
 | S2 | Submit readiness failure | Any | `ERROR` | Set failure/debugPayload from readiness state | None | — | Repaint | "VibeComfy blocks submit until status.ready is true and shows composer readiness text" |
 | S3 | Submit missing task | `IDLE`, `CLARIFY`, `ERROR` | `ERROR` | Set failure `MissingTask` | None | — | Repaint | "VibeComfy blocks submit until status.ready is true and shows composer readiness text" |
 | S4 | Submit serialize error | `SUBMITTING` | `ERROR` | Set failure `SerializeError` | None | Check `submitEpoch` stale-guard | Repaint | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
@@ -143,7 +149,7 @@ before dispatch (see §3.2.1) and are never visible to transition handlers.
 | # | Event | From | To | Local invalidations | Backend obligation | Epoch/race | Render | Covering test |
 |---|---|---|---|---|---|---|---|---|
 | R1 | `clarify` outcome | `SUBMITTING` | `CLARIFY` | Set `clarification`, clear candidate, set phase CLARIFY, persist session, sync baseline, clear apply/gate fields, reconcile batch turns | None further (response already received) | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy renders a clarify turn as a question, not a no-op candidate" |
-| R2 | `candidate` outcome | `SUBMITTING` | `AWAITING_REVIEW` | Set candidate graph/hash/report, eligibility, baseline sync, queue guard restore; if the candidate carries a `clarification` (legacy `edit+clarify` normalized to `candidate`), also set `clarification`; structural drift on arrival is diagnostic only | None further | Check `submitEpoch` stale-guard; arrival snapshot for diagnostics | Repaint; trigger `_rehydrateChat` | "VibeComfy preserves Apply controls for edit+clarify candidates"; "VibeComfy does not use client structural hash drift as a local candidate blocker" |
+| R2 | `candidate` outcome | `SUBMITTING` | `AWAITING_REVIEW` | Set candidate graph/hash/report, eligibility, baseline sync, queue guard restore; if the candidate carries a `clarification` (legacy `edit+clarify` normalized to `candidate`), also set `clarification`; populate `deltaOps` via `normalizeDeltaOpsFromSubmit(result)` when the response carries `agent_edit_protocol == "v2_delta"`; structural drift on arrival is diagnostic only | None further | Check `submitEpoch` stale-guard; arrival snapshot for diagnostics | Repaint; trigger `_rehydrateChat` | "VibeComfy preserves Apply controls for edit+clarify candidates"; "VibeComfy does not use client structural hash drift as a local candidate blocker" |
 | R3 | `noop` outcome | `SUBMITTING` | `IDLE` | Clear candidate and clarification, sync baseline, persist session, clear apply/gate fields, keep prompt available, reconcile batch turns | None further (response already received) | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy renders no-op edit turns without entering review" |
 | R4 | `error` outcome (malformed) | `SUBMITTING` | `ERROR` | Set failure `MalformedResponse` | None | Check `submitEpoch` stale-guard | Repaint; trigger `_rehydrateChat` | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
 | R5 | `error` outcome (serialize) | `SUBMITTING` | `ERROR` | Set failure `SerializeError` with arrival context, sync baseline | None | Check `submitEpoch` stale-guard | Repaint | "VibeComfy agent panel renders rich candidate and failure states without mutating the canvas on failed or malformed responses" |
@@ -166,11 +172,94 @@ checks for `edit+clarify` — all handlers dispatch on `outcome.kind ===
 | A1 | Apply preflight blocked (no candidate) | `AWAITING_REVIEW` | (return) | None — early return | None | — | None | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
 | A2 | Apply preflight blocked (missing session/turn) | `AWAITING_REVIEW` | `ERROR` | Set failure `MissingRequiredField` | None | — | Repaint | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
 | A3 | Apply preflight blocked (eligibility) | `AWAITING_REVIEW` | `ERROR` | Set failure with eligibility reason, clear preview | None | Canvas snapshot captured for diagnostic structural parity check only; `applyEligibility()` gates on canonical backend eligibility, not on the structural hash | Repaint | "VibeComfy disables Apply and warns when a candidate arrives without canonical eligibility" |
-| A4 | Apply started | `AWAITING_REVIEW` | `APPLYING` | Set `inFlightApply`, clear failure, set debug payload with accept request | `POST /vibecomfy/agent-edit/accept` | — | Repaint | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
+| A4 | Apply started | `AWAITING_REVIEW` | `APPLYING` | Set `inFlightApply`, clear failure, set debug payload with accept request (including `live_graph` serialized from `beforeApply.graph`); for V2, resolve `deltaOps` from accept echo or panel state | `POST /vibecomfy/agent-edit/accept` | — | Repaint | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
 | A5 | Backend accept rejected | `APPLYING` | `ERROR` | Set failure, synthesize an agent failure bubble when the candidate turn already has an agent bubble, disable authoritative rejects as superseded, clear queue guard, sync baseline; if rejection carries or implies stale rebaseline recovery, store it | None further (rejection received) | — | Repaint all sections so thread, controls, and recovery notice stay in sync | "Lifecycle A5 backend accept rejected disables an applyable candidate"; "Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task" |
 | A6 | Stale canvas during accept (live token changed) | `APPLYING` | `ERROR` | Set failure `StaleStateMismatch`, synthesize failure bubble and stale rebaseline recovery, clear preview | None | `liveCanvasToken` comparison before canvas load | Repaint all sections | "VibeComfy v2 Apply blocks if the live canvas token changes after backend accept but before configure" |
-| A7 | Local canvas-apply failure | `APPLYING` | `ERROR` | Set failure `CanvasApplyError`, synthesize failure bubble | None | — | Repaint all sections | "VibeComfy surfaces network and malformed accept failures with retry guidance and without canvas mutation" |
-| A8 | Apply success | `APPLYING` | `IDLE` | Push undo stack entry, apply graph in place, announce changed nodes, sync baseline, invalidate candidate, clear queue guard, push applied history/turn | None further | `liveCanvasToken` passes pre-configure check | Repaint; toast | "VibeComfy in-place apply decorates intent nodes with persistent styling, typed labels, and read-only previews" |
+| A7 | Local canvas-apply failure | `APPLYING` | `ERROR` | Set failure `CanvasApplyError`, synthesize failure bubble, attempt inverse-delta rollback to pre-apply snapshot (see §3.3.1); if rollback fails, preserve undo snapshot and attach rollback diagnostics | None | — | Repaint all sections | "VibeComfy surfaces network and malformed accept failures with retry guidance and without canvas mutation" |
+| A8 | Apply success (V1 whole-graph or V2 scoped delta) | `APPLYING` | `IDLE` | Push undo stack entry, apply graph in place (whole-graph `applyGraphInPlaceWithIntentDecoration` for V1, scoped `applyGraphDeltaInPlace` for V2), perform post-apply verification (see §3.3.1), announce changed nodes (`Applied - N changes verified on canvas.` for V2), sync baseline, invalidate candidate, clear queue guard, push applied history/turn; emit `canvas_apply_verification` debug data | None further | `liveCanvasToken` passes pre-configure check | Repaint; toast | "VibeComfy in-place apply decorates intent nodes with persistent styling, typed labels, and read-only previews" |
+
+#### 3.3.1 V2 scoped apply lifecycle
+
+When the candidate carries `agent_edit_protocol == "v2_delta"` and
+`panel.state.deltaOps` is populated, Apply follows a **scoped delta** path
+instead of whole-graph replacement. The flow has four stages:
+
+##### Stage 1 — Accept request
+
+The current canvas (`beforeApply.graph`) is serialized into the accept
+request's `live_graph` field. The backend performs scoped validation (see
+`docs/agent-edit-contracts.md`) and returns `scoped_accept_verification` plus an
+echoed `delta_ops` on success.
+
+##### Stage 2 — Local pre-mutation recheck (`validateScopedCanvasPreconditions`)
+
+After backend accept succeeds, the browser captures the current canvas again
+(`currentBeforeLoad.graph`) and **re-validates the touched region locally**:
+
+- For each `delta_op`, it resolves `actual_before` from the current canvas.
+- It compares `actual_before` against `expected_old` (from the server's
+  `scoped_accept_verification.entries[]`).
+- If `actual_before` already equals `desired_new`, status is `already_applied`
+  (not a conflict).
+- If any entry status is `conflict`, the touched region changed between backend
+  accept and local apply. The browser **refuses to mutate**, emits a
+  `StaleStateMismatch` failure, synthesizes stale rebaseline recovery, and
+  records the precheck entries in `canvas_apply_verification.local_precheck`.
+
+This recheck catches in-flight touched-region races that whole-graph CAS cannot
+detect (e.g. another user changed only the field the agent intended to edit).
+
+##### Stage 3 — Scoped delta mutation (`applyGraphDeltaInPlace`)
+
+If the local precheck passes, the browser calls `applyGraphDeltaInPlace` with
+the resolved `deltaOps` and `candidateGraph` (for add-node and link payloads).
+This mutates only the nodes, fields, modes, links, and ordering positions
+referenced by the delta ops using live LiteGraph mutation primitives. Unrelated
+nodes, fields, and positions are preserved. No `graph.clear()` or wholesale
+`graph.configure()` call occurs.
+
+##### Stage 4 — Post-mutation verification (`verifyScopedCanvasResults`)
+
+After mutation, the browser re-reads each touched location and verifies
+`actual_after == desired_new`. Results are recorded in
+`canvas_apply_verification.local_postcheck`.
+
+- **All pass**: The success message is `Applied - N changes verified on canvas.`
+  (where N is the number of verified entries).
+- **Any fail**: The browser attempts **inverse-delta rollback** — restoring the
+  pre-apply graph snapshot for the touched region only, falling back to
+  whole-graph restore if needed. It then emits a `CanvasApplyError` failure with
+  rollback diagnostics (`canvas_apply_verification.rollback.restored`,
+  `canvas_apply_verification.rollback.method`) and preserves undo snapshot
+  availability.
+
+##### `canvas_apply_verification` debug payload
+
+The `debugPayload` for scoped Apply carries:
+
+```json
+{
+  "canvas_apply_verification": {
+    "scoped_accept_verification": { "ok": true, "entries": [...] },
+    "local_precheck": { "ok": true, "entries": [...] },
+    "local_postcheck": { "ok": true, "entries": [...] },
+    "rollback": { "restored": false, "method": null }
+  }
+}
+```
+
+- `scoped_accept_verification` — the server's scoped validation result.
+- `local_precheck` — the browser's pre-mutation recheck against the current canvas.
+- `local_postcheck` — the browser's post-mutation verification of desired results.
+- `rollback` — present only on rollback; `restored` indicates success, `method`
+  is `"inverse_delta"` or `"whole_graph"`.
+
+##### V1 fallback
+
+When `deltaOps` is unavailable (V1 candidate or missing evidence), Apply falls
+back to the existing whole-graph path (`applyGraphInPlaceWithIntentDecoration`).
+The mode is recorded in `canvasApplyMeta.mode` (`"scoped_delta"` or
+`"whole_graph"`).
 
 ### 3.4 Reject transitions
 
@@ -195,7 +284,7 @@ checks for `edit+clarify` — all handlers dispatch on `outcome.kind ===
 | # | Event | From | To | Local invalidations | Backend obligation | Epoch/race | Render | Covering test |
 |---|---|---|---|---|---|---|---|---|
 | C1 | Stop/abort submit | `SUBMITTING` | `IDLE` | Abort controller, clear in-flight submit, set cancel message, push cancelled history/turn, clear failure, refresh queue guard, set synthetic agent message | None (fetch already aborted) | Increment `submitEpoch` so late responses are ignored | Repaint | "Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and only shows Undo in the composer when available" |
-| C2 | New conversation | Any | `IDLE` | Abort any in-flight submit, clear all candidate/failure/clarification/chat/session/baseline/history/undo/rebaseline/audit fields, increment both epochs, forget active session, clear queue guard | Never calls `/rebaseline` | Increment both `submitEpoch` and `chatRehydrateEpoch` so late responses are ignored | Repaint | "Lifecycle C2 new conversation clears state and ignores late submit responses" |
+| C2 | New conversation | Any | `IDLE` | Abort any in-flight submit, clear all candidate/failure/clarification/chat/session/baseline/history/undo/rebaseline/audit/deltaOps fields, increment both epochs, forget active session, clear queue guard | Never calls `/rebaseline` | Increment both `submitEpoch` and `chatRehydrateEpoch` so late responses are ignored | Repaint | "Lifecycle C2 new conversation clears state and ignores late submit responses" |
 
 ### 3.7 Entry events (panel reopen, page reload)
 
@@ -203,7 +292,7 @@ checks for `edit+clarify` — all handlers dispatch on `outcome.kind ===
 |---|---|---|---|---|---|---|---|---|
 | E0 | Panel open (command, launcher, or ComfyUI sidebar tab) | Entry | (restored) | Open existing shell; refresh provider readiness; re-fetch `/chat` when a stored session id exists; restore `latest_candidate` only under eligibility | `GET /vibecomfy/agent/status`; `GET /vibecomfy/agent-edit/chat` when stored session exists | `chatRehydrateEpoch` incremented; stale responses ignored; status retry/backoff owned by roundtrip | Repaint immediately, after status, and after rehydrate | "VibeComfy live sidebar tab mount dispatches status fetch and chat rehydrate" |
 | E1 | Panel reopen (chat re-fetch) | Entry | (restored) | Re-fetch `/chat`, rehydrate messages and turns; restore `latest_candidate` only under eligibility | `GET /vibecomfy/agent-edit/chat`; status refresh is also re-run by `openAgentPanel()` | `chatRehydrateEpoch` incremented; stale responses ignored | Repaint after rehydrate | "VibeComfy agent panel re-fetches chat on reopen and localStorage persists across close/reopen" |
-| E2 | Page reload / rehydrate | Entry | `IDLE` or `AWAITING_REVIEW` | Run chat rehydration; if `latest_candidate` exists with eligibility, restore via `restoreLatestCandidateFromChat` | `GET /vibecomfy/agent-edit/chat` | `chatRehydrateEpoch` incremented; stale responses silently dropped | Repaint | "Lifecycle E2 page reload rehydrate restores the latest open candidate and Apply controls" |
+| E2 | Page reload / rehydrate | Entry | `IDLE` or `AWAITING_REVIEW` | Run chat rehydration; if `latest_candidate` exists with eligibility, restore via `restoreLatestCandidateFromChat` including `deltaOps` from `baseline.raw` | `GET /vibecomfy/agent-edit/chat` | `chatRehydrateEpoch` incremented; stale responses silently dropped | Repaint | "Lifecycle E2 page reload rehydrate restores the latest open candidate and Apply controls" |
 | E3 | Stale rehydrate ignored | Any | (no change) | None (stale response silently dropped) | None | `chatRehydrateEpoch` mismatch | None | "Lifecycle E3 stale rehydrate responses after an epoch bump do not restore prior candidate state" |
 
 ### 3.8 Hand-edit and stale-canvas detection
@@ -276,14 +365,15 @@ store owns this call site.
 ### 4.4 Candidate invalidation obligation
 
 `invalidateCandidateState(panel)` must be called:
-- At submit start (before entering SUBMITTING)
-- On `clarify` outcome (before setting clarification)
-- On `noop` outcome
-- On `candidate` outcome arrival (before setting new candidate)
+- At submit start (before entering SUBMITTING) — also clears `deltaOps`
+- On `clarify` outcome (before setting clarification) — also clears `deltaOps`
+- On `noop` outcome — also clears `deltaOps`
+- On `candidate` outcome arrival (before setting new candidate) — `deltaOps`
+  is replaced, not cleared
 - On apply success (after canvas mutation)
 - On reject success (after backend confirmation)
-- On rebaseline success
-- On new conversation
+- On rebaseline success — also clears `deltaOps`
+- On new conversation — also clears `deltaOps`
 
 The store owns the call site; the roundtrip module's `invalidateCandidateState`
 implementation handles repaint side effects (canvas `setDirtyCanvas`).

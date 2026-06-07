@@ -287,6 +287,36 @@ test("extractRebaselineRecovery finds recovery inside outcome.rebaseline_recover
   assert.equal(normalized.rebaselineRecovery.reason, "stale_outcome");
 });
 
+test("extractRebaselineRecovery finds recovery inside agent_failure_context.issues", () => {
+  const raw = {
+    ok: false,
+    outcome: { kind: "error", failure_kind: "StaleStateMismatch" },
+    agent_failure_context: {
+      explanation: "Scoped accept verification failed.",
+      issues: [
+        {
+          code: "scoped_conflict",
+          detail: "Node 2 prompt drifted after submit.",
+          rebaseline_recovery: {
+            action: "rebaseline",
+            endpoint: "/rebaseline",
+            reason: "scoped_accept_conflict",
+            submit_graph_hash: "submit-hash",
+          },
+        },
+      ],
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/accept" });
+  assert.deepEqual(normalized.rebaselineRecovery, {
+    action: "rebaseline",
+    endpoint: "/rebaseline",
+    reason: "scoped_accept_conflict",
+    submitGraphHash: "submit-hash",
+  });
+});
+
 test("extractRebaselineRecovery finds recovery inside debug.failure.agent_failure_context", () => {
   const raw = {
     ok: false,

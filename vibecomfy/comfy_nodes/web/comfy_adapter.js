@@ -138,6 +138,886 @@ export function applyGraphCandidateInPlace(app, candidate, options = {}) {
   return { graph, capability };
 }
 
+export const HARNESS_DELTA_APPLY_FALLBACK_MARKER =
+  "__vibecomfyAllowDeltaSerializeConfigureFallback";
+
+function cloneJson(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function canonicalNodeUid(node) {
+  if (!node || typeof node !== "object") {
+    return null;
+  }
+  const properties = node.properties && typeof node.properties === "object" ? node.properties : null;
+  const candidates = [
+    properties?.vibecomfy_uid,
+    properties?.uid,
+    node.vibecomfy_uid,
+    node.uid,
+    node.id,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) {
+      continue;
+    }
+    const normalized = String(candidate).trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function buildGraphIndex(graph) {
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  const byUid = new Map();
+  const byId = new Map();
+  for (const node of nodes) {
+    const uid = canonicalNodeUid(node);
+    if (uid && !byUid.has(uid)) {
+      byUid.set(uid, node);
+    }
+    if (node?.id !== null && node?.id !== undefined) {
+      const idKey = String(node.id);
+      if (!byId.has(idKey)) {
+        byId.set(idKey, node);
+      }
+    }
+  }
+  return { byUid, byId };
+}
+
+function normalizeScopePath(value) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry) => entry !== "" && entry !== "nodes" && entry !== null && entry !== undefined)
+      .map((entry) => String(entry));
+  }
+  if (value === "" || value === "nodes" || value === null || value === undefined) {
+    return [];
+  }
+  return [String(value)];
+}
+
+function parseNodeTarget(target) {
+  if (Array.isArray(target)) {
+    const [scopeRaw, uidOrId, ...rest] = target;
+    return {
+      scopePath: normalizeScopePath(scopeRaw),
+      uidOrId: uidOrId === null || uidOrId === undefined ? null : String(uidOrId),
+      rest,
+    };
+  }
+  if (target && typeof target === "object") {
+    return {
+      scopePath: normalizeScopePath(target.scope_path),
+      uidOrId: target.uid !== null && target.uid !== undefined
+        ? String(target.uid)
+        : (target.id !== null && target.id !== undefined ? String(target.id) : null),
+      rest: [],
+    };
+  }
+  if (target === null || target === undefined) {
+    return { scopePath: [], uidOrId: null, rest: [] };
+  }
+  return { scopePath: [], uidOrId: String(target), rest: [] };
+}
+
+function requireRootScope(parsed, opKind) {
+  if (parsed.scopePath.length > 0) {
+    throw new Error(`${opKind} only supports root-scope graph edits in the browser adapter.`);
+  }
+}
+
+function resolveNodeFromIndex(index, uidOrId) {
+  if (uidOrId === null || uidOrId === undefined || uidOrId === "") {
+    return null;
+  }
+  const asString = String(uidOrId);
+  return index.byUid.get(asString) || index.byId.get(asString) || null;
+}
+
+function resolveNodeFromGraph(graph, uidOrId) {
+  return resolveNodeFromIndex(buildGraphIndex(graph), uidOrId);
+}
+
+function findSlotIndex(slots, ref, fallbackKey = "name") {
+  if (!Array.isArray(slots)) {
+    return -1;
+  }
+  if (typeof ref === "number" && Number.isInteger(ref)) {
+    return ref >= 0 && ref < slots.length ? ref : -1;
+  }
+  const normalized = String(ref);
+  for (let index = 0; index < slots.length; index += 1) {
+    const slot = slots[index];
+    if (String(slot?.[fallbackKey]) === normalized || String(slot?.label) === normalized) {
+      return index;
+    }
+    if (String(index) === normalized) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function getNodeFieldValue(node, path) {
+  if (!Array.isArray(path) || path.length === 0) {
+    return undefined;
+  }
+  const [head, ...rest] = path;
+  if (head === "widgets_values") {
+    const index = Number(rest[0]);
+    return Array.isArray(node.widgets_values) ? node.widgets_values[index] : undefined;
+  }
+  if (head === "widgets") {
+    const index = findSlotIndex(node.widgets, rest[0], "name");
+    if (index < 0) {
+      return undefined;
+    }
+    if (rest.length === 1) {
+      return node.widgets[index];
+    }
+    return node.widgets?.[index]?.[rest[1]];
+  }
+  if (head === "inputs" || head === "outputs") {
+    const slots = Array.isArray(node[head]) ? node[head] : [];
+    const index = findSlotIndex(slots, rest[0], "name");
+    if (index < 0) {
+      return undefined;
+    }
+    if (rest.length === 1) {
+      return slots[index];
+    }
+    return slots[index]?.[rest[1]];
+  }
+  let cursor = node;
+  const segments = [head, ...rest];
+  for (const segment of segments) {
+    if (!cursor || typeof cursor !== "object") {
+      return undefined;
+    }
+    cursor = cursor[segment];
+  }
+  return cursor;
+}
+
+function setNodeFieldValue(node, path, value) {
+  if (!Array.isArray(path) || path.length === 0) {
+    throw new Error("set_node_field target is missing a field path.");
+  }
+  const [head, ...rest] = path;
+  if (head === "widgets_values") {
+    const index = Number(rest[0]);
+    if (!Array.isArray(node.widgets_values) || !Number.isInteger(index) || index < 0) {
+      throw new Error("Cannot resolve widgets_values target on live node.");
+    }
+    node.widgets_values[index] = cloneJson(value);
+    return;
+  }
+  if (head === "widgets") {
+    const index = findSlotIndex(node.widgets, rest[0], "name");
+    if (index < 0 || rest.length < 2) {
+      throw new Error("Cannot resolve widgets target on live node.");
+    }
+    node.widgets[index][rest[1]] = cloneJson(value);
+    return;
+  }
+  if (head === "inputs" || head === "outputs") {
+    const slots = Array.isArray(node[head]) ? node[head] : null;
+    const index = findSlotIndex(slots, rest[0], "name");
+    if (!slots || index < 0 || rest.length < 2) {
+      throw new Error(`Cannot resolve ${head} target on live node.`);
+    }
+    slots[index][rest[1]] = cloneJson(value);
+    return;
+  }
+  let cursor = node;
+  const segments = [head, ...rest];
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    if (!cursor[segment] || typeof cursor[segment] !== "object") {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment];
+  }
+  cursor[segments[segments.length - 1]] = cloneJson(value);
+}
+
+function normalizeLinkRecord(raw) {
+  if (Array.isArray(raw)) {
+    return {
+      id: raw[0],
+      origin_id: raw[1],
+      origin_slot: raw[2],
+      target_id: raw[3],
+      target_slot: raw[4],
+      type: raw[5],
+      raw,
+    };
+  }
+  if (raw && typeof raw === "object") {
+    return {
+      id: raw.id,
+      origin_id: raw.origin_id,
+      origin_slot: raw.origin_slot,
+      target_id: raw.target_id,
+      target_slot: raw.target_slot,
+      type: raw.type,
+      raw,
+    };
+  }
+  return null;
+}
+
+function iterateLinkRecords(graph) {
+  const records = [];
+  const links = graph?.links;
+  if (Array.isArray(links)) {
+    for (const entry of links) {
+      const normalized = normalizeLinkRecord(entry);
+      if (normalized) {
+        records.push(normalized);
+      }
+    }
+    return records;
+  }
+  if (links && typeof links === "object") {
+    for (const entry of Object.values(links)) {
+      const normalized = normalizeLinkRecord(entry);
+      if (normalized) {
+        records.push(normalized);
+      }
+    }
+  }
+  return records;
+}
+
+function linkShapeForGraph(graph, link) {
+  const prefersArray = Array.isArray(graph?.links) || graph?.links === undefined;
+  if (prefersArray) {
+    return [
+      link.id,
+      link.origin_id,
+      link.origin_slot,
+      link.target_id,
+      link.target_slot,
+      link.type ?? null,
+    ];
+  }
+  return {
+    id: link.id,
+    origin_id: link.origin_id,
+    origin_slot: link.origin_slot,
+    target_id: link.target_id,
+    target_slot: link.target_slot,
+    type: link.type ?? null,
+  };
+}
+
+function slotNameOrIndex(slot, index) {
+  if (typeof slot?.name === "string" && slot.name) {
+    return slot.name;
+  }
+  return index;
+}
+
+function resolveEndpoint(graph, ref, direction) {
+  if (!Array.isArray(ref) || ref.length < 3) {
+    throw new Error(`Invalid ${direction} endpoint reference.`);
+  }
+  const parsed = parseNodeTarget(ref.slice(0, 2));
+  requireRootScope(parsed, `${direction}_link`);
+  const node = resolveNodeFromGraph(graph, parsed.uidOrId);
+  if (!node) {
+    throw new Error(`Could not resolve ${direction} endpoint node ${parsed.uidOrId}.`);
+  }
+  const slots = direction === "from" ? node.outputs : node.inputs;
+  const slotIndex = findSlotIndex(slots, ref[2], "name");
+  if (slotIndex < 0) {
+    throw new Error(`Could not resolve ${direction} endpoint slot ${String(ref[2])}.`);
+  }
+  return {
+    node,
+    nodeId: node.id,
+    uid: canonicalNodeUid(node),
+    slotIndex,
+    slotName: slotNameOrIndex(slots?.[slotIndex], slotIndex),
+  };
+}
+
+function findCandidateLinkForOp(candidateGraph, op) {
+  const to = op?.to || op?.target;
+  const from = op?.from;
+  let desiredTarget = null;
+  let desiredSource = null;
+  if (to) {
+    desiredTarget = resolveEndpoint(candidateGraph, to, "to");
+  }
+  if (from) {
+    desiredSource = resolveEndpoint(candidateGraph, from, "from");
+  }
+  const links = iterateLinkRecords(candidateGraph);
+  for (const link of links) {
+    if (!link) {
+      continue;
+    }
+    if (
+      desiredTarget
+      && (String(link.target_id) !== String(desiredTarget.nodeId) || Number(link.target_slot) !== desiredTarget.slotIndex)
+    ) {
+      continue;
+    }
+    if (
+      desiredSource
+      && (String(link.origin_id) !== String(desiredSource.nodeId) || Number(link.origin_slot) !== desiredSource.slotIndex)
+    ) {
+      continue;
+    }
+    return {
+      id: link.id,
+      origin_id: link.origin_id,
+      origin_slot: link.origin_slot,
+      target_id: link.target_id,
+      target_slot: link.target_slot,
+      type: link.type ?? null,
+    };
+  }
+  throw new Error("Could not materialize candidate link payload from candidateGraph.");
+}
+
+function findExistingLinkByTarget(graph, targetNodeId, targetSlot) {
+  const links = iterateLinkRecords(graph);
+  return links.find(
+    (link) => String(link.target_id) === String(targetNodeId) && Number(link.target_slot) === Number(targetSlot),
+  ) || null;
+}
+
+function removeLinkFromSerializedGraph(graph, linkId) {
+  const links = iterateLinkRecords(graph).filter((link) => String(link.id) !== String(linkId));
+  graph.links = Array.isArray(graph.links)
+    ? links.map((link) => linkShapeForGraph(graph, link))
+    : Object.fromEntries(links.map((link) => [String(link.id), linkShapeForGraph(graph, link)]));
+  const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+  for (const node of nodes) {
+    if (Array.isArray(node.inputs)) {
+      for (const input of node.inputs) {
+        if (String(input?.link) === String(linkId)) {
+          input.link = null;
+        }
+      }
+    }
+    if (Array.isArray(node.outputs)) {
+      for (const output of node.outputs) {
+        if (Array.isArray(output?.links)) {
+          output.links = output.links.filter((entry) => String(entry) !== String(linkId));
+        }
+      }
+    }
+  }
+}
+
+function upsertLinkInSerializedGraph(graph, link) {
+  const prior = findExistingLinkByTarget(graph, link.target_id, link.target_slot);
+  if (prior) {
+    removeLinkFromSerializedGraph(graph, prior.id);
+  }
+  const normalizedLinks = iterateLinkRecords(graph);
+  normalizedLinks.push({ ...link });
+  graph.links = Array.isArray(graph.links)
+    ? normalizedLinks.map((entry) => linkShapeForGraph(graph, entry))
+    : Object.fromEntries(normalizedLinks.map((entry) => [String(entry.id), linkShapeForGraph(graph, entry)]));
+  const index = buildGraphIndex(graph);
+  const sourceNode = resolveNodeFromIndex(index, String(link.origin_id));
+  const targetNode = resolveNodeFromIndex(index, String(link.target_id));
+  if (!sourceNode || !targetNode) {
+    throw new Error("Could not resolve source or target node while applying link payload.");
+  }
+  const output = Array.isArray(sourceNode.outputs) ? sourceNode.outputs[link.origin_slot] : null;
+  if (!output || !Array.isArray(output.links)) {
+    if (output) {
+      output.links = [];
+    }
+  }
+  if (output && !output.links.includes(link.id)) {
+    output.links.push(link.id);
+  }
+  const input = Array.isArray(targetNode.inputs) ? targetNode.inputs[link.target_slot] : null;
+  if (!input) {
+    throw new Error("Could not resolve target input slot while applying link payload.");
+  }
+  input.link = link.id;
+}
+
+function reorderByNames(items, names, key = "name") {
+  const normalized = Array.isArray(items) ? items.slice() : [];
+  if (!Array.isArray(names) || names.length !== normalized.length) {
+    throw new Error("Reorder op order does not match the current slot/widget count.");
+  }
+  const remaining = new Map();
+  normalized.forEach((item, index) => {
+    remaining.set(String(item?.[key] ?? index), item);
+  });
+  const reordered = names.map((name) => {
+    const mapKey = String(name);
+    if (!remaining.has(mapKey)) {
+      throw new Error(`Reorder op references unknown ${key} ${mapKey}.`);
+    }
+    const item = remaining.get(mapKey);
+    remaining.delete(mapKey);
+    return item;
+  });
+  if (remaining.size > 0) {
+    throw new Error("Reorder op did not account for every slot/widget.");
+  }
+  return reordered;
+}
+
+function materializeAddNodePayload(candidateGraph, op) {
+  const targetRef = op?.target
+    ?? [Array.isArray(op?.scope_path) ? op.scope_path : "", op?.uid ?? op?.id ?? op?.scope_path ?? ""];
+  const parsed = parseNodeTarget(targetRef);
+  requireRootScope(parsed, "add_node");
+  const uidOrId = parsed.uidOrId || (op?.scope_path !== null && op?.scope_path !== undefined ? String(op.scope_path) : null);
+  const candidateNode = resolveNodeFromGraph(candidateGraph, uidOrId);
+  if (!candidateNode) {
+    throw new Error(`Could not materialize added node ${String(uidOrId)} from candidateGraph.`);
+  }
+  return cloneJson(candidateNode);
+}
+
+function resolveFactory(app) {
+  const liteGraph = app?.LiteGraph
+    || app?.canvas?.LiteGraph
+    || globalThis?.LiteGraph
+    || globalThis?.window?.LiteGraph
+    || null;
+  return typeof liteGraph?.createNode === "function" ? liteGraph.createNode.bind(liteGraph) : null;
+}
+
+function liveNodeIndex(graph) {
+  const byUid = new Map();
+  const byId = new Map();
+  const nodes = Array.isArray(graph?._nodes) ? graph._nodes : [];
+  for (const node of nodes) {
+    const uid = canonicalNodeUid(node);
+    if (uid && !byUid.has(uid)) {
+      byUid.set(uid, node);
+    }
+    if (node?.id !== null && node?.id !== undefined) {
+      const idKey = String(node.id);
+      if (!byId.has(idKey)) {
+        byId.set(idKey, node);
+      }
+    }
+  }
+  return { byUid, byId };
+}
+
+function resolveLiveNode(graph, uidOrId) {
+  const index = liveNodeIndex(graph);
+  return resolveNodeFromIndex(index, uidOrId);
+}
+
+function liveLinkEntries(graph) {
+  if (Array.isArray(graph?.links)) {
+    return graph.links;
+  }
+  if (graph?.links && typeof graph.links === "object") {
+    return Object.values(graph.links);
+  }
+  return [];
+}
+
+function liveLinkMapSet(graph, link) {
+  if (!graph.links || typeof graph.links !== "object" || Array.isArray(graph.links)) {
+    graph.links = {};
+  }
+  graph.links[String(link.id)] = link;
+}
+
+function liveLinkMapDelete(graph, linkId) {
+  if (Array.isArray(graph?.links)) {
+    graph.links = graph.links.filter((entry) => String(normalizeLinkRecord(entry)?.id) !== String(linkId));
+    return;
+  }
+  if (graph?.links && typeof graph.links === "object") {
+    delete graph.links[String(linkId)];
+  }
+}
+
+function removeLiveLink(graph, linkId) {
+  const normalizedLinks = liveLinkEntries(graph).map((entry) => normalizeLinkRecord(entry)).filter(Boolean);
+  const target = normalizedLinks.find((entry) => String(entry.id) === String(linkId));
+  if (!target) {
+    return;
+  }
+  const sourceNode = resolveLiveNode(graph, String(target.origin_id));
+  const targetNode = resolveLiveNode(graph, String(target.target_id));
+  if (sourceNode?.outputs?.[target.origin_slot]?.links) {
+    sourceNode.outputs[target.origin_slot].links = sourceNode.outputs[target.origin_slot].links
+      .filter((entry) => String(entry) !== String(linkId));
+  }
+  if (targetNode?.inputs?.[target.target_slot]) {
+    targetNode.inputs[target.target_slot].link = null;
+  }
+  liveLinkMapDelete(graph, linkId);
+}
+
+function upsertLiveLink(graph, link) {
+  const prior = liveLinkEntries(graph)
+    .map((entry) => normalizeLinkRecord(entry))
+    .find((entry) => entry && String(entry.target_id) === String(link.target_id) && Number(entry.target_slot) === Number(link.target_slot));
+  if (prior) {
+    removeLiveLink(graph, prior.id);
+  }
+  const sourceNode = resolveLiveNode(graph, String(link.origin_id));
+  const targetNode = resolveLiveNode(graph, String(link.target_id));
+  if (!sourceNode || !targetNode) {
+    throw new Error("Could not resolve live nodes for link mutation.");
+  }
+  const output = Array.isArray(sourceNode.outputs) ? sourceNode.outputs[link.origin_slot] : null;
+  const input = Array.isArray(targetNode.inputs) ? targetNode.inputs[link.target_slot] : null;
+  if (!output || !input) {
+    throw new Error("Could not resolve live slots for link mutation.");
+  }
+  if (!Array.isArray(output.links)) {
+    output.links = [];
+  }
+  if (!output.links.includes(link.id)) {
+    output.links.push(link.id);
+  }
+  input.link = link.id;
+  liveLinkMapSet(graph, { ...link });
+}
+
+function decorateCandidateNodePayload(options, nodePayload, context) {
+  if (typeof options?.decorateCandidateNodePayload === "function") {
+    options.decorateCandidateNodePayload(nodePayload, context);
+  }
+}
+
+function decorateLiveNode(options, liveNode, context) {
+  if (typeof options?.decorateLiveNode === "function") {
+    options.decorateLiveNode(liveNode, context);
+  }
+}
+
+function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, options = {}) {
+  if (!Array.isArray(deltaOps)) {
+    throw new Error("deltaOps must be an array.");
+  }
+  if (!candidateGraph || typeof candidateGraph !== "object") {
+    throw new Error("candidateGraph must be an object.");
+  }
+  const workingGraph = cloneJson(liveGraphSnapshot) || { nodes: [], links: [] };
+  const plan = [];
+  for (const op of deltaOps) {
+    if (!op || typeof op !== "object" || typeof op.op !== "string") {
+      throw new Error("deltaOps contains an invalid operation entry.");
+    }
+    const opKind = op.op;
+    if (opKind === "set_node_field") {
+      const parsed = parseNodeTarget(op.target);
+      requireRootScope(parsed, opKind);
+      const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
+      if (!node) {
+        throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for set_node_field.`);
+      }
+      const desiredValue = getNodeFieldValue(resolveNodeFromGraph(candidateGraph, parsed.uidOrId) || node, parsed.rest);
+      const fieldPath = parsed.rest.slice();
+      setNodeFieldValue(node, fieldPath, desiredValue);
+      plan.push({ op: opKind, uidOrId: parsed.uidOrId, fieldPath, value: cloneJson(desiredValue) });
+      continue;
+    }
+    if (opKind === "set_mode") {
+      const parsed = parseNodeTarget(op.target);
+      requireRootScope(parsed, opKind);
+      const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
+      const candidateNode = resolveNodeFromGraph(candidateGraph, parsed.uidOrId);
+      if (!node || !candidateNode) {
+        throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for set_mode.`);
+      }
+      node.mode = candidateNode.mode ?? op.mode ?? op.value;
+      plan.push({ op: opKind, uidOrId: parsed.uidOrId, mode: node.mode });
+      continue;
+    }
+    if (opKind === "reorder") {
+      const parsed = parseNodeTarget(op.target);
+      requireRootScope(parsed, opKind);
+      const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
+      if (!node) {
+        throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for reorder.`);
+      }
+      if (op.axis === "widgets") {
+        const widgetNames = Array.isArray(op.order) ? op.order : [];
+        const originalWidgets = Array.isArray(node.widgets) ? node.widgets.slice() : [];
+        const originalValues = Array.isArray(node.widgets_values) ? node.widgets_values.slice() : [];
+        const reorderedWidgets = reorderByNames(originalWidgets, widgetNames, "name");
+        const reorderedValues = reorderedWidgets.map((widget) => {
+          const index = originalWidgets.indexOf(widget);
+          return index >= 0 ? originalValues[index] : undefined;
+        });
+        node.widgets = reorderedWidgets;
+        if (Array.isArray(node.widgets_values)) {
+          node.widgets_values = reorderedValues;
+        }
+      } else if (op.axis === "inputs" || op.axis === "outputs") {
+        node[op.axis] = reorderByNames(node[op.axis], op.order, "name");
+      } else {
+        throw new Error(`Unsupported reorder axis ${String(op.axis)}.`);
+      }
+      plan.push({ op: opKind, uidOrId: parsed.uidOrId, axis: op.axis, order: cloneJson(op.order) });
+      continue;
+    }
+    if (opKind === "upsert_link") {
+      const link = findCandidateLinkForOp(candidateGraph, op);
+      upsertLinkInSerializedGraph(workingGraph, link);
+      plan.push({ op: opKind, link: cloneJson(link) });
+      continue;
+    }
+    if (opKind === "remove_link") {
+      const targetRef = op.to || op.target;
+      const target = resolveEndpoint(workingGraph, targetRef, "to");
+      const existing = findExistingLinkByTarget(workingGraph, target.nodeId, target.slotIndex);
+      if (!existing) {
+        plan.push({ op: opKind, linkId: null, targetUidOrId: target.uid || String(target.nodeId), targetSlot: target.slotIndex });
+        continue;
+      }
+      removeLinkFromSerializedGraph(workingGraph, existing.id);
+      plan.push({ op: opKind, linkId: existing.id, targetUidOrId: target.uid || String(target.nodeId), targetSlot: target.slotIndex });
+      continue;
+    }
+    if (opKind === "add_node") {
+      const nodePayload = materializeAddNodePayload(candidateGraph, op);
+      decorateCandidateNodePayload(options, nodePayload, { op });
+      const existing = resolveNodeFromGraph(workingGraph, canonicalNodeUid(nodePayload) || String(nodePayload.id));
+      if (existing) {
+        throw new Error(`Cannot add node ${canonicalNodeUid(nodePayload) || nodePayload.id}; it already exists.`);
+      }
+      if (!Array.isArray(workingGraph.nodes)) {
+        workingGraph.nodes = [];
+      }
+      workingGraph.nodes.push(nodePayload);
+      plan.push({ op: opKind, nodePayload: cloneJson(nodePayload) });
+      continue;
+    }
+    if (opKind === "remove_node") {
+      const parsed = parseNodeTarget(op.target);
+      requireRootScope(parsed, opKind);
+      const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
+      if (!node) {
+        plan.push({ op: opKind, uidOrId: parsed.uidOrId, alreadyAbsent: true });
+        continue;
+      }
+      const linkRecords = iterateLinkRecords(workingGraph).filter(
+        (link) => String(link.origin_id) === String(node.id) || String(link.target_id) === String(node.id),
+      );
+      for (const link of linkRecords) {
+        removeLinkFromSerializedGraph(workingGraph, link.id);
+      }
+      workingGraph.nodes = workingGraph.nodes.filter((entry) => entry !== node);
+      plan.push({ op: opKind, uidOrId: parsed.uidOrId, alreadyAbsent: false });
+      continue;
+    }
+    throw new Error(`Unsupported delta op kind ${opKind}.`);
+  }
+  return { plan, nextGraph: workingGraph };
+}
+
+function applyPreflightPlanLive(app, capability, plan, options = {}) {
+  const graph = getLiveGraph(app);
+  if (!graph) {
+    throw new Error("No live LiteGraph instance available.");
+  }
+  const factory = resolveFactory(app);
+  for (const step of plan) {
+    if (step.op === "set_node_field") {
+      const liveNode = resolveLiveNode(graph, step.uidOrId);
+      if (!liveNode) {
+        throw new Error(`Could not resolve live node ${String(step.uidOrId)}.`);
+      }
+      setNodeFieldValue(liveNode, step.fieldPath, step.value);
+      decorateLiveNode(options, liveNode, { op: step });
+      continue;
+    }
+    if (step.op === "set_mode") {
+      const liveNode = resolveLiveNode(graph, step.uidOrId);
+      if (!liveNode) {
+        throw new Error(`Could not resolve live node ${String(step.uidOrId)}.`);
+      }
+      liveNode.mode = step.mode;
+      decorateLiveNode(options, liveNode, { op: step });
+      continue;
+    }
+    if (step.op === "reorder") {
+      const liveNode = resolveLiveNode(graph, step.uidOrId);
+      if (!liveNode) {
+        throw new Error(`Could not resolve live node ${String(step.uidOrId)}.`);
+      }
+      if (step.axis === "widgets") {
+        const originalWidgets = Array.isArray(liveNode.widgets) ? liveNode.widgets.slice() : [];
+        const originalValues = Array.isArray(liveNode.widgets_values) ? liveNode.widgets_values.slice() : [];
+        const reorderedWidgets = reorderByNames(originalWidgets, step.order, "name");
+        liveNode.widgets = reorderedWidgets;
+        if (Array.isArray(liveNode.widgets_values)) {
+          liveNode.widgets_values = reorderedWidgets.map((widget) => {
+            const index = originalWidgets.indexOf(widget);
+            return index >= 0 ? originalValues[index] : undefined;
+          });
+        }
+      } else {
+        liveNode[step.axis] = reorderByNames(liveNode[step.axis], step.order, "name");
+      }
+      decorateLiveNode(options, liveNode, { op: step });
+      continue;
+    }
+    if (step.op === "upsert_link") {
+      upsertLiveLink(graph, step.link);
+      continue;
+    }
+    if (step.op === "remove_link") {
+      if (step.linkId !== null && step.linkId !== undefined) {
+        removeLiveLink(graph, step.linkId);
+      }
+      continue;
+    }
+    if (step.op === "add_node") {
+      if (typeof graph.add !== "function" || typeof factory !== "function") {
+        throw new Error("Live delta apply cannot add nodes without LiteGraph.createNode() and graph.add().");
+      }
+      const liveNode = factory(step.nodePayload.type);
+      if (!liveNode) {
+        throw new Error(`LiteGraph.createNode(${JSON.stringify(step.nodePayload.type)}) returned no node.`);
+      }
+      graph.add(liveNode);
+      if (typeof liveNode.configure === "function") {
+        liveNode.configure(step.nodePayload);
+      } else {
+        Object.assign(liveNode, cloneJson(step.nodePayload));
+      }
+      decorateLiveNode(options, liveNode, { op: step, capability });
+      continue;
+    }
+    if (step.op === "remove_node") {
+      if (step.alreadyAbsent) {
+        continue;
+      }
+      if (typeof graph.remove !== "function") {
+        throw new Error("Live delta apply cannot remove nodes without graph.remove().");
+      }
+      const liveNode = resolveLiveNode(graph, step.uidOrId);
+      if (!liveNode) {
+        continue;
+      }
+      const connectedLinks = liveLinkEntries(graph).map((entry) => normalizeLinkRecord(entry)).filter(
+        (link) => link && (String(link.origin_id) === String(liveNode.id) || String(link.target_id) === String(liveNode.id)),
+      );
+      for (const link of connectedLinks) {
+        removeLiveLink(graph, link.id);
+      }
+      graph.remove(liveNode);
+      continue;
+    }
+  }
+  return graph;
+}
+
+export function detectGraphDeltaApply(app) {
+  const graph = getLiveGraph(app);
+  if (!graph) {
+    return {
+      available: false,
+      detail: "No live LiteGraph instance on app.canvas.graph.",
+      path: "app.canvas.graph",
+      strategy: null,
+    };
+  }
+
+  const createNode = resolveFactory(app);
+  const hasLiveMutationCore =
+    typeof graph.serialize === "function"
+    && Array.isArray(graph._nodes)
+    && typeof graph.add === "function"
+    && typeof graph.remove === "function"
+    && typeof createNode === "function";
+  if (hasLiveMutationCore) {
+    return {
+      available: true,
+      detail: "Live graph supports serialized preflight plus LiteGraph add/remove mutation.",
+      path: "app.canvas.graph",
+      strategy: "live-litegraph-mutate",
+      fallback: false,
+    };
+  }
+
+  const hasExplicitHarnessFallback = app?.[HARNESS_DELTA_APPLY_FALLBACK_MARKER] === true;
+  const hasSerializeConfigure =
+    typeof graph.serialize === "function"
+    && typeof graph.clear === "function"
+    && typeof graph.configure === "function";
+  if (hasExplicitHarnessFallback && hasSerializeConfigure) {
+    return {
+      available: true,
+      detail: "Harness-only serialize/mutate/configure fallback enabled by explicit marker.",
+      path: "app.canvas.graph",
+      strategy: "harness-serialize-configure",
+      fallback: true,
+    };
+  }
+
+  return {
+    available: false,
+    detail: hasSerializeConfigure
+      ? "Whole-graph clear/configure is present, but delta apply requires real LiteGraph mutation hooks or the explicit harness fallback marker."
+      : "Missing LiteGraph mutation hooks for delta apply.",
+    path: "app.canvas.graph",
+    strategy: null,
+  };
+}
+
+export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, options = {}) {
+  const capability = detectGraphDeltaApply(app);
+  const graph = getLiveGraph(app);
+  if (!capability.available || !graph) {
+    const error = new Error("The live LiteGraph instance does not support scoped in-place delta application.");
+    error.code = "GRAPH_DELTA_APPLY_UNAVAILABLE";
+    error.capability = capability;
+    throw error;
+  }
+
+  const liveSnapshot = typeof graph.serialize === "function"
+    ? graph.serialize()
+    : null;
+  if (!liveSnapshot || typeof liveSnapshot !== "object") {
+    throw new Error("Could not serialize the live graph for delta preflight.");
+  }
+
+  const { plan, nextGraph } = preflightDeltaPlan(liveSnapshot, candidateGraph, deltaOps, options);
+  if (capability.strategy === "harness-serialize-configure") {
+    graph.clear();
+    graph.configure(nextGraph);
+    if (Array.isArray(plan)) {
+      for (const step of plan) {
+        if (step.op === "add_node") {
+          const liveNode = resolveLiveNode(graph, canonicalNodeUid(step.nodePayload) || String(step.nodePayload.id));
+          if (liveNode) {
+            decorateLiveNode(options, liveNode, { op: step, capability });
+          }
+        }
+      }
+    }
+  } else {
+    applyPreflightPlanLive(app, capability, plan, options);
+  }
+
+  if (options.repaint !== false) {
+    repaintGraph(app, graph);
+  }
+  return { graph, capability, plan, nextGraph };
+}
+
 /**
  * Detect preview-foreground capability.
  * Requires instance-level app.canvas.onDrawForeground or a prototype hook.

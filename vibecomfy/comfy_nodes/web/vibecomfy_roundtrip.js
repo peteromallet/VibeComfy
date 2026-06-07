@@ -1,9 +1,15 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { applyGraphCandidateInPlace, installPreviewForegroundOverlay, installQueueGuard as installQueueGuardAdapter } from "./comfy_adapter.js";
+import {
+  applyGraphCandidateInPlace,
+  applyGraphDeltaInPlace,
+  installPreviewForegroundOverlay,
+  installQueueGuard as installQueueGuardAdapter,
+} from "./comfy_adapter.js";
 import {
   createAgentEditState,
   RENDER_SECTIONS,
+  normalizeDeltaOpsFromSubmit,
   normalizeObligationDirtySections,
   transition,
 } from "./agent_edit_lifecycle.js";
@@ -54,9 +60,12 @@ export { RENDER_SECTIONS };
 //   session_id        (string, required)
 //   turn_id           (string, required)
 //   client_graph_hash (string, optional) — hash of current canvas
+//   live_graph        (object, required for v2 accept) — current serialized
+//                     canvas snapshot; submit/rebaseline continue using `graph`
 //   client_live_canvas_token (string, optional) — current live canvas lock token
-//   submit_graph_hash (string, optional) — v2 server-side submit hash echo
-//   candidate_graph_hash (string, optional) — v2 accepted candidate hash
+//   submit_graph_hash (string, optional) — v2 server-side submit snapshot hash
+//   candidate_graph_hash (string, optional) — v2 candidate snapshot hash
+//   client_live_canvas_token is diagnostic only; it is not backend CAS authority
 //   idempotency_key   (string, optional)
 
 // ── Reject Fields (POST /vibecomfy/agent-edit/reject) ─────────────────────
@@ -620,6 +629,532 @@ function applyGraphInPlaceWithIntentDecoration(candidate) {
       next_action: "Retry after the ComfyUI frontend finishes loading, or use the legacy round-trip command.",
     });
   }
+}
+
+function canonicalNodeUid(node) {
+  if (!node || typeof node !== "object") {
+    return null;
+  }
+  const properties = node.properties && typeof node.properties === "object" ? node.properties : null;
+  const candidates = [
+    properties?.vibecomfy_uid,
+    properties?.uid,
+    node.vibecomfy_uid,
+    node.uid,
+    node.id,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) {
+      continue;
+    }
+    const normalized = String(candidate).trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function buildGraphNodeIndex(graph) {
+  const byUid = new Map();
+  const byId = new Map();
+  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+  for (const node of nodes) {
+    const uid = canonicalNodeUid(node);
+    if (uid && !byUid.has(uid)) {
+      byUid.set(uid, node);
+    }
+    if (node?.id !== null && node?.id !== undefined) {
+      const key = String(node.id);
+      if (!byId.has(key)) {
+        byId.set(key, node);
+      }
+    }
+  }
+  return { byUid, byId };
+}
+
+function resolveGraphNode(graph, uidOrId) {
+  if (uidOrId === null || uidOrId === undefined || uidOrId === "") {
+    return null;
+  }
+  const index = buildGraphNodeIndex(graph);
+  const key = String(uidOrId);
+  return index.byUid.get(key) || index.byId.get(key) || null;
+}
+
+function resolveGraphTarget(target) {
+  if (Array.isArray(target)) {
+    const scope = target[0];
+    const uidOrId = target.length > 1 ? target[1] : null;
+    const rest = target.length > 2 ? target.slice(2) : [];
+    const scopePath = Array.isArray(scope)
+      ? scope.map((entry) => String(entry))
+      : (scope === null || scope === undefined ? [] : [String(scope)]);
+    return { scopePath, uidOrId, rest };
+  }
+  if (target && typeof target === "object") {
+    const scopePath = Array.isArray(target.scope_path)
+      ? target.scope_path.map((entry) => String(entry))
+      : (target.scope_path === null || target.scope_path === undefined || target.scope_path === ""
+        ? []
+        : [String(target.scope_path)]);
+    const uidOrId = target.uid ?? target.id ?? null;
+    return { scopePath, uidOrId, rest: [] };
+  }
+  return { scopePath: [], uidOrId: target ?? null, rest: [] };
+}
+
+function resolveNamedSlotIndex(slots, ref) {
+  if (!Array.isArray(slots)) {
+    return -1;
+  }
+  if (typeof ref === "number" && Number.isInteger(ref)) {
+    return ref >= 0 && ref < slots.length ? ref : -1;
+  }
+  const normalized = String(ref);
+  for (let index = 0; index < slots.length; index += 1) {
+    const slot = slots[index];
+    if (String(slot?.name) === normalized || String(slot?.label) === normalized || String(index) === normalized) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function readNodeFieldValue(node, fieldPath) {
+  if (!node || !Array.isArray(fieldPath) || fieldPath.length === 0) {
+    return undefined;
+  }
+  const [head, ...rest] = fieldPath;
+  if (head === "widgets_values") {
+    const index = Number(rest[0]);
+    return Array.isArray(node.widgets_values) ? clonePlainData(node.widgets_values[index]) : undefined;
+  }
+  if (head === "widgets") {
+    const slotIndex = resolveNamedSlotIndex(node.widgets, rest[0]);
+    if (slotIndex < 0) {
+      return undefined;
+    }
+    const widget = Array.isArray(node.widgets) ? node.widgets[slotIndex] : undefined;
+    if (rest.length <= 1) {
+      return clonePlainData(widget);
+    }
+    return clonePlainData(widget?.[rest[1]]);
+  }
+  if (head === "inputs" || head === "outputs") {
+    const slotIndex = resolveNamedSlotIndex(node[head], rest[0]);
+    if (slotIndex < 0) {
+      return undefined;
+    }
+    const slot = Array.isArray(node[head]) ? node[head][slotIndex] : undefined;
+    if (rest.length <= 1) {
+      return clonePlainData(slot);
+    }
+    return clonePlainData(slot?.[rest[1]]);
+  }
+  if (Object.prototype.hasOwnProperty.call(node, head)) {
+    return clonePlainData(node[head]);
+  }
+  if (node.properties && Object.prototype.hasOwnProperty.call(node.properties, head)) {
+    return clonePlainData(node.properties[head]);
+  }
+  const widgetIndex = resolveNamedSlotIndex(node.widgets, head);
+  if (widgetIndex >= 0) {
+    if (Array.isArray(node.widgets_values) && widgetIndex < node.widgets_values.length) {
+      return clonePlainData(node.widgets_values[widgetIndex]);
+    }
+    return clonePlainData(node.widgets?.[widgetIndex]?.value);
+  }
+  return undefined;
+}
+
+function readNodeLinkSource(graph, targetRef) {
+  const parsed = resolveGraphTarget(targetRef);
+  const targetNode = resolveGraphNode(graph, parsed.uidOrId);
+  if (!targetNode) {
+    return { sentinel: "link_absent" };
+  }
+  const targetSlotRef = parsed.rest[0];
+  const targetSlotIndex = resolveNamedSlotIndex(targetNode.inputs, targetSlotRef);
+  if (targetSlotIndex < 0) {
+    return { sentinel: "link_absent" };
+  }
+  const links = Array.isArray(graph?.links) ? graph.links : [];
+  for (const link of links) {
+    if (!Array.isArray(link) || link.length < 5) {
+      continue;
+    }
+    if (String(link[3]) !== String(targetNode.id) || Number(link[4]) !== targetSlotIndex) {
+      continue;
+    }
+    const sourceNode = resolveGraphNode(graph, link[1]);
+    return {
+      uid: canonicalNodeUid(sourceNode) || String(link[1]),
+      output_slot: Number(link[2]),
+    };
+  }
+  return { sentinel: "link_absent" };
+}
+
+function readGraphActualForOp(graph, op) {
+  if (!op || typeof op !== "object") {
+    return undefined;
+  }
+  if (op.op === "set_node_field") {
+    const parsed = resolveGraphTarget(op.target);
+    const node = resolveGraphNode(graph, parsed.uidOrId);
+    return readNodeFieldValue(node, parsed.rest);
+  }
+  if (op.op === "set_mode") {
+    const parsed = resolveGraphTarget(op.target);
+    const node = resolveGraphNode(graph, parsed.uidOrId);
+    return node?.mode ?? 0;
+  }
+  if (op.op === "reorder") {
+    const parsed = resolveGraphTarget(op.target);
+    const node = resolveGraphNode(graph, parsed.uidOrId);
+    if (!node) {
+      return undefined;
+    }
+    if (op.axis === "widgets") {
+      return Array.isArray(node.widgets) ? node.widgets.map((widget) => widget?.name ?? widget?.label ?? null) : [];
+    }
+    if (op.axis === "inputs" || op.axis === "outputs") {
+      return Array.isArray(node[op.axis]) ? node[op.axis].map((slot) => slot?.name ?? slot?.label ?? null) : [];
+    }
+    return undefined;
+  }
+  if (op.op === "upsert_link" || op.op === "remove_link") {
+    return readNodeLinkSource(graph, op.to || op.target);
+  }
+  if (op.op === "add_node" || op.op === "remove_node") {
+    const nodeRef = op.target ?? ["nodes", op.scope_path];
+    const parsed = resolveGraphTarget(nodeRef);
+    const node = resolveGraphNode(graph, parsed.uidOrId);
+    if (!node) {
+      return { sentinel: "node_absent" };
+    }
+    return {
+      uid: canonicalNodeUid(node) || String(parsed.uidOrId),
+      id: node.id ?? null,
+      type: node.type ?? null,
+    };
+  }
+  return undefined;
+}
+
+function valuesSemanticallyEqual(left, right) {
+  return canonicalJsonString(left) === canonicalJsonString(right);
+}
+
+function normalizeScopedAcceptVerification(accepted) {
+  const raw = accepted?.raw && typeof accepted.raw === "object" ? accepted.raw : accepted;
+  const scoped = raw?.scoped_accept_verification;
+  if (!scoped || typeof scoped !== "object" || !Array.isArray(scoped.entries)) {
+    return null;
+  }
+  return {
+    ok: scoped.ok !== false,
+    entries: scoped.entries.map((entry) => clonePlainData(entry)),
+  };
+}
+
+function resolveScopedDeltaOps(panel, accepted) {
+  const echoed = normalizeDeltaOpsFromSubmit(accepted?.raw || accepted);
+  if (Array.isArray(echoed)) {
+    return { deltaOps: echoed, source: "accept_echo" };
+  }
+  if (Array.isArray(panel?.state?.deltaOps)) {
+    return { deltaOps: clonePlainData(panel.state.deltaOps), source: "submit_state" };
+  }
+  return { deltaOps: null, source: "none" };
+}
+
+function validateScopedCanvasPreconditions(graph, deltaOps, scopedVerification) {
+  const entries = [];
+  const serverEntries = Array.isArray(scopedVerification?.entries) ? scopedVerification.entries : [];
+  for (let index = 0; index < deltaOps.length; index += 1) {
+    const op = deltaOps[index];
+    const serverEntry = serverEntries[index] && typeof serverEntries[index] === "object" ? serverEntries[index] : {};
+    const actualBefore = readGraphActualForOp(graph, op);
+    const expectedOld = Object.prototype.hasOwnProperty.call(serverEntry, "expected_old")
+      ? serverEntry.expected_old
+      : undefined;
+    const desiredNew = Object.prototype.hasOwnProperty.call(serverEntry, "desired_new")
+      ? serverEntry.desired_new
+      : op.value;
+    const matchesExpected = valuesSemanticallyEqual(actualBefore, expectedOld);
+    const matchesDesired = valuesSemanticallyEqual(actualBefore, desiredNew);
+    const status = matchesExpected ? "ok" : (matchesDesired ? "already_applied" : "conflict");
+    entries.push({
+      op: op.op,
+      target: clonePlainData(serverEntry.target ?? op.target ?? op.to ?? null),
+      expected_old: clonePlainData(expectedOld),
+      actual_before: clonePlainData(actualBefore),
+      desired_new: clonePlainData(desiredNew),
+      server_status: serverEntry.status ?? null,
+      status,
+    });
+  }
+  return {
+    ok: entries.every((entry) => entry.status === "ok" || entry.status === "already_applied"),
+    entries,
+  };
+}
+
+function verifyScopedCanvasResults(graph, deltaOps, scopedVerification) {
+  const entries = [];
+  const serverEntries = Array.isArray(scopedVerification?.entries) ? scopedVerification.entries : [];
+  for (let index = 0; index < deltaOps.length; index += 1) {
+    const op = deltaOps[index];
+    const serverEntry = serverEntries[index] && typeof serverEntries[index] === "object" ? serverEntries[index] : {};
+    const actualAfter = readGraphActualForOp(graph, op);
+    const desiredNew = Object.prototype.hasOwnProperty.call(serverEntry, "desired_new")
+      ? serverEntry.desired_new
+      : op.value;
+    entries.push({
+      op: op.op,
+      target: clonePlainData(serverEntry.target ?? op.target ?? op.to ?? null),
+      desired_new: clonePlainData(desiredNew),
+      actual_after: clonePlainData(actualAfter),
+      ok: valuesSemanticallyEqual(actualAfter, desiredNew),
+    });
+  }
+  return {
+    ok: entries.every((entry) => entry.ok),
+    entries,
+  };
+}
+
+function buildCanvasApplyVerificationDebug(canvasApplyMeta) {
+  if (!canvasApplyMeta || typeof canvasApplyMeta !== "object") {
+    return null;
+  }
+  const debug = {};
+  if (Object.prototype.hasOwnProperty.call(canvasApplyMeta, "scoped_accept_verification")) {
+    debug.scoped_accept_verification = clonePlainData(canvasApplyMeta.scoped_accept_verification);
+  }
+  if (Object.prototype.hasOwnProperty.call(canvasApplyMeta, "local_precheck")) {
+    debug.local_precheck = clonePlainData(canvasApplyMeta.local_precheck);
+  }
+  if (Object.prototype.hasOwnProperty.call(canvasApplyMeta, "local_postcheck")) {
+    debug.local_postcheck = clonePlainData(canvasApplyMeta.local_postcheck);
+  }
+  if (Object.prototype.hasOwnProperty.call(canvasApplyMeta, "rollback")) {
+    debug.rollback = clonePlainData(canvasApplyMeta.rollback);
+  }
+  return Object.keys(debug).length > 0 ? debug : null;
+}
+
+function normalizeSerializedLinkRecord(link) {
+  if (Array.isArray(link)) {
+    if (link.length < 5) {
+      return null;
+    }
+    return {
+      id: link[0],
+      origin_id: link[1],
+      origin_slot: Number(link[2]),
+      target_id: link[3],
+      target_slot: Number(link[4]),
+      type: link.length > 5 ? link[5] : null,
+    };
+  }
+  if (!link || typeof link !== "object") {
+    return null;
+  }
+  const id = link.id ?? link.link_id ?? null;
+  const originId = link.origin_id ?? link.from_id ?? link.from ?? null;
+  const originSlot = link.origin_slot ?? link.from_slot ?? link.originIndex ?? null;
+  const targetId = link.target_id ?? link.to_id ?? link.to ?? null;
+  const targetSlot = link.target_slot ?? link.to_slot ?? link.targetIndex ?? null;
+  if (id === null || originId === null || originSlot === null || targetId === null || targetSlot === null) {
+    return null;
+  }
+  return {
+    id,
+    origin_id: originId,
+    origin_slot: Number(originSlot),
+    target_id: targetId,
+    target_slot: Number(targetSlot),
+    type: link.type ?? link.link_type ?? null,
+  };
+}
+
+function normalizedSerializedLinks(graph) {
+  const rawLinks = Array.isArray(graph?.links)
+    ? graph.links
+    : Object.values(graph?.links || {});
+  return rawLinks.map((link) => normalizeSerializedLinkRecord(link)).filter(Boolean);
+}
+
+function findSerializedLinkByTarget(graph, targetRef) {
+  const parsed = resolveGraphTarget(targetRef);
+  const targetNode = resolveGraphNode(graph, parsed.uidOrId);
+  if (!targetNode) {
+    return null;
+  }
+  const targetSlotIndex = resolveNamedSlotIndex(targetNode.inputs, parsed.rest[0]);
+  if (targetSlotIndex < 0) {
+    return null;
+  }
+  return normalizedSerializedLinks(graph).find(
+    (link) => String(link.target_id) === String(targetNode.id) && Number(link.target_slot) === targetSlotIndex,
+  ) || null;
+}
+
+function nodeTargetRefForRollback(op) {
+  if (Array.isArray(op?.target) || (op?.target && typeof op.target === "object")) {
+    return clonePlainData(op.target);
+  }
+  return ["nodes", op?.scope_path ?? op?.uid ?? op?.id ?? ""];
+}
+
+function buildInverseDeltaOps(preApplyGraph, deltaOps) {
+  const inverseOps = [];
+  for (const op of deltaOps) {
+    if (!op || typeof op !== "object" || typeof op.op !== "string") {
+      continue;
+    }
+    if (op.op === "set_node_field" || op.op === "set_mode" || op.op === "reorder") {
+      inverseOps.push(clonePlainData(op));
+      continue;
+    }
+    if (op.op === "upsert_link") {
+      const priorLink = findSerializedLinkByTarget(preApplyGraph, op.to || op.target);
+      if (!priorLink) {
+        inverseOps.push({
+          op: "remove_link",
+          to: clonePlainData(op.to || op.target),
+        });
+        continue;
+      }
+      inverseOps.push({
+        op: "upsert_link",
+        from: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.origin_id)) || String(priorLink.origin_id), Number(priorLink.origin_slot)],
+        to: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.target_id)) || String(priorLink.target_id), Number(priorLink.target_slot)],
+      });
+      continue;
+    }
+    if (op.op === "remove_link") {
+      const priorLink = findSerializedLinkByTarget(preApplyGraph, op.to || op.target);
+      if (!priorLink) {
+        continue;
+      }
+      inverseOps.push({
+        op: "upsert_link",
+        from: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.origin_id)) || String(priorLink.origin_id), Number(priorLink.origin_slot)],
+        to: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, priorLink.target_id)) || String(priorLink.target_id), Number(priorLink.target_slot)],
+      });
+      continue;
+    }
+    if (op.op === "add_node") {
+      inverseOps.push({
+        op: "remove_node",
+        target: nodeTargetRefForRollback(op),
+      });
+      continue;
+    }
+    if (op.op === "remove_node") {
+      const targetRef = nodeTargetRefForRollback(op);
+      const parsed = resolveGraphTarget(targetRef);
+      const priorNode = resolveGraphNode(preApplyGraph, parsed.uidOrId);
+      if (!priorNode) {
+        continue;
+      }
+      inverseOps.push({
+        op: "add_node",
+        target: clonePlainData(targetRef),
+        scope_path: canonicalNodeUid(priorNode) || String(parsed.uidOrId),
+      });
+      const relatedLinks = normalizedSerializedLinks(preApplyGraph)
+        .filter((link) => String(link.origin_id) === String(priorNode.id) || String(link.target_id) === String(priorNode.id))
+        .sort((left, right) => Number(left.id) - Number(right.id));
+      for (const link of relatedLinks) {
+        inverseOps.push({
+          op: "upsert_link",
+          from: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, link.origin_id)) || String(link.origin_id), Number(link.origin_slot)],
+          to: ["nodes", canonicalNodeUid(resolveGraphNode(preApplyGraph, link.target_id)) || String(link.target_id), Number(link.target_slot)],
+        });
+      }
+    }
+  }
+  return inverseOps;
+}
+
+async function attemptScopedCanvasRollback(preApplyGraph, deltaOps, scopedVerification) {
+  const rollback = {
+    attempted: true,
+    undo_snapshot_available: Array.isArray(currentAgentPanel()?.state?.undoStack) && currentAgentPanel().state.undoStack.length > 0,
+    restored: false,
+    attempts: [],
+  };
+  const inverseDeltaOps = buildInverseDeltaOps(preApplyGraph, deltaOps);
+  const inverseAttempt = {
+    strategy: "inverse_delta",
+    delta_ops: clonePlainData(inverseDeltaOps),
+  };
+  try {
+    const result = applyGraphDeltaInPlace(app, {
+      deltaOps: inverseDeltaOps,
+      candidateGraph: clonePlainData(preApplyGraph),
+    });
+    const snapshot = await buildCanvasSnapshot();
+    const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
+    Object.assign(inverseAttempt, {
+      ok: restoreCheck.ok,
+      capability: clonePlainData(result?.capability || null),
+      applied_plan: clonePlainData(result?.plan || null),
+      restore_check: clonePlainData(restoreCheck),
+      client_graph_hash: snapshot.graphHash,
+      client_structural_graph_hash: snapshot.structuralHash,
+      client_live_canvas_token: snapshot.liveCanvasToken,
+    });
+    rollback.attempts.push(inverseAttempt);
+    if (restoreCheck.ok) {
+      rollback.restored = true;
+      rollback.restored_via = "inverse_delta";
+      return rollback;
+    }
+  } catch (error) {
+    inverseAttempt.ok = false;
+    inverseAttempt.error = String(error?.message || error);
+    rollback.attempts.push(inverseAttempt);
+  }
+
+  const fullRestoreAttempt = {
+    strategy: "whole_graph_restore",
+  };
+  try {
+    const restoreGraph = clonePlainData(preApplyGraph);
+    if (typeof app?.loadGraphData === "function") {
+      await app.loadGraphData(restoreGraph);
+    } else {
+      applyGraphCandidateInPlace(app, restoreGraph);
+    }
+    const snapshot = await buildCanvasSnapshot();
+    const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
+    Object.assign(fullRestoreAttempt, {
+      ok: restoreCheck.ok,
+      restore_check: clonePlainData(restoreCheck),
+      client_graph_hash: snapshot.graphHash,
+      client_structural_graph_hash: snapshot.structuralHash,
+      client_live_canvas_token: snapshot.liveCanvasToken,
+    });
+    rollback.attempts.push(fullRestoreAttempt);
+    if (restoreCheck.ok) {
+      rollback.restored = true;
+      rollback.restored_via = "whole_graph_restore";
+      return rollback;
+    }
+  } catch (error) {
+    fullRestoreAttempt.ok = false;
+    fullRestoreAttempt.error = String(error?.message || error);
+    rollback.attempts.push(fullRestoreAttempt);
+  }
+
+  return rollback;
 }
 
 function installIntentNodeFallback() {
@@ -8661,6 +9196,7 @@ async function applyAgentCandidate(panel) {
       session_id: panel.state.sessionId,
       turn_id: panel.state.turnId,
       client_graph_hash: stateCheckGraphHash,
+      live_graph: beforeApply.graph,
       client_live_canvas_token: beforeApply.liveCanvasToken,
       submit_graph_hash: panel.state.serverSubmitGraphHash || undefined,
       candidate_graph_hash: panel.state.candidateGraphHash || undefined,
@@ -8756,8 +9292,120 @@ async function applyAgentCandidate(panel) {
       return;
     }
 
+    const { deltaOps: scopedDeltaOps, source: scopedDeltaOpsSource } = resolveScopedDeltaOps(panel, accepted);
+    const scopedVerification = normalizeScopedAcceptVerification(accepted);
+    const useScopedApply = Array.isArray(scopedDeltaOps);
     const currentBeforeLoad = await buildCanvasSnapshot();
-    if (currentBeforeLoad.liveCanvasToken !== beforeApply.liveCanvasToken) {
+    let localScopedPrecheck = null;
+    let canvasApplyMeta = {
+      mode: useScopedApply ? "scoped_delta" : "whole_graph",
+      delta_ops_source: scopedDeltaOpsSource,
+      accept_live_canvas_token: beforeApply.liveCanvasToken,
+      current_live_canvas_token: currentBeforeLoad.liveCanvasToken,
+    };
+
+    if (useScopedApply) {
+      if (!scopedVerification || !Array.isArray(scopedVerification.entries)) {
+        const failure = agentPanelFailure("CanvasApplyError", "Scoped Apply could not verify the touched region because accept verification evidence is missing.", {
+          retryable: true,
+          graph_unchanged: true,
+          next_action: "Submit the edit again so the backend returns scoped accept verification.",
+          accept_response: accepted.raw || accepted,
+          canvas_apply: canvasApplyMeta,
+        });
+        const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
+          failure,
+          accepted: accepted.raw || accepted,
+          syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "canvas_apply"),
+          undoStackDepth: panel.state.undoStack.length,
+          debugPayload: {
+            ...failure,
+            accepted: accepted.raw || accepted,
+            canvas_apply: canvasApplyMeta,
+            canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
+            undo_stack_depth: panel.state.undoStack.length,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        pushHistory(panel, "failure", failure.kind || "CanvasApplyError");
+        pushTurnStatus(panel, "failed", {
+          session_id: failure.session_id || panel.state.sessionId,
+          turn_id: failure.turn_id || panel.state.turnId,
+          baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
+          failure_kind: failure.kind || "CanvasApplyError",
+          failure_stage: failure.stage || "canvas_apply",
+          message: failure.user_facing_message || failure.message || failure.error,
+          audit_ref: failure.audit_ref,
+          raw_payload: failure,
+        });
+        rememberTurnDetailSnapshot(panel, {
+          turn_id: failure.turn_id || panel.state.turnId,
+          session_id: failure.session_id || panel.state.sessionId,
+          failure,
+          message: failure.user_facing_message || failure.message || failure.error,
+        });
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+
+      localScopedPrecheck = validateScopedCanvasPreconditions(
+        currentBeforeLoad.graph,
+        scopedDeltaOps,
+        scopedVerification,
+      );
+      canvasApplyMeta = {
+        ...canvasApplyMeta,
+        scoped_accept_verification: clonePlainData(scopedVerification),
+        local_precheck: clonePlainData(localScopedPrecheck),
+      };
+      if (!localScopedPrecheck.ok) {
+        const failure = agentPanelFailure("StaleStateMismatch", "The touched region changed after backend acceptance. Scoped Apply is blocked.", {
+          retryable: true,
+          graph_unchanged: true,
+          next_action: "Rebaseline and retry from the current canvas.",
+          client_graph_hash: currentBeforeLoad.graphHash,
+          client_structural_graph_hash: currentBeforeLoad.structuralHash,
+          expected_graph_hash: stateCheckGraphHash,
+          client_live_canvas_token: currentBeforeLoad.liveCanvasToken,
+          expected_live_canvas_token: beforeApply.liveCanvasToken,
+          accept_response: accepted.raw || accepted,
+          canvas_apply: canvasApplyMeta,
+          agent_failure_context: {
+            issues: localScopedPrecheck.entries.filter((entry) => entry.status === "conflict"),
+          },
+        });
+        const obligations = transition(panel, "STALE_CANVAS_APPLY", {
+          failure,
+          rebaselineRecovery: recoveryForFailure(failure, panel, acceptBody),
+          syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
+          debugPayload: {
+            ...failure,
+            canvas_apply: canvasApplyMeta,
+            canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        pushHistory(panel, "failure", failure.kind || "StaleStateMismatch");
+        pushTurnStatus(panel, "failed", {
+          session_id: failure.session_id || panel.state.sessionId,
+          turn_id: failure.turn_id || panel.state.turnId,
+          baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
+          failure_kind: failure.kind || "StaleStateMismatch",
+          failure_stage: failure.stage || "frontend",
+          message: failure.user_facing_message || failure.message || failure.error,
+          audit_ref: failure.audit_ref,
+          raw_payload: failure,
+        });
+        rememberTurnDetailSnapshot(panel, {
+          turn_id: failure.turn_id || panel.state.turnId,
+          session_id: failure.session_id || panel.state.sessionId,
+          failure,
+          message: failure.user_facing_message || failure.message || failure.error,
+        });
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+    } else if (currentBeforeLoad.liveCanvasToken !== beforeApply.liveCanvasToken) {
       const failure = agentPanelFailure("StaleStateMismatch", "The canvas changed while Apply was waiting for backend acceptance. Candidate loading is blocked.", {
         retryable: true,
         graph_unchanged: true,
@@ -8768,12 +9416,17 @@ async function applyAgentCandidate(panel) {
         client_live_canvas_token: currentBeforeLoad.liveCanvasToken,
         expected_live_canvas_token: beforeApply.liveCanvasToken,
         accept_response: accepted.raw || accepted,
+        canvas_apply: canvasApplyMeta,
       });
       const obligations = transition(panel, "STALE_CANVAS_APPLY", {
         failure,
         rebaselineRecovery: recoveryForFailure(failure, panel, acceptBody),
         syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
-        debugPayload: failure,
+        debugPayload: {
+          ...failure,
+          canvas_apply: canvasApplyMeta,
+          canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
+        },
       });
       fulfillLifecycleTransitionObligations(panel, obligations);
       pushHistory(panel, "failure", failure.kind || "StaleStateMismatch");
@@ -8808,8 +9461,23 @@ async function applyAgentCandidate(panel) {
     panel.state.undoStack = panel.state.undoStack.slice(-16);
     markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
 
+    let canvasApplyResult = null;
     try {
-      applyGraphInPlaceWithIntentDecoration(panel.state.candidateGraph);
+      if (useScopedApply) {
+        canvasApplyResult = applyGraphDeltaInPlace(app, {
+          deltaOps: scopedDeltaOps,
+          candidateGraph: panel.state.candidateGraph,
+        }, {
+          decorateCandidateNodePayload(nodePayload) {
+            decorateIntentNode(nodePayload);
+          },
+          decorateLiveNode(liveNode) {
+            decorateIntentNode(liveNode);
+          },
+        });
+      } else {
+        applyGraphInPlaceWithIntentDecoration(panel.state.candidateGraph);
+      }
     } catch (e) {
       const failure = e?.ok === false
         ? e
@@ -8818,6 +9486,10 @@ async function applyAgentCandidate(panel) {
             graph_unchanged: false,
             next_action: "Retry Apply or inspect the raw response in the debug panel.",
             accept_response: accepted.raw || accepted,
+            canvas_apply: {
+              ...canvasApplyMeta,
+              capability: clonePlainData(canvasApplyResult?.capability || null),
+            },
           });
       const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
         failure,
@@ -8827,6 +9499,14 @@ async function applyAgentCandidate(panel) {
         debugPayload: {
           ...failure,
           accepted: accepted.raw || accepted,
+          canvas_apply: {
+            ...canvasApplyMeta,
+            capability: clonePlainData(canvasApplyResult?.capability || null),
+          },
+          canvas_apply_verification: buildCanvasApplyVerificationDebug({
+            ...canvasApplyMeta,
+            capability: clonePlainData(canvasApplyResult?.capability || null),
+          }),
           undo_stack_depth: panel.state.undoStack.length,
         },
       });
@@ -8851,6 +9531,84 @@ async function applyAgentCandidate(panel) {
       renderLifecycleTransition(panel, obligations);
       return;
     }
+    let localScopedPostcheck = null;
+    if (useScopedApply) {
+      const currentAfterApply = await buildCanvasSnapshot();
+      localScopedPostcheck = verifyScopedCanvasResults(
+        currentAfterApply.graph,
+        scopedDeltaOps,
+        scopedVerification,
+      );
+      canvasApplyMeta = {
+        ...canvasApplyMeta,
+        capability: clonePlainData(canvasApplyResult?.capability || null),
+        applied_plan: clonePlainData(canvasApplyResult?.plan || null),
+        local_postcheck: clonePlainData(localScopedPostcheck),
+      };
+      if (!localScopedPostcheck.ok) {
+        const rollback = await attemptScopedCanvasRollback(
+          currentBeforeLoad.graph,
+          scopedDeltaOps,
+          scopedVerification,
+        );
+        canvasApplyMeta = {
+          ...canvasApplyMeta,
+          rollback: clonePlainData(rollback),
+        };
+        const rollbackRestored = rollback.restored === true;
+        const failure = agentPanelFailure(
+          "CanvasApplyError",
+          rollbackRestored
+            ? "Scoped Apply verification failed after mutation. The canvas was restored to the pre-apply snapshot."
+            : "Scoped Apply verification failed after mutation and automatic rollback did not fully restore the pre-apply snapshot.",
+          {
+          retryable: true,
+          graph_unchanged: rollbackRestored,
+          next_action: rollbackRestored
+            ? "Review the rollback diagnostics, then retry Apply or Rebaseline from the restored canvas. Undo Last Apply remains available."
+            : "Use Undo Last Apply or Rebaseline before retrying. Automatic rollback diagnostics are attached and the undo snapshot remains available.",
+          accept_response: accepted.raw || accepted,
+          canvas_apply: canvasApplyMeta,
+          agent_failure_context: {
+            issues: localScopedPostcheck.entries.filter((entry) => entry.ok === false),
+            rollback,
+          },
+        });
+        const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
+          failure,
+          accepted: accepted.raw || accepted,
+          syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "canvas_apply"),
+          undoStackDepth: panel.state.undoStack.length,
+          debugPayload: {
+            ...failure,
+            accepted: accepted.raw || accepted,
+            canvas_apply: canvasApplyMeta,
+            canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
+            undo_stack_depth: panel.state.undoStack.length,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        pushHistory(panel, "failure", failure.kind || "CanvasApplyError");
+        pushTurnStatus(panel, "failed", {
+          session_id: failure.session_id || panel.state.sessionId,
+          turn_id: failure.turn_id || panel.state.turnId,
+          baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
+          failure_kind: failure.kind || "CanvasApplyError",
+          failure_stage: failure.stage || "canvas_apply",
+          message: failure.user_facing_message || failure.message || failure.error,
+          audit_ref: failure.audit_ref,
+          raw_payload: failure,
+        });
+        rememberTurnDetailSnapshot(panel, {
+          turn_id: failure.turn_id || panel.state.turnId,
+          session_id: failure.session_id || panel.state.sessionId,
+          failure,
+          message: failure.user_facing_message || failure.message || failure.error,
+        });
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+    }
     const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
     pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
     pushTurnStatus(panel, "applied", {
@@ -8864,10 +9622,22 @@ async function applyAgentCandidate(panel) {
       accepted: accepted.raw || accepted,
       lastAppliedChanges,
       undoStackDepth: panel.state.undoStack.length,
-      message: "Candidate accepted and applied locally.",
+      message: useScopedApply
+        ? `Applied - ${localScopedPostcheck?.entries?.length || scopedDeltaOps.length} changes verified on canvas.`
+        : "Candidate accepted and applied locally.",
       toast: "Agent candidate applied",
       debugPayload: {
         accepted,
+        canvas_apply: {
+          ...canvasApplyMeta,
+          capability: clonePlainData(canvasApplyResult?.capability || null),
+          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
+        },
+        canvas_apply_verification: buildCanvasApplyVerificationDebug({
+          ...canvasApplyMeta,
+          capability: clonePlainData(canvasApplyResult?.capability || null),
+          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
+        }),
         undo_stack_depth: panel.state.undoStack.length,
       },
     });
@@ -8878,6 +9648,16 @@ async function applyAgentCandidate(panel) {
       auditRef: accepted.auditRef || panel.state.auditRef,
       debugPayload: {
         accepted: accepted.raw || accepted,
+        canvas_apply: {
+          ...canvasApplyMeta,
+          capability: clonePlainData(canvasApplyResult?.capability || null),
+          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
+        },
+        canvas_apply_verification: buildCanvasApplyVerificationDebug({
+          ...canvasApplyMeta,
+          capability: clonePlainData(canvasApplyResult?.capability || null),
+          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
+        }),
         undo_stack_depth: panel.state.undoStack.length,
       },
       message: panel.state.message,

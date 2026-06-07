@@ -165,6 +165,182 @@ only.  No consumer outside the boundary module should read `snake_case` fields d
 The normalized object carries an internal marker (`__agentEditResponseNormalized`) so
 that passing an already‑normalized response through the function again is a no‑op.
 
+### 4.4 Accept request wire fields
+
+`POST /vibecomfy/agent-edit/accept` uses a distinct request body from submit and
+rebaseline:
+
+```json
+{
+  "session_id": "session-123",
+  "turn_id": "0007",
+  "client_graph_hash": "live-ui-hash",
+  "live_graph": {"nodes": [], "links": []},
+  "client_live_canvas_token": "live:rev:7",
+  "submit_graph_hash": "submit-ui-hash",
+  "candidate_graph_hash": "candidate-ui-hash",
+  "idempotency_key": "accept:session-123:0007:..."
+}
+```
+
+- `live_graph` is the current serialized canvas snapshot captured immediately before
+  Apply. It is reserved for accept-stage live-canvas evidence.
+- `graph` remains the submit/rebaseline field. Accept does not redefine `graph` to
+  mean the live snapshot.
+- `submit_graph_hash` identifies the submit-time canvas snapshot persisted for the turn.
+- `candidate_graph_hash` identifies the candidate snapshot being accepted.
+- `client_live_canvas_token` is diagnostic race evidence only. It helps explain local
+  drift but is not backend CAS authority.
+
+#### 4.4.1 V2 scoped accept response fields
+
+When the accepted turn carries `agent_edit_protocol == "v2_delta"`, the accept
+success response includes two additional payload fields:
+
+```json
+{
+  "ok": true,
+  "action": "accept",
+  "scoped_accept_verification": {
+    "ok": true,
+    "entries": [
+      {
+        "op": "set_node_field",
+        "target": ["nodes", "abc123", "widgets_values", 0],
+        "expected_old": "a cat sitting",
+        "actual_before": "a cat sitting",
+        "desired_new": "a dog running",
+        "status": "ok",
+        "error": null
+      }
+    ]
+  },
+  "delta_ops": [
+    {
+      "op": "set_node_field",
+      "target": ["nodes", "abc123", "widgets_values", 0],
+      "value": "a dog running"
+    }
+  ]
+}
+```
+
+- `scoped_accept_verification.ok` — `true` when all entries have status `ok`,
+  `noop`, `already_applied`, or `already_absent`. The backend accepted the turn.
+- `scoped_accept_verification.entries[]` — one entry per `delta_op`. Each entry
+  carries `op`, `target`, `expected_old` (value resolved from the submit-time
+  graph), `actual_before` (value resolved from the live graph sent with the
+  accept request), `desired_new` (the mutation target), `status` (one of `ok`,
+  `conflict`, `noop`, `already_applied`, `already_absent`, `unscopable`), and
+  optional `error`.
+- `delta_ops` — echoed from the submit response. Always a plain array of dicts
+  with at minimum `op` and `target`. This is the **authoritative mutation-intent
+  source** for V2. The browser uses this (or `panel.state.deltaOps` from the
+  submit response) to drive local canvas mutation.
+- Repeated (idempotent) accept returns stable `scoped_accept_verification` and
+  `delta_ops` payloads.
+
+#### 4.4.2 V2 scoped accept failure: scoped conflict fields
+
+When V2 scoped validation fails, the failure response carries structured
+`agent_failure_context.issues[]` entries describing each conflict:
+
+```json
+{
+  "kind": "error",
+  "failure_kind": "StaleStateMismatch",
+  "stage": "accept",
+  "retryable": true,
+  "graph_unchanged": true,
+  "queue_allowed": false,
+  "agent_failure_context": {
+    "explanation": "Scoped accept verification failed.",
+    "issues": [
+      {
+        "code": "scoped_conflict",
+        "node_uid": "abc123",
+        "field_path": "widgets_values[0]",
+        "expected_old": "a cat sitting",
+        "actual_before": "a dog running",
+        "status": "conflict",
+        "message": "Scoped accept verification failed for set_node_field because live state was conflict.",
+        "detail": "Scoped accept verification failed for set_node_field because live state was conflict.",
+        "rebaseline_recovery": {
+          "action": "rebaseline",
+          "endpoint": "/vibecomfy/agent-edit/rebaseline",
+          "reason": "scoped_accept_conflict",
+          "turn_id": "0007",
+          "submit_graph_hash": "submit-ui-hash",
+          "candidate_graph_hash": "candidate-ui-hash"
+        }
+      }
+    ]
+  },
+  "rebaseline_recovery": {
+    "action": "rebaseline",
+    "endpoint": "/vibecomfy/agent-edit/rebaseline",
+    "reason": "scoped_accept_conflict",
+    "turn_id": "0007",
+    "submit_graph_hash": "submit-ui-hash",
+    "candidate_graph_hash": "candidate-ui-hash"
+  }
+}
+```
+
+Each scoped-conflict issue carries:
+- `code`: `"scoped_conflict"` for live-state drift, `"unsupported_delta_op"` or
+  `"unscopable_delta_op"` for unresolvable ops.
+- `node_uid` / `field_path`: the specific node and field that drifted.
+- `expected_old`: the value the submit-time graph had at submit time.
+- `actual_before`: the value the live graph now has.
+- `status`: `"conflict"` for drift, `"unscopable"` for unresolvable ops.
+- `rebaseline_recovery`: a recovery descriptor scoped to the turn (reason:
+  `"scoped_accept_conflict"`). The top-level `rebaseline_recovery` carries the
+  same shape for symmetric stale-recovery handling.
+
+Unrelated whole-graph drift (e.g. a node added or removed elsewhere on the
+canvas) does **not** cause a scoped accept failure. That drift appears only as a
+diagnostic `whole_graph_hash_mismatch` entry in `action_diagnostics` (see §4.4.3).
+
+#### 4.4.3 V2 diagnostic whole-graph hashes
+
+The V2 accept path computes whole-graph structural CAS on the live graph as a
+**diagnostic only** (it never blocks V2 accept):
+
+```json
+{
+  "diagnostics": [
+    {
+      "code": "whole_graph_hash_mismatch",
+      "severity": "info",
+      "message": "Whole-graph structural CAS mismatched at accept time; v2 used scoped validation instead.",
+      "detail": {
+        "expected_baseline_graph_hash": "...",
+        "live_graph_structural_hash": "...",
+        "submit_graph_hash": "...",
+        "candidate_graph_hash": "..."
+      }
+    }
+  ]
+}
+```
+
+This diagnostic confirms that whole-graph CAS would have rejected the accept
+under V1 rules, but the scoped validation allowed it because the **touched
+region** (the specific nodes, fields, and links referenced by `delta_ops`) was
+unchanged.
+
+#### 4.4.4 Source-of-truth split for V2
+
+| Artifact | Role |
+|---|---|
+| `submit_graph` (persisted, loaded from `request.json`) | Source of truth for `expected_old` — the value at submit time. |
+| `live_graph` (sent in accept request body) | Source of truth for `actual_before` — the value at accept time. |
+| `delta_ops` (persisted in `response.json`, echoed in accept success) | Authoritative mutation intent. The browser's primary mutation source is `panel.state.deltaOps` (populated from the submit response); the accept echo is a stable copy. |
+| `scoped_accept_verification` | Evidence of backend validation, not mutation intent. The browser uses it for pre-apply local precondition recheck. |
+| Whole-graph structural CAS | Diagnostic only for V2. Does not gate V2 accept. |
+| `client_live_canvas_token` | Browser-local race diagnostic only. Never backend CAS authority. |
+
 ---
 
 ## 5. Recovery payload shape

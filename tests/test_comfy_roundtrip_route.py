@@ -193,3 +193,40 @@ def test_malformed_payload_returns_error_envelope():
     assert isinstance(result["error"], str)
     assert isinstance(result["kind"], str)
     assert "graph" not in result, "error envelope must not contain 'graph'"
+
+
+def test_validated_failure_response_accept_preserves_nested_recovery() -> None:
+    from vibecomfy.comfy_nodes.agent_contracts import FailureKind, failure_envelope
+    from vibecomfy.comfy_nodes.routes import _validated_failure_response
+
+    recovery = {
+        "action": "rebaseline",
+        "endpoint": "/vibecomfy/agent-edit/rebaseline",
+        "reason": "scoped_accept_conflict",
+    }
+    failure = failure_envelope(
+        FailureKind.STALE_STATE_MISMATCH,
+        "accept",
+        agent_failure_context={
+            "explanation": "Scoped accept verification failed.",
+            "issues": [
+                {
+                    "code": "scoped_conflict",
+                    "detail": "Node 2 prompt drifted after submit.",
+                    "rebaseline_recovery": recovery,
+                }
+            ],
+        },
+    )
+
+    payload = _validated_failure_response("accept", failure)
+
+    assert payload["rebaseline_recovery"] == recovery
+    assert payload["outcome"]["rebaseline_recovery"] == recovery
+    assert payload["agent_failure_context"]["issues"] == [
+        {
+            "code": "scoped_conflict",
+            "detail": "Node 2 prompt drifted after submit.",
+            "rebaseline_recovery": recovery,
+        }
+    ]

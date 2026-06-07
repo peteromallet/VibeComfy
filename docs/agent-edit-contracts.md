@@ -4,7 +4,25 @@ This note documents the implemented M1 contracts for edit-state baseline authori
 
 ## 1. Edit-state baseline authority
 
-Authority lives in [agent_session.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_session.py:162) through `_set_baseline_authoritatively()` and in [agent_session.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_session.py:238) through `_normalize_baseline_state()`. No other module should write baseline fields directly.
+### 1.0 Protocol version branching
+
+The `agent_edit_protocol` field on each turn record cleanly branches accept
+behavior:
+
+- **`v2_delta`** (V2): Accept uses **scoped delta-region validation**. Only the
+  nodes, fields, and links referenced by `delta_ops` are compared between the
+  submit-time graph and the live accept graph. Unrelated graph drift (e.g. a
+  node added elsewhere on the canvas) does not block accept. Whole-graph
+  structural CAS is computed as a diagnostic only and never gates V2 accept.
+- **Legacy / absent** (V1): Accept uses the existing **whole-graph structural
+  CAS** and submit-hash checks. These gates are preserved unchanged.
+
+V1 candidates lack `delta_ops` and cannot be scoped; preserving their existing
+gates avoids risk to legacy workflows.
+
+### 1.1 Baseline authority
+
+Authority lives in [agent_session.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-hardening/vibecomfy/comfy_nodes/agent_session.py:162) through `_set_baseline_authoritatively()` and in [agent_session.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-hardening/vibecomfy/comfy_nodes/agent_session.py:238) through `_normalize_baseline_state()`. No other module should write baseline fields directly.
 
 Authoritative baseline fields:
 
@@ -29,8 +47,92 @@ Submit-time snapshots are captured in [agent_session.py](/Users/peteromalley/Doc
 CAS rules:
 
 - Accept uses structural CAS only. The authoritative expected baseline comes from the submit snapshot or the fail-closed legacy derivation in `_expected_baseline_for_turn()`.
-- Rebaseline uses structural CAS only. `rebaseline_session()` in [agent_session.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_session.py:1374) requires `last_known_baseline_graph_hash`, accepts explicit `null` for the no-baseline case, and rejects mismatches with `FailureKind.STALE_STATE_MISMATCH`.
+- Accept requests send `live_graph` as the current serialized canvas snapshot. Submit and rebaseline continue using `graph`; accept does not reuse that field name.
+- `submit_graph_hash` and `candidate_graph_hash` on accept identify the persisted submit snapshot and candidate snapshot for the turn. They are request-integrity echoes, not replacements for the live snapshot payload.
+- Rebaseline uses structural CAS only. `rebaseline_session()` in [agent_session.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-hardening/vibecomfy/comfy_nodes/agent_session.py:1374) requires `last_known_baseline_graph_hash`, accepts explicit `null` for the no-baseline case, and rejects mismatches with `FailureKind.STALE_STATE_MISMATCH`.
 - `client_live_canvas_token` is not backend CAS authority. It remains browser-local race evidence only.
+
+### V2 scoped accept (replaces whole-graph CAS for v2_delta turns)
+
+When `agent_edit_protocol == "v2_delta"`, the accept gate uses **scoped
+delta-region validation** instead of whole-graph structural CAS equality.
+
+#### Touched region
+
+The **touched region** is the set of nodes, fields, modes, link endpoints, and
+ordering positions referenced by `delta_ops`. For each op, the backend resolves:
+
+- `expected_old`: the value at that location in the **submit-time graph**
+  (loaded from persisted `request.json`).
+- `actual_before`: the value at that location in the **live graph** (the
+  `live_graph` field sent with the accept request).
+- `desired_new`: the mutation target value (from `delta_ops` or the candidate
+  graph for add-node / link ops).
+
+Only mismatches within the touched region cause accept rejection. Unrelated
+nodes, fields, or links that changed elsewhere on the canvas are ignored.
+
+#### Scoped validation plan (`_build_scoped_validation_plan`)
+
+Each `delta_op` produces one validation entry:
+
+| Field | Source | Description |
+|---|---|---|
+| `op` | `delta_op.op` | The op kind (`set_node_field`, `set_mode`, `reorder`, `upsert_link`, `remove_link`, `add_node`, `remove_node`). |
+| `target` | `delta_op.target` or `delta_op.to` | Graph location path (e.g. `["nodes", "abc123", "widgets_values", 0]`). |
+| `expected_old` | submit graph | Value resolved from the submit-time graph. |
+| `actual_before` | live graph | Value resolved from the live graph sent with accept. |
+| `desired_new` | candidate graph / delta_op | The mutation target value. |
+| `status` | computed | One of `ok`, `conflict`, `noop`, `already_applied`, `already_absent`, `unscopable`. |
+| `error` | string or null | Diagnostic message when status is `unscopable`. |
+
+Acceptable statuses: `ok`, `noop`, `already_applied`, `already_absent`. An
+`already_applied` status (live already equals desired) does not cause a
+conflict. An `already_absent` status (remove_node target already gone) is
+also acceptable.
+
+#### No-op desired values
+
+If `actual_before` (live) already equals `desired_new`, the entry status is
+`already_applied`. This does **not** count as a conflict — the backend accepts
+the turn because the desired state is already present on the canvas.
+
+#### Evidence loading fail-closed
+
+If the backend cannot load required V2 evidence (missing `submit_graph` from
+`request.json`, missing `delta_ops` from `response.json`), accept **fails
+closed** with `MISSING_REQUIRED_FIELD` / `evidence_loading_failure` diagnostics
+and a `rebaseline_recovery` payload scoped to the turn.
+
+If `live_graph` is absent from the accept request body, V2 accept fails closed
+with `MISSING_REQUIRED_FIELD` before any evidence loading occurs.
+
+#### Diagnostic whole-graph hash
+
+Whole-graph structural CAS is still computed on the live graph but is used as a
+**diagnostic only** for V2. When it mismatches, a `whole_graph_hash_mismatch`
+diagnostic entry (severity: `info`) is appended to the response `diagnostics`
+array. It never gates V2 accept.
+
+#### Scoped conflict failure shape
+
+When scoped validation finds conflicts, the backend returns a
+`StaleStateMismatch` failure envelope with:
+
+- `graph_unchanged: true`
+- `queue_allowed: false`
+- `agent_failure_context.issues[]` — one entry per conflicting op, each with
+  `code` (`scoped_conflict` or `unscopable_delta_op`), `node_uid`, `field_path`,
+  `expected_old`, `actual_before`, `status`, `message`, `detail`, and
+  `rebaseline_recovery`.
+- Top-level `rebaseline_recovery` with `reason: "scoped_accept_conflict"`.
+
+#### V1 preservations
+
+- V1 structural CAS and submit-hash checks remain blocking for non-v2_delta
+  turns. No V1 gate was weakened.
+- V1 candidates (lacking `delta_ops`) cannot reach the V2 scoped path.
+- `client_live_canvas_token` remains browser-local race diagnostic only.
 
 Rebaseline reasons are declared in [agent_session.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent_session.py:29):
 

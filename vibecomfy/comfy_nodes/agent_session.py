@@ -986,6 +986,911 @@ def record_idempotent_response(
     return record
 
 
+# ---------------------------------------------------------------------------
+# V2 accept evidence loading -- load persisted turn/session artifacts so
+# scoped validation can derive expected_old from the submit-time graph.
+# These are consumed by _mutate_turn_state (V2 branch) but do not change
+# the accept gate themselves; that is done in later tasks.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ScopedValueSentinel:
+    code: str
+
+
+_SENTINEL_NO_VALUE = _ScopedValueSentinel("missing_value")
+_SENTINEL_LINK_ABSENT = _ScopedValueSentinel("link_absent")
+_SENTINEL_NODE_ABSENT = _ScopedValueSentinel("node_absent")
+
+
+@dataclass(frozen=True)
+class _GraphIndex:
+    graph: Mapping[str, Any]
+    nodes_by_uid: dict[str, Mapping[str, Any]]
+    nodes_by_id: dict[int | str, Mapping[str, Any]]
+    nodes_by_str_id: dict[str, Mapping[str, Any]]
+    links_by_id: dict[int | str, Any]
+
+
+def _load_turn_request_graph(
+    *, session_dir: Path, turn_id: str
+) -> dict[str, Any] | None:
+    """Load the submit-time graph from the turn's ``request.json``."""
+    path = session_dir / "turns" / turn_id / "request.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    graph = payload.get("graph")
+    if isinstance(graph, Mapping):
+        return dict(graph)
+    return None
+
+
+def _load_turn_response_payload(
+    *, session_dir: Path, turn_id: str
+) -> dict[str, Any] | None:
+    """Load the turn's ``response.json``."""
+    path = session_dir / "turns" / turn_id / "response.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, Mapping) else None
+
+
+def _load_turn_candidate_graph(
+    *, session_dir: Path, turn_id: str
+) -> dict[str, Any] | None:
+    """Load the candidate graph from the persisted turn response."""
+    payload = _load_turn_response_payload(session_dir=session_dir, turn_id=turn_id)
+    if payload is None:
+        return None
+    graph = payload.get("graph")
+    if isinstance(graph, Mapping):
+        return dict(graph)
+    return None
+
+
+def _load_turn_delta_ops(
+    *, session_dir: Path, turn_id: str
+) -> tuple[dict[str, Any], ...] | None:
+    """Load ``delta_ops`` from the persisted turn response.
+
+    Returns None if the response does not contain a valid ``delta_ops`` list.
+    """
+    response = _load_turn_response_payload(session_dir=session_dir, turn_id=turn_id)
+    if response is None:
+        return None
+    delta_ops = response.get("delta_ops")
+    if isinstance(delta_ops, list) and all(isinstance(op, Mapping) for op in delta_ops):
+        return tuple(dict(op) for op in delta_ops)
+    return None
+
+
+def _scoped_sentinel_payload(value: Any) -> Any:
+    if value is _SENTINEL_NO_VALUE:
+        return {"sentinel": _SENTINEL_NO_VALUE.code}
+    if value is _SENTINEL_LINK_ABSENT:
+        return {"sentinel": _SENTINEL_LINK_ABSENT.code}
+    if value is _SENTINEL_NODE_ABSENT:
+        return {"sentinel": _SENTINEL_NODE_ABSENT.code}
+    return value
+
+
+def _build_graph_index(graph: Mapping[str, Any]) -> _GraphIndex:
+    nodes_by_uid: dict[str, Mapping[str, Any]] = {}
+    nodes_by_id: dict[int | str, Mapping[str, Any]] = {}
+    nodes_by_str_id: dict[str, Mapping[str, Any]] = {}
+    for node in graph.get("nodes") if isinstance(graph.get("nodes"), list) else []:
+        if not isinstance(node, Mapping):
+            continue
+        node_id = node.get("id")
+        if isinstance(node_id, (int, str)):
+            nodes_by_id[node_id] = node
+            nodes_by_str_id[str(node_id)] = node
+        props = node.get("properties")
+        if isinstance(props, Mapping):
+            uid = props.get("vibecomfy_uid")
+            if isinstance(uid, str) and uid:
+                nodes_by_uid[uid] = node
+    links_by_id: dict[int | str, Any] = {}
+    for link in graph.get("links") if isinstance(graph.get("links"), list) else []:
+        if isinstance(link, list) and link:
+            link_id = link[0]
+        elif isinstance(link, Mapping):
+            link_id = link.get("id")
+        else:
+            continue
+        if isinstance(link_id, (int, str)):
+            links_by_id[link_id] = link
+            links_by_id[str(link_id)] = link
+    return _GraphIndex(
+        graph=graph,
+        nodes_by_uid=nodes_by_uid,
+        nodes_by_id=nodes_by_id,
+        nodes_by_str_id=nodes_by_str_id,
+        links_by_id=links_by_id,
+    )
+
+
+def _canonical_node_uid(node: Mapping[str, Any]) -> str | None:
+    props = node.get("properties")
+    if isinstance(props, Mapping):
+        uid = props.get("vibecomfy_uid")
+        if isinstance(uid, str) and uid:
+            return uid
+    node_id = node.get("id")
+    if isinstance(node_id, (int, str)):
+        return str(node_id)
+    return None
+
+
+def _normalize_target_uid(target: Any) -> str | None:
+    if isinstance(target, Mapping):
+        for key in ("uid", "node_uid", "id", "node_id", "scope_path"):
+            value = target.get(key)
+            if isinstance(value, (int, str)) and str(value):
+                return str(value)
+        return None
+    if isinstance(target, list) and len(target) >= 2:
+        value = target[1]
+        if isinstance(value, (int, str)) and str(value):
+            return str(value)
+    return None
+
+
+def _find_node_in_index(index: _GraphIndex, alias: Any) -> Mapping[str, Any] | None:
+    if isinstance(alias, str) and alias in index.nodes_by_uid:
+        return index.nodes_by_uid[alias]
+    if isinstance(alias, (int, str)) and alias in index.nodes_by_id:
+        return index.nodes_by_id[alias]
+    if isinstance(alias, (int, str)):
+        return index.nodes_by_str_id.get(str(alias))
+    return None
+
+
+def _find_node_in_graph(graph: Mapping[str, Any], uid: str) -> Mapping[str, Any] | None:
+    return _find_node_in_index(_build_graph_index(graph), uid)
+
+
+def _split_field_path(field_path: str) -> list[str]:
+    normalized = re.sub(r"\[(\d+)\]", r".\1", field_path)
+    return [segment for segment in normalized.split(".") if segment]
+
+
+def _read_named_socket(
+    entries: Any,
+    key: str,
+) -> Mapping[str, Any] | Any:
+    if not isinstance(entries, list):
+        return _SENTINEL_NO_VALUE
+    if key.isdigit():
+        index = int(key)
+        return entries[index] if 0 <= index < len(entries) else _SENTINEL_NO_VALUE
+    for entry in entries:
+        if isinstance(entry, Mapping) and entry.get("name") == key:
+            return entry
+    return _SENTINEL_NO_VALUE
+
+
+def _descend_field_value(root: Any, segments: list[str]) -> Any:
+    current = root
+    for segment in segments:
+        if isinstance(current, Mapping):
+            if segment not in current:
+                return _SENTINEL_NO_VALUE
+            current = current[segment]
+            continue
+        if isinstance(current, list):
+            if not segment.isdigit():
+                return _SENTINEL_NO_VALUE
+            index = int(segment)
+            if not 0 <= index < len(current):
+                return _SENTINEL_NO_VALUE
+            current = current[index]
+            continue
+        return _SENTINEL_NO_VALUE
+    return current
+
+
+def _read_widget_value(node: Mapping[str, Any], widget_name: str) -> Any:
+    widgets = node.get("widgets")
+    widgets_values = node.get("widgets_values")
+    if isinstance(widgets, list) and isinstance(widgets_values, list):
+        for index, widget in enumerate(widgets):
+            if (
+                isinstance(widget, Mapping)
+                and widget.get("name") == widget_name
+                and index < len(widgets_values)
+            ):
+                return widgets_values[index]
+    if isinstance(widgets_values, Mapping) and widget_name in widgets_values:
+        return widgets_values[widget_name]
+    return _SENTINEL_NO_VALUE
+
+
+def _read_field_value_from_node(
+    node: Mapping[str, Any], field_path: str
+) -> Any:
+    """Read a field from widgets, widgets_values, inputs, outputs, or top-level keys."""
+    if not isinstance(field_path, str) or not field_path:
+        return _SENTINEL_NO_VALUE
+    if field_path == "mode":
+        return node["mode"] if "mode" in node else _SENTINEL_NO_VALUE
+
+    segments = _split_field_path(field_path)
+    if not segments:
+        return _SENTINEL_NO_VALUE
+
+    simple_widget_value = _read_widget_value(node, field_path)
+    if simple_widget_value is not _SENTINEL_NO_VALUE:
+        return simple_widget_value
+
+    head = segments[0]
+    tail = segments[1:]
+    if head == "widgets":
+        root = _read_named_socket(node.get("widgets"), tail[0]) if tail else node.get("widgets")
+        return _descend_field_value(root, tail[1:]) if tail else root
+    if head == "widgets_values":
+        return _descend_field_value(node.get("widgets_values"), tail)
+    if head == "inputs":
+        root = _read_named_socket(node.get("inputs"), tail[0]) if tail else node.get("inputs")
+        return _descend_field_value(root, tail[1:]) if tail else root
+    if head == "outputs":
+        root = _read_named_socket(node.get("outputs"), tail[0]) if tail else node.get("outputs")
+        return _descend_field_value(root, tail[1:]) if tail else root
+    if head in node:
+        return _descend_field_value(node, segments)
+    return _SENTINEL_NO_VALUE
+
+
+def _normalize_link_endpoint(node_alias: Any, output_slot: Any) -> Any:
+    if not isinstance(node_alias, (int, str)) or output_slot is None:
+        return _SENTINEL_NO_VALUE
+    return {"uid": str(node_alias), "output_slot": output_slot}
+
+
+def _link_target_ref(op: Mapping[str, Any]) -> tuple[str | None, str | int | None]:
+    target = op.get("to") if "to" in op else op.get("target")
+    if isinstance(target, Mapping):
+        uid = _normalize_target_uid(target)
+        field = target.get("input_field")
+        if not isinstance(field, (str, int)):
+            field = target.get("field")
+        return uid, field if isinstance(field, (str, int)) else None
+    if isinstance(target, list) and len(target) >= 3:
+        uid = _normalize_target_uid(target)
+        field = target[2]
+        return uid, field if isinstance(field, (str, int)) else None
+    return None, None
+
+
+def _read_link_source_endpoint(
+    index: _GraphIndex,
+    *,
+    target_uid: str,
+    input_field: str | int,
+) -> Any:
+    node = _find_node_in_index(index, target_uid)
+    if node is None:
+        return _SENTINEL_NODE_ABSENT
+    inputs = node.get("inputs")
+    input_entry = _read_named_socket(inputs, str(input_field))
+    if input_entry is _SENTINEL_NO_VALUE:
+        return _SENTINEL_NO_VALUE
+    if not isinstance(input_entry, Mapping):
+        return _SENTINEL_NO_VALUE
+    link_id = input_entry.get("link")
+    if link_id is None:
+        return _SENTINEL_LINK_ABSENT
+    link = index.links_by_id.get(link_id)
+    if link is None:
+        link = index.links_by_id.get(str(link_id))
+    if isinstance(link, list) and len(link) >= 3:
+        origin_id = link[1]
+        origin_slot = link[2]
+    elif isinstance(link, Mapping):
+        origin_id = link.get("origin_id")
+        origin_slot = link.get("origin_slot")
+    else:
+        return _SENTINEL_NO_VALUE
+    origin_node = _find_node_in_index(index, origin_id)
+    if origin_node is None:
+        return _SENTINEL_NO_VALUE
+    origin_uid = _canonical_node_uid(origin_node)
+    return _normalize_link_endpoint(origin_uid, origin_slot)
+
+
+def _resolve_candidate_value_for_op(
+    candidate_graph: Mapping[str, Any] | None,
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    op_kind = op.get("op")
+    if not isinstance(op_kind, str):
+        return (None, f"Missing or invalid op kind: {op_kind!r}")
+    candidate_index = _build_graph_index(candidate_graph) if isinstance(candidate_graph, Mapping) else None
+    if op_kind == "set_node_field":
+        if "value" in op:
+            return (op.get("value"), None)
+        target = op.get("target")
+        uid = _normalize_target_uid(target)
+        field_path = target[2] if isinstance(target, list) and len(target) >= 3 else None
+        if candidate_index is None or uid is None or not isinstance(field_path, str):
+            return (_SENTINEL_NO_VALUE, "Could not resolve candidate field value.")
+        node = _find_node_in_index(candidate_index, uid)
+        if node is None:
+            return (_SENTINEL_NODE_ABSENT, None)
+        return (_read_field_value_from_node(node, field_path), None)
+    if op_kind == "set_mode":
+        if "mode" in op:
+            return (op.get("mode"), None)
+        uid = _normalize_target_uid(op.get("target"))
+        if candidate_index is None or uid is None:
+            return (_SENTINEL_NO_VALUE, "Could not resolve candidate mode.")
+        node = _find_node_in_index(candidate_index, uid)
+        if node is None:
+            return (_SENTINEL_NODE_ABSENT, None)
+        return (_read_field_value_from_node(node, "mode"), None)
+    if op_kind == "reorder":
+        order = op.get("order")
+        if isinstance(order, list):
+            return (tuple(order), None)
+        return (_SENTINEL_NO_VALUE, "Reorder op missing order.")
+    if op_kind == "upsert_link":
+        source = op.get("from")
+        if isinstance(source, list) and len(source) >= 3:
+            source_uid = _normalize_target_uid(source)
+            output_slot = source[2]
+            return (_normalize_link_endpoint(source_uid, output_slot), None)
+        target_uid, input_field = _link_target_ref(op)
+        if candidate_index is None or target_uid is None or input_field is None:
+            return (_SENTINEL_NO_VALUE, "Could not resolve candidate link target.")
+        return (
+            _read_link_source_endpoint(
+                candidate_index, target_uid=target_uid, input_field=input_field
+            ),
+            None,
+        )
+    if op_kind == "remove_link":
+        return (_SENTINEL_LINK_ABSENT, None)
+    if op_kind == "add_node":
+        uid = (
+            str(op.get("scope_path"))
+            if isinstance(op.get("scope_path"), (str, int)) and str(op.get("scope_path"))
+            else None
+        )
+        if candidate_index is not None and uid is not None:
+            node = _find_node_in_index(candidate_index, uid)
+            if node is not None:
+                return (
+                    {
+                        "uid": _canonical_node_uid(node),
+                        "id": node.get("id"),
+                        "type": node.get("type"),
+                    },
+                    None,
+                )
+        return (
+            {
+                "uid": uid,
+                "class_type": op.get("class_type"),
+                "fields": op.get("fields"),
+                "inputs": op.get("inputs"),
+            },
+            None,
+        )
+    if op_kind == "remove_node":
+        return (_SENTINEL_NODE_ABSENT, None)
+    return (None, f"Unsupported delta op kind: {op_kind!r}")
+
+
+def _resolve_submit_value_for_set_node_field(
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive expected_old for a ``set_node_field`` op."""
+    target = op.get("target")
+    if not isinstance(target, list) or len(target) < 3:
+        return (None, "Invalid target for set_node_field op")
+    uid = _normalize_target_uid(target)
+    field_path = target[2] if len(target) > 2 else None
+    if not isinstance(uid, str):
+        return (None, f"Invalid uid in target: {uid!r}")
+    if not isinstance(field_path, str):
+        return (None, f"Invalid field_path in target: {field_path!r}")
+    node = _find_node_in_graph(submit_graph, uid)
+    if node is None:
+        return (_SENTINEL_NODE_ABSENT, None)
+    value = _read_field_value_from_node(node, field_path)
+    return (value, None)
+
+
+def _resolve_submit_value_for_set_mode(
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive expected_old for a ``set_mode`` op."""
+    target = op.get("target")
+    uid = _normalize_target_uid(target)
+    if uid is None:
+        return (None, "Invalid target for set_mode op")
+    node = _find_node_in_graph(submit_graph, uid)
+    if node is None:
+        return (_SENTINEL_NODE_ABSENT, None)
+    return (_read_field_value_from_node(node, "mode"), None)
+
+
+def _resolve_submit_value_for_reorder(
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive expected_old for a ``reorder`` op (current widget/slot order)."""
+    target = op.get("target")
+    uid = _normalize_target_uid(target)
+    if uid is None:
+        return (None, "Invalid target for reorder op")
+    node = _find_node_in_graph(submit_graph, uid)
+    if node is None:
+        return (_SENTINEL_NODE_ABSENT, None)
+    axis = op.get("axis")
+    if axis == "widgets":
+        widgets = node.get("widgets")
+        if isinstance(widgets, list):
+            return (
+                tuple(w.get("name") for w in widgets if isinstance(w, Mapping)),
+                None,
+            )
+        return (_SENTINEL_NO_VALUE, "Could not resolve widget reorder from serialized graph.")
+    if axis == "inputs":
+        inputs = node.get("inputs")
+        if isinstance(inputs, list):
+            return (
+                tuple(
+                    entry.get("name")
+                    for entry in inputs
+                    if isinstance(entry, Mapping) and entry.get("name") is not None
+                ),
+                None,
+            )
+        return (_SENTINEL_NO_VALUE, "Could not resolve input reorder from serialized graph.")
+    if axis == "outputs":
+        outputs = node.get("outputs")
+        if isinstance(outputs, list):
+            return (
+                tuple(
+                    entry.get("name")
+                    for entry in outputs
+                    if isinstance(entry, Mapping) and entry.get("name") is not None
+                ),
+                None,
+            )
+        return (_SENTINEL_NO_VALUE, "Could not resolve output reorder from serialized graph.")
+    return (_SENTINEL_NO_VALUE, f"Unsupported reorder axis: {axis!r}")
+
+
+def _resolve_submit_value_for_upsert_link(
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive expected_old for an ``upsert_link`` op.
+
+    Returns the current link source endpoint ``(origin_uid, origin_slot)``
+    connected to the target input, or ``_SENTINEL_NO_VALUE`` if unwired.
+    """
+    target_uid, input_field = _link_target_ref(op)
+    if target_uid is None or input_field is None:
+        return (None, "Invalid 'to' ref for upsert_link op")
+    value = _read_link_source_endpoint(
+        _build_graph_index(submit_graph),
+        target_uid=target_uid,
+        input_field=input_field,
+    )
+    return (value, None)
+
+
+def _resolve_submit_value_for_remove_link(
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive expected_old for a ``remove_link`` op (same as upsert_link --
+    what link currently feeds the target input)."""
+    return _resolve_submit_value_for_upsert_link(submit_graph, op)
+
+
+def _resolve_submit_value_for_add_node(
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive expected_old for an ``add_node`` op -- expected absence.
+
+    Checks whether any node in the submit graph already claims the UID or
+    LiteGraph id implied by the op payload.  Returns ``_SENTINEL_NO_VALUE``
+    (absent) on success, or ``(existing_node_summary, None)`` if a collision
+    is detected (callers treat a non-sentinel value as a conflict signal).
+    """
+    scope_path = op.get("scope_path")
+    if not isinstance(scope_path, (str, int)) or not str(scope_path):
+        return (None, "Missing scope_path in add_node op")
+    uid = str(scope_path)
+    existing = _find_node_in_graph(submit_graph, uid)
+    if existing is not None:
+        return (
+            {
+                "uid": _canonical_node_uid(existing),
+                "id": existing.get("id"),
+                "type": existing.get("type"),
+            },
+            None,
+        )
+    # Also check by LiteGraph id if the op carries a separate node id.
+    nid = op.get("id")
+    if isinstance(nid, (int, str)):
+        existing = _find_node_in_graph(submit_graph, str(nid))
+        if existing is not None:
+            return (
+                {
+                    "uid": _canonical_node_uid(existing),
+                    "id": existing.get("id"),
+                    "type": existing.get("type"),
+                },
+                None,
+            )
+    return (_SENTINEL_NODE_ABSENT, None)
+
+
+def _resolve_submit_value_for_remove_node(
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive expected_old for a ``remove_node`` op -- expected presence.
+
+    Returns a summary of the existing node on success, or
+    ``_SENTINEL_NO_VALUE`` if already absent.
+    """
+    target = op.get("target")
+    uid = _normalize_target_uid(target)
+    if uid is None:
+        return (None, "Invalid target for remove_node op")
+    node = _find_node_in_graph(submit_graph, uid)
+    if node is None:
+        return (_SENTINEL_NODE_ABSENT, None)
+    return (
+        {
+            "uid": _canonical_node_uid(node),
+            "id": node.get("id"),
+            "type": node.get("type"),
+        },
+        None,
+    )
+
+
+def _resolve_submit_value_for_op(
+    *,
+    submit_graph: Mapping[str, Any],
+    op: Mapping[str, Any],
+) -> tuple[Any, str | None]:
+    """Derive ``expected_old`` for a single delta op from the submit-time graph.
+
+    Returns ``(expected_old_value, error_message)``.
+    ``error_message`` is ``None`` on success.
+    """
+    op_kind = op.get("op")
+    if not isinstance(op_kind, str):
+        return (None, f"Missing or invalid op kind: {op_kind!r}")
+    if op_kind == "set_node_field":
+        return _resolve_submit_value_for_set_node_field(submit_graph, op)
+    if op_kind == "set_mode":
+        return _resolve_submit_value_for_set_mode(submit_graph, op)
+    if op_kind == "reorder":
+        return _resolve_submit_value_for_reorder(submit_graph, op)
+    if op_kind == "upsert_link":
+        return _resolve_submit_value_for_upsert_link(submit_graph, op)
+    if op_kind == "remove_link":
+        return _resolve_submit_value_for_remove_link(submit_graph, op)
+    if op_kind == "add_node":
+        return _resolve_submit_value_for_add_node(submit_graph, op)
+    if op_kind == "remove_node":
+        return _resolve_submit_value_for_remove_node(submit_graph, op)
+    return (None, f"Unsupported delta op kind: {op_kind!r}")
+
+
+def _status_for_scoped_validation_entry(
+    *,
+    op_kind: str,
+    expected_old: Any,
+    actual_before: Any,
+    desired_new: Any,
+    error: str | None,
+) -> str:
+    if error is not None:
+        return "unscopable"
+    if expected_old is _SENTINEL_NO_VALUE or actual_before is _SENTINEL_NO_VALUE:
+        return "unscopable"
+    if desired_new is _SENTINEL_NO_VALUE:
+        return "unscopable"
+    if op_kind == "remove_node" and actual_before is _SENTINEL_NODE_ABSENT:
+        return "already_absent"
+    if op_kind == "add_node":
+        return "ok" if actual_before is _SENTINEL_NODE_ABSENT else "conflict"
+    if op_kind == "remove_link" and actual_before is _SENTINEL_LINK_ABSENT:
+        return "already_absent"
+    if expected_old == desired_new:
+        return "noop"
+    if actual_before == expected_old:
+        return "ok"
+    if actual_before == desired_new:
+        return "already_applied"
+    return "conflict"
+
+
+def _scoped_validation_diagnostic_code(entry: Mapping[str, Any]) -> str:
+    error = entry.get("error")
+    if isinstance(error, str) and (
+        "Unsupported delta op kind" in error or "Missing or invalid op kind" in error
+    ):
+        return "unsupported_delta_op"
+    return "unscopable_delta_op"
+
+
+def _build_scoped_validation_plan_entry(
+    *,
+    submit_graph: Mapping[str, Any],
+    live_graph: Mapping[str, Any],
+    candidate_graph: Mapping[str, Any] | None,
+    op: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected_old, expected_error = _resolve_submit_value_for_op(
+        submit_graph=submit_graph,
+        op=op,
+    )
+    actual_before, actual_error = _resolve_submit_value_for_op(
+        submit_graph=live_graph,
+        op=op,
+    )
+    desired_new, desired_error = _resolve_candidate_value_for_op(candidate_graph, op)
+    op_kind = op.get("op")
+    errors = [error for error in (expected_error, actual_error, desired_error) if error]
+    error = "; ".join(errors) if errors else None
+    return {
+        "op": op_kind,
+        "target": op.get("target") if "target" in op else op.get("to"),
+        "expected_old": _scoped_sentinel_payload(expected_old),
+        "actual_before": _scoped_sentinel_payload(actual_before),
+        "desired_new": _scoped_sentinel_payload(desired_new),
+        "status": _status_for_scoped_validation_entry(
+            op_kind=op_kind if isinstance(op_kind, str) else "",
+            expected_old=expected_old,
+            actual_before=actual_before,
+            desired_new=desired_new,
+            error=error,
+        ),
+        "error": error,
+    }
+
+
+def _build_scoped_validation_plan(
+    *,
+    submit_graph: Mapping[str, Any],
+    live_graph: Mapping[str, Any],
+    candidate_graph: Mapping[str, Any] | None,
+    delta_ops: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+) -> dict[str, Any]:
+    entries = [
+        _build_scoped_validation_plan_entry(
+            submit_graph=submit_graph,
+            live_graph=live_graph,
+            candidate_graph=candidate_graph,
+            op=op,
+        )
+        for op in delta_ops
+    ]
+    diagnostics = [
+        {
+            "code": _scoped_validation_diagnostic_code(entry),
+            "severity": "error",
+            "op": entry.get("op"),
+            "target": entry.get("target"),
+            "message": entry.get("error") or "Scoped validation could not resolve this op.",
+        }
+        for entry in entries
+        if entry.get("status") == "unscopable"
+    ]
+    return {
+        "entries": entries,
+        "diagnostics": diagnostics,
+        "ok": not diagnostics,
+    }
+
+
+def _scoped_accept_recovery_payload(
+    *,
+    turn_id: str,
+    submit_graph_hash: str,
+    candidate_graph_hash: str,
+) -> dict[str, Any]:
+    return {
+        "action": "rebaseline",
+        "endpoint": "/vibecomfy/agent-edit/rebaseline",
+        "reason": "scoped_accept_conflict",
+        "turn_id": turn_id,
+        "submit_graph_hash": submit_graph_hash,
+        "candidate_graph_hash": candidate_graph_hash,
+    }
+
+
+def _scoped_issue_node_uid(op: Mapping[str, Any]) -> str | None:
+    op_kind = op.get("op")
+    if op_kind == "add_node":
+        scope_path = op.get("scope_path")
+        if isinstance(scope_path, (int, str)) and str(scope_path):
+            return str(scope_path)
+        return None
+    target = op.get("target") if "target" in op else op.get("to")
+    return _normalize_target_uid(target)
+
+
+def _scoped_issue_field_path(op: Mapping[str, Any]) -> str | None:
+    op_kind = op.get("op")
+    if op_kind == "set_node_field":
+        target = op.get("target")
+        if isinstance(target, list) and len(target) >= 3:
+            field_path = target[2]
+            return str(field_path) if isinstance(field_path, (int, str)) else None
+        return None
+    if op_kind == "set_mode":
+        return "mode"
+    if op_kind == "reorder":
+        axis = op.get("axis")
+        return str(axis) if isinstance(axis, str) and axis else None
+    return None
+
+
+def _scoped_issue_link_target(op: Mapping[str, Any]) -> dict[str, Any] | None:
+    op_kind = op.get("op")
+    if op_kind not in {"upsert_link", "remove_link"}:
+        return None
+    target_uid, input_field = _link_target_ref(op)
+    if target_uid is None or input_field is None:
+        return None
+    return {"node_uid": target_uid, "input_field": input_field}
+
+
+def _whole_graph_hash_diagnostic(cas_evidence: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "code": "whole_graph_hash_mismatch",
+        "severity": "info",
+        "message": "Whole-graph structural CAS mismatched at accept time; v2 used scoped validation instead.",
+        "detail": dict(cas_evidence),
+    }
+
+
+def _scoped_accept_issue(
+    *,
+    op: Mapping[str, Any],
+    entry: Mapping[str, Any] | None,
+    code: str,
+    message: str,
+    rebaseline_recovery: Mapping[str, Any],
+) -> dict[str, Any]:
+    issue = {
+        "code": code,
+        "op": op.get("op"),
+        "node_uid": _scoped_issue_node_uid(op),
+        "field_path": _scoped_issue_field_path(op),
+        "link_target": _scoped_issue_link_target(op),
+        "expected_old": entry.get("expected_old") if isinstance(entry, Mapping) else None,
+        "actual_before": entry.get("actual_before") if isinstance(entry, Mapping) else None,
+        "desired_new": entry.get("desired_new") if isinstance(entry, Mapping) else None,
+        "status": entry.get("status") if isinstance(entry, Mapping) else None,
+        "message": message,
+        "detail": message,
+        "rebaseline_recovery": dict(rebaseline_recovery),
+    }
+    return {key: value for key, value in issue.items() if value is not None}
+
+
+def _fail_v2_scoped_accept(
+    *,
+    scope: Literal["accept"],
+    context: TurnContext,
+    explanation: str,
+    issues: list[dict[str, Any]],
+    diagnostics: list[dict[str, Any]] | None = None,
+) -> FailureEnvelope:
+    agent_failure_context: dict[str, Any] = {
+        "explanation": explanation,
+        "issues": issues,
+    }
+    if diagnostics:
+        agent_failure_context["diagnostics"] = diagnostics
+    return failure_envelope(
+        FailureKind.STALE_STATE_MISMATCH,
+        scope,
+        context,
+        agent_failure_context=agent_failure_context,
+        queue_allowed=False,
+    )
+
+
+def _build_v2_accept_evidence(
+    *,
+    session_dir: Path,
+    turn_id: str,
+    turn_record: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Load V2 accept evidence from persisted turn/session artifacts.
+
+    Returns a dict with keys:
+      * ``submit_graph`` -- the submit-time graph loaded from ``request.json``
+      * ``candidate_graph`` -- the candidate graph loaded from ``response.json``
+      * ``delta_ops`` -- authoritative mutation-intent list from ``response.json``
+      * ``submit_graph_hash`` -- hash of the loaded submit graph
+      * ``candidate_graph_hash`` -- from the turn record
+      * ``protocol`` -- ``"v2_delta"``
+      * ``loaded_ok`` -- ``True`` iff required evidence was loaded
+      * ``diagnostics`` -- list of evidence-loading issues
+    """
+    evidence: dict[str, Any] = {
+        "submit_graph": None,
+        "candidate_graph": None,
+        "delta_ops": None,
+        "submit_graph_hash": None,
+        "candidate_graph_hash": None,
+        "protocol": "v2_delta",
+        "loaded_ok": True,
+        "diagnostics": [],
+    }
+
+    submit_graph = _load_turn_request_graph(session_dir=session_dir, turn_id=turn_id)
+    if submit_graph is not None:
+        evidence["submit_graph"] = submit_graph
+        evidence["submit_graph_hash"] = payload_hash(submit_graph)
+    else:
+        evidence["loaded_ok"] = False
+        evidence["diagnostics"].append(
+            {
+                "code": "missing_submit_graph",
+                "severity": "error",
+                "message": "Could not load submit-time graph from turn artifacts.",
+            }
+        )
+
+    delta_ops = _load_turn_delta_ops(session_dir=session_dir, turn_id=turn_id)
+    if delta_ops is not None:
+        evidence["delta_ops"] = delta_ops
+    else:
+        evidence["loaded_ok"] = False
+        evidence["diagnostics"].append(
+            {
+                "code": "missing_delta_ops",
+                "severity": "error",
+                "message": "Could not load delta_ops from persisted turn response.",
+            }
+        )
+
+    candidate_graph_hash = turn_record.get("candidate_graph_hash")
+    if isinstance(candidate_graph_hash, str):
+        evidence["candidate_graph_hash"] = candidate_graph_hash
+    candidate_graph = _load_turn_candidate_graph(session_dir=session_dir, turn_id=turn_id)
+    if candidate_graph is not None:
+        evidence["candidate_graph"] = candidate_graph
+    else:
+        evidence["loaded_ok"] = False
+        evidence["diagnostics"].append(
+            {
+                "code": "missing_candidate_graph",
+                "severity": "error",
+                "message": "Could not load candidate graph from persisted turn response.",
+            }
+        )
+
+    return evidence
+
+
 def _mutate_turn_state(
     *,
     session_root: Path,
@@ -1111,7 +2016,9 @@ def _mutate_turn_state(
                     "candidate_structural_graph_hash_present": False,
                 },
             )
+        agent_edit_protocol = turn_record.get("agent_edit_protocol")
         expected_baseline: ExpectedBaseline | None = None
+        v2_whole_graph_hash_diagnostic: dict[str, Any] | None = None
         if scope == "accept":
             expected_baseline = _expected_baseline_for_turn(turn_record, state)
             if not expected_baseline.reliable:
@@ -1130,7 +2037,10 @@ def _mutate_turn_state(
                 state=state,
                 turn_record=turn_record,
             )
-            if cas_evidence is not None:
+            if agent_edit_protocol == "v2_delta":
+                if cas_evidence is not None:
+                    v2_whole_graph_hash_diagnostic = _whole_graph_hash_diagnostic(cas_evidence)
+            elif cas_evidence is not None:
                 return failure_envelope(
                     FailureKind.STALE_STATE_MISMATCH,
                     scope,
@@ -1141,9 +2051,10 @@ def _mutate_turn_state(
                         **cas_evidence,
                     },
                 )
-        agent_edit_protocol = turn_record.get("agent_edit_protocol")
         submitted_client_graph_hash = turn_record.get("submitted_client_graph_hash")
         action_diagnostics: list[dict[str, Any]] = []
+        _scoped_accept_result: dict[str, Any] | None = None
+        _delta_ops_echo: list[dict[str, Any]] | None = None
         if scope == "accept" and agent_edit_protocol == "v2_delta":
             if not isinstance(request_payload, Mapping):
                 return failure_envelope(
@@ -1151,6 +2062,16 @@ def _mutate_turn_state(
                     scope,
                     context,
                     agent_failure_context={"explanation": "Accept request body must be a JSON object."},
+                )
+            if not isinstance(request_payload.get("live_graph"), Mapping):
+                return failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    scope,
+                    context,
+                    agent_failure_context={
+                        "explanation": "V2 accept requires `live_graph` (current serialized canvas snapshot).",
+                        "turn_id": turn_id,
+                    },
                 )
             request_submit_graph_hash = request_payload.get("submit_graph_hash")
             request_candidate_graph_hash = request_payload.get("candidate_graph_hash")
@@ -1197,6 +2118,92 @@ def _mutate_turn_state(
                         },
                     }
                 )
+            if v2_whole_graph_hash_diagnostic is not None:
+                action_diagnostics.append(v2_whole_graph_hash_diagnostic)
+            v2_evidence = _build_v2_accept_evidence(
+                session_dir=session_dir,
+                turn_id=turn_id,
+                turn_record=turn_record,
+            )
+            if not v2_evidence["loaded_ok"]:
+                recovery = _scoped_accept_recovery_payload(
+                    turn_id=turn_id,
+                    submit_graph_hash=submit_graph_hash,
+                    candidate_graph_hash=candidate_graph_hash,
+                )
+                issues = [
+                    {
+                        "code": diagnostic.get("code"),
+                        "message": diagnostic.get("message"),
+                        "detail": diagnostic.get("message"),
+                        "rebaseline_recovery": dict(recovery),
+                    }
+                    for diagnostic in v2_evidence["diagnostics"]
+                ]
+                return _fail_v2_scoped_accept(
+                    scope="accept",
+                    context=context,
+                    explanation="Scoped accept verification could not load persisted v2 evidence.",
+                    issues=issues,
+                    diagnostics=action_diagnostics,
+                )
+            else:
+                scoped_plan = _build_scoped_validation_plan(
+                    submit_graph=v2_evidence["submit_graph"],
+                    live_graph=request_payload["live_graph"],
+                    candidate_graph=v2_evidence.get("candidate_graph"),
+                    delta_ops=v2_evidence["delta_ops"],
+                )
+                acceptable_statuses = {"ok", "noop", "already_applied", "already_absent"}
+                conflict_entries = [
+                    entry
+                    for entry, op in zip(scoped_plan["entries"], v2_evidence["delta_ops"])
+                    if entry.get("status") not in acceptable_statuses
+                    and isinstance(op, Mapping)
+                ]
+                if not scoped_plan["ok"] or conflict_entries:
+                    recovery = _scoped_accept_recovery_payload(
+                        turn_id=turn_id,
+                        submit_graph_hash=submit_graph_hash,
+                        candidate_graph_hash=candidate_graph_hash,
+                    )
+                    issues = [
+                        _scoped_accept_issue(
+                            op=op,
+                            entry=entry,
+                            code=(
+                                _scoped_validation_diagnostic_code(entry)
+                                if entry.get("status") == "unscopable"
+                                else "scoped_conflict"
+                            ),
+                            message=(
+                                entry.get("error")
+                                if entry.get("status") == "unscopable"
+                                else (
+                                    f"Scoped accept verification failed for {entry.get('op')} "
+                                    f"because live state was {entry.get('status')}."
+                                )
+                            ),
+                            rebaseline_recovery=recovery,
+                        )
+                        for entry, op in zip(scoped_plan["entries"], v2_evidence["delta_ops"])
+                        if (
+                            entry.get("status") == "unscopable"
+                            or entry in conflict_entries
+                        )
+                        and isinstance(op, Mapping)
+                    ]
+                    return _fail_v2_scoped_accept(
+                        scope="accept",
+                        context=context,
+                        explanation="Scoped accept verification failed.",
+                        issues=issues,
+                        diagnostics=action_diagnostics,
+                    )
+                # Capture scoped verification and delta_ops for the response payload.
+                _scoped_accept_result = scoped_plan
+                if isinstance(v2_evidence.get("delta_ops"), (tuple, list)):
+                    _delta_ops_echo = [dict(op) for op in v2_evidence["delta_ops"]]
         else:
             # V1 compatibility: the backend's `submit_graph_hash` is canonical,
             # while older browser clients send their own hash. Accept either
@@ -1296,6 +2303,13 @@ def _mutate_turn_state(
         }
         if action_diagnostics:
             response["diagnostics"] = action_diagnostics
+        if _scoped_accept_result is not None:
+            response["scoped_accept_verification"] = {
+                "entries": _scoped_accept_result["entries"],
+                "ok": _scoped_accept_result["ok"],
+            }
+        if _delta_ops_echo is not None:
+            response["delta_ops"] = _delta_ops_echo
         if key is not None and response_writer is not None:
             response_path = response_writer(response)
             state["idempotency_records"][key] = {
