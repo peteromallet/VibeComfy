@@ -30,8 +30,10 @@ from .agent_contracts import (
     apply_eligibility_payload,
     classify_failure,
     derive_apply_eligibility,
+    ensure_agent_edit_response_contract,
     failure_envelope,
     product_failure_envelope_fields,
+    public_outcome_from_turn_outcome,
     success_envelope,
     turn_envelope,
 )
@@ -3068,6 +3070,29 @@ def _failure_response(
     return _build_batch_repl_failure_response(state, context, failure=failure)
 
 
+def _validated_agent_edit_response(
+    response: Mapping[str, Any],
+    *,
+    stage: str,
+) -> dict[str, Any]:
+    try:
+        return ensure_agent_edit_response_contract(response, stage=stage)
+    except Exception as exc:
+        fallback = _product_failure_response(
+            failure_envelope(
+                FailureKind.VALIDATION_ERROR,
+                stage,
+                agent_failure_context={
+                    "explanation": (
+                        "Agent edit response contract validation failed before return: "
+                        f"{exc}"
+                    )
+                },
+            )
+        )
+        return ensure_agent_edit_response_contract(fallback, stage=stage)
+
+
 def _product_failure_response(failure: FailureEnvelope) -> dict[str, Any]:
     response = failure.to_dict()
     response.update(product_failure_envelope_fields(failure))
@@ -3145,6 +3170,7 @@ def _legacy_failure_response(
             queue_allowed=context.queue_allowed,
         )
     )
+    response.update(product_failure_envelope_fields(failure))
     failure_context = response.get("agent_failure_context")
     issues = failure_context.get("issues") if isinstance(failure_context, Mapping) else None
     if isinstance(issues, list):
@@ -3155,6 +3181,7 @@ def _legacy_failure_response(
             if isinstance(recovery, Mapping):
                 response["rebaseline_recovery"] = dict(recovery)
                 break
+    response["internal_outcome"] = TurnOutcome.from_failure(failure).to_dict()
     return response
 
 
@@ -3216,31 +3243,38 @@ def _build_batch_repl_response(
         canvas_apply_allowed=context.canvas_apply_allowed if has_candidate else False,
         queue_allowed=context.queue_allowed if has_candidate else False,
     )
+    candidate_payload = _build_candidate_payload(
+        state,
+        compatibility_fields=compatibility_fields,
+        has_candidate=has_candidate,
+    )
     if state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY:
-        outcome = TurnOutcome.clarify(question=state.user_message or None)
+        internal_outcome = TurnOutcome.clarify(question=state.user_message or None)
     elif state.batch_exit_mode == _BATCH_EXIT_EDIT_CLARIFY:
         question = state.user_message or None
-        outcome = TurnOutcome.edit_and_clarify(
+        internal_outcome = TurnOutcome.edit_and_clarify(
             changes=_real_field_changes(state.batch_field_changes),
             question=question,
         )
     elif state.batch_exit_mode == _BATCH_EXIT_DONE:
-        outcome = TurnOutcome.edit(changes=_real_field_changes(state.batch_field_changes))
+        internal_outcome = TurnOutcome.edit(changes=_real_field_changes(state.batch_field_changes))
     elif state.batch_exit_mode == _BATCH_EXIT_BUDGET:
-        outcome = TurnOutcome.budget(reason=state.batch_final_summary or None)
+        internal_outcome = TurnOutcome.budget(reason=state.batch_final_summary or None)
     else:
-        outcome = TurnOutcome.noop(reason=state.batch_done_summary or state.user_message or None)
-    message = _synthesize_batch_repl_message(state, outcome=outcome)
+        internal_outcome = TurnOutcome.noop(
+            reason=state.batch_done_summary or state.user_message or None
+        )
+    public_outcome = public_outcome_from_turn_outcome(
+        internal_outcome,
+        response={"candidate": candidate_payload},
+    )
+    message = _synthesize_batch_repl_message(state, outcome=internal_outcome)
     change_details = _change_details_payload(state, context)
     response.update(
         turn_envelope(
             message=message,
-            outcome=outcome,
-            candidate=_build_candidate_payload(
-                state,
-                compatibility_fields=compatibility_fields,
-                has_candidate=has_candidate,
-            ),
+            outcome=public_outcome,
+            candidate=candidate_payload,
             eligibility=response_apply_eligibility,
             audit_ref=None,
             debug={
@@ -3256,6 +3290,7 @@ def _build_batch_repl_response(
             },
         )
     )
+    response["internal_outcome"] = internal_outcome.to_dict()
     response["change_details"] = change_details
     response.update(compatibility_fields)
     if state.batch_exit_mode in {_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY}:
@@ -3277,21 +3312,46 @@ def _build_dev_success_response(
     *,
     contract: str,
 ) -> dict[str, Any]:
+    compatibility_fields = _build_compatibility_response_fields(state)
+    eligibility = derive_apply_eligibility(
+        context,
+        has_candidate=True,
+        candidate_state="candidate",
+    )
     response = success_envelope(
         context,
         message=state.user_message,
         graph=state.ui_payload,
         report=state.report,
         artifacts=state.artifacts,
-        apply_eligibility=derive_apply_eligibility(
-            context,
-            has_candidate=True,
-            candidate_state="candidate",
-        ),
+        apply_eligibility=eligibility,
         canvas_apply_allowed=context.canvas_apply_allowed,
         queue_allowed=context.queue_allowed,
     )
-    response.update(_build_compatibility_response_fields(state))
+    response.update(compatibility_fields)
+    internal_outcome = TurnOutcome.edit()
+    response.update(
+        turn_envelope(
+            message=state.user_message,
+            outcome=public_outcome_from_turn_outcome(
+                internal_outcome,
+                response={"candidate": {"graph_hash": compatibility_fields["candidate_graph_hash"]}},
+            ),
+            candidate=_build_candidate_payload(
+                state,
+                compatibility_fields=compatibility_fields,
+                has_candidate=True,
+            ),
+            eligibility=eligibility,
+            audit_ref=None,
+            debug={
+                "gates": context.gate_snapshot(),
+                "hashes": dict(compatibility_fields),
+                "contract": contract,
+            },
+        )
+    )
+    response["internal_outcome"] = internal_outcome.to_dict()
     if contract == "delta":
         from vibecomfy.porting.edit_ops import op_to_dict
 
@@ -3533,7 +3593,7 @@ def handle_agent_edit(
             "ingest",
             agent_failure_context={"explanation": "Request body must be a JSON object."},
         )
-        return _product_failure_response(failure)
+        return _validated_agent_edit_response(_product_failure_response(failure), stage="ingest")
 
     task = payload.get("task")
     graph = payload.get("graph")
@@ -3543,7 +3603,7 @@ def handle_agent_edit(
             "ingest",
             agent_failure_context={"explanation": "`task` is required."},
         )
-        return _product_failure_response(failure)
+        return _validated_agent_edit_response(_product_failure_response(failure), stage="ingest")
     if not isinstance(graph, dict):
         failure = failure_envelope(
             FailureKind.MISSING_REQUIRED_FIELD,
@@ -3552,7 +3612,7 @@ def handle_agent_edit(
                 "explanation": "`graph` must be a ComfyUI UI JSON object."
             },
         )
-        return _product_failure_response(failure)
+        return _validated_agent_edit_response(_product_failure_response(failure), stage="ingest")
 
     if schema_provider is None:
         schema_provider = _default_runtime_schema_provider()
@@ -3567,7 +3627,7 @@ def handle_agent_edit(
         else None,
     )
     if allocation.replay is not None:
-        return allocation.replay.response
+        return _validated_agent_edit_response(allocation.replay.response, stage="replay")
     if allocation.conflict is not None:
         try:
             audit_ref = write_allocation_failure_audit(
@@ -3579,7 +3639,10 @@ def handle_agent_edit(
             failure = dataclasses.replace(allocation.conflict.failure, audit_ref=audit_ref)
         except Exception:
             failure = allocation.conflict.failure
-        return _product_failure_response(failure)
+        return _validated_agent_edit_response(
+            _product_failure_response(failure),
+            stage="allocation",
+        )
 
     context = allocation.context
     context.client_graph_hash = payload.get("client_graph_hash") if isinstance(payload.get("client_graph_hash"), str) else None
@@ -3697,11 +3760,20 @@ def handle_agent_edit(
                 model=model,
             )
     except _StageBlocked as blocked:
-        response = _failure_response(
-            state,
-            context,
-            contract=contract,
-            failure=blocked.failure or classify_failure(blocked.result.stage, blocked, context),
+        stage_name = (
+            blocked.failure.stage
+            if blocked.failure is not None
+            else blocked.result.stage
+        )
+        response = _validated_agent_edit_response(
+            _failure_response(
+                state,
+                context,
+                contract=contract,
+                failure=blocked.failure
+                or classify_failure(blocked.result.stage, blocked, context),
+            ),
+            stage=stage_name,
         )
         _write_turn_chat_artifact(state, context, response, contract)
         record_idempotent_response(
@@ -3718,11 +3790,20 @@ def handle_agent_edit(
         return response
 
     if contract == "delta":
-        response = _build_dev_success_response(state, context, contract=contract)
+        response = _validated_agent_edit_response(
+            _build_dev_success_response(state, context, contract=contract),
+            stage="submit",
+        )
     elif contract == "batch_repl":
-        response = _build_batch_repl_response(state, context)
+        response = _validated_agent_edit_response(
+            _build_batch_repl_response(state, context),
+            stage="submit",
+        )
     else:
-        response = _build_dev_success_response(state, context, contract=contract)
+        response = _validated_agent_edit_response(
+            _build_dev_success_response(state, context, contract=contract),
+            stage="submit",
+        )
     try:
         if contract == "delta":
             _record(
@@ -3754,7 +3835,8 @@ def handle_agent_edit(
             agent_failure_context={"explanation": str(exc)},
             audit_error=str(exc),
         )
-        return _product_failure_response(failure)
+        return _validated_agent_edit_response(_product_failure_response(failure), stage="audit")
+    response = _validated_agent_edit_response(response, stage="submit")
     _write_turn_chat_artifact(state, context, response, contract)
     record_idempotent_response(
         session_root=root,

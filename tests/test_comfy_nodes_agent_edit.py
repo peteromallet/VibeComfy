@@ -335,9 +335,10 @@ def _assert_product_failure_contract(
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert isinstance(result["message"], str)
     assert result["message"].strip()
-    assert result["outcome"]["kind"] == "failure"
+    assert result["outcome"]["kind"] == "error"
     assert result["outcome"]["failure_kind"] == failure_kind
     assert result["outcome"]["stage"] == stage
+    assert result["internal_outcome"]["kind"] == "failure"
     assert "candidate" in result
     assert "eligibility" in result
     assert result["eligibility"] == result["apply_eligibility"]
@@ -828,7 +829,14 @@ def test_handle_agent_edit_batch_repl_uses_product_response_builder_only(
         builder_calls.append("batch")
         assert state.user_message == "product path"
         assert context.turn_id
-        return {"ok": True, "builder": "batch", "message": state.user_message}
+        return {
+            "ok": True,
+            "builder": "batch",
+            "message": state.user_message,
+            "outcome": {"kind": "candidate"},
+            "candidate": {"state": "candidate", "graph_hash": "batch"},
+            "eligibility": {"applyable": False, "reason": "no_candidate", "message": "none"},
+        }
 
     monkeypatch.setattr(agent_edit_module, "_run_batch_repl_product_path", _fake_runner)
     monkeypatch.setattr(agent_edit_module, "_build_batch_repl_response", _batch_builder)
@@ -870,7 +878,14 @@ def test_handle_agent_edit_dev_delta_uses_dev_success_builder_only(
         builder_calls.append(contract)
         assert state.user_message == "dev success"
         assert context.turn_id
-        return {"ok": True, "builder": contract, "message": state.user_message}
+        return {
+            "ok": True,
+            "builder": contract,
+            "message": state.user_message,
+            "outcome": {"kind": "candidate"},
+            "candidate": {"state": "candidate", "graph_hash": contract},
+            "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
+        }
 
     monkeypatch.setattr(agent_edit_module, "_run_delta_dev_path", _fake_runner)
     monkeypatch.setattr(agent_edit_module, "_build_dev_success_response", _dev_builder)
@@ -932,6 +947,15 @@ def test_handle_agent_edit_dev_delta_uses_dev_failure_builder_only(
             "ok": False,
             "builder": "dev-failure",
             "message": "dev runner blocked",
+            "outcome": {
+                "kind": "error",
+                "failure_kind": FailureKind.MODEL_MISTAKE.value,
+                "stage": "agent_delta",
+                "retryable": True,
+                "next_action": "retry",
+                "graph_unchanged": True,
+            },
+            "eligibility": {"applyable": False, "reason": "server_blocked", "message": "blocked"},
         },
     )
 
@@ -945,11 +969,10 @@ def test_handle_agent_edit_dev_delta_uses_dev_failure_builder_only(
         session_root=tmp_path,
     )
 
-    assert result == {
-        "ok": False,
-        "builder": "dev-failure",
-        "message": "dev runner blocked",
-    }
+    assert result["ok"] is False
+    assert result["builder"] == "dev-failure"
+    assert result["message"] == "dev runner blocked"
+    assert result["outcome"]["kind"] == "error"
 
 
 def test_handle_agent_edit_round_trips_deepseek_python(
@@ -1330,8 +1353,9 @@ def test_handle_agent_edit_dev_delta_classifies_malformed_delta_as_closed_failur
     dumped = json.dumps(result, sort_keys=True)
     assert "EditOpParseError" not in dumped
     assert "ValueError" not in dumped
-    assert "contract_version" not in result
-    assert "outcome" not in result
+    assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
+    assert result["outcome"]["kind"] == "error"
+    assert result["internal_outcome"]["kind"] == "failure"
     assert "Unsupported edit op 'bogus'." == result["agent_failure_context"]["explanation"]
 
 
@@ -1980,7 +2004,10 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
 
     assert result["ok"] is True
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
-    assert result["outcome"] == {
+    assert result["outcome"]["kind"] == "clarify"
+    assert result["outcome"]["question"] == "before or after the face restoration?"
+    assert result["outcome"]["clarification"]["message"] == "before or after the face restoration?"
+    assert result["internal_outcome"] == {
         "kind": "clarify",
         "question": "before or after the face restoration?",
     }
@@ -2107,7 +2134,7 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     ]
     assert result["report"]["done_summary"] == result["done_summary"]
     assert result["outcome"] == {
-        "kind": "edit",
+        "kind": "candidate",
         "changes": [
             {
                 "uid": "2",
@@ -2117,6 +2144,7 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
             }
         ],
     }
+    assert result["internal_outcome"]["kind"] == "edit"
     assert len(result["batch_turns"]) == 2
     assert result["batch_turns"][0]["turn_number"] == 0
     assert result["batch_turns"][0]["batch_ok"] is True
@@ -2240,18 +2268,18 @@ def test_handle_agent_edit_batch_repl_clarify_after_edit_returns_edit_and_clarif
     assert result["apply_eligibility"]["reason"] == "queue_blocked_warning"
     assert result["candidate_graph_hash"] == payload_hash(result["graph"])
     assert result["message"] == "Applied 1 edit. Should I also rename the file stem?"
-    assert result["outcome"] == {
-        "kind": "edit+clarify",
-        "changes": [
-            {
-                "uid": "2",
-                "field_path": "filename_prefix",
-                "old": "before",
-                "new": "after",
-            }
-        ],
-        "question": "Should I also rename the file stem?",
-    }
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["outcome"]["changes"] == [
+        {
+            "uid": "2",
+            "field_path": "filename_prefix",
+            "old": "before",
+            "new": "after",
+        }
+    ]
+    assert result["outcome"]["question"] == "Should I also rename the file stem?"
+    assert result["outcome"]["clarification"]["message"] == "Should I also rename the file stem?"
+    assert result["internal_outcome"]["kind"] == "edit+clarify"
     assert result["batch_turns"][0]["field_changes"] == [
         {
             "uid": "2",
@@ -2292,18 +2320,18 @@ def test_handle_agent_edit_batch_repl_inline_edit_then_clarify_applies_edit_and_
     assert result["apply_allowed"] is True
     assert result["candidate_graph_hash"] == payload_hash(result["graph"])
     assert result["message"] == "Applied 1 edit. Should I also rename the file stem?"
-    assert result["outcome"] == {
-        "kind": "edit+clarify",
-        "changes": [
-            {
-                "uid": "2",
-                "field_path": "filename_prefix",
-                "old": "before",
-                "new": "after",
-            }
-        ],
-        "question": "Should I also rename the file stem?",
-    }
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["outcome"]["changes"] == [
+        {
+            "uid": "2",
+            "field_path": "filename_prefix",
+            "old": "before",
+            "new": "after",
+        }
+    ]
+    assert result["outcome"]["question"] == "Should I also rename the file stem?"
+    assert result["outcome"]["clarification"]["message"] == "Should I also rename the file stem?"
+    assert result["internal_outcome"]["kind"] == "edit+clarify"
     assert len(result["batch_turns"]) == 1
     assert result["batch_turns"][0]["landed_op_count"] == 1
     assert result["batch_turns"][0]["clarification_required"] is True
@@ -2353,7 +2381,7 @@ def test_handle_agent_edit_batch_repl_ignores_clarify_inside_comments_and_string
 
     assert result["ok"] is True
     assert result["outcome"] == {
-        "kind": "edit",
+        "kind": "candidate",
         "changes": [
             {
                 "uid": "2",
@@ -2363,6 +2391,7 @@ def test_handle_agent_edit_batch_repl_ignores_clarify_inside_comments_and_string
             }
         ],
     }
+    assert result["internal_outcome"]["kind"] == "edit"
     assert not result.get("clarification_required", False)
     assert result["batch_turns"][0]["batch"] == batch
     assert "clarification_required" not in result["batch_turns"][0]
@@ -2432,6 +2461,7 @@ def test_handle_agent_edit_batch_repl_rejects_malformed_or_non_terminal_clarify_
     )
     assert not result.get("clarification_required", False)
     assert "question" not in result["outcome"]
+    assert result["internal_outcome"]["kind"] == "failure"
 
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
     assert audit["metadata"]["batch_repl"]["exit_mode"] == "budget"
@@ -2580,7 +2610,7 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
     assert result["apply_allowed"] is True
     assert result["done_summary"].startswith("Gate A passed:")
     assert result["outcome"] == {
-        "kind": "edit",
+        "kind": "candidate",
         "changes": [
             {
                 "uid": "2",
@@ -2590,6 +2620,7 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
             }
         ],
     }
+    assert result["internal_outcome"]["kind"] == "edit"
 
     nodes = result["graph"]["nodes"]
     scale_node = next(node for node in nodes if node["type"] == "ImageScaleBy")
@@ -2723,7 +2754,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
     assert "Rewired saveimage.images" in result["done_summary"]
     assert "saveimage.filename_prefix" in result["done_summary"]
     assert result["outcome"] == {
-        "kind": "edit",
+        "kind": "candidate",
         "changes": [
             {
                 "uid": "3",
@@ -2739,6 +2770,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
             }
         ],
     }
+    assert result["internal_outcome"]["kind"] == "edit"
     assert len(captured_messages) == 4
     assert "Node variable index:" in captured_messages[1][1]["content"]
     assert "loadimage = LoadImage" in captured_messages[1][1]["content"]
@@ -4727,6 +4759,7 @@ def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     assert replayed == accepted
     assert accepted["ok"] is True
     assert accepted["action"] == "accept"
+    assert accepted["outcome"]["kind"] == "noop"
     assert accepted["canvas_apply_allowed"] is False
     assert accepted["apply_allowed"] is False
     assert accepted["queue_allowed"] is False
@@ -4751,6 +4784,7 @@ def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     )
     assert conflicting_reject["ok"] is False
     assert conflicting_reject["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert conflicting_reject["outcome"]["kind"] == "error"
 
     downloaded = _handle_agent_edit_audit(
         {"session_id": "s1", "turn_id": turn_id, "action": "accept"},
@@ -4828,6 +4862,7 @@ def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> 
     )
     assert accepted["ok"] is True, accepted
     assert accepted["action"] == "accept"
+    assert accepted["outcome"]["kind"] == "noop"
 
 
 def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token(
@@ -4922,6 +4957,7 @@ def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token
     )
     assert accepted["ok"] is True, accepted
     assert accepted["baseline_graph_hash"] == structural_graph_hash(candidate_graph)
+    assert accepted["outcome"]["kind"] == "noop"
     assert accepted["diagnostics"][0]["code"] == "client_live_canvas_token_mismatch"
     assert (
         accepted["diagnostics"][0]["detail"]["client_live_canvas_token"]
@@ -4950,6 +4986,7 @@ def test_agent_edit_rebaseline_route_returns_no_candidate_apply_eligibility(
 
     assert result["ok"] is True, result
     assert result["action"] == "rebaseline"
+    assert result["outcome"]["kind"] == "noop"
     assert result["canvas_apply_allowed"] is False
     assert result["apply_allowed"] is False
     assert result["queue_allowed"] is False
@@ -4980,6 +5017,7 @@ def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
     assert replayed == rejected
     assert rejected["ok"] is True
     assert rejected["action"] == "reject"
+    assert rejected["outcome"]["kind"] == "noop"
     assert rejected["canvas_apply_allowed"] is False
     assert rejected["apply_allowed"] is False
     assert rejected["queue_allowed"] is False
@@ -5097,17 +5135,22 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
     )
 
     assert accepted["ok"] is True
+    assert accepted["outcome"]["kind"] == "noop"
     assert accepted["baseline_turn_id"] == accepted_turn_id
     assert accepted["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
     assert repeated_accept["ok"] is False
     assert repeated_accept["kind"] == FailureKind.STALE_STATE_MISMATCH.value
+    assert repeated_accept["outcome"]["kind"] == "error"
     assert repeated_accept["agent_failure_context"]["reason"] == "structural_baseline_cas_mismatch"
     assert accept_key_conflict["ok"] is False
     assert accept_key_conflict["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accept_key_conflict["outcome"]["kind"] == "error"
     assert rejecting_accepted["ok"] is False
     assert rejecting_accepted["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert rejecting_accepted["outcome"]["kind"] == "error"
 
     assert rejected["ok"] is True
+    assert rejected["outcome"]["kind"] == "noop"
     assert rejected["baseline_turn_id"] == accepted_turn_id
     assert rejected["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
     assert repeated_reject["ok"] is True
@@ -5115,11 +5158,14 @@ def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit
     assert repeated_reject["baseline_graph_hash"] == accepted["candidate_structural_graph_hash"]
     assert accepting_rejected["ok"] is False
     assert accepting_rejected["kind"] == FailureKind.EDITOR_AHEAD_CONFLICT.value
+    assert accepting_rejected["outcome"]["kind"] == "error"
 
     assert missing_session["ok"] is False
     assert missing_session["kind"] == FailureKind.STALE_STATE_MISMATCH.value
+    assert missing_session["outcome"]["kind"] == "error"
     assert missing_turn["ok"] is False
     assert missing_turn["kind"] == FailureKind.STALE_STATE_MISMATCH.value
+    assert missing_turn["outcome"]["kind"] == "error"
 
     state = read_state(tmp_path / "s3")
     assert state["baseline_turn_id"] == accepted_turn_id
@@ -6752,9 +6798,11 @@ def test_agent_edit_chat_endpoint_defaults_to_bounded_fifty_message_window(
     )
 
     assert default_result["ok"] is True
+    assert default_result["outcome"]["kind"] == "noop"
     assert len(default_result["messages"]) == 50
     assert default_result["messages"][0]["turn_id"] == "0005"
     assert oversized_result["ok"] is True
+    assert oversized_result["outcome"]["kind"] == "noop"
     assert len(oversized_result["messages"]) == 50
 
 

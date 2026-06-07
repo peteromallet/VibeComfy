@@ -9,6 +9,7 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,
     FAILURE_SPECS,
+    PUBLIC_OUTCOME_KINDS,
     SCAN_CODE_FAILURE_KIND,
     FailureEnvelope,
     FailureKind,
@@ -16,8 +17,10 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     TurnContext,
     TurnOutcome,
     classify_failure,
+    ensure_agent_edit_response_contract,
     failure_envelope,
     product_failure_envelope_fields,
+    public_outcome_from_turn_outcome,
     success_envelope,
     turn_envelope,
 )
@@ -163,6 +166,15 @@ def test_turn_outcome_kinds_are_closed_and_ordered() -> None:
     )
 
 
+def test_public_outcome_kinds_are_closed_and_ordered() -> None:
+    assert PUBLIC_OUTCOME_KINDS == (
+        "candidate",
+        "noop",
+        "clarify",
+        "error",
+    )
+
+
 def test_turn_outcome_to_dict_serializes_edit_and_clarify_discriminants() -> None:
     outcome = TurnOutcome.edit_and_clarify(
         changes=(
@@ -208,6 +220,102 @@ def test_turn_outcome_failure_to_dict_includes_required_discriminants() -> None:
     }
 
 
+def test_public_outcome_from_turn_outcome_maps_internal_variants_to_public_union() -> None:
+    edit = public_outcome_from_turn_outcome(
+        TurnOutcome.edit(
+            changes=(
+                FieldChange(uid="n1", field_path="widgets.seed", old=1, new=2),
+            )
+        )
+    )
+    edit_and_clarify = public_outcome_from_turn_outcome(
+        TurnOutcome.edit_and_clarify(question="before or after?")
+    )
+    clarify = public_outcome_from_turn_outcome(TurnOutcome.clarify(question="which model?"))
+    noop = public_outcome_from_turn_outcome(TurnOutcome.noop(reason="nothing changed"))
+
+    assert edit == {
+        "kind": "candidate",
+        "changes": [
+            {
+                "uid": "n1",
+                "field_path": "widgets.seed",
+                "old": 1,
+                "new": 2,
+            }
+        ],
+    }
+    assert edit_and_clarify == {
+        "kind": "candidate",
+        "changes": [],
+        "question": "before or after?",
+        "clarification": {"message": "before or after?"},
+    }
+    assert clarify == {
+        "kind": "clarify",
+        "question": "which model?",
+        "clarification": {"message": "which model?"},
+    }
+    assert noop == {
+        "kind": "noop",
+        "reason": "nothing changed",
+    }
+
+
+def test_public_outcome_from_turn_outcome_maps_budget_without_failure_to_candidate_or_noop() -> None:
+    assert public_outcome_from_turn_outcome(
+        TurnOutcome.budget(reason="ran out of turns"),
+        response={"candidate": {"graph_hash": "abc123"}},
+    ) == {
+        "kind": "candidate",
+        "budget_exhausted": True,
+        "reason": "ran out of turns",
+        "changes": [],
+    }
+    assert public_outcome_from_turn_outcome(
+        TurnOutcome.budget(reason="ran out of turns"),
+        response={"candidate": None},
+    ) == {
+        "kind": "noop",
+        "budget_exhausted": True,
+        "reason": "ran out of turns",
+    }
+
+
+def test_public_outcome_from_turn_outcome_maps_failure_to_error_and_promotes_recovery() -> None:
+    failure = failure_envelope(
+        FailureKind.STALE_STATE_MISMATCH,
+        "ingest",
+        TurnContext(session_id="s1", turn_id="0002"),
+        agent_failure_context={
+            "issues": [
+                {
+                    "code": "stale_state_mismatch",
+                    "rebaseline_recovery": {"action": "rebaseline", "endpoint": "/vibecomfy/agent-edit/rebaseline"},
+                }
+            ]
+        },
+    )
+
+    assert public_outcome_from_turn_outcome(TurnOutcome.from_failure(failure), response=failure.to_dict()) == {
+        "kind": "error",
+        "failure_kind": FailureKind.STALE_STATE_MISMATCH.value,
+        "stage": "ingest",
+        "retryable": False,
+        "next_action": "resubmit from the current canvas",
+        "graph_unchanged": True,
+        "agent_failure_context": {
+            "issues": [
+                {
+                    "code": "stale_state_mismatch",
+                    "rebaseline_recovery": {"action": "rebaseline", "endpoint": "/vibecomfy/agent-edit/rebaseline"},
+                }
+            ]
+        },
+        "rebaseline_recovery": {"action": "rebaseline", "endpoint": "/vibecomfy/agent-edit/rebaseline"},
+    }
+
+
 def test_product_failure_outcome_payload_keeps_contract_version_and_context() -> None:
     failure = failure_envelope(
         FailureKind.MISSING_REQUIRED_FIELD,
@@ -219,12 +327,67 @@ def test_product_failure_outcome_payload_keeps_contract_version_and_context() ->
     payload.update(product_failure_envelope_fields(failure))
 
     assert payload["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
-    assert payload["outcome"]["kind"] == "failure"
+    assert payload["outcome"]["kind"] == "error"
     assert payload["outcome"]["failure_kind"] == FailureKind.MISSING_REQUIRED_FIELD.value
     assert payload["candidate"] is None
     assert payload["eligibility"]["reason"] == "server_blocked"
     assert payload["audit_ref"] is None
     assert payload["debug"]["failure"]["kind"] == FailureKind.MISSING_REQUIRED_FIELD.value
+
+
+def test_failure_envelope_to_dict_stamps_public_error_outcome() -> None:
+    failure = failure_envelope(
+        FailureKind.MISSING_REQUIRED_FIELD,
+        "agent_response",
+        TurnContext(session_id="s1"),
+        agent_failure_context={"explanation": "missing python"},
+    )
+
+    assert failure.to_dict()["outcome"] == {
+        "kind": "error",
+        "failure_kind": FailureKind.MISSING_REQUIRED_FIELD.value,
+        "stage": "agent_response",
+        "retryable": True,
+        "next_action": "wait and retry; model response is incomplete",
+        "graph_unchanged": True,
+        "agent_failure_context": {"explanation": "missing python"},
+    }
+
+
+def test_failure_envelope_to_dict_promotes_nested_recovery_without_dropping_context() -> None:
+    recovery = {
+        "action": "rebaseline",
+        "endpoint": "/vibecomfy/agent-edit/rebaseline",
+    }
+    failure = failure_envelope(
+        FailureKind.STALE_STATE_MISMATCH,
+        "ingest",
+        TurnContext(session_id="s1", turn_id="0002"),
+        agent_failure_context={
+            "issues": [
+                {
+                    "code": "stale_state_mismatch",
+                    "rebaseline_recovery": recovery,
+                    "detail": "client baseline is stale",
+                }
+            ]
+        },
+    )
+
+    payload = failure.to_dict()
+
+    assert payload["outcome"]["kind"] == "error"
+    assert payload["outcome"]["rebaseline_recovery"] == recovery
+    assert payload["rebaseline_recovery"] == recovery
+    assert payload["agent_failure_context"] == {
+        "issues": [
+            {
+                "code": "stale_state_mismatch",
+                "rebaseline_recovery": recovery,
+                "detail": "client baseline is stale",
+            }
+        ]
+    }
 
 
 def test_turn_envelope_serializes_versioned_product_contract() -> None:
@@ -249,6 +412,31 @@ def test_turn_envelope_serializes_versioned_product_contract() -> None:
         "audit_ref": None,
         "debug": {"gates": context.gate_snapshot()},
     }
+
+
+def test_ensure_agent_edit_response_contract_maps_internal_outcomes_and_flat_failures() -> None:
+    success_payload = ensure_agent_edit_response_contract(
+        {
+            "ok": True,
+            "message": "Updated the save prefix.",
+            "candidate": {"graph_hash": "abc123"},
+            "outcome": {"kind": "edit", "changes": []},
+        },
+        stage="submit",
+    )
+    failure_payload = ensure_agent_edit_response_contract(
+        failure_envelope(
+            FailureKind.TIMEOUT_ERROR,
+            "agent_response",
+            TurnContext(session_id="s1"),
+            agent_failure_context={"explanation": "provider timed out"},
+        ).to_dict(),
+        stage="submit",
+    )
+
+    assert success_payload["outcome"] == {"kind": "candidate", "changes": []}
+    assert failure_payload["outcome"]["kind"] == "error"
+    assert failure_payload["outcome"]["failure_kind"] == FailureKind.TIMEOUT_ERROR.value
 
 
 def test_success_envelope_keeps_canonical_and_compatibility_eligibility_fields() -> None:
