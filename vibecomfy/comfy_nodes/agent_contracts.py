@@ -920,7 +920,8 @@ def failure_outcome_payload(failure: FailureEnvelope) -> dict[str, Any]:
 def product_failure_envelope_fields(failure: FailureEnvelope) -> dict[str, Any]:
     message = failure.message.strip() if failure.message.strip() else failure.user_facing_message
     eligibility = failure.apply_eligibility
-    return turn_envelope(
+    internal_outcome = TurnOutcome.from_failure(failure).to_dict()
+    envelope = turn_envelope(
         message=message,
         outcome=failure_outcome_payload(failure),
         candidate=None,
@@ -935,6 +936,8 @@ def product_failure_envelope_fields(failure: FailureEnvelope) -> dict[str, Any]:
             }
         },
     )
+    envelope["internal_outcome"] = internal_outcome
+    return envelope
 
 
 def turn_envelope(

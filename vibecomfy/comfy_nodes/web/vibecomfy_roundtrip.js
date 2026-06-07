@@ -2497,7 +2497,7 @@ export function syncBaselineFromResponse(panel, payload) {
   if (!panel?.state || !payload || typeof payload !== "object") {
     return;
   }
-  const recovery = payload.rebaselineRecovery || null;
+  const recovery = recoveryForPanelState(payload.rebaselineRecovery);
   transition(panel, "SYNC_BASELINE", {
     ...payload,
     ...(recovery
@@ -2550,9 +2550,50 @@ function synthesizeStaleRebaselineRecovery(payload, panel = null, actionBody = n
 function recoveryForFailure(payload, panel = null, actionBody = null) {
   const extracted = readRebaselineRecovery(payload, { endpoint: "recoveryForFailure", allowLegacy: true });
   if (extracted) {
-    return extracted;
+    return recoveryForPanelState(extracted);
   }
   return synthesizeStaleRebaselineRecovery(payload, panel, actionBody);
+}
+
+function recoveryForPanelState(recovery) {
+  if (!recovery || typeof recovery !== "object") {
+    return null;
+  }
+  return {
+    action: typeof recovery.action === "string" ? recovery.action : null,
+    endpoint: typeof recovery.endpoint === "string" ? recovery.endpoint : null,
+    reason: typeof recovery.reason === "string" ? recovery.reason : null,
+    last_known_baseline_graph_hash:
+      typeof recovery.last_known_baseline_graph_hash === "string"
+        ? recovery.last_known_baseline_graph_hash
+        : typeof recovery.lastKnownBaselineGraphHash === "string"
+          ? recovery.lastKnownBaselineGraphHash
+          : null,
+    submit_graph_hash:
+      typeof recovery.submit_graph_hash === "string"
+        ? recovery.submit_graph_hash
+        : typeof recovery.submitGraphHash === "string"
+          ? recovery.submitGraphHash
+          : null,
+    submit_structural_graph_hash:
+      typeof recovery.submit_structural_graph_hash === "string"
+        ? recovery.submit_structural_graph_hash
+        : typeof recovery.submitStructuralGraphHash === "string"
+          ? recovery.submitStructuralGraphHash
+          : null,
+    client_graph_hash:
+      typeof recovery.client_graph_hash === "string"
+        ? recovery.client_graph_hash
+        : typeof recovery.clientGraphHash === "string"
+          ? recovery.clientGraphHash
+          : null,
+    client_structural_graph_hash:
+      typeof recovery.client_structural_graph_hash === "string"
+        ? recovery.client_structural_graph_hash
+        : typeof recovery.clientStructuralGraphHash === "string"
+          ? recovery.clientStructuralGraphHash
+          : null,
+  };
 }
 
 function applyEligibility(panel, liveCanvasSnapshot = null) {
@@ -9745,7 +9786,7 @@ async function rejectAgentCandidate(panel) {
         reject_request: rejectBody,
       },
     });
-    const recovery = extractRebaselineRecovery(failure);
+    const recovery = recoveryForPanelState(extractRebaselineRecovery(failure));
     transition(panel, "REBASELINE_RECOVERY_SYNC", { rebaselineRecovery: recovery });
     pushHistory(panel, "failure", failure.kind || "RejectError");
       pushTurnStatus(panel, "failed", {
@@ -9898,7 +9939,7 @@ export async function postAgentRebaseline(
       const failureObligations = transition(panel, "REBASELINE_FAILURE", {
         failure,
         rebaselineRequest: body,
-        rebaselineRecovery: extractRebaselineRecovery(failure),
+        rebaselineRecovery: recoveryForPanelState(extractRebaselineRecovery(failure)),
         rebaselinePendingPatch: {
           reason: rebaselineReason,
           retryable: Boolean(failure.retryable),
@@ -9957,7 +9998,7 @@ async function rebaselineCurrentCanvas(panel) {
     return result;
   } catch (failure) {
     const failureObligations = transition(panel, "STALE_RECOVERY_REBASELINE_FAILURE", {
-      rebaselineRecovery: extractRebaselineRecovery(failure) || recovery,
+      rebaselineRecovery: recoveryForPanelState(extractRebaselineRecovery(failure)) || recovery,
       message: "Current canvas rebaseline failed. Review the evidence and retry.",
       debugPayload: {
         ...(panel.state.debugPayload || {}),
@@ -10023,7 +10064,8 @@ async function undoLastApply(panel) {
     const failureObligations = transition(panel, "UNDO_REBASELINE_FAILURE", {
       previous,
       failure: normalizedFailure,
-      rebaselineRecovery: extractRebaselineRecovery(normalizedFailure) || panel.state.rebaselineRecovery,
+      rebaselineRecovery:
+        recoveryForPanelState(extractRebaselineRecovery(normalizedFailure)) || panel.state.rebaselineRecovery,
       undoStackDepth: panel.state.undoStack.length,
     });
     renderLifecycleTransition(panel, failureObligations);
