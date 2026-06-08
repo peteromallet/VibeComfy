@@ -104,6 +104,9 @@ def _partition_comfy_config(values: dict[str, Any]) -> tuple[dict[str, Any], dic
     return kwargs, extra
 
 
+# DEAD CODE — this copy of _embedded_configuration_for_session is not imported
+# by any caller.  The live copy lives in vibecomfy/runtime/session.py and is
+# the only one patched for local-library YAML injection.  Do NOT edit this copy.
 def _embedded_configuration_for_session(config: SessionConfig) -> Configuration | None:
     values: dict[str, Any] = {}
     if config.port is not None:

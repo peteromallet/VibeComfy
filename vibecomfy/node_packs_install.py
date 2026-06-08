@@ -12,6 +12,19 @@ from vibecomfy.workflow import VibeWorkflow
 InstallStatus = Literal["installed", "refreshed", "skipped_dirty", "failed"]
 DEFAULT_INSTALL_ROOT = Path("custom_nodes")  # Canonical install root for custom node packs.
 INSTALL_STATE_DIR = ".vibecomfy-install-state"
+
+
+def default_install_root() -> Path:
+    """Return the canonical install root for custom node packs.
+
+    When the local-library ``custom_nodes`` slot is configured (via env var
+    or TOML) the configured path is returned.  Otherwise falls back to the
+    repo-relative ``custom_nodes`` directory.
+    """
+    from vibecomfy.local_library import Slot, resolved_path
+
+    configured = resolved_path(Slot.custom_nodes)
+    return configured if configured is not None else Path("custom_nodes")
 CORE_COMFY_CLASSES = frozenset(
     {
         # core Comfy built-ins (original)
@@ -155,7 +168,7 @@ def install_pack(
     name: str | None = None,
     repo: str | None = None,
     force: bool = False,
-    install_root: Path = DEFAULT_INSTALL_ROOT,
+    install_root: Path | None = None,
     lockfile_path: Path = Path("custom_nodes.lock"),
     runner: Runner = subprocess.run,
     cm_cli_resolver: Callable[[Path, Runner], list[str] | None] = _resolve_cm_cli,
@@ -163,6 +176,8 @@ def install_pack(
     checkout_ref: str | None = None,
     expected_commit: str | None = None,
 ) -> InstallResult:
+    if install_root is None:
+        install_root = default_install_root()
     if name is None and repo is None: raise ValueError("install_pack requires either name or repo")
     pack = _pack_by_name(name) if name is not None else None
     resolved_ref: PackRef | None = None
@@ -318,7 +333,9 @@ def _install_pack_via_clone(
     if entry is None: return InstallResult(name, "failed", None, f"failed to derive class_set for registry-driven pack {name}")
     sentinel.write(phase="lockfile", name=name, repo_url=repo_url, install_dir=install_dir, git_commit_sha=sha)
     upsert_lockfile_entry(entry, lockfile_path); sentinel.clear(); return InstallResult(name, "installed", sha, None)
-def restore_pack(entry: LockEntry, *, install_root: Path = DEFAULT_INSTALL_ROOT, runner: Runner = subprocess.run) -> InstallResult:
+def restore_pack(entry: LockEntry, *, install_root: Path | None = None, runner: Runner = subprocess.run) -> InstallResult:
+    if install_root is None:
+        install_root = default_install_root()
     install_dir = install_root / entry.name
     pack = _pack_by_name(entry.name)
     sentinel = _install_sentinel(install_root, entry.name)

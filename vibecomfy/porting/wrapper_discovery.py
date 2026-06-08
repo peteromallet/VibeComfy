@@ -118,7 +118,7 @@ def discover_pack(
     server_url: str | None = None,
     cache_dir: str | Path = "vibecomfy/porting/cache/object_info",
     snapshot_dir: str | Path = "vibecomfy/porting/object_info",
-    custom_nodes_dir: str | Path = "custom_nodes",
+    custom_nodes_dir: str | Path | None = None,
 ) -> list[ClassSpec]:
     """Discover all node classes in one pack.
 
@@ -126,6 +126,13 @@ def discover_pack(
     deliberately not a merge — different sources can disagree on widget
     metadata and we want a single deterministic source of truth per run.
     """
+    # Resolve custom_nodes_dir from local-library config when the caller
+    # omits it.  Explicit-caller-wins: a caller-supplied value is always used.
+    if custom_nodes_dir is None:
+        from vibecomfy.local_library import Slot, resolved_path
+
+        configured = resolved_path(Slot.custom_nodes)
+        custom_nodes_dir = configured if configured is not None else Path("custom_nodes")
     errors: list[str] = []
     for source in sources:
         try:
@@ -158,13 +165,20 @@ def discover_all(
     lockfile: str | Path = "custom_nodes.lock",
     cache_dir: str | Path = "vibecomfy/porting/cache/object_info",
     snapshot_dir: str | Path = "vibecomfy/porting/object_info",
-    custom_nodes_dir: str | Path = "custom_nodes",
+    custom_nodes_dir: str | Path | None = None,
 ) -> dict[str, list[ClassSpec]]:
     """Discover every pack listed in ``custom_nodes.lock``.
 
     Packs without any resolvable source produce an empty list in the returned
     dict (so callers can report them as ``no discovery available``).
     """
+    # Resolve custom_nodes_dir from local-library config when the caller
+    # omits it.  Explicit-caller-wins: a caller-supplied value is always used.
+    if custom_nodes_dir is None:
+        from vibecomfy.local_library import Slot, resolved_path
+
+        configured = resolved_path(Slot.custom_nodes)
+        custom_nodes_dir = configured if configured is not None else Path("custom_nodes")
     pack_slugs = _read_lockfile_pack_slugs(Path(lockfile))
     out: dict[str, list[ClassSpec]] = {}
     for slug in pack_slugs:

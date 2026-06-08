@@ -298,10 +298,23 @@ def _nodepack_lockfile_drift() -> tuple[list[DiagnosticFinding], list[Diagnostic
 
 
 def _doctor_nodepack_dir(name: str) -> Path | None:
-    candidates = (
-        Path("vendor") / name,
-        Path("custom_nodes") / name,
-        Path("vendor") / "ComfyUI" / "custom_nodes" / name,
+    """Find the on-disk directory for a custom node pack, if installed.
+
+    Searches the configured local-library custom_nodes path first when SET,
+    then falls back through the standard locations.
+    """
+    from vibecomfy.local_library import Slot, resolved_path
+
+    configured = resolved_path(Slot.custom_nodes)
+    candidates: list[Path] = []
+    if configured is not None:
+        candidates.append(configured / name)
+    candidates.extend(
+        [
+            Path("vendor") / name,
+            Path("custom_nodes") / name,
+            Path("vendor") / "ComfyUI" / "custom_nodes" / name,
+        ]
     )
     for candidate in candidates:
         if candidate.is_dir():

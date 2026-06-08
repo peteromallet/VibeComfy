@@ -917,10 +917,17 @@ def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:
 
 
 def _default_source_roots() -> list[Path]:
-    roots = [
-        Path("custom_nodes"),
-        Path("vendor") / "ComfyUI",
-    ]
+    # Prepend the configured custom_nodes path when set (local-library config).
+    # Explicit-caller-wins: this only affects the *default* roots; callers that
+    # pass explicit roots to SourceSchemaProvider.__init__ are unaffected.
+    from vibecomfy.local_library import Slot, resolved_path
+
+    roots: list[Path] = []
+    configured = resolved_path(Slot.custom_nodes)
+    if configured is not None:
+        roots.append(configured)
+    roots.append(Path("custom_nodes"))
+    roots.append(Path("vendor") / "ComfyUI")
     tmp = Path("/tmp")
     if tmp.exists():
         roots.extend(sorted(path for path in tmp.glob("ComfyUI-*") if path.is_dir()))

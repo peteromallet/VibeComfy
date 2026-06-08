@@ -392,7 +392,7 @@ def _cmd_nodes_restore(args: argparse.Namespace) -> int:
 
 
 def _installed_nodepack_dir(name: str) -> Path | None:
-    candidate = node_packs_install.DEFAULT_INSTALL_ROOT / name
+    candidate = node_packs_install.default_install_root() / name
     return candidate if candidate.is_dir() else None
 
 
@@ -461,7 +461,7 @@ def _cmd_nodes_drift(args: argparse.Namespace) -> int:
     to_ref: str | None = getattr(args, "to_ref", None)
 
     # Resolve pack dir
-    pack_dir = node_packs_install.DEFAULT_INSTALL_ROOT / pack_name
+    pack_dir = node_packs_install.default_install_root() / pack_name
     if not pack_dir.is_dir():
         payload = {
             "status": "unavailable",

@@ -36,9 +36,17 @@ def build_search_corpus(
     schema_provider: SchemaProvider | None = None,
     warnings: list[SearchWarning] | None = None,
     node_index_path: str | Path = "node_index.json",
-    custom_nodes_root: str | Path = "custom_nodes",
+    custom_nodes_root: str | Path | None = None,
     coverage_path: str | Path = "workflow_corpus/manifests/coverage.json",
 ) -> list[SearchEntry]:
+    # Resolve custom_nodes_root from local-library config when the caller
+    # omits it.  Explicit-caller-wins: a caller-supplied value is always used.
+    if custom_nodes_root is None:
+        from vibecomfy.local_library import Slot, resolved_path
+
+        configured = resolved_path(Slot.custom_nodes)
+        custom_nodes_root = configured if configured is not None else Path("custom_nodes")
+
     ensure_indexes(auto_sync=auto_sync)
     entries: list[SearchEntry] = []
     entries.extend(_object_info_entries(schema_provider, warnings=warnings))

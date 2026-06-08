@@ -52,6 +52,41 @@ def test_models_root_ignores_yaml_extra_model_paths_env(monkeypatch: pytest.Monk
     assert fetch.models_root() != tmp_path / "extra_model_paths.yaml"
 
 
+def test_models_root_local_library_config_beats_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """SET local_library config wins over the ComfyUI/models hardcoded fallback."""
+    monkeypatch.delenv("VIBECOMFY_MODELS_ROOT", raising=False)
+    monkeypatch.delenv("COMFY_MODELS_ROOT", raising=False)
+    monkeypatch.delenv("COMFYUI_EXTRA_MODEL_PATHS_PATH", raising=False)
+
+    config_models = tmp_path / "my-models"
+    config_models.mkdir()
+
+    import vibecomfy.local_library as _ll
+    monkeypatch.setattr(_ll, "resolved_path", lambda slot, **_kw: config_models)
+
+    assert fetch.models_root() == config_models
+
+
+def test_models_root_extra_model_paths_dir_beats_local_library_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """COMFYUI_EXTRA_MODEL_PATHS_PATH (as a directory) beats SET local_library config."""
+    monkeypatch.delenv("VIBECOMFY_MODELS_ROOT", raising=False)
+    monkeypatch.delenv("COMFY_MODELS_ROOT", raising=False)
+    env_models = tmp_path / "env-models"
+    monkeypatch.setenv("COMFYUI_EXTRA_MODEL_PATHS_PATH", str(env_models))
+
+    config_models = tmp_path / "config-models"
+    config_models.mkdir()
+
+    import vibecomfy.local_library as _ll
+    monkeypatch.setattr(_ll, "resolved_path", lambda slot, **_kw: config_models)
+
+    assert fetch.models_root() == env_models
+
+
 def test_download_skips_present_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv("VIBECOMFY_MODELS_ROOT", str(tmp_path))
     path = tmp_path / "checkpoints" / "model.safetensors"

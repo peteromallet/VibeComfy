@@ -1206,6 +1206,23 @@ def _embedded_configuration_for_session(config: SessionConfig) -> Configuration 
     extra_model_paths = Path.cwd() / "extra_model_paths.yaml"
     if extra_model_paths.is_file():
         values.setdefault("extra_model_paths_config", [str(extra_model_paths)])
+    # Inject local-library YAML (custom_nodes + model type paths) when configured.
+    # Appended AFTER the CWD extra_model_paths.yaml so project-local overrides win.
+    # Normalizes a pre-existing scalar extra_model_paths_config to a list first.
+    try:
+        from vibecomfy.runtime._local_library_yaml import acquire_library_yaml
+
+        library_yaml = acquire_library_yaml()
+        if library_yaml is not None:
+            existing = values.get("extra_model_paths_config")
+            if existing is None:
+                values["extra_model_paths_config"] = [str(library_yaml)]
+            elif isinstance(existing, str):
+                values["extra_model_paths_config"] = [existing, str(library_yaml)]
+            else:
+                values["extra_model_paths_config"] = [*existing, str(library_yaml)]
+    except Exception:
+        pass
     if not values:
         return None
 

@@ -17,6 +17,19 @@ def models_root() -> Path:
         path = Path(extra_model_paths)
         if path.suffix.lower() not in {".yaml", ".yml"}:
             return path
+    # Consult local-library TOML config AFTER all env-var overrides (including
+    # COMFYUI_EXTRA_MODEL_PATHS_PATH) but BEFORE the ComfyUI/models hardcoded
+    # fallback — this lets a persistent repo/global config act as a default
+    # without requiring an env var on every invocation.
+    try:
+        from vibecomfy.local_library import Slot
+        from vibecomfy.local_library import resolved_path as _ll_resolved_path
+
+        config_path = _ll_resolved_path(Slot.models)
+        if config_path is not None:
+            return config_path
+    except Exception:
+        pass
     try:
         from comfy.cmd.folder_paths import folder_names_and_paths
 
