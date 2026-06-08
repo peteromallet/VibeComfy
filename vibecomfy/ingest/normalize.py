@@ -8,7 +8,11 @@ import warnings
 
 from vibecomfy._graph_utils import is_api_link
 from vibecomfy.comfy_backend import check_comfy_compatibility, require_comfy_compatibility
-from vibecomfy.comfy_nodes.exec_node import EXEC_CLASS_TYPE, ExecNodeContractError, parse_io
+# vibecomfy.exec class type: mirrored as a literal to avoid a module-level import of
+# vibecomfy.comfy_nodes.exec_node, which would re-execute comfy_nodes/__init__ (route
+# registration side-effect) at boot and pull torch eagerly. Mirrors
+# vibecomfy.comfy_nodes.exec_node.EXEC_CLASS_TYPE (see agent_session.py for the same pattern).
+EXEC_CLASS_TYPE = "vibecomfy.exec"
 from vibecomfy.metadata import (
     OUTPUT_NODE_NAMES,
     _infer_requirements,
@@ -433,6 +437,8 @@ def _is_exec_widget_key(class_type: str, key: str) -> bool:
 
 
 def _normalize_exec_io_metadata(io_value: Any) -> dict[str, list[list[str | None]]] | None:
+    from vibecomfy.comfy_nodes.exec_node import ExecNodeContractError, parse_io
+
     try:
         io_spec = parse_io(io_value)
     except ExecNodeContractError:

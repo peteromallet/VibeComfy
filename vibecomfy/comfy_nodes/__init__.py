@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from vibecomfy.comfy_nodes.exec_node import EXEC_CLASS_TYPE, VibeComfyExec
+from .exec_node import EXEC_CLASS_TYPE, VibeComfyExec
 from vibecomfy.contracts.intent_nodes import KIND_TO_CLASS_TYPE
 
 WEB_DIRECTORY = "./web"

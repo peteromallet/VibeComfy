@@ -6,7 +6,7 @@ import textwrap
 import traceback
 from typing import Any
 
-from vibecomfy.comfy_nodes.exec_examples import EXEC_EXAMPLES, EXEC_HELP_TEXT
+from .exec_examples import EXEC_EXAMPLES, EXEC_HELP_TEXT
 
 try:
     import numpy as np
