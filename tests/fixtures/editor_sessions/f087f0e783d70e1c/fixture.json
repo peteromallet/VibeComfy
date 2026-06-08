@@ -1,0 +1,9 @@
+{
+  "content": "To switch to SDXL, I need to know which specific SDXL checkpoint model you want to use (e.g., \"sd_xl_base_1.0.safetensors\", \"sdXL_v10.safetensors\", or another filename). Which model should I load?\n```batch\nclarify(\"Which SDXL checkpoint file (ckpt_name) should I use?\")\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0003",
+    "key": "f087f0e783d70e1c",
+    "task_hash": "ef9ad4b827af3b36"
+  }
+}

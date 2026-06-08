@@ -1,0 +1,11 @@
+We'll swap the checkpoint to SDXL, adjust the latent size to 1024×1024, and replace the CLIP encoders with the SDXL-specific dual‑CLIP encode node.
+```batch
+del positive
+del negative
+checkpointloadersimple.ckpt_name = 'sd_xl_base_1.0.safetensors'
+emptylatentimage.width = 1024
+emptylatentimage.height = 1024
+positive = CLIPTextEncodeSDXL(clip=checkpointloadersimple.CLIP, text='masterpiece, best quality')
+negative = CLIPTextEncodeSDXL(clip=checkpointloadersimple.CLIP, text='lowres, bad anatomy, worst quality')
+done()
+```

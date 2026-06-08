@@ -1,0 +1,51 @@
+{
+  "turns": [
+    {
+      "clarification": {
+        "batch": "clarify(\"Which SDXL checkpoint file (ckpt_name) should I use?\")",
+        "clarification_message": "Which SDXL checkpoint file (ckpt_name) should I use?",
+        "clarification_required": true,
+        "field_changes": [],
+        "message": "To switch to SDXL, I need to know which specific SDXL checkpoint model you want to use (e.g., \"sd_xl_base_1.0.safetensors\", \"sdXL_v10.safetensors\", or another filename). Which model should I load?",
+        "model": "agent-edit",
+        "provider_metadata": {
+          "credential_presence": "<REDACTED>",
+          "legacy_deepseek_fallback_enabled": false,
+          "provider": "arnold",
+          "requested_route": "auto",
+          "response_contract": "batch_repl",
+          "route_metadata": {
+            "browser_api_key_allowed": "<REDACTED>",
+            "guidance": "DeepSeek browser key submission is supported and stored locally.",
+            "normalized_route": "deepseek",
+            "requested_route": "auto",
+            "tos_acknowledgement_required": false
+          }
+        },
+        "route": "deepseek",
+        "turn_number": 0
+      },
+      "response": {
+        "audit_metadata": {
+          "credential_presence": "<REDACTED>",
+          "legacy_deepseek_fallback_enabled": false,
+          "provider": "arnold",
+          "requested_route": "auto",
+          "response_contract": "batch_repl",
+          "route_metadata": {
+            "browser_api_key_allowed": "<REDACTED>",
+            "guidance": "DeepSeek browser key submission is supported and stored locally.",
+            "normalized_route": "deepseek",
+            "requested_route": "auto",
+            "tos_acknowledgement_required": false
+          }
+        },
+        "batch": "clarify(\"Which SDXL checkpoint file (ckpt_name) should I use?\")",
+        "message": "To switch to SDXL, I need to know which specific SDXL checkpoint model you want to use (e.g., \"sd_xl_base_1.0.safetensors\", \"sdXL_v10.safetensors\", or another filename). Which model should I load?",
+        "model": "agent-edit",
+        "route": "deepseek"
+      },
+      "turn_number": 0
+    }
+  ]
+}

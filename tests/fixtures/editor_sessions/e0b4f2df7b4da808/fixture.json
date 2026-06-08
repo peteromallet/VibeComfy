@@ -1,0 +1,9 @@
+{
+  "content": "\n```batch\nupscaled_video = ImageScaleBy(image=vaedecodetiled.image, scale_by=2.0, upscale_method=\"nearest-exact\", near=vaedecodetiled)\nvhs_videocombine.images = upscaled_video.IMAGE\ndone()\n```",
+  "_meta": {
+    "session": "browser_val_1",
+    "turn": "0001",
+    "key": "e0b4f2df7b4da808",
+    "task_hash": "9d294402bf7423ae"
+  }
+}

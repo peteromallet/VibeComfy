@@ -1,0 +1,9 @@
+{
+  "content": "Searching for the SDXL text encode node signature so I can wire it correctly.\n```batch\nsearch(focus_types=[\"CLIPTextEncodeSDXL\"])\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0004",
+    "key": "7236d63ed7281dab",
+    "task_hash": "ef9ad4b827af3b36"
+  }
+}

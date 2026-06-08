@@ -1,0 +1,7 @@
+Switching to SDXL by updating the checkpoint and increasing the latent resolution to 1024×1024.
+```batch
+checkpointloadersimple.ckpt_name = 'sd_xl_base_1.0.safetensors'
+emptylatentimage.width = 1024
+emptylatentimage.height = 1024
+done()
+```

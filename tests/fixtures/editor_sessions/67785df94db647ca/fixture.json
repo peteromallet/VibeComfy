@@ -1,0 +1,9 @@
+{
+  "content": "To switch to SDXL, I need to first check the exact signature of the SDXL text\u2011encoding node so I can replace the current `CLIPTextEncode` nodes correctly. Let me look that up now.\n```batch\nsearch(focus_types=[\"CLIPTextEncodeSDXL\"])\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0002",
+    "key": "67785df94db647ca",
+    "task_hash": "ef9ad4b827af3b36"
+  }
+}

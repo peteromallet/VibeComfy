@@ -1,0 +1,6 @@
+I'll update the base sampler `ksampler` to 24 steps and seed 5.
+```batch
+ksampler.steps = 24
+ksampler.seed = 5
+done()
+```

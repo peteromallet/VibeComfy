@@ -1,0 +1,7 @@
+I'll swap in an SD1.5 checkpoint, resize the latent to 512×512, and look up the standard CLIP text encoder for the new workflow.
+```batch
+checkpointloadersimple.ckpt_name = 'v1-5-pruned-emaonly.safetensors'
+emptylatentimage.width = 512
+emptylatentimage.height = 512
+search(focus_types=["CLIPTextEncode"])
+```

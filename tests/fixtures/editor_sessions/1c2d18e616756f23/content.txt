@@ -1,0 +1,7 @@
+Switching to SD1.5 by updating the checkpoint to `v1-5-pruned-emaonly.safetensors` and resizing the empty latent to 512×512.
+```batch
+checkpointloadersimple.ckpt_name = 'v1-5-pruned-emaonly.safetensors'
+emptylatentimage.width = 512
+emptylatentimage.height = 512
+done()
+```

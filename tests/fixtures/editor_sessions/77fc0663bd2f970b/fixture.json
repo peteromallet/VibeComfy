@@ -1,0 +1,9 @@
+{
+  "content": "I'll swap in an SD1.5 checkpoint, resize the latent to 512\u00d7512, and look up the standard CLIP text encoder for the new workflow.\n```batch\ncheckpointloadersimple.ckpt_name = 'v1-5-pruned-emaonly.safetensors'\nemptylatentimage.width = 512\nemptylatentimage.height = 512\nsearch(focus_types=[\"CLIPTextEncode\"])\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0005",
+    "key": "77fc0663bd2f970b",
+    "task_hash": "ef46c7b6c61a4a5a"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "content": "Set the base sampler to 24 steps by updating the existing KSampler's `steps` attribute.\n```batch\nksampler.steps = 24\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0013",
+    "key": "dd8f098bfa45e4ec",
+    "task_hash": "803ba764844daf23"
+  }
+}

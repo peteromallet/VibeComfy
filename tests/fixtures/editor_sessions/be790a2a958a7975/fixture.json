@@ -1,0 +1,9 @@
+{
+  "content": "I'll add a new SaveImage node that taps into the decoded video images, leaving the existing video save untouched.\n```batch\nsaveimage = SaveImage(images=vaedecodetiled.image, filename_prefix=\"LTX-2_frames\", near=vhs_videocombine)\ndone()\n```",
+  "_meta": {
+    "session": "hard_multinode_branch",
+    "turn": "0001",
+    "key": "be790a2a958a7975",
+    "task_hash": "91d2895d5731975e"
+  }
+}

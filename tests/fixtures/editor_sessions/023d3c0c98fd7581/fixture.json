@@ -1,0 +1,9 @@
+{
+  "content": "We need to switch to SDXL: update the checkpoint, text encoders, and latent dimensions. I'll search for `CLIPTextEncodeSDXL` to see its exact signature before making edits.\n```batch\nsearch(focus_types=[\"CLIPTextEncodeSDXL\"])\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0009",
+    "key": "023d3c0c98fd7581",
+    "task_hash": "a1b9f2401adcd765"
+  }
+}

@@ -34,3 +34,8 @@ this.env
 _debug_*.py
 install.log
 .hypothesis/
+
+# e2e test tier — isolated dependency management
+tests/e2e/node_modules/
+tests/e2e/playwright-report/
+tests/e2e/test-results/

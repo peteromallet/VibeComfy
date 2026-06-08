@@ -1,0 +1,9 @@
+{
+  "content": "The upscale path already exists in the graph; I\u2019ll make sure both the model loader and the upscale node are explicitly enabled.\n```batch\nimageupscalewithmodel.mode = \"enabled\"\nupscalemodelloader.mode = \"enabled\"\ndone()\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0012",
+    "key": "9a568fba547742b4",
+    "task_hash": "16343f74d2ebec35"
+  }
+}

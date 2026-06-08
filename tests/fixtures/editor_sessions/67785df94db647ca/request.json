@@ -1,0 +1,862 @@
+{
+  "client_graph_hash": "be657ce310b97ba812fc6e03babe936e95ded791742c47bf475d92886a0483c6",
+  "client_id": "e538b5db73744544968e325503ca3e8f",
+  "client_live_canvas_token": "<REDACTED>",
+  "client_structural_graph_hash": "68495b9658c4c542d239723759c25969d339409e72f305971db42c835eb1b271",
+  "graph": {
+    "config": {},
+    "extra": {
+      "ds": {
+        "offset": [
+          625.0600454392768,
+          219.00147518702443
+        ],
+        "scale": 0.4823167288101444
+      }
+    },
+    "groups": [],
+    "id": "4e1e38b8-87b2-4176-b816-169e7c25eff4",
+    "last_link_id": 46,
+    "last_node_id": 25,
+    "links": [
+      [
+        1,
+        4,
+        0,
+        3,
+        0,
+        "MODEL"
+      ],
+      [
+        2,
+        5,
+        0,
+        3,
+        3,
+        "LATENT"
+      ],
+      [
+        8,
+        4,
+        2,
+        8,
+        1,
+        "VAE"
+      ],
+      [
+        23,
+        8,
+        0,
+        18,
+        1,
+        "IMAGE"
+      ],
+      [
+        24,
+        17,
+        0,
+        18,
+        0,
+        "UPSCALE_MODEL"
+      ],
+      [
+        32,
+        3,
+        0,
+        21,
+        3,
+        "LATENT"
+      ],
+      [
+        33,
+        4,
+        0,
+        21,
+        0,
+        "MODEL"
+      ],
+      [
+        36,
+        21,
+        0,
+        8,
+        0,
+        "LATENT"
+      ],
+      [
+        37,
+        4,
+        1,
+        22,
+        0,
+        "CLIP"
+      ],
+      [
+        38,
+        4,
+        1,
+        23,
+        0,
+        "CLIP"
+      ],
+      [
+        39,
+        22,
+        0,
+        3,
+        1,
+        "CONDITIONING"
+      ],
+      [
+        40,
+        23,
+        0,
+        3,
+        2,
+        "CONDITIONING"
+      ],
+      [
+        41,
+        22,
+        0,
+        21,
+        1,
+        "CONDITIONING"
+      ],
+      [
+        42,
+        23,
+        0,
+        21,
+        2,
+        "CONDITIONING"
+      ],
+      [
+        43,
+        8,
+        0,
+        9,
+        0,
+        "IMAGE"
+      ],
+      [
+        46,
+        18,
+        0,
+        25,
+        0,
+        "IMAGE"
+      ]
+    ],
+    "nodes": [
+      {
+        "flags": {},
+        "id": 18,
+        "inputs": [
+          {
+            "link": 24,
+            "localized_name": "upscale_model",
+            "name": "upscale_model",
+            "type": "UPSCALE_MODEL"
+          },
+          {
+            "link": 23,
+            "localized_name": "image",
+            "name": "image",
+            "type": "IMAGE"
+          }
+        ],
+        "mode": 4,
+        "order": 8,
+        "outputs": [
+          {
+            "links": [
+              46
+            ],
+            "localized_name": "IMAGE",
+            "name": "IMAGE",
+            "slot_index": 0,
+            "type": "IMAGE"
+          }
+        ],
+        "pos": [
+          1652.4802457812498,
+          471.36239203125
+        ],
+        "properties": {
+          "Node name for S&R": "ImageUpscaleWithModel",
+          "_vibecomfy_schema_provider": "unknown",
+          "vibecomfy_id": "ImageUpscaleWithModel_0",
+          "vibecomfy_uid": "n3"
+        },
+        "size": [
+          320,
+          180
+        ],
+        "type": "ImageUpscaleWithModel",
+        "widgets_values": []
+      },
+      {
+        "flags": {},
+        "id": 9,
+        "inputs": [
+          {
+            "link": 43,
+            "localized_name": "images",
+            "name": "images",
+            "type": "IMAGE"
+          },
+          {
+            "link": null,
+            "localized_name": "filename_prefix",
+            "name": "filename_prefix",
+            "type": "STRING",
+            "widget": {
+              "name": "filename_prefix"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 9,
+        "outputs": [],
+        "pos": [
+          1749.3155222265616,
+          -140.39962343750014
+        ],
+        "properties": {
+          "vibecomfy_uid": "9"
+        },
+        "size": [
+          210,
+          58
+        ],
+        "type": "SaveImage",
+        "widgets_values": [
+          "fox/raw_v2"
+        ]
+      },
+      {
+        "flags": {},
+        "id": 8,
+        "inputs": [
+          {
+            "link": 36,
+            "localized_name": "samples",
+            "name": "samples",
+            "type": "LATENT"
+          },
+          {
+            "link": 8,
+            "localized_name": "vae",
+            "name": "vae",
+            "type": "VAE"
+          }
+        ],
+        "mode": 0,
+        "order": 7,
+        "outputs": [
+          {
+            "links": [
+              23,
+              43
+            ],
+            "localized_name": "IMAGE",
+            "name": "IMAGE",
+            "slot_index": 0,
+            "type": "IMAGE"
+          }
+        ],
+        "pos": [
+          966.9351756198353,
+          532.0631456611569
+        ],
+        "properties": {
+          "Node name for S&R": "VAEDecode",
+          "vibecomfy_uid": "8"
+        },
+        "size": [
+          210,
+          46
+        ],
+        "type": "VAEDecode",
+        "widgets_values": []
+      },
+      {
+        "flags": {},
+        "id": 21,
+        "inputs": [
+          {
+            "link": 33,
+            "localized_name": "model",
+            "name": "model",
+            "type": "MODEL"
+          },
+          {
+            "link": 41,
+            "localized_name": "positive",
+            "name": "positive",
+            "type": "CONDITIONING"
+          },
+          {
+            "link": 42,
+            "localized_name": "negative",
+            "name": "negative",
+            "type": "CONDITIONING"
+          },
+          {
+            "link": 32,
+            "localized_name": "latent_image",
+            "name": "latent_image",
+            "type": "LATENT"
+          },
+          {
+            "link": null,
+            "localized_name": "seed",
+            "name": "seed",
+            "type": "INT",
+            "widget": {
+              "name": "seed"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "steps",
+            "name": "steps",
+            "type": "INT",
+            "widget": {
+              "name": "steps"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "cfg",
+            "name": "cfg",
+            "type": "FLOAT",
+            "widget": {
+              "name": "cfg"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "sampler_name",
+            "name": "sampler_name",
+            "type": "COMBO",
+            "widget": {
+              "name": "sampler_name"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "scheduler",
+            "name": "scheduler",
+            "type": "COMBO",
+            "widget": {
+              "name": "scheduler"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "denoise",
+            "name": "denoise",
+            "type": "FLOAT",
+            "widget": {
+              "name": "denoise"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 6,
+        "outputs": [
+          {
+            "links": [
+              36
+            ],
+            "localized_name": "LATENT",
+            "name": "LATENT",
+            "slot_index": 0,
+            "type": "LATENT"
+          }
+        ],
+        "pos": [
+          1258,
+          186
+        ],
+        "properties": {
+          "Node name for S&R": "KSampler",
+          "_vibecomfy_schema_provider": "unknown",
+          "vibecomfy_id": "KSampler_0",
+          "vibecomfy_uid": "n6"
+        },
+        "size": [
+          320,
+          262
+        ],
+        "type": "KSampler",
+        "widgets_values": [
+          999,
+          "fixed",
+          12,
+          7,
+          "euler_ancestral",
+          "normal",
+          0.3
+        ]
+      },
+      {
+        "flags": {},
+        "id": 23,
+        "inputs": [
+          {
+            "link": 38,
+            "localized_name": "clip",
+            "name": "clip",
+            "type": "CLIP"
+          },
+          {
+            "link": null,
+            "localized_name": "text",
+            "name": "text",
+            "type": "STRING",
+            "widget": {
+              "name": "text"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 4,
+        "outputs": [
+          {
+            "links": [
+              40,
+              42
+            ],
+            "localized_name": "CONDITIONING",
+            "name": "CONDITIONING",
+            "slot_index": 0,
+            "type": "CONDITIONING"
+          }
+        ],
+        "pos": [
+          444.44,
+          918.64
+        ],
+        "properties": {
+          "Node name for S&R": "CLIPTextEncode",
+          "_vibecomfy_schema_provider": "unknown",
+          "vibecomfy_id": "CLIPTextEncode_0",
+          "vibecomfy_uid": "n8"
+        },
+        "size": [
+          320,
+          180
+        ],
+        "type": "CLIPTextEncode",
+        "widgets_values": [
+          "text, watermark"
+        ]
+      },
+      {
+        "flags": {},
+        "id": 4,
+        "inputs": [
+          {
+            "link": null,
+            "localized_name": "ckpt_name",
+            "name": "ckpt_name",
+            "type": "COMBO",
+            "widget": {
+              "name": "ckpt_name"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 0,
+        "outputs": [
+          {
+            "links": [
+              1,
+              33
+            ],
+            "localized_name": "MODEL",
+            "name": "MODEL",
+            "slot_index": 0,
+            "type": "MODEL"
+          },
+          {
+            "links": [
+              37,
+              38
+            ],
+            "localized_name": "CLIP",
+            "name": "CLIP",
+            "slot_index": 1,
+            "type": "CLIP"
+          },
+          {
+            "links": [
+              8
+            ],
+            "localized_name": "VAE",
+            "name": "VAE",
+            "slot_index": 2,
+            "type": "VAE"
+          }
+        ],
+        "pos": [
+          -415.4971519921876,
+          528.5065533203124
+        ],
+        "properties": {
+          "Node name for S&R": "CheckpointLoaderSimple",
+          "models": [
+            {
+              "directory": "checkpoints",
+              "name": "v1-5-pruned-emaonly-fp16.safetensors",
+              "url": "https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive/resolve/main/v1-5-pruned-emaonly-fp16.safetensors"
+            }
+          ],
+          "vibecomfy_uid": "4"
+        },
+        "size": [
+          315,
+          98
+        ],
+        "type": "CheckpointLoaderSimple",
+        "widgets_values": [
+          "v1-5-pruned-emaonly.safetensors"
+        ]
+      },
+      {
+        "flags": {},
+        "id": 22,
+        "inputs": [
+          {
+            "link": 37,
+            "localized_name": "clip",
+            "name": "clip",
+            "type": "CLIP"
+          },
+          {
+            "link": null,
+            "localized_name": "text",
+            "name": "text",
+            "type": "STRING",
+            "widget": {
+              "name": "text"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 3,
+        "outputs": [
+          {
+            "links": [
+              39,
+              41
+            ],
+            "localized_name": "CONDITIONING",
+            "name": "CONDITIONING",
+            "slot_index": 0,
+            "type": "CONDITIONING"
+          }
+        ],
+        "pos": [
+          300.44,
+          726.64
+        ],
+        "properties": {
+          "Node name for S&R": "CLIPTextEncode",
+          "_vibecomfy_schema_provider": "unknown",
+          "vibecomfy_id": "CLIPTextEncode_0",
+          "vibecomfy_uid": "n7"
+        },
+        "size": [
+          320,
+          180
+        ],
+        "type": "CLIPTextEncode",
+        "widgets_values": [
+          "a crystal fox in a snowy forest"
+        ]
+      },
+      {
+        "flags": {},
+        "id": 17,
+        "inputs": [
+          {
+            "link": null,
+            "localized_name": "model_name",
+            "name": "model_name",
+            "type": "COMBO",
+            "widget": {
+              "name": "model_name"
+            }
+          }
+        ],
+        "mode": 4,
+        "order": 1,
+        "outputs": [
+          {
+            "links": [
+              24
+            ],
+            "localized_name": "UPSCALE_MODEL",
+            "name": "UPSCALE_MODEL",
+            "slot_index": 0,
+            "type": "UPSCALE_MODEL"
+          }
+        ],
+        "pos": [
+          1230.8595129297541,
+          663.4185371546627
+        ],
+        "properties": {
+          "Node name for S&R": "UpscaleModelLoader",
+          "_vibecomfy_schema_provider": "unknown",
+          "vibecomfy_id": "UpscaleModelLoader_0",
+          "vibecomfy_uid": "n2"
+        },
+        "size": [
+          320,
+          180
+        ],
+        "type": "UpscaleModelLoader",
+        "widgets_values": [
+          "4x_NMKD-Superscale-SP_178000_G.pth"
+        ]
+      },
+      {
+        "flags": {},
+        "id": 5,
+        "inputs": [
+          {
+            "link": null,
+            "localized_name": "width",
+            "name": "width",
+            "type": "INT",
+            "widget": {
+              "name": "width"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "height",
+            "name": "height",
+            "type": "INT",
+            "widget": {
+              "name": "height"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "batch_size",
+            "name": "batch_size",
+            "type": "INT",
+            "widget": {
+              "name": "batch_size"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 2,
+        "outputs": [
+          {
+            "links": [
+              2
+            ],
+            "localized_name": "LATENT",
+            "name": "LATENT",
+            "slot_index": 0,
+            "type": "LATENT"
+          }
+        ],
+        "pos": [
+          223.47531250000023,
+          507.29898437500003
+        ],
+        "properties": {
+          "Node name for S&R": "EmptyLatentImage",
+          "vibecomfy_uid": "5"
+        },
+        "size": [
+          315,
+          106
+        ],
+        "type": "EmptyLatentImage",
+        "widgets_values": [
+          512,
+          512,
+          1
+        ]
+      },
+      {
+        "flags": {},
+        "id": 3,
+        "inputs": [
+          {
+            "link": 1,
+            "localized_name": "model",
+            "name": "model",
+            "type": "MODEL"
+          },
+          {
+            "link": 39,
+            "localized_name": "positive",
+            "name": "positive",
+            "type": "CONDITIONING"
+          },
+          {
+            "link": 40,
+            "localized_name": "negative",
+            "name": "negative",
+            "type": "CONDITIONING"
+          },
+          {
+            "link": 2,
+            "localized_name": "latent_image",
+            "name": "latent_image",
+            "type": "LATENT"
+          },
+          {
+            "link": null,
+            "localized_name": "seed",
+            "name": "seed",
+            "type": "INT",
+            "widget": {
+              "name": "seed"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "steps",
+            "name": "steps",
+            "type": "INT",
+            "widget": {
+              "name": "steps"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "cfg",
+            "name": "cfg",
+            "type": "FLOAT",
+            "widget": {
+              "name": "cfg"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "sampler_name",
+            "name": "sampler_name",
+            "type": "COMBO",
+            "widget": {
+              "name": "sampler_name"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "scheduler",
+            "name": "scheduler",
+            "type": "COMBO",
+            "widget": {
+              "name": "scheduler"
+            }
+          },
+          {
+            "link": null,
+            "localized_name": "denoise",
+            "name": "denoise",
+            "type": "FLOAT",
+            "widget": {
+              "name": "denoise"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 5,
+        "outputs": [
+          {
+            "links": [
+              32
+            ],
+            "localized_name": "LATENT",
+            "name": "LATENT",
+            "slot_index": 0,
+            "type": "LATENT"
+          }
+        ],
+        "pos": [
+          863,
+          186
+        ],
+        "properties": {
+          "Node name for S&R": "KSampler",
+          "vibecomfy_uid": "3"
+        },
+        "size": [
+          315,
+          262
+        ],
+        "type": "KSampler",
+        "widgets_values": [
+          156680208700286,
+          "randomize",
+          26,
+          6.5,
+          "euler_ancestral",
+          "normal",
+          1
+        ]
+      },
+      {
+        "flags": {},
+        "id": 25,
+        "inputs": [
+          {
+            "link": 46,
+            "localized_name": "images",
+            "name": "images",
+            "type": "IMAGE"
+          },
+          {
+            "link": null,
+            "localized_name": "filename_prefix",
+            "name": "filename_prefix",
+            "type": "STRING",
+            "widget": {
+              "name": "filename_prefix"
+            }
+          }
+        ],
+        "mode": 0,
+        "order": 10,
+        "outputs": [],
+        "pos": [
+          2452.48,
+          471.36
+        ],
+        "properties": {
+          "Node name for S&R": "SaveImage",
+          "_vibecomfy_schema_provider": "unknown",
+          "vibecomfy_id": "SaveImage_0",
+          "vibecomfy_uid": "n10"
+        },
+        "size": [
+          320,
+          180
+        ],
+        "type": "SaveImage",
+        "widgets_values": [
+          "fox/up2x"
+        ]
+      }
+    ],
+    "revision": 0,
+    "version": 0.4
+  },
+  "idempotency_key": "submit:402eda6756814a8b8186117d3bb8935b:auto:agent-edit:be657ce310b9:5a5c0816-4f97-4351-a72a-69c8155664df",
+  "model": "agent-edit",
+  "route": "auto",
+  "session_id": "402eda6756814a8b8186117d3bb8935b",
+  "task": "switch to SDXL"
+}

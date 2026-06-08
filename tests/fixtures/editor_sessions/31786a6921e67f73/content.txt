@@ -1,0 +1,7 @@
+I'll set the base sampler's seed, steps, and cfg as requested.
+```batch
+ksampler.seed = 777
+ksampler.steps = 22
+ksampler.cfg = 7.5
+done()
+```

@@ -1,0 +1,15 @@
+{
+  "name": "vibecomfy-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Real-browser Playwright test tier for the VibeComfy agent panel (local only, no CI).",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  }
+}

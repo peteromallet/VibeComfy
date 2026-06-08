@@ -1,0 +1,6 @@
+The upscale path already exists in the graph; I’ll make sure both the model loader and the upscale node are explicitly enabled.
+```batch
+imageupscalewithmodel.mode = "enabled"
+upscalemodelloader.mode = "enabled"
+done()
+```

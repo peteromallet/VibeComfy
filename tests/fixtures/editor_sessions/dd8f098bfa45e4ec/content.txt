@@ -1,0 +1,4 @@
+Set the base sampler to 24 steps by updating the existing KSampler's `steps` attribute.
+```batch
+ksampler.steps = 24
+```

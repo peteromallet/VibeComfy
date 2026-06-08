@@ -1,0 +1,104 @@
+{
+  "turns": [
+    {
+      "batch_result": {
+        "batch": "ksampler_2.seed = 999\ndone()",
+        "batch_ok": true,
+        "diagnostics": [],
+        "diff": "",
+        "field_changes": [],
+        "landed_op_count": 1,
+        "message": "The refiner sampler (`ksampler_2`) already has its seed set to 999, so I\u2019ll re-assign it to confirm the correct value.",
+        "model": "agent-edit",
+        "noop_field_changes": [
+          {
+            "field_path": "seed",
+            "new": 999,
+            "old": 999,
+            "uid": "n6"
+          }
+        ],
+        "provider_metadata": {
+          "batch_repl_retry": {
+            "count": 1,
+            "reason": "Agent response does not contain a ```batch fenced block. Include exactly one ```batch code block with your edit statements."
+          },
+          "credential_presence": "<REDACTED>",
+          "legacy_deepseek_fallback_enabled": false,
+          "provider": "arnold",
+          "requested_route": "auto",
+          "response_contract": "batch_repl",
+          "route_metadata": {
+            "browser_api_key_allowed": "<REDACTED>",
+            "guidance": "DeepSeek browser key submission is supported and stored locally.",
+            "normalized_route": "deepseek",
+            "requested_route": "auto",
+            "tos_acknowledgement_required": false
+          }
+        },
+        "report": "Batch summary: 1 landed, 0 failed, 0 batch diagnostic(s), 19 batch(es) remaining, 0 consecutive error turn(s).\n\u2713 Statement 1: set_node_field \u2014 landed (source: \"ksampler_2.seed = 999\"; touched uids: [n6])\n\u2713 Statement 2: done \u2014 not landed (source: \"done()\")",
+        "route": "deepseek",
+        "statement_count": 2,
+        "statements": [
+          {
+            "dependency_cause": null,
+            "detail": {
+              "ast_node": "<ast.Assign object at 0x164591390>",
+              "constant_env": "<REDACTED>",
+              "edit_op": "SetNodeFieldOp(op='set_node_field', target=NodeFieldTarget(scope_path='', uid='n6', field_path='seed'), value=999)",
+              "resolved_target": "_ResolvedTargetField(node=_ResolvedGraphName(name='ksampler_2', uid='n6', scope_path='', node={'id': 21, 'type': 'KSampler', 'pos': [1258, 186], 'size': [320, 262], 'flags': {}, 'order': 6, 'mode': 0, 'inputs': [{'localized_name': 'model', 'name': 'model', 'type': 'MODEL', 'link': 33}, {'localized_name': 'positive', 'name': 'positive', 'type': 'CONDITIONING', 'link': 41}, {'localized_name': 'negative', 'name': 'negative', 'type': 'CONDITIONING', 'link': 42}, {'localized_name': 'latent_image', 'name': 'latent_image', 'type': 'LATENT', 'link': 32}, {'localized_name': 'seed', 'name': 'seed', 'type': 'INT', 'widget': {'name': 'seed'}, 'link': None}, {'localized_name': 'steps', 'name': 'steps', 'type': 'INT', 'widget': {'name': 'steps'}, 'link': None}, {'localized_name': 'cfg', 'name': 'cfg', 'type': 'FLOAT', 'widget': {'name': 'cfg'}, 'link': None}, {'localized_name': 'sampler_name', 'name': 'sampler_name', 'type': 'COMBO', 'widget': {'name': 'sampler_name'}, 'link': None}, {'localized_name': 'scheduler', 'name': 'scheduler', 'type': 'COMBO', 'widget': {'name': 'scheduler'}, 'link': None}, {'localized_name': 'denoise', 'name': 'denoise', 'type': 'FLOAT', 'widget': {'name': 'denoise'}, 'link': None}], 'outputs': [{'localized_name': 'LATENT', 'name': 'LATENT', 'type': 'LATENT', 'slot_index': 0, 'links': [36]}], 'properties': {'Node name for S&R': 'KSampler', '_vibecomfy_schema_provider': 'unknown', 'vibecomfy_id': 'KSampler_0', 'vibecomfy_uid': 'n6'}, 'widgets_values': [999, 'fixed', 12, 7, 'euler_ancestral', 'normal', 0.3]}, class_type='KSampler'), field_name='seed', socket_type='INT')"
+            },
+            "diagnostics": [],
+            "landed": true,
+            "ok": true,
+            "op_kind": "set_node_field",
+            "source": "ksampler_2.seed = 999",
+            "statement_index": 1,
+            "teaching_hint": null,
+            "touched_uids": [
+              "n6"
+            ]
+          },
+          {
+            "dependency_cause": null,
+            "detail": {},
+            "diagnostics": [],
+            "landed": false,
+            "ok": true,
+            "op_kind": "done",
+            "source": "done()",
+            "statement_index": 2,
+            "teaching_hint": null,
+            "touched_uids": []
+          }
+        ],
+        "turn_number": 0
+      },
+      "response": {
+        "audit_metadata": {
+          "batch_repl_retry": {
+            "count": 1,
+            "reason": "Agent response does not contain a ```batch fenced block. Include exactly one ```batch code block with your edit statements."
+          },
+          "credential_presence": "<REDACTED>",
+          "legacy_deepseek_fallback_enabled": false,
+          "provider": "arnold",
+          "requested_route": "auto",
+          "response_contract": "batch_repl",
+          "route_metadata": {
+            "browser_api_key_allowed": "<REDACTED>",
+            "guidance": "DeepSeek browser key submission is supported and stored locally.",
+            "normalized_route": "deepseek",
+            "requested_route": "auto",
+            "tos_acknowledgement_required": false
+          }
+        },
+        "batch": "ksampler_2.seed = 999\ndone()",
+        "message": "The refiner sampler (`ksampler_2`) already has its seed set to 999, so I\u2019ll re-assign it to confirm the correct value.",
+        "model": "agent-edit",
+        "route": "deepseek"
+      },
+      "turn_number": 0
+    }
+  ]
+}

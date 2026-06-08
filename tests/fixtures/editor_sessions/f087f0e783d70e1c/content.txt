@@ -1,0 +1,4 @@
+To switch to SDXL, I need to know which specific SDXL checkpoint model you want to use (e.g., "sd_xl_base_1.0.safetensors", "sdXL_v10.safetensors", or another filename). Which model should I load?
+```batch
+clarify("Which SDXL checkpoint file (ckpt_name) should I use?")
+```

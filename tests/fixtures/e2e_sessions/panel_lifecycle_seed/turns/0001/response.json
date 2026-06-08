@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "session_id": "panel_lifecycle_seed",
+  "turn_id": "0001",
+  "message": "Seeded lifecycle session loaded.",
+  "outcome": {
+    "kind": "noop"
+  }
+}

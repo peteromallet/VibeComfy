@@ -1,0 +1,166 @@
+{
+  "session_id": "panel_lifecycle_seed",
+  "turn_id": "0001",
+  "messages": [
+    {
+      "role": "user",
+      "turn_id": "0001",
+      "text": "Lifecycle user 01\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0001",
+      "text": "Lifecycle agent 01\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0002",
+      "text": "Lifecycle user 02\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0002",
+      "text": "Lifecycle agent 02\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0003",
+      "text": "Lifecycle user 03\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0003",
+      "text": "Lifecycle agent 03\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0004",
+      "text": "Lifecycle user 04\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0004",
+      "text": "Lifecycle agent 04\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0005",
+      "text": "Lifecycle user 05\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0005",
+      "text": "Lifecycle agent 05\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0006",
+      "text": "Lifecycle user 06\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0006",
+      "text": "Lifecycle agent 06\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0007",
+      "text": "Lifecycle user 07\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0007",
+      "text": "Lifecycle agent 07\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0008",
+      "text": "Lifecycle user 08\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0008",
+      "text": "Lifecycle agent 08\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0009",
+      "text": "Lifecycle user 09\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0009",
+      "text": "Lifecycle agent 09\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0010",
+      "text": "Lifecycle user 10\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0010",
+      "text": "Lifecycle agent 10\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0011",
+      "text": "Lifecycle user 11\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0011",
+      "text": "Lifecycle agent 11\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0012",
+      "text": "Lifecycle user 12\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0012",
+      "text": "Lifecycle agent 12\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0013",
+      "text": "Lifecycle user 13\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0013",
+      "text": "Lifecycle agent 13\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0014",
+      "text": "Lifecycle user 14\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0014",
+      "text": "Lifecycle agent 14\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0015",
+      "text": "Lifecycle user 15\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0015",
+      "text": "Lifecycle agent 15\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "user",
+      "turn_id": "0016",
+      "text": "Lifecycle user 16\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    },
+    {
+      "role": "agent",
+      "turn_id": "0016",
+      "text": "Lifecycle agent 16\nline a keeps the bubble tall.\nline b keeps the thread scrollable."
+    }
+  ]
+}

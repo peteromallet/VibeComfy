@@ -1,0 +1,4 @@
+Searching for the SDXL text encode node signature so I can wire it correctly.
+```batch
+search(focus_types=["CLIPTextEncodeSDXL"])
+```

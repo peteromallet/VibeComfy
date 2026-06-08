@@ -1,0 +1,6 @@
+
+```batch
+upscaled_video = ImageScaleBy(image=vaedecodetiled.image, scale_by=2.0, upscale_method="nearest-exact", near=vaedecodetiled)
+vhs_videocombine.images = upscaled_video.IMAGE
+done()
+```

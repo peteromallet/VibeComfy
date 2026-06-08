@@ -1,0 +1,9 @@
+{
+  "content": "Switching to SDXL by updating the checkpoint and increasing the latent resolution to 1024\u00d71024.\n```batch\ncheckpointloadersimple.ckpt_name = 'sd_xl_base_1.0.safetensors'\nemptylatentimage.width = 1024\nemptylatentimage.height = 1024\ndone()\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0007",
+    "key": "19fe1f725aab5ad1",
+    "task_hash": "a1b9f2401adcd765"
+  }
+}

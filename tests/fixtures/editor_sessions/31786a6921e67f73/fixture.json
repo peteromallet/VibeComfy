@@ -1,0 +1,9 @@
+{
+  "content": "I'll set the base sampler's seed, steps, and cfg as requested.\n```batch\nksampler.seed = 777\nksampler.steps = 22\nksampler.cfg = 7.5\ndone()\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0016",
+    "key": "31786a6921e67f73",
+    "task_hash": "f99794c800357b3c"
+  }
+}

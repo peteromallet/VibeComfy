@@ -1,0 +1,6 @@
+I'll add an `ImageScaleBy` node to double the decoded video frames, then reconnect the video saver to use the upscaled output.
+```batch
+upscaled = ImageScaleBy(image=vaedecodetiled.image, upscale_method="lanczos", scale_by=2.0, near=vaedecodetiled)
+vhs_videocombine.images = upscaled.IMAGE
+done()
+```

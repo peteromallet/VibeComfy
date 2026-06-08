@@ -1,0 +1,9 @@
+{
+  "content": "I'll add an `ImageScaleBy` node to double the decoded video frames, then reconnect the video saver to use the upscaled output.\n```batch\nupscaled = ImageScaleBy(image=vaedecodetiled.image, upscale_method=\"lanczos\", scale_by=2.0, near=vaedecodetiled)\nvhs_videocombine.images = upscaled.IMAGE\ndone()\n```",
+  "_meta": {
+    "session": "smoke_upscale_1",
+    "turn": "0001",
+    "key": "327b0e1235c353a9",
+    "task_hash": "2e2ce6f8992769ad"
+  }
+}

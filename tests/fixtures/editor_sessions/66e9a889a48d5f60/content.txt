@@ -1,0 +1,6 @@
+The video VAE decode node (`vaedecodetiled`) takes `ltxvseparateavlatent_2.video_latent` and converts it to an image. To bypass it and wire the video save node's `images` input directly from that same source, we set the decode node to bypassed mode and then rewire the save node.
+```batch
+vaedecodetiled.mode = "bypassed"
+vhs_videocombine.images = ltxvseparateavlatent_2.video_latent
+done()
+```

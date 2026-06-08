@@ -1,0 +1,9 @@
+{
+  "content": "The video VAE decode node (`vaedecodetiled`) takes `ltxvseparateavlatent_2.video_latent` and converts it to an image. To bypass it and wire the video save node's `images` input directly from that same source, we set the decode node to bypassed mode and then rewire the save node.\n```batch\nvaedecodetiled.mode = \"bypassed\"\nvhs_videocombine.images = ltxvseparateavlatent_2.video_latent\ndone()\n```",
+  "_meta": {
+    "session": "hard_bypass_rewire",
+    "turn": "0001",
+    "key": "66e9a889a48d5f60",
+    "task_hash": "31b939ee41ae0d5d"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "content": "Switching to SD1.5 by updating the checkpoint to `v1-5-pruned-emaonly.safetensors` and resizing the empty latent to 512\u00d7512.\n```batch\ncheckpointloadersimple.ckpt_name = 'v1-5-pruned-emaonly.safetensors'\nemptylatentimage.width = 512\nemptylatentimage.height = 512\ndone()\n```",
+  "_meta": {
+    "session": "402eda6756814a8b8186117d3bb8935b",
+    "turn": "0008",
+    "key": "1c2d18e616756f23",
+    "task_hash": "678988b68307249e"
+  }
+}

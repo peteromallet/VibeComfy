@@ -1,0 +1,4 @@
+We need to switch to SDXL: update the checkpoint, text encoders, and latent dimensions. I'll search for `CLIPTextEncodeSDXL` to see its exact signature before making edits.
+```batch
+search(focus_types=["CLIPTextEncodeSDXL"])
+```

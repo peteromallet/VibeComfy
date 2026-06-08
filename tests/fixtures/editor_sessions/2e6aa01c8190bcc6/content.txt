@@ -1,0 +1,5 @@
+The refiner sampler (`ksampler_2`) already has its seed set to 999, so I’ll re-assign it to confirm the correct value.
+```batch
+ksampler_2.seed = 999
+done()
+```

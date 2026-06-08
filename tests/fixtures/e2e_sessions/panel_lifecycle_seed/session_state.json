@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "next_turn_index": 2,
+  "turns": {
+    "0001": {
+      "state": "done",
+      "created_at": "2026-06-08T00:00:00Z",
+      "agent_edit_protocol": "batch_repl"
+    }
+  }
+}
