@@ -3,12 +3,9 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-import re
 from typing import Any, Final
 
 from vibecomfy.security.agent_generated_loader import ScanFailure, ScanReport, scan_python_source_with_policy
-
-VIBECOMFY_INTENT_CLASS_RE = re.compile(r"^vibecomfy\.[a-z]+$")
 
 SHIPPED_INTENT_KINDS: Final[tuple[str, ...]] = ("code", "loop")
 DEFERRED_INTENT_KINDS: Final[tuple[str, ...]] = ("branch", "workflowref")
@@ -160,6 +157,9 @@ KIND_TO_CLASS_TYPE: Final[dict[str, str]] = {
 CLASS_TYPE_TO_KIND: Final[dict[str, str]] = {
     class_type: kind for kind, class_type in KIND_TO_CLASS_TYPE.items()
 }
+INTENT_CLASS_TYPES: Final[frozenset[str]] = frozenset(
+    f"vibecomfy.{kind}" for kind in ALL_INTENT_KINDS
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +220,7 @@ class RuntimeCodeContractValidationResult:
 
 
 def is_intent_class_type(class_type: str) -> bool:
-    return bool(VIBECOMFY_INTENT_CLASS_RE.match(class_type))
+    return class_type in INTENT_CLASS_TYPES
 
 
 def intent_node_properties(

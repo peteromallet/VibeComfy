@@ -121,7 +121,10 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
 
         for name in sorted(provided_inputs - declared_inputs):
             value = payload_inputs.get(name)
-            if getattr(schema, "source_provider", None) == "widget_schema" and _is_api_link(value):
+            if (
+                getattr(schema, "source_provider", None) == "widget_schema"
+                and _is_api_link(value)
+            ) or _preserve_linked_undeclared_input(name, value):
                 continue
             if (
                 not _issue_suppressed(class_type, "unknown_input")
@@ -301,7 +304,15 @@ def sanitize_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
         if not schema_inputs:
             continue
         for name in list(inputs):
-            if name not in schema_inputs and not _is_dynamic_payload_input(class_type, name, inputs):
+            if (
+                name not in schema_inputs
+                and not _is_dynamic_payload_input(class_type, name, inputs)
+                and not (
+                    getattr(schema, "source_provider", None) == "widget_schema"
+                    and _is_api_link(inputs.get(name))
+                )
+                and not _preserve_linked_undeclared_input(name, inputs.get(name))
+            ):
                 del inputs[name]
                 continue
             value = inputs[name]
@@ -357,6 +368,18 @@ def _incoming_inputs(workflow: VibeWorkflow) -> dict[str, set[str]]:
 
 
 _LTX_IMAGE_SLOT_RE = re.compile(r"^num_images\.(?:image|index|strength)_(\d+)$")
+_FIXED_SLOT_INPUT_RE = re.compile(r"^in_(\d+)$")
+
+
+def _preserve_linked_undeclared_input(name: str, value: Any) -> bool:
+    """Keep linked fixed-slot inputs even when the local schema omits them.
+
+    Some Comfy-compatible nodes accept numbered wildcard sockets through the
+    prompt payload path even when the best available local schema is narrower.
+    Stripping a linked ``in_N`` here breaks delivery before runtime sees it.
+    """
+
+    return bool(_FIXED_SLOT_INPUT_RE.match(name)) and _is_api_link(value)
 
 
 def _is_dynamic_payload_input(class_type: str, input_name: str, inputs: dict[str, Any] | None = None) -> bool:

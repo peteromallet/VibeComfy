@@ -77,3 +77,19 @@ def test_compile_alias_applies_input_aliases_before_static_schema() -> None:
     )
 
     assert inputs == {"custom_text": "custom"}
+
+
+def test_exec_widget_aliases_map_source_and_io_without_positional_drift() -> None:
+    wf = VibeWorkflow(id="exec-aliases", source=WorkflowSource(id="exec-aliases"))
+    wf.nodes["1"] = VibeNode(
+        id="1",
+        class_type="vibecomfy.exec",
+        inputs={"widget_0": "return {'result': value}", "widget_1": {"outputs": [["result", "INT"]]}},
+    )
+
+    api = wf.compile("api")
+
+    assert api["1"]["inputs"] == {
+        "source": "return {'result': value}",
+        "io": {"outputs": [["result", "INT"]]},
+    }

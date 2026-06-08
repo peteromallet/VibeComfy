@@ -927,6 +927,7 @@ test("VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-
     assert.equal(panel.state.rebaselineRecovery?.last_known_baseline_graph_hash, "baseline-old");
     assert.match(harness.textDump(), /Rebaseline & retry/);
 
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "";
     recoveryButtonsFor()[0].click();
     await waitFor(() => rebaselineBodies.length === 1);
     await waitFor(() => submitBodies.length === 2);
@@ -1268,7 +1269,8 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled, false);
     assert.match(harness.textDump(), /Should I also rename the file stem/);
-    assert.match(harness.textDump(), /Reply in the prompt/);
+    assert.doesNotMatch(harness.textDump(), /Reply in the prompt/);
+    assert.doesNotMatch(harness.textDump(), /Your answer continues this same session/);
   } finally {
     await harness.dispose();
   }
@@ -1442,7 +1444,7 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
     assert.match(harness.textDump(), /Typed candidate ready/);
     assert.match(harness.textDump(), /applyEligibility.*applyable/);
 
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
@@ -1522,7 +1524,7 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "make candidate";
     await harness.clickButton("Submit");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
     assert.match(harness.textDump(), /This candidate has been superseded/);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
@@ -1716,7 +1718,7 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
     await waitFor(() => harness.textDump().includes("Candidate ready."));
 
     harness.setCurrentGraph(changedGraph);
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     await waitFor(() => panel.state.phase === "ERROR");
     await waitFor(() => recoveryButtonsFor().length === 1);
     await waitFor(() => failureBubblesFor().length === 1);
@@ -1848,7 +1850,7 @@ test("VibeComfy ignores raw apply booleans when canonical eligibility authorizes
     assert.match(harness.textDump(), /applyEligibility.*applyable/);
 
     // Verify Apply actually works — not gated by raw booleans.
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
   } finally {
@@ -1963,7 +1965,7 @@ test("VibeComfy disables Apply and warns when a candidate arrives without canoni
     assert.equal(inlineApply.disabled, true, "missing-contract candidate Apply must be disabled");
     assert.equal(inlineReject.disabled, false, "missing-contract candidate Reject should remain enabled");
 
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
   } finally {
     await harness.dispose();
@@ -2128,7 +2130,7 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
     assert.equal(harness.loadGraphDataCalls.length, 0);
 
-    await harness.clickButton("Reject Candidate");
+    await harness.clickButton("Reject");
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "break it";
     await harness.clickButton("Submit");
 
@@ -2454,12 +2456,12 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     prompt.value = "preview only";
     await harness.clickButton("Submit");
     assert.equal(applyButton.disabled, true);
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
 
-    await harness.clickButton("Reject Candidate");
+    await harness.clickButton("Reject");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/reject").length, 1);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
@@ -2485,7 +2487,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     harness.graphDirtyCanvasCalls.length = 0;
     harness.canvasDrawCalls.length = 0;
     const operationCountBeforeApply = harness.operationLog.length;
-    const applyPromise = harness.clickButton("Apply Candidate");
+    const applyPromise = harness.clickButton("Apply");
     await applyPromise;
     const acceptIndex = harness.requests.findIndex((entry) => entry.url === "/vibecomfy/agent-edit/accept");
     assert.notEqual(acceptIndex, -1);
@@ -2549,7 +2551,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     prompt.value = "stale";
     await harness.clickButton("Submit");
     harness.setCurrentGraph({ nodes: [{ id: 99, type: "Dirty" }], links: [] });
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.match(harness.textDump(), /StaleStateMismatch/);
     assert.match(harness.textDump(), /Submit a new edit from the current canvas\./);
     assert.match(harness.textDump(), /The canvas changed after this candidate was generated/);
@@ -2560,7 +2562,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
     harness.setCurrentGraph(initialGraph);
     prompt.value = "accept fails";
     await harness.clickButton("Submit");
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.match(harness.textDump(), /EditorAheadConflict/);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 3);
     assert.equal(harness.loadGraphDataCalls.length, 1);
@@ -2682,7 +2684,7 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
     await harness.clickButton("Submit");
 
     harness.setCurrentGraphWithoutRevisionBump(driftedGraph);
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.graphConfigureCalls.length, 1);
@@ -2800,7 +2802,7 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
     await harness.clickButton("Submit");
 
     harness.setCurrentGraph(driftedGraph);
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.graphConfigureCalls.length, 1);
@@ -2912,7 +2914,7 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
     await harness.clickButton("Submit");
 
     harness.setCurrentGraphWithoutRevisionBump(structurallyChangedGraph);
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.graphConfigureCalls.length, 0);
@@ -3008,7 +3010,7 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "token race";
 
     await harness.clickButton("Submit");
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.match(harness.textDump(), /canvas changed while Apply was waiting for backend acceptance/i);
     expandAgentBubbleDetails(harness.document.body);
@@ -3160,7 +3162,7 @@ test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-ac
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped apply";
 
     await harness.clickButton("Submit");
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.graphClearCalls.length, 0);
@@ -3295,7 +3297,7 @@ test("VibeComfy v2 Apply blocks when the touched region drifts after backend acc
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped conflict";
 
     await harness.clickButton("Submit");
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.graphClearCalls.length, 0);
@@ -3456,7 +3458,7 @@ test("VibeComfy v2 Apply refuses a touched-link race before mutation and reports
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "scoped link conflict";
 
     await harness.clickButton("Submit");
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.graphClearCalls.length, 0);
@@ -3587,7 +3589,7 @@ test("VibeComfy v2 Apply rolls back a post-apply verification miss and reports r
       return originalSerialize();
     };
 
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     const panel = extensionModule.ensureAgentPanel();
     await waitFor(() => panel.state.failure?.kind === "CanvasApplyError");
 
@@ -3723,7 +3725,7 @@ test("VibeComfy v2 Apply preserves undo diagnostics when post-apply verification
       throw new Error("whole graph restore blocked");
     };
 
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     const panel = extensionModule.ensureAgentPanel();
     await waitFor(() => panel.state.failure?.kind === "CanvasApplyError");
 
@@ -3943,7 +3945,7 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "fallback";
     await harness.clickButton("Submit");
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes listed here because live node lookup was unavailable\./);
@@ -4063,7 +4065,7 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "style the intent nodes";
     await harness.clickButton("Submit");
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
 
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphClearCalls.length, 1);
@@ -4566,14 +4568,14 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
     assert.match(harness.textDump(), /Candidate after retry\./);
     assert.equal(applyButton.disabled, false);
 
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.match(harness.textDump(), /MalformedResponse/);
     assert.match(harness.textDump(), /incomplete accept envelope/);
     assert.match(harness.textDump(), /Retry Apply or inspect the raw response in the debug panel\./);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
 
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphClearCalls.length, 1);
     assert.equal(harness.graphConfigureCalls.length, 1);
@@ -5034,7 +5036,7 @@ test("VibeComfy renders one stale-state recovery action, retries against updated
     assert.equal(panel.state.candidateGraphHash, "candidate-after-recovery");
     assert.match(harness.textDump(), /Apply is allowed, but Queue remains blocked for this candidate\./);
 
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(acceptBodies.length, 1);
     assert.equal(acceptBodies[0].session_id, "session-stale");
     assert.equal(acceptBodies[0].turn_id, "0006");
@@ -5158,7 +5160,7 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
     assert.match(harness.textDump(), /Audit ↓/);
 
     // Apply turn 1
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     const afterApplyText = harness.textDump();
     assert.match(afterApplyText, /applied/i);
     assert.match(afterApplyText, /\/tmp\/audit-turn-0001-accept\.json/);
@@ -9375,7 +9377,17 @@ test("Lifecycle C2 new conversation clears state and ignores late submit respons
     await waitFor(() => submitCount >= 2);
     const releaseSecondSubmitResponse = await secondSubmitStarted;
 
-    // ── New conversation: verify localStorage cleared, state reset ──────────
+    // ── New conversation is disabled while a submit is in flight; Stop is the
+    //    in-flight escape hatch. Stop first, then start a fresh conversation. ──
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-new-conversation")?.disabled,
+      true,
+      "New conversation must be disabled while a submit is in flight",
+    );
+    harness.findButtons("Stop")[0].click();
+    await waitFor(
+      () => harness.document.getElementById("vibecomfy-agent-panel-new-conversation")?.disabled === false,
+    );
     const newConvButtons = harness.findButtons("New conversation");
     assert.ok(newConvButtons.length >= 1, "must have a 'New conversation' button");
     newConvButtons[0].click();
@@ -9607,7 +9619,7 @@ test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
     await harness.clickButton("Submit");
     await waitFor(() => /Candidate ready to reject\./.test(harness.textDump()));
 
-    await harness.clickButton("Reject Candidate");
+    await harness.clickButton("Reject");
     const panel = extensionModule.ensureAgentPanel();
     const applyButton = harness.document.getElementById("vibecomfy-agent-panel-apply");
     const rejectButton = harness.document.getElementById("vibecomfy-agent-panel-reject");
@@ -11181,7 +11193,7 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
     assert.match(harness.textDump(), /applyEligibility.*applyable/);
 
     // Accept the candidate to verify full round-trip works.
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1);
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
   } finally {
@@ -12161,7 +12173,7 @@ test("VibeComfy clarify questions render inline and follow-up submit continues t
     await harness.clickButton("Submit");
     await waitFor(() => /Which node should the saver replace\?/.test(harness.textDump()));
     assert.doesNotMatch(harness.textDump(), /Clarify question/);
-    assert.match(harness.textDump(), /continues this same session/);
+    assert.doesNotMatch(harness.textDump(), /continues this same session/);
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "replace the preview node";
     await harness.clickButton("Submit");
@@ -12338,7 +12350,7 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "replace the preview node";
     await harness.clickButton("Submit");
     await waitFor(() => /Candidate ready after retry\./.test(harness.textDump()));
-    await harness.clickButton("Apply Candidate");
+    await harness.clickButton("Apply");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display !== "none");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.textContent, "Undo Last Apply");
 

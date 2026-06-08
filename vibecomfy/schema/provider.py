@@ -117,6 +117,20 @@ def schema_for(provider: object | None, class_type: str) -> object | None:
 
 
 def _builtin_schema(class_type: str) -> NodeSchema | None:
+    if class_type == "vibecomfy.exec":
+        return NodeSchema(
+            class_type="vibecomfy.exec",
+            pack="vibecomfy",
+            inputs={
+                "source": InputSpec("STRING", required=False),
+                "io": InputSpec("DICT", required=False),
+                **{f"in_{index}": InputSpec("*", required=False) for index in range(16)},
+            },
+            outputs=[OutputSpec("*", f"out_{index}") for index in range(16)],
+            source_provider="vibecomfy_builtin",
+            source_package="vibecomfy",
+            confidence=1.0,
+        )
     if class_type == "vibecomfy.code":
         return NodeSchema(
             class_type="vibecomfy.code",

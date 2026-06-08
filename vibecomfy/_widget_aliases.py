@@ -103,6 +103,7 @@ COMPILE_WIDGET_ALIAS_CLASS_TYPES: frozenset[str] = frozenset(
         "WanVideoVACEStartToEndFrame",
         "WanVideoVRAMManagement",
         "WidgetToString",
+        "vibecomfy.exec",
     }
 )
 
@@ -237,6 +238,7 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     "SaveAudioMP3": ["filename_prefix", "quality"],
     "SaveImage": ["filename_prefix"],
     "SaveVideo": ["filename_prefix", "format", "codec"],
+    "vibecomfy.exec": ["source", "io"],
     # SimpleCalculatorKJ: object_info order is ['expression', 'variables']; some
     # source workflows record a 3rd widget that holds the cached preview value.
     # Slot 2 stays None so it surfaces as unused_widget_2 instead of inventing a

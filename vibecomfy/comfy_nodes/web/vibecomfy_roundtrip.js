@@ -288,6 +288,7 @@ const LOWERED_BADGE = "lowered";
 
 // ── localStorage helpers (safe wrappers — tolerate missing/throwing storage) ─
 const LS_ACTIVE_SESSION_KEY = "vibecomfy_active_session_id";
+const LS_EXEC_ACKNOWLEDGED_KEY = "vibecomfy_exec_acknowledged";
 
 function _lsGet(key) {
   try {
@@ -551,6 +552,89 @@ function patchIntentNodePrototype(nodeType, nodeData) {
     this.type = this.type || classType;
     decorateIntentNode(this, classType);
     drawIntentBadge(ctx, this);
+    return result;
+  };
+}
+
+// ── Exec node socket reconciliation ─────────────────────────────────────
+// Fixed wire keys SD1: in_0..in_15 and out_0..out_15 (16 each).
+// Reconciliation is idempotent across create/configure/reload and
+// is strictly gated to the vibecomfy.exec class type.
+
+const EXEC_SLOT_COUNT = 16;
+const EXEC_CLASS_TYPE_JS = "vibecomfy.exec";
+
+function _execSlotNames(prefix) {
+  const names = [];
+  for (let i = 0; i < EXEC_SLOT_COUNT; i += 1) {
+    names.push(prefix + i);
+  }
+  return names;
+}
+
+const EXEC_INPUT_NAMES = _execSlotNames("in_");
+const EXEC_OUTPUT_NAMES = _execSlotNames("out_");
+
+function _reconcileExecSockets(node) {
+  // inputs: keep exactly in_0..in_15, extra after the stable range
+  if (Array.isArray(node.inputs)) {
+    while (node.inputs.length > EXEC_SLOT_COUNT) {
+      // Remove tail-first so earlier sockets keep their index
+      node.removeInput(node.inputs.length - 1);
+    }
+    for (let i = 0; i < EXEC_SLOT_COUNT; i += 1) {
+      if (i >= node.inputs.length) {
+        node.addInput(EXEC_INPUT_NAMES[i], "*");
+      } else {
+        // Ensure stable wire key name
+        node.inputs[i].name = EXEC_INPUT_NAMES[i];
+        if ("label" in node.inputs[i] || typeof node.inputs[i] === "object") {
+          node.inputs[i].label = EXEC_INPUT_NAMES[i];
+        }
+      }
+    }
+  }
+
+  // outputs: keep exactly out_0..out_15
+  if (Array.isArray(node.outputs)) {
+    while (node.outputs.length > EXEC_SLOT_COUNT) {
+      node.removeOutput(node.outputs.length - 1);
+    }
+    for (let i = 0; i < EXEC_SLOT_COUNT; i += 1) {
+      if (i >= node.outputs.length) {
+        node.addOutput(EXEC_OUTPUT_NAMES[i], "*");
+      } else {
+        node.outputs[i].name = EXEC_OUTPUT_NAMES[i];
+        if ("label" in node.outputs[i] || typeof node.outputs[i] === "object") {
+          node.outputs[i].label = EXEC_OUTPUT_NAMES[i];
+        }
+      }
+    }
+  }
+}
+
+function patchExecNodePrototype(nodeType, nodeData) {
+  const proto = nodeType?.prototype;
+  const classType = String(nodeData?.name || nodeData?.type || "").trim();
+  if (!proto || classType !== EXEC_CLASS_TYPE_JS || proto.__vibecomfyExecPatched === classType) {
+    return;
+  }
+  proto.__vibecomfyExecPatched = classType;
+
+  const originalCreated = proto.onNodeCreated;
+  proto.onNodeCreated = function patchedExecNodeCreated(...args) {
+    const result = typeof originalCreated === "function" ? originalCreated.apply(this, args) : undefined;
+    this.type = this.type || classType;
+    // Read io from widget values first; derived metadata is fallback.
+    _reconcileExecSockets(this);
+    return result;
+  };
+
+  const originalConfigure = proto.onConfigure;
+  proto.onConfigure = function patchedExecNodeConfigure(...args) {
+    const result = typeof originalConfigure === "function" ? originalConfigure.apply(this, args) : undefined;
+    this.type = this.type || classType;
+    _reconcileExecSockets(this);
     return result;
   };
 }
@@ -1625,6 +1709,40 @@ function _structuralSocketNames(sockets) {
     : [];
 }
 
+/** Build stable in_N / out_N name arrays for vibecomfy.exec nodes by ordinal
+ *  position, so the structural projection is deterministic after frontend
+ *  reconciliation and API reload regardless of display label changes.
+ *
+ *  For inputs, data sockets start at index 2 (after source + io widgets),
+ *  so index 2 → "in_0", index 3 → "in_1", etc.  When the existing name
+ *  already matches the in_N / out_N pattern (set by reconciliation), it is
+ *  preserved. */
+function _execStableSocketName(name, idx, prefix) {
+  if (typeof name === "string") {
+    const stableRe = prefix === "in_" ? /^in_\d+$/ : /^out_\d+$/;
+    if (stableRe.test(name)) {
+      return name;
+    }
+  }
+  // Data sockets start at index 2 for inputs (after source + io widgets).
+  const dataIdx = prefix === "in_" ? idx - 2 : idx;
+  return dataIdx >= 0 ? prefix + dataIdx : prefix + idx;
+}
+
+/** Build stable in_N / out_N name arrays for vibecomfy.exec nodes by ordinal
+ *  position, so the structural projection is deterministic after frontend
+ *  reconciliation and API reload regardless of display label changes. */
+function _execStableSocketNames(sockets, prefix) {
+  if (!Array.isArray(sockets)) {
+    return [];
+  }
+  return sockets.map((socket, idx) =>
+    socket && typeof socket === "object"
+      ? _execStableSocketName(socket.name ?? null, idx, prefix)
+      : null,
+  );
+}
+
 function _structuralSlotName(names, slot) {
   if (Number.isInteger(slot) && slot >= 0 && slot < names.length) {
     return names[slot] ?? null;
@@ -1644,29 +1762,65 @@ export function buildStructuralGraphProjection(graph) {
       continue;
     }
     const nodeId = rawNode.id ?? null;
-    inputNames.set(nodeId, _structuralSocketNames(rawNode.inputs));
-    outputNames.set(nodeId, _structuralSocketNames(rawNode.outputs));
+    const nodeType = rawNode.type;
+    if (nodeType === EXEC_CLASS_TYPE_JS) {
+      inputNames.set(nodeId, _execStableSocketNames(rawNode.inputs, "in_"));
+      outputNames.set(nodeId, _execStableSocketNames(rawNode.outputs, "out_"));
+    } else {
+      inputNames.set(nodeId, _structuralSocketNames(rawNode.inputs));
+      outputNames.set(nodeId, _structuralSocketNames(rawNode.outputs));
+    }
   }
 
   const nodes = rawNodes.map((rawNode) => {
     const node = rawNode && typeof rawNode === "object" ? rawNode : {};
-    const wiredInputs = Array.isArray(node.inputs)
-      ? node.inputs
-          .filter((input) => input && typeof input === "object" && input.link != null && input.name != null)
-          .map((input) => String(input.name))
-          .sort()
-      : [];
-    const liveOutputs = Array.isArray(node.outputs)
-      ? node.outputs
-          .filter((output) => {
-            if (!output || typeof output !== "object" || output.name == null) {
-              return false;
-            }
-            return Array.isArray(output.links) ? output.links.length > 0 : Boolean(output.links);
-          })
-          .map((output) => String(output.name))
-          .sort()
-      : [];
+    const nodeType = node.type;
+    let wiredInputs;
+    let liveOutputs;
+    if (nodeType === EXEC_CLASS_TYPE_JS) {
+      const inputsList = Array.isArray(node.inputs) ? node.inputs : [];
+      wiredInputs = inputsList
+        .map((input, idx) =>
+          input && typeof input === "object" && input.link != null
+            ? _execStableSocketName(input.name ?? null, idx, "in_")
+            : null,
+        )
+        .filter((name) => name != null)
+        .sort();
+      const outputsList = Array.isArray(node.outputs) ? node.outputs : [];
+      liveOutputs = outputsList
+        .map((output, idx) => {
+          if (!output || typeof output !== "object" || output.name == null) {
+            return null;
+          }
+          const hasLinks = Array.isArray(output.links)
+            ? output.links.length > 0
+            : Boolean(output.links);
+          return hasLinks
+            ? _execStableSocketName(output.name ?? null, idx, "out_")
+            : null;
+        })
+        .filter((name) => name != null)
+        .sort();
+    } else {
+      wiredInputs = Array.isArray(node.inputs)
+        ? node.inputs
+            .filter((input) => input && typeof input === "object" && input.link != null && input.name != null)
+            .map((input) => String(input.name))
+            .sort()
+        : [];
+      liveOutputs = Array.isArray(node.outputs)
+        ? node.outputs
+            .filter((output) => {
+              if (!output || typeof output !== "object" || output.name == null) {
+                return false;
+              }
+              return Array.isArray(output.links) ? output.links.length > 0 : Boolean(output.links);
+            })
+            .map((output) => String(output.name))
+            .sort()
+        : [];
+    }
     return {
       id: node.id ?? null,
       type: node.type ?? null,
@@ -4782,10 +4936,23 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
           newValueDisplay = String(fc.new);
         }
 
+        // Include old_value for source fields so overlay/panel can render a
+        // unified diff or provide a copy-source affordance.
+        let oldValueForDisplay = null;
+        if ("old" in fc) {
+          if (fc.old === null || fc.old === undefined) {
+            oldValueForDisplay = null;
+          } else if (typeof fc.old === "string") {
+            oldValueForDisplay = fc.old;
+          } else {
+            oldValueForDisplay = null;
+          }
+        }
         editedFields.push({
           uid: fc.uid,
           field_path: fc.field_path,
           new_value: newValueDisplay,
+          old_value: oldValueForDisplay,
         });
       }
     }
@@ -5366,6 +5533,20 @@ export function drawPreviewOverlay(ctx, diff) {
     var _fieldNewValueLabel = function (field) {
       if (!field || field.new_value === null || field.new_value === undefined) {
         return "";
+      }
+      // For source fields on vibecomfy.exec nodes, show a compact line-count
+      // diff rather than the full source text (which is unreadable on canvas).
+      if (
+        field.field_path === "source" &&
+        typeof field.old_value === "string" &&
+        typeof field.new_value === "string"
+      ) {
+        var oldLines = field.old_value.split("\\n").length;
+        var newLines = field.new_value.split("\\n").length;
+        if (oldLines === newLines) {
+          return "source: " + oldLines + " lines (changed)";
+        }
+        return "source: " + oldLines + " → " + newLines + " lines";
       }
       return String(field.new_value);
     };
@@ -6134,6 +6315,72 @@ function appendCandidateDetail(body, panel, message = null, snapshot = null) {
     }
     body.appendChild(rowNode);
   }
+
+  // ── Exec source changes: copy-source affordance ─────────────────────────
+  // Surface vibecomfy.exec source field changes with a copy button using the
+  // existing copyTextToClipboard pattern, so users can inspect agent-written
+  // code before applying the candidate.
+  (function () {
+    var lfs = panel.state.lastSubmitFieldChanges;
+    if (!lfs) return;
+    var allChanges = [];
+    if (Array.isArray(lfs.outcomeChanges)) allChanges.push.apply(allChanges, lfs.outcomeChanges);
+    if (Array.isArray(lfs.batchTurnChanges)) {
+      for (var bi = 0; bi < lfs.batchTurnChanges.length; bi += 1) {
+        var btc = lfs.batchTurnChanges[bi];
+        if (Array.isArray(btc.changes)) allChanges.push.apply(allChanges, btc.changes);
+      }
+    }
+    var seenSourceKeys = {};
+    for (var ci = 0; ci < allChanges.length; ci += 1) {
+      var fc = allChanges[ci];
+      if (!fc || fc.field_path !== "source") continue;
+      if (!fc.uid) continue;
+      var key = fc.uid + "::source";
+      if (seenSourceKeys[key]) continue;
+      seenSourceKeys[key] = true;
+      var newSource = (fc.new != null && typeof fc.new === "string") ? fc.new : null;
+      var oldSource = (fc.old != null && typeof fc.old === "string") ? fc.old : null;
+      if (newSource === null && oldSource === null) continue;
+      var sourceToCopy = newSource !== null ? newSource : oldSource;
+      var oldLines = oldSource ? oldSource.split("\\n").length : 0;
+      var newLines = newSource ? newSource.split("\\n").length : 0;
+      var label = "source: " + fc.uid;
+      if (oldSource && newSource) {
+        label += " (" + oldLines + " → " + newLines + " lines)";
+      } else if (newSource) {
+        label += " (" + newLines + " lines)";
+      } else {
+        label += " (removed)";
+      }
+      var row = el("div");
+      row.style.display = "flex";
+      row.style.alignItems = "center";
+      row.style.gap = "8px";
+      row.style.margin = "2px 0";
+      row.style.paddingLeft = "8px";
+      row.style.borderLeft = "2px solid " + (VC_COLORS.edited || "#ffc107");
+      var labelSpan = el("span", label);
+      labelSpan.style.color = (VC_COLORS.edited || "#ffc107");
+      labelSpan.style.fontSize = "11px";
+      labelSpan.style.fontFamily = "monospace";
+      row.appendChild(labelSpan);
+      (function (srcText) {
+        var copyBtn = button("Copy", function () {
+          copyTextToClipboard(srcText).then(function (ok) {
+            copyBtn.textContent = ok ? "Copied!" : "Copy failed";
+            setTimeout(function () { copyBtn.textContent = "Copy"; }, 2000);
+          });
+        });
+        copyBtn.style.fontSize = "10px";
+        copyBtn.style.padding = "2px 6px";
+        setButtonEmphasis(copyBtn, false, "neutral");
+        row.appendChild(copyBtn);
+      })(sourceToCopy);
+      body.appendChild(row);
+    }
+  })();
+
   const affected = {
     preserved: rows.filter((item) => item.text.startsWith("preserved:")).length,
     edited: rows.filter((item) => item.text.startsWith("edited:")).length,
@@ -7793,6 +8040,30 @@ async function applyAgentCandidate(panel) {
     return panel.state.inFlightApply;
   }
 
+  // One-time acknowledgment for vibecomfy.exec: warn that arbitrary Python runs
+  // in-process with no sandbox or reliable timeout, and may freeze/crash ComfyUI.
+  if (!_lsGet(LS_EXEC_ACKNOWLEDGED_KEY)) {
+    const candidateNodes = Array.isArray(panel.state.candidateGraph?.nodes)
+      ? panel.state.candidateGraph.nodes
+      : [];
+    const hasExec = candidateNodes.some(
+      (n) => n && typeof n === "object" && n.type === EXEC_CLASS_TYPE_JS,
+    );
+    if (hasExec) {
+      const confirmed = window.confirm(
+        "⚠️ This candidate contains a vibecomfy.exec code node. " +
+        "Exec runs arbitrary Python in-process with NO sandbox and NO reliable timeout. " +
+        "Hung or crashing code can freeze or kill ComfyUI. " +
+        "Save your work before queueing.\n\n" +
+        "Press OK to acknowledge and continue, or Cancel to abort.",
+      );
+      if (!confirmed) {
+        return;
+      }
+      _lsSet(LS_EXEC_ACKNOWLEDGED_KEY, "1");
+    }
+  }
+
   const applyPromise = (async () => {
     let beforeApply;
     try {
@@ -8930,6 +9201,7 @@ app.registerExtension({
   menuCommands: [{ path: ["Extensions", "VibeComfy"], commands: ["VibeComfy.Roundtrip", "VibeComfy.AgentEdit"] }],
   async beforeRegisterNodeDef(nodeType, nodeData) {
     patchIntentNodePrototype(nodeType, nodeData);
+    patchExecNodePrototype(nodeType, nodeData);
   },
   async setup() {
     await checkFrontendVersion();

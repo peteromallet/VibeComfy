@@ -52,6 +52,7 @@ _FORBIDDEN_CALL_NAMES = frozenset(
         "open",
     }
 )
+_ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES = frozenset({"vibecomfy.exec"})
 _RAW_COORDINATE_HINT_NAMES = frozenset({"pos", "position", "coords", "x", "y"})
 _SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)
 _SAFE_UNARYOPS = (ast.UAdd, ast.USub)
@@ -146,11 +147,27 @@ class BatchResult:
                 SetNodeFieldOp,
                 UpsertLinkOp,
             )
+            # Build a (uid, field_path) → old_value lookup from field_changes
+            # so _render_op_diff can produce unified diffs for source changes.
+            fc_old: dict[tuple[str, str], Any] = {}
+            for fc in self.field_changes:
+                fc_old[(fc.uid, fc.field_path)] = fc.old
             for i, op in enumerate(self.landed_ops):
-                desc = _render_op_diff(op)
+                old_val = None
+                if isinstance(op, SetNodeFieldOp):
+                    old_val = fc_old.get((op.target.uid, op.target.field_path))
+                desc = _render_op_diff(op, old_value=old_val)
                 parts.append(f"  [{i + 1}] {desc}")
 
         return "\n".join(parts)
+
+
+def _resolve_vibecomfy_constructor(func: ast.expr) -> tuple[str | None, bool]:
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "vibecomfy":
+        return f"vibecomfy.{func.attr}", True
+    if isinstance(func, ast.Name):
+        return func.id, False
+    return None, False
 
 
 @dataclass(slots=True)
@@ -2042,7 +2059,8 @@ class EditSession:
         placement_facts: BatchPlacementFacts,
     ) -> tuple[_ResolvedAddNodeCall | None, list[CompactDiagnostic]]:
         func = call.func
-        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "vibecomfy":
+        class_type, dotted_vibecomfy = _resolve_vibecomfy_constructor(func)
+        if dotted_vibecomfy and class_type not in _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES:
             return None, [
                 _unsafe(
                     func,
@@ -2050,10 +2068,9 @@ class EditSession:
                     "Editor-only vibecomfy.* intent classes cannot be constructed from the Python edit surface.",
                 )
             ]
-        if not isinstance(func, ast.Name):
+        if class_type is None:
             return None, [_unsafe(func, "call_target_not_name", "Node construction calls must target a simple class name.")]
-        class_type = func.id
-        if class_type.startswith("vibecomfy."):
+        if class_type.startswith("vibecomfy.") and class_type not in _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES:
             return None, [
                 _unsafe(
                     func,
@@ -2783,7 +2800,8 @@ def _validate_call(
 ) -> list[CompactDiagnostic]:
     if not isinstance(node, ast.Call):
         return [_unsafe(node, "expression_not_call", "Only planned top-level calls are allowed.")]
-    if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == "vibecomfy":
+    name, dotted_vibecomfy = _resolve_vibecomfy_constructor(node.func)
+    if dotted_vibecomfy and name not in _ALLOWED_VIBECOMFY_CONSTRUCTION_CLASS_TYPES:
         return [
             _unsafe(
                 node.func,
@@ -2791,9 +2809,8 @@ def _validate_call(
                 "Editor-only vibecomfy.* intent classes cannot be constructed from the Python edit surface.",
             )
         ]
-    if not isinstance(node.func, ast.Name):
+    if name is None:
         return [_unsafe(node, "call_target_not_name", "Calls must target a simple function name.")]
-    name = node.func.id
     if name in _FORBIDDEN_CALL_NAMES or name.startswith("__"):
         return [_unsafe(node, "call_not_allowed", f"Call to {name!r} is not allowed.")]
     if name == "range":
@@ -3050,11 +3067,15 @@ def _apply_binop(op: ast.operator, left: Any, right: Any) -> Any:
     raise TypeError(type(op).__name__)
 
 
-def _render_op_diff(op: Any) -> str:
+def _render_op_diff(op: Any, *, old_value: Any = None) -> str:
     """Produce a single-line diff summary for one edit operation.
 
     Driven by the same pattern as ``_summarize_op`` but kept compact so it is
     suitable for line-by-line agent feedback.
+
+    When *old_value* is supplied for a ``SetNodeFieldOp`` whose *field_path*
+    is ``"source"`` and both values are strings, a multi-line unified diff is
+    produced so that changed ``vibecomfy.exec`` source bodies are readable.
     """
     from vibecomfy.porting.edit_ops import (
         AddNodeOp,
@@ -3069,7 +3090,29 @@ def _render_op_diff(op: Any) -> str:
     if isinstance(op, SetNodeFieldOp):
         field = op.target.field_path
         uid = op.target.uid
-        old = _repr_short(op.value)
+        new_val = op.value
+        if (
+            field == "source"
+            and old_value is not None
+            and isinstance(old_value, str)
+            and isinstance(new_val, str)
+        ):
+            import difflib
+            old_lines = old_value.splitlines(keepends=True)
+            new_lines = new_val.splitlines(keepends=True)
+            diff_lines = list(
+                difflib.unified_diff(
+                    old_lines,
+                    new_lines,
+                    fromfile=f"{uid}/source (old)",
+                    tofile=f"{uid}/source (new)",
+                    lineterm="",
+                )
+            )
+            if diff_lines:
+                header = f"set_node_field  uid={uid!r} field={field!r}  ({len(old_lines)}→{len(new_lines)} lines)"
+                return header + "\n" + "\n".join(diff_lines)
+        old = _repr_short(new_val)
         return f"set_node_field  uid={uid!r} field={field!r} → {old}"
     if isinstance(op, AddNodeOp):
         ct = op.class_type

@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.registry.ready_template import bind_input
-from vibecomfy.workflow import VibeInput, VibeOutput, VibeWorkflow, WorkflowSource
+from vibecomfy.workflow import VibeInput, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
 
 
 def test_finalize_metadata_matches_convert_to_vibe_format_for_equivalent_graph() -> None:
@@ -246,3 +246,28 @@ def test_finalize_metadata_allows_post_finalize_manual_registration_and_later_pr
         aliases=("out_prefix",),
         media_semantics="image",
     )
+
+
+def test_finalize_metadata_keeps_exec_semantic_io_names_out_of_public_inputs() -> None:
+    workflow = VibeWorkflow("exec-metadata", WorkflowSource("exec-metadata"))
+    workflow.nodes["1"] = VibeNode(
+        "1",
+        "vibecomfy.exec",
+        inputs={"in_0": ["2", 0]},
+        widgets={
+            "source": "return {'image': image}",
+            "io": {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]},
+        },
+    )
+    workflow.nodes["2"] = VibeNode("2", "LoadImage", inputs={"image": "input.png"})
+
+    workflow.finalize_metadata()
+    compiled = workflow.compile("api")
+
+    assert tuple(workflow.inputs) == ()
+    assert compiled["1"]["inputs"]["in_0"] == ["2", 0]
+    assert compiled["1"]["inputs"]["source"] == "return {'image': image}"
+    assert compiled["1"]["inputs"]["io"] == {
+        "inputs": [["image", "IMAGE"]],
+        "outputs": [["image", "IMAGE"]],
+    }

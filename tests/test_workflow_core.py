@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import importlib.util
 import json
 import sys
@@ -24,6 +25,7 @@ from vibecomfy.workflow import (
     WorkflowRequirements,
     WorkflowSource,
 )
+import vibecomfy.workflow as workflow_module
 
 
 class _FakeSchemaProvider:
@@ -781,6 +783,37 @@ def test_compile_raises_for_stripped_intent_edge_without_target_literal_input() 
     assert exc_info.value.detail["source_node_id"] == "1"
     assert exc_info.value.detail["target_node_id"] == "2"
     assert exc_info.value.detail["target_input"] == "text"
+
+
+def test_compile_keeps_non_intent_vibecomfy_nodes_in_api_output() -> None:
+    workflow = VibeWorkflow("test", WorkflowSource("test"))
+    workflow.nodes["1"] = VibeNode("1", "vibecomfy.exec", inputs={"in_0": ["9", 0], "source": "return 1"})
+    workflow.nodes["2"] = VibeNode("2", "vibecomfy.loop")
+
+    compiled = workflow.compile("api")
+
+    assert compiled["1"] == {
+        "class_type": "vibecomfy.exec",
+        "inputs": {"in_0": ["9", 0], "source": "return 1"},
+    }
+    assert "2" not in compiled
+
+
+def test_intent_classification_fallback_only_matches_known_vibecomfy_intents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):  # type: ignore[no-untyped-def]
+        if name == "vibecomfy.contracts.intent_nodes":
+            raise ImportError("test fallback")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    assert workflow_module._is_intent_node_class_type("vibecomfy.code") is True
+    assert workflow_module._is_intent_node_class_type("vibecomfy.loop") is True
+    assert workflow_module._is_intent_node_class_type("vibecomfy.exec") is False
 
 
 def test_validate_records_api_compile_failures_without_schema_provider() -> None:

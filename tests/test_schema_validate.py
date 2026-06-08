@@ -7,7 +7,11 @@ import pytest
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.schema import InputSpec, LocalSchemaProvider, NodeSchema
-from vibecomfy.schema.validate import SCHEMA_VALIDATION_SKIP_CLASSES, sanitize_api_against_schema
+from vibecomfy.schema.validate import (
+    SCHEMA_VALIDATION_SKIP_CLASSES,
+    sanitize_api_against_schema,
+    validate_api_against_schema,
+)
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -254,6 +258,36 @@ def test_simple_calculator_autogrow_variables_validate_required_fields() -> None
 
     assert not report.ok
     assert [(issue.code, issue.detail["input"]) for issue in report.issues] == [("missing_dynamic_input", "b")]
+
+
+def test_sanitize_and_validate_preserve_linked_fixed_slot_inputs_not_in_local_schema() -> None:
+    provider = FakeSchemaProvider(
+        {
+            "FixedSlotConsumer": _schema("FixedSlotConsumer", {"declared": InputSpec("STRING")}),
+        }
+    )
+    api = {
+        "2": {
+            "class_type": "FixedSlotConsumer",
+            "inputs": {
+                "declared": "ok",
+                "in_0": ["1", 0],
+                "extra_literal": "drop-me",
+            },
+        }
+    }
+
+    sanitized = sanitize_api_against_schema(api, provider)
+    issues = validate_api_against_schema(sanitized, provider)
+
+    assert sanitized["2"]["inputs"] == {
+        "declared": "ok",
+        "in_0": ["1", 0],
+    }
+    assert all(
+        not (issue.code == "unknown_input" and issue.detail.get("input") == "in_0")
+        for issue in issues
+    )
 
 
 def test_invalid_link_shape_emits_error_for_dict_shaped_link() -> None:

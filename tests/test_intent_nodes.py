@@ -13,6 +13,7 @@ from vibecomfy.contracts import (
     intent_node_payload_from_metadata,
     intent_node_properties,
     intent_node_properties_from_metadata,
+    is_intent_class_type,
     validate_intent_node_contract,
     validate_runtime_code_contract,
 )
@@ -117,6 +118,12 @@ def test_workflow_validate_treats_valid_loop_intent_node_as_warning_only() -> No
     assert [issue.code for issue in report.issues] == [INTENT_NODE_EDITOR_ONLY_CODE]
     assert report.issues[0].severity == "warning"
     assert "2" not in workflow.compile("api")
+
+
+def test_is_intent_class_type_only_matches_known_vibecomfy_intents() -> None:
+    assert is_intent_class_type("vibecomfy.code") is True
+    assert is_intent_class_type("vibecomfy.loop") is True
+    assert is_intent_class_type("vibecomfy.exec") is False
 
 
 def test_compile_materializes_valid_runtime_backed_code_as_queue_visible_inputs() -> None:
@@ -705,6 +712,109 @@ def test_intent_comfy_nodes_register_editor_only_noop_classes() -> None:
                 source=source_payload,
                 spec=spec_payload,
             ) == ("sentinel",)
+
+
+def test_exec_node_registered_and_not_intent() -> None:
+    from vibecomfy.comfy_nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+    from vibecomfy.comfy_nodes.exec_node import EXEC_CLASS_TYPE, EXEC_SLOT_COUNT, VibeComfyExec
+
+    # --- constants ----------------------------------------------------------
+    assert EXEC_CLASS_TYPE == "vibecomfy.exec"
+    assert EXEC_SLOT_COUNT == 16
+
+    # --- registration -------------------------------------------------------
+    assert EXEC_CLASS_TYPE in NODE_CLASS_MAPPINGS
+    assert NODE_CLASS_MAPPINGS[EXEC_CLASS_TYPE] is VibeComfyExec
+    assert NODE_DISPLAY_NAME_MAPPINGS[EXEC_CLASS_TYPE] == "VibeComfy Exec"
+
+    # --- classification: NOT an intent node --------------------------------
+    assert VibeComfyExec.VIBECOMFY_INTENT_NODE is False
+    from vibecomfy.contracts.intent_nodes import is_intent_class_type
+
+    assert is_intent_class_type(EXEC_CLASS_TYPE) is False
+
+    # --- classification: NOT in UI-only / helper class sets -----------------
+    from vibecomfy._workflow_helpers import (
+        UI_ONLY_CLASS_TYPES,
+        BROADCAST_HELPER_CLASS_TYPES,
+        HELPER_CLASS_TYPES,
+        is_ui_only_class_type,
+        is_helper_class_type,
+    )
+
+    assert EXEC_CLASS_TYPE not in UI_ONLY_CLASS_TYPES
+    assert EXEC_CLASS_TYPE not in BROADCAST_HELPER_CLASS_TYPES
+    assert EXEC_CLASS_TYPE not in HELPER_CLASS_TYPES
+    assert is_ui_only_class_type(EXEC_CLASS_TYPE) is False
+    assert is_helper_class_type(EXEC_CLASS_TYPE) is False
+
+    # --- node spec ----------------------------------------------------------
+    assert VibeComfyExec.CATEGORY == "vibecomfy/exec"
+    assert VibeComfyExec.FUNCTION == "execute"
+    assert VibeComfyExec.RETURN_TYPES == tuple(["*"] * EXEC_SLOT_COUNT)
+    assert VibeComfyExec.RETURN_NAMES == tuple(f"out_{i}" for i in range(EXEC_SLOT_COUNT))
+    assert VibeComfyExec.VIBECOMFY_EDITOR_ONLY is False
+    assert VibeComfyExec.VIBECOMFY_RUNTIME_BACKED is False
+    assert VibeComfyExec.VIBECOMFY_LOWERED is False
+
+    input_types = VibeComfyExec.INPUT_TYPES()
+    assert set(input_types["required"]) == {"source", "io"}
+    assert input_types["required"]["source"] == ("STRING", {"default": "", "multiline": True})
+    assert input_types["required"]["io"] == ("JSON",)
+
+    optional_keys = set(input_types["optional"])
+    assert optional_keys == {f"in_{i}" for i in range(EXEC_SLOT_COUNT)}
+    for i in range(EXEC_SLOT_COUNT):
+        assert input_types["optional"][f"in_{i}"] == ("*",)
+
+    # --- execute path: declared outputs padded to fixed arity ---------------
+    instance = VibeComfyExec()
+    result = instance.execute(
+        source="return {'result': value + 1}",
+        io={"inputs": [["value", "INT"]], "outputs": [["result", "INT"]]},
+        in_0=41,
+        in_5="ignored",
+    )
+    assert result == (42,) + tuple([None] * (EXEC_SLOT_COUNT - 1))
+    assert len(result) == EXEC_SLOT_COUNT
+
+    # --- execute path: empty body defaults to empty dict / padded outputs ---
+    result_empty = instance.execute(io={"outputs": []})
+    assert result_empty == tuple([None] * EXEC_SLOT_COUNT)
+
+
+def test_exec_node_survives_compile_api() -> None:
+    from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
+
+    workflow = VibeWorkflow("exec-compile", WorkflowSource("exec-compile"))
+    workflow.nodes["10"] = VibeNode(
+        "10",
+        "vibecomfy.exec",
+        inputs={"in_0": ["20", 0], "source": "return 42"},
+        widgets={"io": {}},
+    )
+    workflow.nodes["20"] = VibeNode("20", "CheckpointLoaderSimple", inputs={"ckpt_name": "model.safetensors"})
+    workflow.edges = []
+
+    compiled = workflow.compile("api")
+
+    assert "10" in compiled
+    assert compiled["10"]["class_type"] == "vibecomfy.exec"
+    assert compiled["10"]["inputs"] == {"in_0": ["20", 0], "source": "return 42", "io": {}}
+
+
+def test_exec_node_has_builtin_schema_and_widget_aliases() -> None:
+    from vibecomfy._widget_aliases import WIDGET_SCHEMA
+    from vibecomfy.schema.provider import schema_for
+
+    schema = schema_for(None, "vibecomfy.exec")
+
+    assert schema is not None
+    assert schema.source_provider == "vibecomfy_builtin"
+    assert list(schema.inputs)[:2] == ["source", "io"]
+    assert {f"in_{index}" for index in range(16)} <= set(schema.inputs)
+    assert [output.name for output in schema.outputs] == [f"out_{index}" for index in range(16)]
+    assert WIDGET_SCHEMA["vibecomfy.exec"] == ["source", "io"]
 
 
 def test_runtime_code_executor_returns_json_result_from_child_process() -> None:

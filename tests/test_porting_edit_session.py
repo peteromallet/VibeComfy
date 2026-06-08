@@ -2442,6 +2442,49 @@ sampler = KSampler(
         assert result.ok is False
         assert any(diagnostic.code == code for diagnostic in result.diagnostics)
 
+    def test_apply_batch_allows_vibecomfy_exec_and_keeps_fixed_wire_inputs(self) -> None:
+        from vibecomfy.porting.edit_ops import AddNodeOp
+
+        session = self._primitive_session()
+        result = session.apply_batch(
+            "code_node = vibecomfy.exec("
+            "source='return {\"image\": image}', "
+            "io={'inputs': [['image', 'IMAGE']], 'outputs': [['image', 'IMAGE']]}, "
+            "in_0=src.in_)\n"
+        )
+
+        assert result.ok is True
+        assert isinstance(result.landed_ops[0], AddNodeOp)
+        assert result.landed_ops[0].class_type == "vibecomfy.exec"
+        assert result.landed_ops[0].fields == {
+            "source": 'return {"image": image}',
+            "io": {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]},
+        }
+        assert result.landed_ops[0].inputs["in_0"].uid == "src"
+
+    def test_apply_batch_still_rejects_other_vibecomfy_constructors(self) -> None:
+        session = self._primitive_session()
+
+        result = session.apply_batch("intent = vibecomfy.code(source='return 1')\n")
+
+        assert result.ok is False
+        assert any(
+            diagnostic.code == "intent_class_construction_not_allowed"
+            for diagnostic in result.diagnostics
+        )
+
+    def test_apply_batch_exec_still_rejects_nonliteral_keyword_calls(self) -> None:
+        session = self._primitive_session()
+
+        result = session.apply_batch(
+            "code_node = vibecomfy.exec("
+            "source=str(1), "
+            "io={'inputs': [], 'outputs': []})\n"
+        )
+
+        assert result.ok is False
+        assert any(diagnostic.code == "nested_call_not_allowed" for diagnostic in result.diagnostics)
+
     def test_apply_batch_marks_failed_add_names_unbound(self) -> None:
         session = self._primitive_session()
         failed = session.apply_batch("save_image = SaveImage(images=src.in_, relation='right_of')\n")
@@ -3163,6 +3206,50 @@ class TestSearchQuery:
         _ = session.search()
 
         assert len(session.landed_ops) == landed_before
+
+    def test_search_focus_types_vibecomfy_exec_returns_usable_signature(self) -> None:
+        """Agent search for focus_types=['vibecomfy.exec'] returns signature with source, io, fixed slots."""
+        from vibecomfy.porting.emitter import NodeSignatureRow
+
+        session = _primitive_session()
+        result = session.search(focus_types=["vibecomfy.exec"])
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        row = result[0]
+        assert isinstance(row, NodeSignatureRow)
+        assert row.class_type == "vibecomfy.exec"
+        assert row.source_confidence == 1.0
+
+        input_names = [f.name for f in row.inputs]
+        # source and io must appear first
+        assert "source" in input_names
+        assert "io" in input_names
+        # All 16 fixed input slots
+        for i in range(16):
+            assert f"in_{i}" in input_names, f"missing in_{i} in search result"
+
+        output_names = [f.name for f in row.outputs]
+        # All 16 fixed output slots
+        for i in range(16):
+            assert f"out_{i}" in output_names, f"missing out_{i} in search result"
+
+    def test_search_formatted_vibecomfy_exec_includes_slots(self) -> None:
+        """Formatted search for vibecomfy.exec shows source, io, and fixed slot types."""
+        session = _primitive_session()
+        result = session.search(focus_types=["vibecomfy.exec"], formatted=True)
+
+        assert isinstance(result, str)
+        assert "vibecomfy.exec" in result
+        assert "source" in result
+        assert "io" in result
+        # Input slots appear with their types
+        for i in range(16):
+            assert f"in_{i}" in result, f"formatted result missing in_{i}"
+        # Output slots appear as return types (the formatted output shows types, not names)
+        # The signature ends with 16 "*" types -> *, *, *, ...
+        expected_returns = ", ".join(["*"] * 16)
+        assert expected_returns in result, f"formatted result missing 16 output types"
 
 
 class TestReadOnlyNoOpSessions:
@@ -4638,3 +4725,143 @@ else:
                         f"Iter {i}: uid {uid} renamed from '{name}'"
                         f" to '{second_names[uid]}'.\nCode:\n{code}"
                     )
+
+
+# =====================================================================
+# T14 — Exec source diff rendering and copy-source affordance tests
+# =====================================================================
+
+
+class TestRenderOpDiffExecSource:
+    """Tests for _render_op_diff with vibecomfy.exec source field changes."""
+
+    def test_render_op_diff_source_unified_diff(self) -> None:
+        """_render_op_diff produces unified diff when old and new source are strings."""
+        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit_session import _render_op_diff
+
+        old_src = "def fn(x):\n    return x + 1\n"
+        new_src = "def fn(x):\n    y = x * 2\n    return y + 1\n"
+        op = SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="abc123", field_path="source"),
+            value=new_src,
+        )
+        result = _render_op_diff(op, old_value=old_src)
+        # Should contain the unified diff header
+        assert "set_node_field" in result
+        assert "abc123" in result
+        assert "source" in result
+        assert "2→3 lines" in result
+        # Should show diff markers (note: splitlines(keepends=True) preserves
+        # trailing newlines, so diff lines look like "-    return x + 1\n")
+        assert "@@" in result
+        assert "-    return x + 1" in result
+        assert "+    y = x * 2" in result
+        assert "+    return y + 1" in result
+
+    def test_render_op_diff_source_no_old_value_falls_back_to_truncated(self) -> None:
+        """_render_op_diff falls back to truncated repr when old_value is None."""
+        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit_session import _render_op_diff
+
+        new_src = "x = 1\ny = 2\nz = 3\n"
+        op = SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="abc123", field_path="source"),
+            value=new_src,
+        )
+        result = _render_op_diff(op, old_value=None)
+        # Should be single-line with truncated repr
+        assert "\n" not in result  # single line
+        assert "set_node_field" in result
+        assert "source" in result
+        assert "abc123" in result
+
+    def test_render_op_diff_non_source_field_uses_truncated_even_with_old(self) -> None:
+        """_render_op_diff uses truncated repr for non-source fields even with old_value."""
+        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit_session import _render_op_diff
+
+        op = SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="abc123", field_path="seed"),
+            value=42,
+        )
+        result = _render_op_diff(op, old_value=7)
+        # Should be single-line, not a unified diff
+        assert "\n" not in result
+        assert "set_node_field" in result
+        assert "seed" in result
+        assert "42" in result
+
+    def test_render_op_diff_source_identical_no_diff_output(self) -> None:
+        """_render_op_diff produces no diff lines when old and new source are identical."""
+        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit_session import _render_op_diff
+
+        src = "def fn(x):\n    return x\n"
+        op = SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="abc123", field_path="source"),
+            value=src,
+        )
+        result = _render_op_diff(op, old_value=src)
+        # When identical, difflib.unified_diff returns empty, so fallback to
+        # single-line truncated repr.
+        assert "\n" not in result or "@@" not in result
+        assert "set_node_field" in result
+
+
+class TestBatchResultRenderDiffWithFieldChanges:
+    """Tests for BatchResult.render_diff() using field_changes for exec source."""
+
+    def test_render_diff_includes_unified_source_diff(self) -> None:
+        """render_diff() passes old values from field_changes to _render_op_diff."""
+        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit_session import BatchResult
+        from vibecomfy.porting.edit_types import FieldChange
+
+        old_src = "def fn(x):\n    return x\n"
+        new_src = "def fn(x):\n    return x * 2\n"
+        op = SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="abc123", field_path="source"),
+            value=new_src,
+        )
+        fc = FieldChange(uid="abc123", field_path="source", old=old_src, new=new_src)
+        br = BatchResult(
+            ok=True,
+            statements=(),
+            diagnostics=(),
+            landed_ops=(op,),
+            field_changes=(fc,),
+        )
+        result = br.render_diff()
+        assert "--- landed operations ---" in result
+        assert "@@" in result
+        assert "-    return x" in result
+        assert "+    return x * 2" in result
+
+    def test_render_diff_field_changes_no_old_value_no_diff(self) -> None:
+        """render_diff() without matching field_changes entry uses truncated repr."""
+        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit_session import BatchResult
+
+        new_src = "x = 1\ny = 2\n"
+        op = SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(scope_path="", uid="abc123", field_path="source"),
+            value=new_src,
+        )
+        br = BatchResult(
+            ok=True,
+            statements=(),
+            diagnostics=(),
+            landed_ops=(op,),
+            field_changes=(),  # no field changes
+        )
+        result = br.render_diff()
+        assert "--- landed operations ---" in result
+        assert "@@" not in result
+        assert "set_node_field" in result

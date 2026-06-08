@@ -230,3 +230,273 @@ def test_validated_failure_response_accept_preserves_nested_recovery() -> None:
             "rebaseline_recovery": recovery,
         }
     ]
+
+
+# ---------------------------------------------------------------------------
+# (f) exec node round-trip coverage (T10)
+# ---------------------------------------------------------------------------
+
+
+def test_exec_roundtrip_preserves_source_and_io() -> None:
+    """Round-trip through the engine preserves source and io widget values."""
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.schema import get_schema_provider
+
+    source = "return {'image': image}"
+    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+
+    # Build API dict directly (skip normalize_to_api to avoid raw _ui pinning)
+    api = {
+        "1": {
+            "class_type": "vibecomfy.exec",
+            "inputs": {"source": source, "io": io_spec},
+        }
+    }
+
+    wf = convert_to_vibe_format(api)
+    schema_provider = get_schema_provider("local")
+    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+
+    exec_nodes = [n for n in emitted["nodes"] if n["type"] == "vibecomfy.exec"]
+    assert len(exec_nodes) == 1
+    exec_node = exec_nodes[0]
+
+    wv = exec_node.get("widgets_values", {})
+    # widgets_values may be a dict (keyed) or list (positional from schema-less emit)
+    if isinstance(wv, dict):
+        assert wv.get("source") == source
+        assert wv.get("io") == io_spec
+    else:
+        # Positional: [source, io]
+        assert isinstance(wv, list) and len(wv) >= 2
+        assert wv[0] == source
+        assert wv[1] == io_spec
+
+
+def test_exec_roundtrip_preserves_linked_in_references() -> None:
+    """Exec round-trip preserves linked in_N references from upstream nodes."""
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.schema import get_schema_provider
+
+    source = "return {'image': image}"
+    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+
+    api = {
+        "1": {"class_type": "LoadImage", "inputs": {"image": "example.png"}},
+        "2": {
+            "class_type": "vibecomfy.exec",
+            "inputs": {"source": source, "io": io_spec, "in_0": ["1", 0], "in_1": ["1", 0]},
+        },
+    }
+
+    wf = convert_to_vibe_format(api)
+    schema_provider = get_schema_provider("local")
+    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+
+    links = emitted.get("links", [])
+    node_by_type = {n["type"]: n for n in emitted["nodes"]}
+    exec_node = node_by_type.get("vibecomfy.exec")
+    assert exec_node is not None
+
+    exec_id = exec_node["id"]
+    upstream_links = [l for l in links if l[3] == exec_id]
+    assert len(upstream_links) >= 1
+
+    target_slots = {l[4] for l in upstream_links}
+    assert 0 in target_slots
+
+
+def test_exec_roundtrip_preserves_downstream_out_references() -> None:
+    """Exec round-trip preserves downstream out_N links to consumer nodes."""
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.schema import get_schema_provider
+
+    source = "return {'image': image}"
+    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+
+    api = {
+        "1": {
+            "class_type": "vibecomfy.exec",
+            "inputs": {"source": source, "io": io_spec},
+        },
+        "2": {
+            "class_type": "SaveImage",
+            "inputs": {"images": ["1", 0], "filename_prefix": "out/"},
+        },
+    }
+
+    wf = convert_to_vibe_format(api)
+    schema_provider = get_schema_provider("local")
+    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+
+    links = emitted.get("links", [])
+    node_by_type = {n["type"]: n for n in emitted["nodes"]}
+    exec_node = node_by_type.get("vibecomfy.exec")
+    assert exec_node is not None
+
+    exec_id = exec_node["id"]
+    downstream_links = [l for l in links if l[1] == exec_id]
+    assert len(downstream_links) >= 1
+
+    origin_slots = {l[2] for l in downstream_links}
+    assert 0 in origin_slots
+
+
+def test_exec_roundtrip_preserves_dynamic_socket_counts() -> None:
+    """Exec node in the emitted UI graph preserves linked socket slots from the workflow.
+
+    When the schema provider has the builtin schema, the emit produces exactly 16
+    input and 16 output slots.  Without a schema, it emits best-effort slots
+    (what the IR actually tracks).  This test verifies that linked in_N / out_N
+    slots survive the engine round-trip regardless.
+    """
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.schema import get_schema_provider
+
+    source = "return {'image': image}"
+    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+
+    api = {
+        "1": {"class_type": "LoadImage", "inputs": {"image": "example.png"}},
+        "2": {
+            "class_type": "vibecomfy.exec",
+            "inputs": {"source": source, "io": io_spec, "in_0": ["1", 0]},
+        },
+        "3": {
+            "class_type": "SaveImage",
+            "inputs": {"images": ["2", 0], "filename_prefix": "out/"},
+        },
+    }
+
+    wf = convert_to_vibe_format(api)
+    schema_provider = get_schema_provider("local")
+    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+
+    exec_nodes = [n for n in emitted["nodes"] if n["type"] == "vibecomfy.exec"]
+    assert len(exec_nodes) == 1
+    exec_node = exec_nodes[0]
+
+    inputs = exec_node.get("inputs", [])
+    outputs = exec_node.get("outputs", [])
+
+    # At minimum, linked slots from upstream/downstream must be present.
+    # Without a schema, the emit may use generic output_N names.
+    input_names = {s.get("name") for s in inputs}
+    output_names = {s.get("name") for s in outputs}
+    assert "in_0" in input_names, f"missing linked in_0 in {input_names}"
+    # Schema-less fallback may name slots output_N instead of out_N
+    assert ("out_0" in output_names or "output_0" in output_names), (
+        f"missing linked out_0/output_0 in {output_names}"
+    )
+
+
+def test_exec_api_reload_without_ui_metadata_restores_derived_io() -> None:
+    """API-shape reload without _ui metadata restores properties.vibecomfy.io from the io widget."""
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+    source = "return {'image': image}"
+
+    # API shape: no _ui metadata
+    api = {
+        "1": {
+            "class_type": "vibecomfy.exec",
+            "inputs": {
+                "source": source,
+                "io": io_spec,
+                "in_0": ["2", 0],
+            },
+        }
+    }
+
+    workflow = convert_to_vibe_format(api)
+
+    node = workflow.nodes["1"]
+    # Widget values are authoritative
+    assert node.widgets["source"] == source
+    assert node.widgets["io"] == io_spec
+    # Derived metadata is rebuilt from widget
+    assert node.metadata["_ui"]["properties"]["vibecomfy"]["io"] == io_spec
+
+
+def test_exec_compile_preserves_linked_in_references() -> None:
+    """Compile/reload preserves linked in_N references in the workflow edge model."""
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+
+    source = "return {'image': image}"
+    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+
+    api = {
+        "1": {"class_type": "LoadImage", "inputs": {"image": "example.png"}},
+        "2": {
+            "class_type": "vibecomfy.exec",
+            "inputs": {"source": source, "io": io_spec, "in_0": ["1", 0]},
+        },
+        "3": {
+            "class_type": "SaveImage",
+            "inputs": {"images": ["2", 0], "filename_prefix": "out/"},
+        },
+    }
+
+    workflow = convert_to_vibe_format(api)
+
+    # Verify linked in_0 from LoadImage
+    in_edges = [e for e in workflow.edges if e.to_node == "2" and e.to_input == "in_0"]
+    assert len(in_edges) == 1
+    assert in_edges[0].from_node == "1"
+
+    # Verify out_0 to SaveImage
+    out_edges = [e for e in workflow.edges if e.from_node == "2" and e.from_output == "0"]
+    assert len(out_edges) == 1
+    assert out_edges[0].to_node == "3"
+
+
+def test_exec_roundtrip_preserves_links_across_nodes() -> None:
+    """Full round-trip preserves all link topology including exec in/out slots."""
+    from vibecomfy.ingest.normalize import convert_to_vibe_format
+    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.schema import get_schema_provider
+
+    source = "return {'image': image}"
+    io_spec = {"inputs": [["image", "IMAGE"]], "outputs": [["image", "IMAGE"]]}
+
+    api = {
+        "1": {"class_type": "LoadImage", "inputs": {"image": "example.png"}},
+        "2": {
+            "class_type": "vibecomfy.exec",
+            "inputs": {"source": source, "io": io_spec, "in_0": ["1", 0]},
+        },
+        "3": {
+            "class_type": "SaveImage",
+            "inputs": {"images": ["2", 0], "filename_prefix": "out/"},
+        },
+    }
+
+    wf = convert_to_vibe_format(api)
+    schema_provider = get_schema_provider("local")
+    emitted = emit_ui_json(wf, schema_provider=schema_provider)
+
+    nodes = emitted["nodes"]
+    links = emitted["links"]
+
+    # Three nodes: LoadImage, vibecomfy.exec, SaveImage
+    assert len(nodes) == 3
+
+    # Two links: LoadImage→exec, exec→SaveImage
+    assert len(links) == 2
+
+    load = next(n for n in nodes if n["type"] == "LoadImage")
+    exec_n = next(n for n in nodes if n["type"] == "vibecomfy.exec")
+    save = next(n for n in nodes if n["type"] == "SaveImage")
+
+    # First link: LoadImage out_0 → exec in_0
+    link1 = next(l for l in links if l[1] == load["id"])
+    assert link1[3] == exec_n["id"]
+
+    # Second link: exec out_0 → SaveImage
+    link2 = next(l for l in links if l[1] == exec_n["id"])
+    assert link2[3] == save["id"]

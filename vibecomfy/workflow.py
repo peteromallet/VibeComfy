@@ -289,6 +289,9 @@ class VibeWorkflow:
         self.inputs.clear()
         self.outputs.clear()
         for node_id, node in self.nodes.items():
+            # `vibecomfy.exec` semantic `io.inputs` names stay in node/widget metadata
+            # and schema/socket data; finalize_metadata only exposes the established
+            # common public-input surface unless a caller registers manual inputs.
             _register_common_inputs(self, node_id, node)
             if node.class_type in OUTPUT_NODE_NAMES:
                 self.outputs.append(VibeOutput(node_id=node_id, output_type=node.class_type))
@@ -1071,7 +1074,12 @@ def _is_intent_node_class_type(class_type: str) -> bool:
 
         return is_intent_class_type(class_type)
     except Exception:
-        return str(class_type).startswith("vibecomfy.")
+        return str(class_type) in {
+            "vibecomfy.code",
+            "vibecomfy.loop",
+            "vibecomfy.branch",
+            "vibecomfy.workflowref",
+        }
 
 
 def _is_runtime_backed_code_intent_node(node: VibeNode) -> bool:

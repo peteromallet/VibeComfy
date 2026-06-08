@@ -7370,3 +7370,259 @@ def test_v2_accept_audit_record_written_with_scoped_response_fields(
     assert "scoped_accept_verification" in written_response
     assert "delta_ops" in written_response
     assert written_response["scoped_accept_verification"]["ok"] is True
+
+
+# ── T12: structural projection for vibecomfy.exec ───────────────────────
+
+def test_exec_structural_projection_uses_stable_wire_keys() -> None:
+    """Exec node wired inputs / live outputs use stable in_N/out_N wire keys,
+    not display labels.  This prevents false stale/rebaseline after reload."""
+    from vibecomfy.comfy_nodes.agent_session import (
+        structural_graph_hash,
+        structural_graph_projection,
+    )
+    # Graph with an exec node wired to a LoadImage output
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "inputs": [],
+                "outputs": [
+                    {"name": "IMAGE", "links": [1], "type": "IMAGE"},
+                    {"name": "MASK", "links": None, "type": "MASK"},
+                ],
+                "widgets_values": ["example.png", "image"],
+            },
+            {
+                "id": 2,
+                "type": "vibecomfy.exec",
+                "inputs": [
+                    {"name": "source", "type": "STRING"},
+                    {"name": "io", "type": "JSON"},
+                    {"name": "in_0", "link": 1, "type": "*"},
+                    {"name": "in_1", "link": None, "type": "*"},
+                ],
+                "outputs": [
+                    {"name": "out_0", "links": [2], "type": "*"},
+                    {"name": "out_1", "links": [], "type": "*"},
+                ],
+                "widgets_values": [
+                    "def fn(img):\n    return dict(result=img)",
+                    '{"inputs":["img"],"outputs":["result"]}',
+                ],
+            },
+            {
+                "id": 3,
+                "type": "SaveImage",
+                "inputs": [
+                    {"name": "images", "link": 2, "type": "IMAGE"},
+                ],
+                "outputs": [],
+                "widgets_values": ["output"],
+            },
+        ],
+        "links": [
+            [1, 1, 0, 2, 2, "IMAGE"],
+            [2, 2, 0, 3, 0, "IMAGE"],
+        ],
+    }
+    proj = structural_graph_projection(graph)
+    # Exec node (id 2) should have stable wire keys.
+    exec_proj = next(n for n in proj["nodes"] if n["id"] == 2)
+    assert exec_proj["inputs"] == ["in_0"], f"Expected [in_0], got {exec_proj['inputs']}"
+    assert exec_proj["outputs"] == ["out_0"], f"Expected [out_0], got {exec_proj['outputs']}"
+    # widgets_values still present (source, io — real signature edits matter)
+    assert len(exec_proj["widgets_values"]) == 2
+
+    # Hash should be deterministic.
+    h1 = structural_graph_hash(graph)
+    h2 = structural_graph_hash(graph)
+    assert h1 == h2
+    assert h1 is not None
+
+
+def test_exec_structural_hash_stable_after_display_label_change() -> None:
+    """Changing display labels (e.g. via semantic io names) on exec sockets
+    does NOT alter the structural hash — wire identity is ordinal in_N/out_N."""
+    from vibecomfy.comfy_nodes.agent_session import structural_graph_hash
+
+    base = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "vibecomfy.exec",
+                "inputs": [
+                    {"name": "source", "type": "STRING"},
+                    {"name": "io", "type": "JSON"},
+                    {"name": "in_0", "link": 1, "type": "*", "label": "img"},
+                ],
+                "outputs": [
+                    {"name": "out_0", "links": [2], "type": "*", "label": "result"},
+                ],
+                "widgets_values": [
+                    "def fn(img): return dict(result=img)",
+                    '{"inputs":["img"],"outputs":["result"]}',
+                ],
+            },
+        ],
+        "links": [
+            [1, 99, 0, 1, 2, "IMAGE"],
+            [2, 1, 0, 100, 0, "IMAGE"],
+        ],
+    }
+    h1 = structural_graph_hash(base)
+    # Same graph but display labels differ (semantic names)
+    relabeled = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "vibecomfy.exec",
+                "inputs": [
+                    {"name": "source", "type": "STRING"},
+                    {"name": "io", "type": "JSON"},
+                    {"name": "in_0", "link": 1, "type": "*", "label": "input_image"},
+                ],
+                "outputs": [
+                    {"name": "out_0", "links": [2], "type": "*", "label": "output_image"},
+                ],
+                "widgets_values": [
+                    "def fn(img): return dict(result=img)",
+                    '{"inputs":["img"],"outputs":["result"]}',
+                ],
+            },
+        ],
+        "links": [
+            [1, 99, 0, 1, 2, "IMAGE"],
+            [2, 1, 0, 100, 0, "IMAGE"],
+        ],
+    }
+    h2 = structural_graph_hash(relabeled)
+    assert h1 == h2, "Structural hash must be stable when only display labels change"
+
+
+def test_exec_structural_hash_changes_on_io_signature_edit() -> None:
+    """Real io widget value changes (input/output key edits) DO change the
+    structural hash because widgets_values is included in the projection."""
+    from vibecomfy.comfy_nodes.agent_session import structural_graph_hash
+
+    base = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "vibecomfy.exec",
+                "inputs": [
+                    {"name": "source", "type": "STRING"},
+                    {"name": "io", "type": "JSON"},
+                    {"name": "in_0", "link": 1, "type": "*"},
+                    {"name": "in_1", "link": None, "type": "*"},
+                ],
+                "outputs": [
+                    {"name": "out_0", "links": [2], "type": "*"},
+                ],
+                "widgets_values": [
+                    "def fn(a): return dict(x=a)",
+                    '{"inputs":["a"],"outputs":["x"]}',
+                ],
+            },
+        ],
+        "links": [
+            [1, 99, 0, 1, 2, "IMAGE"],
+            [2, 1, 0, 100, 0, "IMAGE"],
+        ],
+    }
+    changed = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "vibecomfy.exec",
+                "inputs": [
+                    {"name": "source", "type": "STRING"},
+                    {"name": "io", "type": "JSON"},
+                    {"name": "in_0", "link": 1, "type": "*"},
+                    {"name": "in_1", "link": None, "type": "*"},
+                ],
+                "outputs": [
+                    {"name": "out_0", "links": [2], "type": "*"},
+                    {"name": "out_1", "links": [], "type": "*"},
+                ],
+                "widgets_values": [
+                    "def fn(a,b): return dict(x=a, y=b)",
+                    '{"inputs":["a","b"],"outputs":["x","y"]}',
+                ],
+            },
+        ],
+        "links": [
+            [1, 99, 0, 1, 2, "IMAGE"],
+            [2, 1, 0, 100, 0, "IMAGE"],
+        ],
+    }
+    h1 = structural_graph_hash(base)
+    h2 = structural_graph_hash(changed)
+    assert h1 != h2, "Structural hash must change when io widget value changes"
+
+
+def test_exec_structural_hash_same_after_reload_reconcile() -> None:
+    """After a reload/reconcile cycle (different socket names), exec nodes
+    still produce the same structural hash because stable wire keys are used."""
+    from vibecomfy.comfy_nodes.agent_session import structural_graph_hash
+
+    # Pre-reconcile: socket names are whatever the backend emitted.
+    pre = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "vibecomfy.exec",
+                "inputs": [
+                    {"name": "source", "type": "STRING"},
+                    {"name": "io", "type": "JSON"},
+                    {"name": "in_0", "link": 1, "type": "*"},
+                ],
+                "outputs": [
+                    {"name": "out_0", "links": [2], "type": "*"},
+                    {"name": "out_1", "links": None, "type": "*"},
+                    {"name": "out_2", "links": None, "type": "*"},
+                ],
+                "widgets_values": [
+                    "def fn(x): return dict(r=x)",
+                    '{"inputs":["x"],"outputs":["r"]}',
+                ],
+            },
+        ],
+        "links": [
+            [1, 99, 0, 1, 2, "IMAGE"],
+            [2, 1, 0, 100, 0, "IMAGE"],
+        ],
+    }
+    # Post-reconcile: frontend may normalize socket names, trim excess, add missing.
+    post = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "vibecomfy.exec",
+                "inputs": [
+                    {"name": "source", "type": "STRING"},
+                    {"name": "io", "type": "JSON"},
+                    {"name": "in_0", "link": 1, "type": "*", "label": "x"},
+                    {"name": "in_1", "link": None, "type": "*"},
+                    {"name": "in_2", "link": None, "type": "*"},
+                ],
+                "outputs": [
+                    {"name": "out_0", "links": [2], "type": "*", "label": "r"},
+                    {"name": "out_1", "links": None, "type": "*"},
+                    {"name": "out_2", "links": None, "type": "*"},
+                ],
+                "widgets_values": [
+                    "def fn(x): return dict(r=x)",
+                    '{"inputs":["x"],"outputs":["r"]}',
+                ],
+            },
+        ],
+        "links": [
+            [1, 99, 0, 1, 2, "IMAGE"],
+            [2, 1, 0, 100, 0, "IMAGE"],
+        ],
+    }
+    assert structural_graph_hash(pre) == structural_graph_hash(post), (
+        "Structural hash must be stable across reload/reconcile"
+    )
