@@ -7536,3 +7536,374 @@ def test_chat_agent_message_outcome_derivable_from_turn_response(
     assert agent_msg["outcome"]["kind"] in PUBLIC_OUTCOME_KINDS, (
         f"outcome kind in chat should be a public kind, got {agent_msg['outcome']['kind']!r}"
     )
+
+
+# ── batch lint wiring tests ───────────────────────────────────────────────────
+
+
+def test_field_change_is_noop_with_lint_dropped_ids() -> None:
+    """_field_change_is_noop returns True when (uid, field_path) is in
+    lint_dropped_op_ids even if old != new."""
+    from vibecomfy.comfy_nodes.agent_edit import (
+        _field_change_is_noop,
+        _ABSENT_FIELD_OLD,
+    )
+
+    # A change that would normally NOT be a no-op (old != new).
+    change = FieldChange(
+        uid="node-1", field_path="filename_prefix", old="before", new="after"
+    )
+    assert not _field_change_is_noop(change)
+    assert not _field_change_is_noop(change, lint_dropped_op_ids=frozenset())
+
+    # Lint drops this identity → classified as no-op.
+    dropped = frozenset({("node-1", "filename_prefix")})
+    assert _field_change_is_noop(change, lint_dropped_op_ids=dropped)
+
+    # Different (uid, field_path) is NOT dropped.
+    other_dropped = frozenset({("node-2", "other_field")})
+    assert not _field_change_is_noop(change, lint_dropped_op_ids=other_dropped)
+
+    # ABSENT_FIELD_OLD still works correctly: absent old → not a no-op unless lint says so.
+    absent_change = FieldChange(
+        uid="node-3", field_path="new_field", old=None, new="hello"
+    )
+    # old=None is the serialized form; ABSENT_FIELD_OLD is internal.
+    # The function checks `change.old is not _ABSENT_FIELD_OLD`.
+    # We need to set old to _ABSENT_FIELD_OLD explicitly.
+    absent_change_internal = FieldChange(
+        uid="node-3", field_path="new_field", old=_ABSENT_FIELD_OLD, new="hello"
+    )
+    assert not _field_change_is_noop(absent_change_internal)
+    # But lint can still drop it.
+    dropped_absent = frozenset({("node-3", "new_field")})
+    assert _field_change_is_noop(
+        absent_change_internal, lint_dropped_op_ids=dropped_absent
+    )
+
+
+def test_real_field_changes_respects_lint_dropped_op_ids() -> None:
+    """_real_field_changes excludes changes whose (uid, field_path) is in
+    lint_dropped_op_ids, even when the old/new values differ."""
+    from vibecomfy.comfy_nodes.agent_edit import _real_field_changes
+
+    changes = (
+        FieldChange(uid="a", field_path="f1", old="old", new="new"),
+        FieldChange(uid="b", field_path="f2", old="same", new="same"),  # value no-op
+        FieldChange(uid="c", field_path="f3", old="old", new="changed"),
+    )
+
+    # Without lint: only the value no-op is excluded.
+    real = _real_field_changes(changes)
+    assert len(real) == 2
+    assert {c.uid for c in real} == {"a", "c"}
+
+    # With lint: the lint-dropped identity wins, so (c, f3) is excluded even
+    # though old != new.
+    dropped = frozenset({("c", "f3")})
+    real_lint = _real_field_changes(changes, lint_dropped_op_ids=dropped)
+    assert len(real_lint) == 1
+    assert real_lint[0].uid == "a"
+
+
+def test_noop_field_changes_respects_lint_dropped_op_ids() -> None:
+    """_noop_field_changes includes changes whose (uid, field_path) is in
+    lint_dropped_op_ids PLUS the usual value no-ops."""
+    from vibecomfy.comfy_nodes.agent_edit import _noop_field_changes
+
+    changes = (
+        FieldChange(uid="a", field_path="f1", old="old", new="new"),
+        FieldChange(uid="b", field_path="f2", old="same", new="same"),  # value no-op
+        FieldChange(uid="c", field_path="f3", old="old", new="changed"),
+    )
+
+    # Without lint: only the value no-op.
+    noop = _noop_field_changes(changes)
+    assert len(noop) == 1
+    assert noop[0].uid == "b"
+
+    # With lint: the lint-dropped identity ALSO counts as no-op.
+    dropped = frozenset({("c", "f3")})
+    noop_lint = _noop_field_changes(changes, lint_dropped_op_ids=dropped)
+    assert len(noop_lint) == 2
+    assert {c.uid for c in noop_lint} == {"b", "c"}
+
+
+def test_format_batch_report_includes_lint_diagnostics() -> None:
+    """_format_batch_report appends lint diagnostics and mentions
+    lint_dropped_count in the summary line."""
+    from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
+    from vibecomfy.porting.edit_session import BatchResult, StatementResult
+
+    br = BatchResult(
+        ok=True,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="set_node_field(n1, 'f', 'v')",
+                ok=True,
+                landed=True,
+                op_kind="set_node_field",
+                diagnostics=(),
+            ),
+        ),
+        diagnostics=(),
+    )
+    lint_diags: tuple[dict[str, Any], ...] = (
+        {"code": "noop_field", "message": "field 'f' already has value 'v'", "severity": "info"},
+    )
+
+    report = _format_batch_report(
+        br,
+        consecutive_errors=0,
+        budget_remaining=3,
+        lint_dropped_count=1,
+        lint_diagnostics=lint_diags,
+    )
+    assert "1 lint-dropped no-op(s)" in report
+    assert "[lint] noop_field: field 'f' already has value 'v'" in report
+
+    # Without lint args: no lint-dropped mention, no lint diagnostics.
+    report_no_lint = _format_batch_report(
+        br, consecutive_errors=0, budget_remaining=3
+    )
+    assert "lint-dropped" not in report_no_lint
+    assert "[lint]" not in report_no_lint
+
+
+def test_format_batch_report_json_includes_lint_fields() -> None:
+    """_format_batch_report_json includes lint_dropped in summary and
+    lint_diagnostics top-level key when provided."""
+    from vibecomfy.comfy_nodes.agent_edit import _format_batch_report_json
+    from vibecomfy.porting.edit_session import BatchResult, StatementResult
+
+    br = BatchResult(
+        ok=True,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="set_node_field(n1, 'f', 'v')",
+                ok=True,
+                landed=True,
+                op_kind="set_node_field",
+                diagnostics=(),
+            ),
+        ),
+        diagnostics=(),
+    )
+    lint_diags: tuple[dict[str, Any], ...] = (
+        {"code": "noop_field", "message": "already set", "severity": "info"},
+    )
+
+    json_report = _format_batch_report_json(
+        br,
+        consecutive_errors=0,
+        budget_remaining=3,
+        lint_dropped_count=1,
+        lint_diagnostics=lint_diags,
+    )
+    assert json_report["summary"]["lint_dropped"] == 1
+    assert json_report["lint_diagnostics"] == [{"code": "noop_field", "message": "already set", "severity": "info"}]
+
+    # Without lint args: no lint keys.
+    json_no_lint = _format_batch_report_json(
+        br, consecutive_errors=0, budget_remaining=3
+    )
+    assert "lint_dropped" not in json_no_lint["summary"]
+    assert "lint_diagnostics" not in json_no_lint
+
+
+def test_field_change_is_noop_without_lint_dropped_ids_flag_off() -> None:
+    """When lint_dropped_op_ids is None (flag-off), behavior matches the
+    original: only old==new changes are no-ops."""
+    from vibecomfy.comfy_nodes.agent_edit import (
+        _field_change_is_noop,
+        _real_field_changes,
+        _noop_field_changes,
+    )
+
+    changes = (
+        FieldChange(uid="a", field_path="f1", old="old", new="new"),
+        FieldChange(uid="b", field_path="f2", old="same", new="same"),
+        FieldChange(uid="c", field_path="f3", old="x", new="y"),
+    )
+
+    # Flag-off (lint_dropped_op_ids=None, the default)
+    assert not _field_change_is_noop(changes[0])
+    assert _field_change_is_noop(changes[1])
+    assert not _field_change_is_noop(changes[2])
+
+    real = _real_field_changes(changes)
+    assert len(real) == 2
+    assert {c.uid for c in real} == {"a", "c"}
+
+    noop = _noop_field_changes(changes)
+    assert len(noop) == 1
+    assert noop[0].uid == "b"
+
+
+# ── flag-off parity tests (T7) ──────────────────────────────────────────
+
+
+def test_flag_off_lint_noop_field_set_follows_pre_lint_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIBECOMFY_AGENT_EDIT_LINT=0, a no-op set_mode (same mode value)
+    passes through to apply_delta() unchanged rather than being dropped by the
+    lint gate.  The pre-lint path never classifies it as a no-op."""
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LINT", "0")
+
+    from vibecomfy.comfy_nodes.agent_edit import (
+        _edit_lint_enabled,
+        _stage_apply_delta,
+        AgentEditState,
+    )
+    from vibecomfy.porting.edit_ops import NodeTarget, SetModeOp
+    from pathlib import Path as _Path
+
+    # Verify the flag is genuinely off
+    assert not _edit_lint_enabled()
+
+    # Build a minimal state with a no-op set_mode on the flat.json fixture
+    import json as _json
+    fixture = _json.loads(
+        (_Path("tests/fixtures/agent_edit/flat.json")).read_text(encoding="utf-8")
+    )
+
+    state = AgentEditState(
+        task="flag-off noop mode",
+        graph=fixture,
+        guard_original_ui=fixture,
+        request_payload={},
+        schema_provider=None,
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=_Path("/tmp/test_flag_off"),
+        turn_dir=_Path("/tmp/test_flag_off/turn_001"),
+        request_path=_Path("/tmp/test_flag_off/request.json"),
+        original_ui_path=_Path("/tmp/test_flag_off/original.json"),
+        before_py_path=_Path("/tmp/test_flag_off/before.py"),
+        after_py_path=_Path("/tmp/test_flag_off/after.py"),
+        projection_path=_Path("/tmp/test_flag_off/projection.json"),
+        model_request_path=_Path("/tmp/test_flag_off/model_request.json"),
+        model_response_path=_Path("/tmp/test_flag_off/model_response.json"),
+        candidate_ui_path=_Path("/tmp/test_flag_off/candidate.json"),
+        messages_path=_Path("/tmp/test_flag_off/messages.json"),
+    )
+
+    # Node 2 (CLIPTextEncode) has mode=0 in flat.json.  Setting mode=0 again
+    # is a no-op that lint would drop, but the pre-lint path applies it through.
+    state.delta_ops = (
+        SetModeOp(
+            op="set_mode",
+            target=NodeTarget(scope_path="", uid="2"),
+            mode=0,
+        ),
+    )
+
+    from vibecomfy.comfy_nodes.agent_contracts import TurnContext
+    result = _stage_apply_delta(
+        state, TurnContext(session_id="flag-off-noop", turn_id="0001")
+    )
+
+    # Pre-lint behaviour: the op is not rejected and not silently dropped.
+    # apply_delta() resolves and applies it (even though the value is unchanged).
+    # The StageResult is ok=True because apply_delta succeeds.
+    assert result.ok is True, f"Expected ok=True, got {result.value}"
+
+    # The no-op is NOT lint-dropped; it flows through to apply_delta → guard.
+    # The resulting report/candidate reflect normal application.
+    assert state.report is not None
+    # lint_noop must NOT appear (that key is set only by the lint gate)
+    assert state.report.get("change", {}).get("lint_noop") is not True
+
+
+def test_flag_off_lint_malformed_unknown_node_follows_pre_lint_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When VIBECOMFY_AGENT_EDIT_LINT=0, a malformed set_node_field targeting a
+    non-existent uid follows the pre-lint apply_delta() path: it fails in
+    resolve_delta() with an "unknown_node_target" diagnostic rather than
+    producing a lint-specific "unknown_node" rejection."""
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LINT", "0")
+
+    from vibecomfy.comfy_nodes.agent_edit import (
+        _edit_lint_enabled,
+        _stage_apply_delta,
+        AgentEditState,
+    )
+    from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+    from pathlib import Path as _Path
+
+    assert not _edit_lint_enabled()
+
+    import json as _json
+    fixture = _json.loads(
+        (_Path("tests/fixtures/agent_edit/flat.json")).read_text(encoding="utf-8")
+    )
+
+    state = AgentEditState(
+        task="flag-off unknown node",
+        graph=fixture,
+        guard_original_ui=fixture,
+        request_payload={},
+        schema_provider=None,
+        baseline_graph_hash=None,
+        submit_graph_hash=None,
+        submit_structural_graph_hash=None,
+        submitted_client_graph_hash=None,
+        submitted_client_structural_graph_hash=None,
+        session_dir=_Path("/tmp/test_flag_off_unk"),
+        turn_dir=_Path("/tmp/test_flag_off_unk/turn_001"),
+        request_path=_Path("/tmp/test_flag_off_unk/request.json"),
+        original_ui_path=_Path("/tmp/test_flag_off_unk/original.json"),
+        before_py_path=_Path("/tmp/test_flag_off_unk/before.py"),
+        after_py_path=_Path("/tmp/test_flag_off_unk/after.py"),
+        projection_path=_Path("/tmp/test_flag_off_unk/projection.json"),
+        model_request_path=_Path("/tmp/test_flag_off_unk/model_request.json"),
+        model_response_path=_Path("/tmp/test_flag_off_unk/model_response.json"),
+        candidate_ui_path=_Path("/tmp/test_flag_off_unk/candidate.json"),
+        messages_path=_Path("/tmp/test_flag_off_unk/messages.json"),
+    )
+
+    # uid "999" does not exist in flat.json
+    state.delta_ops = (
+        SetNodeFieldOp(
+            op="set_node_field",
+            target=NodeFieldTarget(
+                scope_path="", uid="999", field_path="widgets_values"
+            ),
+            value="any",
+        ),
+    )
+
+    from vibecomfy.comfy_nodes.agent_contracts import TurnContext
+    result = _stage_apply_delta(
+        state, TurnContext(session_id="flag-off-unk", turn_id="0001")
+    )
+
+    # Pre-lint behaviour: resolve_delta fails because the node doesn't exist.
+    # The StageResult is ok=False with a blocking validation error.
+    assert result.ok is False
+    assert result.blocking is True
+
+    # The failure kind comes from apply_delta's path, not lint.
+    assert result.value.get("failure_kind") == "ValidationError"
+
+    # The diagnostics should contain the pre-lint "unknown_node_target" message,
+    # NOT lint-specific issue codes like "unknown_node".
+    issue_codes = {i.get("code") for i in (result.issues or ())}
+    assert "unknown_node_target" in issue_codes, (
+        f"Expected pre-lint 'unknown_node_target' in codes, got {issue_codes}"
+    )
+    assert "unknown_node" not in issue_codes, (
+        f"Lint 'unknown_node' code leaked into flag-off path: {issue_codes}"
+    )
+    # The message should mention the uid
+    issue_messages = " ".join(
+        str(i.get("message", "")) for i in (result.issues or ())
+    )
+    assert "999" in issue_messages

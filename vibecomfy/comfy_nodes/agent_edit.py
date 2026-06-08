@@ -136,6 +136,7 @@ class AgentEditState:
     batch_final_summary: str = ""
     batch_exit_mode: str = ""
     batch_done_summary: str = ""
+    lint_noop_messages: tuple[str, ...] = ()
 
 
 class _StageBlocked(Exception):
@@ -257,16 +258,47 @@ def _total_landed_edit_count(state: AgentEditState) -> int:
     return total
 
 
-def _field_change_is_noop(change: FieldChange) -> bool:
+def _field_change_is_noop(
+    change: FieldChange,
+    *,
+    lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None,
+) -> bool:
+    """Return True when *change* is a no-op.
+
+    By default a change is a no-op when the old value is present and
+    matches the new value.  When ``lint_dropped_op_ids`` is provided,
+    any field change whose ``(uid, field_path)`` appears in that set is
+    ALSO classified as a no-op — lint-owned classification wins.
+    """
+    if lint_dropped_op_ids is not None:
+        key = (change.uid, change.field_path)
+        if key in lint_dropped_op_ids:
+            return True
     return change.old is not _ABSENT_FIELD_OLD and change.old == change.new
 
 
-def _real_field_changes(changes: tuple[FieldChange, ...]) -> tuple[FieldChange, ...]:
-    return tuple(change for change in changes if not _field_change_is_noop(change))
+def _real_field_changes(
+    changes: tuple[FieldChange, ...],
+    *,
+    lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None,
+) -> tuple[FieldChange, ...]:
+    return tuple(
+        change
+        for change in changes
+        if not _field_change_is_noop(change, lint_dropped_op_ids=lint_dropped_op_ids)
+    )
 
 
-def _noop_field_changes(changes: tuple[FieldChange, ...]) -> tuple[FieldChange, ...]:
-    return tuple(change for change in changes if _field_change_is_noop(change))
+def _noop_field_changes(
+    changes: tuple[FieldChange, ...],
+    *,
+    lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None,
+) -> tuple[FieldChange, ...]:
+    return tuple(
+        change
+        for change in changes
+        if _field_change_is_noop(change, lint_dropped_op_ids=lint_dropped_op_ids)
+    )
 
 
 def _batch_candidate_graph_changed(state: AgentEditState) -> bool:
@@ -633,6 +665,14 @@ def _humanized_edit_message(state: AgentEditState) -> str:
 
 
 def _humanized_noop_message(state: AgentEditState) -> str:
+    # Prefer lint normalization messages when available (they carry
+    # class/title/field/slot context and avoid raw gate text or uids).
+    if state.lint_noop_messages:
+        msgs = state.lint_noop_messages
+        if len(msgs) == 1:
+            return _sentence_case(ensure_sentence_message(msgs[0], fallback="No change needed."))
+        return "The requested changes are already in place; no updates needed."
+
     changes = tuple(state.batch_noop_field_changes or ())
     labels = _node_label_by_uid(state.graph, state.ui_payload)
     if len(changes) == 1:
@@ -898,6 +938,8 @@ def _format_batch_report(
     *,
     consecutive_errors: int,
     budget_remaining: int,
+    lint_dropped_count: int = 0,
+    lint_diagnostics: tuple[dict[str, Any], ...] = (),
 ) -> str:
     """Build a deterministic text teaching report from a :class:`BatchResult`.
 
@@ -946,9 +988,21 @@ def _format_batch_report(
         f"! {diagnostic.code}: {diagnostic.message}"
         for diagnostic in batch_result.diagnostics
     ]
+    # Append lint diagnostics so the model sees them inline.
+    if lint_diagnostics:
+        diagnostic_lines.extend(
+            f"! [lint] {d['code']}: {d['message']}"
+            for d in lint_diagnostics
+        )
+    lint_note = (
+        f", {lint_dropped_count} lint-dropped no-op(s)"
+        if lint_dropped_count
+        else ""
+    )
     summary = (
         f"Batch summary: {landed_count} landed, {failed_count} failed, "
-        f"{len(batch_result.diagnostics)} batch diagnostic(s), "
+        f"{len(batch_result.diagnostics)} batch diagnostic(s)"
+        f"{lint_note}, "
         f"{budget_remaining} batch(es) remaining, "
         f"{consecutive_errors} consecutive error turn(s)."
     )
@@ -961,6 +1015,8 @@ def _format_batch_report_json(
     *,
     consecutive_errors: int,
     budget_remaining: int,
+    lint_dropped_count: int = 0,
+    lint_diagnostics: tuple[dict[str, Any], ...] = (),
 ) -> dict[str, Any]:
     """Build a deterministic JSON teaching report from a :class:`BatchResult`.
 
@@ -969,7 +1025,7 @@ def _format_batch_report_json(
     """
     landed_count = sum(1 for s in batch_result.statements if s.landed)
     failed_count = sum(1 for s in batch_result.statements if not s.ok)
-    return {
+    result: dict[str, Any] = {
         "summary": {
             "landed": landed_count,
             "failed": failed_count,
@@ -997,6 +1053,13 @@ def _format_batch_report_json(
             _compact_diag_to_dict(item) for item in batch_result.diagnostics
         ],
     }
+    if lint_dropped_count:
+        result["summary"]["lint_dropped"] = lint_dropped_count
+    if lint_diagnostics:
+        result["lint_diagnostics"] = [
+            dict(d) for d in lint_diagnostics
+        ]
+    return result
 
 
 _CLARIFY_CALL_RE = re.compile(
@@ -1845,6 +1908,28 @@ def _agent_edit_batch_repl_enabled() -> bool:
     return _agent_edit_contract() == "batch_repl"
 
 
+def _edit_lint_enabled() -> bool:
+    """Return True unless VIBECOMFY_AGENT_EDIT_LINT is explicitly disabled.
+
+    Accepts ``0``, ``false``, ``off``, or ``no`` (case-insensitive) as disabled
+    values.  Defaults to ON (enabled) when the env var is unset or set to any
+    other value.
+
+    Rollout flag / off-switch
+    -------------------------
+    Setting ``VIBECOMFY_AGENT_EDIT_LINT=0`` disables the entire lint gate in
+    ``_stage_apply_delta`` and ``_stage_agent_batch_repl``.  When lint is off the
+    pipeline falls back to pre-lint behaviour: ``apply_delta()`` receives every
+    op unchecked, no-ops are not pre-filtered, and diagnostics come from
+    ``resolve_delta`` / ``apply_delta`` rather than from ``lint_delta()``.  This
+    flag is intended as an emergency off-switch; the default path is *enabled*.
+    """
+    raw = os.getenv("VIBECOMFY_AGENT_EDIT_LINT")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "off", "no"}
+
+
 def _record(context: TurnContext, result: StageResult) -> StageResult:
     context.stage_results[result.stage] = result
     apply_stage_gate_updates(context, result)
@@ -2378,28 +2463,112 @@ def _stage_agent_batch_repl(
         state.ui_payload = json.loads(json.dumps(session.working_ui))
         write_json_artifact(state.candidate_ui_path, state.ui_payload)
 
-        turn_has_errors = (not batch_result.ok) or bool(batch_result.diagnostics)
-        landed_count = len(batch_result.landed_ops)
-        total_landed += landed_count
-        last_landed_count = landed_count
+        # ── lint gate: post-apply no-op detection on landed ops ──────────
+        lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
+        lint_dropped_count = 0
+        lint_diag_dicts: tuple[dict[str, Any], ...] = ()
+        if (
+            _edit_lint_enabled()
+            and batch_result.landed_ops
+            and _agent_edit_batch_repl_enabled()
+        ):
+            from vibecomfy.porting.edit_lint import LintIndex, lint_delta
+            from vibecomfy.porting.edit_ops import (
+                RemoveLinkOp,
+                SetModeOp,
+                SetNodeFieldOp,
+                UpsertLinkOp,
+            )
+
+            index = LintIndex.build(state.graph)
+            lint_result = lint_delta(
+                batch_result.landed_ops,
+                index,
+                schema_provider=state.schema_provider,
+            )
+
+            # Build (uid, field_path) identities for lint-dropped ops.
+            _dropped_keys: list[tuple[str, str]] = []
+            for norm in lint_result.normalizations:
+                if norm.disposition != "dropped_noop":
+                    continue
+                op = norm.op
+                key: tuple[str, str] | None = None
+                if isinstance(op, SetNodeFieldOp):
+                    key = (op.target.uid, op.target.field_path)
+                elif isinstance(op, SetModeOp):
+                    key = (op.target.uid, "mode")
+                elif isinstance(op, UpsertLinkOp):
+                    key = (op.target.uid, op.target.input_field)
+                elif isinstance(op, RemoveLinkOp) and op.target is not None:
+                    key = (op.target.uid, op.target.input_field)
+                if key is not None:
+                    _dropped_keys.append(key)
+            lint_dropped_op_ids = frozenset(_dropped_keys)
+            lint_dropped_count = lint_result.dropped_count
+
+            # Accumulate human-readable lint no-op messages
+            _turn_noop_msgs: list[str] = []
+            for norm in lint_result.normalizations:
+                if norm.disposition == "dropped_noop" and norm.issue is not None:
+                    _turn_noop_msgs.append(norm.issue.message)
+            state.lint_noop_messages = state.lint_noop_messages + tuple(_turn_noop_msgs)
+
+            def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
+                return {
+                    "code": issue.code,
+                    "message": issue.message,
+                    "severity": issue.severity,
+                    "op_index": getattr(issue, "op_index", None),
+                    "op_kind": getattr(issue, "op_kind", None),
+                    "source": "lint",
+                }
+
+            lint_diag_dicts = tuple(
+                _lint_issue_to_dict(issue) for issue in lint_result.issues
+            )
+
+        raw_landed = len(batch_result.landed_ops)
+        effective_landed = raw_landed - lint_dropped_count
+        landed_count = effective_landed
+        total_landed += effective_landed
+        last_landed_count = effective_landed
+
+        turn_has_errors = (
+            (not batch_result.ok)
+            or bool(batch_result.diagnostics)
+            or any(
+                d.get("severity") == "error" for d in lint_diag_dicts
+            )
+        )
         consecutive_errors = consecutive_errors + 1 if turn_has_errors else 0
         diff_text = _render_batch_diff(current_render, next_render)
         report_text = _format_batch_report(
             batch_result,
             consecutive_errors=consecutive_errors,
             budget_remaining=max_batches - (turn_number + 1),
+            lint_dropped_count=lint_dropped_count,
+            lint_diagnostics=lint_diag_dicts,
         )
         report_json = _format_batch_report_json(
             batch_result,
             consecutive_errors=consecutive_errors,
             budget_remaining=max_batches - (turn_number + 1),
+            lint_dropped_count=lint_dropped_count,
+            lint_diagnostics=lint_diag_dicts,
         )
         field_changes = _repair_field_changes_from_original_ui(
             state.graph,
             tuple(batch_result.field_changes),
         )
-        real_field_changes = _real_field_changes(field_changes)
-        noop_field_changes = _noop_field_changes(field_changes)
+        real_field_changes = _real_field_changes(
+            field_changes,
+            lint_dropped_op_ids=lint_dropped_op_ids,
+        )
+        noop_field_changes = _noop_field_changes(
+            field_changes,
+            lint_dropped_op_ids=lint_dropped_op_ids,
+        )
         state.batch_field_changes = state.batch_field_changes + real_field_changes
         state.batch_noop_field_changes = state.batch_noop_field_changes + noop_field_changes
         turn_record = {
@@ -2411,7 +2580,9 @@ def _stage_agent_batch_repl(
             "provider_metadata": _json_safe(dict(turn_result.audit_metadata or {})),
             "batch_ok": batch_result.ok,
             "statement_count": len(batch_result.statements),
-            "landed_op_count": len(batch_result.landed_ops),
+            "landed_op_count": effective_landed,
+            "raw_landed_op_count": raw_landed,
+            "lint_dropped_op_count": lint_dropped_count,
             "diagnostics": report_json["diagnostics"],
             "statements": report_json["statements"],
             "field_changes": _field_changes_payload(real_field_changes),
@@ -2873,8 +3044,110 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
         }
 
     start = time.monotonic()
+
+    # ── lint gate (VIBECOMFY_AGENT_EDIT_LINT defaults ON) ──────────────────
+    original_ui = state.guard_original_ui or state.graph
+    if _edit_lint_enabled() and state.delta_ops:
+        from vibecomfy.porting.edit_lint import LintIndex, lint_delta
+
+        index = LintIndex.build(original_ui)
+        lint_result = lint_delta(
+            state.delta_ops,
+            index,
+            schema_provider=state.schema_provider,
+        )
+
+        def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
+            return {
+                "code": issue.code,
+                "message": issue.message,
+                "severity": issue.severity,
+                "op_index": getattr(issue, "op_index", None),
+                "op_kind": getattr(issue, "op_kind", None),
+            }
+
+        lint_issue_dicts = tuple(
+            _lint_issue_to_dict(issue) for issue in lint_result.issues
+        )
+
+        # Rejected ops → fail before mutation
+        if lint_result.rejected_count > 0:
+            error_issues = tuple(
+                i for i in lint_issue_dicts if i.get("severity") == "error"
+            )
+            return StageResult(
+                stage="apply_delta",
+                ok=False,
+                blocking=True,
+                duration_ms=_duration_ms(start),
+                issues=error_issues or lint_issue_dicts,
+                value={
+                    "failure_kind": FailureKind.VALIDATION_ERROR.value,
+                    "mutation_started": 0,
+                    "op_count": len(state.delta_ops),
+                    "lint_rejected": lint_result.rejected_count,
+                    "lint_dropped": lint_result.dropped_count,
+                },
+            )
+
+        # All ops dropped as no-ops → clean no-op turn
+        if lint_result.passed_count == 0:
+            state.ui_payload = original_ui
+            state.delta_diagnostics = [
+                dict(d) for d in lint_issue_dicts
+            ]
+            # Collect human-readable no-op messages for user-facing display
+            _noop_msgs: list[str] = []
+            for norm in lint_result.normalizations:
+                if norm.disposition == "dropped_noop" and norm.issue is not None:
+                    _noop_msgs.append(norm.issue.message)
+            state.lint_noop_messages = tuple(_noop_msgs)
+            state.report = {
+                "change": {
+                    "mode": "agent_edit_v2_delta",
+                    "op_count": len(state.delta_ops),
+                    "ops": [],
+                    "mutation_started": 0,
+                    "lint_noop": True,
+                },
+                "recovery": [],
+                "felt": {},
+                "diagnostics": lint_issue_dicts,
+            }
+            return StageResult(
+                stage="apply_delta",
+                ok=True,
+                blocking=False,
+                duration_ms=_duration_ms(start),
+                issues=lint_issue_dicts,
+                value={
+                    "mode": "agent_edit_v2_delta",
+                    "op_count": 0,
+                    "mutation_started": 0,
+                    "lint_noop": True,
+                    "lint_dropped": lint_result.dropped_count,
+                },
+                gate_updates={
+                    "python_load_ok": True,
+                    "lower_ok": True,
+                    "ir_validate_ok": True,
+                    "ui_emit_ok": True,
+                    "ui_fidelity_ok": True,
+                    "ui_load_safe_ok": True,
+                },
+            )
+
+        # Surviving ops proceed to apply
+        state.delta_ops = lint_result.surviving
+        state.delta_lint = {
+            "issues": [dict(d) for d in lint_issue_dicts],
+            "dropped": lint_result.dropped_count,
+            "rejected": lint_result.rejected_count,
+            "passed": lint_result.passed_count,
+        }
+
     result = apply_delta(
-        state.guard_original_ui or state.graph,
+        original_ui,
         state.delta_ops,
         schema_provider=state.schema_provider,
     )
