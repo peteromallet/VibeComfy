@@ -1,0 +1,58 @@
+# Node Resolution Epic — 3 gated sprints (A/B/C).
+# Design is locked: docs/megaplan_chains/node_resolution_epic/STRATEGY.md (v2, post-review).
+# Acceptance contract: docs/megaplan_chains/node_resolution_epic/testing/testing.md
+#   (12-scenario matrix; headline regression = fixtures/ideogram4_t2i.json).
+# Sequence principle (STRATEGY §8): fix the silent-miscompile crash class first
+#   (fail-closed arity at the emitter's real site), then realize the environment,
+#   then make pinning faithful and demote the hand-captured snapshot.
+# Sprint branch convention: epic/node-resolution/<milestone-label>.
+# Shared prerequisites for every milestone: STRATEGY.md + testing/testing.md + the
+#   previous milestone handoff. The sprint briefs carry the actual gates/anchors.
+# Acceptance gate (per sprint): pytest -m sprint_<a|b|c> docs/megaplan_chains/node_resolution_epic/testing
+#   plus full `pytest` with no new failures vs baseline.
+
+base_branch: main
+
+milestones:
+  - label: m1-correctness-spine
+    idea: docs/megaplan_chains/node_resolution_epic/m1-correctness-spine.md
+    branch: epic/node-resolution/m1-correctness-spine
+    profile: premium            # premium/thorough/high +prep @codex — closes the silent-miscompile crash class; the keystone
+    vendor: codex
+    robustness: thorough
+    depth: high
+    with_prep: true
+    notes: "Closes the Ideogram silent-miscompile crash class via fail-closed arity + identity-keyed executed-introspection cache + real schema-hash plumbing."
+
+  - label: m2-environment-realization
+    idea: docs/megaplan_chains/node_resolution_epic/m2-environment-realization.md
+    branch: epic/node-resolution/m2-environment-realization
+    profile: premium            # premium/thorough/high +prep @codex — hardened install + orchestrator; cross-pack pip preflight is the genuinely hard part (§7)
+    vendor: codex
+    robustness: thorough
+    depth: high
+    with_prep: true
+    notes: "Hardened install (state sentinel + cross-pack pip preflight) + ensure-env(workflow) orchestrator + provenance parsing for which packs."
+
+  - label: m3-faithful-pinning
+    idea: docs/megaplan_chains/node_resolution_epic/m3-faithful-pinning.md
+    branch: epic/node-resolution/m3-faithful-pinning
+    profile: premium            # premium/thorough/high +prep @codex — version-pinning + snapshot demotion; durability
+    vendor: codex
+    robustness: thorough
+    depth: high
+    with_prep: true
+    notes: "Version-pinned provenance (git-checkout-SHA, local-first git, aux_id path) + demote/auto-generate the snapshot."
+
+on_failure:
+  abort: stop_chain             # halt on a failed gate; fix, then re-run to resume
+on_escalate:
+  abort: stop_chain
+merge_policy: auto              # successful milestones auto-merge, then the next milestone starts from updated main
+
+driver:
+  robustness: full              # default when a milestone doesn't override; sprints set their own above
+  auto_approve: true            # auto-approve agent iteration steps; merge_policy=auto advances after successful milestone PRs
+  on_escalate: abort            # step-level escalations halt the current sprint instead of force-proceeding
+  max_iterations: 60
+  poll_sleep: 8.0
