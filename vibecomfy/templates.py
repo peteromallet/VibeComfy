@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import warnings
 import json
 import re
@@ -501,7 +502,7 @@ class ReadyMetadata:
         if source_workflow:
             metadata["source_workflow"] = source_workflow
         metadata["vibecomfy_version"] = extras.pop("vibecomfy_version", None) or _project_version()
-        metadata["comfy_core"] = extras.pop("comfy_core", None) or _comfy_core_metadata()
+        metadata["comfy_core"] = extras.pop("comfy_core", None) or load_comfy_metadata()
         provenance = extras.get("provenance")
         if not isinstance(provenance, Mapping) and source_workflow:
             provenance = {"source_workflow": source_workflow}
@@ -893,7 +894,9 @@ def _project_version() -> str:
     return str(version) if version else "0"
 
 
-def _comfy_core_metadata() -> dict[str, Any]:
+@functools.lru_cache(maxsize=1)
+def load_comfy_metadata() -> dict[str, Any]:
+    """Load cached ComfyUI core metadata (immutable JSON, process-lifetime stable)."""
     try:
         data = json.loads((_repo_root() / "vibecomfy" / "comfy_metadata.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -901,6 +904,8 @@ def _comfy_core_metadata() -> dict[str, Any]:
     if not isinstance(data, Mapping):
         return {}
     core = data.get("core") if isinstance(data.get("core"), Mapping) else data
+    if not isinstance(core, Mapping):
+        return {}
     return {
         key: value
         for key, value in core.items()
