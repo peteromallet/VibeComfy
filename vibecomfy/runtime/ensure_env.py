@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from vibecomfy.node_packs import CustomNodePack, get_known_node_packs
-from vibecomfy.node_packs_install import InstallBatchResult, install_required_packs
+from vibecomfy.node_packs_git import find_installed_pack_ref
+from vibecomfy.node_packs_install import DEFAULT_INSTALL_ROOT, InstallBatchResult, install_required_packs
 from vibecomfy.porting.object_info.consume import reset_cache
 from vibecomfy.porting.object_info.serialize import CacheIdentity, build_cache
-from vibecomfy.porting.provenance import ProvenanceReport, ProvenanceRecord, extract_provenance
+from vibecomfy.porting.provenance import (
+    ProvenanceReport,
+    ProvenanceRecord,
+    ProvenanceRequirement,
+    ProvenanceWarning,
+    extract_provenance,
+)
+from vibecomfy.registry.pack_resolver import PackNotFoundError, PackRef, PackResolution
 from vibecomfy.schema import RuntimeSchemaProvider
 
 CORE_CNR_ID = "comfy-core"
@@ -24,6 +33,23 @@ class EnsureFailure:
     pack_name: str | None = None
     node_id: str | None = None
     class_type: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class EnsureWarning:
+    code: str
+    message: str
+    slug: str | None = None
+    pack_name: str | None = None
+    node_ids: tuple[str, ...] = ()
+    class_types: tuple[str, ...] = ()
+    cnr_id: str | None = None
+    aux_id: str | None = None
+    version: str | None = None
+    low_confidence: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -56,6 +82,8 @@ class EnsureEnvResult:
     noop: bool = False
     pack_outcomes: tuple[EnsurePackOutcome, ...] = ()
     failures: tuple[EnsureFailure, ...] = ()
+    warnings: tuple[EnsureWarning, ...] = ()
+    low_confidence: bool = False
     aux_only: tuple[ProvenanceRecord, ...] = ()
     unprovenanced: tuple[ProvenanceRecord, ...] = ()
     install_batch: InstallBatchResult | None = None
@@ -70,6 +98,8 @@ class EnsureEnvResult:
             "provenance": self.provenance.to_json(),
             "pack_outcomes": [outcome.to_json() for outcome in self.pack_outcomes],
             "failures": [failure.to_json() for failure in self.failures],
+            "warnings": [warning.to_json() for warning in self.warnings],
+            "low_confidence": self.low_confidence,
             "aux_only": [record.to_json() for record in self.aux_only],
             "unprovenanced": [record.to_json() for record in self.unprovenanced],
             "install_batch": _install_batch_to_json(self.install_batch),
@@ -79,9 +109,22 @@ class EnsureEnvResult:
         }
 
 
-Installer = Callable[[Sequence[CustomNodePack]], InstallBatchResult]
+Installer = Callable[..., InstallBatchResult]
 Introspector = Callable[[Sequence[CustomNodePack]], Any]
 CacheWriter = Callable[[Any], Any]
+
+
+class PackResolver(Protocol):
+    def __call__(
+        self,
+        class_name_or_slug: str,
+        *,
+        version_pin: str | None = None,
+        aux_id: str | None = None,
+        local_metadata: PackRef | dict[str, Any] | None = None,
+        allow_remote_lookup: bool = True,
+    ) -> PackResolution:
+        ...
 
 _REALIZED_SIGNATURES: set[tuple[object, ...]] = set()
 
@@ -94,19 +137,36 @@ def ensure_env(
     cache_writer: CacheWriter | None = None,
     known_packs: Sequence[CustomNodePack] | None = None,
     server_url: str | None = None,
+    install_roots: Sequence[Path] = (DEFAULT_INSTALL_ROOT,),
+    resolver: PackResolver | None = None,
 ) -> EnsureEnvResult:
     """Realize custom-node environment requirements from workflow provenance.
 
     This entry point is intentionally offline and deterministic until injected
-    seams are called. `cnr_id` is the required pack slug; `ver` remains
-    provenance metadata and does not affect resolution in Sprint B.
+    seams are called. Provenance requirements are grouped by authored identity,
+    so `cnr_id`, `aux_id`, and `ver` can influence install refs without coupling
+    ensure-env to conversion.
     """
 
     raw = _load_raw_workflow(workflow)
     provenance = extract_provenance(raw)
     failures: list[EnsureFailure] = []
+    warnings = _ensure_warnings_from_provenance(provenance)
     outcomes_by_slug: dict[str, EnsurePackOutcome] = {}
-    class_types_by_slug = _required_class_types_by_slug(provenance)
+    requirement_plan = _plan_requirements(provenance)
+    class_types_by_slug = requirement_plan.class_types_by_slug
+
+    for conflict in provenance.conflicts:
+        if conflict.code == "conflicting_authored_versions":
+            failures.append(
+                EnsureFailure(
+                    code=conflict.code,
+                    message=conflict.message,
+                    slug=_slug_from_locator_key(conflict.locator_key),
+                    node_id=conflict.node_ids[0] if conflict.node_ids else None,
+                    class_type=conflict.class_types[0] if conflict.class_types else None,
+                )
+            )
 
     for record in provenance.core_slug_non_core:
         failures.append(
@@ -120,16 +180,29 @@ def ensure_env(
         )
 
     pack_by_slug = _known_pack_by_slug(known_packs)
-    required_slugs = sorted(slug for slug in provenance.required_pack_slugs if slug != CORE_CNR_ID)
     packs: list[CustomNodePack] = []
-    for slug in required_slugs:
-        pack = pack_by_slug.get(slug)
+    resolved_refs_by_slug: dict[str, PackRef] = {}
+    for slug, requirement in _ordered_requirements(requirement_plan.requirements_by_slug):
+        if slug == CORE_CNR_ID:
+            continue
+        pack, ref, resolve_warnings, resolve_failures = _resolve_requirement_pack(
+            slug,
+            requirement,
+            known_pack=pack_by_slug.get(slug),
+            synthetic_pack=requirement_plan.synthetic_packs.get(slug),
+            install_roots=install_roots,
+            resolver=resolver,
+        )
+        warnings.extend(resolve_warnings)
+        failures.extend(resolve_failures)
         if pack is None:
             failures.append(
                 EnsureFailure(
                     code="unresolved_pack",
-                    message=f"no known custom-node pack metadata for cnr_id={slug!r}",
+                    message=f"no known custom-node pack metadata for {requirement.locator_key}",
                     slug=slug,
+                    node_id=requirement.node_ids[0] if requirement.node_ids else None,
+                    class_type=requirement.class_types[0] if requirement.class_types else None,
                 )
             )
             outcomes_by_slug[slug] = EnsurePackOutcome(
@@ -137,8 +210,33 @@ def ensure_env(
                 error="unresolved pack metadata",
             )
             continue
+        if ref is not None:
+            resolved_refs_by_slug[slug] = ref
+            requirement_plan.install_refs_by_slug[slug] = ref
         packs.append(pack)
         outcomes_by_slug[slug] = EnsurePackOutcome(slug=slug, pack_name=pack.name)
+
+    fallback_packs, fallback_refs, fallback_warnings, fallback_failures = _resolve_unprovenanced_fallbacks(
+        provenance,
+        known_packs=pack_by_slug,
+        install_roots=install_roots,
+        resolver=resolver,
+    )
+    warnings.extend(fallback_warnings)
+    failures.extend(fallback_failures)
+    for slug, pack in sorted(fallback_packs.items()):
+        if slug in outcomes_by_slug:
+            continue
+        packs.append(pack)
+        class_types_by_slug.setdefault(slug, frozenset())
+        class_types_by_slug[slug] = frozenset(
+            set(class_types_by_slug.get(slug, frozenset()))
+            | {record.class_type for record in provenance.unprovenanced if record.class_type in pack.classes}
+        )
+        outcomes_by_slug[slug] = EnsurePackOutcome(slug=slug, pack_name=pack.name)
+    for slug, ref in fallback_refs.items():
+        resolved_refs_by_slug[slug] = ref
+        requirement_plan.install_refs_by_slug.setdefault(slug, ref)
 
     core_classes = class_types_by_slug.get(CORE_CNR_ID, frozenset())
     core_outcome: EnsurePackOutcome | None = None
@@ -161,6 +259,8 @@ def ensure_env(
             noop=True,
             provenance=provenance,
             pack_outcomes=pack_outcomes,
+            warnings=tuple(warnings),
+            low_confidence=provenance.low_confidence,
             aux_only=tuple(provenance.aux_only),
             unprovenanced=tuple(provenance.unprovenanced),
             diagnostics={
@@ -171,9 +271,13 @@ def ensure_env(
         )
 
     install_batch: InstallBatchResult | None = None
-    if packs:
+    if packs and not _has_blocking_preinstall_failures(failures):
         try:
-            install_batch = installer(tuple(packs))
+            install_batch = _call_installer(
+                installer,
+                tuple(packs),
+                install_refs_by_name=requirement_plan.install_refs_by_slug,
+            )
         except Exception as exc:  # pragma: no cover - defensive seam wrapper
             install_batch = None
             failures.append(
@@ -243,18 +347,34 @@ def ensure_env(
 
             if cache_writer is not None:
                 cache_write_result = cache_writer(filtered_payloads)
+                written_slugs = set(outcomes_by_slug)
+                if core_outcome is not None:
+                    written_slugs.add(CORE_CNR_ID)
             else:
-                cache_write_result = _write_object_info_cache(
+                cache_write_result, cache_warnings = _write_object_info_cache(
                     filtered_payloads,
                     outcomes_by_slug=outcomes_by_slug,
+                    refs_by_slug=resolved_refs_by_slug | requirement_plan.install_refs_by_slug,
+                    low_confidence_slugs={
+                        warning.slug for warning in warnings if warning.low_confidence and warning.slug
+                    },
                     include_core=bool(core_classes),
                 )
+                warnings.extend(cache_warnings)
+                written_slugs = (
+                    set(cache_write_result.get("written", {}))
+                    if isinstance(cache_write_result, Mapping)
+                    else set()
+                )
             outcomes_by_slug = {
-                slug: _replace_outcome(outcome, cache_written=True)
+                slug: _replace_outcome(outcome, cache_written=(slug in written_slugs))
                 for slug, outcome in outcomes_by_slug.items()
             }
             if core_outcome is not None:
-                core_outcome = _replace_outcome(core_outcome, cache_written=True)
+                core_outcome = _replace_outcome(
+                    core_outcome,
+                    cache_written=CORE_CNR_ID in written_slugs,
+                )
 
             reset_cache()
         except _HandledEnsureFailure:
@@ -280,6 +400,8 @@ def ensure_env(
         provenance=provenance,
         pack_outcomes=pack_outcomes,
         failures=tuple(failures),
+        warnings=tuple(warnings),
+        low_confidence=provenance.low_confidence or any(warning.low_confidence for warning in warnings),
         aux_only=tuple(provenance.aux_only),
         unprovenanced=tuple(provenance.unprovenanced),
         install_batch=install_batch,
@@ -307,13 +429,293 @@ def _known_pack_by_slug(known_packs: Sequence[CustomNodePack] | None) -> dict[st
     return by_slug
 
 
-def _required_class_types_by_slug(provenance: ProvenanceReport) -> dict[str, frozenset[str]]:
-    by_slug: dict[str, set[str]] = {}
-    for record in provenance.records:
-        if not record.cnr_id or not record.execution_looking:
+@dataclass(frozen=True, slots=True)
+class _RequirementPlan:
+    requirements_by_slug: dict[str, ProvenanceRequirement]
+    class_types_by_slug: dict[str, frozenset[str]]
+    install_refs_by_slug: dict[str, PackRef]
+    synthetic_packs: dict[str, CustomNodePack]
+
+
+def _plan_requirements(provenance: ProvenanceReport) -> _RequirementPlan:
+    requirements_by_slug: dict[str, ProvenanceRequirement] = {}
+    class_types_by_slug: dict[str, set[str]] = {}
+    install_refs_by_slug: dict[str, PackRef] = {}
+    synthetic_packs: dict[str, CustomNodePack] = {}
+    for requirement in provenance.requirements:
+        slug = _install_slug(requirement)
+        if slug is None:
             continue
-        by_slug.setdefault(record.cnr_id, set()).add(record.class_type)
-    return {slug: frozenset(class_types) for slug, class_types in by_slug.items()}
+        requirements_by_slug.setdefault(slug, requirement)
+        class_types_by_slug.setdefault(slug, set()).update(requirement.class_types)
+        if slug != CORE_CNR_ID:
+            ref = _pack_ref_from_requirement(slug, requirement)
+            if ref is not None:
+                install_refs_by_slug[slug] = ref
+            if requirement.resolver_kind == "aux_git" and requirement.aux_id:
+                synthetic_packs.setdefault(
+                    slug,
+                    CustomNodePack(
+                        name=slug,
+                        repo=_git_url_from_aux_id(requirement.aux_id),
+                        classes=frozenset(requirement.class_types),
+                    ),
+                )
+    return _RequirementPlan(
+        requirements_by_slug=requirements_by_slug,
+        class_types_by_slug={slug: frozenset(class_types) for slug, class_types in class_types_by_slug.items()},
+        install_refs_by_slug=install_refs_by_slug,
+        synthetic_packs=synthetic_packs,
+    )
+
+
+def _resolve_requirement_pack(
+    slug: str,
+    requirement: ProvenanceRequirement,
+    *,
+    known_pack: CustomNodePack | None,
+    synthetic_pack: CustomNodePack | None,
+    install_roots: Sequence[Path],
+    resolver: PackResolver | None,
+) -> tuple[CustomNodePack | None, PackRef | None, list[EnsureWarning], list[EnsureFailure]]:
+    warnings: list[EnsureWarning] = []
+    failures: list[EnsureFailure] = []
+    version = requirement.version_pin.version if requirement.version_pin is not None else None
+
+    local = find_installed_pack_ref(
+        slug,
+        install_roots=install_roots,
+        aux_id=requirement.aux_id,
+        version_pin=version,
+    )
+    if local is not None:
+        return (
+            known_pack or synthetic_pack or _pack_from_ref(local.pack_ref, class_types=requirement.class_types),
+            local.pack_ref,
+            warnings,
+            failures,
+        )
+
+    if requirement.aux_id:
+        ref = _resolve_with_resolver(
+            resolver,
+            slug,
+            version_pin=version,
+            aux_id=requirement.aux_id,
+            allow_remote_lookup=False,
+        )
+        if ref is None:
+            ref = _pack_ref_from_requirement(slug, requirement)
+        return (
+            known_pack or synthetic_pack or _pack_from_ref(ref, class_types=requirement.class_types),
+            ref,
+            warnings,
+            failures,
+        )
+
+    ref = _resolve_with_resolver(resolver, slug, version_pin=version, aux_id=None)
+    if ref is not None:
+        return (
+            known_pack or _pack_from_ref(ref, class_types=requirement.class_types),
+            ref,
+            warnings,
+            failures,
+        )
+    return known_pack, _pack_ref_from_requirement(slug, requirement), warnings, failures
+
+
+def _ordered_requirements(
+    requirements_by_slug: Mapping[str, ProvenanceRequirement],
+) -> list[tuple[str, ProvenanceRequirement]]:
+    def key(item: tuple[str, ProvenanceRequirement]) -> tuple[int, str]:
+        slug, requirement = item
+        if slug == CORE_CNR_ID:
+            return (3, slug)
+        if requirement.aux_id:
+            return (0, slug)
+        if requirement.cnr_id:
+            return (1, slug)
+        return (2, slug)
+
+    return sorted(requirements_by_slug.items(), key=key)
+
+
+def _has_blocking_preinstall_failures(failures: Sequence[EnsureFailure]) -> bool:
+    non_blocking = {"unresolved_pack"}
+    return any(failure.code not in non_blocking for failure in failures)
+
+
+def _resolve_unprovenanced_fallbacks(
+    provenance: ProvenanceReport,
+    *,
+    known_packs: Mapping[str, CustomNodePack],
+    install_roots: Sequence[Path],
+    resolver: PackResolver | None,
+) -> tuple[dict[str, CustomNodePack], dict[str, PackRef], list[EnsureWarning], list[EnsureFailure]]:
+    packs: dict[str, CustomNodePack] = {}
+    refs: dict[str, PackRef] = {}
+    warnings: list[EnsureWarning] = []
+    failures: list[EnsureFailure] = []
+    for record in provenance.unprovenanced:
+        local = find_installed_pack_ref(record.class_type, install_roots=install_roots)
+        ref = local.pack_ref if local is not None else _resolve_with_resolver(resolver, record.class_type)
+        if ref is None:
+            continue
+        slug = ref.slug
+        pack = known_packs.get(slug) or _pack_from_ref(ref, class_types=(record.class_type,))
+        packs.setdefault(slug, pack)
+        refs.setdefault(slug, ref)
+        warnings.append(
+            EnsureWarning(
+                code="class_to_pack_fallback",
+                message=f"{record.class_type} was resolved by class-name fallback without authored provenance",
+                slug=slug,
+                pack_name=pack.name,
+                node_ids=(record.node_id,),
+                class_types=(record.class_type,),
+                low_confidence=True,
+            )
+        )
+    return packs, refs, warnings, failures
+
+
+def _resolve_with_resolver(
+    resolver: PackResolver | None,
+    query: str,
+    *,
+    version_pin: str | None = None,
+    aux_id: str | None = None,
+    allow_remote_lookup: bool = True,
+) -> PackRef | None:
+    if resolver is None:
+        return None
+    try:
+        return resolver(
+            query,
+            version_pin=version_pin,
+            aux_id=aux_id,
+            allow_remote_lookup=allow_remote_lookup,
+        ).ref
+    except PackNotFoundError:
+        return None
+
+
+def _pack_from_ref(ref: PackRef | None, *, class_types: Sequence[str]) -> CustomNodePack | None:
+    if ref is None or not ref.url:
+        return None
+    return CustomNodePack(
+        name=ref.slug,
+        repo=ref.url,
+        classes=frozenset(class_types),
+    )
+
+
+def _install_slug(requirement: ProvenanceRequirement) -> str | None:
+    if requirement.cnr_id:
+        return requirement.cnr_id
+    if requirement.aux_id:
+        return _slug_from_aux_id(requirement.aux_id)
+    return None
+
+
+def _pack_ref_from_requirement(slug: str, requirement: ProvenanceRequirement) -> PackRef | None:
+    version = requirement.version_pin.version if requirement.version_pin is not None else None
+    commit = version if _looks_like_commit(version) else None
+    if requirement.aux_id:
+        return PackRef(
+            slug=slug,
+            source="aux-git",
+            version=version,
+            commit=commit,
+            url=_git_url_from_aux_id(requirement.aux_id),
+            name=slug,
+        )
+    if requirement.cnr_id:
+        return PackRef(
+            slug=requirement.cnr_id,
+            source="provenance",
+            version=version,
+            commit=commit,
+            name=requirement.cnr_id,
+        )
+    return None
+
+
+def _ensure_warnings_from_provenance(provenance: ProvenanceReport) -> list[EnsureWarning]:
+    return [_ensure_warning_from_provenance_warning(warning) for warning in provenance.warnings]
+
+
+def _ensure_warning_from_provenance_warning(warning: ProvenanceWarning) -> EnsureWarning:
+    cnr_id, aux_id, version = _parse_identity_key(warning.identity_key)
+    return EnsureWarning(
+        code=warning.code,
+        message=warning.message,
+        slug=cnr_id or (_slug_from_aux_id(aux_id) if aux_id else None),
+        pack_name=cnr_id or (_slug_from_aux_id(aux_id) if aux_id else None),
+        node_ids=warning.node_ids,
+        class_types=warning.class_types,
+        cnr_id=cnr_id,
+        aux_id=aux_id,
+        version=version,
+        low_confidence=warning.low_confidence,
+    )
+
+
+def _parse_identity_key(identity_key: str | None) -> tuple[str | None, str | None, str | None]:
+    if not identity_key:
+        return None, None, None
+    parts: dict[str, str] = {}
+    for part in identity_key.split("|"):
+        key, _, value = part.partition(":")
+        if key:
+            parts[key] = value
+    return (
+        _none_if_dash(parts.get("cnr")),
+        _none_if_dash(parts.get("aux")),
+        _none_if_dash(parts.get("ver")),
+    )
+
+
+def _none_if_dash(value: str | None) -> str | None:
+    return None if value in {None, "-", ""} else value
+
+
+def _slug_from_locator_key(locator_key: str) -> str | None:
+    cnr_id, aux_id, _version = _parse_identity_key(locator_key)
+    return cnr_id or (_slug_from_aux_id(aux_id) if aux_id else None)
+
+
+def _slug_from_aux_id(aux_id: str) -> str:
+    cleaned = aux_id.strip().rstrip("/")
+    name = cleaned.rsplit("/", 1)[-1]
+    return name[:-4] if name.endswith(".git") else name
+
+
+def _git_url_from_aux_id(aux_id: str) -> str:
+    cleaned = aux_id.strip()
+    if cleaned.startswith(("http://", "https://", "git@")):
+        return cleaned
+    return f"https://github.com/{cleaned}.git"
+
+
+def _looks_like_commit(value: str | None) -> bool:
+    return bool(value is not None and re.fullmatch(r"[0-9a-fA-F]{7,40}", value))
+
+
+def _call_installer(
+    installer: Installer,
+    packs: Sequence[CustomNodePack],
+    *,
+    install_refs_by_name: Mapping[str, PackRef],
+) -> InstallBatchResult:
+    if not install_refs_by_name:
+        return installer(packs)
+    try:
+        return installer(packs, install_refs_by_name=install_refs_by_name)
+    except TypeError as exc:
+        if "install_refs_by_name" not in str(exc):
+            raise
+        return installer(packs)
 
 
 def _realization_signature(
@@ -390,9 +792,12 @@ def _write_object_info_cache(
     payloads_by_slug: Mapping[str, Mapping[str, dict[str, Any]]],
     *,
     outcomes_by_slug: Mapping[str, EnsurePackOutcome],
+    refs_by_slug: Mapping[str, PackRef],
+    low_confidence_slugs: set[str],
     include_core: bool,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[EnsureWarning]]:
     written: dict[str, dict[str, int]] = {}
+    warnings: list[EnsureWarning] = []
     for slug, payload in sorted(payloads_by_slug.items()):
         if slug == CORE_CNR_ID:
             if not include_core:
@@ -405,21 +810,45 @@ def _write_object_info_cache(
             )
             version = "runtime-core"
         else:
+            if slug in low_confidence_slugs:
+                raise RuntimeError(f"cannot write object_info cache for low-confidence fallback pack {slug!r}")
             outcome = outcomes_by_slug.get(slug)
             git_commit = outcome.git_commit_sha if outcome is not None else None
+            ref = refs_by_slug.get(slug)
+            authored_version = ref.version if ref is not None else None
+            authored_commit = ref.commit if ref is not None else None
             if not git_commit:
+                if authored_version and not authored_commit:
+                    warnings.append(
+                        EnsureWarning(
+                            code="cache_identity_unverified",
+                            message=(
+                                f"skipped object_info cache write for {slug!r}: authored version "
+                                f"{authored_version!r} could not be verified to an installed HEAD"
+                            ),
+                            slug=slug,
+                            pack_name=slug,
+                            version=authored_version,
+                        )
+                    )
+                    continue
                 raise RuntimeError(f"cannot write object_info cache for {slug!r} without git commit identity")
+            if authored_commit and git_commit.lower() != authored_commit.lower():
+                raise RuntimeError(
+                    f"cannot write object_info cache for {slug!r}: installed HEAD {git_commit} "
+                    f"does not match authored commit {authored_commit}"
+                )
+            version = authored_version or git_commit
             identity = CacheIdentity(
                 pack_slug=slug,
-                pack_version=git_commit,
+                pack_version=version,
                 git_commit=git_commit,
                 source_kind="runtime_object_info",
             )
-            version = git_commit
 
         classes, packs = _build_cache_from_payload(slug, payload, identity=identity, version=version)
         written[slug] = {"classes": classes, "packs": packs}
-    return {"written": written}
+    return {"written": written}, warnings
 
 
 def _build_cache_from_payload(
@@ -441,7 +870,7 @@ def _build_cache_from_payload(
     try:
         return build_cache(
             source_path,
-            version=version,
+            version=identity.pack_version or version,
             identity=identity,
             full_pack_refresh={identity.pack_slug or slug},
         )
@@ -485,5 +914,6 @@ __all__ = [
     "EnsureEnvResult",
     "EnsureFailure",
     "EnsurePackOutcome",
+    "EnsureWarning",
     "ensure_env",
 ]

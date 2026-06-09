@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +131,27 @@ _index: dict[str, str] | None = None
 _pack_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
 
+@dataclass(frozen=True)
+class ObjectInfoIdentity:
+    pack_slug: str
+    git_commit: str | None = None
+    evidence_identity: str | None = None
+
+
+@dataclass(frozen=True)
+class ObjectInfoLookupWarning:
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ObjectInfoLookupResult:
+    entry: dict[str, Any] | None
+    source: str
+    low_confidence: bool = False
+    warning: ObjectInfoLookupWarning | None = None
+
+
 def _normalize_output_name(name: str) -> str:
     cleaned = name.strip().replace(" ", "_")
     return cleaned.upper()
@@ -243,6 +265,88 @@ def get_class(class_type: str) -> dict[str, Any] | None:
     return {"outputs": curated_outputs}
 
 
+def resolve_class_entry(
+    class_type: str,
+    identity: ObjectInfoIdentity | dict[str, Any] | None = None,
+    *,
+    allow_class_fallback: bool = True,
+) -> ObjectInfoLookupResult:
+    """Resolve an object_info entry, preferring an explicit pack identity.
+
+    Class-only callers can pass no identity and get the historical cache/curated
+    lookup semantics. Identity-aware callers get a provenance-sensitive result
+    with source and warning metadata when a fallback is used or blocked.
+    """
+    normalized_identity = _coerce_identity(identity)
+    if normalized_identity is None:
+        entry = get_class(class_type)
+        return ObjectInfoLookupResult(
+            entry=entry,
+            source="class" if entry is not None else "miss",
+            low_confidence=False,
+        )
+
+    try:
+        entry = get_class_by_identity(
+            class_type,
+            pack_slug=normalized_identity.pack_slug,
+            git_commit=normalized_identity.git_commit,
+            evidence_identity=normalized_identity.evidence_identity,
+        )
+    except ObjectInfoIdentityAmbiguityError:
+        raise
+    if entry is not None:
+        return ObjectInfoLookupResult(entry=entry, source="identity", low_confidence=False)
+
+    if not allow_class_fallback:
+        return ObjectInfoLookupResult(
+            entry=None,
+            source="identity_miss",
+            low_confidence=True,
+            warning=ObjectInfoLookupWarning(
+                code="identity_cache_miss",
+                message=(
+                    f"No object_info cache entry for {class_type} matched identity "
+                    f"{_identity_label(normalized_identity)}."
+                ),
+            ),
+        )
+
+    fallback = get_class(class_type)
+    if fallback is None:
+        return ObjectInfoLookupResult(
+            entry=None,
+            source="miss",
+            low_confidence=True,
+            warning=ObjectInfoLookupWarning(
+                code="identity_cache_miss",
+                message=(
+                    f"No object_info cache entry for {class_type} matched identity "
+                    f"{_identity_label(normalized_identity)}, and class fallback was unavailable."
+                ),
+            ),
+        )
+
+    if _entry_has_authoritative_identity(fallback):
+        code = "provenanced_cache_miss_fallback"
+        message = (
+            f"No object_info cache entry for {class_type} matched identity "
+            f"{_identity_label(normalized_identity)}; using a different provenanced class cache entry."
+        )
+    else:
+        code = "unprovenanced_cache_fallback"
+        message = (
+            f"No object_info cache entry for {class_type} matched identity "
+            f"{_identity_label(normalized_identity)}; using non-authoritative class fallback."
+        )
+    return ObjectInfoLookupResult(
+        entry=fallback,
+        source="class_fallback",
+        low_confidence=True,
+        warning=ObjectInfoLookupWarning(code=code, message=message),
+    )
+
+
 def get_class_by_identity(
     class_type: str,
     *,
@@ -297,6 +401,43 @@ def has_class_identity(
         git_commit=git_commit,
         evidence_identity=evidence_identity,
     ) is not None
+
+
+def _coerce_identity(identity: ObjectInfoIdentity | dict[str, Any] | None) -> ObjectInfoIdentity | None:
+    if identity is None:
+        return None
+    if isinstance(identity, ObjectInfoIdentity):
+        return identity
+    pack_slug = identity.get("pack_slug") or identity.get("pack") or identity.get("slug")
+    git_commit = identity.get("git_commit") or identity.get("commit")
+    evidence_identity = identity.get("evidence_identity")
+    if not pack_slug:
+        raise ValueError("object_info identity requires pack_slug")
+    if git_commit and evidence_identity:
+        raise ValueError("object_info identity accepts git_commit or evidence_identity, not both")
+    if not git_commit and not evidence_identity:
+        raise ValueError("object_info identity requires git_commit or evidence_identity")
+    return ObjectInfoIdentity(
+        pack_slug=str(pack_slug),
+        git_commit=str(git_commit) if git_commit else None,
+        evidence_identity=str(evidence_identity) if evidence_identity else None,
+    )
+
+
+def _identity_label(identity: ObjectInfoIdentity) -> str:
+    key = f"git_commit={identity.git_commit}" if identity.git_commit else f"evidence_identity={identity.evidence_identity}"
+    return f"pack_slug={identity.pack_slug}, {key}"
+
+
+def _entry_has_authoritative_identity(entry: dict[str, Any]) -> bool:
+    if entry.get("git_commit"):
+        return True
+    source_kind = str(entry.get("source_kind") or "")
+    return bool(entry.get("evidence_identity")) and source_kind not in {
+        "",
+        "legacy_object_info_import",
+        "structured_cache_copy",
+    }
 
 
 def object_info_widget_order(class_type: str) -> list[str | None]:

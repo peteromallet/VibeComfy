@@ -18,6 +18,7 @@ from vibecomfy.node_packs_install import (
     restore_pack,
 )
 from vibecomfy.node_packs import CustomNodePack
+from vibecomfy.registry.pack_resolver import PackRef
 
 _VHS_CLASSES = ("VHS_LoadVideo", "VHS_VideoCombine")
 
@@ -38,6 +39,8 @@ class FakeRunner:
         *,
         sha: str = "abc123",
         porcelain: str = "",
+        origin_url: str = "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+        checkout_head: str | None = None,
         fail_clone: bool = False,
         fail_pip: bool = False,
         fail_cm_cli: bool = False,
@@ -45,6 +48,8 @@ class FakeRunner:
     ) -> None:
         self.sha = sha
         self.porcelain = porcelain
+        self.origin_url = origin_url
+        self.checkout_head = checkout_head
         self.fail_clone = fail_clone
         self.fail_pip = fail_pip
         self.fail_cm_cli = fail_cm_cli
@@ -79,12 +84,14 @@ class FakeRunner:
             return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
         if call[:4] == ["git", "-C", call[2], "status"]:
             return subprocess.CompletedProcess(call, 0, stdout=self.porcelain, stderr="")
+        if call[:4] == ["git", "-C", call[2], "config"]:
+            return subprocess.CompletedProcess(call, 0, stdout=f"{self.origin_url}\n", stderr="")
         if call[:4] == ["git", "-C", call[2], "rev-parse"]:
             return subprocess.CompletedProcess(call, 0, stdout=f"{self.sha}\n", stderr="")
         if call[:4] == ["git", "-C", call[2], "fetch"]:
             return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
         if call[:4] == ["git", "-C", call[2], "checkout"]:
-            self.sha = call[4]
+            self.sha = self.checkout_head or call[4]
             return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
         if len(call) >= 4 and call[1:4] == ["-m", "pip", "install"]:
             if self.fail_pip:
@@ -401,6 +408,159 @@ def test_batch_install_collects_all_pack_outcomes_and_preserves_force_and_restor
     assert ["git", "-C", str(install_root / "ExamplePack"), "checkout", "pinnedsha"] in runner.calls
 
 
+def test_batch_install_commit_ref_uses_restore_entry_and_writes_verified_pin(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    runner = PipPreflightRunner()
+    commit = "feedfacefeedfacefeedfacefeedfacefeedface"
+    packs = [
+        CustomNodePack("ExamplePack", "https://example.test/example.git", ("ExampleNode",)),
+    ]
+
+    result = install_required_packs(
+        packs,
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack",
+                source="aux-git",
+                version=commit,
+                commit=commit,
+                url="https://example.test/example.git",
+            )
+        },
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is True
+    assert [(item.name, item.status, item.git_commit_sha) for item in result.results] == [
+        ("ExamplePack", "installed", commit),
+    ]
+    assert ["git", "clone", "https://example.test/example.git", str(install_root / "ExamplePack")] in runner.calls
+    assert ["git", "-C", str(install_root / "ExamplePack"), "checkout", commit] in runner.calls
+    assert read_lockfile(tmp_path / "custom_nodes.lock") == [
+        LockEntry(
+            name="ExamplePack",
+            git_commit_sha=commit,
+            url="https://example.test/example.git",
+            slug="example-pack",
+            source="aux-git",
+            version=commit,
+            commit=commit,
+            class_set=("ExampleNode",),
+        )
+    ]
+
+
+def test_install_pack_checkout_ref_verifies_expected_commit_before_lockfile_write(tmp_path: Path) -> None:
+    runner = FakeRunner(sha="wronghead")
+
+    def checkout_without_moving_head(
+        args: Sequence[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        cwd: str | Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        call = list(args)
+        if call[:4] == ["git", "-C", call[2], "checkout"]:
+            runner.calls.append(call)
+            runner.cwd_calls.append(cwd)
+            return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
+        return runner(args, check=check, capture_output=capture_output, text=text, cwd=cwd)
+
+    result = install_pack(
+        repo="https://example.test/some-pack.git",
+        checkout_ref="expectedhead",
+        expected_commit="expectedhead",
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=checkout_without_moving_head,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.status == "failed"
+    assert "expected git HEAD expectedhead" in (result.error or "")
+    assert not (tmp_path / "custom_nodes.lock").exists()
+
+
+def test_install_pack_existing_checkout_ref_fetches_and_locks_verified_head(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "some-pack"
+    install_dir.mkdir(parents=True)
+    runner = FakeRunner(sha="oldhead", porcelain="", origin_url="https://example.test/some-pack.git")
+
+    result = install_pack(
+        repo="https://example.test/some-pack.git",
+        checkout_ref="newhead",
+        expected_commit="newhead",
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.status == "refreshed"
+    assert result.git_commit_sha == "newhead"
+    assert ["git", "-C", str(install_dir), "fetch", "origin"] in runner.calls
+    assert ["git", "-C", str(install_dir), "checkout", "newhead"] in runner.calls
+    assert read_lockfile(tmp_path / "custom_nodes.lock") == [
+        LockEntry(
+            name="some-pack",
+            git_commit_sha="newhead",
+            url="https://example.test/some-pack.git",
+        )
+    ]
+
+
+def test_batch_install_semver_ref_attempts_checkout_and_preserves_version_identity(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    runner = PipPreflightRunner(
+        sha="pre-checkout-head",
+        checkout_head="tag-head",
+        origin_url="https://example.test/example.git",
+    )
+    packs = [
+        CustomNodePack("ExamplePack", "https://example.test/example.git", ("ExampleNode",)),
+    ]
+
+    result = install_required_packs(
+        packs,
+        install_refs_by_name={
+            "ExamplePack": PackRef(
+                slug="example-pack",
+                source="aux-git",
+                version="v1.2.3",
+                url="https://example.test/example.git",
+            )
+        },
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is True
+    assert [(item.name, item.status, item.git_commit_sha) for item in result.results] == [
+        ("ExamplePack", "installed", "tag-head"),
+    ]
+    assert ["git", "-C", str(install_root / "ExamplePack"), "checkout", "v1.2.3"] in runner.calls
+    assert read_lockfile(tmp_path / "custom_nodes.lock") == [
+        LockEntry(
+            name="ExamplePack",
+            git_commit_sha="tag-head",
+            url="https://example.test/example.git",
+            slug="example-pack",
+            source="aux-git",
+            version="v1.2.3",
+            commit="tag-head",
+            class_set=("ExampleNode",),
+        )
+    ]
+
+
 def test_install_idempotent_when_clean(tmp_path: Path) -> None:
     install_dir = tmp_path / "custom_nodes" / "ComfyUI-VideoHelperSuite"
     install_dir.mkdir(parents=True)
@@ -467,7 +627,7 @@ def test_install_refuses_corrupt_sentinel_for_fresh_install(tmp_path: Path) -> N
 def test_install_refuses_dirty_without_force(tmp_path: Path) -> None:
     install_dir = tmp_path / "custom_nodes" / "ComfyUI-VideoHelperSuite"
     install_dir.mkdir(parents=True)
-    runner = FakeRunner(porcelain=" M nodes.py\n")
+    runner = FakeRunner(sha="dirtyhead", porcelain=" M nodes.py\n")
     lockfile = tmp_path / "custom_nodes.lock"
     original = "Existing abc https://example.test/existing.git\n"
     lockfile.write_text(original, encoding="utf-8")
@@ -481,8 +641,36 @@ def test_install_refuses_dirty_without_force(tmp_path: Path) -> None:
     )
 
     assert result.status == "skipped_dirty"
+    assert result.git_commit_sha == "dirtyhead"
     assert not any(call[:2] == ["git", "clone"] for call in runner.calls)
     assert lockfile.read_text(encoding="utf-8") == original
+
+
+def test_install_existing_mismatched_origin_refuses_without_overwriting(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "ComfyUI-VideoHelperSuite"
+    install_dir.mkdir(parents=True)
+    runner = FakeRunner(
+        sha="existinghead",
+        porcelain="",
+        origin_url="https://example.test/not-video-helper.git",
+    )
+    lockfile = tmp_path / "custom_nodes.lock"
+
+    result = install_pack(
+        name="ComfyUI-VideoHelperSuite",
+        install_root=install_root,
+        lockfile_path=lockfile,
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.status == "skipped_dirty"
+    assert result.git_commit_sha == "existinghead"
+    assert "refusing to overwrite existing clone" in (result.error or "")
+    assert not any(call[:4] == ["git", "-C", str(install_dir), "fetch"] for call in runner.calls)
+    assert not any(call[:4] == ["git", "-C", str(install_dir), "checkout"] for call in runner.calls)
+    assert not lockfile.exists()
 
 
 def test_install_force_dirty_does_not_clone_and_upserts_head(tmp_path: Path) -> None:
@@ -795,6 +983,7 @@ def test_restore_existing_dirty_dir_returns_skipped(tmp_path: Path) -> None:
     result = restore_pack(entry, install_root=tmp_path / "custom_nodes", runner=runner)
 
     assert result.status == "skipped_dirty"
+    assert result.git_commit_sha == "abc123"
     assert lockfile.read_text(encoding="utf-8") == original
     assert not any(call[:4] == ["git", "-C", str(install_dir), "checkout"] for call in runner.calls)
 

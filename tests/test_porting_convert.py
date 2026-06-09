@@ -1758,3 +1758,246 @@ def test_step8_compile_api_byte_identical_only_metadata_changes():
     assert api_with_capture == api_without_capture
     # And the resolved execution graph carries no Get/Set/Reroute nodes.
     assert all(spec["class_type"] not in {"SetNode", "GetNode", "Reroute"} for spec in api_with_capture.values())
+
+
+# ---------------------------------------------------------------------------
+# C12 faithful conversion coverage
+# ---------------------------------------------------------------------------
+
+def _build_dual_version_cache(tmp_path: Path) -> Path:
+    """Build a cache with two entries for KSampler at different authored versions.
+
+    Cache entries are keyed by evidence_identity matching the format that
+    ``_node_object_info_identities`` produces: ``cnr:<pack>|aux:-|ver:<ver>``.
+    This lets resolve_class_entry select the authored-version entry without
+    hitting the both-fields-set guard in ``_identity_key``.
+    """
+    from vibecomfy.porting.object_info.serialize import build_cache, CacheIdentity
+
+    def _make_ksampler(cfg_default: float, description: str) -> dict:
+        return {
+            "KSampler": {
+                "python_module": "nodes",
+                "name": "KSampler",
+                "display_name": "KSampler",
+                "description": description,
+                "category": "sampling",
+                "function": "sample",
+                "input": {
+                    "required": {
+                        "model": ["MODEL"],
+                        "positive": ["CONDITIONING"],
+                        "negative": ["CONDITIONING"],
+                        "latent_image": ["LATENT"],
+                        "seed": ["INT", {"default": 0}],
+                        "steps": ["INT", {"default": 10}],
+                        "cfg": ["FLOAT", {"default": cfg_default}],
+                        "sampler_name": [["euler", "dpm"], {}],
+                        "scheduler": [["normal", "karras"], {}],
+                        "denoise": ["FLOAT", {"default": 0.9}],
+                    },
+                },
+                "input_order": {"required": ["model", "positive", "negative", "latent_image", "seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"]},
+                "output": ["LATENT"],
+                "output_name": ["LATENT"],
+                "output_is_list": [False],
+            }
+        }
+
+    # Evidence identities match the provenance identity_key format so that
+    # resolve_class_entry can select them with a single-field identity.
+    EI_OLD = "cnr:comfy-core|aux:-|ver:v_old"
+    EI_NEW = "cnr:comfy-core|aux:-|ver:v_new"
+
+    cache_root = tmp_path / "dual_version_cache"
+    src_a = tmp_path / "oi_v_old.json"
+    src_b = tmp_path / "oi_v_new.json"
+    src_a.write_text(json.dumps(_make_ksampler(5.0, "sampler v_old")), encoding="utf-8")
+    src_b.write_text(json.dumps(_make_ksampler(7.0, "sampler v_new")), encoding="utf-8")
+
+    build_cache(
+        str(src_a),
+        version="comfy-core@v_old",
+        cache_dir=str(cache_root),
+        identity=CacheIdentity(
+            pack_slug="comfy-core",
+            pack_version="v_old",
+            evidence_identity=EI_OLD,
+        ),
+    )
+    build_cache(
+        str(src_b),
+        version="comfy-core@v_new",
+        cache_dir=str(cache_root),
+        identity=CacheIdentity(
+            pack_slug="comfy-core",
+            pack_version="v_new",
+            evidence_identity=EI_NEW,
+        ),
+    )
+    return cache_root
+
+
+def _patch_consume_for_convert(monkeypatch: pytest.MonkeyPatch, cache_root: Path) -> None:
+    import vibecomfy.porting.object_info.consume as _consume
+    monkeypatch.setattr(_consume, "CACHE_DIR", cache_root)
+    monkeypatch.setattr(_consume, "INDEX_PATH", cache_root / "index.json")
+    monkeypatch.setattr(_consume, "_index", None)
+    monkeypatch.setattr(_consume, "_pack_cache", {})
+
+
+def test_c12_identity_keyed_same_class_different_versions_select_authored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C12: Two identity-keyed cache entries for KSampler at different versions.
+
+    resolve_class_entry with evidence_identity matching the v_old provenance
+    identity key must return the v_old entry (cfg default=5.0), not the v_new
+    entry (cfg default=7.0), proving authored identity governs selection rather
+    than registry latest.
+    """
+    from vibecomfy.porting.object_info.consume import resolve_class_entry, ObjectInfoIdentity
+
+    cache_root = _build_dual_version_cache(tmp_path)
+    _patch_consume_for_convert(monkeypatch, cache_root)
+
+    # Identity uses evidence_identity only (matches provenance identity_key format).
+    identity_old = ObjectInfoIdentity(
+        pack_slug="comfy-core",
+        evidence_identity="cnr:comfy-core|aux:-|ver:v_old",
+    )
+    result = resolve_class_entry("KSampler", identity_old)
+    assert result.entry is not None, "Expected an identity hit for v_old"
+    assert result.source == "identity", f"Expected source='identity', got: {result.source}"
+    assert result.low_confidence is False
+    assert result.warning is None
+    # v_old has cfg default=5.0; v_new has cfg default=7.0
+    # After build_cache normalization the field is stored as "inputs" (plural).
+    cfg_default = result.entry["inputs"]["required"]["cfg"][1]["default"]
+    assert cfg_default == 5.0, f"Expected v_old cfg default=5.0, got: {cfg_default}"
+
+
+def test_c12_authored_identity_does_not_select_newer_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C12: evidence_identity for v_new selects the newer cache entry, not v_old."""
+    from vibecomfy.porting.object_info.consume import resolve_class_entry, ObjectInfoIdentity
+
+    cache_root = _build_dual_version_cache(tmp_path)
+    _patch_consume_for_convert(monkeypatch, cache_root)
+
+    identity_new = ObjectInfoIdentity(
+        pack_slug="comfy-core",
+        evidence_identity="cnr:comfy-core|aux:-|ver:v_new",
+    )
+    result = resolve_class_entry("KSampler", identity_new)
+    assert result.entry is not None
+    assert result.source == "identity"
+    cfg_default = result.entry["inputs"]["required"]["cfg"][1]["default"]
+    assert cfg_default == 7.0, f"Expected v_new cfg default=7.0, got: {cfg_default}"
+
+
+def test_c12_provenanced_cache_miss_warns_low_confidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C12: When a provenanced identity has no matching cache entry, resolve_class_entry
+    returns low_confidence=True and a warning code, falling back to class-only lookup.
+    """
+    from vibecomfy.porting.object_info.consume import resolve_class_entry, ObjectInfoIdentity
+
+    cache_root = _build_dual_version_cache(tmp_path)
+    _patch_consume_for_convert(monkeypatch, cache_root)
+
+    # Identity that does not match any cached entry
+    missing_identity = ObjectInfoIdentity(
+        pack_slug="comfy-core",
+        evidence_identity="cnr:comfy-core|aux:-|ver:v_missing",
+    )
+    result = resolve_class_entry("KSampler", missing_identity, allow_class_fallback=True)
+
+    assert result.low_confidence is True, "Cache miss with fallback must be low_confidence"
+    assert result.warning is not None, "A warning must be attached to a cache miss"
+    assert result.warning.code in {
+        "provenance_identity_cache_miss",
+        "provenanced_cache_miss_fallback",
+        "identity_cache_miss",
+        "unprovenanced_cache_fallback",
+    }, f"Unexpected warning code: {result.warning.code}"
+    # Fallback entry must still resolve (class-level lookup succeeds)
+    assert result.entry is not None, "Class fallback entry should be populated"
+
+
+def test_c12_provenanced_cache_miss_no_fallback_returns_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C12: With allow_class_fallback=False, a cache miss returns None entry."""
+    from vibecomfy.porting.object_info.consume import resolve_class_entry, ObjectInfoIdentity
+
+    cache_root = _build_dual_version_cache(tmp_path)
+    _patch_consume_for_convert(monkeypatch, cache_root)
+
+    missing_identity = ObjectInfoIdentity(
+        pack_slug="comfy-core",
+        evidence_identity="cnr:comfy-core|aux:-|ver:v_missing",
+    )
+    result = resolve_class_entry("KSampler", missing_identity, allow_class_fallback=False)
+
+    assert result.entry is None
+    assert result.low_confidence is True
+    assert result.warning is not None
+
+
+def test_c12_ideogram4_t2i_nodes_use_authored_cnr_ver_identity() -> None:
+    """C12: Nodes in ideogram4_t2i.json carry cnr_id/ver provenance metadata.
+
+    The derived ObjectInfoIdentity map must key each execution node against
+    the authored cnr_id (e.g. 'comfy-core') and authored ver (as evidence_identity
+    or git_commit) rather than exposing bare class-only or latest-registry
+    identities. UUID-typed and helper nodes without cnr_id are excluded.
+    """
+    from vibecomfy.porting.convert import _node_object_info_identities
+
+    fixture_path = Path("docs/megaplan_chains/node_resolution_epic/testing/fixtures/ideogram4_t2i.json")
+    if not fixture_path.is_file():
+        pytest.skip(f"ideogram4_t2i.json fixture not found at {fixture_path}")
+
+    raw = json.loads(fixture_path.read_text(encoding="utf-8"))
+    identities = _node_object_info_identities(raw)
+
+    # Find execution nodes that have cnr_id provenance metadata and are
+    # in the ProvenanceRequirement set (filtered by provenance module rules).
+    # Non-execution and helper nodes are excluded by the provenance builder.
+    provenanced_nodes = [
+        n for n in raw.get("nodes", [])
+        if n.get("properties", {}).get("cnr_id")
+        and n.get("type") not in {"MarkdownNote", "Note"}
+        and str(n["id"]) in identities
+    ]
+
+    # The fixture must have at least some provenanced execution nodes in the map.
+    assert provenanced_nodes, (
+        "Fixture must contain provenanced execution nodes included by the provenance builder; "
+        f"identity map keys: {sorted(identities.keys())}"
+    )
+    assert identities, "identity map must be non-empty for ideogram4_t2i.json"
+
+    for node in provenanced_nodes:
+        node_id = str(node["id"])
+        identity = identities[node_id]
+        authored_cnr = node["properties"]["cnr_id"]
+        assert identity.pack_slug == authored_cnr, (
+            f"Node {node_id}: expected pack_slug={authored_cnr!r}, got {identity.pack_slug!r}"
+        )
+        # The identity must be anchored to the authored ver, not latest
+        has_anchor = identity.git_commit is not None or identity.evidence_identity is not None
+        assert has_anchor, (
+            f"Node {node_id}: identity has no version anchor (git_commit or evidence_identity)"
+        )
+        # evidence_identity should embed the authored ver
+        if identity.evidence_identity:
+            authored_ver = node["properties"].get("ver", "")
+            if authored_ver:
+                assert authored_ver in identity.evidence_identity, (
+                    f"Node {node_id}: authored ver {authored_ver!r} not reflected in "
+                    f"evidence_identity {identity.evidence_identity!r}"
+                )

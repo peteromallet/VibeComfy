@@ -15,6 +15,7 @@ from vibecomfy.porting.emitter import (
     emit_ready_template_python,
     emit_scratchpad_python,
 )
+from vibecomfy.porting.object_info.consume import ObjectInfoIdentity
 from vibecomfy.porting.helper_resolve import ResolveDiagnostics, resolve_helpers
 from vibecomfy.porting.parity import (
     class_type_counter,
@@ -74,6 +75,12 @@ class PortConvertValidation:
     # Readability diagnostics collected during emission
     emission_diagnostics: list[EmissionDiagnostic] = field(default_factory=list)
 
+    # True when conversion emitted ``unprovenanced_class_fallback`` or
+    # ``provenance_identity_cache_miss`` warnings — downstream tooling must
+    # treat the resulting graph as low-confidence (e.g., the emitted template
+    # may not faithfully reflect the pinned object_info schema).
+    low_confidence: bool = False
+
     # Model-like value comparison (T8)
     model_value_change: bool = False
     """True when aliasing changed a model-like value between source and emitted."""
@@ -121,6 +128,7 @@ class PortConvertValidation:
             "source_topology_snapshot": self.source_topology_snapshot,
             "emitted_topology_snapshot": self.emitted_topology_snapshot,
             "emission_diagnostics": [d.to_json() for d in self.emission_diagnostics],
+            "low_confidence": self.low_confidence,
             "model_value_change": self.model_value_change,
             "model_value_dropped": self.model_value_dropped,
             "hidden_model_filenames": self.hidden_model_filenames,
@@ -195,6 +203,40 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
             "endpoints": endpoints,
         }
     return captured
+
+
+def _node_object_info_identities(raw_workflow: dict[str, Any]) -> dict[str, ObjectInfoIdentity]:
+    """Derive a node_id -> ObjectInfoIdentity map from raw workflow provenance.
+
+    Uses the shared provenance requirement builder, independent of ensure-env.
+    Returns an empty dict when provenance data is absent or unparseable.
+    """
+    from vibecomfy.porting.provenance import extract_provenance
+
+    try:
+        report = extract_provenance(raw_workflow)
+    except Exception:
+        return {}
+
+    result: dict[str, ObjectInfoIdentity] = {}
+    for req in report.requirements:
+        pack_slug: str | None = req.cnr_id
+        if not pack_slug and req.aux_id:
+            # Use owner/repo from aux_id as the slug (no registry cnr_id)
+            pack_slug = req.aux_id
+        if not pack_slug:
+            continue
+        git_commit: str | None = None
+        if req.version_pin is not None:
+            git_commit = req.version_pin.version or None
+        identity = ObjectInfoIdentity(
+            pack_slug=pack_slug,
+            git_commit=git_commit,
+            evidence_identity=req.identity_key or None,
+        )
+        for node_id in req.node_ids:
+            result[node_id] = identity
+    return result
 
 
 def port_convert_workflow(
@@ -296,6 +338,12 @@ def port_convert_workflow(
             )
         )
 
+    # Derive node-level object-info identities from the raw workflow via the
+    # shared provenance requirement builder, independent of ensure-env.
+    object_info_identities: dict[str, ObjectInfoIdentity] | None = None
+    if raw_workflow is not None:
+        object_info_identities = _node_object_info_identities(raw_workflow) or None
+
     if ready_id is None:
         complete_provenance = _conversion_provenance(
             workflow,
@@ -315,6 +363,7 @@ def port_convert_workflow(
             diagnostics=emission_diagnostics,
             keep_virtual_wires=keep_virtual_wires,
             prune_dead_branches=prune_dead_branches,
+            object_info_identities=object_info_identities,
         )
         mode: PortConvertMode = "scratchpad"
     else:
@@ -336,6 +385,7 @@ def port_convert_workflow(
             registered_inputs=registered_inputs,
             diagnostics=emission_diagnostics,
             raw_workflow=raw_workflow,
+            object_info_identities=object_info_identities,
         )
         mode = "ready_template"
 
@@ -384,6 +434,11 @@ def port_convert_workflow(
     if validate:
         result.validation = validate_emitted_module(text, schema_provider=schema_provider)
         result.validation.emission_diagnostics = emission_diagnostics
+        if any(
+            d.code in ("unprovenanced_class_fallback", "provenance_identity_cache_miss")
+            for d in emission_diagnostics
+        ):
+            result.validation.low_confidence = True
         if ready_id is not None and result.validation is not None:
             _run_strict_ready_candidate_validation(
                 result.validation,

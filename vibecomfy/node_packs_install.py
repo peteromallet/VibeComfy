@@ -1,7 +1,7 @@
 from __future__ import annotations
 import importlib.util, json, re, shutil, subprocess, sys, tempfile
 from dataclasses import dataclass; from pathlib import Path
-from typing import Any, Callable, Literal, Protocol, Sequence
+from typing import Any, Callable, Literal, Mapping, Protocol, Sequence
 from urllib.parse import urlparse
 from vibecomfy.node_packs import CustomNodePack, get_known_node_packs, resolve_node_packs, unresolved_class_types
 from vibecomfy.node_packs_lockfile import LockEntry, upsert_lockfile_entry
@@ -149,25 +149,54 @@ def _resolve_cm_cli(install_root: Path, runner: Runner) -> list[str] | None:
     script = install_root / "ComfyUI-Manager" / "cm-cli.py"; sibling = Path(sys.executable).with_name("cm-cli"); found = shutil.which("cm-cli")
     module = [sys.executable, "-m", "comfyui_manager.cm_cli"] if importlib.util.find_spec("comfyui_manager") and importlib.util.find_spec("comfyui_manager.cm_cli") else None
     return next((argv for argv in ([sys.executable, str(script)] if script.exists() else None, [str(sibling)] if sibling.exists() else None, [found] if found else None, module) if argv), None)
-def install_pack(*, name: str | None = None, repo: str | None = None, force: bool = False, install_root: Path = DEFAULT_INSTALL_ROOT, lockfile_path: Path = Path("custom_nodes.lock"), runner: Runner = subprocess.run, cm_cli_resolver: Callable[[Path, Runner], list[str] | None] = _resolve_cm_cli) -> InstallResult:
+def install_pack(
+    *,
+    name: str | None = None,
+    repo: str | None = None,
+    force: bool = False,
+    install_root: Path = DEFAULT_INSTALL_ROOT,
+    lockfile_path: Path = Path("custom_nodes.lock"),
+    runner: Runner = subprocess.run,
+    cm_cli_resolver: Callable[[Path, Runner], list[str] | None] = _resolve_cm_cli,
+    pack_ref: PackRef | None = None,
+    checkout_ref: str | None = None,
+    expected_commit: str | None = None,
+) -> InstallResult:
     if name is None and repo is None: raise ValueError("install_pack requires either name or repo")
     pack = _pack_by_name(name) if name is not None else None
     resolved_ref: PackRef | None = None
     if pack is None and repo is None and name is not None:
         try:
-            resolved_ref = resolve_pack(name).ref
+            resolved_ref = pack_ref or resolve_pack(name).ref
         except PackNotFoundError as exc:
             raise ValueError(f"unknown custom node pack {name!r}; pass repo to install an uncatalogued pack") from exc
         repo = resolved_ref.url
+    elif pack_ref is not None:
+        resolved_ref = pack_ref
     if pack is None and repo is None: raise ValueError(f"unknown custom node pack {name!r}; pass repo to install an uncatalogued pack")
     pack_name = name or _pack_name_from_repo(repo or "")
     if not pack_name: raise ValueError(f"could not infer custom node pack name from repo {repo!r}")
+    if resolved_ref is not None and not resolved_ref.slug:
+        resolved_ref = _pack_ref_with_slug(resolved_ref, pack_name)
     repo_url = repo or (pack.repo if pack is not None else None)
     if repo_url is None: raise ValueError(f"missing repo URL for custom node pack {pack_name!r}")
     install_dir = install_root / pack_name
     sentinel = _install_sentinel(install_root, pack_name)
     if _has_incomplete_install(sentinel): return InstallResult(pack_name, "failed", None, sentinel.reason)
-    if install_dir.exists(): return _refresh_existing(pack_name, repo_url, install_dir, force, lockfile_path, runner, pack=pack, pack_ref=resolved_ref, sentinel=sentinel)
+    if install_dir.exists():
+        return _refresh_existing(
+            pack_name,
+            repo_url,
+            install_dir,
+            force,
+            lockfile_path,
+            runner,
+            pack=pack,
+            pack_ref=resolved_ref,
+            checkout_ref=checkout_ref,
+            expected_commit=expected_commit,
+            sentinel=sentinel,
+        )
     cm_cli_argv = cm_cli_resolver(install_root, runner)
     # S4 capability fence: gate AFTER parameter validation (name/repo lookup,
     # cm-cli path detection, directory-exists check) and BEFORE any subprocess
@@ -182,26 +211,99 @@ def install_pack(*, name: str | None = None, repo: str | None = None, force: boo
         ctx=current_gate_context(),
     )
     sentinel.write(phase="start", name=pack_name, repo_url=repo_url, install_dir=install_dir)
-    if cm_cli_argv is None: return _install_pack_via_clone(pack_name, repo_url, pack, install_dir, lockfile_path, runner, pack_ref=resolved_ref, sentinel=sentinel)
+    if cm_cli_argv is None:
+        return _install_pack_via_clone(
+            pack_name,
+            repo_url,
+            pack,
+            install_dir,
+            lockfile_path,
+            runner,
+            pack_ref=resolved_ref,
+            checkout_ref=checkout_ref,
+            expected_commit=expected_commit,
+            sentinel=sentinel,
+        )
     try:
         sentinel.write(phase="cm_cli", name=pack_name, repo_url=repo_url, install_dir=install_dir)
         runner([*cm_cli_argv, "install", pack_name], check=True, capture_output=True, text=True, cwd=install_root.parent)
     except (OSError, subprocess.CalledProcessError):
-        return _install_pack_via_clone(pack_name, repo_url, pack, install_dir, lockfile_path, runner, pack_ref=resolved_ref, sentinel=sentinel)
-    if not (install_dir / ".git").exists(): return _install_pack_via_clone(pack_name, repo_url, pack, install_dir, lockfile_path, runner, pack_ref=resolved_ref, sentinel=sentinel)
+        return _install_pack_via_clone(
+            pack_name,
+            repo_url,
+            pack,
+            install_dir,
+            lockfile_path,
+            runner,
+            pack_ref=resolved_ref,
+            checkout_ref=checkout_ref,
+            expected_commit=expected_commit,
+            sentinel=sentinel,
+        )
+    if not (install_dir / ".git").exists():
+        return _install_pack_via_clone(
+            pack_name,
+            repo_url,
+            pack,
+            install_dir,
+            lockfile_path,
+            runner,
+            pack_ref=resolved_ref,
+            checkout_ref=checkout_ref,
+            expected_commit=expected_commit,
+            sentinel=sentinel,
+        )
+    checkout_error = _checkout_ref_and_verify(
+        pack_name,
+        repo_url,
+        install_dir,
+        checkout_ref,
+        expected_commit,
+        runner,
+        sentinel=sentinel,
+        fetch=False,
+    )
+    if checkout_error is not None:
+        return InstallResult(pack_name, "failed", None, checkout_error)
     sentinel.write(phase="verification", name=pack_name, repo_url=repo_url, install_dir=install_dir)
     sha = _git_head(install_dir, runner)
     if sha is None: return InstallResult(pack_name, "failed", None, f"failed to read git HEAD for {install_dir}")
+    if expected_commit is not None and sha != expected_commit:
+        return InstallResult(pack_name, "failed", sha, f"expected git HEAD {expected_commit} for {install_dir}, got {sha}")
     entry = _lock_entry_for_pack(pack_name, sha, repo_url, pack=pack, pack_ref=resolved_ref)
     if entry is None: return InstallResult(pack_name, "failed", None, f"failed to derive class_set for registry-driven pack {pack_name}")
     sentinel.write(phase="lockfile", name=pack_name, repo_url=repo_url, install_dir=install_dir, git_commit_sha=sha)
     upsert_lockfile_entry(entry, lockfile_path); sentinel.clear(); return InstallResult(pack_name, "installed", sha, None)
-def _install_pack_via_clone(name: str, repo_url: str, pack: CustomNodePack | None, install_dir: Path, lockfile_path: Path, runner: Runner, *, pack_ref: PackRef | None = None, sentinel: _InstallSentinel | None = None) -> InstallResult:
+def _install_pack_via_clone(
+    name: str,
+    repo_url: str,
+    pack: CustomNodePack | None,
+    install_dir: Path,
+    lockfile_path: Path,
+    runner: Runner,
+    *,
+    pack_ref: PackRef | None = None,
+    checkout_ref: str | None = None,
+    expected_commit: str | None = None,
+    sentinel: _InstallSentinel | None = None,
+) -> InstallResult:
     sentinel = sentinel or _install_sentinel(install_dir.parent, name)
     try:
         sentinel.write(phase="clone", name=name, repo_url=repo_url, install_dir=install_dir)
         runner(["git", "clone", repo_url, str(install_dir)], check=True, capture_output=True, text=True)
     except (OSError, subprocess.CalledProcessError) as exc: return InstallResult(name, "failed", None, _error_text(exc) or f"failed to clone {repo_url}")
+    checkout_error = _checkout_ref_and_verify(
+        name,
+        repo_url,
+        install_dir,
+        checkout_ref,
+        expected_commit,
+        runner,
+        sentinel=sentinel,
+        fetch=False,
+    )
+    if checkout_error is not None:
+        return InstallResult(name, "failed", None, checkout_error)
     try:
         sentinel.write(phase="pip", name=name, repo_url=repo_url, install_dir=install_dir)
         runner([sys.executable, "-m", "pip", "install", *pack.pip_packages], check=True, capture_output=True, text=True) if pack and pack.pip_packages else None
@@ -209,6 +311,8 @@ def _install_pack_via_clone(name: str, repo_url: str, pack: CustomNodePack | Non
     sentinel.write(phase="verification", name=name, repo_url=repo_url, install_dir=install_dir)
     sha = _git_head(install_dir, runner)
     if sha is None: return InstallResult(name, "failed", None, f"failed to read git HEAD for {install_dir}")
+    if expected_commit is not None and sha != expected_commit:
+        return InstallResult(name, "failed", sha, f"expected git HEAD {expected_commit} for {install_dir}, got {sha}")
     entry = _lock_entry_for_pack(name, sha, repo_url, pack=pack, pack_ref=pack_ref)
     if entry is None: return InstallResult(name, "failed", None, f"failed to derive class_set for registry-driven pack {name}")
     sentinel.write(phase="lockfile", name=name, repo_url=repo_url, install_dir=install_dir, git_commit_sha=sha)
@@ -219,7 +323,8 @@ def restore_pack(entry: LockEntry, *, install_root: Path = DEFAULT_INSTALL_ROOT,
     sentinel = _install_sentinel(install_root, entry.name)
     if _has_incomplete_install(sentinel): return InstallResult(entry.name, "failed", None, sentinel.reason)
     if install_dir.exists():
-        if (dirty := _git_porcelain(install_dir, runner)) is None or dirty: return InstallResult(entry.name, "failed" if dirty is None else "skipped_dirty", None, f"failed to inspect git status for {install_dir}" if dirty is None else f"{install_dir} has uncommitted changes; restore refused")
+        current_head = _git_head(install_dir, runner)
+        if (dirty := _git_porcelain(install_dir, runner)) is None or dirty: return InstallResult(entry.name, "failed" if dirty is None else "skipped_dirty", current_head, f"failed to inspect git status for {install_dir}" if dirty is None else f"{install_dir} has uncommitted changes; restore refused")
         if _git_head(install_dir, runner) == entry.git_commit_sha: return InstallResult(entry.name, "refreshed", entry.git_commit_sha, None)
         try:
             sentinel.write(phase="restore_fetch", name=entry.name, repo_url=entry.url or "", install_dir=install_dir)
@@ -244,14 +349,52 @@ def restore_pack(entry: LockEntry, *, install_root: Path = DEFAULT_INSTALL_ROOT,
     sentinel.write(phase="verification", name=entry.name, repo_url=entry.url or "", install_dir=install_dir, git_commit_sha=entry.git_commit_sha)
     if _git_head(install_dir, runner) != entry.git_commit_sha: return InstallResult(entry.name, "failed", None, f"failed to verify git HEAD for {install_dir}")
     sentinel.clear(); return InstallResult(entry.name, "installed", entry.git_commit_sha, None)
-def _refresh_existing(name: str, repo_url: str, install_dir: Path, force: bool, lockfile_path: Path, runner: Runner, *, pack: CustomNodePack | None = None, pack_ref: PackRef | None = None, sentinel: _InstallSentinel | None = None) -> InstallResult:
+def _refresh_existing(
+    name: str,
+    repo_url: str,
+    install_dir: Path,
+    force: bool,
+    lockfile_path: Path,
+    runner: Runner,
+    *,
+    pack: CustomNodePack | None = None,
+    pack_ref: PackRef | None = None,
+    checkout_ref: str | None = None,
+    expected_commit: str | None = None,
+    sentinel: _InstallSentinel | None = None,
+) -> InstallResult:
     sentinel = sentinel or _install_sentinel(install_dir.parent, name)
     if _has_incomplete_install(sentinel): return InstallResult(name, "failed", None, sentinel.reason)
+    current_head = _git_head(install_dir, runner)
+    current_origin = _git_origin(install_dir, runner)
+    if current_origin is None:
+        return InstallResult(name, "skipped_dirty", current_head, f"{install_dir} is not a readable git clone; refusing to overwrite existing contents")
+    if _normalize_git_remote(current_origin) != _normalize_git_remote(repo_url):
+        return InstallResult(
+            name,
+            "skipped_dirty",
+            current_head,
+            f"{install_dir} points at {current_origin}, expected {repo_url}; refusing to overwrite existing clone",
+        )
     dirty = _git_porcelain(install_dir, runner)
     if dirty is None: return InstallResult(name, "failed", None, f"failed to inspect git status for {install_dir}")
-    if dirty and not force: return InstallResult(name, "skipped_dirty", None, f"{install_dir} has uncommitted changes; pass --force to refresh the lockfile pin")
+    if dirty and not force: return InstallResult(name, "skipped_dirty", current_head, f"{install_dir} has uncommitted changes; pass --force to refresh the lockfile pin")
+    checkout_error = _checkout_ref_and_verify(
+        name,
+        repo_url,
+        install_dir,
+        checkout_ref,
+        expected_commit,
+        runner,
+        sentinel=sentinel,
+        fetch=True,
+    )
+    if checkout_error is not None:
+        return InstallResult(name, "failed", None, checkout_error)
     sha = _git_head(install_dir, runner)
     if sha is None: return InstallResult(name, "failed", None, f"failed to read git HEAD for {install_dir}")
+    if expected_commit is not None and sha != expected_commit:
+        return InstallResult(name, "failed", sha, f"expected git HEAD {expected_commit} for {install_dir}, got {sha}")
     entry = _lock_entry_for_pack(name, sha, repo_url, pack=pack, pack_ref=pack_ref)
     if entry is None: return InstallResult(name, "failed", None, f"failed to derive class_set for registry-driven pack {name}")
     upsert_lockfile_entry(entry, lockfile_path); return InstallResult(name, "refreshed", sha, None)
@@ -283,6 +426,7 @@ def install_required_packs(
     *,
     force: bool = False,
     restore_entries: Sequence[LockEntry] | None = None,
+    install_refs_by_name: Mapping[str, PackRef | LockEntry | dict[str, Any] | str] | None = None,
     install_root: Path = DEFAULT_INSTALL_ROOT,
     lockfile_path: Path = Path("custom_nodes.lock"),
     runner: Runner = subprocess.run,
@@ -298,9 +442,14 @@ def install_required_packs(
             preflight=preflight,
         )
     restore_by_name = {entry.name: entry for entry in restore_entries or ()}
+    install_refs = install_refs_by_name or {}
     results: list[InstallResult] = []
     for pack in ordered_packs:
-        entry = restore_by_name.get(pack.name)
+        authored_ref = install_refs.get(pack.name)
+        entry = restore_by_name.get(pack.name) or _restore_entry_from_install_ref(pack, authored_ref)
+        install_ref = _pack_ref_from_install_ref(authored_ref)
+        if install_ref is not None and not install_ref.slug:
+            install_ref = _pack_ref_with_slug(install_ref, pack.name)
         result = (
             restore_pack(entry, install_root=install_root, runner=runner)
             if entry is not None
@@ -311,8 +460,22 @@ def install_required_packs(
                 lockfile_path=lockfile_path,
                 runner=runner,
                 cm_cli_resolver=cm_cli_resolver,
+                pack_ref=install_ref,
+                checkout_ref=(
+                    install_ref.commit
+                    if install_ref is not None and install_ref.commit
+                    else install_ref.version if install_ref is not None else None
+                ),
+                expected_commit=install_ref.commit if install_ref is not None and _looks_like_commit(install_ref.commit) else None,
             )
         )
+        if authored_ref is not None and entry is not None and result.status in {"installed", "refreshed"}:
+            upsert_lockfile_entry(entry, lockfile_path)
+        elif install_ref is not None and result.status in {"installed", "refreshed"} and result.git_commit_sha is not None:
+            repo_url = install_ref.url or pack.repo
+            resolved_entry = _lock_entry_for_pack(pack.name, result.git_commit_sha, repo_url, pack=pack, pack_ref=install_ref)
+            if resolved_entry is not None:
+                upsert_lockfile_entry(resolved_entry, lockfile_path)
         results.append(result)
     return InstallBatchResult(
         ok=all(result.status in {"installed", "refreshed"} for result in results),
@@ -354,6 +517,77 @@ def _lock_entry_for_pack(name: str, sha: str, repo_url: str, *, pack: CustomNode
         pip_packages=pack.pip_packages if pack is not None else (),
         class_schema_sha256=pack.class_schema_sha256 if pack_ref is not None and pack is not None else None,
     )
+def _restore_entry_from_install_ref(pack: CustomNodePack, install_ref: PackRef | LockEntry | dict[str, Any] | str | None) -> LockEntry | None:
+    if install_ref is None:
+        return None
+    if isinstance(install_ref, LockEntry):
+        return install_ref
+    pack_ref = _pack_ref_from_install_ref(install_ref)
+    if pack_ref is None or not _looks_like_commit(pack_ref.commit):
+        return None
+    repo_url = pack_ref.url or pack.repo
+    if not pack_ref.slug:
+        pack_ref = _pack_ref_with_slug(pack_ref, pack.name)
+    return _lock_entry_for_pack(pack.name, pack_ref.commit or "", repo_url, pack=pack, pack_ref=pack_ref)
+def _pack_ref_from_install_ref(install_ref: PackRef | LockEntry | dict[str, Any] | str | None) -> PackRef | None:
+    if install_ref is None or isinstance(install_ref, LockEntry):
+        return None
+    if isinstance(install_ref, PackRef):
+        return install_ref
+    if isinstance(install_ref, str):
+        return PackRef(slug="", source="git", version=install_ref, commit=install_ref if _looks_like_commit(install_ref) else None)
+    return PackRef(
+        slug=str(install_ref.get("slug") or install_ref.get("name") or ""),
+        source=str(install_ref.get("source") or "git"),
+        version=str(install_ref["version"]) if install_ref.get("version") is not None else None,
+        commit=str(install_ref["commit"]) if install_ref.get("commit") is not None else None,
+        url=str(install_ref["url"]) if install_ref.get("url") is not None else None,
+        path=str(install_ref["path"]) if install_ref.get("path") is not None else None,
+        name=str(install_ref["name"]) if install_ref.get("name") is not None else None,
+        registry_id=str(install_ref["registry_id"]) if install_ref.get("registry_id") is not None else None,
+    )
+def _pack_ref_with_slug(pack_ref: PackRef, slug: str) -> PackRef:
+    return PackRef(
+        slug=slug,
+        source=pack_ref.source,
+        version=pack_ref.version,
+        commit=pack_ref.commit,
+        url=pack_ref.url,
+        path=pack_ref.path,
+        name=pack_ref.name,
+        registry_id=pack_ref.registry_id,
+    )
+def _checkout_ref_and_verify(
+    name: str,
+    repo_url: str,
+    install_dir: Path,
+    checkout_ref: str | None,
+    expected_commit: str | None,
+    runner: Runner,
+    *,
+    sentinel: _InstallSentinel,
+    fetch: bool,
+) -> str | None:
+    if checkout_ref is None:
+        return None
+    try:
+        if fetch:
+            sentinel.write(phase="fetch", name=name, repo_url=repo_url, install_dir=install_dir)
+            runner(["git", "-C", str(install_dir), "fetch", "origin"], check=True, capture_output=True, text=True)
+        sentinel.write(phase="checkout", name=name, repo_url=repo_url, install_dir=install_dir)
+        runner(["git", "-C", str(install_dir), "checkout", checkout_ref], check=True, capture_output=True, text=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _error_text(exc) or f"failed to checkout {checkout_ref} for {name}"
+    if expected_commit is None:
+        return None
+    head = _git_head(install_dir, runner)
+    if head is None:
+        return f"failed to read git HEAD for {install_dir}"
+    if head != expected_commit:
+        return f"expected git HEAD {expected_commit} for {install_dir}, got {head}"
+    return None
+def _looks_like_commit(value: str | None) -> bool:
+    return bool(value is not None and re.fullmatch(r"[0-9a-fA-F]{7,40}", value))
 def _install_pack_pip_packages(name: str, pack: CustomNodePack | None, runner: Runner) -> str | None:
     if pack is None or not pack.pip_packages: return None
     try: runner([sys.executable, "-m", "pip", "install", *pack.pip_packages], check=True, capture_output=True, text=True)
@@ -379,7 +613,15 @@ def _git(pack_dir: Path, args: list[str], runner: Runner) -> str | None:
     try: return runner(["git", "-C", str(pack_dir), *args], check=True, capture_output=True, text=True).stdout
     except (OSError, subprocess.CalledProcessError): return None
 def _git_porcelain(pack_dir: Path, runner: Runner) -> str | None: return _git(pack_dir, ["status", "--porcelain"], runner)
+def _git_origin(pack_dir: Path, runner: Runner) -> str | None: return (_git(pack_dir, ["config", "--get", "remote.origin.url"], runner) or "").strip() or None
 def _git_head(pack_dir: Path, runner: Runner) -> str | None: return (_git(pack_dir, ["rev-parse", "HEAD"], runner) or "").strip() or None
+def _normalize_git_remote(value: str) -> str:
+    cleaned = value.strip()
+    if cleaned.endswith(".git"):
+        cleaned = cleaned[:-4]
+    if cleaned.startswith("git@github.com:"):
+        cleaned = f"https://github.com/{cleaned.split(':', 1)[1]}"
+    return cleaned.rstrip("/").lower()
 def _known_schema_classes(path: Path = Path("node_index.json")) -> set[str]:
     path = _resolve_node_index_path(path)
     if not path.exists():

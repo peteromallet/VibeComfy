@@ -34,8 +34,12 @@ from vibecomfy.porting.parity import (
     widget_value_counter,
 )
 from vibecomfy.porting.provenance import (
+    ProvenanceConflict,
     ProvenanceRecord,
     ProvenanceReport,
+    ProvenanceRequirement,
+    ProvenanceVersionPin,
+    ProvenanceWarning,
     extract_provenance,
 )
 from vibecomfy.porting.report import (
@@ -97,8 +101,12 @@ __all__ = [
     "OutputSignatureField",
     "PortArtifact",
     "PortIssue",
+    "ProvenanceConflict",
     "ProvenanceRecord",
     "ProvenanceReport",
+    "ProvenanceRequirement",
+    "ProvenanceVersionPin",
+    "ProvenanceWarning",
     "PortReport",
     "READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT",
     "READABILITY_WARNING_CODES",

@@ -6,7 +6,13 @@ from typing import Any
 import httpx
 import pytest
 
-from vibecomfy.registry.pack_resolver import AmbiguousPackError, PackRef, lookup_class_candidates, resolve_pack
+from vibecomfy.registry.pack_resolver import (
+    AmbiguousPackError,
+    PackNotFoundError,
+    PackRef,
+    lookup_class_candidates,
+    resolve_pack,
+)
 
 
 class FakeRegistryClient:
@@ -185,3 +191,461 @@ def test_obsolete_registry_packs_endpoint_is_never_called(tmp_path: Path) -> Non
         "https://api.comfy.org/comfy-nodes/KSampler/node",
         "https://api.comfy.org/nodes/search",
     ]
+
+
+def test_resolve_pack_preserves_authored_commit_pin_on_registry_resolution(tmp_path: Path) -> None:
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/nodes/search", (("search", "comfyui-kjnodes"),)): {
+                "nodes": [
+                    {
+                        "id": "comfyui-kjnodes",
+                        "name": "ComfyUI-KJNodes",
+                        "latestVersion": "9.9.9",
+                        "commit_sha": "latest999",
+                        "repository": "https://github.com/kijai/ComfyUI-KJNodes",
+                    }
+                ]
+            }
+        }
+    )
+
+    resolution = resolve_pack(
+        "comfyui-kjnodes",
+        version_pin="deadbeefcafebabe",
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "slug"
+    assert resolution.ref.version == "deadbeefcafebabe"
+    assert resolution.ref.commit == "deadbeefcafebabe"
+    assert resolution.ref.url == "https://github.com/kijai/ComfyUI-KJNodes"
+
+
+def test_resolve_pack_preserves_semver_pin_and_precomputed_local_metadata(tmp_path: Path) -> None:
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/nodes/search", (("search", "comfyui-kjnodes"),)): {
+                "nodes": [
+                    {
+                        "id": "comfyui-kjnodes",
+                        "name": "ComfyUI-KJNodes",
+                        "latestVersion": "9.9.9",
+                        "commit_sha": "latest999",
+                        "repository": "https://github.com/kijai/ComfyUI-KJNodes",
+                    }
+                ]
+            }
+        }
+    )
+
+    resolution = resolve_pack(
+        "comfyui-kjnodes",
+        version_pin="1.2.3",
+        local_metadata={"commit": "abc1234", "path": "/tmp/ComfyUI-KJNodes"},
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.ref.version == "1.2.3"
+    assert resolution.ref.commit == "abc1234"
+    assert resolution.ref.path == "/tmp/ComfyUI-KJNodes"
+
+
+def test_resolve_pack_uses_distinct_aux_git_path_without_registry_fallback(tmp_path: Path) -> None:
+    client = FakeRegistryClient({})
+
+    resolution = resolve_pack(
+        "AuxOnlyNode",
+        aux_id="owner/repo",
+        version_pin="deadbeef",
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "aux_git"
+    assert resolution.ref == PackRef(
+        slug="repo",
+        source="aux-git",
+        version="deadbeef",
+        commit="deadbeef",
+        url="https://github.com/owner/repo.git",
+        name="AuxOnlyNode",
+    )
+    assert client.calls == []
+
+
+# ---------------------------------------------------------------------------
+# T5 — Unchanged resolve_pack(name) behavior proofs
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_pack_empty_string_raises_value_error(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        resolve_pack("", cache_root=tmp_path)
+
+
+def test_resolve_pack_whitespace_only_string_raises_value_error(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        resolve_pack("   ", cache_root=tmp_path)
+
+
+def test_resolve_pack_explicit_none_params_preserve_unchanged_behavior(tmp_path: Path) -> None:
+    """Calling resolve_pack with version_pin=None, aux_id=None must behave
+    identically to calling it without those keyword arguments."""
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/comfy-nodes/KSampler/node", ()): {
+                "node": {
+                    "id": "comfy-core",
+                    "name": "Comfy Core",
+                    "latest_version": "2.0.0",
+                    "commit": "ccc111",
+                }
+            }
+        }
+    )
+
+    no_kwargs = resolve_pack("KSampler", cache_root=tmp_path, client=client)
+    with_kwargs = resolve_pack(
+        "KSampler",
+        version_pin=None,
+        aux_id=None,
+        local_metadata=None,
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert no_kwargs.ref == with_kwargs.ref
+    assert no_kwargs.query_type == with_kwargs.query_type
+
+
+def test_resolve_pack_unknown_name_raises_pack_not_found(tmp_path: Path) -> None:
+    client = FakeRegistryClient({})
+
+    with pytest.raises(PackNotFoundError, match="unknown pack or class"):
+        resolve_pack("NonexistentPackOrClass", cache_root=tmp_path, client=client)
+
+
+def test_resolve_pack_disallow_remote_lookup_raises(tmp_path: Path) -> None:
+    client = FakeRegistryClient({})
+
+    with pytest.raises(PackNotFoundError, match="remote lookup disabled"):
+        resolve_pack(
+            "SomeClass",
+            allow_remote_lookup=False,
+            cache_root=tmp_path,
+            client=client,
+        )
+
+
+def test_resolve_pack_disallow_remote_lookup_allows_aux_git(tmp_path: Path) -> None:
+    """allow_remote_lookup=False should NOT block aux_git resolution because
+    that path returns before the remote-lookup guard."""
+    client = FakeRegistryClient({})
+
+    resolution = resolve_pack(
+        "AuxNode",
+        aux_id="owner/repo",
+        allow_remote_lookup=False,
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "aux_git"
+    assert client.calls == []
+
+
+def test_resolve_pack_disallow_remote_lookup_allows_local_path(tmp_path: Path) -> None:
+    client = FakeRegistryClient({})
+
+    resolution = resolve_pack(
+        "/tmp/ComfyUI-CustomNodes",
+        allow_remote_lookup=False,
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "local"
+    assert client.calls == []
+
+
+# ---------------------------------------------------------------------------
+# T5 — Version-pin preservation on PackRef
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_pack_semver_pin_on_registry_class_resolution(tmp_path: Path) -> None:
+    """Semver pin (e.g. '1.2.3') should set version but NOT commit on a
+    registry resolution, because semver does not look like a commit SHA."""
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/comfy-nodes/MyNode/node", ()): {
+                "node": {
+                    "id": "comfyui-mypack",
+                    "name": "MyPack",
+                    "latest_version": "4.0.0",
+                    "commit": "registry999",
+                    "repository": "https://github.com/example/MyPack",
+                }
+            }
+        }
+    )
+
+    resolution = resolve_pack(
+        "MyNode",
+        version_pin="1.2.3",
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "class"
+    assert resolution.ref.version == "1.2.3"
+    # semver pin should NOT overwrite commit
+    assert resolution.ref.commit == "registry999"
+    assert resolution.ref.url == "https://github.com/example/MyPack"
+
+
+def test_resolve_pack_version_pin_on_local_path(tmp_path: Path) -> None:
+    resolution = resolve_pack(
+        "./custom_nodes/MyPack",
+        version_pin="abc123def",
+        cache_root=tmp_path,
+    )
+
+    assert resolution.query_type == "local"
+    assert resolution.ref.version == "abc123def"
+    assert resolution.ref.commit == "abc123def"
+    assert resolution.ref.path is not None
+    assert "MyPack" in resolution.ref.path
+
+
+def test_resolve_pack_version_pin_on_git_url(tmp_path: Path) -> None:
+    resolution = resolve_pack(
+        "https://github.com/user/repo.git",
+        version_pin="deadbeef",
+        cache_root=tmp_path,
+    )
+
+    assert resolution.query_type == "git"
+    assert resolution.ref.slug == "repo"
+    assert resolution.ref.version == "deadbeef"
+    assert resolution.ref.commit == "deadbeef"
+    assert resolution.ref.url == "https://github.com/user/repo.git"
+
+
+def test_resolve_pack_local_metadata_as_pack_ref_object(tmp_path: Path) -> None:
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/nodes/search", (("search", "comfyui-kjnodes"),)): {
+                "nodes": [
+                    {
+                        "id": "comfyui-kjnodes",
+                        "name": "ComfyUI-KJNodes",
+                        "latestVersion": "9.9.9",
+                        "commit_sha": "latest999",
+                        "repository": "https://github.com/kijai/ComfyUI-KJNodes",
+                    }
+                ]
+            }
+        }
+    )
+
+    local = PackRef(
+        slug="comfyui-kjnodes",
+        source="local-git",
+        version="abc1234",
+        commit="abc1234",
+        url="git@github.com:kijai/ComfyUI-KJNodes.git",
+        path="/custom_nodes/ComfyUI-KJNodes",
+        name="ComfyUI-KJNodes",
+    )
+
+    resolution = resolve_pack(
+        "comfyui-kjnodes",
+        version_pin="1.2.3",
+        local_metadata=local,
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    # local_metadata PackRef fields take priority: version comes from
+    # the PackRef metadata, not from version_pin
+    assert resolution.ref.version == "abc1234"
+    assert resolution.ref.commit == "abc1234"
+    assert resolution.ref.url == "git@github.com:kijai/ComfyUI-KJNodes.git"
+    assert resolution.ref.path == "/custom_nodes/ComfyUI-KJNodes"
+
+
+def test_resolve_pack_aux_id_without_explicit_version_pin(tmp_path: Path) -> None:
+    """aux_id path should work even without a version_pin — the ref just
+    won't have version/commit set."""
+    client = FakeRegistryClient({})
+
+    resolution = resolve_pack(
+        "SomeNode",
+        aux_id="owner/repo",
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "aux_git"
+    assert resolution.ref.source == "aux-git"
+    assert resolution.ref.slug == "repo"
+    assert resolution.ref.url == "https://github.com/owner/repo.git"
+    assert resolution.ref.version is None
+    assert resolution.ref.commit is None
+    assert client.calls == []
+
+
+def test_resolve_pack_whitespace_aux_id_treated_as_none(tmp_path: Path) -> None:
+    """Whitespace-only aux_id should normalize to None, causing normal
+    registry resolution instead of aux_git path."""
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/nodes/search", (("search", "MyPack"),)): {
+                "nodes": [
+                    {
+                        "id": "comfyui-mypack",
+                        "name": "MyPack",
+                        "latestVersion": "3.0.0",
+                        "commit_sha": "fffeee",
+                    }
+                ]
+            }
+        }
+    )
+
+    resolution = resolve_pack(
+        "MyPack",
+        aux_id="   ",
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "slug"
+    assert resolution.ref.slug == "comfyui-mypack"
+    assert resolution.ref.source == "comfy-registry"
+
+
+# ---------------------------------------------------------------------------
+# T5 — PackRef serialization
+# ---------------------------------------------------------------------------
+
+
+def test_pack_ref_to_dict_includes_non_none_fields() -> None:
+    ref = PackRef(
+        slug="test-pack",
+        source="comfy-registry",
+        version="1.0.0",
+        commit="abc123",
+    )
+
+    result = ref.to_dict()
+    assert result == {
+        "slug": "test-pack",
+        "source": "comfy-registry",
+        "version": "1.0.0",
+        "commit": "abc123",
+    }
+
+
+def test_pack_ref_to_dict_excludes_none_fields() -> None:
+    ref = PackRef(slug="minimal", source="local")
+
+    result = ref.to_dict()
+    assert result == {"slug": "minimal", "source": "local"}
+
+
+def test_pack_ref_to_dict_full() -> None:
+    ref = PackRef(
+        slug="full-pack",
+        source="git",
+        version="2.0.0",
+        commit="def456",
+        url="https://github.com/user/repo.git",
+        path="/tmp/repo",
+        name="Full Pack",
+        registry_id="full-pack-id",
+    )
+
+    result = ref.to_dict()
+    assert result == {
+        "slug": "full-pack",
+        "source": "git",
+        "version": "2.0.0",
+        "commit": "def456",
+        "url": "https://github.com/user/repo.git",
+        "path": "/tmp/repo",
+        "name": "Full Pack",
+        "registry_id": "full-pack-id",
+    }
+
+
+# ---------------------------------------------------------------------------
+# T5 — Lookup edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_lookup_class_candidates_returns_empty_for_unknown_class(tmp_path: Path) -> None:
+    client = FakeRegistryClient({})
+
+    candidates = lookup_class_candidates("UnknownClass", cache_root=tmp_path, client=client)
+
+    assert candidates == []
+    assert client.calls == [
+        ("https://api.comfy.org/nodes/search", (("comfy_node_search", "UnknownClass"),))
+    ]
+
+
+def test_resolve_pack_registry_id_slug_path(tmp_path: Path) -> None:
+    """A query that looks like a registry ID should hit /nodes/{id} first."""
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/nodes/deadbeefcafebabe12345678", ()): {
+                "id": "comfyui-custom",
+                "name": "Custom Pack",
+                "latest_version": "5.0.0",
+                "commit_sha": "abc999",
+            }
+        }
+    )
+
+    resolution = resolve_pack(
+        "deadbeefcafebabe12345678",
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.query_type == "slug"
+    assert resolution.ref.slug == "comfyui-custom"
+    assert resolution.ref.version == "5.0.0"
+    assert client.calls == [
+        ("https://api.comfy.org/nodes/deadbeefcafebabe12345678", ())
+    ]
+
+
+def test_resolve_pack_uses_exact_slug_match_over_fuzzy(tmp_path: Path) -> None:
+    """When search returns multiple candidates, _select_exact_slug_or_name
+    should pick the exact slug/name match."""
+    client = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/nodes/search", (("search", "comfyui-kjnodes"),)): {
+                "nodes": [
+                    {"id": "comfyui-kjnodes-extra", "name": "Extra KJNodes"},
+                    {"id": "comfyui-kjnodes", "name": "ComfyUI-KJNodes"},
+                    {"id": "other-pack", "name": "Other"},
+                ]
+            }
+        }
+    )
+
+    resolution = resolve_pack(
+        "comfyui-kjnodes",
+        cache_root=tmp_path,
+        client=client,
+    )
+
+    assert resolution.ref.slug == "comfyui-kjnodes"
+    assert resolution.query_type == "slug"
