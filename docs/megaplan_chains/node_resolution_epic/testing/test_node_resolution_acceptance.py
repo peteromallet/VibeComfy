@@ -65,6 +65,7 @@ def _comfymath_output_counts(workflow: dict) -> list[int]:
 
 
 def _write_temp_object_info_cache(tmp_path: Path, *, output_names: list[str]) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "object_info.json"
     source.write_text(
         json.dumps(
@@ -199,7 +200,6 @@ def test_fixtures_present():
 # Sprint A — correctness spine (scenarios 1–5)
 # --------------------------------------------------------------------------- #
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 1")
 def test_a1_ideogram_no_silent_miscompile():
     """Porting the Ideogram workflow must never raise a bare unpack ValueError:
     it either compiles with correct arity, or raises typed ArityDisagreementError."""
@@ -221,7 +221,6 @@ def test_a1_ideogram_no_silent_miscompile():
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 2")
 def test_a2_fail_closed_on_known_node_arity_disagreement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -249,7 +248,6 @@ def test_a2_fail_closed_on_known_node_arity_disagreement(
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 3")
 def test_a3_core_refresh_does_not_clobber_custom_packs():
     """After refreshing core schema, custom-pack classes still resolve (merge)."""
     from vibecomfy.porting.object_info import class_is_known
@@ -259,7 +257,6 @@ def test_a3_core_refresh_does_not_clobber_custom_packs():
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 4")
 def test_a4_io_schema_nodes_covered():
     """Executed introspection (not AST) yields correct outputs for io.Schema nodes."""
     from vibecomfy.porting.object_info import output_names
@@ -267,12 +264,118 @@ def test_a4_io_schema_nodes_covered():
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 5")
-def test_a5_identity_keyed_cache_and_drift():
-    """Cache key is (pack_slug, git_commit); schema-hash wired; drift uses one algo."""
-    # compute_schema_hash wired at install; drift.py compares the same projection.
-    from vibecomfy.node_packs_lockfile import compute_schema_hash  # noqa: F401
-    pytest.fail("assert (pack, commit) lookup + consistent drift hash — see testing.md §5")
+def test_a5_identity_keyed_cache_and_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """testing.md §5: lookup key is ``(pack_slug, git_commit)``, ``compute_schema_hash``
+    is wired and is a *real content hash*, and the cache builder and the drift
+    checker share ONE schema-hash projection (the pre-m1 bug was two hashes that
+    never matched, yielding false-positive drift)."""
+    from vibecomfy.node_packs_lockfile import LockEntry, compute_schema_hash
+    from vibecomfy.porting.object_info import get_class_by_identity
+    from vibecomfy.runtime import drift as drift_mod
+
+    # -- Property 1: compute_schema_hash is a deterministic content hash -------
+    # Same schemas → same hash (deterministic), and a DIFFERENT output arity →
+    # a DIFFERENT hash (so it reacts to content; not a constant/stub). The
+    # extra "BOOL" output is exactly the ComfyMathExpression skew from §scenario 2.
+    schema_2out = {"N": {"class_type": "N", "outputs": ["FLOAT", "INT"]}}
+    schema_3out = {"N": {"class_type": "N", "outputs": ["FLOAT", "INT", "BOOL"]}}
+    assert compute_schema_hash(schema_2out) == compute_schema_hash(schema_2out)
+    assert compute_schema_hash(schema_3out) == compute_schema_hash(schema_3out)
+    assert compute_schema_hash(schema_2out) != compute_schema_hash(schema_3out), (
+        "compute_schema_hash must change when output arity changes — "
+        "a constant/stub hash would defeat drift detection"
+    )
+
+    # -- Build a real per-pack cache stamped with (pack_slug, git_commit) ------
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                "ComfyMathExpression": {
+                    "python_module": "custom_nodes.comfy_math.nodes",
+                    "name": "ComfyMathExpression",
+                    "display_name": "ComfyMathExpression",
+                    "description": "",
+                    "category": "math",
+                    "function": "evaluate",
+                    "input": {"required": {}, "optional": {}},
+                    "input_order": {"required": [], "optional": []},
+                    "output": ["FLOAT", "INT", "BOOL"],
+                    "output_name": ["FLOAT", "INT", "BOOL"],
+                    "output_is_list": [False, False, False],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "object_info"
+    pack_slug = "comfy_math"
+    git_commit = "0123456789abcdef0123456789abcdef01234567"
+    build_cache(
+        str(source),
+        version="acceptance",
+        cache_dir=str(cache_root),
+        pack_slug=pack_slug,
+        git_commit=git_commit,
+    )
+    _patch_object_info_cache(monkeypatch, cache_root)
+
+    # -- Property 2: identity key = (pack_slug, git_commit) --------------------
+    # The serialized cache entry is *tagged* by resolved (pack, commit) identity,
+    # and is retrievable by that exact identity — not by "live vs cache".
+    entry = get_class_by_identity(
+        "ComfyMathExpression", pack_slug=pack_slug, git_commit=git_commit
+    )
+    assert entry is not None, "cache entry must resolve by (pack_slug, git_commit)"
+    assert entry["pack_slug"] == pack_slug
+    assert entry["git_commit"] == git_commit
+    # A wrong commit under the same slug must NOT resolve (it really is keyed by
+    # the pair, not by slug alone).
+    assert (
+        get_class_by_identity(
+            "ComfyMathExpression", pack_slug=pack_slug, git_commit="ffffffff"
+        )
+        is None
+    )
+
+    # -- Property 3: cache builder and drift checker share ONE projection ------
+    # drift._canonical_pack_schema_hash pulls the cache entry by identity and
+    # hashes it with the SAME compute_schema_hash the builder used. Pinning that
+    # exact projection in the lockfile must report status "canonical" with a
+    # matching hash → NO spurious drift.
+    canonical_hash = compute_schema_hash({"ComfyMathExpression": entry})
+    matching_entry = LockEntry(
+        name=pack_slug,
+        slug=pack_slug,
+        git_commit_sha=git_commit,
+        url="https://example.invalid/comfy_math",
+        class_set=("ComfyMathExpression",),
+        schema_hash=canonical_hash,
+    )
+    matched = drift_mod._canonical_pack_schema_hash(matching_entry)
+    assert matched["status"] == "canonical", matched
+    assert matched["hash"] == canonical_hash, (
+        "drift must hash the cache entry with the SAME projection as the builder; "
+        "a divergent algorithm is the pre-m1 false-positive-drift bug"
+    )
+
+    # A wrong-commit pin cannot resolve a canonical entry → it is reported
+    # unavailable (no canonical hash), proving the comparison is identity-gated
+    # rather than silently matching on slug alone.
+    wrong_commit_entry = LockEntry(
+        name=pack_slug,
+        slug=pack_slug,
+        git_commit_sha="ffffffff",
+        url="https://example.invalid/comfy_math",
+        class_set=("ComfyMathExpression",),
+        schema_hash=canonical_hash,
+    )
+    assert (
+        drift_mod._canonical_pack_schema_hash(wrong_commit_entry)["status"]
+        != "canonical"
+    )
 
 
 # --------------------------------------------------------------------------- #
