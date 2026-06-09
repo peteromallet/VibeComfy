@@ -321,6 +321,59 @@ Concrete failures converted into reusable rules:
 - LTX missing models/path names -> model alias staging and family-specific normalization.
 - LTX latent upscaler object mismatch -> bypass in smoke and document HiddenSwitch/KJNodes incompatibility.
 
+## Raw-shape `@stub` object_info snapshots report 0 outputs (latent arity bug)
+
+Status: `Open — follow-up` (found 2026-06-09 during node_resolution_epic m3)
+
+Five hand-authored object_info snapshots are stored in raw ComfyUI
+`object_info` shape — outputs as two parallel arrays, `output` (type strings)
+and `output_name` (display names) — rather than the normalized
+`outputs: [{name, type}]` shape that the 19 captured snapshots use:
+
+- `ComfyUI-MelBandRoformer@stub.json`
+- `comfyui_controlnet_aux@stub.json`
+- `ComfyUI-Florence2@stub.json`
+- `ComfyUI-GIMM-VFI@stub.json`
+- `ComfyUI-Custom-Scripts@stub.json`
+
+`vibecomfy/porting/object_info/consume.py::output_names`/`output_types` only
+read the normalized `outputs` key, so **every class in those five stubs reports
+0 outputs**. `class_output_count` therefore returns 0, and
+`check_output_arity_consensus` raises a false `ArityDisagreementError`
+("cached snapshot declares 0 outputs but UI declares N") on any workflow that
+wires one of those nodes. This is what makes
+`tests/test_porting_convert.py::test_real_fixture_talking_avatar_getnode_resolves_to_named_broadcast`
+fail (it is in the m3 baseline of pre-existing failures and is allowlisted in
+`tests/known_failures.txt`).
+
+The minimal fix is to make `output_names`/`output_types` derive normalized
+specs from the raw `output`/`output_name` arrays when `outputs` is absent (or to
+normalize the five stub files). **But that fix is not free**: it surfaces a
+calibrated dependency in the ready-template corpus. Once `DWPreprocessor`
+(controlnet_aux) correctly reports its two outputs (`IMAGE`, `POSE_KEYPOINT`),
+at least eight LTX/Wan video templates that reference its output without an
+explicit `.out('IMAGE')` start raising
+`ValueError: ... has 2 outputs (...); specify .out('NAME') explicitly` from
+`build()`. Those raises also expose a **workflow-context leak**: a ready
+template whose `build()` raises after `new_workflow(...)` has eagerly bound the
+`_CURRENT_WORKFLOW` ContextVar (and is never released by `finalize()`) leaves
+the binding active, so every subsequent template load — and the next
+`build_strict_ready_report()` call — fails with
+`ContextVarBindingError: Nested workflow contexts not supported`. The defensive
+cleanup in `templates.py::new_workflow` only clears a leaked binding whose owner
+has been GC'd (token already `None`); it does not handle the common
+`build()`-raised-after-binding case.
+
+Proper follow-up (own piece of work, not a pre-merge tweak):
+1. Make the consume accessors shape-tolerant (or normalize the five stub files).
+2. Add explicit `.out('IMAGE')` disambiguation to the ~8 DWPreprocessor-using
+   video templates.
+3. Isolate each template load in `tools/check_strict_ready_templates.py`
+   (reset `_CURRENT_WORKFLOW` in a `finally`) so a failed `build()` cannot poison
+   later loads, and/or broaden `new_workflow`'s leaked-binding cleanup to the
+   raised-after-binding case without breaking the genuine-nested-`with` contract.
+4. Re-baseline `tests/known_failures.txt` once the corpus is green.
+
 ## Immediate Backlog
 
 - Keep ACE Step audio in the runtime-green set and add doctor coverage for the issues it exposed.
