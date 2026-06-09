@@ -9,9 +9,6 @@ from typing import Any
 def format_value(value: Any) -> str:
     """Pretty-print a literal kwarg value for the emitter."""
     if isinstance(value, str):
-        if "\n" in value or len(value) > 70:
-            # Use repr but break long strings across lines via Python's auto string concat.
-            return repr(value)
         return repr(value)
     if isinstance(value, bool) or value is None:
         return repr(value)

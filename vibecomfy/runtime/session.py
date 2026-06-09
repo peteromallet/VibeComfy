@@ -32,7 +32,7 @@ from .client import ComfyClient
 from .drift import enforce_strict_drift
 from .execution import normalize_prompt_id
 from .model_policy import apply_model_preflight, resolve_model_preflight_policy
-from .watchdog import Watchdog, write_report
+from .watchdog import Watchdog, _is_disabled, write_report
 
 logger = logging.getLogger(__name__)
 
@@ -764,55 +764,7 @@ def _is_benign_embedded_cleanup_exception(exc: Exception) -> bool:
     )
 
 
-def _partition_comfy_config(values: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Split mixed config into SessionConfig kwargs and raw extra Comfy keys.
-
-    HiddenSwitch keys are translated first, then typed SessionConfig field
-    names overwrite translated values when both forms are present.
-    """
-    typed_fields = {
-        "memory_profile",
-        "port",
-        "vram_policy",
-        "cache_policy",
-        "warm_policy",
-        "reserve_vram_gb",
-        "disable_smart_memory",
-        "auto_flush_vram_threshold_gb",
-    }
-    kwargs: dict[str, Any] = {}
-    extra: dict[str, Any] = {}
-
-    if "memory_profile" in values and values["memory_profile"] is not None:
-        profile = MemoryProfile.parse(values["memory_profile"])
-        kwargs["memory_profile"] = profile
-        kwargs.update(profile.to_session_overrides())
-
-    for key, value in values.items():
-        if key in typed_fields:
-            continue
-        if key == "reserve_vram":
-            kwargs["reserve_vram_gb"] = value
-        elif key in {"highvram", "lowvram", "normalvram"}:
-            if value:
-                kwargs["vram_policy"] = key.removesuffix("vram")
-        elif key == "cache_none":
-            if value:
-                kwargs["cache_policy"] = "none"
-        elif key == "cache_classic":
-            if value:
-                kwargs["cache_policy"] = "classic"
-        elif key == "cache_lru":
-            if value:
-                kwargs["cache_policy"] = f"lru:{value}"
-        else:
-            extra[key] = value
-
-    for key, value in values.items():
-        if key in typed_fields and key != "memory_profile":
-            kwargs[key] = value
-
-    return kwargs, extra
+from .config import _partition_comfy_config  # noqa: E402
 
 
 def _schema_validate_disabled() -> bool:
@@ -1328,7 +1280,7 @@ async def _start_watchdog(
     The watchdog must NEVER raise into the run path. Any error here is logged
     and ignored. Must be called from inside a running event loop.
     """
-    if os.environ.get("VIBECOMFY_WATCHDOG", "1").strip() in {"0", "false", "False", "no", "off"}:
+    if _is_disabled():
         return None
     if not server_url:
         return None
