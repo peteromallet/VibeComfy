@@ -7,29 +7,41 @@ Provides deterministic per-pack cache files and a lazy consumer API.
 from vibecomfy.porting.object_info.consume import (
     class_defaults,
     class_has_list_output,
+    class_is_known,
     class_input_types,
     class_output_count,
+    check_output_arity_consensus,
     get_class,
+    get_class_by_identity,
+    has_class_identity,
     list_classes,
     object_info_widget_order,
     output_names,
+    require_class_output_count,
 )
 from vibecomfy.porting.object_info.serialize import (
-    build_cache,
     CACHE_DIR,
+    CacheIdentity,
     INDEX_PATH,
+    build_cache,
 )
 
 __all__ = [
     "get_class",
+    "get_class_by_identity",
+    "has_class_identity",
     "class_defaults",
     "class_input_types",
+    "class_is_known",
     "class_output_count",
     "class_has_list_output",
+    "check_output_arity_consensus",
     "object_info_widget_order",
     "output_names",
+    "require_class_output_count",
     "list_classes",
     "build_cache",
+    "CacheIdentity",
     "CACHE_DIR",
     "INDEX_PATH",
 ]

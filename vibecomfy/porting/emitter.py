@@ -13,11 +13,16 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
-from vibecomfy.errors import ConversionParityError
+from vibecomfy.errors import ArityDisagreementError, ConversionParityError
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
 from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
 from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
-from vibecomfy.porting.object_info import class_defaults, class_has_list_output, class_output_count
+from vibecomfy.porting.object_info import (
+    check_output_arity_consensus,
+    class_defaults,
+    class_has_list_output,
+    class_output_count,
+)
 from vibecomfy.porting.object_info import output_names as class_output_names
 from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
 from vibecomfy.utils import repo_relative_path
@@ -1934,7 +1939,9 @@ def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
 
     output_names = _agent_edit_raw_output_names(node)
     if not output_names:
-        count = class_output_count(str(node.class_type)) or 0
+        ui_names = _declared_ui_output_names(node)
+        ui_output_count = len(ui_names) if ui_names else None
+        count = check_output_arity_consensus(str(node.class_type), ui_output_count) or 0
         output_names = {slot: f"output_{slot}" for slot in range(count)}
     encoded = encode_slot_names(output_names.values())
     return {
@@ -1944,24 +1951,26 @@ def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
 
 
 def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
-    raw_ui = getattr(node, "metadata", {}).get("_ui") if hasattr(node, "metadata") else None
-    outputs = raw_ui.get("outputs") if isinstance(raw_ui, Mapping) else None
-    result: dict[int, str] = {}
-    if isinstance(outputs, list):
-        for index, output in enumerate(outputs):
-            if not isinstance(output, Mapping):
-                continue
-            slot = output.get("slot_index", index)
-            try:
-                slot_index = int(slot)
-            except (TypeError, ValueError):
-                slot_index = index
-            name = output.get("name")
-            if isinstance(name, str) and name:
-                result[slot_index] = name
-    if result:
-        return result
+    ui_names = _declared_ui_output_names(node)
     metadata_names = getattr(node, "metadata", {}).get("output_names") if hasattr(node, "metadata") else None
+    if ui_names and isinstance(metadata_names, (list, tuple)) and len(ui_names) != len(metadata_names):
+        raise ArityDisagreementError(
+            (
+                f"output arity disagreement for {node.class_type}: metadata declares "
+                f"{len(metadata_names)} outputs but UI declares {len(ui_names)}. "
+                "Refresh the object_info schema snapshot."
+            ),
+            class_type=str(node.class_type),
+            snapshot_pack=None,
+            snapshot_version=None,
+            snapshot_output_count=len(metadata_names),
+            ui_output_count=len(ui_names),
+        )
+    ui_output_count = len(ui_names) if ui_names else None
+    check_output_arity_consensus(str(node.class_type), ui_output_count)
+    if ui_names:
+        return {index: name for index, name in enumerate(ui_names) if name}
+    result: dict[int, str] = {}
     if isinstance(metadata_names, (list, tuple)):
         for index, name in enumerate(metadata_names):
             if isinstance(name, str) and name:
@@ -4079,13 +4088,58 @@ def _safe_output_var_name(output_name: str, prefix: str) -> str:
 
 
 def _schema_output_names_for_unpack(node: Any) -> list[str]:
+    ui_names = _declared_ui_output_names(node)
     metadata_names = _node_output_names(node)
+    cache_names: list[str] = []
+    try:
+        cache_names = [str(name) for name in class_output_names(str(node.class_type)) if str(name)]
+    except Exception:
+        cache_names = []
+    if ui_names and metadata_names and len(ui_names) != len(metadata_names):
+        raise ArityDisagreementError(
+            (
+                f"output arity disagreement for {node.class_type}: metadata declares "
+                f"{len(metadata_names)} outputs but UI declares {len(ui_names)}. "
+                "Refresh the object_info schema snapshot."
+            ),
+            class_type=str(node.class_type),
+            snapshot_pack=None,
+            snapshot_version=None,
+            snapshot_output_count=len(metadata_names),
+            ui_output_count=len(ui_names),
+        )
+    ui_output_count = len(ui_names) if ui_names else None
+    check_output_arity_consensus(str(node.class_type), ui_output_count)
+    if ui_names:
+        return ui_names
     if metadata_names:
         return metadata_names
-    try:
-        return [str(name) for name in class_output_names(str(node.class_type)) if str(name)]
-    except Exception:
+    return cache_names
+
+
+def _declared_ui_output_names(node: Any) -> list[str]:
+    raw_ui = getattr(node, "metadata", {}).get("_ui") if hasattr(node, "metadata") else None
+    outputs = raw_ui.get("outputs") if isinstance(raw_ui, Mapping) else None
+    if not isinstance(outputs, list):
         return []
+    slots: dict[int, str] = {}
+    max_slot = -1
+    for index, output in enumerate(outputs):
+        if not isinstance(output, Mapping):
+            continue
+        slot = output.get("slot_index", index)
+        try:
+            slot_index = int(slot)
+        except (TypeError, ValueError):
+            slot_index = index
+        if slot_index < 0:
+            continue
+        max_slot = max(max_slot, slot_index)
+        name = output.get("name")
+        slots[slot_index] = name if isinstance(name, str) else ""
+    if max_slot < 0:
+        return []
+    return [slots.get(slot, "") for slot in range(max_slot + 1)]
 
 
 def _has_out_of_range_edge(node_id: str, output_count: int, edges: list[Any]) -> bool:
@@ -4306,7 +4360,7 @@ def _node_kwargs(
 
     out: list[tuple[str, str]] = []
     extras: list[tuple[str, str]] = []
-    output_names = _node_output_names(node)
+    output_names = _declared_output_names_for_call_metadata(node)
     if output_names and not (omit_single_output_metadata and _is_schema_confirmed_single_output(cls, output_names)):
         out.append(("_outputs", _format_value(tuple(output_names))))
     for key in ordered_static_keys:
@@ -4578,6 +4632,29 @@ def _node_output_names(node: Any) -> list[str]:
         else:
             result.append("")
     return result
+
+
+def _declared_output_names_for_call_metadata(node: Any) -> list[str]:
+    ui_names = _declared_ui_output_names(node)
+    metadata_names = _node_output_names(node)
+    if ui_names and metadata_names and len(ui_names) != len(metadata_names):
+        raise ArityDisagreementError(
+            (
+                f"output arity disagreement for {node.class_type}: metadata declares "
+                f"{len(metadata_names)} outputs but UI declares {len(ui_names)}. "
+                "Refresh the object_info schema snapshot."
+            ),
+            class_type=str(node.class_type),
+            snapshot_pack=None,
+            snapshot_version=None,
+            snapshot_output_count=len(metadata_names),
+            ui_output_count=len(ui_names),
+        )
+    ui_output_count = len(ui_names) if ui_names else None
+    check_output_arity_consensus(str(node.class_type), ui_output_count)
+    if ui_names:
+        return ui_names
+    return metadata_names
 
 
 def _safe_output_name(

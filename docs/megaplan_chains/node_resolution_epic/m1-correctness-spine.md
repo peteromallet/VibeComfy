@@ -47,5 +47,6 @@ From §3/§4 anchors: `vibecomfy/porting/consume.py` (`require_class_output_coun
 
 ## Anti-scope
 - Per README "Explicit non-goals": **no universal node-schema registry**; **no SAT-solver cross-pack dependency resolver** (preflight + fail-closed only — and that preflight is sprint B); **no three-source arity triangulation in step 1** (UI-vs-cache directionality is enough); **no speculative any-backend abstraction**.
+- `vibecomfy/templates.py`, `vibecomfy/runtime/eval_plan.py`, and `vibecomfy/porting/edit_apply.py` are known direct `object_info` consumers, but Sprint A's correctness fix is scoped to the raw-workflow porting emitter path. Those consumers are follow-up work outside this sprint's acceptance contract.
 - This sprint does **NOT** touch install execution (`node_packs_install.py`), the `ensure-env` orchestrator, provenance parsing, version-pinning, `resolve_pack`, or snapshot demotion/auto-generation — those are sprints B and C.
 - Do not boot the full runtime for porting; do not execute untrusted downloaded packs to generate cache entries.

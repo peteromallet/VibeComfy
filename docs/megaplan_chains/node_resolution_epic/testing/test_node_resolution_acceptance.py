@@ -12,9 +12,12 @@ epic lands. Shipped versions of these gates also land in ``tests/``.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 import pytest
+
+from vibecomfy.porting.object_info.serialize import build_cache
 
 HERE = Path(__file__).parent
 FIXTURES = HERE / "fixtures"
@@ -38,6 +41,42 @@ def _comfymath_output_counts(workflow: dict) -> list[int]:
     for sg in (workflow.get("definitions", {}) or {}).get("subgraphs", []) or []:
         scan(sg.get("nodes"))
     return counts
+
+
+def _write_temp_object_info_cache(tmp_path: Path, *, output_names: list[str]) -> Path:
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                "ComfyMathExpression": {
+                    "python_module": "nodes",
+                    "name": "ComfyMathExpression",
+                    "display_name": "ComfyMathExpression",
+                    "description": "",
+                    "category": "math",
+                    "function": "evaluate",
+                    "input": {"required": {}, "optional": {}},
+                    "input_order": {"required": [], "optional": []},
+                    "output": output_names,
+                    "output_name": output_names,
+                    "output_is_list": [False] * len(output_names),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "object_info"
+    build_cache(str(source), version="acceptance", cache_dir=str(cache_root))
+    return cache_root
+
+
+def _patch_object_info_cache(monkeypatch: pytest.MonkeyPatch, cache_root: Path) -> None:
+    import vibecomfy.porting.object_info.consume as consume
+
+    monkeypatch.setattr(consume, "CACHE_DIR", cache_root)
+    monkeypatch.setattr(consume, "INDEX_PATH", cache_root / "index.json")
+    monkeypatch.setattr(consume, "_index", None)
+    monkeypatch.setattr(consume, "_pack_cache", {})
 
 
 # --------------------------------------------------------------------------- #
@@ -81,15 +120,30 @@ def test_a1_ideogram_no_silent_miscompile():
 
 @pytest.mark.sprint_a
 @pytest.mark.skip(reason="Sprint A — testing.md scenario 2")
-def test_a2_fail_closed_on_known_node_arity_disagreement():
+def test_a2_fail_closed_on_known_node_arity_disagreement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     """cache outputs < UI outputs => raise (stale); cache > UI => warn (unused)."""
     from vibecomfy.errors import ArityDisagreementError
+
+    from vibecomfy.porting.object_info import check_output_arity_consensus
+
+    stale_cache = _write_temp_object_info_cache(tmp_path / "stale", output_names=["FLOAT", "INT"])
+    _patch_object_info_cache(monkeypatch, stale_cache)
     with pytest.raises(ArityDisagreementError) as exc:
         # UI declares 3 outputs; a stale snapshot offering 2 must fail closed.
-        from vibecomfy.porting.object_info import check_output_arity_consensus
         check_output_arity_consensus("ComfyMathExpression", ui_output_count=3)
     msg = str(exc.value)
     assert "ComfyMathExpression" in msg and "refresh" in msg.lower()
+
+    larger_cache = _write_temp_object_info_cache(
+        tmp_path / "larger", output_names=["FLOAT", "INT", "BOOL", "STRING"]
+    )
+    _patch_object_info_cache(monkeypatch, larger_cache)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        check_output_arity_consensus("ComfyMathExpression", ui_output_count=3)
+    assert any("ComfyMathExpression" in str(w.message) for w in caught)
 
 
 @pytest.mark.sprint_a

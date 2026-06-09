@@ -843,6 +843,84 @@ def test_collect_drift_pinned_comfy_commit(tmp_path, monkeypatch):
     assert any("ComfyUI commit" in m for m in result["mismatches"])
 
 
+def test_collect_drift_canonical_schema_hash_match_is_not_mismatch(tmp_path, monkeypatch):
+    """Canonical object_info metadata is comparable and matching hashes pass."""
+    from vibecomfy.node_packs_lockfile import LockEntry, compute_schema_hash
+    from vibecomfy.runtime.drift import _invalidate_cache_entry, collect_drift
+    import vibecomfy.porting.object_info as object_info
+
+    monkeypatch.chdir(tmp_path)
+    pack_dir = tmp_path / "vendor" / "ExamplePack"
+    (pack_dir / ".git").mkdir(parents=True)
+    schema = {
+        "ExampleNode": {
+            "pack_slug": "example-pack",
+            "git_commit": "abc123",
+            "inputs": {"required": {"value": ["INT", {"default": 1}]}},
+            "input_order": {"required": ["value"]},
+            "outputs": [{"name": "INT", "type": "INT", "is_list": False}],
+        }
+    }
+    expected_hash = compute_schema_hash(schema)
+    schema["ExampleNode"]["schema_hash"] = expected_hash
+    schema["ExampleNode"]["class_schema_sha256"] = expected_hash
+    entry = LockEntry(
+        name="ExamplePack",
+        git_commit_sha="abc123",
+        slug="example-pack",
+        class_set=("ExampleNode",),
+        class_schema_sha256=expected_hash,
+    )
+
+    monkeypatch.setattr("vibecomfy.runtime.drift.read_lockfile", lambda: [entry], raising=False)
+    monkeypatch.setattr("vibecomfy.node_packs_lockfile.read_lockfile", lambda: [entry])
+    monkeypatch.setattr("vibecomfy.runtime.drift._nodepack_dir", lambda name: pack_dir)
+    monkeypatch.setattr("vibecomfy.runtime.drift._git_head", lambda path: "abc123")
+    monkeypatch.setattr(
+        object_info,
+        "get_class_by_identity",
+        lambda class_type, *, pack_slug, git_commit=None, evidence_identity=None: schema[class_type],
+    )
+
+    wf = VibeWorkflow("drift-canonical", WorkflowSource("drift-canonical"))
+    _invalidate_cache_entry(wf)
+    result = collect_drift(wf)
+
+    pack_info = result["actual"]["custom_node_packs"]["ExamplePack"]
+    assert pack_info["schema_hash_status"] == "canonical"
+    assert pack_info["actual_schema_hash"] == expected_hash
+    assert result["mismatches"] == []
+
+
+def test_collect_drift_legacy_schema_hash_is_unverified_not_mismatch(tmp_path, monkeypatch):
+    """Legacy lockfile hashes without class_set are not compared as canonical hashes."""
+    from vibecomfy.node_packs_lockfile import LockEntry
+    from vibecomfy.runtime.drift import _invalidate_cache_entry, collect_drift
+
+    monkeypatch.chdir(tmp_path)
+    pack_dir = tmp_path / "vendor" / "LegacyPack"
+    (pack_dir / ".git").mkdir(parents=True)
+    (pack_dir / "node.py").write_text("changed schema source", encoding="utf-8")
+    entry = LockEntry(
+        name="LegacyPack",
+        git_commit_sha="abc123",
+        class_schema_sha256="legacy-file-byte-hash",
+    )
+
+    monkeypatch.setattr("vibecomfy.node_packs_lockfile.read_lockfile", lambda: [entry])
+    monkeypatch.setattr("vibecomfy.runtime.drift._nodepack_dir", lambda name: pack_dir)
+    monkeypatch.setattr("vibecomfy.runtime.drift._git_head", lambda path: "abc123")
+
+    wf = VibeWorkflow("drift-legacy", WorkflowSource("drift-legacy"))
+    _invalidate_cache_entry(wf)
+    result = collect_drift(wf)
+
+    pack_info = result["actual"]["custom_node_packs"]["LegacyPack"]
+    assert pack_info["schema_hash_status"] == "unverified_legacy"
+    assert "actual_schema_hash" not in pack_info
+    assert result["mismatches"] == []
+
+
 def test_enforce_strict_drift_raises_on_mismatch(tmp_path, monkeypatch):
     """enforce_strict_drift raises DriftError when mismatches exist."""
     from vibecomfy.runtime.drift import _invalidate_cache_entry, enforce_strict_drift

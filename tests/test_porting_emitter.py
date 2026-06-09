@@ -1,21 +1,27 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from vibecomfy.errors import ArityDisagreementError
 from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
-from vibecomfy.porting.convert import ManualTemplateRefusal, _check_manual_refusal
+from vibecomfy.porting.convert import ManualTemplateRefusal, _check_manual_refusal, port_convert_workflow
+from vibecomfy.porting.object_info.serialize import build_cache
+from vibecomfy.porting.workbench import load_port_source
 from vibecomfy.porting.emitter import (
     EmissionDiagnostic,
     READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
     READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED,
     READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
     READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
+    emit_agent_edit_python,
     emit_ready_template_python,
     emit_scratchpad_python,
 )
@@ -1142,6 +1148,80 @@ def _workflow_with_widget_aliases(
     return workflow
 
 
+def _write_object_info_cache(tmp_path: Path, class_type: str, output_names: list[str]) -> Path:
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                class_type: {
+                    "python_module": "nodes",
+                    "name": class_type,
+                    "display_name": class_type,
+                    "description": "",
+                    "category": "test",
+                    "function": "run",
+                    "input": {"required": {}, "optional": {}},
+                    "input_order": {"required": [], "optional": []},
+                    "output": output_names,
+                    "output_name": output_names,
+                    "output_is_list": [False] * len(output_names),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "object_info"
+    build_cache(str(source), version="test", cache_dir=str(cache_root))
+    return cache_root
+
+
+def _workflow_with_ui_and_metadata_outputs(
+    class_type: str,
+    ui_output_names: list[str],
+    metadata_output_names: list[str] | None = None,
+) -> VibeWorkflow:
+    wf = VibeWorkflow("test", WorkflowSource("test", provenance={"origin": "test"}))
+    node = VibeNode("1", class_type)
+    node.metadata["_ui"] = {
+        "outputs": [
+            {"slot_index": index, "name": name}
+            for index, name in enumerate(ui_output_names)
+        ]
+    }
+    if metadata_output_names is not None:
+        node.metadata["output_names"] = metadata_output_names
+    wf.nodes["1"] = node
+    wf.nodes["2"] = VibeNode("2", "KSampler")
+    for slot in range(len(ui_output_names)):
+        wf.connect(f"1.{slot}", f"2.input_{slot}")
+    return wf
+
+
+def _patch_object_info_cache(monkeypatch: pytest.MonkeyPatch, cache_root: Path) -> None:
+    import vibecomfy.porting.object_info.consume as consume
+
+    monkeypatch.setattr(consume, "CACHE_DIR", cache_root)
+    monkeypatch.setattr(consume, "INDEX_PATH", cache_root / "index.json")
+    monkeypatch.setattr(consume, "_index", None)
+    monkeypatch.setattr(consume, "_pack_cache", {})
+
+
+def _wan_workflow_with_ui_outputs(output_names: list[str]) -> VibeWorkflow:
+    wf = VibeWorkflow("test", WorkflowSource("test", provenance={"origin": "test"}))
+    wf.nodes["1"] = VibeNode("1", "WanImageToVideo")
+    wf.nodes["1"].metadata["_ui"] = {
+        "outputs": [
+            {"slot_index": index, "name": name}
+            for index, name in enumerate(output_names)
+        ]
+    }
+    wf.nodes["2"] = VibeNode("2", "KSampler")
+    wf.connect("1.0", "2.positive")
+    wf.connect("1.1", "2.negative")
+    wf.connect("1.2", "2.latent_image")
+    return wf
+
+
 def test_unique_safe_names_emit_named_out() -> None:
     """Unique safe output names produce .out('name') in emitted code."""
     text = emit_scratchpad_python(
@@ -1225,6 +1305,127 @@ def test_missing_output_names_does_not_emit_outputs() -> None:
     assert "_outputs=" not in text
 
 
+def test_ideogram_fixture_never_leaks_bare_tuple_unpack_value_error() -> None:
+    fixture = (
+        Path("docs/megaplan_chains/node_resolution_epic/testing/fixtures")
+        / "ideogram4_t2i.json"
+    )
+    src = load_port_source(str(fixture), use_comfy_converter=False)
+    raw = json.loads(fixture.read_text(encoding="utf-8"))
+
+    try:
+        result = port_convert_workflow(
+            src.workflow,
+            raw_workflow=raw,
+            source_path=src.source_path,
+            source_hash=src.source_hash,
+            ready_id="image/ideogram4_t2i",
+        )
+    except ArityDisagreementError:
+        return
+    except ValueError as exc:
+        assert "not enough values to unpack" not in str(exc)
+        raise
+
+    assert "not enough values to unpack" not in (result.validation.error or "")
+
+
+def test_subgraph_ui_outputs_recover_tuple_arity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_root = _write_object_info_cache(tmp_path, "SubgraphNode", ["latent", "mask", "preview"])
+    _patch_object_info_cache(monkeypatch, cache_root)
+
+    text = emit_ready_template_python(
+        _workflow_with_ui_and_metadata_outputs(
+            "SubgraphNode",
+            ["latent", "mask", "preview"],
+            metadata_output_names=["latent", "mask", "preview"],
+        ),
+        ready_metadata={"ready_template": "image/subgraph", "capability": "image"},
+        ready_requirements={},
+        template_id="image/subgraph",
+    )
+
+    assert "raw_call('SubgraphNode', '1', _outputs=('latent', 'mask', 'preview'))" in text
+    assert "_outputs=('latent', 'mask', 'preview')" in text
+
+
+def test_subgraph_ui_metadata_arity_disagreement_fails_closed() -> None:
+    with pytest.raises(ArityDisagreementError):
+        emit_ready_template_python(
+            _workflow_with_ui_and_metadata_outputs(
+                "SubgraphNode",
+                ["latent", "mask", "preview"],
+                metadata_output_names=["latent", "mask"],
+            ),
+            ready_metadata={"ready_template": "image/subgraph", "capability": "image"},
+            ready_requirements={},
+            template_id="image/subgraph",
+        )
+
+
+def test_cache_greater_than_ui_warns_without_inflating_tuple_arity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_root = _write_object_info_cache(
+        tmp_path,
+        "WanImageToVideo",
+        ["positive", "negative", "latent", "unused"],
+    )
+    _patch_object_info_cache(monkeypatch, cache_root)
+
+    with pytest.warns(UserWarning, match="WanImageToVideo"):
+        text = emit_ready_template_python(
+            _wan_workflow_with_ui_outputs(["positive", "negative", "latent"]),
+            ready_metadata={"ready_template": "video/test", "capability": "video"},
+            ready_requirements={},
+            template_id="video/test",
+        )
+
+    assert "positive, negative, latent = WanImageToVideo(" in text
+    assert "unused" not in text
+
+
+def test_agent_edit_aliases_check_ui_before_cached_schema_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_root = _write_object_info_cache(
+        tmp_path,
+        "AgentAliasNode",
+        ["first", "second", "stale_extra"],
+    )
+    _patch_object_info_cache(monkeypatch, cache_root)
+    wf = _workflow_with_ui_and_metadata_outputs(
+        "AgentAliasNode",
+        ["FIRST VALUE", "SECOND VALUE"],
+    )
+
+    with pytest.warns(UserWarning, match="AgentAliasNode"):
+        text = emit_agent_edit_python(wf)
+
+    assert "slots first_value='FIRST VALUE', second_value='SECOND VALUE'" in text
+    assert "stale_extra" not in text
+
+
+def test_agent_edit_aliases_fail_closed_when_cache_has_too_few_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_root = _write_object_info_cache(tmp_path, "AgentAliasNode", ["first"])
+    _patch_object_info_cache(monkeypatch, cache_root)
+    wf = _workflow_with_ui_and_metadata_outputs(
+        "AgentAliasNode",
+        ["FIRST VALUE", "SECOND VALUE"],
+    )
+
+    with pytest.raises(ArityDisagreementError):
+        emit_agent_edit_python(wf)
+
+
 def test_ready_template_emits_unpacking_for_typed_multi_output_node() -> None:
     wf = VibeWorkflow("test", WorkflowSource("test", provenance={"origin": "test"}))
     wf.nodes["1"] = VibeNode("1", "WanImageToVideo")
@@ -1265,6 +1466,47 @@ def test_ready_template_replaces_dead_unpacked_outputs_with_underscore() -> None
     assert "_, negative, _ = WanImageToVideo()" in text
     assert "negative=negative" in text
     assert "positive, negative, latent = WanImageToVideo()" not in text
+
+
+def test_ready_template_unpack_checks_ui_arity_before_cache_shortcut(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from vibecomfy.errors import ArityDisagreementError
+
+    cache_root = _write_object_info_cache(tmp_path, "WanImageToVideo", ["POSITIVE", "NEGATIVE"])
+    _patch_object_info_cache(monkeypatch, cache_root)
+
+    with pytest.raises(ArityDisagreementError):
+        emit_ready_template_python(
+            _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"]),
+            ready_metadata={"ready_template": "video/test", "capability": "video"},
+            ready_requirements={},
+            template_id="video/test",
+        )
+
+
+def test_ready_template_unpack_prefers_ui_names_when_cache_has_extra_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache_root = _write_object_info_cache(
+        tmp_path,
+        "WanImageToVideo",
+        ["POSITIVE", "NEGATIVE", "LATENT", "STRING"],
+    )
+    _patch_object_info_cache(monkeypatch, cache_root)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        text = emit_ready_template_python(
+            _wan_workflow_with_ui_outputs(["POSITIVE", "NEGATIVE", "LATENT"]),
+            ready_metadata={"ready_template": "video/test", "capability": "video"},
+            ready_requirements={},
+            template_id="video/test",
+        )
+
+    assert any("WanImageToVideo" in str(w.message) for w in caught)
+    assert "positive, negative, latent = WanImageToVideo(" in text
+    assert "string = WanImageToVideo(" not in text
 
 
 def test_ready_template_keeps_dead_multi_output_node_as_bare_call() -> None:

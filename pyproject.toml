@@ -93,6 +93,9 @@ markers = [
   "runpod: opt-in smoke tests that provision real RunPod GPU pods (requires --runpod and RUNPOD_API_KEY).",
   "runpod_full: opt-in production-resolution matrix tests; multi-pod, ~$5-10 per run (requires --runpod-full and RUNPOD_API_KEY).",
   "comfy: opt-in release gate that imports ComfyUI and runs convert_ui_to_api; skipped offline (requires VIBECOMFY_COMFY_SMOKE=1).",
+  "sprint_a: acceptance gate that must pass after Sprint A (see docs/megaplan_chains/node_resolution_epic/testing/testing.md).",
+  "sprint_b: acceptance gate that must pass after Sprint B (see docs/megaplan_chains/node_resolution_epic/testing/testing.md).",
+  "sprint_c: acceptance gate that must pass after Sprint C (see docs/megaplan_chains/node_resolution_epic/testing/testing.md).",
 ]
 
 [tool.hatch.metadata]

@@ -157,6 +157,84 @@ class UnknownClassError(SchemaValidationError):
     default_next_action = "vibecomfy schema refresh"
 
 
+class ArityDisagreementError(SchemaValidationError):
+    """Cached output arity disagrees with UI-declared output arity."""
+
+    default_next_action = "vibecomfy schema refresh"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        class_type: str,
+        snapshot_pack: str | None,
+        snapshot_version: str | None,
+        snapshot_output_count: int,
+        ui_output_count: int,
+        next_action: str | None = None,
+    ) -> None:
+        self.class_type = class_type
+        self.snapshot_pack = snapshot_pack
+        self.snapshot_version = snapshot_version
+        self.snapshot_output_count = snapshot_output_count
+        self.ui_output_count = ui_output_count
+        super().__init__(message, next_action=next_action)
+
+    def to_dict(self) -> dict[str, object]:
+        payload = super().to_dict()
+        payload.update(
+            {
+                "class_type": self.class_type,
+                "snapshot_pack": self.snapshot_pack,
+                "snapshot_version": self.snapshot_version,
+                "snapshot_output_count": self.snapshot_output_count,
+                "ui_output_count": self.ui_output_count,
+            }
+        )
+        return payload
+
+
+class ObjectInfoIdentityError(SchemaValidationError):
+    """Identity-keyed object_info lookup could not be resolved unambiguously."""
+
+    default_next_action = "vibecomfy schema refresh"
+
+
+class ObjectInfoIdentityAmbiguityError(ObjectInfoIdentityError):
+    """Multiple cached object_info entries matched one requested identity."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        class_type: str,
+        pack_slug: str,
+        git_commit: str | None,
+        evidence_identity: str | None,
+        matches: list[dict[str, object]],
+        next_action: str | None = None,
+    ) -> None:
+        self.class_type = class_type
+        self.pack_slug = pack_slug
+        self.git_commit = git_commit
+        self.evidence_identity = evidence_identity
+        self.matches = matches
+        super().__init__(message, next_action=next_action)
+
+    def to_dict(self) -> dict[str, object]:
+        payload = super().to_dict()
+        payload.update(
+            {
+                "class_type": self.class_type,
+                "pack_slug": self.pack_slug,
+                "git_commit": self.git_commit,
+                "evidence_identity": self.evidence_identity,
+                "matches": self.matches,
+            }
+        )
+        return payload
+
+
 class CanonicalParityFailure(ConversionParityError):
     """Emitted code lost parity with the canonical source workflow."""
 
@@ -171,10 +249,13 @@ __all__ = [
     "ConversionParityError",
     "DriftError",
     "ModelAssetError",
+    "ObjectInfoIdentityAmbiguityError",
+    "ObjectInfoIdentityError",
     "QueueError",
     "RuntimeNodeError",
     "SchemaValidationError",
     "SubgraphFreshnessError",
+    "ArityDisagreementError",
     # origin/main
     "NodePackInstallError",
     "RuntimeStartupError",
