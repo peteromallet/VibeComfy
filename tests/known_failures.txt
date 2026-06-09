@@ -212,3 +212,12 @@ tests/test_walking_skeleton.py::test_proof_d_edit_invariance_position_survives_w
 # Pre-existing by-design-red baseline carried in via the preview-fidelity/turn-progress
 # merges (2026-06; empty-content malformed handling is reworked in chat-epic M2).
 tests/test_comfy_nodes_agent_backend_spine.py::test_run_agent_turn_batch_empty_content_is_malformed
+# Pre-existing on origin/main (verified on a pristine origin/main checkout, not introduced by
+# the loose-work consolidation). These reference FailureKind.AGENT_RUNTIME_UNAVAILABLE, an enum
+# member the agent-edit error-classification tests expect but which is not yet on the FailureKind
+# enum — owned by the in-flight agent-edit-chat run. Allowlist drift reconciliation only.
+tests/test_comfy_nodes_agent_edit.py::test_agent_edit_submit_after_accept_still_blocks_real_structural_divergence
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_batch-exc0]
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_response-exc1]
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_delta-exc2]
+tests/test_comfy_nodes_agent_edit.py::test_classify_provider_error_wrapping_import_message_is_runtime_unavailable
