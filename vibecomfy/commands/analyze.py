@@ -16,7 +16,7 @@ from vibecomfy.analysis.corpus import build_corpus_snapshot
 from vibecomfy.analysis.fields import trace_public_field
 from vibecomfy.cli_loader import load_workflow_any
 from vibecomfy.commands._output import emit, jsonable
-from vibecomfy.commands.analyze_names import analyze_names
+from vibecomfy.commands._analyze_names import analyze_names
 from vibecomfy.porting.workbench import load_port_source
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.workflow import VibeWorkflow
