@@ -10,7 +10,7 @@ needed to reconstruct a workflow losslessly:
       "schema_hash": "<blake2b of the entry/section key shape>",
       "entries": {                       # per-uid node geometry + verbatim blob
         "<uid>": {
-          "pos": [x, y],                 # canonicalized via snap_pos (T3)
+          "pos": [x, y],                 # canonicalized via snap_pos
           "size": [w, h],
           "flags": {...},
           "color": "<str|null>",
@@ -94,7 +94,7 @@ def _vibecomfy_version() -> str:
 def _build_entry(ui: dict) -> dict[str, Any]:
     """Build a per-uid entry from a node's captured ``_ui`` blob.
 
-    ``pos`` is canonicalized (T3) so repeated round-trips are idempotent and
+    ``pos`` is canonicalized so repeated round-trips are idempotent and
     bit-stable. ``size`` is canonicalized when present.
     """
     entry: dict[str, Any] = {"pos": snap_pos(ui["pos"])}
@@ -142,7 +142,7 @@ def _assemble_definition_entries(
 ) -> dict[str, dict]:
     """Mint scoped uids over the subgraph-inner skeleton and build geometry entries.
 
-    For each subgraph definition we derive an ``sg_key`` (T8), extend the scope
+    For each subgraph definition we derive an ``sg_key``, extend the scope
     chain, and key every inner node by ``make_uid(scope_path, local_uid)`` where
     ``local_uid`` resolves ``properties['vibecomfy_uid']`` via ``mint_local_uid``
     (falling back to the inner integer id). Recurses into nested definitions so
@@ -192,7 +192,7 @@ def write_layout(py_path: Path, wf: VibeWorkflow) -> Path:
     layout_meta = meta.get("_layout") if isinstance(meta.get("_layout"), dict) else {}
 
     # Subgraph-inner nodes: mint scoped uids over the captured definitions
-    # skeleton (T10 furniture) and add their geometry entries keyed by uid (SD1).
+    # skeleton and add their geometry entries keyed by uid (SD1).
     definitions = meta.get("definitions")
     if definitions:
         entries.update(_assemble_definition_entries(definitions, ()))
@@ -225,7 +225,7 @@ def write_layout(py_path: Path, wf: VibeWorkflow) -> Path:
         "virtual_wires": _section("virtual_wires", {}) or {},
     }
 
-    # gc the .py sidecar (T7, default-on): prune any per-uid entry / virtual wire
+    # gc the .py sidecar: prune any per-uid entry / virtual wire
     # whose uid is not part of the live set (surviving node entries + captured
     # furniture). A fresh build keys only live geometry, so this is a no-op in the
     # common path but enforces the contract that the sidecar never carries dead
@@ -331,7 +331,7 @@ def read_store(py_path: Path) -> dict[str, Any]:
 
     Returns the parsed envelope dict, or ``{}`` if the sidecar is absent or
     unreadable. A legacy v1 flat sidecar is migrated to the current envelope on
-    load (T6).
+    load.
     """
     sidecar = sidecar_path_for(py_path)
     if not sidecar.exists():

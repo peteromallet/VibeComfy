@@ -206,9 +206,9 @@ def analyze_source(
     for issue in validation_report.issues:
         report.diagnostics.append(_port_issue_from_validation(issue, category="schema"))
 
-    # -- readability diagnostics (T9) --------------------------------------
+    # -- readability diagnostics --------------------------------------
     report.diagnostics.extend(_readability_diagnostics(workflow, api_prompt=api_prompt))
-    # -- strict-template style diagnostics (T5) ---------------------------
+    # -- strict-template style diagnostics ---------------------------
     report.diagnostics.extend(_strict_template_style_diagnostics(loaded))
     if resolved_mode in {"strict_ready", "app_active"}:
         strict_diagnostics = validate_strict_ready_workflow(
@@ -1010,7 +1010,7 @@ def _hash_file(path: str | Path) -> str | None:
         return None
 
 
-# -- readability diagnostics (T9) ---------------------------------------------
+# -- readability diagnostics ---------------------------------------------
 
 
 def _readability_diagnostics(
