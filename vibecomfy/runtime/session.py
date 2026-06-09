@@ -1191,13 +1191,6 @@ def _embedded_configuration_for_session(config: SessionConfig) -> Configuration 
     return configuration
 
 
-def _embedded_shutdown_timeout_sec() -> float:
-    raw = os.environ.get("VIBECOMFY_EMBEDDED_SHUTDOWN_TIMEOUT_SEC", "15")
-    try:
-        value = float(raw)
-    except ValueError:
-        return 15.0
-    return max(value, 0.1)
 
 
 def _embedded_configuration(workflow: VibeWorkflow) -> Configuration | None:
