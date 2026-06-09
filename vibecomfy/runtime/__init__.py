@@ -1,3 +1,5 @@
+from typing import Any
+
 from .run import run, run_embedded, run_embedded_sync, run_sync, smoke_runtime, smoke_runtime_sync
 from .session import EmbeddedSession, RunResult, ServerSession, SessionConfig, apply_memory_profile_override
 
@@ -22,7 +24,7 @@ __all__ = [
 _LAZY_ENSURE_ENV = None
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     global _LAZY_ENSURE_ENV
     if name in {"ensure_env", "EnsureEnvResult", "EnsurePackOutcome", "EnsureFailure"}:
         if _LAZY_ENSURE_ENV is None:

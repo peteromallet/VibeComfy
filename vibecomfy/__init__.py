@@ -1,3 +1,5 @@
+from typing import Any
+
 from .handles import Handle
 from .workflow import (
     ValidationIssue,
@@ -26,7 +28,7 @@ from .registry.ready import ready_template_ids, workflow_from_ready
 _RUNTIME_EXPORTS = {"run", "run_embedded", "run_embedded_sync", "run_sync"}
 
 
-def __getattr__(name):  # noqa: D401 — PEP 562 hook
+def __getattr__(name: str) -> Any:  # noqa: D401 — PEP 562 hook
     if name in _RUNTIME_EXPORTS:
         from .runtime.run import run, run_embedded, run_embedded_sync, run_sync
 

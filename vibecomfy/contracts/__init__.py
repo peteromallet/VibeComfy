@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 __all__ = [
     "COMPILED_EDGE_ENDPOINT_RESOLVED",
     "ContractDoctorDiagnostic",
@@ -90,7 +92,7 @@ _LAZY_ATTRS = {
 }
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name in _LAZY_ATTRS:
         module_name, attr_name = _LAZY_ATTRS[name]
         from importlib import import_module
