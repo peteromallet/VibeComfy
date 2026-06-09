@@ -1,0 +1,29 @@
+name: wan-t2v-append-frame-interpolation
+tier: 3
+description: "Compose correctly: append frame interpolation after the VAE decode on wan_t2v and rewire the video combine to the interpolated frames"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m4
+  - compose
+  - structural
+  - positive
+  - interpolation
+assessment:
+  enforced:
+    - "compiled_api.json contains a vibecomfy.placeholder.frame_interpolation node whose inputs.images references the VAEDecode output [\"8\", 0]."
+    - "compiled_api.json contains the CreateVideo node 49 whose inputs.images references the vibecomfy.placeholder.frame_interpolation node (NOT the raw VAEDecode [\"8\", 0])."
+    - "compiled_api.json contains the SaveVideo node 50 whose inputs.video references CreateVideo [\"49\", 0], so the interpolated frames reach the save path."
+    - "compiled_api.json shows the frame_interpolation node does NOT consume any LATENT output (its images input does not reference the KSampler node 3); interpolation runs on decoded images, not latents."
+    - "actions.jsonl records finalize_metadata with status=completed."
+  graded:
+    - "report.md explains that interpolation was placed after the decode (on images) and that the video combine now consumes the smoothed frames."
+  observed:
+    - "metadata.json entrypoint=agentic and layer references agentic/actors_m4/wan_t2v_append_frame_interpolation.py."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

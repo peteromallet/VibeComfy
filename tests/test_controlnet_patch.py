@@ -18,6 +18,16 @@ def _minimal_t2i_workflow() -> VibeWorkflow:
     return workflow
 
 
+def _minimal_t2i_with_negative_workflow() -> VibeWorkflow:
+    workflow = _empty_workflow()
+    workflow.nodes["text_pos"] = VibeNode("text_pos", "CLIPTextEncode", inputs={"text": "hi"})
+    workflow.nodes["text_neg"] = VibeNode("text_neg", "CLIPTextEncode", inputs={"text": "low quality"})
+    workflow.nodes["sampler"] = VibeNode("sampler", "KSampler", inputs={"seed": 0, "steps": 4})
+    workflow.connect("text_pos.0", "sampler.positive")
+    workflow.connect("text_neg.0", "sampler.negative")
+    return workflow
+
+
 def test_applies_to_returns_false_on_empty_workflow() -> None:
     workflow = _empty_workflow()
     assert applies_to(workflow) is False
@@ -78,3 +88,48 @@ def test_controlnet_patch_factory_captures_configuration() -> None:
     apply_node = next(node for node in workflow.nodes.values() if node.class_type == "ControlNetApplyAdvanced")
     assert loader.widgets["control_net_name"] == "canny.safetensors"
     assert apply_node.widgets["strength"] == 0.5
+
+
+def test_registered_controlnet_patch_records_deterministic_topology_telemetry() -> None:
+    workflow = _minimal_t2i_with_negative_workflow()
+
+    patch.apply(workflow)
+
+    telemetry = workflow.metadata["patch_applications"]
+    assert len(telemetry) == 1
+    assert telemetry[0]["name"] == "controlnet"
+    assert telemetry[0]["called"] is True
+    assert telemetry[0]["topology_changed"] is True
+    assert [item["class_type"] for item in telemetry[0]["nodes_added"]] == [
+        "ControlNetLoader",
+        "ControlNetApplyAdvanced",
+        "ControlNetApplyAdvanced",
+    ]
+    assert {(item["to_node"], item["to_input"]) for item in telemetry[0]["rewritten_edges"]} == {
+        ("sampler", "positive"),
+        ("sampler", "negative"),
+    }
+    assert all(
+        item["previous_from_node"] in {"text_pos", "text_neg"} and item["new_from_node"].isdigit()
+        for item in telemetry[0]["rewritten_edges"]
+    )
+
+
+def test_registered_controlnet_patch_records_noop_telemetry_without_positive_chain() -> None:
+    workflow = _empty_workflow()
+    workflow.nodes["sampler"] = VibeNode("sampler", "KSampler", inputs={"seed": 0, "steps": 4})
+
+    patch.apply(workflow)
+
+    assert [node.class_type for node in workflow.nodes.values()] == ["KSampler"]
+    assert workflow.metadata["patch_applications"] == [
+        {
+            "name": "controlnet",
+            "layer": "patch",
+            "called": True,
+            "topology_changed": False,
+            "nodes_added": [],
+            "introduced_edges": [],
+            "rewritten_edges": [],
+        }
+    ]

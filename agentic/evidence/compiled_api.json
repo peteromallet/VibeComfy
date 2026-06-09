@@ -1,0 +1,78 @@
+{
+  "1": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "a basalt arch at sunrise"
+    }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "low quality, blurry"
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 7,
+      "steps": 20,
+      "cfg": 6.5,
+      "positive": [
+        "5",
+        0
+      ],
+      "negative": [
+        "6",
+        0
+      ]
+    }
+  },
+  "4": {
+    "class_type": "ControlNetLoader",
+    "inputs": {
+      "control_net_name": "depth.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "ControlNetApplyAdvanced",
+    "inputs": {
+      "strength": 1.0,
+      "start_percent": 0.0,
+      "end_percent": 1.0,
+      "control_net": [
+        "4",
+        0
+      ],
+      "positive": [
+        "1",
+        0
+      ]
+    }
+  },
+  "6": {
+    "class_type": "ControlNetApplyAdvanced",
+    "inputs": {
+      "strength": 1.0,
+      "start_percent": 0.0,
+      "end_percent": 1.0,
+      "control_net": [
+        "4",
+        0
+      ],
+      "negative": [
+        "2",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "depth_controlnet_image",
+      "images": [
+        "3",
+        0
+      ]
+    }
+  }
+}

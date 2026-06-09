@@ -96,7 +96,7 @@ def test_server_session_run_uses_shared_model_preflight(monkeypatch: pytest.Monk
     def fake_apply(workflow: VibeWorkflow, policy) -> None:
         calls.append(f"{policy.mode}:{policy.ensure_models}")
 
-    async def fake_run_untracked(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool = False):
+    async def fake_run_untracked(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool = False, **kwargs):
         calls.append("queue")
         return object()
 

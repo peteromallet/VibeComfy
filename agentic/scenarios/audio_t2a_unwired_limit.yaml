@@ -1,0 +1,23 @@
+name: audio-t2a-unwired-limit
+tier: 2
+description: "Limits: agent recognizes audio.t2a is not a wired verb and names the escape hatch without attempting it"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m2
+  - discovery
+  - limits
+  - structural
+assessment:
+  enforced:
+    - "actions.jsonl contains forbidden_call_absence with forbidden_call_absent=audio.t2a and status=confirmed."
+    - "actions.jsonl contains escape_hatch_note referencing the ready audio template (audio/ace_step_1_5_t2a_song)."
+  graded:
+    - "No compiled_api.json exists (agent did not attempt to compile the unwired verb)."
+  observed:
+    - "report.md names the ready audio template as the escape hatch."
+extras:
+  required_frozen_evidence:
+    - evidence/actions.jsonl

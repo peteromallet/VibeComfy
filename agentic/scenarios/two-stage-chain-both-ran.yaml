@@ -1,0 +1,33 @@
+name: two-stage-chain-both-ran
+tier: 5
+description: "Execution: generate an image and turn it into a 2-second video"
+mode: live
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m5
+  - execution
+  - gpu
+  - positive
+assessment:
+  enforced:
+    - "actions.jsonl is valid line-delimited JSON; every line parses as a JSON object."
+    - "Load and parse actions.jsonl. Verify exactly two entries have a stage key."
+    - "Of the entries with a stage key, verify the set of stage values across those entries is exactly {'t2i', 'i2v'} (string equality, set comparison)."
+    - "Of the entries with a stage key, verify both have status equal to 'completed'."
+    - "watchdog.t2i.json exists. Read it, skip the first line (the header), and parse the remaining content as JSON. Verify the parsed body has a vram_samples list."
+    - "In the parsed watchdog.t2i.json body, verify at least one entry in vram_samples has vram_total_bytes greater than 0."
+    - "watchdog.i2v.json exists. Read it, skip the first line (the header), and parse the remaining content as JSON. Verify the parsed body has a vram_samples list."
+    - "In the parsed watchdog.i2v.json body, verify at least one entry in vram_samples has vram_total_bytes greater than 0."
+    - "evidence/outputs/ directory exists and contains at least two files (one image, one video)."
+  graded:
+    - "The agent successfully chains two stages: text-to-image followed by image-to-video."
+  observed:
+    - "Both watchdog files are produced in the real header+body format and do not clobber each other."
+extras:
+  required_frozen_evidence:
+    - evidence/actions.jsonl
+    - evidence/command_log.jsonl
+    - evidence/watchdog.t2i.json
+    - evidence/watchdog.i2v.json

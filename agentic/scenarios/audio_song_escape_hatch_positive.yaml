@@ -1,0 +1,26 @@
+name: audio-song-escape-hatch-positive
+tier: 2
+description: "Discovery: agent loads the ready audio template via escape hatch and customizes it with IR edits"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m2
+  - discovery
+  - structural
+  - positive
+assessment:
+  enforced:
+    - "compiled_api.json exists and contains audio workflow nodes from the ace_step_1_5_t2a_song template."
+    - "actions.jsonl records load_workflow_any for audio/ace_step_1_5_t2a_song."
+    - "actions.jsonl records ir_edit with at least one customized node field (e.g., lyrics, seed, or filename_prefix)."
+  graded:
+    - "outputs/song.mp3 is a non-empty placeholder file."
+  observed:
+    - "metadata.json contains entrypoint=agentic."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

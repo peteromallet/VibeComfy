@@ -1,0 +1,28 @@
+name: add-save-node-finalize
+tier: 3
+description: "Compose correctly: workflow adds a save node and finalizes metadata so model requirements are captured"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m3
+  - compose
+  - structural
+  - positive
+  - finalize
+assessment:
+  enforced:
+    - "compiled_api.json contains a SaveImage node."
+    - "metadata.json requirements.models is present and non-empty."
+    - "metadata.json requirements.models includes sd_xl_base_1.0.safetensors."
+    - "actions.jsonl records block.apply for block=save.image with status=completed and finalize_metadata with status=completed."
+  graded:
+    - "metadata.json entrypoint=block and layer=vibecomfy/blocks/save.py:image."
+  observed:
+    - "compiled_api.json also contains a CheckpointLoaderSimple node feeding the finalized workflow."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

@@ -11,6 +11,7 @@ import pytest
 from vibecomfy.patches.registry import find_applicable, register, registered_patches
 from vibecomfy.patches.ltx_lowvram import COMFY_CONFIGURATION, FP8_CHECKPOINT, SOURCE_CHECKPOINT, patch as ltx_lowvram
 from vibecomfy.patches.requirements import ensure_custom_nodes
+from vibecomfy.patches.seed import seed
 from vibecomfy.patches.types import Patch
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
@@ -70,6 +71,68 @@ def test_find_applicable_uses_builtin_tuple_and_external_registry() -> None:
 
     assert external in registered_patches(include_builtins=False)
     assert external in find_applicable(workflow)
+
+
+def test_patch_apply_preserves_return_value_and_compiled_api_for_metadata_only_patch() -> None:
+    workflow = VibeWorkflow("metadata-only", WorkflowSource("metadata-only"))
+    workflow.add_node("SaveImage", images="placeholder")
+    before = workflow.compile("api")
+
+    def apply(candidate: VibeWorkflow) -> VibeWorkflow:
+        candidate.metadata["note"] = "patched"
+        return candidate
+
+    patched = Patch("metadata-only", lambda _: True, apply, lambda _: "metadata only")
+    result = patched.apply(workflow)
+
+    assert result is workflow
+    assert workflow.compile("api") == before
+    assert workflow.metadata["entrypoint"] == "patch"
+    assert workflow.metadata["layer"] == "tests/test_patches.py:metadata-only"
+    assert workflow.metadata["patch_applications"] == [
+        {
+            "name": "metadata-only",
+            "layer": "patch",
+            "called": True,
+            "topology_changed": False,
+            "nodes_added": [],
+            "introduced_edges": [],
+            "rewritten_edges": [],
+        }
+    ]
+
+
+def test_seed_patch_records_value_change_without_topology_change() -> None:
+    workflow = VibeWorkflow("seed-only", WorkflowSource("seed-only"))
+    workflow.nodes["sampler"] = VibeNode("sampler", "KSampler", inputs={"seed": 1, "steps": 4})
+    before = workflow.compile("api")
+
+    patched = seed(99)
+    result = patched.apply(workflow)
+
+    assert result is workflow
+    assert workflow.compile("api") == {
+        **before,
+        "sampler": {
+            **before["sampler"],
+            "inputs": {
+                **before["sampler"]["inputs"],
+                "seed": 99,
+            },
+        },
+    }
+    assert workflow.metadata["patch_applications"] == [
+        {
+            "name": "seed:99",
+            "layer": "patch",
+            "called": True,
+            "topology_changed": False,
+            "nodes_added": [],
+            "introduced_edges": [],
+            "rewritten_edges": [],
+            "value_changed": True,
+        }
+    ]
 
 
 def test_ensure_custom_nodes_appends_without_duplicates() -> None:

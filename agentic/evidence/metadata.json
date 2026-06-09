@@ -1,0 +1,89 @@
+{
+  "entrypoint": "patch",
+  "layer": "vibecomfy/patches/controlnet.py:controlnet",
+  "patch_applications": [
+    {
+      "name": "controlnet",
+      "layer": "patch",
+      "called": true,
+      "topology_changed": true,
+      "nodes_added": [
+        {
+          "node_id": "4",
+          "class_type": "ControlNetLoader"
+        },
+        {
+          "node_id": "5",
+          "class_type": "ControlNetApplyAdvanced"
+        },
+        {
+          "node_id": "6",
+          "class_type": "ControlNetApplyAdvanced"
+        }
+      ],
+      "introduced_edges": [
+        {
+          "from_node": "6",
+          "from_output": "0",
+          "to_node": "3",
+          "to_input": "negative"
+        },
+        {
+          "from_node": "5",
+          "from_output": "0",
+          "to_node": "3",
+          "to_input": "positive"
+        },
+        {
+          "from_node": "4",
+          "from_output": "0",
+          "to_node": "5",
+          "to_input": "control_net"
+        },
+        {
+          "from_node": "1",
+          "from_output": "0",
+          "to_node": "5",
+          "to_input": "positive"
+        },
+        {
+          "from_node": "4",
+          "from_output": "0",
+          "to_node": "6",
+          "to_input": "control_net"
+        },
+        {
+          "from_node": "2",
+          "from_output": "0",
+          "to_node": "6",
+          "to_input": "negative"
+        }
+      ],
+      "rewritten_edges": [
+        {
+          "to_node": "3",
+          "to_input": "negative",
+          "previous_from_node": "2",
+          "previous_from_output": "0",
+          "new_from_node": "6",
+          "new_from_output": "0"
+        },
+        {
+          "to_node": "3",
+          "to_input": "positive",
+          "previous_from_node": "1",
+          "previous_from_output": "0",
+          "new_from_node": "5",
+          "new_from_output": "0"
+        }
+      ],
+      "value_changed": true
+    }
+  ],
+  "requirements": {
+    "models": [
+      "depth.safetensors"
+    ],
+    "custom_nodes": []
+  }
+}

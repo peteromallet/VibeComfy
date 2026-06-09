@@ -188,7 +188,15 @@ class VibeSession(Protocol):
     async def start(self) -> None:
         ...
 
-    async def run(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool | None = None) -> RunResult:
+    async def run(
+        self,
+        workflow: VibeWorkflow,
+        *,
+        backend: str = "api",
+        strict_drift: bool | None = None,
+        chain_id: str | None = None,
+        parent_run_id: str | None = None,
+    ) -> RunResult:
         ...
 
     async def flush(self) -> None:
@@ -234,6 +242,8 @@ class EmbeddedSession:
         ensure_packs: bool = False,
         ensure_models: bool = False,
         strict_drift: bool | None = None,
+        chain_id: str | None = None,
+        parent_run_id: str | None = None,
     ) -> RunResult:
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
@@ -287,12 +297,26 @@ class EmbeddedSession:
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
-            return await self._run_untracked(workflow, backend=backend, strict_drift=resolved_strict)
+            return await self._run_untracked(
+                workflow,
+                backend=backend,
+                strict_drift=resolved_strict,
+                chain_id=chain_id,
+                parent_run_id=parent_run_id,
+            )
         finally:
             if self._inflight_run is task:
                 self._inflight_run = None
 
-    async def _run_untracked(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool = False) -> RunResult:
+    async def _run_untracked(
+        self,
+        workflow: VibeWorkflow,
+        *,
+        backend: str = "api",
+        strict_drift: bool = False,
+        chain_id: str | None = None,
+        parent_run_id: str | None = None,
+    ) -> RunResult:
         total_start = time.monotonic()
         timings: dict[str, float] = {}
         phase_start = time.monotonic()
@@ -373,6 +397,8 @@ class EmbeddedSession:
             config=self.config,
             timings=timings,
             schema_validation_skipped=schema_validation_skipped,
+            chain_id=chain_id,
+            parent_run_id=parent_run_id,
         )
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
         return RunResult(
@@ -465,6 +491,8 @@ class ServerSession:
         ensure_models: bool = False,
         shared_models_root: str | Path | None = None,
         strict_drift: bool | None = None,
+        chain_id: str | None = None,
+        parent_run_id: str | None = None,
     ) -> RunResult:
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
@@ -478,12 +506,26 @@ class ServerSession:
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
-            return await self._run_untracked(workflow, backend=backend, strict_drift=resolved_strict)
+            return await self._run_untracked(
+                workflow,
+                backend=backend,
+                strict_drift=resolved_strict,
+                chain_id=chain_id,
+                parent_run_id=parent_run_id,
+            )
         finally:
             if self._inflight_run is task:
                 self._inflight_run = None
 
-    async def _run_untracked(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool = False) -> RunResult:
+    async def _run_untracked(
+        self,
+        workflow: VibeWorkflow,
+        *,
+        backend: str = "api",
+        strict_drift: bool = False,
+        chain_id: str | None = None,
+        parent_run_id: str | None = None,
+    ) -> RunResult:
         total_start = time.monotonic()
         timings: dict[str, float] = {}
         phase_start = time.monotonic()
@@ -559,6 +601,8 @@ class ServerSession:
             config=self.config,
             timings=timings,
             schema_validation_skipped=schema_validation_skipped,
+            chain_id=chain_id,
+            parent_run_id=parent_run_id,
         )
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
         return RunResult(
@@ -919,6 +963,8 @@ def _run_metadata(
     config: SessionConfig | None = None,
     timings: dict[str, float] | None = None,
     schema_validation_skipped: list[str] | None = None,
+    chain_id: str | None = None,
+    parent_run_id: str | None = None,
 ) -> dict[str, Any]:
     if comfy_outputs is None:
         comfy_outputs = _raw_comfy_outputs(queued)
@@ -949,10 +995,31 @@ def _run_metadata(
         "runtime": runtime,
         "schema_validation_skipped": schema_validation_skipped or [],
     }
+    entrypoint = workflow.metadata.get("entrypoint")
+    layer = workflow.metadata.get("layer")
+    if isinstance(entrypoint, str) and entrypoint:
+        metadata["entrypoint"] = entrypoint
+    if isinstance(layer, str) and layer:
+        metadata["layer"] = layer
+    if chain_id is not None:
+        metadata["chain_id"] = chain_id
+    if parent_run_id is not None:
+        metadata["parent_run_id"] = parent_run_id
     if timings:
         metadata["timings"] = timings
     if config is not None and config.memory_profile is not None:
         metadata.update(MemoryProfile.parse(config.memory_profile).to_telemetry())
+    patch_applications = workflow.metadata.get("patch_applications")
+    if isinstance(patch_applications, list):
+        metadata["patch_applications"] = patch_applications
+    reqs = workflow.requirements
+    metadata["requirements"] = {
+        "models": reqs.models,
+        "custom_nodes": reqs.custom_nodes,
+        "missing_models": reqs.missing_models,
+        "missing_nodes": reqs.missing_nodes,
+        "unsupported": reqs.unsupported,
+    }
     return metadata
 
 

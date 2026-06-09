@@ -1,0 +1,25 @@
+name: ltx-firstlast-disable-resize-rewire
+tier: 3
+description: "Compose correctly: disable the LTX first-last resize node and rewire consumers to the original-resolution source."
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags: [m4, compose, structural, recovery, ltx]
+assessment:
+  enforced:
+    - "compiled_api.json contains no node whose class_type is ResizeImagesByLongerEdge reading images from the ImageResizeKJv2 node (node 48) on the last-frame path; the disabled resize node 49 is absent from the compiled graph."
+    - "compiled_api.json: the former resize consumer ResizeImageMaskNode (node 2) has inputs.input referencing [\"48\", 0] (the resize's former source) and NOT the removed resize node 49."
+    - "compiled_api.json: the former resize consumer LTXVAddGuide (node 2152) has inputs.image referencing [\"48\", 0] and NOT the removed resize node 49."
+    - "compiled_api.json contains no edge reference whose source node id is 49 anywhere in any node's inputs (no dangling reference to the removed resize node)."
+    - "actions.jsonl records finalize_metadata with status=completed."
+  graded:
+    - "The rewire preserves the rest of the LTX first-last-frame pipeline (loaders, samplers, decode, video output) intact rather than rebuilding or pruning unrelated nodes."
+    - "Both downstream consumers of the disabled resize are rewired to the same original-resolution source so first and last frames stay at native resolution."
+  observed:
+    - "Telemetry: the run reaches finalize_metadata and emits compiled_api.json + metadata.json without a queue-blocking dangling-input error."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 
+from vibecomfy.blocks.save import image as save_image
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.registry.ready_template import bind_input
 from vibecomfy.workflow import VibeInput, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
@@ -271,3 +272,39 @@ def test_finalize_metadata_keeps_exec_semantic_io_names_out_of_public_inputs() -
         "inputs": [["image", "IMAGE"]],
         "outputs": [["image", "IMAGE"]],
     }
+
+
+def test_finalize_trap_pre_vs_post_requirements_models_nonempty() -> None:
+    """Prove the #12 trap: pre-finalize requirements.models is empty;
+    post-finalize it is non-empty and runtime-serializable via asdict."""
+    workflow = VibeWorkflow(
+        "m3-save-node-finalize",
+        WorkflowSource("m3-save-node-finalize"),
+    )
+    workflow.add_node(
+        "CheckpointLoaderSimple", ckpt_name="sd_xl_base_1.0.safetensors"
+    )
+    source = workflow.add_node("LoadImage", image="input/source.png")
+    save_image(
+        workflow, images=f"{source.id}.0", filename_prefix="m3/finalized"
+    )
+
+    # Pre-finalize: requirements.models should be empty (the trap).
+    assert workflow.requirements.models == [], (
+        "pre-finalize requirements.models must be empty"
+    )
+
+    workflow.finalize_metadata()
+
+    # Post-finalize: requirements.models must be non-empty.
+    assert len(workflow.requirements.models) > 0, (
+        "post-finalize requirements.models must be non-empty"
+    )
+
+    # Prove runtime-serializable: asdict produces a plain dict with
+    # JSON-safe values (no raw dataclass instances).
+    serialized = asdict(workflow.requirements)
+    assert isinstance(serialized, dict)
+    assert isinstance(serialized.get("models"), list)
+    assert len(serialized["models"]) > 0
+    assert all(isinstance(m, str) for m in serialized["models"])

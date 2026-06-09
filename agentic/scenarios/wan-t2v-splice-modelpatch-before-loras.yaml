@@ -1,0 +1,24 @@
+name: wan-t2v-splice-modelpatch-before-loras
+tier: 3
+description: "Compose correctly: splice a model-optimization node onto the base model upstream of the LoRA loader so the optimization wraps the full model+lora stack."
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags: [m4, compose, structural, positive, wanvideo, model-splice]
+assessment:
+  enforced:
+    - "compiled_api.json contains a WanVideoTorchCompileSettings node whose inputs.model edge reference points at the base WanVideoModelLoader node (node 22 output, i.e. [\"22\", 0])."
+    - "compiled_api.json shows the WanVideoSetLoRAs node (node 58) inputs.model references the WanVideoTorchCompileSettings node's output, NOT the base WanVideoModelLoader (node 22) and NOT any downstream node — proving the optimization is spliced UPSTREAM of the loras."
+    - "compiled_api.json shows the WanVideoSampler node (node 27) inputs.model still references the post-lora model chain via WanVideoSetBlockSwap (node 56), whose inputs.model references WanVideoSetLoRAs (node 58) — the sampler keeps receiving the fully combined model+lora model."
+    - "compiled_api.json contains exactly one WanVideoTorchCompileSettings node (the optimization was spliced in, not duplicated or left between loras and sampler)."
+    - "actions.jsonl records finalize_metadata with status=completed."
+  graded:
+    - "The optimization node is placed at the single correct seam (base model -> loras) rather than between the loras and the sampler; the rest of the pipeline (block-swap, decode, save) is left structurally intact."
+  observed:
+    - "Report narrative explains that the optimization wraps the full model+lora stack and the sampler still receives the post-lora model."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

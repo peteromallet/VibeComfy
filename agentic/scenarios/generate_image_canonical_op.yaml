@@ -1,0 +1,26 @@
+name: generate-image-canonical-op
+tier: 2
+description: "Discovery: canonical image.t2i op path compiles cleanly"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m2
+  - discovery
+  - structural
+  - positive
+assessment:
+  enforced:
+    - "compiled_api.json contains an image generation workflow with at least one node referencing a t2i-style prompt input."
+    - "metadata.json contains entrypoint=op and layer=ops/image.py:t2i."
+    - "actions.jsonl records op=image.t2i with used_canonical_op=true."
+  graded:
+    - "outputs/image.png is a non-empty placeholder file."
+  observed:
+    - "run_id is consistent across metadata.json and actions.jsonl."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

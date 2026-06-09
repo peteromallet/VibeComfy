@@ -1,0 +1,27 @@
+name: run-wan-t2v-ready-cli
+tier: 2
+description: "Discovery: ready-template CLI path for video/wan_t2v compiles cleanly"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m2
+  - discovery
+  - structural
+  - positive
+assessment:
+  enforced:
+    - "command_log.json contains a command entry with command matching 'vibecomfy run video/wan_t2v' and status=compiled."
+    - "compiled_api.json exists and contains WanVideo-related workflow nodes."
+    - "metadata.json contains entrypoint=agentic."
+  graded:
+    - "outputs/video.mp4 is a non-empty placeholder file."
+  observed:
+    - "actions.jsonl records ready=true and runtime=structural."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/command_log.json
+    - evidence/actions.jsonl

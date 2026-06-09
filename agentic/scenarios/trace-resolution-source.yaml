@@ -1,0 +1,31 @@
+name: trace-resolution-source
+tier: 4
+description: "Investigate: trace which node sets the output resolution in a video workflow"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m5
+  - investigate
+  - structural
+  - positive
+assessment:
+  enforced:
+    - "resolution_source.json parses as valid JSON with integer keys node_id, width, height."
+    - "Load and parse resolution_source.json. Load compiled_api.json. Verify that parsed node_id matches the id of the EmptyHunyuanLatentVideo node in the compiled graph (the node whose class_type defines the latent video dimensions)."
+    - "Verify that parsed width and height equal the corresponding input values on that EmptyHunyuanLatentVideo node in compiled_api.json."
+    - "command_log.jsonl is valid line-delimited JSON; every line parses as a JSON object."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'analyze' and parsed argv containing the string 'trace'."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'analyze' and parsed argv containing the string 'values'."
+  graded:
+    - "The agent correctly identifies the specific node that sets resolution and reads its actual width/height values from the graph."
+  observed:
+    - "resolution_source.json contains width and height as integer values matching the template defaults."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl
+    - evidence/command_log.jsonl
+    - evidence/resolution_source.json
