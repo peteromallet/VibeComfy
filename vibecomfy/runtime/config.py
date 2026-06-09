@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from vibecomfy.comfy_command import comfyui_command
 from vibecomfy.memory_profile import MemoryProfile, apply_memory_profile_overrides
 from vibecomfy.workflow import VibeWorkflow
+
+from .client import ComfyClient
 
 if TYPE_CHECKING:
     from comfy.cli_args_types import Configuration
@@ -137,10 +142,23 @@ def _embedded_configuration(workflow: VibeWorkflow) -> Configuration | None:
     return _embedded_configuration_for_session(SessionConfig.from_workflow_metadata(workflow))
 
 
-def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
-    from .server_process import _comfyui_executable
+def _comfyui_command() -> tuple[str, ...]:
+    return comfyui_command()
 
-    argv = [_comfyui_executable(), "serve"]
+
+def _env_requests_sage_attention() -> bool:
+    raw = os.environ.get("VIBECOMFY_ATTENTION_PROFILE") or ""
+    return raw.strip().lower() in {"sage", "sageattn", "sageattention", "optimized"}
+
+
+def _config_requests_sage_attention(config: SessionConfig) -> bool:
+    if bool(config.extra.get("use_sage_attention")):
+        return True
+    return _env_requests_sage_attention()
+
+
+def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
+    argv = [*_comfyui_command(), "serve"]
     if config.vram_policy in {"high", "low", "normal"}:
         argv.append(f"--{config.vram_policy}vram")
     if config.reserve_vram_gb is not None:
@@ -153,5 +171,66 @@ def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
         argv.append("--cache-none")
     elif config.cache_policy.startswith("lru:"):
         argv.extend(["--cache-lru", config.cache_policy.split(":", 1)[1]])
+    if _config_requests_sage_attention(config):
+        argv.append("--use-sage-attention")
+    for key, flag in (
+        ("input_directory", "--input-directory"),
+        ("output_directory", "--output-directory"),
+        ("temp_directory", "--temp-directory"),
+    ):
+        value = config.extra.get(key)
+        if value:
+            argv.extend([flag, str(value)])
     argv.extend(["--port", str(config.port or 8188)])
     return tuple(argv)
+
+
+async def _spawn_comfy_server(
+    config: SessionConfig, log_path: str | Path | None = None
+) -> tuple[asyncio.subprocess.Process, str, Any | None]:
+    log_handle = None
+    if log_path:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        log_handle = Path(log_path).open("ab", buffering=0)
+    try:
+        argv = _comfy_server_argv(config)
+        if log_handle:
+            log_handle.write(
+                f"[vibecomfy] launching managed Comfy server: {json.dumps(list(argv))}\n".encode()
+            )
+        env = os.environ.copy()
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=log_handle or asyncio.subprocess.DEVNULL,
+            stderr=log_handle or asyncio.subprocess.DEVNULL,
+            env=env,
+        )
+        managed_url = f"http://127.0.0.1:{config.port or 8188}"
+        client = ComfyClient(managed_url)
+        ready_timeout_sec = int(
+            config.extra.get("ready_timeout_sec")
+            or os.environ.get("VIBECOMFY_SESSION_READY_TIMEOUT_SEC")
+            or 300
+        )
+        for second in range(ready_timeout_sec):
+            if await client.ready():
+                break
+            if log_handle and second and second % 30 == 0:
+                log_handle.write(
+                    f"[vibecomfy] waiting for managed Comfy server readiness: "
+                    f"{second}/{ready_timeout_sec}s\n".encode()
+                )
+            await asyncio.sleep(1)
+        else:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+            raise TimeoutError(
+                f"Managed Comfy server did not become ready within {ready_timeout_sec} seconds"
+            )
+    except BaseException:
+        if log_handle:
+            log_handle.close()
+        raise
+    return process, managed_url, log_handle
