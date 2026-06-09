@@ -529,7 +529,7 @@ class TestCleanup:
 
     def test_all_resolvable_helpers_deleted_after_resolution(self) -> None:
         """No RESOLVABLE_HELPER_CLASS_TYPES nodes remain after a successful resolve."""
-        from vibecomfy.porting.helpers import RESOLVABLE_HELPER_CLASS_TYPES
+        from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
 
         wf = _wf(
             ("0", "SourceNode", {}),

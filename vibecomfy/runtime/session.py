@@ -1228,7 +1228,6 @@ def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
 def _env_requests_sage_attention() -> bool:
     raw = (
         os.environ.get("VIBECOMFY_ATTENTION_PROFILE")
-        or os.environ.get("REIGH_VIBECOMFY_ATTENTION_PROFILE")
         or ""
     )
     return raw.strip().lower() in {"sage", "sageattn", "sageattention", "optimized"}
