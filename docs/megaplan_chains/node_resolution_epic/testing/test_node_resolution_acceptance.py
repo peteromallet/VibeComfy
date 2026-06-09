@@ -652,7 +652,7 @@ def test_c10_provenance_less_warns_never_silent_latest() -> None:
     from vibecomfy.runtime.ensure_env import ensure_env
     from vibecomfy.node_packs_install import InstallBatchResult, PipPreflightResult
 
-    corpus = Path("workflow_corpus/official/video/wan_t2v.json")
+    corpus = _REPO_ROOT / "workflow_corpus/official/video/wan_t2v.json"
     assert corpus.exists(), "wan_t2v.json fixture is missing"
 
     install_calls: list[tuple[str, ...]] = []
