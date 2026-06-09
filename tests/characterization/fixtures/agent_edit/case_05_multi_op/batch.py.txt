@@ -1,0 +1,2 @@
+positive.text = "multi hello"
+prim = PrimitiveInt(value=99, near=saveimage, relation="below")

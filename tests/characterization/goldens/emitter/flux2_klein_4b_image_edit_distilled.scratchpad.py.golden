@@ -1,0 +1,271 @@
+# vibecomfy: generated scratchpad
+"""Auto-generated VibeComfy scratchpad."""
+from __future__ import annotations
+
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+
+def build() -> VibeWorkflow:
+    """Build the workflow (auto-generated)."""
+    wf = VibeWorkflow(
+        'edit/flux2_klein_4b_image_edit_distilled',
+        WorkflowSource(
+            id='edit/flux2_klein_4b_image_edit_distilled',
+            path='workflow_corpus/official/edit/flux2_klein_4b_image_edit_distilled.json',
+            source_type='scratchpad',
+            provenance={},
+        ),
+    )
+
+    ksamplerselect = _node(wf, 'KSamplerSelect', '1', _uid='n3',
+        _outputs=('SAMPLER',),
+        sampler_name='euler',
+    )
+    unetloader = _node(wf, 'UNETLoader', '2', _uid='n4',
+        _outputs=('MODEL',),
+        unet_name='flux-2-klein-4b-fp8.safetensors',
+    )
+    cliploader = _node(wf, 'CLIPLoader', '3', _uid='n5',
+        _outputs=('CLIP',),
+        clip_name='qwen_3_4b.safetensors',
+        type='flux2',
+    )
+    vaeloader = _node(wf, 'VAELoader', '4', _uid='n6',
+        _outputs=('VAE',),
+        vae_name='flux2-vae.safetensors',
+    )
+    randomnoise = _node(wf, 'RandomNoise', '5', _uid='n7',
+        _outputs=('NOISE',),
+        noise_seed=43301611940728,
+        control_after_generate='randomize',
+    )
+    ksamplerselect_2 = _node(wf, 'KSamplerSelect', '19', _uid='n21',
+        _outputs=('SAMPLER',),
+        sampler_name='euler',
+    )
+    randomnoise_2 = _node(wf, 'RandomNoise', '20', _uid='n22',
+        _outputs=('NOISE',),
+        noise_seed=786795143695419,
+        control_after_generate='randomize',
+    )
+    unetloader_2 = _node(wf, 'UNETLoader', '21', _uid='n23',
+        _outputs=('MODEL',),
+        unet_name='flux-2-klein-4b-fp8.safetensors',
+    )
+    cliploader_2 = _node(wf, 'CLIPLoader', '22', _uid='n24',
+        _outputs=('CLIP',),
+        clip_name='qwen_3_4b.safetensors',
+        type='flux2',
+    )
+    vaeloader_2 = _node(wf, 'VAELoader', '23', _uid='n25',
+        _outputs=('VAE',),
+        vae_name='flux2-vae.safetensors',
+    )
+    loadimage = _node(wf, 'LoadImage', '76', _uid='n1',
+        _outputs=('IMAGE', 'MASK'),
+        image='handbag_white.png',
+    )
+    loadimage_2 = _node(wf, 'LoadImage', '81', _uid='n2',
+        _outputs=('IMAGE', 'MASK'),
+        image='comfy_logo_blue.png',
+    )
+    imagescaletototalpixels = _node(wf, 'ImageScaleToTotalPixels', '6', _uid='n8',
+        _outputs=('IMAGE',),
+        upscale_method='nearest-exact',
+        image=loadimage.out('IMAGE'),
+    )
+    cliptextencode = _node(wf, 'CLIPTextEncode', '7', _uid='n9',
+        _outputs=('CONDITIONING',),
+        text='Change the bag color to blue.',
+        clip=cliploader.out('CLIP'),
+    )
+    imagescaletototalpixels_2 = _node(wf, 'ImageScaleToTotalPixels', '18', _uid='n20',
+        _outputs=('IMAGE',),
+        upscale_method='nearest-exact',
+        image=loadimage_2.out('IMAGE'),
+    )
+    imagescaletototalpixels_3 = _node(wf, 'ImageScaleToTotalPixels', '24', _uid='n26',
+        _outputs=('IMAGE',),
+        upscale_method='nearest-exact',
+        image=loadimage.out('IMAGE'),
+    )
+    cliptextencode_2 = _node(wf, 'CLIPTextEncode', '25', _uid='n27',
+        _outputs=('CONDITIONING',),
+        text='stylize the handbag in image1 with the colours and logo from image 2',
+        clip=cliploader_2.out('CLIP'),
+    )
+    getimagesize = _node(wf, 'GetImageSize', '8', _uid='n10',
+        _outputs=('WIDTH', 'HEIGHT', 'BATCH_SIZE'),
+        image=imagescaletototalpixels.out('IMAGE'),
+    )
+    conditioningzeroout = _node(wf, 'ConditioningZeroOut', '12', _uid='n14',
+        _outputs=('CONDITIONING',),
+        conditioning=cliptextencode.out('CONDITIONING'),
+    )
+    getimagesize_2 = _node(wf, 'GetImageSize', '26', _uid='n28',
+        _outputs=('WIDTH', 'HEIGHT', 'BATCH_SIZE'),
+        image=imagescaletototalpixels_3.out('IMAGE'),
+    )
+    conditioningzeroout_2 = _node(wf, 'ConditioningZeroOut', '27', _uid='n29',
+        _outputs=('CONDITIONING',),
+        conditioning=cliptextencode_2.out('CONDITIONING'),
+    )
+    vaeencode = _node(wf, 'VAEEncode', '30', _uid='n32',
+        _outputs=('LATENT',),
+        pixels=imagescaletototalpixels_3.out('IMAGE'),
+        vae=vaeloader_2.out('VAE'),
+    )
+    vaeencode_2 = _node(wf, 'VAEEncode', '33', _uid='n35',
+        _outputs=('LATENT',),
+        pixels=imagescaletototalpixels_2.out('IMAGE'),
+        vae=vaeloader_2.out('VAE'),
+    )
+    vaeencode_3 = _node(wf, 'VAEEncode', '40', _uid='n11',
+        _outputs=('LATENT',),
+        pixels=imagescaletototalpixels.out('IMAGE'),
+        vae=vaeloader.out('VAE'),
+    )
+    flux2scheduler = _node(wf, 'Flux2Scheduler', '10', _uid='n12',
+        _outputs=('SIGMAS',),
+        steps=4,
+        width=getimagesize.out('WIDTH'),
+        height=getimagesize.out('HEIGHT'),
+    )
+    emptyflux2latentimage = _node(wf, 'EmptyFlux2LatentImage', '11', _uid='n13',
+        _outputs=('LATENT',),
+        width=getimagesize.out('WIDTH'),
+        height=getimagesize.out('HEIGHT'),
+    )
+    referencelatent = _node(wf, 'ReferenceLatent', '13', _uid='n15',
+        _outputs=('CONDITIONING',),
+        conditioning=cliptextencode.out('CONDITIONING'),
+        latent=vaeencode_3.out('LATENT'),
+    )
+    referencelatent_2 = _node(wf, 'ReferenceLatent', '14', _uid='n16',
+        _outputs=('CONDITIONING',),
+        conditioning=conditioningzeroout.out('CONDITIONING'),
+        latent=vaeencode_3.out('LATENT'),
+    )
+    flux2scheduler_2 = _node(wf, 'Flux2Scheduler', '28', _uid='n30',
+        _outputs=('SIGMAS',),
+        steps=4,
+        width=getimagesize_2.out('WIDTH'),
+        height=getimagesize_2.out('HEIGHT'),
+    )
+    emptyflux2latentimage_2 = _node(wf, 'EmptyFlux2LatentImage', '29', _uid='n31',
+        _outputs=('LATENT',),
+        width=getimagesize_2.out('WIDTH'),
+        height=getimagesize_2.out('HEIGHT'),
+    )
+    referencelatent_3 = _node(wf, 'ReferenceLatent', '31', _uid='n33',
+        _outputs=('CONDITIONING',),
+        conditioning=conditioningzeroout_2.out('CONDITIONING'),
+        latent=vaeencode.out('LATENT'),
+    )
+    referencelatent_4 = _node(wf, 'ReferenceLatent', '32', _uid='n34',
+        _outputs=('CONDITIONING',),
+        conditioning=cliptextencode_2.out('CONDITIONING'),
+        latent=vaeencode.out('LATENT'),
+    )
+    cfgguider = _node(wf, 'CFGGuider', '15', _uid='n17',
+        _outputs=('GUIDER',),
+        cfg=1,
+        model=unetloader.out('MODEL'),
+        negative=referencelatent_2.out('CONDITIONING'),
+        positive=referencelatent.out('CONDITIONING'),
+    )
+    referencelatent_5 = _node(wf, 'ReferenceLatent', '34', _uid='n36',
+        _outputs=('CONDITIONING',),
+        conditioning=referencelatent_3.out('CONDITIONING'),
+        latent=vaeencode_2.out('LATENT'),
+    )
+    referencelatent_6 = _node(wf, 'ReferenceLatent', '35', _uid='n37',
+        _outputs=('CONDITIONING',),
+        conditioning=referencelatent_4.out('CONDITIONING'),
+        latent=vaeencode_2.out('LATENT'),
+    )
+    samplercustomadvanced = _node(wf, 'SamplerCustomAdvanced', '16', _uid='n18',
+        _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
+        guider=cfgguider.out('GUIDER'),
+        latent_image=emptyflux2latentimage.out('LATENT'),
+        noise=randomnoise.out('NOISE'),
+        sampler=ksamplerselect.out('SAMPLER'),
+        sigmas=flux2scheduler.out('SIGMAS'),
+    )
+    cfgguider_2 = _node(wf, 'CFGGuider', '36', _uid='n38',
+        _outputs=('GUIDER',),
+        cfg=1,
+        model=unetloader_2.out('MODEL'),
+        negative=referencelatent_5.out('CONDITIONING'),
+        positive=referencelatent_6.out('CONDITIONING'),
+    )
+    vaedecode = _node(wf, 'VAEDecode', '17', _uid='n19',
+        _outputs=('IMAGE',),
+        samples=samplercustomadvanced.out('OUTPUT'),
+        vae=vaeloader.out('VAE'),
+    )
+    samplercustomadvanced_2 = _node(wf, 'SamplerCustomAdvanced', '37', _uid='n39',
+        _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
+        guider=cfgguider_2.out('GUIDER'),
+        latent_image=emptyflux2latentimage_2.out('LATENT'),
+        noise=randomnoise_2.out('NOISE'),
+        sampler=ksamplerselect_2.out('SAMPLER'),
+        sigmas=flux2scheduler_2.out('SIGMAS'),
+    )
+    saveimage = _node(wf, 'SaveImage', '9', _uid='n41',
+        filename_prefix='Flux2-Klein',
+        images=vaedecode.out('IMAGE'),
+    )
+    vaedecode_2 = _node(wf, 'VAEDecode', '38', _uid='n40',
+        _outputs=('IMAGE',),
+        samples=samplercustomadvanced_2.out('OUTPUT'),
+        vae=vaeloader_2.out('VAE'),
+    )
+    saveimage_2 = _node(wf, 'SaveImage', '94', _uid='n42',
+        filename_prefix='Flux2-Klein',
+        images=vaedecode_2.out('IMAGE'),
+    )
+
+    wf.finalize_metadata()
+    return wf
+
+
+def _node(
+    wf: VibeWorkflow,
+    class_type: str,
+    _id: str,
+    _extras: dict | None = None,
+    _outputs: tuple[str, ...] | None = None,
+    _uid: str | None = None,
+    **kwargs,
+):
+    """Create a node, preserving the original node id from the source workflow.
+
+    `_extras` carries kwargs whose names are not valid Python identifiers
+    (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
+    They are applied to the new node post-construction.
+    """
+    from vibecomfy.handles import Handle
+    builder = wf.node(class_type, **kwargs)
+    if _uid:
+        builder.node.uid = _uid
+    if _outputs is not None:
+        builder.node.metadata["output_names"] = list(_outputs)
+    if _extras:
+        for key, value in _extras.items():
+            if isinstance(value, Handle):
+                wf.connect(value, f"{builder.node.id}.{key}")
+            else:
+                builder.node.inputs[key] = value
+    if builder.node.id != _id:
+        old_id = builder.node.id
+        node = wf.nodes.pop(old_id)
+        node.id = _id
+        wf.nodes[_id] = node
+        for edge in wf.edges:
+            if edge.to_node == old_id:
+                edge.to_node = _id
+            if edge.from_node == old_id:
+                edge.from_node = _id
+    return builder
+

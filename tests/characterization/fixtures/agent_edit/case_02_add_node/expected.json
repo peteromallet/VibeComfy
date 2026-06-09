@@ -1,0 +1,9 @@
+{
+  "working_ui_structural_hash": "6d6ca7b138e553be8718f00ef416584d5b20733fa791054ea1f2283adbe871a9",
+  "sorted_diagnostic_codes": [],
+  "ok": true,
+  "landed_op_kinds": [
+    "add_node"
+  ],
+  "done_summary_prefix_120": "Gate A passed: 1 edit operation(s) verified. Gate B passed: touched compile region is isomorphic. Summary: Added Primiti"
+}

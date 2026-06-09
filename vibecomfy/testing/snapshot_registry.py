@@ -25,4 +25,6 @@ STEM_TO_READY_ID: dict[str, str] = {
     "wan_i2v": "video/wan_i2v",
     "ltx2_3_t2v": "video/ltx2_3_t2v",
     "ltx2_3_i2v": "video/ltx2_3_i2v",
+    "empty_image_red": "smoke/empty_image_red",
+    "empty_image_red_smoke_required": "smoke/empty_image_red",
 }

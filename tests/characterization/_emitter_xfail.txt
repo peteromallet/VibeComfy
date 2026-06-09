@@ -1,0 +1,10 @@
+# Emitter characterization xfail registry.
+#
+# Format: one stem per line, followed by a comment after ``#`` explaining why
+# the stem is expected to produce non-identical output.
+#
+#   <stem>  # <reason>
+#
+# Stems NOT listed here are expected to match their goldens byte-for-byte.
+# This file is read by test_emitter_snapshots.py and must live alongside it.
+#

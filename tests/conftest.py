@@ -141,6 +141,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Run the opt-in production-resolution matrix (multi-pod; ~$5-10; requires RUNPOD_API_KEY).",
     )
+    parser.addoption(
+        "--known-failures-audit",
+        action="store_true",
+        default=False,
+        help="Report entries in known_failures.txt that no longer match any collected test ID.",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -179,7 +185,39 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
     Tests that are already in the by-design-red baseline are silently accepted.
     A rising set (test IDs not in the baseline) is the real regression signal.
+
+    When ``--known-failures-audit`` is passed, also report STALE entries in
+    ``known_failures.txt`` that no longer map to any collected test ID.
     """
+    # --- Stale-failures audit (independent of exit status) ---
+    if config.getoption("--known-failures-audit", default=False):
+        known = _load_known_failures()
+        if known:
+            collected_ids = {item.nodeid for item in terminalreporter.stats.get("passed", [])}
+            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("failed", []))
+            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("skipped", []))
+            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("xfailed", []))
+            collected_ids.update(item.nodeid for item in terminalreporter.stats.get("xpassed", []))
+            # Also try to get the full collected set from the session
+            session = terminalreporter._session  # type: ignore[attr-defined]
+            if hasattr(session, "items"):
+                collected_ids.update(item.nodeid for item in session.items)
+            stale = sorted(known - collected_ids)
+            if stale:
+                terminalreporter.write_sep("=", "STALE FAILURES (in known_failures.txt but not collected)", yellow=True)
+                for nodeid in stale:
+                    terminalreporter.write_line(f"  STALE: {nodeid}", yellow=True)
+                terminalreporter.write_line(
+                    f"{len(stale)} stale entry(s) in known_failures.txt — remove or update them.",
+                    yellow=True,
+                )
+            else:
+                terminalreporter.write_line(
+                    f"known_failures.txt audit: all {len(known)} entry(s) map to collected tests.",
+                    green=True,
+                )
+
+    # --- New-failures gate ---
     stats = terminalreporter.stats
     failed_items = stats.get("failed", [])
     if not failed_items:

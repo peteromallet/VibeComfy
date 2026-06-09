@@ -1,0 +1,186 @@
+# vibecomfy: generated scratchpad
+"""Auto-generated VibeComfy scratchpad."""
+from __future__ import annotations
+
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource
+
+
+def build() -> VibeWorkflow:
+    """Build the workflow (auto-generated)."""
+    wf = VibeWorkflow(
+        'image/flux2_klein_4b_t2i',
+        WorkflowSource(
+            id='image/flux2_klein_4b_t2i',
+            path='workflow_corpus/official/image/flux2_klein_4b_t2i.json',
+            source_type='scratchpad',
+            provenance={},
+        ),
+    )
+
+    ksamplerselect = _node(wf, 'KSamplerSelect', '1', _uid='n1',
+        _outputs=('SAMPLER',),
+        sampler_name='euler',
+    )
+    flux2scheduler = _node(wf, 'Flux2Scheduler', '2', _uid='n2',
+        _outputs=('SIGMAS',),
+    )
+    emptyflux2latentimage = _node(wf, 'EmptyFlux2LatentImage', '3', _uid='n3',
+        _outputs=('LATENT',),
+    )
+    unetloader = _node(wf, 'UNETLoader', '4', _uid='n4',
+        _outputs=('MODEL',),
+        unet_name='flux-2-klein-base-4b.safetensors',
+    )
+    cliploader = _node(wf, 'CLIPLoader', '5', _uid='n5',
+        _outputs=('CLIP',),
+        clip_name='qwen_3_4b.safetensors',
+        type='flux2',
+    )
+    vaeloader = _node(wf, 'VAELoader', '6', _uid='n6',
+        _outputs=('VAE',),
+        vae_name='flux2-vae.safetensors',
+    )
+    randomnoise = _node(wf, 'RandomNoise', '7', _uid='n7',
+        _outputs=('NOISE',),
+        control_after_generate='randomize',
+    )
+    ksamplerselect_2 = _node(wf, 'KSamplerSelect', '13', _uid='n13',
+        _outputs=('SAMPLER',),
+        sampler_name='euler',
+    )
+    flux2scheduler_2 = _node(wf, 'Flux2Scheduler', '14', _uid='n14',
+        _outputs=('SIGMAS',),
+        steps=4,
+    )
+    emptyflux2latentimage_2 = _node(wf, 'EmptyFlux2LatentImage', '15', _uid='n15',
+        _outputs=('LATENT',),
+    )
+    unetloader_2 = _node(wf, 'UNETLoader', '16', _uid='n16',
+        _outputs=('MODEL',),
+        unet_name='flux-2-klein-4b.safetensors',
+    )
+    cliploader_2 = _node(wf, 'CLIPLoader', '17', _uid='n17',
+        _outputs=('CLIP',),
+        clip_name='qwen_3_4b.safetensors',
+        type='flux2',
+    )
+    vaeloader_2 = _node(wf, 'VAELoader', '18', _uid='n18',
+        _outputs=('VAE',),
+        vae_name='flux2-vae.safetensors',
+    )
+    randomnoise_2 = _node(wf, 'RandomNoise', '19', _uid='n19',
+        _outputs=('NOISE',),
+        noise_seed=432262096973490,
+        control_after_generate='randomize',
+    )
+    negative = _node(wf, 'CLIPTextEncode', '8', _uid='n8',
+        _outputs=('CONDITIONING',),
+        text='',
+        clip=cliploader.out('CLIP'),
+    )
+    positive = _node(wf, 'CLIPTextEncode', '20', _uid='n20',
+        _outputs=('CONDITIONING',),
+        text='',
+        clip=cliploader_2.out('CLIP'),
+    )
+    positive_2 = _node(wf, 'CLIPTextEncode', '26', _uid='n9',
+        _outputs=('CONDITIONING',),
+        text='',
+        clip=cliploader.out('CLIP'),
+    )
+    cfgguider = _node(wf, 'CFGGuider', '10', _uid='n10',
+        _outputs=('GUIDER',),
+        cfg=5,
+        model=unetloader.out('MODEL'),
+        negative=negative.out('CONDITIONING'),
+        positive=positive_2.out('CONDITIONING'),
+    )
+    conditioningzeroout = _node(wf, 'ConditioningZeroOut', '21', _uid='n21',
+        _outputs=('CONDITIONING',),
+        conditioning=positive.out('CONDITIONING'),
+    )
+    samplercustomadvanced = _node(wf, 'SamplerCustomAdvanced', '11', _uid='n11',
+        _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
+        guider=cfgguider.out('GUIDER'),
+        latent_image=emptyflux2latentimage.out('LATENT'),
+        noise=randomnoise.out('NOISE'),
+        sampler=ksamplerselect.out('SAMPLER'),
+        sigmas=flux2scheduler.out('SIGMAS'),
+    )
+    cfgguider_2 = _node(wf, 'CFGGuider', '22', _uid='n22',
+        _outputs=('GUIDER',),
+        cfg=1,
+        model=unetloader_2.out('MODEL'),
+        negative=conditioningzeroout.out('CONDITIONING'),
+        positive=positive.out('CONDITIONING'),
+    )
+    vaedecode = _node(wf, 'VAEDecode', '12', _uid='n12',
+        _outputs=('IMAGE',),
+        samples=samplercustomadvanced.out('OUTPUT'),
+        vae=vaeloader.out('VAE'),
+    )
+    samplercustomadvanced_2 = _node(wf, 'SamplerCustomAdvanced', '23', _uid='n23',
+        _outputs=('OUTPUT', 'DENOISED_OUTPUT'),
+        guider=cfgguider_2.out('GUIDER'),
+        latent_image=emptyflux2latentimage_2.out('LATENT'),
+        noise=randomnoise_2.out('NOISE'),
+        sampler=ksamplerselect_2.out('SAMPLER'),
+        sigmas=flux2scheduler_2.out('SIGMAS'),
+    )
+    saveimage = _node(wf, 'SaveImage', '9', _uid='n25',
+        filename_prefix='Flux2-Klein',
+        images=vaedecode.out('IMAGE'),
+    )
+    vaedecode_2 = _node(wf, 'VAEDecode', '24', _uid='n24',
+        _outputs=('IMAGE',),
+        samples=samplercustomadvanced_2.out('OUTPUT'),
+        vae=vaeloader_2.out('VAE'),
+    )
+    saveimage_2 = _node(wf, 'SaveImage', '78', _uid='n26',
+        filename_prefix='Flux2-Klein',
+        images=vaedecode_2.out('IMAGE'),
+    )
+
+    wf.finalize_metadata()
+    return wf
+
+
+def _node(
+    wf: VibeWorkflow,
+    class_type: str,
+    _id: str,
+    _extras: dict | None = None,
+    _outputs: tuple[str, ...] | None = None,
+    _uid: str | None = None,
+    **kwargs,
+):
+    """Create a node, preserving the original node id from the source workflow.
+
+    `_extras` carries kwargs whose names are not valid Python identifiers
+    (e.g. "resize_type.multiple") which Python disallows as kwarg syntax.
+    They are applied to the new node post-construction.
+    """
+    from vibecomfy.handles import Handle
+    builder = wf.node(class_type, **kwargs)
+    if _uid:
+        builder.node.uid = _uid
+    if _outputs is not None:
+        builder.node.metadata["output_names"] = list(_outputs)
+    if _extras:
+        for key, value in _extras.items():
+            if isinstance(value, Handle):
+                wf.connect(value, f"{builder.node.id}.{key}")
+            else:
+                builder.node.inputs[key] = value
+    if builder.node.id != _id:
+        old_id = builder.node.id
+        node = wf.nodes.pop(old_id)
+        node.id = _id
+        wf.nodes[_id] = node
+        for edge in wf.edges:
+            if edge.to_node == old_id:
+                edge.to_node = _id
+            if edge.from_node == old_id:
+                edge.from_node = _id
+    return builder
+

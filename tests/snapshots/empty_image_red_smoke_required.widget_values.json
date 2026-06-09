@@ -1,0 +1,26 @@
+[
+  [
+    "EmptyImage",
+    "color",
+    "16711680",
+    1
+  ],
+  [
+    "EmptyImage",
+    "height",
+    "64",
+    1
+  ],
+  [
+    "EmptyImage",
+    "width",
+    "64",
+    1
+  ],
+  [
+    "SaveImage",
+    "filename_prefix",
+    "'vibecomfy_ready_smoke_red'",
+    1
+  ]
+]
