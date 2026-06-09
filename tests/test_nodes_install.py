@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Sequence
@@ -7,7 +8,16 @@ from typing import Sequence
 import pytest
 
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
-from vibecomfy.node_packs_install import _known_schema_classes, _resolve_node_index_path, install_pack, missing_packs_for_workflow, restore_pack
+from vibecomfy.node_packs_install import (
+    _known_schema_classes,
+    _resolve_node_index_path,
+    install_pack,
+    install_required_packs,
+    missing_packs_for_workflow,
+    preflight_pip_requirements,
+    restore_pack,
+)
+from vibecomfy.node_packs import CustomNodePack
 
 _VHS_CLASSES = ("VHS_LoadVideo", "VHS_VideoCombine")
 
@@ -106,6 +116,101 @@ def test_install_clones_and_upserts_on_success(tmp_path: Path) -> None:
     assert read_lockfile(lockfile) == [
         _video_helper_entry("feedface")
     ]
+    assert not (tmp_path / "custom_nodes" / ".vibecomfy-install-state" / "ComfyUI-VideoHelperSuite.json").exists()
+
+
+def test_install_writes_sentinel_before_clone_and_leaves_it_on_failure(tmp_path: Path) -> None:
+    runner = FakeRunner(fail_clone=True)
+    lockfile = tmp_path / "custom_nodes.lock"
+    install_root = tmp_path / "custom_nodes"
+
+    result = install_pack(
+        name="ComfyUI-VideoHelperSuite",
+        install_root=install_root,
+        lockfile_path=lockfile,
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    sentinel = install_root / ".vibecomfy-install-state" / "ComfyUI-VideoHelperSuite.json"
+    assert result.status == "failed"
+    assert sentinel.exists()
+    payload = json.loads(sentinel.read_text(encoding="utf-8"))
+    assert payload["complete"] is False
+    assert payload["phase"] == "clone"
+    assert runner.calls[0] == [
+        "git",
+        "clone",
+        "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+        str(install_root / "ComfyUI-VideoHelperSuite"),
+    ]
+
+
+def test_install_updates_sentinel_through_pip_and_leaves_it_on_pip_failure(tmp_path: Path) -> None:
+    runner = FakeRunner(fail_pip=True)
+    install_root = tmp_path / "custom_nodes"
+
+    result = install_pack(
+        name="ComfyUI-KJNodes",
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    sentinel = install_root / ".vibecomfy-install-state" / "ComfyUI-KJNodes.json"
+    payload = json.loads(sentinel.read_text(encoding="utf-8"))
+    assert result.status == "failed"
+    assert payload["complete"] is False
+    assert payload["phase"] == "pip"
+
+
+def test_install_retry_after_clone_ok_pip_failure_refuses_before_false_refresh(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    lockfile = tmp_path / "custom_nodes.lock"
+    first_runner = FakeRunner(fail_pip=True)
+
+    def clone_persists_checkout(
+        args: Sequence[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        cwd: str | Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        call = list(args)
+        if call[:2] == ["git", "clone"]:
+            Path(call[3]).mkdir(parents=True)
+        return first_runner(call, check=check, capture_output=capture_output, text=text, cwd=cwd)
+
+    first = install_pack(
+        name="ComfyUI-KJNodes",
+        install_root=install_root,
+        lockfile_path=lockfile,
+        runner=clone_persists_checkout,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert first.status == "failed"
+    sentinel = install_root / ".vibecomfy-install-state" / "ComfyUI-KJNodes.json"
+    payload = json.loads(sentinel.read_text(encoding="utf-8"))
+    assert payload["phase"] == "pip"
+    assert (install_root / "ComfyUI-KJNodes").exists()
+    assert read_lockfile(lockfile) == []
+
+    retry_runner = FakeRunner(sha="retryhead", porcelain="")
+    second = install_pack(
+        name="ComfyUI-KJNodes",
+        install_root=install_root,
+        lockfile_path=lockfile,
+        runner=retry_runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert second.status == "failed"
+    assert "incomplete install sentinel" in (second.error or "")
+    assert retry_runner.calls == []
+    assert read_lockfile(lockfile) == []
 
 
 def test_install_git_head_uses_injected_runner_after_helper_migration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -167,6 +272,135 @@ def test_install_no_lockfile_mutation_on_pip_failure(tmp_path: Path) -> None:
     assert lockfile.read_text(encoding="utf-8") == original
 
 
+class PipPreflightRunner(FakeRunner):
+    def __init__(
+        self,
+        *,
+        pip_help: str = "--dry-run\n--report\n",
+        fail_dry_run: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.pip_help = pip_help
+        self.fail_dry_run = fail_dry_run
+
+    def __call__(
+        self,
+        args: Sequence[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        cwd: str | Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        call = list(args)
+        if call == [call[0], "-m", "pip", "install", "--help"]:
+            self.calls.append(call)
+            self.cwd_calls.append(cwd)
+            return subprocess.CompletedProcess(call, 0, stdout=self.pip_help, stderr="")
+        if len(call) >= 7 and call[1:6] == ["-m", "pip", "install", "--dry-run", "--report"]:
+            self.calls.append(call)
+            self.cwd_calls.append(cwd)
+            if self.fail_dry_run:
+                raise subprocess.CalledProcessError(1, call, stderr="dry-run failed")
+            Path(call[6]).write_text("{}", encoding="utf-8")
+            return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
+        return super().__call__(args, check=check, capture_output=capture_output, text=text, cwd=cwd)
+
+
+def test_preflight_pip_requirements_runs_joint_dry_run_report() -> None:
+    runner = PipPreflightRunner()
+    packs = [
+        CustomNodePack("A", "https://example.test/a.git", ("AClass",), pip_packages=("zeta", "alpha")),
+        CustomNodePack("B", "https://example.test/b.git", ("BClass",), pip_packages=("alpha",)),
+    ]
+
+    result = preflight_pip_requirements(packs, runner=runner)
+
+    assert result.ok is True
+    assert result.unsupported is False
+    assert result.packages == ("alpha", "zeta")
+    assert runner.calls[0] == [runner.calls[0][0], "-m", "pip", "install", "--help"]
+    assert runner.calls[1][1:6] == ["-m", "pip", "install", "--dry-run", "--report"]
+    assert runner.calls[1][-2:] == ["alpha", "zeta"]
+
+
+def test_batch_install_fails_closed_when_pip_preflight_is_unsupported(tmp_path: Path) -> None:
+    runner = PipPreflightRunner(pip_help="")
+    packs = [
+        CustomNodePack("ComfyUI-KJNodes", "https://github.com/kijai/ComfyUI-KJNodes.git", ("ImageResizeKJv2",), pip_packages=("matplotlib",)),
+        CustomNodePack("ComfyUI-VideoHelperSuite", "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git", _VHS_CLASSES),
+    ]
+
+    result = install_required_packs(
+        packs,
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is False
+    assert result.preflight_unsupported is True
+    assert [item.name for item in result.results] == ["ComfyUI-KJNodes", "ComfyUI-VideoHelperSuite"]
+    assert all(item.status == "failed" for item in result.results)
+    assert not any(call[:2] == ["git", "clone"] for call in runner.calls)
+    assert not (tmp_path / "custom_nodes.lock").exists()
+
+
+def test_batch_install_stops_before_mutation_when_pip_dry_run_fails(tmp_path: Path) -> None:
+    runner = PipPreflightRunner(fail_dry_run=True)
+    packs = [
+        CustomNodePack("ComfyUI-KJNodes", "https://github.com/kijai/ComfyUI-KJNodes.git", ("ImageResizeKJv2",), pip_packages=("matplotlib",)),
+    ]
+
+    result = install_required_packs(
+        packs,
+        install_root=tmp_path / "custom_nodes",
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is False
+    assert result.preflight_unsupported is False
+    assert "dry-run failed" in (result.preflight.error or "")
+    assert not any(call[:2] == ["git", "clone"] for call in runner.calls)
+    assert not (tmp_path / "custom_nodes" / ".vibecomfy-install-state").exists()
+
+
+def test_batch_install_collects_all_pack_outcomes_and_preserves_force_and_restore(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    existing = install_root / "ComfyUI-VideoHelperSuite"
+    existing.mkdir(parents=True)
+    runner = PipPreflightRunner(sha="forcehead", porcelain=" M nodes.py\n")
+    packs = [
+        CustomNodePack("ComfyUI-VideoHelperSuite", "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git", _VHS_CLASSES),
+        CustomNodePack("ComfyUI-KJNodes", "https://github.com/kijai/ComfyUI-KJNodes.git", ("ImageResizeKJv2",), pip_packages=("matplotlib",)),
+        CustomNodePack("ExamplePack", "https://example.test/example.git", ("ExampleNode",)),
+    ]
+    restore_entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
+
+    result = install_required_packs(
+        packs,
+        force=True,
+        restore_entries=[restore_entry],
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.ok is True
+    assert [(item.name, item.status, item.git_commit_sha) for item in result.results] == [
+        ("ComfyUI-VideoHelperSuite", "refreshed", "forcehead"),
+        ("ComfyUI-KJNodes", "installed", "forcehead"),
+        ("ExamplePack", "installed", "pinnedsha"),
+    ]
+    assert ["git", "clone", "https://example.test/example.git", str(install_root / "ExamplePack")] in runner.calls
+    assert ["git", "-C", str(install_root / "ExamplePack"), "checkout", "pinnedsha"] in runner.calls
+
+
 def test_install_idempotent_when_clean(tmp_path: Path) -> None:
     install_dir = tmp_path / "custom_nodes" / "ComfyUI-VideoHelperSuite"
     install_dir.mkdir(parents=True)
@@ -186,6 +420,48 @@ def test_install_idempotent_when_clean(tmp_path: Path) -> None:
     assert read_lockfile(lockfile) == [
         _video_helper_entry("cleanhead")
     ]
+
+
+def test_install_existing_refuses_incomplete_sentinel(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "ComfyUI-VideoHelperSuite"
+    install_dir.mkdir(parents=True)
+    sentinel = install_root / ".vibecomfy-install-state" / "ComfyUI-VideoHelperSuite.json"
+    sentinel.parent.mkdir()
+    sentinel.write_text('{"complete": false, "phase": "pip"}\n', encoding="utf-8")
+    runner = FakeRunner(sha="cleanhead", porcelain="")
+
+    result = install_pack(
+        name="ComfyUI-VideoHelperSuite",
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.status == "failed"
+    assert "incomplete install sentinel" in (result.error or "")
+    assert runner.calls == []
+
+
+def test_install_refuses_corrupt_sentinel_for_fresh_install(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    sentinel = install_root / ".vibecomfy-install-state" / "ComfyUI-VideoHelperSuite.json"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("{not json", encoding="utf-8")
+    runner = FakeRunner()
+
+    result = install_pack(
+        name="ComfyUI-VideoHelperSuite",
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    assert result.status == "failed"
+    assert "corrupt or unreadable" in (result.error or "")
+    assert runner.calls == []
 
 
 def test_install_refuses_dirty_without_force(tmp_path: Path) -> None:
@@ -407,6 +683,7 @@ def test_restore_clones_and_checks_out_pinned_sha(tmp_path: Path) -> None:
     assert runner.calls == [
         ["git", "clone", "https://example.test/example.git", str(tmp_path / "custom_nodes" / "ExamplePack")],
         ["git", "-C", str(tmp_path / "custom_nodes" / "ExamplePack"), "checkout", "pinnedsha"],
+        ["git", "-C", str(tmp_path / "custom_nodes" / "ExamplePack"), "rev-parse", "HEAD"],
     ]
 
 
@@ -441,6 +718,69 @@ def test_restore_existing_clean_dir_at_correct_sha_is_noop(tmp_path: Path) -> No
     assert result.status == "refreshed"
     assert result.git_commit_sha == "pinnedsha"
     assert not any(call[:4] == ["git", "-C", str(install_dir), "checkout"] for call in runner.calls)
+
+
+def test_restore_refuses_incomplete_sentinel_before_false_refreshed(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "ExamplePack"
+    install_dir.mkdir(parents=True)
+    sentinel = install_root / ".vibecomfy-install-state" / "ExamplePack.json"
+    sentinel.parent.mkdir()
+    sentinel.write_text('{"complete": false, "phase": "verification"}\n', encoding="utf-8")
+    runner = FakeRunner(sha="pinnedsha", porcelain="")
+    entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
+
+    result = restore_pack(entry, install_root=install_root, runner=runner)
+
+    assert result.status == "failed"
+    assert "incomplete install sentinel" in (result.error or "")
+    assert runner.calls == []
+
+
+def test_restore_refuses_corrupt_sentinel_before_retrying(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    install_dir = install_root / "ExamplePack"
+    install_dir.mkdir(parents=True)
+    sentinel = install_root / ".vibecomfy-install-state" / "ExamplePack.json"
+    sentinel.parent.mkdir()
+    sentinel.write_text("{not json", encoding="utf-8")
+    runner = FakeRunner(sha="pinnedsha", porcelain="")
+    entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
+
+    result = restore_pack(entry, install_root=install_root, runner=runner)
+
+    assert result.status == "failed"
+    assert "corrupt or unreadable" in (result.error or "")
+    assert runner.calls == []
+
+
+def test_restore_keeps_sentinel_when_verification_head_mismatches(tmp_path: Path) -> None:
+    install_root = tmp_path / "custom_nodes"
+    runner = FakeRunner(sha="wrongsha")
+    entry = LockEntry("ExamplePack", "pinnedsha", "https://example.test/example.git")
+
+    def run_without_checkout_side_effect(
+        args: Sequence[str],
+        *,
+        check: bool,
+        capture_output: bool,
+        text: bool,
+        cwd: str | Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        call = list(args)
+        if call[:4] == ["git", "-C", call[2], "checkout"]:
+            runner.calls.append(call)
+            runner.cwd_calls.append(cwd)
+            return subprocess.CompletedProcess(call, 0, stdout="", stderr="")
+        return runner(args, check=check, capture_output=capture_output, text=text, cwd=cwd)
+
+    result = restore_pack(entry, install_root=install_root, runner=run_without_checkout_side_effect)
+
+    sentinel = install_root / ".vibecomfy-install-state" / "ExamplePack.json"
+    payload = json.loads(sentinel.read_text(encoding="utf-8"))
+    assert result.status == "failed"
+    assert "failed to verify git HEAD" in (result.error or "")
+    assert payload["phase"] == "verification"
 
 
 def test_restore_existing_dirty_dir_returns_skipped(tmp_path: Path) -> None:

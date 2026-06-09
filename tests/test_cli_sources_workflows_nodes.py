@@ -554,7 +554,7 @@ def build():
     assert "ComfyUI-Qwen3-TTS" in captured.out
 
 
-def test_ensure_calls_install_for_each_missing_pack(
+def test_ensure_calls_batch_installer_for_each_missing_pack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -577,25 +577,149 @@ def build():
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    installed: list[str | None] = []
+    batch_call: dict[str, object] = {}
 
-    def fake_install_pack(**kwargs):
-        installed.append(kwargs.get("name"))
-        return node_packs_install.InstallResult(
-            name=str(kwargs["name"]),
-            status="refreshed",
-            git_commit_sha="abc123",
-            error=None,
+    def fake_install_required_packs(packs, *, force=False):
+        batch_call["packs"] = [pack.name for pack in packs]
+        batch_call["force"] = force
+        return node_packs_install.InstallBatchResult(
+            ok=True,
+            results=tuple(
+                node_packs_install.InstallResult(
+                    name=pack.name,
+                    status="refreshed",
+                    git_commit_sha="abc123",
+                    error=None,
+                )
+                for pack in packs
+            ),
+            preflight=node_packs_install.PipPreflightResult(ok=True),
         )
 
-    monkeypatch.setattr(node_packs_install, "install_pack", fake_install_pack)
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
 
     code = _cmd_nodes_ensure(argparse.Namespace(template=None, workflow=str(scratchpad), dry_run=False))
 
     captured = capsys.readouterr()
     assert code == 0
-    assert installed == ["ComfyUI-Qwen3-TTS", "ComfyUI-VideoHelperSuite"]
+    assert batch_call == {
+        "packs": ["ComfyUI-Qwen3-TTS", "ComfyUI-VideoHelperSuite"],
+        "force": False,
+    }
     assert "Nodepacks installed/refreshed." in captured.out
+
+
+def test_ensure_reports_all_batch_outcomes_before_failing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "node_index.json").write_text(
+        json.dumps([{"class_type": "SaveImage", "pack": "core", "inputs": {}, "outputs": []}]),
+        encoding="utf-8",
+    )
+    scratchpad = tmp_path / "scratch.py"
+    scratchpad.write_text(
+        """
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource, VibeNode
+
+def build():
+    workflow = VibeWorkflow(id="x", source=WorkflowSource(id="x"))
+    workflow.nodes["1"] = VibeNode(id="1", class_type="Qwen3CustomVoice")
+    workflow.nodes["2"] = VibeNode(id="2", class_type="VHS_LoadVideo")
+    return workflow
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    def fake_install_required_packs(packs, *, force=False):
+        assert force is False
+        return node_packs_install.InstallBatchResult(
+            ok=False,
+            results=(
+                node_packs_install.InstallResult(
+                    name=packs[0].name,
+                    status="installed",
+                    git_commit_sha="abc123",
+                    error=None,
+                ),
+                node_packs_install.InstallResult(
+                    name=packs[1].name,
+                    status="failed",
+                    git_commit_sha=None,
+                    error="clone failed",
+                ),
+            ),
+            preflight=node_packs_install.PipPreflightResult(ok=True),
+        )
+
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
+
+    code = _cmd_nodes_ensure(argparse.Namespace(template=None, workflow=str(scratchpad), dry_run=False))
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "ComfyUI-Qwen3-TTS: installed abc123" in captured.out
+    assert "ComfyUI-VideoHelperSuite: failed" in captured.out
+    assert "clone failed" in captured.err
+
+
+def test_ensure_reports_preflight_failure_for_all_affected_packs_without_success_banner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "node_index.json").write_text(
+        json.dumps([{"class_type": "SaveImage", "pack": "core", "inputs": {}, "outputs": []}]),
+        encoding="utf-8",
+    )
+    scratchpad = tmp_path / "scratch.py"
+    scratchpad.write_text(
+        """
+from vibecomfy.workflow import VibeWorkflow, WorkflowSource, VibeNode
+
+def build():
+    workflow = VibeWorkflow(id="x", source=WorkflowSource(id="x"))
+    workflow.nodes["1"] = VibeNode(id="1", class_type="Qwen3CustomVoice")
+    workflow.nodes["2"] = VibeNode(id="2", class_type="VHS_LoadVideo")
+    return workflow
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    def fake_install_required_packs(packs, *, force=False):
+        assert force is False
+        return node_packs_install.InstallBatchResult(
+            ok=False,
+            results=tuple(
+                node_packs_install.InstallResult(
+                    name=pack.name,
+                    status="failed",
+                    git_commit_sha=None,
+                    error="pip preflight failed",
+                )
+                for pack in packs
+            ),
+            preflight=node_packs_install.PipPreflightResult(
+                ok=False,
+                error="pip install does not support --dry-run --report",
+                unsupported=True,
+            ),
+        )
+
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
+
+    code = _cmd_nodes_ensure(argparse.Namespace(template=None, workflow=str(scratchpad), dry_run=False))
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "ComfyUI-Qwen3-TTS: failed" in captured.out
+    assert "ComfyUI-VideoHelperSuite: failed" in captured.out
+    assert "pip preflight failed" in captured.err
+    assert "pip install does not support --dry-run --report" in captured.err
+    assert "Nodepacks installed/refreshed." not in captured.out
 
 
 def test_workflows_lens_json_output(capsys: pytest.CaptureFixture[str]) -> None:

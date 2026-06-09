@@ -18,6 +18,7 @@ from vibecomfy.porting.object_info.consume import (
     object_info_widget_order,
     output_names,
     require_class_output_count,
+    reset_cache,
 )
 from vibecomfy.porting.object_info.serialize import (
     CACHE_DIR,
@@ -40,6 +41,7 @@ __all__ = [
     "output_names",
     "require_class_output_count",
     "list_classes",
+    "reset_cache",
     "build_cache",
     "CacheIdentity",
     "CACHE_DIR",

@@ -33,6 +33,11 @@ from vibecomfy.porting.parity import (
     topology_counter,
     widget_value_counter,
 )
+from vibecomfy.porting.provenance import (
+    ProvenanceRecord,
+    ProvenanceReport,
+    extract_provenance,
+)
 from vibecomfy.porting.report import (
     AssetCandidate,
     AssetCheckResult,
@@ -92,6 +97,8 @@ __all__ = [
     "OutputSignatureField",
     "PortArtifact",
     "PortIssue",
+    "ProvenanceRecord",
+    "ProvenanceReport",
     "PortReport",
     "READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT",
     "READABILITY_WARNING_CODES",
@@ -118,6 +125,7 @@ __all__ = [
     "to_python_identifier",
     "to_raw_name",
     "topology_counter",
+    "extract_provenance",
     "validate_strict_ready_workflow",
     "widget_value_counter",
 ]

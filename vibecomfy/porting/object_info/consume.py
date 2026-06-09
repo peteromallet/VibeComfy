@@ -477,6 +477,18 @@ def _normalize_input_type(value: Any) -> str:
     return str(value)
 
 
+def reset_cache() -> None:
+    """Clear the module-level object-info index and pack cache.
+
+    Callers should invoke this after writing new object_info cache files
+    (e.g. after an ``ensure_env`` run) so that subsequent ``consume`` reads
+    pick up the latest on-disk state.
+    """
+    global _index, _pack_cache
+    _index = None
+    _pack_cache.clear()
+
+
 def cache_stats() -> dict[str, Any]:
     """Return summary stats about the loaded cache (for debugging)."""
     idx = _load_index()

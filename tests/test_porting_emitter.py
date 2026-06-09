@@ -1330,6 +1330,63 @@ def test_ideogram_fixture_never_leaks_bare_tuple_unpack_value_error() -> None:
     assert "not enough values to unpack" not in (result.validation.error or "")
 
 
+def test_ideogram_fixture_ports_from_cache_without_live_introspection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = {
+        "nodes": [
+            {
+                "id": "1",
+                "type": "ComfyMathExpression",
+                "outputs": [
+                    {"name": "FLOAT"},
+                    {"name": "INT"},
+                    {"name": "BOOL"},
+                ],
+            },
+            {"id": "2", "type": "SaveImage"},
+            {"id": "3", "type": "SaveImage"},
+            {"id": "4", "type": "SaveImage"},
+        ]
+    }
+    wf = VibeWorkflow("cache_only_port", WorkflowSource("cache_only_port", provenance={"origin": "test"}))
+    wf.nodes["1"] = VibeNode("1", "ComfyMathExpression")
+    wf.nodes["2"] = VibeNode("2", "SaveImage", inputs={"filename_prefix": "out/a"})
+    wf.nodes["3"] = VibeNode("3", "SaveImage", inputs={"filename_prefix": "out/b"})
+    wf.nodes["4"] = VibeNode("4", "SaveImage", inputs={"filename_prefix": "out/c"})
+    wf.connect("1.0", "2.images")
+    wf.connect("1.1", "3.images")
+    wf.connect("1.2", "4.images")
+
+    cache_root = _write_object_info_cache(
+        tmp_path,
+        "ComfyMathExpression",
+        ["FLOAT", "INT", "BOOL"],
+    )
+    _patch_object_info_cache(monkeypatch, cache_root)
+
+    import vibecomfy.schema.provider as schema_provider
+
+    def _fail_runtime_provider_init(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("port_convert_workflow must stay on the cache-only seam")
+
+    async def _fail_live_object_info_async(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise AssertionError("port_convert_workflow touched live object_info introspection")
+
+    monkeypatch.setattr(schema_provider.RuntimeSchemaProvider, "__init__", _fail_runtime_provider_init)
+    monkeypatch.setattr(
+        schema_provider.RuntimeSchemaProvider,
+        "object_info_async",
+        _fail_live_object_info_async,
+    )
+
+    result = port_convert_workflow(wf, raw_workflow=raw, source_path="workflow_corpus/cache_only.json")
+
+    assert result.validation is not None
+    assert result.validation.compile_ok, result.validation.error
+
+
 def test_subgraph_ui_outputs_recover_tuple_arity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

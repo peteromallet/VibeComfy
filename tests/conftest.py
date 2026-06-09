@@ -10,6 +10,20 @@ import warnings
 
 import pytest
 
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+for _module_name, _module in tuple(sys.modules.items()):
+    if _module_name != "vibecomfy" and not _module_name.startswith("vibecomfy."):
+        continue
+    _module_file = getattr(_module, "__file__", None)
+    if _module_file is None:
+        continue
+    try:
+        pathlib.Path(_module_file).resolve().relative_to(_REPO_ROOT)
+    except ValueError:
+        sys.modules.pop(_module_name, None)
+
 _KNOWN_FAILURES_FILE = pathlib.Path(__file__).parent / "known_failures.txt"
 
 

@@ -79,9 +79,23 @@ def test_embedded_run_ensure_packs_invokes_install_then_reload_then_queue(
 
     monkeypatch.setattr(node_packs_install, "missing_packs_for_workflow", lambda workflow: ([pack], []))
 
-    def fake_install_pack(*, name):
-        calls.append(f"install:{name}")
-        return node_packs_install.InstallResult(name=name, status="installed", git_commit_sha="abc123", error=None)
+    def fake_install_required_packs(packs, *, force=False, restore_entries):
+        assert force is False
+        assert restore_entries == []
+        calls.extend(f"install:{pack.name}" for pack in packs)
+        return node_packs_install.InstallBatchResult(
+            ok=True,
+            results=tuple(
+                node_packs_install.InstallResult(
+                    name=pack.name,
+                    status="installed",
+                    git_commit_sha="abc123",
+                    error=None,
+                )
+                for pack in packs
+            ),
+            preflight=node_packs_install.PipPreflightResult(ok=True),
+        )
 
     async def fake_reload(*, reason: str) -> None:
         calls.append(f"reload:{reason}")
@@ -90,7 +104,7 @@ def test_embedded_run_ensure_packs_invokes_install_then_reload_then_queue(
         calls.append("queue")
         return {"prompt_id": "prompt-ensure", "outputs": []}
 
-    monkeypatch.setattr(node_packs_install, "install_pack", fake_install_pack)
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", fake_queue)
 
     async def run_case() -> None:
@@ -126,16 +140,23 @@ def test_embedded_run_ensure_packs_prefers_lockfile_restore(
     )
     monkeypatch.setattr(node_packs_install, "missing_packs_for_workflow", lambda workflow: ([pack], []))
 
-    def fail_install_pack(**_kwargs):
-        raise AssertionError("install_pack must not be called when a lockfile pin exists")
-
-    def fake_restore_pack(entry):
+    def fake_install_required_packs(packs, *, force=False, restore_entries):
+        assert force is False
+        assert [pack.name for pack in packs] == ["ExamplePack"]
+        assert len(restore_entries) == 1
+        entry = restore_entries[0]
         calls.append(f"restore:{entry.name}:{entry.git_commit_sha}")
-        return node_packs_install.InstallResult(
-            name=entry.name,
-            status="refreshed",
-            git_commit_sha=entry.git_commit_sha,
-            error=None,
+        return node_packs_install.InstallBatchResult(
+            ok=True,
+            results=(
+                node_packs_install.InstallResult(
+                    name=entry.name,
+                    status="refreshed",
+                    git_commit_sha=entry.git_commit_sha,
+                    error=None,
+                ),
+            ),
+            preflight=node_packs_install.PipPreflightResult(ok=True),
         )
 
     async def fake_reload(*, reason: str) -> None:
@@ -145,8 +166,7 @@ def test_embedded_run_ensure_packs_prefers_lockfile_restore(
         calls.append("queue")
         return {"prompt_id": "prompt-ensure", "outputs": []}
 
-    monkeypatch.setattr(node_packs_install, "install_pack", fail_install_pack)
-    monkeypatch.setattr(node_packs_install, "restore_pack", fake_restore_pack)
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", fake_queue)
 
     async def run_case() -> None:
@@ -173,8 +193,8 @@ def test_embedded_run_ensure_packs_skips_reload_when_nothing_missing(
 
     monkeypatch.setattr(node_packs_install, "missing_packs_for_workflow", lambda workflow: ([], []))
 
-    def fail_install_pack(**_kwargs):
-        raise AssertionError("install_pack must not be called when no packs are missing")
+    def fake_install_required_packs(packs, *, force=False, restore_entries):
+        raise AssertionError("install_required_packs must not be called when no packs are missing")
 
     async def fake_reload(*, reason: str) -> None:
         calls.append(f"reload:{reason}")
@@ -183,7 +203,7 @@ def test_embedded_run_ensure_packs_skips_reload_when_nothing_missing(
         calls.append("queue")
         return {"prompt_id": "prompt-ensure", "outputs": []}
 
-    monkeypatch.setattr(node_packs_install, "install_pack", fail_install_pack)
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", fake_queue)
 
     async def run_case() -> None:
@@ -251,9 +271,23 @@ def test_embedded_run_ensure_packs_falls_back_to_declared_requirements(
     monkeypatch.setattr(node_packs_install, "missing_packs_for_workflow", missing_index)
     monkeypatch.setattr(session_module, "_node_packs_from_requirements", lambda workflow: [pack])
 
-    def fake_install_pack(*, name):
-        calls.append(f"install:{name}")
-        return node_packs_install.InstallResult(name=name, status="installed", git_commit_sha="abc123", error=None)
+    def fake_install_required_packs(packs, *, force=False, restore_entries):
+        assert force is False
+        assert restore_entries == []
+        calls.extend(f"install:{pack.name}" for pack in packs)
+        return node_packs_install.InstallBatchResult(
+            ok=True,
+            results=tuple(
+                node_packs_install.InstallResult(
+                    name=pack.name,
+                    status="installed",
+                    git_commit_sha="abc123",
+                    error=None,
+                )
+                for pack in packs
+            ),
+            preflight=node_packs_install.PipPreflightResult(ok=True),
+        )
 
     async def fake_reload(*, reason: str) -> None:
         calls.append(f"reload:{reason}")
@@ -262,7 +296,7 @@ def test_embedded_run_ensure_packs_falls_back_to_declared_requirements(
         calls.append("queue")
         return {"prompt_id": "prompt-ensure", "outputs": []}
 
-    monkeypatch.setattr(node_packs_install, "install_pack", fake_install_pack)
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", fake_queue)
 
     async def run_case() -> None:
@@ -290,9 +324,23 @@ def test_embedded_run_ensure_packs_falls_back_to_workflow_class_types(
     def missing_index(_workflow):
         raise FileNotFoundError("node_index.json not found at node_index.json; run `vibecomfy sources sync`")
 
-    def fake_install_pack(*, name):
-        calls.append(f"install:{name}")
-        return node_packs_install.InstallResult(name=name, status="installed", git_commit_sha="abc123", error=None)
+    def fake_install_required_packs(packs, *, force=False, restore_entries):
+        assert force is False
+        assert restore_entries == []
+        calls.extend(f"install:{pack.name}" for pack in packs)
+        return node_packs_install.InstallBatchResult(
+            ok=True,
+            results=tuple(
+                node_packs_install.InstallResult(
+                    name=pack.name,
+                    status="installed",
+                    git_commit_sha="abc123",
+                    error=None,
+                )
+                for pack in packs
+            ),
+            preflight=node_packs_install.PipPreflightResult(ok=True),
+        )
 
     async def fake_reload(*, reason: str) -> None:
         calls.append(f"reload:{reason}")
@@ -305,7 +353,7 @@ def test_embedded_run_ensure_packs_falls_back_to_workflow_class_types(
     workflow.nodes["3"] = VibeNode("3", "WanVideoVAELoader")
 
     monkeypatch.setattr(node_packs_install, "missing_packs_for_workflow", missing_index)
-    monkeypatch.setattr(node_packs_install, "install_pack", fake_install_pack)
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
     monkeypatch.setattr(fake_comfy, "queue_prompt_api", fake_queue)
 
     async def run_case() -> None:
@@ -319,6 +367,63 @@ def test_embedded_run_ensure_packs_falls_back_to_workflow_class_types(
     asyncio.run(run_case())
 
     assert calls == ["install:ComfyUI-WanVideoWrapper", "reload:ensure_packs", "queue"]
+
+
+def test_embedded_run_ensure_packs_raises_batch_failure_without_reload_or_queue(
+    fake_comfy,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _patch_fast_runtime_run(monkeypatch)
+    pack = CustomNodePack(
+        name="ExamplePack",
+        repo="https://example.test/example.git",
+        classes=frozenset({"ExampleNode"}),
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(node_packs_install, "missing_packs_for_workflow", lambda workflow: ([pack], []))
+
+    def fake_install_required_packs(packs, *, force=False, restore_entries):
+        assert force is False
+        assert restore_entries == []
+        calls.extend(f"install:{pack.name}" for pack in packs)
+        return node_packs_install.InstallBatchResult(
+            ok=False,
+            results=(
+                node_packs_install.InstallResult(
+                    name="ExamplePack",
+                    status="failed",
+                    git_commit_sha=None,
+                    error="clone failed",
+                ),
+            ),
+            preflight=node_packs_install.PipPreflightResult(ok=True),
+        )
+
+    async def fake_reload(*, reason: str) -> None:
+        calls.append(f"reload:{reason}")
+
+    async def fake_queue(self, api_dict):
+        calls.append("queue")
+        return {"prompt_id": "prompt-ensure", "outputs": []}
+
+    monkeypatch.setattr(node_packs_install, "install_required_packs", fake_install_required_packs)
+    monkeypatch.setattr(fake_comfy, "queue_prompt_api", fake_queue)
+
+    async def run_case() -> None:
+        session = EmbeddedSession()
+        session.reload_for_nodepack_change = fake_reload  # type: ignore[method-assign]
+        try:
+            with pytest.raises(RuntimeError, match="ensure_packs: install failed: ExamplePack: clone failed"):
+                await session.run(_workflow(), ensure_packs=True)
+        finally:
+            await session.stop()
+
+    asyncio.run(run_case())
+
+    assert calls == ["install:ExamplePack"]
 
 
 def test_embedded_run_ensure_models_downloads_declared_assets(

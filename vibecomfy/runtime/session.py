@@ -240,7 +240,7 @@ class EmbeddedSession:
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
         if ensure_packs:
             from vibecomfy.custom_node_refs import check_pack_pin_compatibility
-            from vibecomfy.node_packs_install import install_pack, missing_packs_for_workflow, restore_pack
+            from vibecomfy.node_packs_install import install_required_packs, missing_packs_for_workflow
             from vibecomfy.node_packs_lockfile import read_lockfile
 
             lockfile_entries = read_lockfile()
@@ -265,15 +265,21 @@ class EmbeddedSession:
                     )
             except ValueError as exc:
                 raise RuntimeError("ensure_packs: " + str(exc)) from exc
-            installed_or_refreshed = False
-            lock_entries = {entry.name: entry for entry in lockfile_entries}
-            for pack in packs:
-                lock_entry = lock_entries.get(pack.name)
-                result = restore_pack(lock_entry) if lock_entry is not None else install_pack(name=pack.name)
-                if result.status not in {"installed", "refreshed"}:
-                    raise RuntimeError(f"ensure_packs: install failed for {pack.name}: {result.error}")
-                installed_or_refreshed = True
-            if installed_or_refreshed:
+            if packs:
+                lock_entries = {entry.name: entry for entry in lockfile_entries}
+                batch = install_required_packs(
+                    packs,
+                    restore_entries=[entry for pack in packs if (entry := lock_entries.get(pack.name)) is not None],
+                )
+                if not batch.ok:
+                    errors = [
+                        f"{result.name}: {result.error or result.status}"
+                        for result in batch.results
+                        if result.status not in {"installed", "refreshed"}
+                    ]
+                    if not errors and batch.preflight.error:
+                        errors.append(batch.preflight.error)
+                    raise RuntimeError("ensure_packs: install failed: " + "; ".join(errors))
                 await self.reload_for_nodepack_change(reason="ensure_packs")
         if ensure_models:
             policy = resolve_model_preflight_policy(mode="embedded", ensure_models=True)
