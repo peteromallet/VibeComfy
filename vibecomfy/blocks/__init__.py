@@ -111,4 +111,4 @@ def registered_blocks() -> Mapping[str, Block]:
     return MappingProxyType(dict(_BLOCK_REGISTRY))
 
 
-__all__ = ["Block", "BlockSpec", "Handle", "Handles", "block", "block_spec", "registered_blocks"]
+__all__ = ["Block", "BlockSpec", "Handles", "block", "block_spec", "registered_blocks"]

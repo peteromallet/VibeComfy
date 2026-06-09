@@ -5,8 +5,7 @@ of a single target node, builds a minimal subgraph, and injects preview
 nodes for visualizable output types.  LATENT outputs with no discoverable
 upstream VAE fall back to metadata-only per SD1.
 
-Queueing is separated into :func:`queue_eval_subgraph` so compilation can
-be tested without a live ComfyUI instance.
+
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from vibecomfy.errors import RuntimeNodeError
+
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow
 
 from .preview_types import PREVIEW_MAP, VAE_EMITTER_CLASSES, VIDEO_FALLBACK
@@ -99,41 +98,6 @@ def compile_eval_subgraph(
     # --- Non-visualizable ----------------------------------------------------
     return _non_visualizable_metadata(target_node, nid)
 
-
-def queue_eval_subgraph(
-    session: Any,
-    subgraph: dict[str, Any],
-    *,
-    backend: str = "api",
-) -> Any:
-    """Queue a compiled eval subgraph and return outputs.
-
-    *session* must be an object with a ``run`` method that accepts a
-    :class:`VibeWorkflow` and returns a :class:`RunResult`.  This is
-    deliberately duck-typed so callers can pass either an
-    :class:`EmbeddedSession`, :class:`ServerSession`, or a mock.
-
-    Raises:
-        RuntimeNodeError: when *subgraph* is a metadata dict (no visualizable
-            output) — callers should check ``\"previewable\"`` on the subgraph
-            dict before queuing.
-    """
-    if isinstance(subgraph, dict) and subgraph.get("previewable") is False:
-        raise RuntimeNodeError(
-            f"Node {subgraph.get('node_id')} ({subgraph.get('class_type')}) "
-            f"is not visualizable (output type: {subgraph.get('type')}) — "
-            f"cannot queue preview",
-            next_action="vibecomfy runtime doctor",
-        )
-    # If it's a plain API dict, we need to wrap it in a minimal workflow.
-    # In practice, compile_eval_subgraph always returns API dicts that
-    # can be queued directly by ComfyClient. The session.run() method
-    # expects a VibeWorkflow, so this helper is best used with a
-    # ComfyClient directly.
-    raise NotImplementedError(
-        "queue_eval_subgraph requires a ComfyClient instance; "
-        "use ComfyClient(url).queue_prompt(subgraph) directly"
-    )
 
 
 # ---------------------------------------------------------------------------

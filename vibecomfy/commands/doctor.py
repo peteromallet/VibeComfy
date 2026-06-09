@@ -64,7 +64,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "recommended_command": f"vibecomfy port check {args.path} --json",
         }
         if json_output:
-            emit(payload, json=True, text_renderer=_render_doctor_error)
+            emit(payload, json=json_output, text_renderer=_render_doctor_error)
         else:
             print("Layer: Porting helper diagnostics")
             for issue in helper_issues:
@@ -105,7 +105,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "suggested_patches": suggested_patches,
         }
         if json_output:
-            emit(payload, json=True, text_renderer=_render_doctor_error)
+            emit(payload, json=json_output, text_renderer=_render_doctor_error)
         else:
             print("Layer: VibeWorkflow validation")
             for issue in validation_issues:

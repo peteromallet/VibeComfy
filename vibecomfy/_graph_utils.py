@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-UI_ONLY_CLASS_TYPES: frozenset[str] = frozenset({"Note", "MarkdownNote"})
+from vibecomfy._workflow_helpers import UI_ONLY_CLASS_TYPES  # noqa: E402
 
 
 def is_api_link(

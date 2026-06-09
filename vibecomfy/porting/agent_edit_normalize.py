@@ -69,7 +69,7 @@ from typing import Any
 #
 # This list starts empty because the preferred normalize path has not yet
 # been wired and no cosmetic churn has been measured on the available
-# fixtures.  Entries are added by later tasks (T5–T8) when the preservation
+# fixtures.  Entries are added by later tasks when the preservation
 # guard encounters cosmetic churn that the raw-dict fallback cannot normalize.
 NORMALIZE_ALLOW_LIST: list[dict[str, str]] = [
     # Example entry (commented out — no measured churn yet):

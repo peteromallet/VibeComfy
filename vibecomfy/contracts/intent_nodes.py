@@ -5,7 +5,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from vibecomfy.security.agent_generated_loader import ScanFailure, ScanReport, scan_python_source_with_policy
+from vibecomfy.security.agent_generated_loader import (
+    _FORBIDDEN_NAMES,
+    ScanFailure,
+    ScanReport,
+    scan_python_source_with_policy,
+)
 
 SHIPPED_INTENT_KINDS: Final[tuple[str, ...]] = ("code", "loop")
 DEFERRED_INTENT_KINDS: Final[tuple[str, ...]] = ("branch", "workflowref")
@@ -57,22 +62,8 @@ RUNTIME_CODE_SAFE_BUILTINS: Final[frozenset[str]] = frozenset(
         "tuple",
     }
 )
-RUNTIME_CODE_FORBIDDEN_NAMES: Final[frozenset[str]] = frozenset(
+RUNTIME_CODE_FORBIDDEN_NAMES: Final[frozenset[str]] = _FORBIDDEN_NAMES | frozenset(
     {
-        "__builtins__",
-        "__import__",
-        "breakpoint",
-        "compile",
-        "delattr",
-        "dir",
-        "eval",
-        "exec",
-        "getattr",
-        "globals",
-        "locals",
-        "open",
-        "setattr",
-        "vars",
         "os",
         "sys",
         "subprocess",
@@ -134,7 +125,10 @@ RUNTIME_CODE_ALLOWED_EXPRESSION_NODES: Final[tuple[type[ast.AST], ...]] = (
     ast.IsNot,
     ast.In,
     ast.NotIn,
-    ast.comprehension,
+    # Note: ast.comprehension intentionally omitted — ListComp, SetComp,
+    # DictComp, and GeneratorExp are NOT in this allowlist, so the
+    # visit() guard rejects comprehensions before any child
+    # ast.comprehension node could be reached.
 )
 RUNTIME_CODE_REJECTED_IO_TYPES: Final[frozenset[str]] = frozenset(
     {

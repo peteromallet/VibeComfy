@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,9 +37,7 @@ from vibecomfy.schema import schema_for, schema_registry_empty
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
 
-_OPAQUE_COMPONENT_CLASS_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
+from vibecomfy.contracts.validation import OPAQUE_COMPONENT_CLASS_RE as _OPAQUE_COMPONENT_CLASS_RE  # noqa: E402
 
 _KNOWN_RUNTIME_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     # VideoHelperSuite validates these at Comfy queue time. Keep this local
@@ -209,9 +206,9 @@ def analyze_source(
     for issue in validation_report.issues:
         report.diagnostics.append(_port_issue_from_validation(issue, category="schema"))
 
-    # -- readability diagnostics (T9) --------------------------------------
+    # -- readability diagnostics --------------------------------------
     report.diagnostics.extend(_readability_diagnostics(workflow, api_prompt=api_prompt))
-    # -- strict-template style diagnostics (T5) ---------------------------
+    # -- strict-template style diagnostics ---------------------------
     report.diagnostics.extend(_strict_template_style_diagnostics(loaded))
     if resolved_mode in {"strict_ready", "app_active"}:
         strict_diagnostics = validate_strict_ready_workflow(
@@ -1013,7 +1010,7 @@ def _hash_file(path: str | Path) -> str | None:
         return None
 
 
-# -- readability diagnostics (T9) ---------------------------------------------
+# -- readability diagnostics ---------------------------------------------
 
 
 def _readability_diagnostics(

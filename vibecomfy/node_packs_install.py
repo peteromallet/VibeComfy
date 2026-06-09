@@ -1,6 +1,7 @@
 from __future__ import annotations
 import importlib.util, json, re, shutil, subprocess, sys, tempfile
-from dataclasses import dataclass; from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Protocol, Sequence
 from urllib.parse import urlparse
 from vibecomfy.node_packs import CustomNodePack, get_known_node_packs, resolve_node_packs, unresolved_class_types
@@ -9,7 +10,7 @@ from vibecomfy.registry.pack_resolver import PackNotFoundError, PackRef, resolve
 from vibecomfy.security.gate import current_gate_context, require_confirmation, requesting_provenance
 from vibecomfy.workflow import VibeWorkflow
 InstallStatus = Literal["installed", "refreshed", "skipped_dirty", "failed"]
-DEFAULT_INSTALL_ROOT = Path("custom_nodes"); """Canonical install root for custom node packs."""
+DEFAULT_INSTALL_ROOT = Path("custom_nodes")  # Canonical install root for custom node packs.
 INSTALL_STATE_DIR = ".vibecomfy-install-state"
 CORE_COMFY_CLASSES = frozenset(
     {

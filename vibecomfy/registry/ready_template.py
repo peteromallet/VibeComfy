@@ -430,7 +430,7 @@ def bind_output(
     return wf
 
 
-def finalise_model_assets(workflow: VibeWorkflow) -> None:
+def finalize_model_assets(workflow: VibeWorkflow) -> None:
     referenced = _referenced_model_filenames(workflow)
     raw_assets = workflow.metadata.get("model_assets", [])
     extra_assets = workflow.metadata.pop("model_assets_extra", [])
@@ -463,7 +463,6 @@ def _asset_name_appears_in_workflow_text(workflow: VibeWorkflow, name: str) -> b
     return False
 
 
-_finalise_model_assets = finalise_model_assets
 
 
 __all__ = [
@@ -474,8 +473,7 @@ __all__ = [
     "build_authored_ready_workflow",
     "build_api_ready_workflow",
     "finalize_ready_template",
-    "finalise_model_assets",
+    "finalize_model_assets",
     "ready_node",
     "ready_workflow",
-    "_finalise_model_assets",
 ]

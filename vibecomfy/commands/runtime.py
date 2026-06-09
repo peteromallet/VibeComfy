@@ -6,6 +6,7 @@ import json
 import os
 import sys
 
+from vibecomfy.commands._output import emit
 from vibecomfy.errors import RuntimeNodeError
 from vibecomfy.registry.library import load_workflow_reference
 from vibecomfy.runtime.client import ComfyClient
@@ -17,12 +18,7 @@ from vibecomfy.schema import get_schema_provider
 
 def _cmd_runtime_doctor(args: argparse.Namespace) -> int:
     payload = build_runtime_doctor_payload()
-    if getattr(args, "json", False):
-        print(json.dumps(payload, indent=2, sort_keys=True))
-    else:
-        for line in payload["messages"]:
-            print(line)
-    return 0
+    return emit(payload, json=getattr(args, "json", False), text_renderer=lambda p: "\n".join(p["messages"]))
 
 
 def build_runtime_doctor_payload() -> dict[str, object]:

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 import sys
 import tomllib
 from collections import defaultdict
@@ -39,10 +38,7 @@ UI_ONLY_PATTERNS = {
     "Seed (rgthree)",
 }
 
-OPAQUE_COMPONENT_CLASS_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
+from vibecomfy.contracts.validation import OPAQUE_COMPONENT_CLASS_RE  # noqa: E402
 
 
 def parse_custom_nodes_lock(path: Path) -> dict[str, dict]:

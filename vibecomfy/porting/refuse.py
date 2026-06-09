@@ -21,6 +21,8 @@ from collections.abc import Callable, Iterable
 from enum import Enum
 from typing import Any, Mapping
 
+from vibecomfy.errors import VibeComfyError
+
 _ConvertUiToApi = Callable[[dict[str, Any]], Mapping[str, Any]]
 _convert_ui_to_api: _ConvertUiToApi | None = None
 _IMPORT_ERROR: BaseException | None = None
@@ -55,7 +57,7 @@ def _load_convert_ui_to_api() -> _ConvertUiToApi:
     return _convert_ui_to_api
 
 
-class RefusedEmit(Exception):
+class RefusedEmit(VibeComfyError):
     """Raised when ``guard_emit`` detects an unauthorized re-emit divergence.
 
     Attributes

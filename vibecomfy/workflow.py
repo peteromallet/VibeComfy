@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field, replace
 import warnings
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from vibecomfy import _helper_resolve as helper_resolve
@@ -948,7 +949,7 @@ class _NodeBuilder:
             ) from exc
         return Handle(node_id=self.node.id, output_slot=output_slot, output_type=_node_output_type(self.node, output_slot))
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Handle]:
         output_names = _node_output_names(self.node)
         if isinstance(output_names, (list, tuple)) and output_names:
             for index, name in enumerate(output_names):

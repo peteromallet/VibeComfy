@@ -394,6 +394,8 @@ def ensure_env(
     ok = not failures and all_pack_outcomes_ok
     if ok:
         _REALIZED_SIGNATURES.add(realization_signature)
+        if len(_REALIZED_SIGNATURES) > 256:
+            _REALIZED_SIGNATURES.clear()
     return EnsureEnvResult(
         ok=ok,
         noop=False,

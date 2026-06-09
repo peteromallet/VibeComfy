@@ -81,7 +81,7 @@ class PortConvertValidation:
     # may not faithfully reflect the pinned object_info schema).
     low_confidence: bool = False
 
-    # Model-like value comparison (T8)
+    # Model-like value comparison
     model_value_change: bool = False
     """True when aliasing changed a model-like value between source and emitted."""
     model_value_dropped: bool = False
@@ -495,7 +495,7 @@ def port_convert_workflow(
                                 result.validation.source_topology_snapshot = len(src_topo)
                                 result.validation.emitted_topology_snapshot = len(emit_topo)
 
-                                # -- model-like value comparison (T8) --------
+                                # -- model-like value comparison --------
                                 _run_model_value_comparison(
                                     result.validation,
                                     source_api,
@@ -870,7 +870,6 @@ def port_convert_and_write(
         target: Destination file path.
         dry_run: If True, emit conversion payload and evidence without writing.
         diff: If True, produce unified diff + JSON diff metadata (forces dry_run).
-        schema_provider: Optional schema provider for validation.
 
     Returns:
         A dict with `written`, `dry_run`, `diff`, and `validation` keys.
@@ -918,7 +917,7 @@ def port_convert_and_write(
             next_action="vibecomfy port --parity-check <target>",
         )
 
-    # Gate 2b: model-like value change / drop prevents write (T8)
+    # Gate 2b: model-like value change / drop prevents write
     if validation.model_value_change:
         raise ConversionWriteError(
             f"Model-like value changed after aliasing for {target}. "
@@ -994,7 +993,7 @@ def port_convert_and_write(
     }
 
 
-# -- model-like value snapshot & comparison (T8) -----------------------------
+# -- model-like value snapshot & comparison -----------------------------
 
 
 def _looks_like_model_value(value: Any) -> bool:
@@ -1162,7 +1161,7 @@ def _run_model_value_comparison(
                 )
             )
 
-    # Compare model-like values across all five sources (T8)
+    # Compare model-like values across all five sources
     _compare_model_values_across_sources(
         validation,
         src_snapshot,

@@ -19,11 +19,12 @@ def snap_coord(value: float | int) -> int:
     return round(value)
 
 
-def snap_pos(seq: Sequence[float | int]) -> list[int]:
-    """Snap a position sequence (x, y) to whole pixels."""
+def snap_seq(seq: Sequence[float | int]) -> list[int]:
+    """Snap a coordinate sequence to whole pixels."""
     return [snap_coord(v) for v in seq]
 
 
-def snap_size(seq: Sequence[float | int]) -> list[int]:
-    """Snap a size sequence (width, height) to whole pixels."""
-    return [snap_coord(v) for v in seq]
+snap_pos = snap_seq
+
+
+snap_size = snap_seq
