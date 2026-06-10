@@ -509,9 +509,11 @@ function applyTypedSocketLabelsLabelOnly(slots, typedEntries) {
 }
 
 function _isDynamicIoCodeNode(node) {
-  return (
-    String(node?.comfyClass || "").trim() === "VibeComfyCodeIntent"
-  );
+  // The node's class_type (LiteGraph type / comfyClass) is the registry key
+  // "vibecomfy.code" — NOT the Python class name "VibeComfyCodeIntent", which
+  // never reaches the frontend. Resolve via the canonical class_type helper so
+  // the dynamic-IO relabel+trim path actually fires for real editor nodes.
+  return getIntentClassType(node) === "vibecomfy.code";
 }
 
 function decorateIntentNode(node, fallbackClassType = null) {
