@@ -86,7 +86,7 @@ Deprecated for generated or newly authored templates:
 - `apply_ready_template_policy(...)`
 - direct `wf.register_input(...)` calls inside `build()`
 
-Those APIs remain for old templates and tests, but they emit `PendingDeprecationWarning`. Use `python -m tools.convert_ready_templates --all --write --include-manual` for the repository batch-migration path, `python -m vibecomfy.cli port convert <workflow> --ready-id <kind>/<id> --out ready_templates/<kind>/<id>.py --json` for individual sources, or `python -m vibecomfy.cli copy-to-recipe <id> --out recipes/<name>.py` to fork a generated template into `recipes/` for hand-editing. `tools.narrate_template` is a legacy compatibility surface, not the active emitter.
+Those APIs remain for old templates and tests, but they emit `PendingDeprecationWarning`. Use `python -m tools.convert_ready_templates --all --write --include-manual` for the repository batch-migration path, `python -m vibecomfy.cli port convert <workflow> --ready-id <kind>/<id> --out ready_templates/<kind>/<id>.py --json` for individual sources, or `python -m vibecomfy.cli copy-to-recipe <id> --out recipes/<name>.py` to fork a generated template into `recipes/` for hand-editing. `tools.narrate_template` has been removed (M0 cleanup); use `vibecomfy.porting.emitter` instead.
 
 ## Blocks
 

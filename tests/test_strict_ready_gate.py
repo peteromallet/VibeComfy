@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import tools.check_strict_ready_templates as gate
@@ -275,9 +274,4 @@ def build():
     assert all(item["severity"] == "error" and item["enforced"] is True for item in diagnostics)
 
 
-def test_narrate_template_is_only_a_compatibility_shim() -> None:
-    source = Path("tools/narrate_template.py").read_text(encoding="utf-8")
 
-    assert "from tools._legacy import narrate_template as _legacy" in source
-    assert "cmd_codemod_v2(" not in source
-    assert "wf = new_workflow(READY_METADATA, source_path=__file__)" not in source

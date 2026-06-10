@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from vibecomfy.memory_profile import MemoryProfile, apply_memory_profile_overrides
 from vibecomfy.workflow import VibeWorkflow
@@ -17,7 +17,7 @@ else:
 @dataclass(slots=True)
 class SessionConfig:
     memory_profile: MemoryProfile | None = None
-    vram_policy: str = "auto"
+    vram_policy: Literal["auto", "high", "normal", "low"] = "auto"
     reserve_vram_gb: float | None = None
     cache_policy: str = "smart"
     disable_smart_memory: bool = False
@@ -25,6 +25,25 @@ class SessionConfig:
     auto_flush_vram_threshold_gb: float = 2.0
     port: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.vram_policy not in {"auto", "high", "normal", "low"}:
+            raise ValueError(
+                f"vram_policy must be one of 'auto', 'high', 'normal', 'low', "
+                f"got {self.vram_policy!r}"
+            )
+        if (
+            self.cache_policy not in {"smart", "classic", "none"}
+            and not self.cache_policy.startswith("lru:")
+        ):
+            raise ValueError(
+                f"cache_policy must be 'smart', 'classic', 'none', or 'lru:<n>', "
+                f"got {self.cache_policy!r}"
+            )
+        if not isinstance(self.warm_policy, str) or not self.warm_policy:
+            raise ValueError(
+                f"warm_policy must be a non-empty string, got {self.warm_policy!r}"
+            )
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "SessionConfig":

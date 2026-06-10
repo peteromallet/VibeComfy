@@ -57,5 +57,4 @@ python -m vibecomfy.cli port convert workflow_corpus/.../<id>.json \
   --json
 ```
 
-`tools.narrate_template` is retained for compatibility tests and legacy
-verification helpers. It is not the v2.6 emission path.
+`tools.narrate_template` has been removed (M0 structural cleanup). Use `vibecomfy.porting.emitter` or `tools.convert_ready_templates` for all template emission and migration paths.

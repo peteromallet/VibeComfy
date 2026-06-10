@@ -81,7 +81,7 @@ Use `--head-check-models` only when you intentionally want model URL HEAD checks
 
 Ready templates must be reproducible offline before GPU validation:
 
-- `MODELS` uses `ModelAsset(filename, url, subdir, target_path=None, sha256=None, hf_revision=None, size_bytes=None)`. Run `python -m tools.fetch_hf_metadata` to populate `out/cache/hf_metadata.json`; `tools.narrate_template` reads that cache when rendering model blocks. Gated/private repositories should keep `hf_revision="gated"` and an inline `# gated: <repo_id>` note rather than silently leaving fields empty.
+- `MODELS` uses `ModelAsset(filename, url, subdir, target_path=None, sha256=None, hf_revision=None, size_bytes=None)`. Run `python -m tools.fetch_hf_metadata` to populate `out/cache/hf_metadata.json`; `vibecomfy.porting.emitter` reads that cache when rendering model blocks. Gated/private repositories should keep `hf_revision="gated"` and an inline `# gated: <repo_id>` note rather than silently leaving fields empty.
 - `READY_METADATA.comfy_core` comes from `python -m tools.refresh_comfy_metadata`, which writes `vibecomfy/comfy_metadata.json`. The narrator copies version, commit, and tested timestamp into regenerated templates.
 - `READY_METADATA.requirements["custom_node_refs"]` mirrors `custom_nodes.lock`. Rich lock entries are TOML tables with `slug`, `source`, `url`, `commit`, `version`, `schema_hash`, `class_set`, and `last_seen_at`.
 - `hardware` is required where there is known evidence, especially pilots, LTX, and Qwen TTS families. Use `vram_gb_min`, `vram_gb_recommended`, `requires_flash_attention`, and `tested_on`.

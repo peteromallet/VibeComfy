@@ -12,11 +12,8 @@ class LocalSchemaProvider:
         self.index_path = Path(index_path)
         self._schemas: dict[str, NodeSchema] | None = None
 
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.schemas().get(class_type)
-
     def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self.get(class_type)
+        return self.schemas().get(class_type)
 
     def schemas(self) -> dict[str, NodeSchema]:
         if self._schemas is None:

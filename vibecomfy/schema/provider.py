@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal
 
 from vibecomfy.comfy_command import has_comfyui_runtime
 from vibecomfy.runtime.client import ComfyClient
@@ -19,24 +19,9 @@ from .cache import (
     runtime_fingerprint,
     write_object_info_cache,
 )
+from .types import InputSpec, NodeSchema, OutputSpec, SchemaIndexError, SchemaProvider
 
 _logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class InputSpec:
-    type: str | None = None
-    required: bool = False
-    default: Any = None
-    choices: list[Any] | None = None
-    min: int | float | None = None
-    max: int | float | None = None
-
-
-@dataclass(frozen=True)
-class OutputSpec:
-    type: str | None = None
-    name: str | None = None
 
 
 @dataclass
@@ -71,37 +56,6 @@ class SchemaSourceInfo:
             "conflicts": list(self.conflicts),
             "ignored_evidence": list(self.ignored_evidence),
         }
-
-
-@dataclass(frozen=True)
-class NodeSchema:
-    class_type: str
-    pack: str | None
-    inputs: dict[str, InputSpec]
-    outputs: list[OutputSpec]
-    # -- provenance fields (defaults so existing code works unchanged) ------
-    source_provider: str = "unknown"
-    source_path: str | None = None
-    source_cache_path: str | None = None
-    source_server_url: str | None = None
-    source_package: str | None = None
-    source_version: str | None = None
-    source_hash: str | None = None
-    confidence: float = 1.0
-    conflicts: tuple[str, ...] = ()
-    ignored_evidence: tuple[str, ...] = ()
-
-
-class SchemaIndexError(ValueError):
-    def __init__(self, path: Path, cause: Exception) -> None:
-        super().__init__(f"{path} could not be read: {type(cause).__name__}: {cause}")
-        self.path = path
-        self.cause = cause
-
-
-@runtime_checkable
-class SchemaProvider(Protocol):
-    def get_schema(self, class_type: str) -> NodeSchema | None: ...
 
 
 def schema_for(provider: object | None, class_type: str) -> object | None:
@@ -190,11 +144,8 @@ class LocalSchemaProvider:
         self.index_path = Path(index_path)
         self._schemas: dict[str, NodeSchema] | None = None
 
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.schemas().get(class_type)
-
     def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self.get(class_type)
+        return self.schemas().get(class_type)
 
     def schemas(self) -> dict[str, NodeSchema]:
         if self._schemas is None:
@@ -229,9 +180,6 @@ class SourceSchemaProvider:
         self.roots = [Path(root) for root in (roots or _default_source_roots())]
         self._schemas: dict[str, NodeSchema | None] = {}
 
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.get_schema(class_type)
-
     def get_schema(self, class_type: str) -> NodeSchema | None:
         if class_type not in self._schemas:
             self._schemas[class_type] = self._find_schema(class_type)
@@ -252,11 +200,8 @@ class ObjectInfoSchemaProvider:
         self.object_info_path = Path(object_info_path)
         self._schemas: dict[str, NodeSchema] | None = None
 
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.schemas().get(class_type)
-
     def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self.get(class_type)
+        return self.schemas().get(class_type)
 
     def schemas(self) -> dict[str, NodeSchema]:
         if self._schemas is None:
@@ -280,9 +225,6 @@ class ObjectInfoIndexSchemaProvider:
         self._index: dict[str, str] | None = None
         self._file_cache: dict[str, dict[str, Any]] = {}
         self._schemas: dict[str, NodeSchema | None] = {}
-
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.get_schema(class_type)
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         if class_type not in self._schemas:
@@ -360,9 +302,6 @@ class CompositeSchemaProvider:
     def __init__(self, *providers: SchemaProvider) -> None:
         self.providers = providers
 
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.get_schema(class_type)
-
     def get_schema(self, class_type: str) -> NodeSchema | None:
         for provider in self.providers:
             schema = provider.get_schema(class_type)
@@ -394,9 +333,6 @@ class AuthoringSchemaProvider:
         self.object_info_cache_dir = Path(object_info_cache_dir)
         self.node_index_path = Path(node_index_path)
         self._providers: tuple[SchemaProvider, ...] = self._build_providers(source_roots=source_roots)
-
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.get_schema(class_type)
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         for provider in self._providers:
@@ -690,11 +626,8 @@ class RuntimeSchemaProvider:
         self._object_info: dict[str, Any] | None = None
         self._schemas: dict[str, NodeSchema] | None = None
 
-    def get(self, class_type: str) -> NodeSchema | None:
-        return self.schemas().get(class_type)
-
     def get_schema(self, class_type: str) -> NodeSchema | None:
-        return self.get(class_type)
+        return self.schemas().get(class_type)
 
     def schemas(self) -> dict[str, NodeSchema]:
         if self._schemas is None:

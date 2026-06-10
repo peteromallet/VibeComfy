@@ -53,7 +53,7 @@
 
 ### 2.5 Lazy Exposure
 
-`vibecomfy/contracts/__init__.py` exposes all IR symbols through `_LAZY_ATTRS` + `__getattr__`. The `vibecomfy.contracts.ir` module is not imported until an IR attribute is accessed.
+`vibecomfy/contracts/__init__.py` exposes all IR symbols through `_EXPORTS` + `__getattr__`. The `vibecomfy.contracts.ir` module is not imported until an IR attribute is accessed.
 
 ### 2.6 Validation Contract
 

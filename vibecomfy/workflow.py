@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field, replace
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from vibecomfy import _helper_resolve as helper_resolve
 from vibecomfy import _widget_aliases as widget_aliases
@@ -733,7 +733,7 @@ class VibeWorkflow:
             for diagnostic in workflow_helpers.collect_helper_diagnostics(self.nodes, self.edges)
         ]
 
-    def compile(self, backend: str = "api") -> dict[str, Any]:
+    def compile(self, backend: Literal["api", "graphbuilder"] = "api") -> dict[str, Any]:
         if backend == "graphbuilder":
             return self._compile_graphbuilder()
         if backend != "api":
