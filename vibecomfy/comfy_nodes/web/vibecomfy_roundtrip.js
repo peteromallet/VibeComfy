@@ -6,6 +6,7 @@ import {
   setCurrentAgentPanel,
 } from "./panel_runtime.js";
 import {
+  ALL_AGENT_PANEL_RENDER_SECTIONS,
   consumeAgentPanelDirtySections,
   ensureScheduledAgentPanelDirtyFlush,
   hasPendingAgentPanelFlush,
@@ -17,6 +18,7 @@ import {
   noteAgentPanelCommit,
   scheduleRenderAgentPanel,
   setRenderGateway,
+  SETTINGS_STATUS_RENDER_SECTIONS,
 } from "./panel_scheduler.js";
 import {
   collectThreadMessageEntries as collectThreadMessageEntriesImpl,
@@ -36,6 +38,7 @@ import {
   renderComposerActions as renderComposerActionsImpl,
   renderComposerNotice as renderComposerNoticeImpl,
   renderComposerNoticeSection as renderComposerNoticeSectionImpl,
+  renderDeveloper as renderDeveloperImpl,
   submitReadinessState as submitReadinessStateImpl,
   syncComposerButtons as syncComposerButtonsImpl,
 } from "./panel_composer.js";
@@ -45,9 +48,11 @@ import {
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
   installQueueGuard as installQueueGuardAdapter,
+  SUPPORTED_FRONTEND,
 } from "./comfy_adapter.js";
 import {
   createAgentEditState,
+  PANEL_STATE,
   RENDER_SECTIONS,
   normalizeDeltaOpsFromSubmit,
   normalizeObligationDirtySections,
@@ -59,6 +64,15 @@ import {
   readRebaselineRecovery,
   extractRebaselineRecovery,
 } from "./agent_edit_response_contract.js";
+import {
+  buildStatusUrl,
+  clearAgentStatusRetry,
+  refreshAgentStatus,
+  ROUTE_STATUS_KIND,
+  routeOptionsFromStatus,
+  routeStatusState,
+  scheduleAgentStatusRetry,
+} from "./agent_status_poller.js";
 
 export { RENDER_SECTIONS };
 export {
@@ -163,19 +177,6 @@ export {
 // { kind: "SerializeError" }. Backend failures carry a `kind` field
 // matching FailureKind.
 
-const SUPPORTED_FRONTEND = "1.39.x";
-const PANEL_STATE = Object.freeze({
-  IDLE: "IDLE",
-  SUBMITTING: "SUBMITTING",
-  AWAITING_REVIEW: "AWAITING_REVIEW",
-  APPLYING: "APPLYING",
-  // CLARIFY — the agent asked a question instead of producing a candidate.
-  // There is NO candidate to review (the graph is byte-identical), so we never
-  // enter AWAITING_REVIEW for these turns; the prompt stays open for the answer.
-  CLARIFY: "CLARIFY",
-  ERROR: "ERROR",
-});
-
 const APPLY_ELIGIBILITY_REASON = Object.freeze({
   APPLYABLE: "applyable",
   NO_CANDIDATE: "no_candidate",
@@ -187,14 +188,6 @@ const APPLY_ELIGIBILITY_REASON = Object.freeze({
   QUEUE_BLOCKED_WARNING: "queue_blocked_warning",
 });
 
-const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
-const SETTINGS_STATUS_RENDER_SECTIONS = Object.freeze([
-  RENDER_SECTIONS.THREAD,
-  RENDER_SECTIONS.SETTINGS,
-  RENDER_SECTIONS.COMPOSER,
-  RENDER_SECTIONS.NOTICE,
-]);
-const AGENT_STATUS_RETRY_DELAYS_MS = Object.freeze([250, 1000, 3000]);
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
 const AGENT_PANEL_SECTION_RENDER_RETRY_LIMIT = 3;
 const AGENT_SIDEBAR_TAB_ID = "vibecomfy.agent-edit";
@@ -252,14 +245,6 @@ const ROUTE_LABELS = Object.freeze({
   deepseek: "deepseek",
   anthropic: "anthropic",
   "openai-codex": "openai-codex",
-});
-
-const ROUTE_STATUS_KIND = Object.freeze({
-  LOADING: "loading_status",
-  READY: "ready",
-  MISSING_OPTIONS: "missing_route_options",
-  MALFORMED: "malformed_status",
-  UNAVAILABLE: "status_unavailable",
 });
 
 const INTENT_NODE_CLASS_TYPES = new Set(["vibecomfy.code", "vibecomfy.loop"]);
@@ -2801,33 +2786,6 @@ function getBackendStageInfo(payload) {
   return { stage, progress };
 }
 
-function buildStatusUrl(route, model) {
-  const params = new URLSearchParams();
-  if (route) {
-    params.set("route", route);
-  }
-  if (model) {
-    params.set("model", model);
-  }
-  const query = params.toString();
-  return query ? `/vibecomfy/agent/status?${query}` : "/vibecomfy/agent/status";
-}
-
-function routeStatusState(panel) {
-  return panel?.state?.routeStatus || { kind: ROUTE_STATUS_KIND.LOADING };
-}
-
-function routeOptionsFromStatus(status) {
-  if (!status || typeof status !== "object" || Array.isArray(status)) {
-    return null;
-  }
-  const options = status.route_options;
-  if (!options || typeof options !== "object" || Array.isArray(options)) {
-    return null;
-  }
-  return options;
-}
-
 function getRouteOptions(panel) {
   return routeOptionsFromStatus(panel.state.statusSnapshot);
 }
@@ -2839,41 +2797,6 @@ function getRouteDescriptor(panel, route = panel.fields.route.value) {
 
 function nextMacrotask() {
   return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-function clearAgentStatusRetry(panel) {
-  const retry = panel?.state?.statusRetry;
-  if (retry?.timerId) {
-    clearTimeout(retry.timerId);
-  }
-  if (panel?.state) {
-    panel.state.statusRetry = null;
-  }
-}
-
-function scheduleAgentStatusRetry(panel, route, model, { quiet = true } = {}) {
-  if (!panel?.state) {
-    return;
-  }
-  const prior = panel.state.statusRetry;
-  const priorAttempts =
-    prior?.route === route && prior?.model === model && Number.isFinite(prior?.attempts)
-      ? prior.attempts
-      : 0;
-  const attempts = priorAttempts + 1;
-  if (attempts > AGENT_STATUS_RETRY_DELAYS_MS.length) {
-    panel.state.statusRetry = { route, model, attempts: priorAttempts, exhausted: true, timerId: null };
-    return;
-  }
-  const delayMs = AGENT_STATUS_RETRY_DELAYS_MS[attempts - 1];
-  const timerId = setTimeout(() => {
-    if (!panel?.state?.statusRetry || panel.state.statusRetry.timerId !== timerId) {
-      return;
-    }
-    panel.state.statusRetry.timerId = null;
-    refreshAgentStatus(panel, { quiet });
-  }, delayMs);
-  panel.state.statusRetry = { route, model, attempts, exhausted: false, timerId };
 }
 
 function populateRouteSelect(selectNode, routeOptions, {
@@ -2907,155 +2830,6 @@ function populateRouteSelect(selectNode, routeOptions, {
     selectNode.appendChild(node);
   }
   selectNode.value = desired.includes(preferredRoute) ? preferredRoute : desired[0];
-}
-
-async function refreshAgentStatus(panel, { quiet = false } = {}) {
-  const route = normalizeRoutePreference(panel.fields.route.value);
-  const model = normalizeModelPreference(panel.fields.model.value);
-  const requestEpoch =
-    (Number.isFinite(panel.state.statusRequestEpoch) ? panel.state.statusRequestEpoch : 0) + 1;
-  panel.state.statusRequestEpoch = requestEpoch;
-  const priorRetry = panel.state.statusRetry;
-  const retryAttempts =
-    priorRetry?.route === route && priorRetry?.model === model && Number.isFinite(priorRetry?.attempts)
-      ? priorRetry.attempts
-      : 0;
-  if (priorRetry?.timerId) {
-    clearTimeout(priorRetry.timerId);
-  }
-  panel.state.statusRetry = retryAttempts > 0
-    ? { route, model, attempts: retryAttempts, exhausted: false, timerId: null }
-    : null;
-  panel.state.routeStatus = {
-    kind: ROUTE_STATUS_KIND.LOADING,
-    requestedRoute: route,
-    model,
-  };
-  if (typeof document !== "undefined") {
-    renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
-  }
-  try {
-    // Keep the initial "loading" paint observable, then let tests/users observe
-    // the completed state after the request has actually been issued.
-    await nextMacrotask();
-    const res = await fetch(buildStatusUrl(route, model));
-    let status = null;
-    try {
-      status = await res.json();
-    } catch (error) {
-      if (Number.isFinite(requestEpoch) && panel.state.statusRequestEpoch !== requestEpoch) {
-        return;
-      }
-      console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", error);
-      panel.state.statusSnapshot = null;
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.MALFORMED,
-        requestedRoute: route,
-        model,
-        detail: String(error),
-      };
-      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
-      populateRouteSelect(panel.fields.route, null, {
-        placeholderLabel: "Malformed status payload",
-        selectedRoute: route,
-      });
-      panel.fields.route.value = route;
-      if (typeof document !== "undefined") {
-        markAgentPanelDirtyAfterCommit(panel, SETTINGS_STATUS_RENDER_SECTIONS, "status");
-      }
-      return;
-    }
-    if (Number.isFinite(requestEpoch) && panel.state.statusRequestEpoch !== requestEpoch) {
-      return;
-    }
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-    clearAgentStatusRetry(panel);
-    panel.state.statusSnapshot = status;
-    const requestedRoute = normalizeRoutePreference(status?.requested_route || route);
-    const routeOptions = routeOptionsFromStatus(status);
-    if (!status || typeof status !== "object" || Array.isArray(status)) {
-      console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", status);
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.MALFORMED,
-        requestedRoute,
-        model,
-      };
-      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
-      populateRouteSelect(panel.fields.route, null, {
-        placeholderLabel: "Malformed status payload",
-        selectedRoute: requestedRoute,
-      });
-      panel.fields.route.value = requestedRoute;
-    } else if (!routeOptions) {
-      console.warn("[vibecomfy] status payload missing route_options", status);
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.MISSING_OPTIONS,
-        requestedRoute,
-        model,
-      };
-      panel.state.settingsMessage = "Status missing route options; route/model controls disabled.";
-      populateRouteSelect(panel.fields.route, null, {
-        placeholderLabel: "Route options unavailable",
-        selectedRoute: requestedRoute,
-      });
-      panel.fields.route.value = requestedRoute;
-    } else {
-      populateRouteSelect(panel.fields.route, routeOptions, { selectedRoute: requestedRoute });
-      panel.fields.route.value = requestedRoute;
-      if (!routeOptions[requestedRoute]) {
-        console.warn("[vibecomfy] status payload missing descriptor for requested route", {
-          requestedRoute,
-          routeOptions,
-        });
-        panel.state.routeStatus = {
-          kind: ROUTE_STATUS_KIND.MALFORMED,
-          requestedRoute,
-          model,
-        };
-        panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
-      } else {
-        panel.state.routeStatus = {
-          kind: ROUTE_STATUS_KIND.READY,
-          requestedRoute,
-          model,
-        };
-        if (!quiet) {
-          const availability = status?.provider_available === false ? "provider unavailable" : "provider ready";
-          panel.state.settingsMessage = `${status?.requested_route || route} → ${status?.route || route} (${availability})`;
-        }
-      }
-    }
-    if (typeof status?.model === "string" && !panel.fields.model.value.trim()) {
-      panel.fields.model.value = status.model;
-    }
-  } catch (e) {
-    if (Number.isFinite(requestEpoch) && panel.state.statusRequestEpoch !== requestEpoch) {
-      return;
-    }
-    panel.state.settingsMessage = `Status unavailable: ${String(e)}`;
-    panel.state.statusSnapshot = null;
-    panel.state.routeStatus = {
-      kind: ROUTE_STATUS_KIND.UNAVAILABLE,
-      requestedRoute: route,
-      model,
-      detail: String(e),
-    };
-    populateRouteSelect(panel.fields.route, null, {
-      placeholderLabel: "Status unavailable",
-      selectedRoute: route,
-    });
-    panel.fields.route.value = route;
-    scheduleAgentStatusRetry(panel, route, model, { quiet: true });
-  }
-  if (typeof document === "undefined") {
-    return;
-  }
-  const statusDirtySections = Array.isArray(panel?.state?.chatMessages) && panel.state.chatMessages.length
-    ? [...SETTINGS_STATUS_RENDER_SECTIONS, RENDER_SECTIONS.META, RENDER_SECTIONS.THREAD]
-    : SETTINGS_STATUS_RENDER_SECTIONS;
-  markAgentPanelDirtyAfterCommit(panel, statusDirtySections, "status");
 }
 
 function submitReadinessState(panel) {
@@ -3772,7 +3546,13 @@ function createAgentPanelShell() {
     if (panel) {
       panel.fields.route.value = normalizeRoutePreference(routeSelect.value);
       renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
-      refreshAgentStatus(panel, { quiet: true });
+      refreshAgentStatus(panel, { quiet: true }, {
+        normalizeRoutePreference,
+        normalizeModelPreference,
+        renderAgentPanel,
+        nextMacrotask,
+        populateRouteSelect,
+      });
     }
   };
   settingsButtons.appendChild(settingsSave);
@@ -4265,7 +4045,13 @@ function openAgentPanel({ mode = AGENT_PANEL_MOUNT_MODE.LAUNCHER, container = nu
     console.warn("[vibecomfy] chat rehydration render failed", err);
   });
   renderAgentPanel(panel);
-  refreshAgentStatus(panel, { quiet: true });
+  refreshAgentStatus(panel, { quiet: true }, {
+    normalizeRoutePreference,
+    normalizeModelPreference,
+    renderAgentPanel,
+    nextMacrotask,
+    populateRouteSelect,
+  });
   ensureScheduledAgentPanelDirtyFlush(panel, "open-backstop");
   return panel;
 }
@@ -7571,152 +7357,6 @@ function adapterCapabilitySnapshot() {
   };
 }
 
-function renderDeveloper(panel) {
-  const body = panel?.sections?.developer;
-  if (!body) {
-    return;
-  }
-  clearNode(body);
-
-  const caps = adapterCapabilitySnapshot();
-
-  const devData = el("div");
-  Object.assign(devData.style, {
-    display: "grid",
-    gap: "4px",
-    fontSize: "10px",
-    color: "#8d93a1",
-    lineHeight: "1.4",
-  });
-
-  // ── Adapter capability state ──────────────────────────────────────────
-  const adapterSection = renderDeveloperSubsection("Adapter Capabilities");
-  const capLines = [
-    `graphApply: ${caps.graphApply.available ? "✓" : "✗"} (${caps.graphApply.detail})`,
-    `previewForeground: ${caps.previewForeground.available ? "✓" : "✗"} (${caps.previewForeground.detail})`,
-    caps.previewStrategy ? `preview strategy: ${caps.previewStrategy}${caps.previewPolling ? " (polling fallback)" : ""}` : null,
-    `queueGuard: ${caps.queueGuard.available ? "✓" : "✗"} (${caps.queueGuard.detail})`,
-    caps.queueGuard.fallbackWarning ? `queueGuard fallback: ${caps.queueGuard.fallbackWarning}` : null,
-    `supportsAll: ${caps.supportsAll ? "yes" : "no"} (frontend ${caps.frontendVersion})`,
-  ].filter(Boolean);
-  for (const line of capLines) {
-    const div = el("div", line);
-    div.style.color = line.startsWith("graphApply: ✗") || line.startsWith("previewForeground: ✗") || line.startsWith("queueGuard: ✗") ? "#ff8d8d" : "#8d93a1";
-    adapterSection.appendChild(div);
-  }
-  devData.appendChild(adapterSection);
-
-  // ── Queue guard state ─────────────────────────────────────────────────
-  const qgSection = renderDeveloperSubsection("Queue Guard State");
-  const qgState = getQueueGuardStateForPanel();
-  const runtime = getAgentPanelRuntime();
-  const qgLines = [
-    `hookInstalled: ${qgState.hookInstalled}`,
-    `hookPath: ${qgState.hookPath || "none"}`,
-    qgState.fallbackWarning ? `fallbackWarning: ${qgState.fallbackWarning}` : null,
-    qgState.activeContext ? `activeContext: turn=${qgState.activeContext.turnId || "?"} queueAllowed=${qgState.activeContext.queueAllowed}` : "activeContext: none",
-    qgState.lastBlockNotice ? `lastBlock: ${qgState.lastBlockNotice.at || "?"} — ${qgState.lastBlockNotice.message}` : "lastBlockNotice: none",
-    `blockedTurnKeys: ${runtime.queueGuardBlockedTurnKeys.size}`,
-  ].filter(Boolean);
-  for (const line of qgLines) {
-    qgSection.appendChild(el("div", line));
-  }
-  devData.appendChild(qgSection);
-
-  // ── Hashes ────────────────────────────────────────────────────────────
-  const hashSection = renderDeveloperSubsection("Hashes");
-  const hashLines = [
-    `baselineGraphHash: ${panel.state.baselineGraphHash || "none"}`,
-    panel.state.baselineGraphHashKind ? `baselineGraphHashKind: ${panel.state.baselineGraphHashKind}` : null,
-    panel.state.baselineGraphHashVersion != null ? `baselineGraphHashVersion: ${panel.state.baselineGraphHashVersion}` : null,
-    `candidateGraphHash: ${panel.state.candidateGraphHash || "none"}`,
-    `serverSubmitGraphHash: ${panel.state.serverSubmitGraphHash || "none"}`,
-    panel.state.lastSubmit?.client_graph_hash ? `lastSubmit.client_graph_hash: ${panel.state.lastSubmit.client_graph_hash}` : null,
-    panel.state.lastSubmit?.client_structural_graph_hash ? `lastSubmit.client_structural_graph_hash: ${panel.state.lastSubmit.client_structural_graph_hash}` : null,
-  ].filter(Boolean);
-  for (const line of hashLines) {
-    hashSection.appendChild(el("div", line));
-  }
-  devData.appendChild(hashSection);
-
-  // ── Raw booleans ──────────────────────────────────────────────────────
-  const boolSection = renderDeveloperSubsection("Raw Booleans");
-  const boolLines = [
-    `canvasApplyAllowed: ${panel.state.canvasApplyAllowed}`,
-    `queueAllowed: ${panel.state.queueAllowed}`,
-    `applyAllowed: ${panel.state.applyAllowed}`,
-    `applyEligibility: ${JSON.stringify(panel.state.applyEligibility)}`,
-    panel.state.applyEligibilityWarning ? `applyEligibilityWarning: ${JSON.stringify(panel.state.applyEligibilityWarning)}` : null,
-  ].filter(Boolean);
-  for (const line of boolLines) {
-    boolSection.appendChild(el("div", line));
-  }
-  devData.appendChild(boolSection);
-
-  // ── Missing-contract warning ──────────────────────────────────────────
-  if (panel.state.applyEligibilityWarning && panel.state.applyEligibilityWarning.reason === APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT) {
-    const mcSection = renderDeveloperSubsection("Missing Contract");
-    mcSection.style.color = "#ffc107";
-    mcSection.appendChild(el("div", `turn_id: ${panel.state.applyEligibilityWarning.turn_id || "?"}`));
-    mcSection.appendChild(el("div", `message: ${panel.state.applyEligibilityWarning.message}`));
-    if (panel.state.applyEligibilityWarning.candidate_graph_hash) {
-      mcSection.appendChild(el("div", `candidate_graph_hash: ${panel.state.applyEligibilityWarning.candidate_graph_hash}`));
-    }
-    devData.appendChild(mcSection);
-  }
-
-  // ── Raw JSON ──────────────────────────────────────────────────────────
-  const rawSection = renderDeveloperSubsection("Raw JSON");
-  const statusSnapshot = scrubDebugPayload(panel.state.statusSnapshot);
-  const debugPayload = scrubDebugPayload(panel.state.debugPayload);
-  if (statusSnapshot || debugPayload) {
-    if (statusSnapshot) {
-      rawSection.appendChild(createDetails("Status snapshot", statusSnapshot));
-    }
-    if (debugPayload) {
-      rawSection.appendChild(createDetails("Debug payload", debugPayload));
-    }
-    devData.appendChild(rawSection);
-  }
-
-  body.appendChild(devData);
-  if (Object.prototype.hasOwnProperty.call(body, "textContent")) {
-    const summaryText = [
-      "Adapter Capabilities",
-      ...capLines,
-      "Queue Guard State",
-      ...qgLines,
-      "Raw Booleans",
-      ...boolLines,
-    ].join("\n");
-    body.textContent = summaryText;
-    if (body.parentNode && Object.prototype.hasOwnProperty.call(body.parentNode, "textContent")) {
-      body.parentNode.textContent = summaryText;
-    }
-  }
-}
-
-function renderDeveloperSubsection(title) {
-  const section = el("div");
-  Object.assign(section.style, {
-    border: "1px solid #282a32",
-    borderRadius: "4px",
-    padding: "6px",
-    background: "#0d0f14",
-  });
-  const heading = el("div", title);
-  Object.assign(heading.style, {
-    fontSize: "10px",
-    fontWeight: "700",
-    color: "#9da1ac",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    marginBottom: "4px",
-  });
-  section.appendChild(heading);
-  return section;
-}
-
 function renderSettings(panel) {
   const routeStatus = routeStatusState(panel);
   const descriptor = getRouteDescriptor(panel);
@@ -7887,7 +7527,16 @@ function renderSettingsSection(panel) {
 
 function renderDeveloperSection(panel) {
   recordAgentPanelRenderCount(panel, RENDER_SECTIONS.DEVELOPER);
-  renderDeveloper(panel);
+  renderDeveloperImpl(panel, {
+    adapterCapabilitySnapshot,
+    APPLY_ELIGIBILITY_REASON,
+    clearNode,
+    createDetails,
+    el,
+    getAgentPanelRuntime,
+    getQueueGuardStateForPanel,
+    scrubDebugPayload,
+  });
 }
 
 function recordAgentPanelRenderError(panel, section, err) {
@@ -8096,7 +7745,13 @@ async function saveAgentSettings(panel) {
       clearCredentialInput(panel);
     }
   }
-  await refreshAgentStatus(panel, { quiet: Boolean(apiKey) });
+  await refreshAgentStatus(panel, { quiet: Boolean(apiKey) }, {
+    normalizeRoutePreference,
+    normalizeModelPreference,
+    renderAgentPanel,
+    nextMacrotask,
+    populateRouteSelect,
+  });
 }
 
 async function testAgentSettings(panel) {
@@ -8105,7 +7760,13 @@ async function testAgentSettings(panel) {
   }
   panel.state.settingsMessage = "Testing provider status…";
   renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
-  await refreshAgentStatus(panel);
+  await refreshAgentStatus(panel, {}, {
+    normalizeRoutePreference,
+    normalizeModelPreference,
+    renderAgentPanel,
+    nextMacrotask,
+    populateRouteSelect,
+  });
 }
 
 async function newAgentConversation(panel) {

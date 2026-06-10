@@ -8,7 +8,7 @@
 // for browser tests to match supported / degraded / missing-hook ComfyUI builds.
 
 // ── Supported frontend version ─────────────────────────────────────────────
-const SUPPORTED_FRONTEND = "1.39.x";
+export const SUPPORTED_FRONTEND = "1.39.x";
 let inOverlayDraw = false;
 
 // ── Capability shape ───────────────────────────────────────────────────────

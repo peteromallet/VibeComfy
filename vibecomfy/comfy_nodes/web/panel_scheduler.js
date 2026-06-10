@@ -1,7 +1,13 @@
 import { RENDER_SECTIONS, normalizeObligationDirtySections } from "./agent_edit_lifecycle.js";
 import { currentAgentPanel, getAgentPanelRuntime } from "./panel_runtime.js";
 
-const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
+export const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
+export const SETTINGS_STATUS_RENDER_SECTIONS = Object.freeze([
+  RENDER_SECTIONS.THREAD,
+  RENDER_SECTIONS.SETTINGS,
+  RENDER_SECTIONS.COMPOSER,
+  RENDER_SECTIONS.NOTICE,
+]);
 const AGENT_PANEL_RENDER_TIMEOUT_MS = 100;
 
 let renderGateway = null;
