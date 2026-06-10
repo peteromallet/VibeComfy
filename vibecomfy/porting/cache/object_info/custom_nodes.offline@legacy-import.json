@@ -1,0 +1,35 @@
+{
+  "OfflineNode": {
+    "category": "test",
+    "class_schema_sha256": "2a97b4b49e63d81ebb606f7eb7f3a0b587aa640537cca82e32312bd07b940a08",
+    "description": "",
+    "display_name": "OfflineNode",
+    "evidence_identity": "object_info.json",
+    "function": "run",
+    "git_commit": null,
+    "input_order": {
+      "optional": [],
+      "required": []
+    },
+    "input_order_all": [],
+    "inputs": {
+      "optional": {},
+      "required": {}
+    },
+    "name": "OfflineNode",
+    "object_info_widget_order": [],
+    "outputs": [
+      {
+        "is_list": false,
+        "name": "value",
+        "type": "STRING"
+      }
+    ],
+    "pack": "custom_nodes.offline",
+    "pack_slug": "custom_nodes.offline",
+    "pack_version": "legacy-import",
+    "python_module": "custom_nodes.offline.nodes",
+    "schema_hash": "2a97b4b49e63d81ebb606f7eb7f3a0b587aa640537cca82e32312bd07b940a08",
+    "source_kind": "legacy_object_info_import"
+  }
+}

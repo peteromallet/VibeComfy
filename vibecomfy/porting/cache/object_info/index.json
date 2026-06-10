@@ -828,6 +828,7 @@
   "NormalizeVideoLatentStart": "comfy_core@object_info_comfyui_0.24.0.1.json",
   "NormalizedAmplitudeToFloatList": "ComfyUI-KJNodes@runpod-snapshot.json",
   "NormalizedAmplitudeToMask": "ComfyUI-KJNodes@runpod-snapshot.json",
+  "OfflineNode": "custom_nodes.offline@legacy-import.json",
   "OffsetMask": "ComfyUI-KJNodes@runpod-snapshot.json",
   "OffsetMaskByNormalizedAmplitude": "ComfyUI-KJNodes@runpod-snapshot.json",
   "OmitThink": "comfy_core@object_info_comfyui_0.24.0.1.json",
