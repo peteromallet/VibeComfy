@@ -1,0 +1,163 @@
+# M5 Symbol Audit Manifest — agent_edit.py import + monkeypatch surface
+# Generated: 2026-06-10
+# Module: vibecomfy.comfy_nodes.agent_edit
+#
+# This manifest captures every external reference to agent_edit symbols
+# (both Python from-imports and monkeypatch.setattr interception sites)
+# across vibecomfy/, tests/, and scripts/.
+#
+# SC1 verification: AgentEditState and _StageBlocked both importable via
+#   from vibecomfy.comfy_nodes.agent_edit import AgentEditState, _StageBlocked
+#   ✅ Verified 2026-06-10 (both resolve correctly)
+
+# =============================================================================
+# SECTION 1: Python from-import sites (vibecomfy/)
+# =============================================================================
+
+# --- vibecomfy/comfy_nodes/routes.py ---
+# L19-27: from .agent_edit import (
+#     DEFAULT_CHAT_DISPLAY_MESSAGES,
+#     _SESSION_ROOT,
+#     _safe_session_id,
+#     handle_agent_edit,
+#     read_session_bundle,
+#     read_session_chat,
+#     read_session_json,
+# )
+
+# =============================================================================
+# SECTION 2: Python from-import sites (tests/)
+# =============================================================================
+
+# --- tests/conftest.py ---
+# L75: from vibecomfy.comfy_nodes import agent_edit
+# L77: agent_edit._RUNTIME_OBJECT_INFO_PATH.clear()
+
+# --- tests/test_comfy_nodes_agent_edit.py ---
+# L15-36: from vibecomfy.comfy_nodes.agent_edit import (
+#     AgentEditState,
+#     _StageBlocked,
+#     _ABSENT_FIELD_OLD,
+#     _agent_edit_contract,
+#     _agent_edit_turn_event_payload,
+#     _batch_warning_sentence,
+#     _human_change_phrase,
+#     _humanized_edit_message,
+#     _landed_edit_lead,
+#     _operation_detail_payload,
+#     _repair_field_changes_from_original_ui,
+#     _run_batch_repl_product_path,
+#     _safe_session_id,
+#     _synthesize_batch_repl_message,
+#     _write_turn_chat_artifact,
+#     _ws_send,
+#     handle_agent_edit,
+#     read_session_chat,
+#     read_session_json,
+#     split_terminal_clarify,
+# )
+# L658: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L702: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L769: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L823: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L873: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L922: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L1078: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L1426: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L1536: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L1784: from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
+# L1811: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L3241: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L4547: from vibecomfy.comfy_nodes import agent_audit, agent_edit as agent_edit_module
+# L6484: from vibecomfy.comfy_nodes.agent_edit import _ABSENT_FIELD_OLD
+# L6510: from vibecomfy.comfy_nodes.agent_edit import _change_details_payload
+# L6671: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L6703: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L6742: from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+# L7547: from vibecomfy.comfy_nodes.agent_edit import read_session_chat
+# L7614: from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+# L7639: from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+# L7648: from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+# L7669-7672: from vibecomfy.comfy_nodes.agent_edit import (_field_change_is_noop, _ABSENT_FIELD_OLD)
+# L7710: from vibecomfy.comfy_nodes.agent_edit import _real_field_changes
+# L7734: from vibecomfy.comfy_nodes.agent_edit import _noop_field_changes
+# L7757: from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
+# L7799: from vibecomfy.comfy_nodes.agent_edit import _format_batch_report_json
+# L7841-7845: from vibecomfy.comfy_nodes.agent_edit import (_field_change_is_noop, _real_field_changes, _noop_field_changes)
+# L7878-7882: from vibecomfy.comfy_nodes.agent_edit import (_edit_lint_enabled, _stage_apply_delta, AgentEditState)
+# L7955-7959: from vibecomfy.comfy_nodes.agent_edit import (_edit_lint_enabled, _stage_apply_delta, AgentEditState)
+
+# --- tests/test_comfy_nodes_agent_backend_spine.py ---
+# L37-41: from vibecomfy.comfy_nodes.agent_edit import (
+#     AgentEditState,
+#     _failure_response,
+#     _stale_rebaseline_recovery_issue,
+# )
+
+# --- tests/test_porting_edit_session.py ---
+# L745: from vibecomfy.comfy_nodes.agent_edit import handle_agent_edit
+
+# =============================================================================
+# SECTION 3: Python from-import sites (scripts/)
+# =============================================================================
+
+# --- scripts/_catalog_size_probe.py ---
+# L12: from vibecomfy.comfy_nodes.agent_edit import _format_available_node_names, _present_class_types
+
+# --- scripts/_agent_edit_prompt_dump.py ---
+# L34: from vibecomfy.comfy_nodes.agent_edit import _format_available_node_names, _present_class_types
+
+# =============================================================================
+# SECTION 4: monkeypatch.setattr interception sites (tests/)
+# =============================================================================
+# All sites are in tests/test_comfy_nodes_agent_edit.py
+
+# L750:  monkeypatch.setattr(agent_edit_module, "_run_stage", _fake_run_stage)
+# L846:  monkeypatch.setattr(agent_edit_module, "_run_batch_repl_product_path", _fake_runner)
+# L847:  monkeypatch.setattr(agent_edit_module, "_build_batch_repl_response", _batch_builder)
+# L895:  monkeypatch.setattr(agent_edit_module, "_run_delta_dev_path", _fake_runner)
+# L896:  monkeypatch.setattr(agent_edit_module, "_build_dev_success_response", _dev_builder)
+# L942:  monkeypatch.setattr(agent_edit_module, "_run_delta_dev_path", _blocked_runner)
+# L1087: monkeypatch.setattr(agent_edit_module, "write_audit", _capture_audit)
+# L1435: monkeypatch.setattr(agent_edit_module, "write_audit", _capture_audit)
+# L1545: monkeypatch.setattr(agent_edit_module, "write_audit", _capture_audit)
+# L1989: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._ws_send", _capture_ws_send)
+# L3002: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._ws_send", _capture_ws_send)
+# L3237: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_validate", _validate)
+# L3238: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_emit", _emit)
+# L3239: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_summarize", _summarize)
+# L3250: monkeypatch.setattr(agent_edit_module, "write_audit", _capture_audit)
+# L3964: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_convert", _boom)
+# L4009: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit.run_agent_turn", provider_mod.run_agent_turn)
+# L4060: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit.run_agent_turn", _fake_run_agent_turn)
+# L4107: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_convert", _boom)
+# L4211: monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_emit", _boom)
+# L4568: monkeypatch.setattr(agent_edit_module, "write_audit", _write_with_unknown_failure)
+
+# =============================================================================
+# SECTION 5: JS import sites from agent_edit_lifecycle.js / contract modules
+# =============================================================================
+# (web/ imports — JS-side consumers of the agent-edit contract)
+
+# --- vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js ---
+# L12-15: import { extractRebaselineRecovery, normalizeRebaselineRecovery }
+#           from "./agent_edit_response_contract_generated.js";
+
+# --- vibecomfy/comfy_nodes/web/panel_scheduler.js ---
+# L1: import { RENDER_SECTIONS, normalizeObligationDirtySections }
+#       from "./agent_edit_lifecycle.js";
+
+# --- vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js ---
+# L49-55: import { createAgentEditState, RENDER_SECTIONS,
+#           normalizeDeltaOpsFromSubmit, normalizeObligationDirtySections, transition }
+#           from "./agent_edit_lifecycle.js";
+# L56-61: import { normalizeAgentEditResponse, readLatestCandidate,
+#           readRebaselineRecovery, extractRebaselineRecovery }
+#           from "./agent_edit_response_contract.js";
+
+# =============================================================================
+# SECTION 6: Key symbol verification
+# =============================================================================
+# AgentEditState importable?  ✅ from vibecomfy.comfy_nodes.agent_edit import AgentEditState
+# _StageBlocked importable?   ✅ from vibecomfy.comfy_nodes.agent_edit import _StageBlocked
+# Both resolve to correct types in agent_edit module namespace.
