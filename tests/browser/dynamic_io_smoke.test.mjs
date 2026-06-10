@@ -229,7 +229,7 @@ test("VibeComfy dynamic-IO code node decoration preserves in_i/out_i names, sets
     assert.equal(node.bgcolor, "#171229");
     assert.equal(node.boxcolor, "#e39cff");
     assert.equal(node.properties["VibeComfy Intent Kind"], "code");
-    assert.equal(node.properties["VibeComfy Intent Badge"], "code · editor-only");
+    assert.equal(node.properties["VibeComfy Intent Badge"], "Python · sandboxed_loose");
     assert.equal(node.properties["VibeComfy Intent Source"], "result = image");
     assert.equal(node.properties["VibeComfy Intent Spec"], "passthrough with mask");
 
@@ -348,8 +348,8 @@ test("VibeComfy non-dynamic-IO loop node still uses applyTypedSocketLabels (name
   }
 });
 
-// ── Test 7: Dynamic-IO detection is comfyClass-based, not type-based ──────
-test("VibeComfy dynamic-IO detection uses comfyClass, not the presence of in_0 slot names", async () => {
+// ── Test 7: Dynamic-IO detection is class_type-based (vibecomfy.code) ────────
+test("VibeComfy dynamic-IO detection uses class_type (vibecomfy.code) — all code nodes are dynamic-IO regardless of comfyClass", async () => {
   const harness = await createBrowserHarness({
     responses: {
       "/system_stats": {
@@ -363,14 +363,14 @@ test("VibeComfy dynamic-IO detection uses comfyClass, not the presence of in_0 s
     await harness.loadExtension();
     const extension = harness.getExtension();
 
-    // A node with vibecomfy.code type but WITHOUT comfyClass="VibeComfyCodeIntent"
-    // should NOT be treated as dynamic-IO.
+    // A node with vibecomfy.code type and NO comfyClass is still treated as
+    // dynamic-IO — _isDynamicIoCodeNode checks class_type (node.type), not comfyClass.
     const nodeType = { prototype: {} };
     await extension.beforeRegisterNodeDef(nodeType, { name: "vibecomfy.code" });
 
-    const nonDynamicCodeNode = {
+    const codeNodeNoComfyClass = {
       type: "vibecomfy.code",
-      // NO comfyClass set — should fall through to non-dynamic path.
+      // NO comfyClass — dynamic-IO fires anyway via class_type check.
       size: [240, 90],
       properties: {
         vibecomfy_uid: "intent-old-1",
@@ -390,14 +390,16 @@ test("VibeComfy dynamic-IO detection uses comfyClass, not the presence of in_0 s
       outputs: [{ name: "value" }],
     };
 
-    nodeType.prototype.onNodeCreated.call(nonDynamicCodeNode);
+    nodeType.prototype.onNodeCreated.call(codeNodeNoComfyClass);
 
-    // Non-dynamic path rewrites slot.name to the label.
-    assert.equal(nonDynamicCodeNode.inputs[0].name, "x: INT");
-    assert.equal(nonDynamicCodeNode.outputs[0].name, "y: INT");
+    // Dynamic-IO path: slot.name preserved (in_i serialization key), slot.label set.
+    assert.equal(codeNodeNoComfyClass.inputs[0].name, "value");
+    assert.equal(codeNodeNoComfyClass.inputs[0].label, "x: INT");
+    assert.equal(codeNodeNoComfyClass.outputs[0].name, "value");
+    assert.equal(codeNodeNoComfyClass.outputs[0].label, "y: INT");
 
-    // Verify properties are still set correctly.
-    assert.equal(nonDynamicCodeNode.properties["VibeComfy Intent Badge"], "code · editor-only");
+    // Badge is set correctly.
+    assert.equal(codeNodeNoComfyClass.properties["VibeComfy Intent Badge"], "Python · sandboxed_loose");
   } finally {
     await harness.dispose();
   }

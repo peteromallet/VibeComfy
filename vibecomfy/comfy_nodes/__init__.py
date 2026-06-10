@@ -134,8 +134,17 @@ class VibeComfyCodeIntent(_VibeComfyIntentNodeBase):
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
         if os.environ.get("VIBECOMFY_CODE_DYNAMIC_IO", "0") == "1":
+            optional: dict[str, Any] = {
+                **{f"in_{i}": ("*",) for i in range(_MAX_DYNAMIC_PORTS)},
+                "source": ("STRING", {"default": "", "multiline": True}),
+                "spec": ("STRING", {"default": "", "multiline": True}),
+                "execution_mode": (
+                    ["sandboxed_loose", "sandboxed_strict", "unrestricted"],
+                    {"default": "sandboxed_loose"},
+                ),
+            }
             return {
-                "optional": {f"in_{i}": ("*",) for i in range(_MAX_DYNAMIC_PORTS)},
+                "optional": optional,
                 "hidden": {
                     "unique_id": "UNIQUE_ID",
                     "prompt": "PROMPT",
@@ -193,6 +202,39 @@ class VibeComfyCodeIntent(_VibeComfyIntentNodeBase):
 
         vibecomfy = properties.get("vibecomfy")
         vibecomfy = vibecomfy if isinstance(vibecomfy, dict) else {}
+        # Ensure the sub-dicts intent/runtime exist so downstream code
+        # (runtime_code.py execute_runtime_code_dynamic, contract validator)
+        # does not need its own defensive get chains.
+        vibecomfy.setdefault("intent", {})
+        vibecomfy.setdefault("runtime", {})
+
+        # --- Widget-to-property roundtrip: source / spec / execution_mode ---
+        _NEW_MODE_SET = frozenset({"sandboxed_loose", "sandboxed_strict", "unrestricted"})
+
+        widget_source: str = str(kwargs.get("source", ""))
+        widget_spec: str = str(kwargs.get("spec", ""))
+        widget_mode: str = str(kwargs.get("execution_mode", "sandboxed_loose"))
+
+        # Validate widget mode against the bare set; ignore unrecognised.
+        if widget_mode not in _NEW_MODE_SET:
+            widget_mode = vibecomfy.get("execution_mode", "sandboxed_loose")
+            if widget_mode not in _NEW_MODE_SET:
+                widget_mode = "sandboxed_loose"
+
+        # Write non-empty widget source/spec into intent; fall back to
+        # property source when the widget is empty (preserves agent-authored
+        # code that predates the widget).
+        intent: dict[str, Any] = vibecomfy["intent"]
+        if widget_source.strip():
+            intent["source"] = widget_source
+        elif "source" not in intent:
+            intent["source"] = ""
+        if widget_spec.strip():
+            intent["spec"] = widget_spec
+        elif "spec" not in intent:
+            intent["spec"] = ""
+
+        vibecomfy["execution_mode"] = widget_mode
 
         io = vibecomfy.get("io")
         io = io if isinstance(io, dict) else {}

@@ -10,8 +10,15 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from vibecomfy.contracts.intent_nodes import (
+    EXECUTION_MODE_UNRESTRICTED,
     KIND_TO_CLASS_TYPE,
+    RUNTIME_CODE_EXECUTION_MODE,
+    RUNTIME_CODE_SAFE_BUILTINS,
+    RUNTIME_CODE_UNRESTRICTED_ACK_ERROR,
+    _ALLOWED_IMPORTS_BY_MODE,
+    _TIMEOUT_MS_DEFAULT_BY_MODE,
     intent_node_properties,
+    resolve_execution_mode,
     validate_runtime_code_contract,
 )
 
@@ -101,10 +108,12 @@ def execute_runtime_code(
         )
     worker_result = _run_worker(
         {
+            "mode": contract.normalized.execution_mode or RUNTIME_CODE_EXECUTION_MODE,
             "source": source,
             "value": value,
             "inputs": _named_inputs_from_value(value, io),
             "allowed_builtins": allowed_builtin_names,
+            "allowed_imports": [],
         },
         timeout_ms=contract.normalized.timeout_ms,
     )
@@ -146,27 +155,67 @@ def execute_runtime_code_dynamic(
     source = intent.get("source")
     source = source if isinstance(source, str) else ""
 
-    allowed_builtins_raw = runtime.get("allowed_builtins")
-    if isinstance(allowed_builtins_raw, list) and all(isinstance(x, str) for x in allowed_builtins_raw):
-        allowed_builtins = allowed_builtins_raw
+    # Re-derive execution-mode caps from the resolved mode at execution time.
+    # The widget mode is authoritative; an agent's snapshot of allowed_builtins /
+    # allowed_imports / timeout_ms must never widen the runtime sandbox (SD3).
+    resolved_mode = resolve_execution_mode(runtime)
+
+    # Defense-in-depth ack: even if the contract validator was bypassed, never
+    # execute unrestricted code without the explicit unrestricted_ack flag.
+    if resolved_mode == EXECUTION_MODE_UNRESTRICTED and runtime.get("unrestricted_ack") is not True:
+        raise RuntimeCodeExecutionError(
+            RUNTIME_CODE_UNRESTRICTED_ACK_ERROR,
+            "Unrestricted execution mode requires runtime.unrestricted_ack=true.",
+            {"mode": resolved_mode},
+        )
+
+    if resolved_mode == RUNTIME_CODE_EXECUTION_MODE:
+        # expression_v1: always the fixed 16-name SAFE_BUILTINS set (SD6 re-derive at execution time)
+        allowed_builtins = sorted(RUNTIME_CODE_SAFE_BUILTINS)
     else:
-        allowed_builtins = []
+        allowed_builtins_raw = runtime.get("allowed_builtins")
+        if isinstance(allowed_builtins_raw, list) and all(isinstance(x, str) for x in allowed_builtins_raw):
+            allowed_builtins = allowed_builtins_raw
+        else:
+            allowed_builtins = []
+
+    mode_imports = _ALLOWED_IMPORTS_BY_MODE.get(resolved_mode)
+    if mode_imports is None:
+        allowed_imports: list[str] = []
+    else:
+        allowed_imports = sorted(mode_imports)
+
+    if resolved_mode == RUNTIME_CODE_EXECUTION_MODE:
+        timeout_default = 1000
+    else:
+        timeout_default = _TIMEOUT_MS_DEFAULT_BY_MODE.get(resolved_mode, 10_000)
 
     timeout_ms_val = runtime.get("timeout_ms")
     if not isinstance(timeout_ms_val, int) or isinstance(timeout_ms_val, bool):
-        timeout_ms_val = 1000
+        timeout_ms_val = timeout_default
 
     outputs_spec = io.get("outputs")
     outputs_spec = outputs_spec if isinstance(outputs_spec, list) else []
 
     worker_result = _run_worker(
         {
+            "mode": resolved_mode,
             "source": source,
             "value": next(iter(named_inputs.values()), None) if named_inputs else None,
             "inputs": named_inputs,
             "allowed_builtins": allowed_builtins,
+            "allowed_imports": allowed_imports,
         },
         timeout_ms=timeout_ms_val,
+    )
+
+    # In the new exec-based modes the worker writes results into an ``outputs`` dict
+    # and returns it directly, so the dispatcher must key-map (not wrap) when the
+    # worker returns a dict. Legacy expression_v1 returns the scalar eval result and
+    # keeps the original wrap-by-position semantics. Tests that monkeypatch
+    # ``_run_worker`` to return a scalar still hit the legacy branch.
+    new_mode_dict_result = (
+        resolved_mode != RUNTIME_CODE_EXECUTION_MODE and isinstance(worker_result, dict)
     )
 
     if not outputs_spec:
@@ -182,6 +231,8 @@ def execute_runtime_code_dynamic(
         return {"value": worker_result}
 
     if len(output_names) == 1:
+        if new_mode_dict_result:
+            return {output_names[0]: worker_result.get(output_names[0])}
         return {output_names[0]: worker_result}
 
     # Multiple declared outputs require the worker to return a dict.
@@ -242,10 +293,26 @@ def _is_json_compatible(value: Any) -> bool:
 
 def _run_worker(payload: dict[str, Any], *, timeout_ms: int) -> Any:
     timeout_seconds = max(timeout_ms, 1) / 1000
+    mode = payload.get("mode") if isinstance(payload, dict) else None
+    if not isinstance(mode, str) or not mode:
+        mode = RUNTIME_CODE_EXECUTION_MODE
     try:
         encoded_payload = json.dumps(payload, allow_nan=False)
     except (TypeError, ValueError) as exc:
         raise RuntimeCodeExecutionError("runtime_protocol_input_invalid", str(exc)) from exc
+
+    # Branch env + preexec on mode. Unrestricted mode is the explicit "no sandbox"
+    # escape hatch (gated by unrestricted_ack upstream) and therefore inherits the
+    # parent env and skips the rlimit preexec so user code can actually do things
+    # like read files or import native libs. All other modes (legacy expression_v1
+    # and the two sandboxed modes) run with an empty env and rlimits.
+    if mode == EXECUTION_MODE_UNRESTRICTED:
+        worker_env = os.environ.copy()
+        preexec = None
+    else:
+        worker_env = {}
+        preexec = _limit_worker_resources if os.name == "posix" else None
+
     with tempfile.TemporaryDirectory(prefix="vibecomfy-runtime-code-") as tmpdir:
         try:
             proc = subprocess.run(
@@ -255,8 +322,8 @@ def _run_worker(payload: dict[str, Any], *, timeout_ms: int) -> Any:
                 capture_output=True,
                 timeout=timeout_seconds,
                 cwd=tmpdir,
-                env={},
-                preexec_fn=_limit_worker_resources if os.name == "posix" else None,
+                env=worker_env,
+                preexec_fn=preexec,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeCodeExecutionError(
@@ -298,9 +365,12 @@ def _limit_worker_resources() -> None:
 
 _WORKER_SOURCE: Final[str] = r'''
 import ast
+import builtins as _builtins
 import json
 import sys
 
+# Legacy 16-name safe-builtin map. expression_v1 keeps this set byte-identical to
+# the pre-mode-dispatch worker; do not extend without changing the contract.
 SAFE_BUILTINS = {
     "abs": abs,
     "all": all,
@@ -320,22 +390,108 @@ SAFE_BUILTINS = {
     "tuple": tuple,
 }
 
+# Broad builtins available to the new sandboxed_* modes. Mirrors
+# RUNTIME_CODE_BROAD_BUILTINS in the contract.
+_BROAD_BUILTIN_NAMES = (
+    "abs", "all", "any", "bool", "dict", "float", "int", "len", "list",
+    "max", "min", "round", "sorted", "str", "sum", "tuple",
+    "print", "range", "enumerate", "zip", "map", "filter", "set",
+    "frozenset", "reversed", "divmod", "pow", "hex", "oct", "bin",
+    "ord", "chr", "repr", "isinstance", "issubclass", "type", "hash",
+    "id", "iter", "next",
+)
+
+
+def _broad_builtins_map():
+    return {
+        name: getattr(_builtins, name)
+        for name in _BROAD_BUILTIN_NAMES
+        if hasattr(_builtins, name)
+    }
+
+
+def _strict_import(name, globals=None, locals=None, fromlist=(), level=0):
+    raise ImportError("imports are forbidden in sandboxed_strict mode")
+
+
+def _make_loose_import(allowed):
+    allowed_roots = frozenset(allowed or ())
+
+    def _loose_import(name, globals=None, locals=None, fromlist=(), level=0):
+        root = (name or "").split(".", 1)[0]
+        if root not in allowed_roots:
+            raise ImportError(
+                "import of " + repr(name) + " is not in the sandboxed_loose allowlist"
+            )
+        return _builtins.__import__(name, globals, locals, fromlist, level)
+
+    return _loose_import
+
+
+def _run_expression_v1(payload):
+    # Byte-identical legacy branch: single-expression eval against the 16-name
+    # SAFE_BUILTINS, scope = inputs + value, no outputs dict.
+    allowed = {
+        name: SAFE_BUILTINS[name]
+        for name in payload.get("allowed_builtins", [])
+        if name in SAFE_BUILTINS
+    }
+    scope = dict(payload.get("inputs") or {})
+    scope.setdefault("value", payload.get("value"))
+    return eval(
+        compile(ast.parse(payload["source"], mode="eval"), "<runtime_code_expression>", "eval"),
+        {"__builtins__": allowed},
+        scope,
+    )
+
+
+def _run_sandboxed(payload, *, mode):
+    inputs = dict(payload.get("inputs") or {})
+    outputs = {}
+    builtins_map = _broad_builtins_map()
+    if mode == "sandboxed_strict":
+        builtins_map["__import__"] = _strict_import
+    else:
+        builtins_map["__import__"] = _make_loose_import(payload.get("allowed_imports") or [])
+    scope = {
+        "__builtins__": builtins_map,
+        "inputs": inputs,
+        "outputs": outputs,
+    }
+    scope.update(inputs)
+    compiled = compile(payload["source"], "<runtime_code_source>", "exec")
+    exec(compiled, scope, scope)
+    return outputs
+
+
+def _run_unrestricted(payload):
+    inputs = dict(payload.get("inputs") or {})
+    outputs = {}
+    scope = {
+        "__builtins__": _builtins.__dict__,
+        "inputs": inputs,
+        "outputs": outputs,
+    }
+    scope.update(inputs)
+    compiled = compile(payload["source"], "<runtime_code_source>", "exec")
+    exec(compiled, scope, scope)
+    return outputs
+
 
 def main():
     try:
         payload = json.loads(sys.stdin.read())
-        allowed = {
-            name: SAFE_BUILTINS[name]
-            for name in payload.get("allowed_builtins", [])
-            if name in SAFE_BUILTINS
-        }
-        scope = dict(payload.get("inputs") or {})
-        scope.setdefault("value", payload.get("value"))
-        result = eval(
-            compile(ast.parse(payload["source"], mode="eval"), "<runtime_code_expression>", "eval"),
-            {"__builtins__": allowed},
-            scope,
-        )
+        mode = payload.get("mode") or "expression_v1"
+        if mode == "expression_v1":
+            result = _run_expression_v1(payload)
+        elif mode == "sandboxed_strict":
+            result = _run_sandboxed(payload, mode="sandboxed_strict")
+        elif mode == "sandboxed_loose":
+            result = _run_sandboxed(payload, mode="sandboxed_loose")
+        elif mode == "unrestricted":
+            result = _run_unrestricted(payload)
+        else:
+            raise RuntimeError("unknown execution mode " + repr(mode))
         print(json.dumps({"ok": True, "result": result}, allow_nan=False), end="")
     except BaseException as exc:
         print(

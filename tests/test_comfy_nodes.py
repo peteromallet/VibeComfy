@@ -61,7 +61,7 @@ def test_code_intent_flag_off_return_types_unchanged(monkeypatch: pytest.MonkeyP
 # ---------------------------------------------------------------------------
 
 def test_code_intent_flag_on_input_types_has_16_optional_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Flag-ON INPUT_TYPES must expose in_0..in_15 optionals + hidden unique_id/prompt."""
+    """Flag-ON INPUT_TYPES must expose in_0..in_15 + source/spec/execution_mode optionals + hidden unique_id/prompt."""
     monkeypatch.setenv("VIBECOMFY_CODE_DYNAMIC_IO", "1")
     import vibecomfy.comfy_nodes as m
 
@@ -72,17 +72,22 @@ def test_code_intent_flag_on_input_types_has_16_optional_pool(monkeypatch: pytes
     assert "hidden" in inputs
 
     optional = inputs["optional"]
-    assert len(optional) == 16
+    # 16 wildcard pool slots + source, spec, execution_mode widgets
+    assert len(optional) == 19
     for i in range(16):
         assert f"in_{i}" in optional
         assert optional[f"in_{i}"] == ("*",)
+
+    # Source/spec/execution_mode widgets added by T3
+    assert "source" in optional
+    assert "spec" in optional
+    assert "execution_mode" in optional
 
     hidden = inputs["hidden"]
     assert hidden["unique_id"] == "UNIQUE_ID"
     assert hidden["prompt"] == "PROMPT"
 
-    # Config fields must NOT be present
-    assert "source" not in optional
+    # Legacy fields must NOT be present in the dynamic-IO branch
     assert "runtime_backed" not in optional
     assert "value" not in optional
 
@@ -208,7 +213,7 @@ def test_code_intent_execute_dynamic_empty_io_returns_16_nones(
 def test_code_intent_execute_dynamic_missing_prompt_does_not_crash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Defensive .get() chain: None prompt → empty vibecomfy_props passed through."""
+    """Defensive .get() chain: None prompt → default-coerced vibecomfy_props passed through."""
     monkeypatch.setenv("VIBECOMFY_CODE_DYNAMIC_IO", "1")
     import vibecomfy.comfy_nodes as m
 
@@ -226,7 +231,11 @@ def test_code_intent_execute_dynamic_missing_prompt_does_not_crash(
     result = node.execute(unique_id=None, prompt=None)
 
     assert len(result) == 16
-    assert captured[0]["props"] == {}
+    props = captured[0]["props"]
+    # T3 defensive coercion: intent/runtime sub-dicts always present; execution_mode defaulted
+    assert props["intent"] == {"source": "", "spec": ""}
+    assert props["runtime"] == {}
+    assert props["execution_mode"] == "sandboxed_loose"
 
 
 # ---------------------------------------------------------------------------

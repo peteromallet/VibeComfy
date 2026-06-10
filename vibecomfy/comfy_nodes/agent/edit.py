@@ -2405,7 +2405,7 @@ def _stage_agent(
     model: str | None = None,
 ) -> StageResult:
     start = time.monotonic()
-    messages = build_messages(task=state.task, python_source=state.python_before)
+    messages = build_messages(task=state.task, python_source=state.python_before, execution_mode="sandboxed_loose")
     write_json_artifact(state.model_request_path, {"messages": messages})
     if deepseek_client is not None:
         agent_result = _normalize_test_client_response(

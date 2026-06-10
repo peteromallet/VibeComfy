@@ -360,7 +360,35 @@ def build_batch_messages(
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def build_messages(*, task: str, python_source: str) -> list[dict[str, str]]:
+def _code_mode_clause(mode: str) -> str:
+    """Return the ``vibecomfy.code`` system-prompt clause for *mode*.
+
+    Raises :class:`ValueError` for ``unrestricted`` — the agent pipeline must
+    never instruct a model to emit code that skips sandbox enforcement.
+    """
+    if mode == "unrestricted":
+        raise ValueError("agent cannot emit unrestricted mode")
+    if mode == "sandboxed_strict":
+        return (
+            "Use `vibecomfy.code` for inspectable typed logic when no more specific shipped "
+            "shape fits; its `intent.source` or `intent.spec` must stay within 64 KiB.  "
+            "The code runs in **sandboxed_strict** mode (broad builtins available; **NO imports "
+            "allowed**).  Write results into an ``outputs={}`` dict.  The sandbox enforces a "
+            "10-second timeout and denies all network and filesystem access.  "
+        )
+    # sandboxed_loose (default)
+    return (
+        "Use `vibecomfy.code` for inspectable typed logic when no more specific shipped "
+        "shape fits; its `intent.source` or `intent.spec` must stay within 64 KiB.  "
+        "The code runs in **sandboxed_loose** mode (broad builtins available; imports "
+        "restricted to: math, statistics, re, json, random, itertools, datetime).  "
+        "Write results into an ``outputs={}`` dict.  The sandbox enforces a 10-second "
+        "timeout and denies all network and filesystem access.  "
+    )
+
+
+def build_messages(*, task: str, python_source: str, execution_mode: str = "sandboxed_loose") -> list[dict[str, str]]:
+    code_clause = _code_mode_clause(execution_mode)
     system = (
         "You edit VibeComfy Python scratchpads for a ComfyUI canvas.\n"
         "Return only JSON with keys `python` and `message`.\n"
@@ -373,9 +401,9 @@ def build_messages(*, task: str, python_source: str) -> list[dict[str, str]]:
         "Use `vibecomfy.loop` only for bounded, visible sweeps that cannot be lowered "
         "cleanly; its metadata must keep a stable `vibecomfy_uid`, `kind`, typed "
         "`io.inputs`/`io.outputs`, and a bounded loop contract (`count`/`iterations`/`over`) "
-        "with at most 128 iterations. Use `vibecomfy.code` only for inspectable typed logic "
-        "when no more specific shipped shape fits; its `intent.source` or `intent.spec` "
-        "must stay within 16 KiB. Reject side-effecting, unbounded, runtime-only, external-I/O, "
+        "with at most 128 iterations. "
+        + code_clause +
+        "Reject side-effecting, unbounded, runtime-only, external-I/O, "
         "or otherwise unrepresentable requests at policy level instead of pretending they queue. "
         "Editor-only intent nodes may stay on the canvas but must block Queue until lowered. "
         "When you create one programmatically, build its metadata with `intent_node_properties(...)` "
@@ -649,7 +677,7 @@ def _normalize_agent_response(
 
 
 def _call_runtime(runtime: Any, *, task: str, python_source: str, route: str, model: str | None) -> Any:
-    messages = build_messages(task=task, python_source=python_source)
+    messages = build_messages(task=task, python_source=python_source, execution_mode="sandboxed_loose")
     if hasattr(runtime, "run_agent_turn"):
         return runtime.run_agent_turn(
             task=task,

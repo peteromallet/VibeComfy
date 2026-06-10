@@ -347,6 +347,42 @@ function setPersistedAgentProvider(value) {
   _lsSet(LS_AGENT_PROVIDER_KEY, String(value));
 }
 
+// ── Default execution mode (settings combo + localStorage fallback) ─────────
+const DEFAULT_EXECUTION_MODE_LS_KEY = "vibecomfy.defaultExecutionMode";
+const DEFAULT_EXECUTION_MODE_VALUES = Object.freeze(["sandboxed_loose", "sandboxed_strict", "unrestricted"]);
+const DEFAULT_EXECUTION_MODE_FALLBACK = "sandboxed_loose";
+
+function getDefaultExecutionMode() {
+  const stored = _lsGet(DEFAULT_EXECUTION_MODE_LS_KEY);
+  if (stored && DEFAULT_EXECUTION_MODE_VALUES.includes(stored)) {
+    return stored;
+  }
+  return DEFAULT_EXECUTION_MODE_FALLBACK;
+}
+
+function registerDefaultExecutionModeSetting() {
+  if (typeof app?.ui?.settings?.addSetting === "function") {
+    try {
+      app.ui.settings.addSetting({
+        id: "VibeComfy.DefaultExecutionMode",
+        name: "VibeComfy — Default Execution Mode",
+        type: "combo",
+        defaultValue: DEFAULT_EXECUTION_MODE_FALLBACK,
+        options: [
+          { value: "sandboxed_loose", text: "Sandboxed — Loose" },
+          { value: "sandboxed_strict", text: "Sandboxed — Strict" },
+          { value: "unrestricted", text: "⚠️ DANGEROUS — Unrestricted" },
+        ],
+        onChange: (value) => {
+          _lsSet(DEFAULT_EXECUTION_MODE_LS_KEY, value);
+        },
+      });
+    } catch (_e) {
+      // Settings registration failed; localStorage fallback already works.
+    }
+  }
+}
+
 // ── Shared VibeComfy palette ────────────────────────────────────────────────
 // Union of both feature palettes kept in ONE block: the preview-overlay diff
 // keys (added/edited/removed/pending) and the turn-progress status-feed keys
@@ -447,6 +483,17 @@ function readIntentMetadata(node, fallbackClassType = null) {
       && payload.intent
       && typeof payload.intent === "object",
   );
+  // Resolve execution mode: widget → properties.vibecomfy.execution_mode → default
+  const widgetExecMode = typeof properties.execution_mode === "string" && properties.execution_mode
+    ? properties.execution_mode
+    : "";
+  const vibecomfyExecMode = typeof payload?.execution_mode === "string" && payload.execution_mode
+    ? payload.execution_mode
+    : "";
+  const runtimeExecMode = typeof payload?.runtime?.execution_mode === "string" && payload.runtime.execution_mode
+    ? payload.runtime.execution_mode
+    : "";
+  const executionMode = widgetExecMode || vibecomfyExecMode || runtimeExecMode || "sandboxed_loose";
   return {
     classType,
     kind,
@@ -456,10 +503,21 @@ function readIntentMetadata(node, fallbackClassType = null) {
     typedOutputs,
     sourcePreview,
     specPreview,
+    executionMode,
   };
 }
 
 function buildIntentBadge(meta) {
+  if (!meta.valid) {
+    return `${meta.kind} · ${meta.badgeStatus}`;
+  }
+  if (meta.kind === "loop") {
+    return "loop · expand to run";
+  }
+  if (meta.kind === "code") {
+    const mode = meta.executionMode || "sandboxed_loose";
+    return `Python · ${mode}`;
+  }
   return `${meta.kind} · ${meta.badgeStatus}`;
 }
 
@@ -637,6 +695,30 @@ function patchIntentNodePrototype(nodeType, nodeData) {
   proto.onNodeCreated = function patchedIntentNodeCreated(...args) {
     const result = typeof originalCreated === "function" ? originalCreated.apply(this, args) : undefined;
     this.type = this.type || classType;
+    // Seed default execution mode for code nodes (one-shot hydrate).
+    if (classType === "vibecomfy.code") {
+      const props = this.properties && typeof this.properties === "object" ? this.properties : {};
+      this.properties = props;
+      const vc = props.vibecomfy && typeof props.vibecomfy === "object" ? props.vibecomfy : {};
+      if (!props.vibecomfy || typeof props.vibecomfy !== "object") {
+        props.vibecomfy = vc;
+      }
+      const rt = vc.runtime && typeof vc.runtime === "object" ? vc.runtime : {};
+      if (!vc.runtime || typeof vc.runtime !== "object") {
+        vc.runtime = rt;
+      }
+      if (!rt.execution_mode) {
+        const defaultMode = getDefaultExecutionMode();
+        rt.execution_mode = defaultMode;
+        // Hydrate the widget property as well if empty.
+        if (!props.execution_mode) {
+          props.execution_mode = defaultMode;
+        }
+        if (defaultMode === "unrestricted") {
+          rt.unrestricted_ack = true;
+        }
+      }
+    }
     decorateIntentNode(this, classType);
     return result;
   };
@@ -10525,6 +10607,7 @@ app.registerExtension({
   },
   async setup() {
     await checkFrontendVersion();
+    registerDefaultExecutionModeSetting();
     installIntentNodeFallback();
     installAgentPreviewOverlay();
     decorateLiveIntentNodes();

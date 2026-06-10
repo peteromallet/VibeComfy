@@ -421,11 +421,14 @@ test("VibeComfy beforeRegisterNodeDef decorates intent node prototypes and degra
     assert.equal(intentNode.color, "#2d2643");
     assert.equal(intentNode.bgcolor, "#171229");
     assert.equal(intentNode.boxcolor, "#e39cff");
-    assert.equal(intentNode.properties["VibeComfy Intent Badge"], "code · editor-only");
+    assert.equal(intentNode.properties["VibeComfy Intent Badge"], "Python · sandboxed_loose");
     assert.equal(intentNode.properties["VibeComfy Intent Source"], "value = image");
     assert.equal(intentNode.properties["VibeComfy Intent Spec"], "inspect image value");
-    assert.equal(intentNode.inputs[0].name, "image: IMAGE");
-    assert.equal(intentNode.outputs[0].name, "preview: IMAGE");
+    // Dynamic-IO: slot.name preserved (serialization key), slot.label carries the type annotation.
+    assert.equal(intentNode.inputs[0].name, "value");
+    assert.equal(intentNode.inputs[0].label, "image: IMAGE");
+    assert.equal(intentNode.outputs[0].name, "value");
+    assert.equal(intentNode.outputs[0].label, "preview: IMAGE");
 
     const drawOps = [];
     const ctx = {
@@ -439,7 +442,7 @@ test("VibeComfy beforeRegisterNodeDef decorates intent node prototypes and degra
       },
     };
     nodeType.prototype.onDrawForeground.call(intentNode, ctx);
-    assert(drawOps.some((entry) => entry[0] === "text" && entry[1] === "code · editor-only"));
+    assert(drawOps.some((entry) => entry[0] === "text" && entry[1] === "Python · sandboxed_loose"));
 
     const degradedNode = {
       type: "vibecomfy.code",
@@ -4077,11 +4080,14 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
     assert.equal(codeNode.color, "#2d2643");
     assert.equal(codeNode.bgcolor, "#171229");
     assert.equal(codeNode.boxcolor, "#e39cff");
-    assert.equal(codeNode.properties["VibeComfy Intent Badge"], "code · editor-only");
+    assert.equal(codeNode.properties["VibeComfy Intent Badge"], "Python · sandboxed_loose");
     assert.equal(codeNode.properties["VibeComfy Intent Source"], "value = image");
     assert.equal(codeNode.properties["VibeComfy Intent Spec"], "inspect the input image before lowering");
-    assert.equal(codeNode.inputs[0].name, "image: IMAGE");
-    assert.equal(codeNode.outputs[0].name, "image: IMAGE");
+    // Dynamic-IO: slot.name preserved (serialization key), slot.label carries the type annotation.
+    assert.equal(codeNode.inputs[0].name, "value");
+    assert.equal(codeNode.inputs[0].label, "image: IMAGE");
+    assert.equal(codeNode.outputs[0].name, "value");
+    assert.equal(codeNode.outputs[0].label, "image: IMAGE");
 
     const degradedNode = loadedIntentNodes.find((node) => node.type === "vibecomfy.loop");
     assert.equal(degradedNode.properties["VibeComfy Intent Badge"], "loop · metadata missing");
@@ -4093,9 +4099,12 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
     assert.equal(liveIntentNodes.length, 2);
     const liveCodeNode = liveIntentNodes.find((node) => node.type === "vibecomfy.code");
     assert.equal(liveCodeNode.boxcolor, "#e39cff");
-    assert.equal(liveCodeNode.properties["VibeComfy Intent Badge"], "code · editor-only");
-    assert.equal(liveCodeNode.inputs[0].name, "image: IMAGE");
-    assert.equal(liveCodeNode.outputs[0].name, "image: IMAGE");
+    assert.equal(liveCodeNode.properties["VibeComfy Intent Badge"], "Python · sandboxed_loose");
+    // Dynamic-IO: slot.name preserved (serialization key), slot.label carries the type annotation.
+    assert.equal(liveCodeNode.inputs[0].name, "value");
+    assert.equal(liveCodeNode.inputs[0].label, "image: IMAGE");
+    assert.equal(liveCodeNode.outputs[0].name, "value");
+    assert.equal(liveCodeNode.outputs[0].label, "image: IMAGE");
 
     const liveDegradedNode = liveIntentNodes.find((node) => node.type === "vibecomfy.loop");
     assert.equal(liveDegradedNode.boxcolor, "#ffb86c");
