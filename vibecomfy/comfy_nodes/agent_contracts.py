@@ -57,6 +57,22 @@ PUBLIC_OUTCOME_KINDS: tuple[str, ...] = (
     "error",
 )
 
+# Canonical snake_case field list for rebaseline-recovery objects.
+# Sourced from the JS lifecycle module's _normalizeRebaselineRecovery keys
+# (agent_edit_lifecycle.js L1369–1394, snake_case) and cross-checked against
+# _stale_rebaseline_recovery_issue (agent_edit.py) and
+# _promote_accept_rebaseline_recovery (routes.py).
+REBASELINE_RECOVERY_FIELDS: tuple[str, ...] = (
+    "action",
+    "endpoint",
+    "reason",
+    "last_known_baseline_graph_hash",
+    "submit_graph_hash",
+    "submit_structural_graph_hash",
+    "client_graph_hash",
+    "client_structural_graph_hash",
+)
+
 
 class FailureKind(str, Enum):
     SYNTAX_ERROR = "SyntaxError"
