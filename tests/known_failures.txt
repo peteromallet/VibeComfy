@@ -211,3 +211,27 @@ tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_un
 tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_response-exc1]
 tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_delta-exc2]
 tests/test_comfy_nodes_agent_edit.py::test_classify_provider_error_wrapping_import_message_is_runtime_unavailable
+
+# --- Baseline sync 2026-06-10: pre-existing reds on origin/main (7086bff, #71/#72)
+# not present in this file's older baseline (generated on epic/scratchpad-emitter-m5-preserve).
+# VERIFIED failing identically on a clean origin/main checkout (not m0/merge regressions);
+# added when m0 integrated current main. Out of scope for m0 (gate + cleanups); they belong
+# to the ongoing scratchpad-emitter / node-resolution red-by-design set.
+tests/security/test_integration.py::test_install_pack_allowed_with_yes
+tests/security/test_integration.py::test_yes_bypass_entries_in_audit_readable_without_parsing_stderr
+tests/test_comfy_nodes_browser.py::test_browser_harness_smoke
+tests/test_layout_store.py::test_corpus_recammaster_note_partial_props_survive
+tests/test_layout_store.py::test_corpus_vace_cnr_id_ver_properties_survive
+tests/test_porting_edit_session_harness.py::test_case_e_reroute_analysis_ltx_i2v
+tests/test_porting_edit_session_harness.py::test_describe_ltx_t2v_top_level
+tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_i2v
+tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_t2v
+tests/test_porting_synthetic_fixtures.py::test_coord_canonicalization_no_float_drift
+tests/test_porting_synthetic_fixtures.py::test_virtual_wire_round_trip_vace_corpus
+tests/test_ready_templates.py::test_ltx_travel_segment_outputs_omit_synthetic_audio[video/ltx2_3_runexx_first_middle_last_frame]
+tests/test_refuse.py::test_refused_emit_import_and_construction_are_side_effect_light
+tests/test_refuse.py::test_widget_shape_refusal_diff_is_node_keyed_and_json_tolerant
+tests/test_sprint_b_acceptance.py::test_b12_ideogram_ports_to_compiling_strict_ready_template
+tests/test_sprint_b_acceptance.py::test_b7_install_robustness
+tests/test_templates_module.py::test_finalize_allows_unrelated_auto_inputs_but_rejects_public_target_drift
+tests/test_widget_shape_evidence.py::test_raw_scalar_widget_overflow_is_not_hidden_by_compacted_candidate_count
