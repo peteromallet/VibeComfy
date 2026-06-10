@@ -1,485 +1,103 @@
+"""emit_ready.py — ready-template backend and public-input infrastructure.
+
+Houses:
+- _PublicInputBinding, _PublicInputSpec       (public-input data types)
+- _public_input_specs                         (build public-input spec list)
+- _format_public_inputs_block                 (render PUBLIC_INPUT_METADATA dict)
+- _remap_public_inputs_for_materialized_subgraphs
+- _subgraph_port_index_for_instance_field
+- _infer_public_input_bindings                (auto-detect prompt/seed/etc.)
+- _node_title, _resolved_field_values         (per-node field helpers)
+- GENERATED_HEADER                            (header comment for generated files)
+- _lock_entries_by_class, _custom_node_packs_for_emit
+- _format_ready_metadata_build
+- _strip_unused_template_imports, _import_binding_name
+- emit_ready_template_python                  (public entry point)
+- _emit_ready_template_python_inner
+- _emit_build_function                        (shared by ready + scratchpad)
+- _with_id_map_tail_line
+- _OUTPUT_CLASSES, _ready_template_tail_lines, _finalize_args
+- _terminal_output_node_ids, _is_output_class
+- _check_template_formatting, _has_ltx_lowvram_tail
+- _apply_overrides
+- _prune_dead_branches_for_emit, _is_dead_optional_output_input
+- _ltx_travel_template_omits_synthetic_audio
+- _source_workflow_path, _raw_workflow_from_metadata
+- _all_nodes_for_imports
+- _NODE_HELPER_SOURCE
+
+Part of the M2 structural decomposition of vibecomfy/porting/emitter.py.
+"""
 from __future__ import annotations
 
 import ast
-import contextlib
-import contextvars
-import hashlib
-import importlib
 import json
-import keyword
-import logging
-import pprint
-import re
-from collections import Counter
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Mapping
 
-from vibecomfy.errors import ArityDisagreementError, ConversionParityError
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
-from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
 from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
-from vibecomfy.porting.object_info import (
-    check_output_arity_consensus,
-    class_defaults,
-    class_has_list_output,
-    class_output_count,
-    ObjectInfoIdentity,
-    resolve_class_entry,
+from vibecomfy.porting.emit_constants import (
+    _LOAD_IMAGE_FAMILY,
+    _looks_like_placeholder_filename,
+    _apply_ready_template_metadata_defaults,
+    _metadata_extras_for_emit,
+    _requirements_expr_for_emit,
+    _format_models_block,
+    _model_assets_for_emit,
+    _wrapper_imports_for_nodes,
+    _wrapper_module_for_class,
+    _wrapper_symbol_for_class,
+    _hoist_constants,
+    _build_section_groups,
+    _drop_output_prefix_constants,
+    _translate_widget_for_key,
+    _ui_widget_aliases,
+    _resolve_graph_field_get_string,
+    LTX2_3_TAIL_PATCHES,
+    _SECTION_ORDER,
+    _SECTION_NODE_THRESHOLD,
 )
-from vibecomfy.porting.object_info import output_names as class_output_names
-
-# Re-exports from emit_kwargs.py (Step 4 of M2 structural decomposition).
-# All these names remain importable from vibecomfy.porting.emitter so that
-# existing callers (tests, commands, etc.) continue to work unchanged.
-from vibecomfy.porting.emit_kwargs import (  # noqa: E402
-    _is_link as _is_link,
-    _is_any_link as _is_any_link,
-    _ui_output_names as _ui_output_names,
-    _UUID_RE as _UUID_RE,
-    _safe_var as _safe_var,
-    _connection_role_name as _connection_role_name,
-    _empty_text_role as _empty_text_role,
-    _id_sort_key as _id_sort_key,
-    _topological_node_order as _topological_node_order,
-    _compute_variable_names as _compute_variable_names,
-    _locked_variable_uid_map as _locked_variable_uid_map,
-    _apply_locked_variable_names as _apply_locked_variable_names,
-    _is_valid_locked_variable_alias as _is_valid_locked_variable_alias,
-    _compute_output_variable_names as _compute_output_variable_names,
-    _SHADOWING_OUTPUT_NAMES as _SHADOWING_OUTPUT_NAMES,
-    _SHADOWING_OUTPUT_ALIASES as _SHADOWING_OUTPUT_ALIASES,
-    _shadowing_output_prefix as _shadowing_output_prefix,
-    _safe_output_var_name as _safe_output_var_name,
-    _schema_output_names_for_unpack as _schema_output_names_for_unpack,
-    _declared_ui_output_names as _declared_ui_output_names,
-    _has_out_of_range_edge as _has_out_of_range_edge,
-    _class_collision_suffix as _class_collision_suffix,
-    _live_output_slots_for_function as _live_output_slots_for_function,
-    _edges_in_with_subgraph_external_refs as _edges_in_with_subgraph_external_refs,
-    _assignment_target as _assignment_target,
-    _first_output_var as _first_output_var,
-    _format_value as _format_value,
-    _is_schema_default as _is_schema_default,
-    _format_metadata_dict as _format_metadata_dict,
-    _node_output_names as _node_output_names,
-    _declared_output_names_for_call_metadata as _declared_output_names_for_call_metadata,
-    _safe_output_name as _safe_output_name,
-    _output_fallback_diagnostic as _output_fallback_diagnostic,
-    _is_schema_confirmed_single_output as _is_schema_confirmed_single_output,
-    _is_single_output_ref as _is_single_output_ref,
-    _node_binding_expr as _node_binding_expr,
-    _edge_ref_expr as _edge_ref_expr,
-    _wrapper_kwarg_name as _wrapper_kwarg_name,
-    _translate_power_lora_loader_widget as _translate_power_lora_loader_widget,
-    _power_lora_widget_index as _power_lora_widget_index,
-    _is_power_lora_config as _is_power_lora_config,
-    _collect_emission_diagnostics as _collect_emission_diagnostics,
-    _node_kwargs as _node_kwargs,
+from vibecomfy.porting.emit_kwargs import (
+    _format_value,
+    _first_output_var,
+    _id_sort_key,
+    _is_link,
+    _format_metadata_dict,
+    _node_output_names,
+    _safe_output_name,
+    _output_fallback_diagnostic,
+    _is_schema_confirmed_single_output,
+    _is_single_output_ref,
+    _node_binding_expr,
+    _edge_ref_expr,
+    _wrapper_kwarg_name,
+    _assignment_target,
+    _live_output_slots_for_function,
+    _edges_in_with_subgraph_external_refs,
+    _topological_node_order,
+    _node_kwargs,
 )
-
-
-
-# Re-exports from emit_subgraph.py (Step 5 of M2 structural decomposition).
-from vibecomfy.porting.emit_subgraph import (  # noqa: E402
-    _SubgraphPort as _SubgraphPort,
-    _SubgraphDef as _SubgraphDef,
-    slugify_subgraph_name as slugify_subgraph_name,
-    _slugify_identifier as _slugify_identifier,
-    _safe_kwarg_name as _safe_kwarg_name,
-    _subgraph_input_kwarg_name as _subgraph_input_kwarg_name,
-    _unique_port_name as _unique_port_name,
-    _subgraph_definitions_from_raw as _subgraph_definitions_from_raw,
-    _disambiguated_subgraph_slugs as _disambiguated_subgraph_slugs,
-    _build_subgraph_def as _build_subgraph_def,
-    subgraph_source_hash as subgraph_source_hash,
-    _subgraph_default_args as _subgraph_default_args,
-    _widget_default_for_target as _widget_default_for_target,
-    _apply_subgraph_names_to_prepared as _apply_subgraph_names_to_prepared,
-    _subgraph_result_base as _subgraph_result_base,
-    _unique_var as _unique_var,
-    READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND as READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND,
-    _emit_subgraph_functions as _emit_subgraph_functions,
-    _subgraph_topological_order as _subgraph_topological_order,
-    _short_subgraph_id_prefix as _short_subgraph_id_prefix,
-    _subgraph_emitted_node_id as _subgraph_emitted_node_id,
-    _subgraph_node_id_required as _subgraph_node_id_required,
-    _subgraph_signature as _subgraph_signature,
-    _subgraph_docstring as _subgraph_docstring,
-    _emit_subgraph_call_statement as _emit_subgraph_call_statement,
-    _subgraph_call_kwargs as _subgraph_call_kwargs,
-    _subgraph_instance_port_candidate_names as _subgraph_instance_port_candidate_names,
-    _subgraph_instance_widget_values as _subgraph_instance_widget_values,
-    _positional_ui_widget_names as _positional_ui_widget_names,
-    _ui_widget_values_by_name as _ui_widget_values_by_name,
-    _subgraph_return_expr as _subgraph_return_expr,
+from vibecomfy.porting.emit_subgraph import (
+    _SubgraphDef,
+    _subgraph_definitions_from_raw,
+    _subgraph_emitted_node_id,
+    _subgraph_node_id_required,
+    _apply_subgraph_names_to_prepared,
+    _emit_subgraph_call_statement,
+    _emit_subgraph_functions,
+    _short_subgraph_id_prefix,
+    _subgraph_instance_port_candidate_names,
+    _subgraph_return_expr,
 )
-
-# Re-exports from emit_constants.py (Step 6 of M2 structural decomposition).
-from vibecomfy.porting.emit_constants import (  # noqa: E402
-    UI_ONLY_CLASS_TYPES as UI_ONLY_CLASS_TYPES,
-    FALLBACK_CLASS_TYPES as FALLBACK_CLASS_TYPES,
-    _STATIC_WRAPPER_MODULES as _STATIC_WRAPPER_MODULES,
-    _WRAPPER_CLASS_TO_MODULE as _WRAPPER_CLASS_TO_MODULE,
-    _WRAPPER_CLASS_TO_SYMBOL as _WRAPPER_CLASS_TO_SYMBOL,
-    _wrapper_modules as _wrapper_modules,
-    _wrapper_class_to_module as _wrapper_class_to_module,
-    _wrapper_class_type_for_symbol as _wrapper_class_type_for_symbol,
-    _wrapper_class_name_candidate as _wrapper_class_name_candidate,
-    _wrapper_module_for_class as _wrapper_module_for_class,
-    _wrapper_symbol_for_class as _wrapper_symbol_for_class,
-    _wrapper_imports_for_nodes as _wrapper_imports_for_nodes,
-    _classify_value_category as _classify_value_category,
-    _classify_node_role as _classify_node_role,
-    _constant_name_base_for_category as _constant_name_base_for_category,
-    _constant_name_for_string_value as _constant_name_for_string_value,
-    _literal_default_from_graph_get as _literal_default_from_graph_get,
-    _resolve_graph_field_get_string as _resolve_graph_field_get_string,
-    _model_path_parts as _model_path_parts,
-    _model_basename as _model_basename,
-    _model_family_constant_name as _model_family_constant_name,
-    _canonical_prefixed_model_value as _canonical_prefixed_model_value,
-    _model_constant_base_priority as _model_constant_base_priority,
-    _canonical_model_values_by_base as _canonical_model_values_by_base,
-    _constant_name_for_model_value as _constant_name_for_model_value,
-    _build_section_groups as _build_section_groups,
-    _hoist_constants as _hoist_constants,
-    _translate_widget_for_key as _translate_widget_for_key,
-    _drop_output_prefix_constants as _drop_output_prefix_constants,
-    _ui_widget_aliases as _ui_widget_aliases,
-    _format_models_block as _format_models_block,
-    _filename_is_url_derived as _filename_is_url_derived,
-    _apply_ready_template_metadata_defaults as _apply_ready_template_metadata_defaults,
-    _metadata_extras_for_emit as _metadata_extras_for_emit,
-    _is_derivable_provenance as _is_derivable_provenance,
-    _normalize_model_path as _normalize_model_path,
-    _model_assets_for_emit as _model_assets_for_emit,
-    _model_key as _model_key,
-    _model_role_key as _model_role_key,
-    _requirements_expr_for_emit as _requirements_expr_for_emit,
-    _looks_like_placeholder_filename as _looks_like_placeholder_filename,
-    RESERVED_WRAPPER_INPUT_NAMES as RESERVED_WRAPPER_INPUT_NAMES,
-    _ROLE_CLASSIFICATION as _ROLE_CLASSIFICATION,
-    _SECTION_NODE_THRESHOLD as _SECTION_NODE_THRESHOLD,
-    _CURATED_SCHEMA_DEFAULTS as _CURATED_SCHEMA_DEFAULTS,
-    LTX2_3_TAIL_PATCHES as LTX2_3_TAIL_PATCHES,
-    _AGENT_EDIT_STRING_ELIDE_THRESHOLD as _AGENT_EDIT_STRING_ELIDE_THRESHOLD,
-    _SECTION_ORDER as _SECTION_ORDER,
-    _LOAD_IMAGE_FAMILY as _LOAD_IMAGE_FAMILY,
-    _MODEL_FAMILY_CONSTANTS as _MODEL_FAMILY_CONSTANTS,
-    _MODEL_CONSTANT_BASE_PRIORITY as _MODEL_CONSTANT_BASE_PRIORITY,
-)
-
-# Re-exports from emit_prepare.py (Step 7 of M2 structural decomposition).
-# _VIRTUAL_WIRE_EMITTER_CLASS_TYPES, _prepare_workflow_for_emit, and
-# _emit_agent_edit_lines are defined there; re-exported here so existing
-# callers (tests, commands, etc.) continue to work unchanged.
-from vibecomfy.porting.emit_prepare import (  # noqa: E402
-    _VIRTUAL_WIRE_EMITTER_CLASS_TYPES as _VIRTUAL_WIRE_EMITTER_CLASS_TYPES,
-    _prepare_workflow_for_emit as _prepare_workflow_for_emit,
-    _emit_agent_edit_lines as _emit_agent_edit_lines,
-    _agent_edit_output_aliases as _agent_edit_output_aliases,
-    _agent_edit_raw_output_names as _agent_edit_raw_output_names,
-    _title_canonical as _title_canonical,
-    _meaningful_title as _meaningful_title,
-    _agent_edit_comment as _agent_edit_comment,
-    _agent_edit_slot_alias_parts as _agent_edit_slot_alias_parts,
-)
-
-# Re-exports from emit_ready.py (Step 8 of M2 structural decomposition).
-# All these names remain importable from vibecomfy.porting.emitter so that
-# existing callers (tests, commands, etc.) continue to work unchanged.
-from vibecomfy.porting.emit_ready import (  # noqa: E402
-    _PublicInputBinding as _PublicInputBinding,
-    _PublicInputSpec as _PublicInputSpec,
-    GENERATED_HEADER as GENERATED_HEADER,
-    _node_title as _node_title,
-    _resolved_field_values as _resolved_field_values,
-    _infer_public_input_bindings as _infer_public_input_bindings,
-    _public_input_specs as _public_input_specs,
-    _format_public_inputs_block as _format_public_inputs_block,
-    _subgraph_port_index_for_instance_field as _subgraph_port_index_for_instance_field,
-    _remap_public_inputs_for_materialized_subgraphs as _remap_public_inputs_for_materialized_subgraphs,
-    _lock_entries_by_class as _lock_entries_by_class,
-    _custom_node_packs_for_emit as _custom_node_packs_for_emit,
-    _format_ready_metadata_build as _format_ready_metadata_build,
-    _strip_unused_template_imports as _strip_unused_template_imports,
-    _import_binding_name as _import_binding_name,
-    emit_ready_template_python as emit_ready_template_python,
-    _emit_ready_template_python_inner as _emit_ready_template_python_inner,
-    _prune_dead_branches_for_emit as _prune_dead_branches_for_emit,
-    _is_dead_optional_output_input as _is_dead_optional_output_input,
-    _ltx_travel_template_omits_synthetic_audio as _ltx_travel_template_omits_synthetic_audio,
-    _source_workflow_path as _source_workflow_path,
-    _raw_workflow_from_metadata as _raw_workflow_from_metadata,
-    _all_nodes_for_imports as _all_nodes_for_imports,
-    _emit_build_function as _emit_build_function,
-    _with_id_map_tail_line as _with_id_map_tail_line,
-    _OUTPUT_CLASSES as _OUTPUT_CLASSES,
-    _ready_template_tail_lines as _ready_template_tail_lines,
-    _finalize_args as _finalize_args,
-    _terminal_output_node_ids as _terminal_output_node_ids,
-    _is_output_class as _is_output_class,
-    _check_template_formatting as _check_template_formatting,
-    _has_ltx_lowvram_tail as _has_ltx_lowvram_tail,
-    _apply_overrides as _apply_overrides,
-    _NODE_HELPER_SOURCE as _NODE_HELPER_SOURCE,
-    _node_local_output_names as _node_local_output_names,
-    _node_local_arity_check as _node_local_arity_check,
-)
-
-# Re-exports from emit_scratchpad.py (Step 9 of M2 structural decomposition).
-# emit_scratchpad_python and _emit_scratchpad_python_inner are defined there;
-# re-exported here so existing callers (convert.py, tests, etc.) continue
-# to work unchanged.
-from vibecomfy.porting.emit_scratchpad import (  # noqa: E402
-    emit_scratchpad_python as emit_scratchpad_python,
-    _emit_scratchpad_python_inner as _emit_scratchpad_python_inner,
-)
-
-# Re-exports from emit_agent_edit.py (Step 10 of M2 structural decomposition).
-# emit_agent_edit_python is defined there; re-exported here so existing
-# callers (edit_session.py, __init__.py, etc.) continue to work unchanged.
-from vibecomfy.porting.emit_agent_edit import (  # noqa: E402
-    emit_agent_edit_python as emit_agent_edit_python,
-)
-
-# --- Node-local object_info identity plumbing --------------------------------
-#
-# Conversion (T21) builds a ``node_id -> ObjectInfoIdentity`` map from
-# provenance and threads it into the top-level emitter entry points. Internal
-# helpers operate on ``VibeNode`` objects and don't take the map as a
-# parameter, so we expose it via a contextvar and read it from node-local call
-# sites that already have a node reference.
-#
-# When no identity map is active (legacy/unprovenanced flows, tests that call
-# helpers directly), all lookups fall back to the historical class-only
-# behavior, so this change is additive and non-breaking.
-
-_NODE_OBJECT_INFO_IDENTITIES: contextvars.ContextVar[
-    "dict[str, ObjectInfoIdentity] | None"
-] = contextvars.ContextVar("_NODE_OBJECT_INFO_IDENTITIES", default=None)
-
-# Recorder for identity-aware lookup warnings observed during emission. When a
-# recorder list is bound, node-local helpers append (node_id, class_type, code,
-# message) tuples so the top-level emit entry points can drain them into the
-# caller's ``EmissionDiagnostic`` list.
-_NODE_OBJECT_INFO_LOOKUP_WARNINGS: contextvars.ContextVar[
-    "list[tuple[str | None, str, str, str]] | None"
-] = contextvars.ContextVar("_NODE_OBJECT_INFO_LOOKUP_WARNINGS", default=None)
-
-
-@contextlib.contextmanager
-def _use_object_info_identities(
-    identities: "dict[str, Any] | None",
-):
-    """Bind an optional ``node_id -> ObjectInfoIdentity`` map for this emit.
-
-    Also opens a fresh warning recorder so identity-aware lookup helpers can
-    report ``unprovenanced_class_fallback`` / ``provenance_identity_cache_miss``
-    occurrences back to the top-level emit entry point.
-    """
-    normalized: "dict[str, ObjectInfoIdentity] | None" = None
-    if identities:
-        normalized = {}
-        for raw_id, ident in identities.items():
-            if ident is None:
-                continue
-            if isinstance(ident, ObjectInfoIdentity):
-                normalized[str(raw_id)] = ident
-            elif isinstance(ident, Mapping):
-                try:
-                    normalized[str(raw_id)] = ObjectInfoIdentity(
-                        pack_slug=str(ident.get("pack_slug") or ident.get("pack") or ""),
-                        git_commit=(str(ident["git_commit"]) if ident.get("git_commit") else None),
-                        evidence_identity=(
-                            str(ident["evidence_identity"]) if ident.get("evidence_identity") else None
-                        ),
-                    )
-                except Exception:
-                    continue
-        if not normalized:
-            normalized = None
-    id_token = _NODE_OBJECT_INFO_IDENTITIES.set(normalized)
-    warn_token = _NODE_OBJECT_INFO_LOOKUP_WARNINGS.set([])
-    try:
-        yield
-    finally:
-        _NODE_OBJECT_INFO_LOOKUP_WARNINGS.reset(warn_token)
-        _NODE_OBJECT_INFO_IDENTITIES.reset(id_token)
-
-
-# Mapping from consume-layer warning codes to emission diagnostic codes.
-_LOOKUP_WARNING_CODE_TO_EMISSION: dict[str, str] = {
-    "unprovenanced_cache_fallback": "unprovenanced_class_fallback",
-    "provenanced_cache_miss_fallback": "provenance_identity_cache_miss",
-    "identity_cache_miss": "provenance_identity_cache_miss",
-}
-
-
-def _record_lookup_warning(node: Any, class_type: str, warning: Any) -> None:
-    """If a warning recorder is bound, append this identity-lookup warning."""
-    if warning is None:
-        return
-    bucket = _NODE_OBJECT_INFO_LOOKUP_WARNINGS.get()
-    if bucket is None:
-        return
-    node_id = str(getattr(node, "id", "")) if node is not None else ""
-    bucket.append(
-        (
-            node_id or None,
-            class_type,
-            str(getattr(warning, "code", "") or ""),
-            str(getattr(warning, "message", "") or ""),
-        )
-    )
-
-
-def _drain_lookup_warning_diagnostics(
-    diagnostics: "list[EmissionDiagnostic] | None",
-) -> bool:
-    """Drain the bound warning recorder into *diagnostics*. Returns True if any
-    low-confidence warnings were emitted (so callers can flag low_confidence).
-
-    Dedupes by (node_id, class_type, emission code) so a class touched on many
-    code paths produces one diagnostic per node, not one per call site.
-    """
-    bucket = _NODE_OBJECT_INFO_LOOKUP_WARNINGS.get()
-    if not bucket:
-        return False
-    low_conf = False
-    seen: set[tuple[str | None, str, str]] = set()
-    for node_id, class_type, code, message in bucket:
-        emit_code = _LOOKUP_WARNING_CODE_TO_EMISSION.get(code)
-        if not emit_code:
-            continue
-        key = (node_id, class_type, emit_code)
-        if key in seen:
-            continue
-        seen.add(key)
-        low_conf = True
-        if diagnostics is not None:
-            diagnostics.append(
-                EmissionDiagnostic(
-                    code=emit_code,
-                    message=message,
-                    severity="warning",
-                    node_id=node_id,
-                    class_type=class_type,
-                    detail={"lookup_warning_code": code},
-                )
-            )
-    return low_conf
-
-
-def _identity_for_node(node: Any) -> "ObjectInfoIdentity | None":
-    """Return the bound identity for *node* (by ``node.id``), if any."""
-    table = _NODE_OBJECT_INFO_IDENTITIES.get()
-    if not table or node is None:
-        return None
-    node_id = getattr(node, "id", None)
-    if node_id is None:
-        return None
-    return table.get(str(node_id))
-
-
-def _identity_for_node_id(node_id: Any) -> "ObjectInfoIdentity | None":
-    table = _NODE_OBJECT_INFO_IDENTITIES.get()
-    if not table or node_id is None:
-        return None
-    return table.get(str(node_id))
-
-
-def _node_local_class_defaults(node: Any) -> dict[str, Any]:
-    """Identity-aware schema defaults for *node*; class-only fallback."""
-    class_type = str(node.class_type)
-    identity = _identity_for_node(node)
-    if identity is not None:
-        try:
-            result = resolve_class_entry(
-                class_type, identity=identity, allow_class_fallback=True
-            )
-        except Exception:
-            return dict(class_defaults(class_type))
-        _record_lookup_warning(node, class_type, result.warning)
-        entry = result.entry
-        if entry is not None:
-            defaults: dict[str, Any] = {}
-            inputs = entry.get("inputs") or {}
-            if isinstance(inputs, Mapping):
-                for section in ("required", "optional"):
-                    group = inputs.get(section)
-                    if not isinstance(group, Mapping):
-                        continue
-                    for name, spec in group.items():
-                        if (
-                            isinstance(spec, (list, tuple))
-                            and len(spec) > 1
-                            and isinstance(spec[1], Mapping)
-                            and "default" in spec[1]
-                        ):
-                            defaults[str(name)] = spec[1]["default"]
-            return defaults
-    return dict(class_defaults(class_type))
-from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
-# -- readability warning codes ------------------------------------------------
-READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT = "avoidable_positional_output"
-READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY = "output_name_ambiguity"
-READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED = "schema_backed_widget_alias_not_resolved"
-READABILITY_WARNING_HIDDEN_MODEL_FILENAME = "hidden_model_filename"
-READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE = "local_helper_copy_in_strict_template"
-READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL = "long_one_line_node_call"
-READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED = "generated_template_not_formatted"
-READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG = "generated_variable_name_too_long"
-READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS = "schema_unknown_kwarg_hidden_by_extras"
-READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID = "locked_variable_alias_invalid"
-READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION = "locked_variable_alias_collision"
-READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING = "locked_variable_alias_missing"
-READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION = "locked_variable_uid_collision"
-
-READABILITY_WARNING_CODES: frozenset[str] = frozenset(
-    {
-        READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
-        READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
-        READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED,
-        READABILITY_WARNING_HIDDEN_MODEL_FILENAME,
-        READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE,
-        READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
-        READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED,
-        READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
-        READABILITY_WARNING_SUBGRAPH_INPUT_UNBOUND,
-        READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
-        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
-        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
-        READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
-        READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION,
-    }
-)
-
 from vibecomfy.porting._provenance_utils import _normalize_provenance_paths
 
-EmissionSeverity = Literal["error", "warning", "info"]
-logger = logging.getLogger(__name__)
 
-
-@dataclass(slots=True)
-class EmissionDiagnostic:
-    """A readability diagnostic recorded during emission.
-
-    These are always *warnings* (or info) - hard errors are surfaced through
-    `PortConvertValidation` parity / schema failures, not here.
-    """
-
-    code: str
-    message: str
-    severity: EmissionSeverity = "warning"
-    node_id: str | None = None
-    class_type: str | None = None
-    detail: dict[str, Any] = field(default_factory=dict)
-
-    def to_json(self) -> dict[str, Any]:
-        return asdict(self)
-
+# ---------------------------------------------------------------------------
+# Public-input data types
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True, slots=True)
 class _PublicInputBinding:
@@ -505,7 +123,9 @@ class _PublicInputSpec:
     media_semantics: str | None = None
 
 
-
+# ---------------------------------------------------------------------------
+# Generated-file header
+# ---------------------------------------------------------------------------
 
 GENERATED_HEADER = (
     "# vibecomfy: generated\n"
@@ -513,24 +133,124 @@ GENERATED_HEADER = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Per-node field helpers
+# ---------------------------------------------------------------------------
+
+def _node_title(node: Any) -> str:
+    ui = getattr(node, "metadata", {}).get("_ui")
+    if isinstance(ui, dict):
+        title = ui.get("title")
+        if isinstance(title, str):
+            return title
+    return ""
 
 
+def _resolved_field_values(node: Any) -> dict[str, Any]:
+    class_type = str(getattr(node, "class_type", ""))
+    aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
+    values: dict[str, Any] = {}
+    for key, value in {**getattr(node, "inputs", {}), **getattr(node, "widgets", {})}.items():
+        translated = _translate_widget_for_key(str(key), aliases, class_type)
+        if translated is not None:
+            values[translated] = value
+    return values
 
 
+# ---------------------------------------------------------------------------
+# Public-input inference
+# ---------------------------------------------------------------------------
+
+def _infer_public_input_bindings(
+    workflow_nodes: dict[str, Any],
+    edges_in: dict[str, list[Any]],
+    *,
+    reserved_names: set[str] | None = None,
+) -> list[_PublicInputBinding]:
+    bindings: list[_PublicInputBinding] = []
+    used_names: set[str] = set(reserved_names or set())
+
+    def add(
+        name: str,
+        node_id: str,
+        field: str,
+        *,
+        type: str | None = None,
+        required: bool = False,
+        aliases: tuple[str, ...] = (),
+        media_semantics: str | None = None,
+    ) -> None:
+        candidate_names = {name, *aliases}
+        if candidate_names & used_names:
+            return
+        node = workflow_nodes.get(node_id)
+        if node is None:
+            return
+        fields = _resolved_field_values(node)
+        available = set(fields)
+        incoming = {str(getattr(edge, "to_input", "")) for edge in edges_in.get(node_id, [])}
+        if field not in available or field in incoming:
+            return
+        used_names.update(candidate_names)
+        bindings.append(
+            _PublicInputBinding(
+                name=name,
+                node_id=node_id,
+                field=field,
+                type=type,
+                required=required,
+                aliases=aliases,
+                media_semantics=media_semantics,
+            )
+        )
+
+    prompt_candidate: tuple[str, str] | None = None
+    negative_candidate: tuple[str, str] | None = None
+    for node_id, node in sorted(workflow_nodes.items(), key=lambda item: _id_sort_key(item[0])):
+        fields = _resolved_field_values(node)
+        class_type = str(getattr(node, "class_type", ""))
+        title = _node_title(node).lower()
+
+        if class_type in {"CLIPTextEncode", "CLIPTextEncodeFlux", "CLIPTextEncodeSD3", "CLIPTextEncodeSDXL", "TextEncodeQwenImageEdit"}:
+            value = _resolve_graph_field_get_string(fields.get("text"), workflow_nodes)
+            if isinstance(value, str):
+                if "negative" in title:
+                    negative_candidate = negative_candidate or (str(node_id), "text")
+                elif value.strip():
+                    prompt_candidate = prompt_candidate or (str(node_id), "text")
+        primitive_value = _resolve_graph_field_get_string(fields.get("value"), workflow_nodes)
+        if class_type in {"PrimitiveStringMultiline", "PrimitiveString"} and isinstance(
+            primitive_value,
+            str,
+        ) and primitive_value.strip():
+            prompt_candidate = prompt_candidate or (str(node_id), "value")
+        if class_type == "LoadImage" and "image" in fields:
+            add("image", str(node_id), "image", type="IMAGE", required=True, aliases=("input_image",), media_semantics="image")
+        if "seed" in fields and isinstance(fields["seed"], int) and not isinstance(fields["seed"], bool):
+            add("seed", str(node_id), "seed", type="INT")
+        if "noise_seed" in fields and isinstance(fields["noise_seed"], int) and not isinstance(fields["noise_seed"], bool):
+            add("seed", str(node_id), "noise_seed", type="INT")
+        if "width" in fields and isinstance(fields["width"], int):
+            add("width", str(node_id), "width", type="INT")
+        if "height" in fields and isinstance(fields["height"], int):
+            add("height", str(node_id), "height", type="INT")
+        if "length" in fields and isinstance(fields["length"], int):
+            add("frames", str(node_id), "length", type="INT")
+        if "frames" in fields and isinstance(fields["frames"], int):
+            add("frames", str(node_id), "frames", type="INT")
+        if "fps" in fields and isinstance(fields["fps"], (int, float)):
+            add("fps", str(node_id), "fps", type="FLOAT")
+
+    if prompt_candidate is not None:
+        add("prompt", prompt_candidate[0], prompt_candidate[1], type="STRING", required=True, media_semantics="text")
+    if negative_candidate is not None:
+        add("negative_prompt", negative_candidate[0], negative_candidate[1], type="STRING", aliases=("negative",), media_semantics="text")
+    return bindings
 
 
-
-
-
-
-# _MODEL_FAMILY_CONSTANTS and _MODEL_CONSTANT_BASE_PRIORITY moved to emit_constants.py
-
-
-
-
-
-
-
+# ---------------------------------------------------------------------------
+# Public-input spec builder
+# ---------------------------------------------------------------------------
 
 def _public_input_specs(
     workflow_nodes: dict[str, Any],
@@ -606,6 +326,10 @@ def _public_input_specs(
     return specs
 
 
+# ---------------------------------------------------------------------------
+# Public-input block formatter
+# ---------------------------------------------------------------------------
+
 def _format_public_inputs_block(specs: list[_PublicInputSpec], *, metadata: bool = False) -> list[str]:
     if not specs:
         return []
@@ -650,6 +374,22 @@ def _format_public_inputs_block(specs: list[_PublicInputSpec], *, metadata: bool
     lines.append("}" if metadata else "    }")
     return lines
 
+
+# ---------------------------------------------------------------------------
+# Subgraph port index helper
+# ---------------------------------------------------------------------------
+
+def _subgraph_port_index_for_instance_field(node: Any, subgraph: _SubgraphDef, field: str) -> int | None:
+    candidates = _subgraph_instance_port_candidate_names(node, subgraph)
+    for index, names in candidates.items():
+        if field in names:
+            return index
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Remap public inputs through materialized subgraphs
+# ---------------------------------------------------------------------------
 
 def _remap_public_inputs_for_materialized_subgraphs(
     specs: list[_PublicInputSpec],
@@ -697,17 +437,9 @@ def _remap_public_inputs_for_materialized_subgraphs(
     return remapped
 
 
-def _subgraph_port_index_for_instance_field(node: Any, subgraph: _SubgraphDef, field: str) -> int | None:
-    candidates = _subgraph_instance_port_candidate_names(node, subgraph)
-    for index, names in candidates.items():
-        if field in names:
-            return index
-    return None
-
-
-
-
-
+# ---------------------------------------------------------------------------
+# Lockfile / custom-node-pack helpers
+# ---------------------------------------------------------------------------
 
 def _lock_entries_by_class(lockfile_path: Path = Path("custom_nodes.lock")) -> dict[str, LockEntry]:
     by_class: dict[str, LockEntry] = {}
@@ -772,6 +504,10 @@ def _custom_node_packs_for_emit(
     return dict(sorted(grouped.items(), key=lambda item: item[0].lower()))
 
 
+# ---------------------------------------------------------------------------
+# Ready-metadata build formatter
+# ---------------------------------------------------------------------------
+
 def _format_ready_metadata_build(
     metadata: Mapping[str, Any],
     requirements: Mapping[str, Any],
@@ -811,6 +547,10 @@ def _format_ready_metadata_build(
     return lines
 
 
+# ---------------------------------------------------------------------------
+# Template import stripping
+# ---------------------------------------------------------------------------
+
 def _strip_unused_template_imports(source: str) -> str:
     tree = ast.parse(source)
     used = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
@@ -834,6 +574,10 @@ def _import_binding_name(import_name: str) -> str:
     return import_name
 
 
+# ---------------------------------------------------------------------------
+# Ready-template entry point
+# ---------------------------------------------------------------------------
+
 def emit_ready_template_python(
     workflow,
     *,
@@ -842,12 +586,13 @@ def emit_ready_template_python(
     template_id: str,
     registered_inputs: dict[str, tuple[str, str]] | None = None,
     apply_overrides: dict[str, Any] | None = None,
-    diagnostics: list[EmissionDiagnostic] | None = None,
+    diagnostics: list[Any] | None = None,
     raw_workflow: dict[str, Any] | None = None,
     variable_name_locks: Mapping[str, str] | None = None,
     strict_variable_name_locks: bool = False,
     object_info_identities: dict[str, Any] | None = None,
 ) -> str:
+    from vibecomfy.porting.emitter import _use_object_info_identities, _drain_lookup_warning_diagnostics  # noqa: PLC0415
     with _use_object_info_identities(object_info_identities):
         result_text = _emit_ready_template_python_inner(
             workflow,
@@ -865,34 +610,6 @@ def emit_ready_template_python(
     return result_text
 
 
-def format_as_python(
-    workflow,
-    *,
-    ready_metadata: dict[str, Any],
-    ready_requirements: dict[str, Any],
-    template_id: str,
-    registered_inputs: dict[str, tuple[str, str]] | None = None,
-    apply_overrides: dict[str, Any] | None = None,
-    raw_workflow: dict[str, Any] | None = None,
-) -> str:
-    """Compatibility wrapper for the package ready-template emitter.
-
-    This is the canonical ``format_as_python`` entry point re-exported from
-    ``vibecomfy.porting.emitter`` so that legacy callers (``loader.py``,
-    etc.) that previously imported from ``tools.format_as_python`` continue
-    to work through the emitter facade.
-    """
-    return emit_ready_template_python(
-        workflow,
-        ready_metadata=ready_metadata,
-        ready_requirements=ready_requirements,
-        template_id=template_id,
-        registered_inputs=registered_inputs,
-        apply_overrides=apply_overrides,
-        raw_workflow=raw_workflow,
-    )
-
-
 def _emit_ready_template_python_inner(
     workflow,
     *,
@@ -901,11 +618,12 @@ def _emit_ready_template_python_inner(
     template_id: str,
     registered_inputs: dict[str, tuple[str, str]] | None = None,
     apply_overrides: dict[str, Any] | None = None,
-    diagnostics: list[EmissionDiagnostic] | None = None,
+    diagnostics: list[Any] | None = None,
     raw_workflow: dict[str, Any] | None = None,
     variable_name_locks: Mapping[str, str] | None = None,
     strict_variable_name_locks: bool = False,
 ) -> str:
+    from vibecomfy.porting.emit_prepare import _prepare_workflow_for_emit  # noqa: PLC0415
     metadata = dict(ready_metadata)
     requirements = dict(ready_requirements)
     if apply_overrides:
@@ -1096,19 +814,9 @@ def _emit_ready_template_python_inner(
     return combined
 
 
-# emit_scratchpad_python and _emit_scratchpad_python_inner have been moved to
-# emit_scratchpad.py (M2 structural decomposition, T9).
-# They are re-exported above via the emit_scratchpad import block.
-#
-# emit_agent_edit_python has been moved to emit_agent_edit.py
-# (M2 structural decomposition, T10).
-# It is re-exported above via the emit_agent_edit import block.
-#
-# _VIRTUAL_WIRE_EMITTER_CLASS_TYPES, _prepare_workflow_for_emit,
-# _emit_agent_edit_lines and their private helpers have been moved to
-# emit_prepare.py (M2 structural decomposition, T7).
-# They are re-exported above via the emit_prepare import block.
-
+# ---------------------------------------------------------------------------
+# Dead-branch pruning
+# ---------------------------------------------------------------------------
 
 def _prune_dead_branches_for_emit(
     workflow_nodes: dict[str, Any],
@@ -1183,6 +891,10 @@ def _ltx_travel_template_omits_synthetic_audio(template_id: str | None) -> bool:
     return "first_last" in lowered or "first_middle_last" in lowered or "travel" in lowered
 
 
+# ---------------------------------------------------------------------------
+# Source-workflow path helpers
+# ---------------------------------------------------------------------------
+
 def _source_workflow_path(metadata: Mapping[str, Any]) -> str | None:
     provenance = metadata.get("provenance")
     if isinstance(provenance, Mapping):
@@ -1216,115 +928,9 @@ def _all_nodes_for_imports(workflow_nodes: dict[str, Any], subgraphs: dict[str, 
     return nodes
 
 
-
-
-def _infer_public_input_bindings(
-    workflow_nodes: dict[str, Any],
-    edges_in: dict[str, list[Any]],
-    *,
-    reserved_names: set[str] | None = None,
-) -> list[_PublicInputBinding]:
-    bindings: list[_PublicInputBinding] = []
-    used_names: set[str] = set(reserved_names or set())
-
-    def add(
-        name: str,
-        node_id: str,
-        field: str,
-        *,
-        type: str | None = None,
-        required: bool = False,
-        aliases: tuple[str, ...] = (),
-        media_semantics: str | None = None,
-    ) -> None:
-        candidate_names = {name, *aliases}
-        if candidate_names & used_names:
-            return
-        node = workflow_nodes.get(node_id)
-        if node is None:
-            return
-        fields = _resolved_field_values(node)
-        available = set(fields)
-        incoming = {str(getattr(edge, "to_input", "")) for edge in edges_in.get(node_id, [])}
-        if field not in available or field in incoming:
-            return
-        used_names.update(candidate_names)
-        bindings.append(
-            _PublicInputBinding(
-                name=name,
-                node_id=node_id,
-                field=field,
-                type=type,
-                required=required,
-                aliases=aliases,
-                media_semantics=media_semantics,
-            )
-        )
-
-    prompt_candidate: tuple[str, str] | None = None
-    negative_candidate: tuple[str, str] | None = None
-    for node_id, node in sorted(workflow_nodes.items(), key=lambda item: _id_sort_key(item[0])):
-        fields = _resolved_field_values(node)
-        class_type = str(getattr(node, "class_type", ""))
-        title = _node_title(node).lower()
-
-        if class_type in {"CLIPTextEncode", "CLIPTextEncodeFlux", "CLIPTextEncodeSD3", "CLIPTextEncodeSDXL", "TextEncodeQwenImageEdit"}:
-            value = _resolve_graph_field_get_string(fields.get("text"), workflow_nodes)
-            if isinstance(value, str):
-                if "negative" in title:
-                    negative_candidate = negative_candidate or (str(node_id), "text")
-                elif value.strip():
-                    prompt_candidate = prompt_candidate or (str(node_id), "text")
-        primitive_value = _resolve_graph_field_get_string(fields.get("value"), workflow_nodes)
-        if class_type in {"PrimitiveStringMultiline", "PrimitiveString"} and isinstance(
-            primitive_value,
-            str,
-        ) and primitive_value.strip():
-            prompt_candidate = prompt_candidate or (str(node_id), "value")
-        if class_type == "LoadImage" and "image" in fields:
-            add("image", str(node_id), "image", type="IMAGE", required=True, aliases=("input_image",), media_semantics="image")
-        if "seed" in fields and isinstance(fields["seed"], int) and not isinstance(fields["seed"], bool):
-            add("seed", str(node_id), "seed", type="INT")
-        if "noise_seed" in fields and isinstance(fields["noise_seed"], int) and not isinstance(fields["noise_seed"], bool):
-            add("seed", str(node_id), "noise_seed", type="INT")
-        if "width" in fields and isinstance(fields["width"], int):
-            add("width", str(node_id), "width", type="INT")
-        if "height" in fields and isinstance(fields["height"], int):
-            add("height", str(node_id), "height", type="INT")
-        if "length" in fields and isinstance(fields["length"], int):
-            add("frames", str(node_id), "length", type="INT")
-        if "frames" in fields and isinstance(fields["frames"], int):
-            add("frames", str(node_id), "frames", type="INT")
-        if "fps" in fields and isinstance(fields["fps"], (int, float)):
-            add("fps", str(node_id), "fps", type="FLOAT")
-
-    if prompt_candidate is not None:
-        add("prompt", prompt_candidate[0], prompt_candidate[1], type="STRING", required=True, media_semantics="text")
-    if negative_candidate is not None:
-        add("negative_prompt", negative_candidate[0], negative_candidate[1], type="STRING", aliases=("negative",), media_semantics="text")
-    return bindings
-
-
-def _node_title(node: Any) -> str:
-    ui = getattr(node, "metadata", {}).get("_ui")
-    if isinstance(ui, dict):
-        title = ui.get("title")
-        if isinstance(title, str):
-            return title
-    return ""
-
-
-def _resolved_field_values(node: Any) -> dict[str, Any]:
-    class_type = str(getattr(node, "class_type", ""))
-    aliases = getattr(node, "metadata", {}).get("input_aliases") or _ui_widget_aliases(node)
-    values: dict[str, Any] = {}
-    for key, value in {**getattr(node, "inputs", {}), **getattr(node, "widgets", {})}.items():
-        translated = _translate_widget_for_key(str(key), aliases, class_type)
-        if translated is not None:
-            values[translated] = value
-    return values
-
-
+# ---------------------------------------------------------------------------
+# _emit_build_function — shared by ready-template and scratchpad backends
+# ---------------------------------------------------------------------------
 
 def _emit_build_function(
     prepared: dict[str, Any],
@@ -1336,7 +942,7 @@ def _emit_build_function(
     registered_inputs: dict[str, tuple[str, str]] | None,
     public_inputs: list[_PublicInputSpec] | None,
     tail_lines: list[str],
-    diagnostics: list[EmissionDiagnostic] | None = None,
+    diagnostics: list[Any] | None = None,
     use_shared_helpers: bool = False,
     constant_map: dict[tuple[str, str], str] | None = None,
     section_groups: dict[str, list[str]] | None = None,
@@ -1348,6 +954,11 @@ def _emit_build_function(
     node_id_prefix: str | None = None,
     required_ids: set[str] | None = None,
 ) -> list[str]:
+    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+        EmissionDiagnostic,
+        READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
+        READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
+    )
     workflow_nodes = prepared["nodes"]
     edges_in = prepared["edges_in"]
     ordering_edges_in = _edges_in_with_subgraph_external_refs(prepared, workflow_nodes, edges_in)
@@ -1690,10 +1301,13 @@ def _emit_build_function(
                     f"    wf.register_input({input_name!r}, {old_id!r}, {resolved_field!r}, "
                     f"wf.nodes[{old_id!r}].inputs.get({resolved_field!r}, wf.nodes[{old_id!r}].widgets.get({resolved_field!r})){suffix})"
                 )
-
     out_lines.append("    return wf")
     return out_lines
 
+
+# ---------------------------------------------------------------------------
+# _with_id_map_tail_line
+# ---------------------------------------------------------------------------
 
 def _with_id_map_tail_line(tail_lines: list[str], var_names: dict[str, str]) -> list[str]:
     # v2.6.4 fix: id_map is derived at runtime via wf.id_map() (returns
@@ -1704,35 +1318,9 @@ def _with_id_map_tail_line(tail_lines: list[str], var_names: dict[str, str]) -> 
     return tail_lines
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ---------------------------------------------------------------------------
+# Output class registry and terminal-node detection
+# ---------------------------------------------------------------------------
 
 _OUTPUT_CLASSES: dict[str, tuple[str, str]] = {
     "SaveImage": ("image", "image/png"),
@@ -1823,11 +1411,15 @@ def _is_output_class(class_type: str) -> bool:
     return lowered.startswith(("save", "preview", "create")) or "save" in lowered or "preview" in lowered
 
 
+# ---------------------------------------------------------------------------
+# Template formatting check
+# ---------------------------------------------------------------------------
+
 def _check_template_formatting(
     combined: str,
     workflow_nodes: dict[str, Any],
     section_groups: dict[str, list[str]],
-    diagnostics: list[EmissionDiagnostic],
+    diagnostics: list[Any],
 ) -> None:
     """Check generated template for section comments and indentation hygiene.
 
@@ -1837,6 +1429,7 @@ def _check_template_formatting(
     2. If any line in the tail (after the build function body) is un-indented
        (does not start with 4 spaces, '#', blank, or a string-like line).
     """
+    from vibecomfy.porting.emitter import EmissionDiagnostic, READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED  # noqa: PLC0415
     lines = combined.split("\n")
 
     # Check 1: missing section comments for large workflows
@@ -1901,6 +1494,10 @@ def _has_ltx_lowvram_tail(category_id: str) -> bool:
     return category_id.startswith("video/ltx2_3_t2v") or category_id.startswith("video/ltx2_3_i2v")
 
 
+# ---------------------------------------------------------------------------
+# _apply_overrides — patch-list mutator
+# ---------------------------------------------------------------------------
+
 def _apply_overrides(nodes: dict[str, Any], edges_in: dict[str, list[Any]], patches: list[dict[str, Any]]) -> None:
     for patch in patches:
         match = patch.get("match", {})
@@ -1934,6 +1531,79 @@ def _apply_overrides(nodes: dict[str, Any], edges_in: dict[str, list[Any]], patc
                 node.widgets.pop(key, None)
                 node.inputs.pop(key, None)
 
+
+# ---------------------------------------------------------------------------
+# Node-local identity-aware output helpers
+# ---------------------------------------------------------------------------
+
+def _node_local_output_names(node: Any) -> list[str]:
+    """Identity-aware schema output names for *node*; class-only fallback."""
+    from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
+    from vibecomfy.porting.object_info import output_names as _class_output_names, resolve_class_entry  # noqa: PLC0415
+    class_type = str(node.class_type)
+    identity = _identity_for_node(node)
+    if identity is not None:
+        try:
+            result = resolve_class_entry(class_type, identity=identity, allow_class_fallback=True)
+        except Exception:
+            return list(_class_output_names(class_type))
+        _record_lookup_warning(node, class_type, result.warning)
+        entry = result.entry
+        if entry is not None:
+            outputs = entry.get("outputs") or []
+            names = [str(o.get("name", "")) for o in outputs if isinstance(o, Mapping)]
+            if names:
+                return names
+    return list(_class_output_names(class_type))
+
+
+def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
+    """Identity-aware arity consensus check for *node*; class-only fallback.
+
+    Mirrors :func:`check_output_arity_consensus` semantics, but counts outputs
+    from the identity-resolved cache entry when one is available so that
+    provenanced nodes are validated against their pinned schema rather than the
+    most recent class-only cache.
+    """
+    from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
+    from vibecomfy.porting.object_info import resolve_class_entry, check_output_arity_consensus  # noqa: PLC0415
+    class_type = str(node.class_type)
+    identity = _identity_for_node(node)
+    if identity is not None:
+        try:
+            result = resolve_class_entry(
+                class_type, identity=identity, allow_class_fallback=True
+            )
+        except Exception:
+            return check_output_arity_consensus(class_type, ui_output_count)
+        _record_lookup_warning(node, class_type, result.warning)
+        entry = result.entry
+        if entry is None:
+            return check_output_arity_consensus(class_type, ui_output_count)
+        cached_count = len(entry.get("outputs") or [])
+        if ui_output_count is None:
+            return cached_count
+        if cached_count < ui_output_count:
+            from vibecomfy.errors import ArityDisagreementError as _AD  # noqa: PLC0415
+            raise _AD(
+                (
+                    f"output arity disagreement for {class_type}: cached snapshot "
+                    f"declares {cached_count} outputs but UI declares {ui_output_count}. "
+                    "Refresh the object_info schema snapshot."
+                ),
+                class_type=class_type,
+                snapshot_pack=entry.get("pack"),
+                snapshot_version=entry.get("pack_version"),
+                snapshot_output_count=cached_count,
+                ui_output_count=ui_output_count,
+            )
+        return cached_count
+    return check_output_arity_consensus(class_type, ui_output_count)
+
+
+# ---------------------------------------------------------------------------
+# _NODE_HELPER_SOURCE — injected into scratchpad output
+# ---------------------------------------------------------------------------
 
 _NODE_HELPER_SOURCE = '''
 def _node(
@@ -1975,256 +1645,3 @@ def _node(
                 edge.from_node = _id
     return builder
 '''
-
-
-# ---------------------------------------------------------------------------
-# Node signature catalog for agent-edit surface
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class InputSignatureField:
-    """A single input field described by a schema for agent-edit catalog display."""
-
-    name: str
-    type: str | None = None
-    required: bool = False
-    default: Any = None
-
-
-@dataclass(frozen=True, slots=True)
-class OutputSignatureField:
-    """A single output slot described by a schema for agent-edit catalog display."""
-
-    name: str | None = None
-    type: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NodeSignatureRow:
-    """A structured row describing one node type for the agent-edit catalog.
-
-    Rows are produced by ``emit_available_node_signatures(...)`` from a
-    ``SchemaProvider`` and may be filtered by socket-type compatibility.
-    """
-
-    class_type: str
-    inputs: list[InputSignatureField]
-    outputs: list[OutputSignatureField]
-    source_confidence: float = 1.0
-    pack: str | None = None
-
-
-def emit_available_node_signatures(
-    schema_provider: Any,
-    *,
-    focus_types: list[str] | None = None,
-    compatible_input_type: str | None = None,
-    compatible_output_type: str | None = None,
-) -> list[NodeSignatureRow]:
-    """Return structured rows for every known node type in *schema_provider*.
-
-    Two query paths are supported:
-
-    * **Enumeration** — when *focus_types* is ``None``, calls
-      ``schema_provider.schemas()`` (or the protocol equivalent via
-      ``schemas_for``) to enumerate every schema the provider knows.
-    * **Focused / per-node** — when *focus_types* is a list of class-type
-      strings, calls ``schema_provider.get_schema(...)`` for each entry.
-
-    Optional compatibility filtering:
-
-    * *compatible_input_type* — keep only rows that have at **least one
-      output** socket type compatible with the given type (``MODEL`` →
-      nodes whose output sockets can feed a ``MODEL`` input).
-    * *compatible_output_type* — keep only rows that have at **least one
-      input** socket type compatible with the given type (``MODEL`` →
-      nodes that can consume a ``MODEL`` output).
-
-    Both filters can be combined; when both are supplied a row must
-    satisfy both.
-
-    Unknown socket types (``None`` or ``\"*\"``) are treated as
-    **compatible with everything** (the same contract as
-    ``socket_types_compatible`` in ``vibecomfy.schema.validate``).
-
-    Rows are always sorted by ``class_type`` for determinism.
-    """
-    from vibecomfy.schema import schema_for, schemas_for
-    from vibecomfy.schema.validate import socket_types_compatible
-
-    schemas_map: dict[str, Any] = {}
-
-    if focus_types is not None:
-        for class_type in focus_types:
-            if not isinstance(class_type, str):
-                continue
-            schema = schema_for(schema_provider, class_type)
-            if schema is not None:
-                schemas_map[class_type] = schema
-    else:
-        raw = schemas_for(schema_provider)
-        if raw is not None:
-            schemas_map.update(
-                {str(key): value for key, value in raw.items() if isinstance(key, str)}
-            )
-
-    rows: list[NodeSignatureRow] = []
-    for class_type in sorted(schemas_map):
-        schema = schemas_map[class_type]
-        inputs = _build_input_signature_fields(schema)
-        outputs = _build_output_signature_fields(schema)
-        confidence = float(getattr(schema, "confidence", 1.0) or 1.0)
-        pack = getattr(schema, "pack", None) or None
-
-        # Compatibility filtering
-        if compatible_input_type is not None:
-            if not any(
-                socket_types_compatible(output.type, compatible_input_type)
-                for output in outputs
-            ):
-                continue
-
-        if compatible_output_type is not None:
-            if not any(
-                socket_types_compatible(compatible_output_type, input_.type)
-                for input_ in inputs
-            ):
-                continue
-
-        rows.append(
-            NodeSignatureRow(
-                class_type=class_type,
-                inputs=inputs,
-                outputs=outputs,
-                source_confidence=confidence,
-                pack=pack,
-            )
-        )
-
-    return rows
-
-
-def _build_input_signature_fields(schema: Any) -> list[InputSignatureField]:
-    inputs = getattr(schema, "inputs", None) or {}
-    fields: list[InputSignatureField] = []
-    for name, spec in inputs.items():
-        if not isinstance(name, str):
-            continue
-        spec_type = getattr(spec, "type", None) if hasattr(spec, "type") else None
-        spec_required = bool(getattr(spec, "required", False)) if hasattr(spec, "required") else False
-        spec_default = getattr(spec, "default", None) if hasattr(spec, "default") else None
-        fields.append(
-            InputSignatureField(
-                name=name,
-                type=str(spec_type) if spec_type is not None else None,
-                required=spec_required,
-                default=spec_default,
-            )
-        )
-    return fields
-
-
-def _build_output_signature_fields(schema: Any) -> list[OutputSignatureField]:
-    outputs = getattr(schema, "outputs", None) or []
-    fields: list[OutputSignatureField] = []
-    for output in outputs:
-        out_type = getattr(output, "type", None) if hasattr(output, "type") else None
-        out_name = getattr(output, "name", None) if hasattr(output, "name") else None
-        fields.append(
-            OutputSignatureField(
-                name=str(out_name) if out_name is not None else None,
-                type=str(out_type) if out_type is not None else None,
-            )
-        )
-    return fields
-
-
-def format_signature_rows(
-    rows: list[NodeSignatureRow],
-    *,
-    show_pack: bool = False,
-    show_confidence: bool = False,
-) -> str:
-    """Format a list of ``NodeSignatureRow`` as a deterministic text catalog.
-
-    Each row is rendered as a Python-like function signature::
-
-        def CheckpointLoaderSimple(ckpt_name: COMBO = ...) -> MODEL, CLIP, VAE:
-
-    The output is sorted by ``class_type``.
-
-    If *show_pack* is ``True``, a ``# pack: ...`` comment line precedes
-    each signature.  If *show_confidence* is ``True``, a ``# confidence:
-    0.XX`` suffix is appended.
-    """
-    from vibecomfy.porting.slot_codec import to_python_identifier
-
-    lines: list[str] = []
-    for row in sorted(rows, key=lambda r: r.class_type):
-        prefix_parts: list[str] = []
-        if show_pack and row.pack:
-            prefix_parts.append(f"# pack: {row.pack}")
-        suffix_parts: list[str] = []
-        if show_confidence and row.source_confidence < 1.0:
-            suffix_parts.append(f"confidence: {row.source_confidence:.2f}")
-
-        param_parts: list[str] = []
-        for field in row.inputs:
-            has_default = field.default is not None
-            default_str = " = ..." if has_default else ""
-            type_str = f": {field.type}" if field.type else ""
-            optional_marker = "" if field.required else ""
-            name_ident = to_python_identifier(field.name)
-            param_parts.append(f"{name_ident}{type_str}{default_str}")
-
-        return_parts: list[str] = []
-        for output in row.outputs:
-            out_name = output.name
-            out_type = output.type
-            if out_type:
-                return_parts.append(out_type)
-            elif out_name:
-                return_parts.append(out_name)
-            else:
-                return_parts.append("Any")
-
-        params = ", ".join(param_parts)
-        returns = ", ".join(return_parts) if return_parts else "None"
-        sig = f"def {row.class_type}({params}) -> {returns}:"
-
-        comment_parts = prefix_parts + suffix_parts
-        if comment_parts:
-            sig = "  ".join(comment_parts) + f"\n{sig}"
-
-        lines.append(sig)
-
-    return "\n".join(lines) + "\n"
-
-
-__all__ = [
-    "EmissionDiagnostic",
-    "EmissionSeverity",
-    "READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT",
-    "READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY",
-    "READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED",
-    "READABILITY_WARNING_HIDDEN_MODEL_FILENAME",
-    "READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE",
-    "READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL",
-    "READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED",
-    "READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG",
-    "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID",
-    "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION",
-    "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING",
-    "READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION",
-    "READABILITY_WARNING_CODES",
-    "NodeSignatureRow",
-    "InputSignatureField",
-    "OutputSignatureField",
-    "emit_available_node_signatures",
-    "format_signature_rows",
-    "format_as_python",
-    "emit_ready_template_python",
-    "emit_agent_edit_python",
-    "emit_scratchpad_python",
-]
