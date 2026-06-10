@@ -239,6 +239,10 @@ from .stages.summarize import (
     _stage_summarize_v2,
 )
 
+from .stages.audit import (
+    _stage_audit,
+    _write_unknown_transition_audits,
+)
 
 from .session_io import (
     _compact_chat_change_details,
@@ -658,91 +662,6 @@ def _stage_load_python(state: AgentEditState, _context: TurnContext) -> StageRes
         artifacts=(_artifact(state.after_py_path),),
         gate_updates={"python_load_ok": True},
     )
-
-
-def _stage_audit(
-    state: AgentEditState,
-    context: TurnContext,
-    *,
-    response: dict[str, Any] | None = None,
-    failure: FailureEnvelope | None = None,
-) -> ArtifactRef:
-    metadata: dict[str, Any] = {
-        "provider": state.provider_metadata or {},
-        "lowering": _build_lowering_audit_entries(state.lowering_evidence),
-    }
-    if _agent_edit_v2_enabled():
-        metadata["agent_edit_v2"] = normalize_agent_edit_v2_metadata(
-            {
-                "enabled": True,
-                "op_count": len(state.delta_ops),
-                "delta_ops": state.delta_audit or {},
-            }
-        )
-    if _agent_edit_batch_repl_enabled():
-        metadata["batch_repl"] = {
-            "enabled": True,
-            "turn_count": state.batch_turn_count,
-            "signature_catalog_available": bool(state.batch_signature_catalog),
-            "feedback": state.batch_feedback,
-            "final_summary": state.batch_final_summary,
-            "exit_mode": state.batch_exit_mode,
-            "done_summary": state.batch_done_summary,
-            "budget_state": _json_safe(state.batch_budget_state),
-        }
-    return write_audit(
-        state.turn_dir / "audit",
-        context=context,
-        turn_state="candidate",
-        stage_results=context.stage_results,
-        failure=failure,
-        response=response,
-        artifacts={
-            name: Path(path)
-            for name, path in (state.artifacts or {
-                "request": str(state.request_path),
-                "original_ui": str(state.original_ui_path),
-                "before_python": str(state.before_py_path),
-                "after_python": str(state.after_py_path),
-                "python": str(state.after_py_path),
-                "model_request": str(state.model_request_path),
-                "model_response": str(state.model_response_path),
-                "candidate_ui": str(state.candidate_ui_path),
-                "messages": str(state.messages_path),
-            }).items()
-            if Path(path).exists()
-        },
-        metadata=metadata,
-    )
-
-
-def _write_unknown_transition_audits(
-    *,
-    session_root: Path,
-    session_id: str,
-    baseline_turn_id: str | None,
-    unknown_transitions: tuple[dict[str, Any], ...],
-    request_payload: Mapping[str, Any],
-) -> None:
-    for transition in unknown_transitions:
-        turn_id = transition.get("turn_id")
-        if not isinstance(turn_id, str) or not turn_id:
-            continue
-        try:
-            write_audit(
-                turn_dir_for(session_root, session_id, turn_id) / "unknown_audit",
-                context=TurnContext(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    baseline_turn_id=baseline_turn_id,
-                ),
-                turn_state="unknown",
-                artifacts={"request": dict(request_payload)},
-                metadata={"action": "unknown", **transition},
-            )
-        except Exception:
-            continue
-
 
 
 def _failure_response(
