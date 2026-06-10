@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from vibecomfy import _graph_utils as graph_utils
 from vibecomfy import _helper_resolve as helper_resolve
 from vibecomfy import _widget_aliases as widget_aliases
 from vibecomfy import _workflow_helpers as workflow_helpers
@@ -487,7 +488,7 @@ def _resolve_link_value(
 
 
 def _is_api_link(value: Any) -> bool:
-    return workflow_helpers.is_api_link(value)
+    return graph_utils.is_api_link(value, require_numeric_node_id=False, require_int_slot=True)
 
 
 def _apply_positional_widget_aliases(inputs: dict[str, Any], node: VibeNode) -> None:

@@ -8,7 +8,7 @@ from vibecomfy.porting.edit_session_types import (
     OutputSlotInfo,
 )
 from vibecomfy.porting.edit_session_ir_utils import (
-    _normalize_type,
+    _normalize_ir_type,
     _output_specs,
 )
 from vibecomfy.porting.edit_session_diff import _UNRESOLVED_OLD_VALUE
@@ -95,7 +95,7 @@ class _DescribeMixin:
             if not isinstance(slot, Mapping):
                 continue
             slot_name = str(slot.get("name") or f"input_{idx}")
-            slot_type = _normalize_type(slot.get("type"))
+            slot_type = _normalize_ir_type(slot.get("type"))
             slot_link = slot.get("link")
             if isinstance(slot_link, (int, float)):
                 slot_link = int(slot_link)

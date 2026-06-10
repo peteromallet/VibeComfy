@@ -67,6 +67,13 @@ from vibecomfy.porting.edit_ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
+from vibecomfy.porting.resolution import (
+    _NodeMeta,
+    LintIndexBackend,
+    ResolutionContext,
+    ResolutionIssue,
+    build_lg_id_maps,
+)
 
 
 # ── data model ──────────────────────────────────────────────────────────────
@@ -133,27 +140,6 @@ class LintResult:
         )
 
 
-# ── node metadata ───────────────────────────────────────────────────────────
-
-@dataclass(frozen=True, slots=True)
-class _NodeMeta:
-    """Immutable snapshot of a node's identity and I/O surface.
-
-    Built once during :class:`LintIndex` construction so lint rules never
-    re-derive input/output names or slot indices.
-    """
-
-    scope_path: str
-    uid: str
-    lg_id: int
-    class_type: str
-    # stable tuple so the dataclass is hashable
-    input_names: tuple[str, ...]
-    output_names: tuple[str, ...]
-    # output name → slot_index (as serialised by LiteGraph)
-    output_slots: Mapping[str, int] = field(default_factory=dict)
-
-
 # ── LintIndex ───────────────────────────────────────────────────────────────
 
 def _build_node_meta(
@@ -200,23 +186,6 @@ def _build_node_meta(
             output_slots=output_slots,
         )
     return meta
-
-
-def _build_lg_id_maps(
-    ledger: EditLedger,
-) -> tuple[dict[tuple[str, int], str], dict[tuple[str, str], int]]:
-    """Build bidirectional LiteGraph-id ↔ canonical-uid maps per scope.
-
-    Returns ``(lg_id_to_uid, uid_to_lg_id)``.
-    """
-    lg_id_to_uid: dict[tuple[str, int], str] = {}
-    uid_to_lg_id: dict[tuple[str, str], int] = {}
-    for (scope_path, uid), node in ledger.node_index.items():
-        lg_id = node.get("id")
-        if isinstance(lg_id, int):
-            lg_id_to_uid[(scope_path, lg_id)] = uid
-            uid_to_lg_id[(scope_path, uid)] = lg_id
-    return lg_id_to_uid, uid_to_lg_id
 
 
 def _build_link_sets(
@@ -284,7 +253,7 @@ class LintIndex:
         definitions, etc.) as stored in the workflow JSON.
         """
         ledger = EditLedger.ingest(original_ui)
-        lg_id_to_uid, uid_to_lg_id = _build_lg_id_maps(ledger)
+        lg_id_to_uid, uid_to_lg_id = build_lg_id_maps(ledger.node_index)
         node_meta = _build_node_meta(ledger)
         link_ids, link_by_id = _build_link_sets(ledger)
         return cls(
@@ -469,19 +438,30 @@ def _make_issue(
     )
 
 
-def _try_parse_lg_id(uid_str: str) -> int | None:
-    """Return the integer if *uid_str* is a LiteGraph-id-like decimal string."""
-    stripped = uid_str.strip()
-    if not stripped:
-        return None
-    try:
-        parsed = int(stripped)
-    except ValueError:
-        return None
-    # negative ids are not valid LiteGraph ids
-    if parsed < 0:
-        return None
-    return parsed
+_ctx = ResolutionContext()
+
+
+def _ri_to_lint_issue(
+    ri: ResolutionIssue,
+    *,
+    op_index: int,
+    op_kind: str,
+) -> LintIssue:
+    """Adapt a ResolutionIssue from ResolutionContext to a LintIssue."""
+    lg_id: int | None = ri.detail.get("lg_id") if ri.detail else None
+    if not isinstance(lg_id, int):
+        lg_id = None
+    return LintIssue(
+        code=ri.code,
+        message=ri.message,
+        severity=ri.severity,
+        op_index=op_index,
+        op_kind=op_kind,
+        scope_path=ri.scope_path,
+        uid=ri.uid,
+        lg_id=lg_id,
+        detail=ri.detail,
+    )
 
 
 def _resolve_uid(
@@ -492,40 +472,11 @@ def _resolve_uid(
     op_index: int,
     op_kind: str,
 ) -> tuple[str | None, LintIssue | None]:
-    """Resolve a uid string to the canonical uid, handling LiteGraph id input.
-
-    Returns ``(canonical_uid, issue)``.  ``canonical_uid`` is ``None`` when
-    the target cannot be resolved (issue will be set).
-    """
-    # Fast path: canonical uid already known
-    if index.node_exists(scope_path, uid_str):
-        return uid_str, None
-
-    # Try LiteGraph id resolution
-    lg_id = _try_parse_lg_id(uid_str)
-    if lg_id is not None:
-        resolved = index.uid_for_lg_id(scope_path, lg_id)
-        if resolved is not None:
-            return resolved, None
-        # Known lg_id but not in this scope → unknown target
-        return None, _make_issue(
-            "unknown_target",
-            f"LiteGraph id {lg_id} does not resolve to a known node.",
-            op_index=op_index,
-            op_kind=op_kind,
-            scope_path=scope_path,
-            lg_id=lg_id,
-        )
-
-    # Neither canonical uid nor LiteGraph id
-    return None, _make_issue(
-        "unknown_target",
-        f"'{uid_str}' does not match any known node.",
-        op_index=op_index,
-        op_kind=op_kind,
-        scope_path=scope_path,
-        uid=uid_str,
-    )
+    result = _ctx.resolve_uid(LintIndexBackend(index), scope_path, uid_str)
+    if result.value is not None:
+        return result.value, None
+    issue = _ri_to_lint_issue(result.issues[0], op_index=op_index, op_kind=op_kind) if result.issues else None
+    return None, issue
 
 
 def _resolve_node_target(
@@ -535,16 +486,11 @@ def _resolve_node_target(
     op_index: int,
     op_kind: str,
 ) -> tuple[NodeTarget | None, LintIssue | None]:
-    """Resolve a NodeTarget, normalising LiteGraph ids to canonical uids."""
-    resolved_uid, issue = _resolve_uid(
-        index, target.scope_path, target.uid,
-        op_index=op_index, op_kind=op_kind,
-    )
-    if resolved_uid is None:
-        return None, issue
-    if resolved_uid == target.uid:
-        return target, None  # no rewrite needed
-    return NodeTarget(scope_path=target.scope_path, uid=resolved_uid), None
+    result = _ctx.resolve_node_target(LintIndexBackend(index), target)
+    if result.value is not None:
+        return result.value, None
+    issue = _ri_to_lint_issue(result.issues[0], op_index=op_index, op_kind=op_kind) if result.issues else None
+    return None, issue
 
 
 def _resolve_node_field_target(
@@ -554,20 +500,11 @@ def _resolve_node_field_target(
     op_index: int,
     op_kind: str,
 ) -> tuple[NodeFieldTarget | None, LintIssue | None]:
-    """Resolve a NodeFieldTarget, normalising LiteGraph ids to canonical uids."""
-    resolved_uid, issue = _resolve_uid(
-        index, target.scope_path, target.uid,
-        op_index=op_index, op_kind=op_kind,
-    )
-    if resolved_uid is None:
-        return None, issue
-    if resolved_uid == target.uid:
-        return target, None
-    return NodeFieldTarget(
-        scope_path=target.scope_path,
-        uid=resolved_uid,
-        field_path=target.field_path,
-    ), None
+    result = _ctx.resolve_node_field_target(LintIndexBackend(index), target)
+    if result.value is not None:
+        return result.value, None
+    issue = _ri_to_lint_issue(result.issues[0], op_index=op_index, op_kind=op_kind) if result.issues else None
+    return None, issue
 
 
 def _resolve_link_source(
@@ -577,20 +514,11 @@ def _resolve_link_source(
     op_index: int,
     op_kind: str,
 ) -> tuple[LinkSourceRef | None, LintIssue | None]:
-    """Resolve source uid, normalising LiteGraph ids to canonical uids."""
-    resolved_uid, issue = _resolve_uid(
-        index, source.scope_path, source.uid,
-        op_index=op_index, op_kind=op_kind,
-    )
-    if resolved_uid is None:
-        return None, issue
-    if resolved_uid == source.uid:
-        return source, None
-    return LinkSourceRef(
-        scope_path=source.scope_path,
-        uid=resolved_uid,
-        output_slot=source.output_slot,
-    ), None
+    result = _ctx.resolve_link_source(LintIndexBackend(index), source)
+    if result.value is not None:
+        return result.value, None
+    issue = _ri_to_lint_issue(result.issues[0], op_index=op_index, op_kind=op_kind) if result.issues else None
+    return None, issue
 
 
 def _resolve_link_target(
@@ -600,20 +528,11 @@ def _resolve_link_target(
     op_index: int,
     op_kind: str,
 ) -> tuple[LinkTargetRef | None, LintIssue | None]:
-    """Resolve target uid, normalising LiteGraph ids to canonical uids."""
-    resolved_uid, issue = _resolve_uid(
-        index, target.scope_path, target.uid,
-        op_index=op_index, op_kind=op_kind,
-    )
-    if resolved_uid is None:
-        return None, issue
-    if resolved_uid == target.uid:
-        return target, None
-    return LinkTargetRef(
-        scope_path=target.scope_path,
-        uid=resolved_uid,
-        input_field=target.input_field,
-    ), None
+    result = _ctx.resolve_link_target(LintIndexBackend(index), target)
+    if result.value is not None:
+        return result.value, None
+    issue = _ri_to_lint_issue(result.issues[0], op_index=op_index, op_kind=op_kind) if result.issues else None
+    return None, issue
 
 
 def _link_origin_id(link: Any) -> int | None:
@@ -675,51 +594,15 @@ def _link_target_slot(link: Any) -> int | None:
 def _resolve_output_slot_index(
     index: LintIndex, scope_path: str, uid: str, output_slot: str | int,
 ) -> int | None:
-    """Resolve an output_slot reference to a LiteGraph slot index.
-
-    *output_slot* may be an integer slot index or a string output name.
-    Returns ``None`` when the slot does not exist.
-    """
-    meta = index.node_meta_for(scope_path, uid)
-    if meta is None:
-        return None
-    if isinstance(output_slot, int):
-        # Integer slot index: validate it's within range
-        if 0 <= output_slot < len(meta.output_slots):
-            # output_slots is a dict mapping name → index, so check values
-            if output_slot in meta.output_slots.values():
-                return output_slot
-            # Also check by positional index
-            if output_slot < len(meta.output_names):
-                return output_slot
-        return None
-    # String output name
-    slot_str = str(output_slot)
-    # Try by name in output_slots dict
-    slot_idx = meta.output_slots.get(slot_str)
-    if slot_idx is not None:
-        return slot_idx
-    # Try by direct string match in output_names
-    if slot_str in meta.output_names:
-        idx = meta.output_names.index(slot_str)
-        return idx
-    return None
+    result = _ctx.resolve_output_slot_index(LintIndexBackend(index), scope_path, uid, output_slot)
+    return result.value
 
 
 def _resolve_input_slot_index(
     index: LintIndex, scope_path: str, uid: str, input_field: str,
 ) -> int | None:
-    """Resolve an input_field name to a LiteGraph slot index.
-
-    Returns ``None`` when the input does not exist.
-    """
-    meta = index.node_meta_for(scope_path, uid)
-    if meta is None:
-        return None
-    try:
-        return meta.input_names.index(input_field)
-    except ValueError:
-        return None
+    result = _ctx.resolve_input_slot_index(LintIndexBackend(index), scope_path, uid, input_field)
+    return result.value
 
 
 def _find_matching_link(

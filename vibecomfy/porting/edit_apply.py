@@ -6,6 +6,13 @@ import time
 from typing import Any, Mapping
 
 from vibecomfy.porting.edit_ledger import EditLedger, ScopeState
+from vibecomfy.porting.resolution import (
+    EditLedgerBackend,
+    ResolutionContext,
+    _find_named_slot,
+    _normalize_type,
+    to_port_issues,
+)
 from vibecomfy.porting.edit_ops import (
     AddNodeOp,
     AnchorRef,
@@ -36,6 +43,27 @@ def _issue(
     detail: Mapping[str, Any] | None = None,
 ) -> PortIssue:
     return PortIssue(code=code, message=message, severity=severity, detail=dict(detail or {}))
+
+
+_ctx = ResolutionContext()
+
+# "unknown_target" is the generic ResolutionContext uid-not-found code; the apply
+# surface has always exposed it as "unknown_node_target" to callers.
+_RESOLUTION_CODE_REMAP: dict[str, str] = {"unknown_target": "unknown_node_target"}
+
+
+def _endpoint_port_issues(result: Any) -> list[PortIssue]:
+    """Convert ResolveResult issues for endpoint resolvers, remapping uid error codes."""
+    issues = to_port_issues(result)
+    return [
+        _issue(
+            _RESOLUTION_CODE_REMAP.get(i.code, i.code),
+            i.message,
+            severity=i.severity,
+            detail=i.detail,
+        )
+        for i in issues
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -878,8 +906,10 @@ def _resolve_node(
     if issues:
         return None, issues
     assert scope is not None
-    node = ledger.resolve_node(target.scope_path, target.uid)
-    if node is None:
+    # Resolve uid with LG-id aliasing (D1 convergence).
+    backend = EditLedgerBackend(ledger)
+    uid_result = _ctx.resolve_uid(backend, target.scope_path, target.uid)
+    if uid_result.value is None:
         return None, [
             _issue(
                 "unknown_node_target",
@@ -887,10 +917,24 @@ def _resolve_node(
                 detail={"scope_path": target.scope_path, "uid": target.uid},
             )
         ]
+    resolved_uid = uid_result.value
+    resolved_target = (
+        NodeTarget(scope_path=target.scope_path, uid=resolved_uid)
+        if resolved_uid != target.uid else target
+    )
+    node = backend.node_for(target.scope_path, resolved_uid)
+    if node is None:
+        return None, [
+            _issue(
+                "unknown_node_target",
+                f"Unknown node target {resolved_uid!r} in scope {target.scope_path!r}.",
+                detail={"scope_path": target.scope_path, "uid": resolved_uid},
+            )
+        ]
     class_type = str(node.get("type") or node.get("class_type") or "")
     return (
         ResolvedNodeRef(
-            target=target,
+            target=resolved_target,
             node=node,
             class_type=class_type,
             node_id=node.get("id"),
@@ -1535,72 +1579,22 @@ def _resolve_source_endpoint(
     *,
     schema_provider: Any,
 ) -> tuple[ResolvedLinkEndpoint | None, list[PortIssue]]:
-    node_ref, issues = _resolve_node(ledger, NodeTarget(ref.scope_path, ref.uid))
-    if issues:
-        return None, issues
-    assert node_ref is not None
-    outputs = node_ref.node.get("outputs")
-    if not isinstance(outputs, list):
-        return None, [
-            _issue(
-                "missing_source_outputs",
-                f"{node_ref.class_type} has no outputs to link from.",
-                detail={"scope_path": ref.scope_path, "uid": ref.uid},
-            )
-        ]
-    slot_index = None
-    slot_name = None
-    socket_type = None
-    if isinstance(ref.output_slot, int):
-        if ref.output_slot < 0 or ref.output_slot >= len(outputs):
-            return None, [
-                _issue(
-                    "unknown_output_slot",
-                    f"{node_ref.class_type} has no output slot {ref.output_slot}.",
-                    detail={"scope_path": ref.scope_path, "uid": ref.uid, "output_slot": ref.output_slot},
-                )
-            ]
-        slot_index = ref.output_slot
-        output_entry = outputs[slot_index]
-        if isinstance(output_entry, Mapping):
-            slot_name = str(output_entry.get("name") or slot_index)
-            socket_type = _normalize_type(output_entry.get("type"))
-    else:
-        for index, output_entry in enumerate(outputs):
-            if isinstance(output_entry, Mapping) and output_entry.get("name") == ref.output_slot:
-                slot_index = index
-                slot_name = str(ref.output_slot)
-                socket_type = _normalize_type(output_entry.get("type"))
-                break
-        if slot_index is None:
-            schema = schema_for(schema_provider, node_ref.class_type)
-            output_specs = getattr(schema, "outputs", None) or []
-            for index, output_spec in enumerate(output_specs):
-                if getattr(output_spec, "name", None) == ref.output_slot:
-                    slot_index = index
-                    slot_name = str(ref.output_slot)
-                    socket_type = _normalize_type(getattr(output_spec, "type", None))
-                    break
-        if slot_index is None:
-            return None, [
-                _issue(
-                    "unknown_output_slot",
-                    f"{node_ref.class_type} has no output named {ref.output_slot!r}.",
-                    detail={"scope_path": ref.scope_path, "uid": ref.uid, "output_slot": ref.output_slot},
-                )
-            ]
-    if slot_name is None:
-        slot_name = str(ref.output_slot)
+    backend = EditLedgerBackend(ledger)
+    result = _ctx.resolve_source_endpoint(backend, ref, schema_provider=schema_provider)
+    if result.value is None:
+        return None, _endpoint_port_issues(result)
+    ep = result.value
+    socket_type = ep.socket_type
     if socket_type is None:
-        socket_type = _schema_output_type(schema_provider, node_ref.class_type, slot_index, slot_name)
+        socket_type = _schema_output_type(schema_provider, ep.class_type, ep.slot_index, ep.slot_name)
     return (
         ResolvedLinkEndpoint(
             ref=ref,
-            node=node_ref.node,
-            class_type=node_ref.class_type,
-            node_id=node_ref.node_id,
-            slot_index=slot_index,
-            slot_name=slot_name,
+            node=ep.node,
+            class_type=ep.class_type,
+            node_id=ep.node_id,
+            slot_index=ep.slot_index,
+            slot_name=ep.slot_name,
             socket_type=socket_type,
         ),
         [],
@@ -1613,51 +1607,23 @@ def _resolve_target_endpoint(
     *,
     schema_provider: Any,
 ) -> tuple[ResolvedLinkEndpoint | None, list[PortIssue]]:
-    node_ref, issues = _resolve_node(ledger, NodeTarget(ref.scope_path, ref.uid))
-    if issues:
-        return None, issues
-    assert node_ref is not None
-    raw_input = _find_named_slot(node_ref.node.get("inputs"), ref.input_field)
-    schema = schema_for(schema_provider, node_ref.class_type)
-    schema_input = (getattr(schema, "inputs", {}) or {}).get(ref.input_field) if schema is not None else None
-    if raw_input is None and schema_input is None:
-        return None, [
-            _issue(
-                "unknown_target_input",
-                f"{node_ref.class_type} has no input named {ref.input_field!r}.",
-                detail={"scope_path": ref.scope_path, "uid": ref.uid, "input": ref.input_field},
-            )
-        ]
-    slot_index = None
-    socket_type = None
-    if raw_input is not None:
-        inputs = node_ref.node.get("inputs")
-        if isinstance(inputs, list):
-            slot_index = inputs.index(raw_input)
-        socket_type = _normalize_type(raw_input.get("type"))
-    if socket_type is None and schema_input is not None:
-        socket_type = _normalize_type(getattr(schema_input, "type", None))
+    backend = EditLedgerBackend(ledger)
+    result = _ctx.resolve_target_endpoint(backend, ref, schema_provider=schema_provider)
+    if result.value is None:
+        return None, _endpoint_port_issues(result)
+    ep = result.value
     return (
         ResolvedLinkEndpoint(
             ref=ref,
-            node=node_ref.node,
-            class_type=node_ref.class_type,
-            node_id=node_ref.node_id,
-            slot_index=slot_index,
-            slot_name=ref.input_field,
-            socket_type=socket_type,
+            node=ep.node,
+            class_type=ep.class_type,
+            node_id=ep.node_id,
+            slot_index=ep.slot_index,
+            slot_name=ep.slot_name,
+            socket_type=ep.socket_type,
         ),
         [],
     )
-
-
-def _find_named_slot(slots: Any, name: str) -> dict[str, Any] | None:
-    if not isinstance(slots, list):
-        return None
-    for item in slots:
-        if isinstance(item, dict) and item.get("name") == name:
-            return item
-    return None
 
 
 def _find_named_slot_index(slots: Any, name: str) -> int | None:
@@ -2907,15 +2873,6 @@ def _validate_literal_value(
             )
         )
     return issues
-
-
-def _normalize_type(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip().upper()
-    if not text or text == "*":
-        return None
-    return text
 
 
 def _primitive_expected_type(value: Any) -> str | None:

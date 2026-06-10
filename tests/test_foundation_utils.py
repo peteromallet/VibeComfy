@@ -73,6 +73,27 @@ def test_is_api_link_tool_mode_is_string_source_strict_with_compound_ids() -> No
     assert not is_api_link(["76:67", "0"], **tool_mode)
 
 
+def test_workflow_helpers_is_api_link_narrowing_rejects_string_and_float_slots() -> None:
+    # The old body used int(value[1]) coercion, accepting "3" and 3.5.
+    # The new body uses isinstance(slot, int) via require_int_slot=True, narrowing both to False.
+    # first_link_input and resolve_compile_link_value only see real compiled API links
+    # where slots are always ints, so the narrowing is safe.
+    from vibecomfy._workflow_helpers import is_api_link as wh_is_api_link, first_link_input
+    from vibecomfy._helper_resolve import resolve_compile_link_value
+
+    # Narrowed: string slot and float slot now rejected
+    assert not wh_is_api_link(["abc", "3"])
+    assert not wh_is_api_link(["abc", 3.5])
+
+    # first_link_input: these non-link values are skipped, not returned as links
+    assert first_link_input({"a": ["abc", "3"]}) is None
+    assert first_link_input({"a": ["abc", 3.5]}) is None
+
+    # resolve_compile_link_value: non-link values are passed through unchanged
+    assert resolve_compile_link_value(["abc", "3"], {}, {}) == ["abc", "3"]
+    assert resolve_compile_link_value(["abc", 3.5], {}, {}) == ["abc", 3.5]
+
+
 def test_node_id_sort_key_orders_numeric_ids_before_text() -> None:
     assert sorted(["10", "2", "abc"], key=node_id_sort_key) == ["2", "10", "abc"]
 

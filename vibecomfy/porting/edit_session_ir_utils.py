@@ -12,6 +12,7 @@ from vibecomfy.porting.edit_ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
+from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widget_schema import effective_widget_names_for_class
 from vibecomfy.schema import schema_for
 
@@ -53,15 +54,6 @@ def _output_slot_name(node: Mapping[str, Any], slot_index: int, schema_provider:
     return None
 
 
-def _find_named_slot(slots: Any, name: str) -> dict[str, Any] | None:
-    if not isinstance(slots, list):
-        return None
-    for item in slots:
-        if isinstance(item, Mapping) and item.get("name") == name:
-            return dict(item)
-    return None
-
-
 _MISSING_WIDGET_VALUE = object()
 
 
@@ -89,7 +81,7 @@ def _socket_type_from_widget_value(value: Any) -> str | None:
     return None
 
 
-def _normalize_type(value: Any) -> str | None:
+def _normalize_ir_type(value: Any) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
@@ -115,7 +107,7 @@ def _output_specs(node: Mapping[str, Any], schema_provider: Any, class_type: str
                 {
                     "index": slot_index,
                     "name": str(name) if isinstance(name, str) and name else f"output_{slot_index}",
-                    "type": _normalize_type(output.get("type")),
+                    "type": _normalize_ir_type(output.get("type")),
                 }
             )
     schema = schema_for(schema_provider, class_type)
@@ -127,7 +119,7 @@ def _output_specs(node: Mapping[str, Any], schema_provider: Any, class_type: str
                 {
                     "index": index,
                     "name": str(name) if isinstance(name, str) and name else f"output_{index}",
-                    "type": _normalize_type(getattr(output, "type", None)),
+                    "type": _normalize_ir_type(getattr(output, "type", None)),
                 }
             )
         return result
@@ -137,11 +129,11 @@ def _output_specs(node: Mapping[str, Any], schema_provider: Any, class_type: str
             by_index[index] = {
                 "index": index,
                 "name": str(getattr(output, "name", None) or f"output_{index}"),
-                "type": _normalize_type(getattr(output, "type", None)),
+                "type": _normalize_ir_type(getattr(output, "type", None)),
             }
             continue
         if by_index[index]["type"] is None:
-            by_index[index]["type"] = _normalize_type(getattr(output, "type", None))
+            by_index[index]["type"] = _normalize_ir_type(getattr(output, "type", None))
         if by_index[index]["name"].startswith("output_"):
             name = getattr(output, "name", None)
             if isinstance(name, str) and name:

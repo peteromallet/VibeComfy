@@ -38,14 +38,14 @@ from vibecomfy.porting.edit_session_parse import (
 )
 from vibecomfy.porting.edit_session_ir_utils import (
     _MISSING_WIDGET_VALUE,
-    _find_named_slot,
     _link_origin,
-    _normalize_type,
+    _normalize_ir_type,
     _output_slot_name,
     _output_specs,
     _socket_type_from_widget_value,
     _widget_value_for_field,
 )
+from vibecomfy.porting.resolution import _find_named_slot
 
 
 class _ResolveMixin:
@@ -448,7 +448,7 @@ class _ResolveMixin:
                 group_title = group_value
                 continue
             if _is_graph_reference_value(keyword.value):
-                socket_type = _normalize_type(getattr(schema_inputs.get(name), "type", None))
+                socket_type = _normalize_ir_type(getattr(schema_inputs.get(name), "type", None))
                 target = _ResolvedTargetField(node=fake_target_node, field_name=name, socket_type=socket_type)
                 endpoint, endpoint_issues = self._resolve_rhs_endpoint(keyword.value, target=target)
                 if endpoint_issues:
@@ -700,7 +700,7 @@ class _ResolveMixin:
                     detail={"name": node_ref.name, "uid": node_ref.uid, "field": target.attr},
                 )
             ]
-        socket_type = _normalize_type(
+        socket_type = _normalize_ir_type(
             getattr(schema_input, "type", None) if schema_input is not None else raw_input.get("type") if isinstance(raw_input, Mapping) else None
         )
         if socket_type is None and widget_value is not _MISSING_WIDGET_VALUE:

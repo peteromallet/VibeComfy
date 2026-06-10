@@ -55,12 +55,8 @@ def resolve_wf_id(wf_or_api: Any) -> str:
 
 def is_api_link(value: Any) -> bool:
     """Return True for a compiled API-dict link ref: `[node_id_str, slot_int]`."""
-    return (
-        isinstance(value, list)
-        and len(value) == 2
-        and isinstance(value[0], str)
-        and isinstance(value[1], int)
-    )
+    from vibecomfy._graph_utils import is_api_link as _graph_is_api_link
+    return _graph_is_api_link(value, require_string_node_id=True, require_numeric_node_id=False, require_int_slot=True)
 
 
 def is_ir_edge_ref(value: Any) -> bool:

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+from ._time_utils import _now
 from .agent_contracts import FailureEnvelope, FailureKind, TurnContext, failure_envelope
 
 STATE_FILE_NAME = "session_state.json"
@@ -97,10 +98,6 @@ def canonical_json_bytes(value: Any) -> bytes:
 
 def payload_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
-
-
-def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 class SessionStateLock:

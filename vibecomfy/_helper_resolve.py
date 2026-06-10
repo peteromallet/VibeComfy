@@ -355,7 +355,7 @@ def _update_raw_widget_value(node: Any, field: str, literal: Any) -> None:
     is folded into a literal, downstream emitters may rebuild UI JSON from the
     captured widget payload, so update that slot when we can identify it.
     """
-    index = _widget_index_for_field(node, field)
+    index = _widget_index_from_node(node, field)
     if index is None:
         return
     raw_ui = getattr(node, "metadata", {}).get("_ui")
@@ -370,7 +370,7 @@ def _update_raw_widget_value(node: Any, field: str, literal: Any) -> None:
         values[field] = literal
 
 
-def _widget_index_for_field(node: Any, field: str) -> int | None:
+def _widget_index_from_node(node: Any, field: str) -> int | None:
     if field.startswith("widget_"):
         try:
             return int(field.split("_", 1)[1])

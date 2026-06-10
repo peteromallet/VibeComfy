@@ -1,0 +1,12 @@
+...........s............................................................ [ 24%]
+........................................................................ [ 48%]
+.................ss..................................................... [ 73%]
+........................................................................ [ 97%]
+.......                                                                  [100%]
+=============================== warnings summary ===============================
+../../../.pyenv/versions/3.11.11/lib/python3.11/site-packages/pluggy/_callers.py:121
+  /Users/peteromalley/.pyenv/versions/3.11.11/lib/python3.11/site-packages/pluggy/_callers.py:121: UserWarning: pytest-rerunfailures not installed; runpod flake-retry markers skipped
+    res = hook_impl.function(*args)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+292 passed, 3 skipped, 1 warning in 1.76s

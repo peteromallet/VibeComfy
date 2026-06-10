@@ -198,13 +198,8 @@ def first_link_input(inputs: Mapping[str, Any]) -> list[Any] | None:
 
 
 def is_api_link(value: Any) -> bool:
-    if not isinstance(value, list) or len(value) != 2:
-        return False
-    try:
-        int(value[1])
-    except (TypeError, ValueError):
-        return False
-    return True
+    from vibecomfy._graph_utils import is_api_link as _graph_is_api_link  # deferred: _graph_utils imports from this module at module level
+    return _graph_is_api_link(value, require_numeric_node_id=False, require_int_slot=True)
 
 
 def _compile_helper_inputs(node: Any) -> dict[str, Any]:

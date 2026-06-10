@@ -1,0 +1,80 @@
+...........s............................................................ [  9%]
+........................................................................ [ 19%]
+................................................................ss...... [ 29%]
+........................................................................ [ 39%]
+........................................................................ [ 49%]
+..............................................................s......... [ 59%]
+..ss.................................................................... [ 69%]
+........................................................................ [ 79%]
+........................................................................ [ 89%]
+......................................s..s..ssss...FFFFFF.FFF..FF.....F. [ 99%]
+...F.                                                                    [100%]
+=================================== FAILURES ===================================
+E   KeyError: 'valid'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/tests/test_agentic_affordances.py:36: KeyError: 'valid'
+E   KeyError: 'schema_source'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/tests/test_agentic_affordances.py:68: KeyError: 'schema_source'
+E   AttributeError: 'Namespace' object has no attribute 'type_or_from_class'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/commands/nodes.py:63: AttributeError: 'Namespace' object has no attribute 'type_or_from_class'
+E   AttributeError: <module 'vibecomfy.commands.port' from '/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/commands/port/__init__.py'> has no attribute 'run_health_checks'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/tests/test_agentic_affordances.py:104: AttributeError: <module 'vibecomfy.commands.port' from '/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/commands/port/__init__.py'> has no attribute 'run_health_checks'
+E   AttributeError: <module 'vibecomfy.commands.port' from '/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/commands/port/__init__.py'> has no attribute 'repo_ready_template_paths'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/tests/test_agentic_affordances.py:122: AttributeError: <module 'vibecomfy.commands.port' from '/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/commands/port/__init__.py'> has no attribute 'repo_ready_template_paths'
+E   TypeError: VibeWorkflow.lookup_id() got an unexpected keyword argument 'source_path'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/tests/test_agentic_affordances.py:141: TypeError: VibeWorkflow.lookup_id() got an unexpected keyword argument 'source_path'
+E   AssertionError: assert 'next action:' in 'runtime'
+     +  where 'runtime' = str(RuntimeNodeError('runtime', next_action=None))
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/tests/test_agentic_affordances.py:168: AssertionError: assert 'next action:' in 'runtime'
+E   TypeError: VibeWorkflow.lookup_id() got an unexpected keyword argument 'source_path'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/runtime/eval_plan.py:63: TypeError: VibeWorkflow.lookup_id() got an unexpected keyword argument 'source_path'
+E   TypeError: VibeWorkflow.lookup_id() got an unexpected keyword argument 'source_path'
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/runtime/eval_plan.py:63: TypeError: VibeWorkflow.lookup_id() got an unexpected keyword argument 'source_path'
+E   vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/porting/object_info/consume.py:545: vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+E   vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/porting/object_info/consume.py:545: vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+E   vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/porting/object_info/consume.py:545: vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+E   vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+/Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/porting/object_info/consume.py:545: vibecomfy.errors.ArityDisagreementError: output arity disagreement for Reroute: cached snapshot declares 0 outputs but UI declares 1. Refresh the object_info schema snapshot. next action: vibecomfy schema refresh
+=============================== warnings summary ===============================
+../../../.pyenv/versions/3.11.11/lib/python3.11/site-packages/pluggy/_callers.py:121
+  /Users/peteromalley/.pyenv/versions/3.11.11/lib/python3.11/site-packages/pluggy/_callers.py:121: UserWarning: pytest-rerunfailures not installed; runpod flake-retry markers skipped
+    res = hook_impl.function(*args)
+
+tests/test_helper_resolve.py::TestPhaseC::test_primitive_float_folds_into_linked_widget_value_slot
+  /Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/tests/test_helper_resolve.py:333: UserWarning: emit_ui_json: schema-less node 1(KSampler); emitting best-effort slots. Pass strict=True to hard-fail.
+    emitted = next(node for node in emit_ui_json(wf)["nodes"] if node["id"] == 1)
+
+tests/test_cli_port.py::test_port_convert_dry_run_diff_with_ready_template_shows_text
+  /Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/templates.py:478: UserWarning: ReadyMetadata.build requirements['models'] differs from MODELS-derived model assets
+    derived_requirements = _requirements_with_models(requirements, model_assets)
+
+tests/test_cli_port.py::test_port_export_recovery_report_text_and_json
+  /Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/commands/port/_export.py:480: UserWarning: emit_ui_json: schema-less node 1(UnknownCustomNode_99999); emitting best-effort slots. Pass strict=True to hard-fail.
+    ui_payload = _port.emit_ui_json(
+
+tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_t2v
+tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_i2v
+tests/test_porting_edit_session_harness.py::test_case_e_reroute_analysis_ltx_i2v
+tests/test_porting_edit_session_harness.py::test_describe_ltx_t2v_top_level
+  /Users/peteromalley/Documents/.megaplan-worktrees/structural-decomp/vibecomfy/porting/emit_ready.py:1601: UserWarning: output arity disagreement for ComfyMathExpression: cached snapshot declares 3 outputs but UI declares 2; continuing because the extra cached outputs may be unused.
+    return check_output_arity_consensus(class_type, ui_output_count)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+All 13 failure(s) are in known_failures.txt baseline (by-design-red). No regressions.
+=========================== short test summary info ============================
+FAILED tests/test_agentic_affordances.py::test_port_validate_call_reports_unknown_kwarg_and_missing_required
+FAILED tests/test_agentic_affordances.py::test_port_validate_call_reads_uuid_subgraph_schema
+FAILED tests/test_agentic_affordances.py::test_nodes_compatible_with_input_and_output_semantics
+FAILED tests/test_agentic_affordances.py::test_port_doctor_all_aggregates_warnings_without_failing
+FAILED tests/test_agentic_affordances.py::test_port_doctor_all_all_mode_has_single_global_checks_block
+FAILED tests/test_agentic_affordances.py::test_lookup_id_runtime_api_and_inspect_cli_match
+FAILED tests/test_agentic_affordances.py::test_diagnostic_errors_preserve_next_action_and_severity
+FAILED tests/test_agentic_affordances.py::test_eval_node_dry_run_classifies_outputs_and_plans_preview
+FAILED tests/test_agentic_affordances.py::test_eval_node_raw_queue_once_and_schema_only_never_queues
+FAILED tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_t2v
+FAILED tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_i2v
+FAILED tests/test_porting_edit_session_harness.py::test_case_e_reroute_analysis_ltx_i2v
+FAILED tests/test_porting_edit_session_harness.py::test_describe_ltx_t2v_top_level
+13 failed, 700 passed, 12 skipped, 8 warnings in 67.54s (0:01:07)

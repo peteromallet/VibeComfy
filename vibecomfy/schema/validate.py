@@ -4,6 +4,7 @@ import copy
 import re
 from typing import Any
 
+from vibecomfy.porting.resolution import _normalize_type
 from vibecomfy.schema.provider import SchemaProvider, schema_for, schema_registry_empty
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
@@ -495,15 +496,6 @@ def _edge_input_type(schema, to_input: str) -> str | None:
     return _normalize_type(getattr(spec, "type", None))
 
 
-def _normalize_type(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip().upper()
-    if not text or text == "*":
-        return None
-    return text
-
-
 def socket_types_compatible(output_type: Any, input_type: Any) -> bool:
     """Return whether a Comfy output socket type can connect to an input type."""
 
@@ -583,12 +575,8 @@ def _is_boolean_literal(value: Any) -> bool:
 
 
 def _is_api_link(value: Any) -> bool:
-    return (
-        isinstance(value, (list, tuple))
-        and len(value) == 2
-        and isinstance(value[0], str)
-        and isinstance(value[1], int)
-    )
+    from vibecomfy._graph_utils import is_api_link as _graph_is_api_link
+    return _graph_is_api_link(value, allow_tuple=True, require_string_node_id=True, require_numeric_node_id=False, require_int_slot=True)
 
 
 def _truncate(value: Any, n: int = 120) -> str:

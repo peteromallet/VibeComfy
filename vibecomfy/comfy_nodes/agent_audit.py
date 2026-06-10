@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from ._time_utils import _now
 from .agent_contracts import ArtifactRef, FailureEnvelope, StageResult, TurnContext
 
 INLINE_LIMIT_BYTES = 4096
@@ -37,10 +38,6 @@ _CATEGORY_KEYS: dict[str, tuple[str, ...]] = {
 class RedactionResult:
     value: Any
     categories: tuple[str, ...]
-
-
-def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _category_for_key(key: str) -> str | None:

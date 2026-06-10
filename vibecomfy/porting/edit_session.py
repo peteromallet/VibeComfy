@@ -81,10 +81,9 @@ from vibecomfy.porting.edit_session_ir_utils import (
     _api_one_hop_neighbors,
     _changed_edge_endpoint_node_ids,
     _done_gate_b_uids_for_ops,
-    _find_named_slot,
     _link_origin,
     _node_id_sort_key,
-    _normalize_type,
+    _normalize_ir_type,
     _output_slot_name,
     _output_specs,
     _socket_type_from_widget_value,
@@ -93,6 +92,7 @@ from vibecomfy.porting.edit_session_ir_utils import (
     _widget_value_for_field,
     _workflow_uid_to_node_id,
 )
+from vibecomfy.porting.resolution import _find_named_slot
 
 from vibecomfy.porting.edit_session_diff import (
     _DiffMixin,
