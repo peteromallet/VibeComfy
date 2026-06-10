@@ -1101,6 +1101,9 @@ def lower_workflow(
     that :func:`~vibecomfy.porting.layout.groups.build_subgraph_groups`
     can materialize per-iteration visual groups.  Default (``False``) keeps
     flat native emission unchanged.
+
+    The sole production caller is
+    :mod:`vibecomfy.comfy_nodes.agent_edit` (``agent_edit.py:3147``).
     """
     loop_nodes = discover_loop_nodes(workflow)
 

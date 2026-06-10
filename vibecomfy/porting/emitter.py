@@ -269,8 +269,6 @@ def _node_local_class_defaults(node: Any) -> dict[str, Any]:
             return defaults
     return dict(class_defaults(class_type))
 from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
-from vibecomfy.utils import repo_relative_path
-
 # -- readability warning codes ------------------------------------------------
 READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT = "avoidable_positional_output"
 READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY = "output_name_ambiguity"
@@ -306,9 +304,10 @@ READABILITY_WARNING_CODES: frozenset[str] = frozenset(
     }
 )
 
+from vibecomfy.porting._provenance_utils import _normalize_provenance_paths
+
 EmissionSeverity = Literal["error", "warning", "info"]
 logger = logging.getLogger(__name__)
-_PROVENANCE_PATH_KEYS: frozenset[str] = frozenset({"source_path", "source_workflow_path", "source_workflow"})
 
 
 @dataclass(slots=True)
@@ -1505,22 +1504,6 @@ def _metadata_extras_for_emit(metadata: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(provenance, Mapping) and not _is_derivable_provenance(provenance):
         extras["provenance"] = _normalize_provenance_paths(provenance)
     return extras
-
-
-def _normalize_provenance_paths(provenance: Mapping[str, Any]) -> dict[str, Any]:
-    normalized = dict(provenance)
-    for key in _PROVENANCE_PATH_KEYS:
-        value = normalized.get(key)
-        if isinstance(value, str) and value:
-            normalized[key] = _repo_relative_provenance_path(value)
-    return normalized
-
-
-def _repo_relative_provenance_path(path: str) -> str:
-    normalized = repo_relative_path(path)
-    if Path(normalized).is_absolute():
-        logger.warning("provenance path is outside the repo; keeping absolute path: %s", normalized)
-    return normalized
 
 
 def _is_derivable_provenance(provenance: Mapping[str, Any]) -> bool:

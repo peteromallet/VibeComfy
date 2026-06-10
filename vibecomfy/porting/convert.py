@@ -33,7 +33,6 @@ from vibecomfy.porting.strict_ready import (
     validate_strict_ready_workflow,
 )
 from vibecomfy.porting.widget_aliases import widget_alias_analysis
-from vibecomfy.utils import repo_relative_path
 from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow
 
 # -- model-like value detection ----------------------------------------------
@@ -41,7 +40,12 @@ from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow
 _MODEL_LIKE_EXTENSIONS: frozenset[str] = frozenset(
     {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx"}
 )
-_PROVENANCE_PATH_KEYS: frozenset[str] = frozenset({"source_path", "source_workflow_path", "source_workflow"})
+from vibecomfy.porting._provenance_utils import (
+    _normalize_provenance_paths,
+    _PROVENANCE_PATH_KEYS,
+    _repo_relative_provenance_path,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -177,6 +181,20 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
         broadcast_name,
     )
 
+    # Build endpoint index once (O(N+M)) instead of scanning edges per node.
+    edges_by_endpoint: dict[str, list[list]] = {}
+    for edge in workflow.edges:
+        from_s = str(edge.from_node)
+        to_s = str(edge.to_node)
+        incident = [edge.from_node, edge.from_output, edge.to_node, edge.to_input]
+        if from_s == to_s:
+            # Self-loop: record once under the node_id so the lookup below
+            # finds it without double-insertion.
+            edges_by_endpoint.setdefault(from_s, []).append(incident)
+        else:
+            edges_by_endpoint.setdefault(from_s, []).append(incident)
+            edges_by_endpoint.setdefault(to_s, []).append(incident)
+
     captured: dict[str, dict[str, Any]] = {}
     for node_id, node in workflow.nodes.items():
         if node.class_type not in _VIRTUAL_WIRE_CLASS_TYPES:
@@ -190,11 +208,7 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
             if node.class_type in BROADCAST_HELPER_CLASS_TYPES
             else None
         )
-        endpoints = [
-            [edge.from_node, edge.from_output, edge.to_node, edge.to_input]
-            for edge in workflow.edges
-            if str(edge.from_node) == str(node_id) or str(edge.to_node) == str(node_id)
-        ]
+        endpoints = edges_by_endpoint.get(str(node_id), [])
         captured[uid] = {
             "type": node.class_type,
             "channel": channel,
@@ -755,22 +769,6 @@ def _ready_metadata(
         metadata.setdefault("provenance", _normalize_provenance_paths(provenance))
     _ensure_sageattention_runtime_package(metadata, workflow)
     return metadata
-
-
-def _normalize_provenance_paths(provenance: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(provenance)
-    for key in _PROVENANCE_PATH_KEYS:
-        value = normalized.get(key)
-        if isinstance(value, str) and value:
-            normalized[key] = _repo_relative_provenance_path(value)
-    return normalized
-
-
-def _repo_relative_provenance_path(path: str) -> str:
-    normalized = repo_relative_path(path)
-    if Path(normalized).is_absolute():
-        logger.warning("provenance path is outside the repo; keeping absolute path: %s", normalized)
-    return normalized
 
 
 def _ready_requirements(workflow: VibeWorkflow) -> dict[str, Any]:
