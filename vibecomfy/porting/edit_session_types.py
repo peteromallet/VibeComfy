@@ -66,7 +66,7 @@ class BatchResult:
         presentation-only — it does not mutate any state.
         """
         # Local import to avoid circular dependency with edit_session module
-        from vibecomfy.porting.edit_session import _render_op_diff
+        from vibecomfy.porting.edit_session_diff import _render_op_diff
 
         parts: list[str] = []
         # -- Diagnostic banner -------------------------------------------------
