@@ -66,6 +66,7 @@ export {
   markAllAgentPanelDirty,
   scheduleRenderAgentPanel,
 };
+export { applyTypedSocketLabelsLabelOnly };
 
 // ── VibeComfy Contract (S2 — Durable Frontend Panel) ─────────────────────
 // This file captures the frontend↔backend contract before feature work.
@@ -270,6 +271,7 @@ const INTENT_KIND_BY_CLASS_TYPE = Object.freeze({
   "vibecomfy.loop": "loop",
 });
 const INTENT_PREVIEW_MAX = 120;
+const _MAX_DYNAMIC_PORTS = 16;
 const INTENT_STYLE_BY_KIND = Object.freeze({
   code: {
     color: "#2d2643",
@@ -487,6 +489,31 @@ function applyTypedSocketLabels(slots, typedEntries) {
   }
 }
 
+function applyTypedSocketLabelsLabelOnly(slots, typedEntries) {
+  if (!Array.isArray(slots) || !Array.isArray(typedEntries) || !typedEntries.length) {
+    return;
+  }
+  const count = Math.min(slots.length, typedEntries.length);
+  for (let index = 0; index < count; index += 1) {
+    const slot = slots[index];
+    const typed = typedEntries[index];
+    if (!slot || !typed) {
+      continue;
+    }
+    const label = `${typed.name}: ${typed.type}`;
+    // Write ONLY slot.label; leave slot.name unchanged (in_i for serialization).
+    if ("label" in slot || typeof slot === "object") {
+      slot.label = label;
+    }
+  }
+}
+
+function _isDynamicIoCodeNode(node) {
+  return (
+    String(node?.comfyClass || "").trim() === "VibeComfyCodeIntent"
+  );
+}
+
 function decorateIntentNode(node, fallbackClassType = null) {
   const classType = getIntentClassType(node, fallbackClassType);
   if (!classType) {
@@ -507,8 +534,39 @@ function decorateIntentNode(node, fallbackClassType = null) {
   if (meta.specPreview) {
     node.properties["VibeComfy Intent Spec"] = meta.specPreview;
   }
-  applyTypedSocketLabels(node.inputs, meta.typedInputs);
-  applyTypedSocketLabels(node.outputs, meta.typedOutputs);
+  const dynamicIo = _isDynamicIoCodeNode(node);
+  if (dynamicIo) {
+    // Dynamic-IO code node: label-only (preserve in_i slot names for serialization).
+    applyTypedSocketLabelsLabelOnly(node.inputs, meta.typedInputs);
+    applyTypedSocketLabelsLabelOnly(node.outputs, meta.typedOutputs);
+    // Hide unused trailing pool slots via removeInput/removeOutput.
+    // We walk backwards so indices stay stable.
+    const activeInputCount = Math.min(
+      Array.isArray(meta.typedInputs) ? meta.typedInputs.length : 0,
+      _MAX_DYNAMIC_PORTS,
+    );
+    if (Array.isArray(node.inputs)) {
+      for (let i = node.inputs.length - 1; i >= activeInputCount; i -= 1) {
+        if (typeof node.removeInput === "function") {
+          try { node.removeInput(i); } catch (_e) { /* best-effort */ }
+        }
+      }
+    }
+    const activeOutputCount = Math.min(
+      Array.isArray(meta.typedOutputs) ? meta.typedOutputs.length : 0,
+      _MAX_DYNAMIC_PORTS,
+    );
+    if (Array.isArray(node.outputs)) {
+      for (let i = node.outputs.length - 1; i >= activeOutputCount; i -= 1) {
+        if (typeof node.removeOutput === "function") {
+          try { node.removeOutput(i); } catch (_e) { /* best-effort */ }
+        }
+      }
+    }
+  } else {
+    applyTypedSocketLabels(node.inputs, meta.typedInputs);
+    applyTypedSocketLabels(node.outputs, meta.typedOutputs);
+  }
   node.__vibecomfyIntentMeta = meta;
   return true;
 }

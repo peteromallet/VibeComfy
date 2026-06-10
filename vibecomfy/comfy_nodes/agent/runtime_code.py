@@ -18,6 +18,14 @@ from vibecomfy.contracts.intent_nodes import (
 _WORKER_MAX_STDOUT_BYTES: Final[int] = 64 * 1024
 _WORKER_MAX_STDERR_BYTES: Final[int] = 16 * 1024
 
+# ComfyUI INPUT_TYPES traversal contract: ComfyUI discovers node ports exclusively by
+# calling INPUT_TYPES as a @classmethod on the node class.  Per-instance state is not
+# available during that call, so per-instance port counts (addInput/removeInput) cannot
+# be driven from the Python side.  Instead, the architecture pre-declares a 16-slot
+# wildcard pool in the static INPUT_TYPES dict and relies on the frontend to hide unused
+# slots and relabel active ones at runtime.  This keeps the port surface minimal while
+# respecting ComfyUI's classmethod-only discovery contract.
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeCodeExecutionError(RuntimeError):
@@ -106,6 +114,85 @@ def execute_runtime_code(
             "Runtime-backed code returned a non-JSON-compatible result.",
         )
     return worker_result
+
+
+def execute_runtime_code_dynamic(
+    *,
+    named_inputs: dict[str, Any],
+    vibecomfy_props: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Execute a dynamic-IO runtime code node.
+
+    Takes pre-remapped ``named_inputs`` (in_i keys already resolved to user
+    names) and reads all configuration from ``vibecomfy_props``
+    (``properties.vibecomfy`` extracted from the ComfyUI prompt by execute()).
+
+    Always returns a dict so execute() can perform uniform 16-slot mapping:
+    - io.outputs empty  → ``{"value": <worker_result>}`` (sentinel wrap)
+    - io.outputs 1 entry → ``{out_name: <worker_result>}``
+    - io.outputs N>1    → worker result must be a dict; raises
+      ``RuntimeCodeExecutionError("runtime_output_shape_mismatch", ...)``
+      when the worker returns a non-dict.
+    """
+    props = vibecomfy_props if isinstance(vibecomfy_props, dict) else {}
+    io = props.get("io")
+    io = io if isinstance(io, dict) else {}
+    intent = props.get("intent")
+    intent = intent if isinstance(intent, dict) else {}
+    runtime = props.get("runtime")
+    runtime = runtime if isinstance(runtime, dict) else {}
+
+    source = intent.get("source")
+    source = source if isinstance(source, str) else ""
+
+    allowed_builtins_raw = runtime.get("allowed_builtins")
+    if isinstance(allowed_builtins_raw, list) and all(isinstance(x, str) for x in allowed_builtins_raw):
+        allowed_builtins = allowed_builtins_raw
+    else:
+        allowed_builtins = []
+
+    timeout_ms_val = runtime.get("timeout_ms")
+    if not isinstance(timeout_ms_val, int) or isinstance(timeout_ms_val, bool):
+        timeout_ms_val = 1000
+
+    outputs_spec = io.get("outputs")
+    outputs_spec = outputs_spec if isinstance(outputs_spec, list) else []
+
+    worker_result = _run_worker(
+        {
+            "source": source,
+            "value": next(iter(named_inputs.values()), None) if named_inputs else None,
+            "inputs": named_inputs,
+            "allowed_builtins": allowed_builtins,
+        },
+        timeout_ms=timeout_ms_val,
+    )
+
+    if not outputs_spec:
+        # Empty io.outputs: sentinel-wrap so execute() always sees a dict.
+        return {"value": worker_result}
+
+    output_names: list[str] = []
+    for entry in outputs_spec:
+        if isinstance(entry, (list, tuple)) and entry and isinstance(entry[0], str):
+            output_names.append(entry[0])
+
+    if not output_names:
+        return {"value": worker_result}
+
+    if len(output_names) == 1:
+        return {output_names[0]: worker_result}
+
+    # Multiple declared outputs require the worker to return a dict.
+    if not isinstance(worker_result, dict):
+        raise RuntimeCodeExecutionError(
+            "runtime_output_shape_mismatch",
+            f"Runtime code with {len(output_names)} declared outputs must return a dict mapping "
+            f"output names to values; got {type(worker_result).__name__}.",
+            {"expected_keys": output_names, "actual_type": type(worker_result).__name__},
+        )
+    return {name: worker_result.get(name) for name in output_names}
 
 
 def _coerce_string_list(value: Any, field: str) -> list[str]:

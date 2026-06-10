@@ -21,6 +21,7 @@ INTENT_NODE_QUEUE_BLOCKER_CODE: Final[str] = "intent_node_queue_blocker"
 INTENT_CODE_MAX_BYTES: Final[int] = 16 * 1024
 INTENT_SPEC_MAX_BYTES: Final[int] = 16 * 1024
 INTENT_LOOP_MAX_ITERATIONS: Final[int] = 128
+MAX_DYNAMIC_PORTS: Final[int] = 16
 
 INTENT_NODE_VALIDATION_PHASE: Final[str] = "intent_node_validate"
 RUNTIME_CODE_CONTRACT_VERSION: Final[str] = "runtime_code_v1"
@@ -290,6 +291,16 @@ def validate_typed_io_spec(io_payload: Any) -> tuple[list[list[str]], list[Inten
                     "typed_io_shape",
                     f"properties.vibecomfy.io.{key} must be a sequence of [name, type] pairs",
                     detail={"field": key},
+                )
+            )
+            continue
+        if len(value) > MAX_DYNAMIC_PORTS:
+            problems.append(
+                IntentNodeProblem(
+                    "runtime_io_exceeds_max_ports",
+                    f"properties.vibecomfy.io.{key} has {len(value)} entries; "
+                    f"dynamic intent nodes support at most {MAX_DYNAMIC_PORTS} ports per side.",
+                    detail={"field": key, "count": len(value), "max": MAX_DYNAMIC_PORTS},
                 )
             )
             continue
@@ -997,6 +1008,7 @@ __all__ = [
     "DEFERRED_INTENT_KINDS",
     "INTENT_CODE_MAX_BYTES",
     "INTENT_LOOP_MAX_ITERATIONS",
+    "MAX_DYNAMIC_PORTS",
     "INTENT_NODE_CONTRACT_INVALID_CODE",
     "INTENT_NODE_EDITOR_ONLY_CODE",
     "INTENT_NODE_QUEUE_BLOCKER_CODE",
