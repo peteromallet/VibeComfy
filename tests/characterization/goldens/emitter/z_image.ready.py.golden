@@ -35,6 +35,86 @@ READY_METADATA = ReadyMetadata.build(
     provenance={'source_path': 'workflow_corpus/official/image/z_image.json', 'source_id': 'z_image', 'source_type': 'api', 'source_workflow_path': 'workflow_corpus/official/image/z_image.json', 'output_mode': 'ready_template', 'ready_id': 'image/z_image', 'source_workflow': 'workflow_corpus/official/image/z_image.json'},
 )
 
+# === Subgraph functions ===
+
+def text_to_image_z_image_base(
+    *,
+    width: int,
+    height: int,
+    unet_name: str,
+    clip_name: str,
+    vae_name: str,
+    prompt: str,
+    steps: int,
+    cfg: float,
+):
+    """Text to Image(Z-Image-Base).
+
+    Materialized from subgraph 9b9009e4-2d3d-445f-9be5-6063f465757e in workflow_corpus/official/image/z_image.json.
+    # vibecomfy source hash: sha256:7842e3e22849fa5c2ae13b65bf3256da47a6b3e242e0b4ca4d9221a0002dc54e
+    Inner nodes: CLIPTextEncodex2, EmptySD3LatentImage, VAELoader, CLIPLoader, VAEDecode, ModelSamplingAuraFlow, UNETLoader, KSampler.
+    """
+
+    cliploader = CLIPLoader(
+        type_='lumina2',
+        clip_name=clip_name,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#62',
+    )
+
+    vaeloader = VAELoader(
+        vae_name=vae_name,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#63',
+    )
+
+    unetloader = UNETLoader(
+        unet_name=unet_name,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#66',
+    )
+
+    emptysd3latentimage = EmptySD3LatentImage(
+        width=width,
+        height=height,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#68',
+    )
+
+    positive = CLIPTextEncode(
+        text=prompt,
+        clip=cliploader,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#67',
+    )
+
+    modelsamplingauraflow = ModelSamplingAuraFlow(
+        shift=3,
+        model=unetloader,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#70',
+    )
+
+    negative = CLIPTextEncode(
+        text='',
+        clip=cliploader,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#71',
+    )
+
+    ksampler = KSampler(
+        seed=770044821593082,
+        sampler_name='res_multistep',
+        steps=steps,
+        cfg=cfg,
+        latent_image=emptysd3latentimage,
+        model=modelsamplingauraflow,
+        negative=negative,
+        positive=positive,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#69',
+    )
+
+    vaedecode = VAEDecode(
+        samples=ksampler,
+        vae=vaeloader,
+        _uid='9b9009e4-2d3d-445f-9be5-6063f465757e#65',
+    )
+
+    return vaedecode
+
 def build() -> VibeWorkflow:
     """Build the workflow (auto-generated)."""
     wf = new_workflow(READY_METADATA, source_path=__file__)
