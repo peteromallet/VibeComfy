@@ -581,20 +581,43 @@ function drawIntentBadge(ctx, node) {
   if (!meta.classType) {
     return;
   }
+  if (node?.flags?.collapsed) {
+    // Title bar is rendered differently when collapsed; skip to avoid clutter.
+    return;
+  }
   const badge = buildIntentBadge(meta);
   const width = readNodeSize(node, 180, 100).w;
   const style = styleForIntentMeta(meta);
+  const titleHeight = (typeof globalThis !== "undefined"
+    && Number(globalThis.LiteGraph?.NODE_TITLE_HEIGHT)) || 30;
   if (typeof ctx.save === "function") {
     ctx.save();
   }
   try {
+    // Draw the badge as a right-aligned chip in the title bar (negative y is the
+    // title strip above the node body), so it never overlaps the input slot rows.
+    ctx.font = "bold 11px monospace";
+    let textW = badge.length * 7.25;
+    if (typeof ctx.measureText === "function") {
+      const measured = ctx.measureText(badge);
+      if (measured && typeof measured.width === "number") {
+        textW = measured.width;
+      }
+    }
+    const padX = 6;
+    const chipH = 16;
+    const chipW = Math.min(Math.max(width - 16, 0), textW + padX * 2);
+    const chipX = Math.max(8, width - chipW - 8);
+    const chipY = -titleHeight + (titleHeight - chipH) / 2;
     ctx.fillStyle = style.boxcolor;
     if (typeof ctx.fillRect === "function") {
-      ctx.fillRect(10, 6, Math.max(112, Math.min(width - 20, badge.length * 7.25)), 18);
+      ctx.fillRect(chipX, chipY, chipW, chipH);
     }
     ctx.fillStyle = "#111418";
-    ctx.font = "bold 11px monospace";
-    ctx.fillText(badge, 16, 19);
+    const priorBaseline = ctx.textBaseline;
+    ctx.textBaseline = "middle";
+    ctx.fillText(badge, chipX + padX, chipY + chipH / 2 + 0.5);
+    ctx.textBaseline = priorBaseline;
   } finally {
     if (typeof ctx.restore === "function") {
       ctx.restore();
