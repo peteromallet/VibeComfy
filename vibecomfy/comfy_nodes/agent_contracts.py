@@ -73,6 +73,30 @@ REBASELINE_RECOVERY_FIELDS: tuple[str, ...] = (
     "client_structural_graph_hash",
 )
 
+# Maps internal TurnOutcome kinds to their canonical public outcome kind.
+# Sourced from public_outcome_from_turn_outcome (this module, L885–925) and
+# cross-checked against the JS INTERNAL_OUTCOME_KIND_MAP
+# (agent_edit_response_contract.js L8–11).
+# "budget" is context-dependent (candidate vs noop) — not in this static map.
+INTERNAL_TO_PUBLIC_OUTCOME: Mapping[str, str] = MappingProxyType({
+    "edit": "candidate",
+    "edit+clarify": "candidate",
+    "clarify": "clarify",
+    "noop": "noop",
+    "failure": "error",
+})
+
+# Well-known keys that, when present on a response object, signal a failure.
+# Sourced from FAILURE_HINT_KEYS in agent_edit_response_contract.js L13–20.
+FAILURE_HINT_KEYS: tuple[str, ...] = (
+    "agent_failure_context",
+    "failureKind",
+    "failure_kind",
+    "nextAction",
+    "next_action",
+    "retryable",
+)
+
 
 class FailureKind(str, Enum):
     SYNTAX_ERROR = "SyntaxError"
@@ -1340,11 +1364,14 @@ __all__ = [
     "ApplyEligibility",
     "CANVAS_APPLY_GATE_NAMES",
     "DEFAULT_GATE_NAMES",
+    "FAILURE_HINT_KEYS",
     "FAILURE_SPECS",
     "FailureEnvelope",
     "FailureKind",
     "GateResult",
+    "INTERNAL_TO_PUBLIC_OUTCOME",
     "PUBLIC_OUTCOME_KINDS",
+    "REBASELINE_RECOVERY_FIELDS",
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
     "TURN_OUTCOME_KINDS",

@@ -724,18 +724,15 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
         messages_path=tmp_path / "messages.jsonl",
     )
     context = TurnContext(session_id="runner-session", turn_id="runner-turn")
-    calls: list[tuple[str, object]] = []
+    calls: list[str] = []
 
-    def _fake_run_stage(name, passed_state, passed_context, fn, *args, **kwargs):
-        calls.append((name, fn))
+    def _fake_run_stage(name, passed_state, passed_context, **kwargs):
+        calls.append(name)
         assert passed_state is state
         assert passed_context is context
-        assert not args
-        if name == "ingest":
-            assert fn is agent_edit_module._stage_ingest_v2
+        if name == "ingest_v2":
             assert kwargs == {}
-        elif name == "agent_batch":
-            assert fn is agent_edit_module._stage_agent_batch_repl
+        elif name == "agent_batch_repl":
             assert kwargs == {
                 "deepseek_client": "client",
                 "route": "router",
@@ -759,7 +756,7 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
     )
 
     assert returned is state
-    assert [name for name, _fn in calls] == ["ingest", "agent_batch"]
+    assert calls == ["ingest_v2", "agent_batch_repl"]
 
 
 def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner(
@@ -1199,7 +1196,7 @@ def test_agent_edit_batch_internal_failure_is_not_provider_error(
     _assert_failure_defaults(
         result,
         kind=FailureKind.VALIDATION_ERROR.value,
-        stage="agent_batch",
+        stage="agent_batch_repl",
         audit_ref_expected=True,
     )
     assert "temporarily unavailable" not in result["message"]
@@ -2456,13 +2453,13 @@ def test_handle_agent_edit_batch_repl_rejects_malformed_or_non_terminal_clarify_
     _assert_failure_defaults(
         result,
         kind=failure_kind,
-        stage="agent_batch",
+        stage="agent_batch_repl",
         audit_ref_expected=True,
     )
     _assert_product_failure_contract(
         result,
         failure_kind=failure_kind,
-        stage="agent_batch",
+        stage="agent_batch_repl",
     )
     assert not result.get("clarification_required", False)
     assert "question" not in result["outcome"]

@@ -20,6 +20,56 @@ function asString(value) {
   return typeof value === "string" ? value : null;
 }
 
+// ── Constants (shared, Python-sourced) ──────────────────────────────────────
+
+export const PUBLIC_OUTCOME_KINDS = Object.freeze([
+  "candidate",
+  "noop",
+  "clarify",
+  "error"
+]);
+
+export const INTERNAL_OUTCOME_KIND_MAP = Object.freeze({
+    "edit": "candidate",
+    "edit+clarify": "candidate",
+});
+
+export const FAILURE_HINT_KEYS = Object.freeze([
+  "agent_failure_context",
+  "failureKind",
+  "failure_kind",
+  "nextAction",
+  "next_action",
+  "retryable"
+]);
+
+export const NORMALIZED_RESPONSE_MARKER = "__agentEditResponseNormalized";
+
+// ── Candidate-payload detection ─────────────────────────────────────────────
+
+/**
+ * Check whether a raw response contains a candidate payload.
+ *
+ * candidate_graph is treated as a peer of candidate and graph (rather than
+ * nested under .candidate) because it is the canonical snake_case wire
+ * container for structured graph data.  This flattening keeps the logic in
+ * normalizeCandidateGraph straightforward and avoids a recursive-normalization
+ * tangle when a response carries only candidate_graph without a parent
+ * candidate envelope.  The decision is deliberate and cross-checked against
+ * the Python-side candidate-graph extraction in agent_edit.py.
+ *
+ * @param {*} response - raw response object
+ * @returns {boolean}
+ */
+export function responseHasCandidatePayload(response) {
+  if (!isObject(response)) {
+    return false;
+  }
+  return isObject(response.candidate)
+    || isObject(response.candidate_graph)
+    || isObject(response.graph);
+}
+
 // ── Rebaseline recovery (snake_case canonical) ──────────────────────────────
 
 /**

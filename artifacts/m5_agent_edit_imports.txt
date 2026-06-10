@@ -78,14 +78,29 @@
 # L7614: from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
 # L7639: from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
 # L7648: from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
-# L7669-7672: from vibecomfy.comfy_nodes.agent_edit import (_field_change_is_noop, _ABSENT_FIELD_OLD)
+# L7669-7672: from vibecomfy.comfy_nodes.agent_edit import (
+#     _field_change_is_noop,
+#     _ABSENT_FIELD_OLD,
+# )
 # L7710: from vibecomfy.comfy_nodes.agent_edit import _real_field_changes
 # L7734: from vibecomfy.comfy_nodes.agent_edit import _noop_field_changes
 # L7757: from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
 # L7799: from vibecomfy.comfy_nodes.agent_edit import _format_batch_report_json
-# L7841-7845: from vibecomfy.comfy_nodes.agent_edit import (_field_change_is_noop, _real_field_changes, _noop_field_changes)
-# L7878-7882: from vibecomfy.comfy_nodes.agent_edit import (_edit_lint_enabled, _stage_apply_delta, AgentEditState)
-# L7955-7959: from vibecomfy.comfy_nodes.agent_edit import (_edit_lint_enabled, _stage_apply_delta, AgentEditState)
+# L7841-7845: from vibecomfy.comfy_nodes.agent_edit import (
+#     _field_change_is_noop,
+#     _real_field_changes,
+#     _noop_field_changes,
+# )
+# L7878-7882: from vibecomfy.comfy_nodes.agent_edit import (
+#     _edit_lint_enabled,
+#     _stage_apply_delta,
+#     AgentEditState,
+# )
+# L7955-7959: from vibecomfy.comfy_nodes.agent_edit import (
+#     _edit_lint_enabled,
+#     _stage_apply_delta,
+#     AgentEditState,
+# )
 
 # --- tests/test_comfy_nodes_agent_backend_spine.py ---
 # L37-41: from vibecomfy.comfy_nodes.agent_edit import (
@@ -111,6 +126,7 @@
 # SECTION 4: monkeypatch.setattr interception sites (tests/)
 # =============================================================================
 # All sites are in tests/test_comfy_nodes_agent_edit.py
+# Count: 21 sites (9 module-ref via agent_edit_module, 12 dotted-string)
 
 # L750:  monkeypatch.setattr(agent_edit_module, "_run_stage", _fake_run_stage)
 # L846:  monkeypatch.setattr(agent_edit_module, "_run_batch_repl_product_path", _fake_runner)
@@ -135,25 +151,32 @@
 # L4568: monkeypatch.setattr(agent_edit_module, "write_audit", _write_with_unknown_failure)
 
 # =============================================================================
-# SECTION 5: JS import sites from agent_edit_lifecycle.js / contract modules
+# SECTION 5: JS import sites from agent_edit modules
 # =============================================================================
-# (web/ imports — JS-side consumers of the agent-edit contract)
 
 # --- vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js ---
-# L12-15: import { extractRebaselineRecovery, normalizeRebaselineRecovery }
-#           from "./agent_edit_response_contract_generated.js";
+# L12-15: import {
+#   extractRebaselineRecovery,
+#   normalizeRebaselineRecovery,
+# } from "./agent_edit_response_contract_generated.js";
 
 # --- vibecomfy/comfy_nodes/web/panel_scheduler.js ---
-# L1: import { RENDER_SECTIONS, normalizeObligationDirtySections }
-#       from "./agent_edit_lifecycle.js";
+# L1: import { RENDER_SECTIONS, normalizeObligationDirtySections } from "./agent_edit_lifecycle.js";
 
 # --- vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js ---
-# L49-55: import { createAgentEditState, RENDER_SECTIONS,
-#           normalizeDeltaOpsFromSubmit, normalizeObligationDirtySections, transition }
-#           from "./agent_edit_lifecycle.js";
-# L56-61: import { normalizeAgentEditResponse, readLatestCandidate,
-#           readRebaselineRecovery, extractRebaselineRecovery }
-#           from "./agent_edit_response_contract.js";
+# L49-55: import {
+#   createAgentEditState,
+#   RENDER_SECTIONS,
+#   normalizeDeltaOpsFromSubmit,
+#   normalizeObligationDirtySections,
+#   transition,
+# } from "./agent_edit_lifecycle.js";
+# L56-61: import {
+#   normalizeAgentEditResponse,
+#   readLatestCandidate,
+#   readRebaselineRecovery,
+#   extractRebaselineRecovery,
+# } from "./agent_edit_response_contract.js";
 
 # =============================================================================
 # SECTION 6: Key symbol verification
