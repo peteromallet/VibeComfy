@@ -1,0 +1,215 @@
+# M1 Step 1 — Audit Baseline
+
+## Distinct symbols imported from `vibecomfy.workflow`
+
+### Public dataclasses / classes (12)
+1. `VibeEdge`
+2. `VibeNode`
+3. `VibeWorkflow`
+4. `WorkflowSource`
+5. `VibeInput`
+6. `VibeOutput`
+7. `RawWidgetPayload`
+8. `ValidationIssue`
+9. `ValidationReport`
+10. `WorkflowCompileError`
+11. `WorkflowRequirements`
+12. `OPAQUE_COMPONENT_CLASS_RE`
+
+### Module-level aliases (3)
+- `helper_resolve` — aliased at workflow.py:9 (`from vibecomfy import _helper_resolve as helper_resolve`)
+- `widget_aliases` — aliased at workflow.py:10 (`from vibecomfy import _widget_aliases as widget_aliases`)
+- `workflow_helpers` — aliased at workflow.py:11 (`from vibecomfy import _workflow_helpers as workflow_helpers`)
+
+### Crossed private symbols (2)
+These are private (`_`-prefixed) symbols that external test code imports directly:
+
+| Symbol | Imported by |
+|---|---|
+| `_compute_dropped_bypassed_ids` | `tests/test_compile_invariance.py:22` |
+| `_get_node_mode` | `tests/test_porting_ui_emitter.py:592` |
+
+**Confirmed:** These are the **only** two crossed privates. No other `_`-prefixed names from `vibecomfy.workflow` are imported anywhere outside the module itself.
+
+---
+
+## Characterization suite baseline (`pytest -m characterization -q --tb=no --no-header -rA`)
+
+All 39 characterization tests errored (no new failures introduced — this is the pre-existing baseline):
+
+### Errors (39)
+```
+tests/characterization/test_agent_edit_roundtrips.py::test_agent_edit_roundtrip[case_01_widget_set]
+tests/characterization/test_agent_edit_roundtrips.py::test_agent_edit_roundtrip[case_02_add_node]
+tests/characterization/test_agent_edit_roundtrips.py::test_agent_edit_roundtrip[case_03_connect]
+tests/characterization/test_agent_edit_roundtrips.py::test_agent_edit_roundtrip[case_04_disconnect]
+tests/characterization/test_agent_edit_roundtrips.py::test_agent_edit_roundtrip[case_05_multi_op]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[empty_image_red]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[empty_image_red_smoke_required]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[flux2_klein_4b_image_edit_distilled]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[flux2_klein_4b_t2i]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[flux2_klein_9b_gguf_t2i]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[ltx2_3_i2v]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[ltx2_3_t2v]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[qwen_image_edit]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[wan_i2v]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[wan_t2v]
+tests/characterization/test_compile_api_snapshots.py::test_snapshot_sidecars_match_compiled_workflow[z_image]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-empty_image_red]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-empty_image_red_smoke_required]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-flux2_klein_4b_image_edit_distilled]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-flux2_klein_4b_t2i]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-flux2_klein_9b_gguf_t2i]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-ltx2_3_i2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-ltx2_3_t2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-qwen_image_edit]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-wan_i2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-wan_t2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[scratchpad-z_image]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-empty_image_red]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-empty_image_red_smoke_required]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-flux2_klein_4b_image_edit_distilled]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-flux2_klein_4b_t2i]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-flux2_klein_9b_gguf_t2i]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-ltx2_3_i2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-ltx2_3_t2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-qwen_image_edit]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-wan_i2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-wan_t2v]
+tests/characterization/test_emitter_snapshots.py::test_emitter_snapshot[ready-z_image]
+tests/characterization/test_known_failures_audit.py::test_known_failures_audit_reports_stale_entries
+```
+
+Skipped: 2, Deselected: 3871, Warnings: 2, Errors: 39 (0 failed)
+
+---
+
+## Full-suite baseline (`pytest --tb=no -q --no-header -rA`)
+
+### Failed (108)
+```
+tests/edgecases/test_json_formats.py::test_boolean_and_null_like_inputs
+tests/security/test_integration.py::test_install_pack_allowed_with_yes
+tests/security/test_integration.py::test_yes_bypass_entries_in_audit_readable_without_parsing_stderr
+tests/test_agent_skill_sync.py::test_agent_skill_surfaces_are_synced
+tests/test_agent_skill_sync.py::test_agent_skill_sync_check_passes
+tests/test_agentic_affordances.py::test_port_validate_call_reports_unknown_kwarg_and_missing_required
+tests/test_agentic_affordances.py::test_port_validate_call_reads_uuid_subgraph_schema
+tests/test_agentic_affordances.py::test_nodes_compatible_with_input_and_output_semantics
+tests/test_agentic_affordances.py::test_port_doctor_all_aggregates_warnings_without_failing
+tests/test_agentic_affordances.py::test_port_doctor_all_all_mode_has_single_global_checks_block
+tests/test_agentic_affordances.py::test_lookup_id_runtime_api_and_inspect_cli_match
+tests/test_agentic_affordances.py::test_diagnostic_errors_preserve_next_action_and_severity
+tests/test_agentic_affordances.py::test_eval_node_dry_run_classifies_outputs_and_plans_preview
+tests/test_agentic_affordances.py::test_eval_node_raw_queue_once_and_schema_only_never_queues
+tests/test_api_surface.py::test_public_module_all_snapshots_are_intentional
+tests/test_blocks.py::test_authoring_dsl_builds_compileable_text_to_image_chain
+tests/test_blocks.py::test_block_compile_smoke_widget_keys
+tests/test_cli_doctor_contract_validate.py::test_workflows_contract_validate_success_json
+tests/test_cli_doctor_contract_validate.py::test_workflows_contract_validate_success_human
+tests/test_comfy_nodes_agent_edit.py::test_agent_edit_submit_after_accept_still_blocks_real_structural_divergence
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_batch-exc0]
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_response-exc1]
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_delta-exc2]
+tests/test_comfy_nodes_agent_edit.py::test_classify_provider_error_wrapping_import_message_is_runtime_unavailable
+tests/test_comfy_nodes_browser.py::test_browser_harness_smoke
+tests/test_generated_node_wrappers.py::test_generated_wrapper_rejects_multiple_positional_workflows
+tests/test_gold_template_alignment.py::test_public_input_keys_match
+tests/test_gold_template_alignment.py::test_public_input_default_types_match
+tests/test_gold_template_alignment.py::test_generated_template_is_build_only
+tests/test_layout_store.py::test_corpus_vace_cnr_id_ver_properties_survive
+tests/test_layout_store.py::test_corpus_recammaster_note_partial_props_survive
+tests/test_packaging.py::test_nodes_package_layout_stays_collapsed
+tests/test_porting_convert.py::test_real_fixture_talking_avatar_getnode_resolves_to_named_broadcast
+tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_t2v
+tests/test_porting_edit_session_harness.py::test_empty_done_on_ltx_i2v
+tests/test_porting_edit_session_harness.py::test_case_e_reroute_analysis_ltx_i2v
+tests/test_porting_edit_session_harness.py::test_describe_ltx_t2v_top_level
+tests/test_porting_emitter.py::test_emit_ready_template_python_has_ready_metadata_contract
+tests/test_porting_emitter.py::test_ready_template_build_spacing_for_multiline_and_packed_simple_calls
+tests/test_porting_emitter.py::test_ready_template_emits_unpacking_for_typed_multi_output_node
+tests/test_porting_emitter.py::test_ready_template_replaces_dead_unpacked_outputs_with_underscore
+tests/test_porting_emitter.py::test_ready_template_keeps_dead_multi_output_node_as_bare_call
+tests/test_porting_emitter.py::test_ready_template_unpacked_output_names_use_collision_suffix
+tests/test_porting_emitter.py::test_generated_template_not_formatted_missing_section_comments
+tests/test_porting_normalize_ingest.py::test_compile_api_byte_identical_with_and_without_mode
+tests/test_porting_synthetic_fixtures.py::test_virtual_wire_round_trip_vace_corpus
+tests/test_porting_synthetic_fixtures.py::test_coord_canonicalization_no_float_drift
+tests/test_porting_ui_emitter.py::test_corpus_roundtrip_parity_with_compile_api
+tests/test_porting_ui_emitter.py::test_offline_parity_gate_green_on_starter_set[workflow_corpus/official/image/z_image.json]
+tests/test_porting_ui_emitter.py::test_offline_parity_gate_green_on_starter_set[workflow_corpus/official/image/flux2_klein_4b_t2i.json]
+tests/test_porting_ui_emitter.py::test_offline_parity_gate_green_on_starter_set[workflow_corpus/official/edit/flux2_klein_4b_image_edit_base.json]
+tests/test_ready_templates.py::test_protected_template_index_contracts_match_built_contracts
+tests/test_ready_templates.py::test_ltx_raw_video_guide_uses_live_resize_schema_inputs
+tests/test_ready_templates.py::test_ltx_iclora_control_uses_live_resize_schema_inputs
+tests/test_ready_templates.py::test_ready_loader_applies_authored_metadata_for_manual_python_templates
+tests/test_ready_templates.py::test_ready_templates_contract_doctor_no_error_diagnostics
+tests/test_ready_templates.py::test_wanvideo_model_loaders_use_portable_runpod_attention_contract
+tests/test_ready_templates.py::test_ltx_travel_segment_outputs_omit_synthetic_audio[video/ltx2_3_runexx_first_middle_last_frame]
+tests/test_ready_templates.py::test_ltx_runexx_first_last_frame_omits_dead_gguf_branch_and_validates_calculators
+tests/test_ready_templates.py::test_all_ready_templates_load_and_validate
+tests/test_ready_templates.py::test_ready_template_preserves_materialized_requirements
+tests/test_ready_templates.py::test_ltx_first_last_travel_iclora_control_exposes_worker_patch_points
+tests/test_ready_templates.py::test_ltx_lightricks_first_last_parity_exposes_worker_patch_points
+tests/test_ready_templates.py::test_ltx_first_last_raw_video_guide_exposes_worker_patch_points
+tests/test_refuse.py::test_refused_emit_import_and_construction_are_side_effect_light
+tests/test_refuse.py::test_widget_shape_refusal_diff_is_node_keyed_and_json_tolerant
+tests/test_runtime_eval_absence.py::test_no_live_code_imports_removed_runtime_eval_modules
+tests/test_schemas_ensure.py::test_schema_freshness_workflow_is_manual_and_artifact_based
+tests/test_schemas_ensure.py::TestSchemasEnsureWorkflow::test_extract_class_types_from_real_template
+tests/test_sprint_b_acceptance.py::test_b7_install_robustness
+tests/test_sprint_b_acceptance.py::test_b12_ideogram_ports_to_compiling_strict_ready_template
+tests/test_template_roundtrip.py::test_ready_template_matches_source_api[video/wan_i2v]
+tests/test_template_roundtrip.py::test_audited_seed_sensitive_fields_keep_source_values_and_types[video/ltx2_3_runexx_talking_avatar_qwen_tts-fields1]
+tests/test_template_roundtrip.py::test_wan_i2v_matches_independent_golden_api_fixture
+tests/test_templates_module.py::test_finalize_allows_unrelated_auto_inputs_but_rejects_public_target_drift
+tests/test_templates_module.py::test_static_contract_extracts_public_inputs_from_inputspec
+tests/test_templates_module.py::test_static_contract_extracts_public_outputs_from_finalize
+tests/test_templates_module.py::test_ready_template_metadata_handles_ready_metadata_build_call
+tests/test_templates_module.py::test_readability_inventory_parses_ready_metadata_build_call
+tests/test_testing_api.py::test_testing_plugin_exports_required_fixture_names
+tests/test_testing_api.py::test_factory_helpers_create_workflow_and_handle
+tests/test_testing_api.py::test_exported_factories_do_not_raise_not_implemented
+tests/test_testing_api.py::test_pytest_fixtures_are_available
+tests/test_testing_dry_run.py::test_importing_dry_run_does_not_pull_runtime_at_import_time
+tests/test_testing_import_cost.py::test_importing_vibecomfy_testing_does_not_pull_runtime_or_comfy_command
+tests/test_testing_snapshot.py::test_regenerate_snapshots_check_exits_zero
+tests/test_ui_emitter_parity.py::test_parity_starter_set[workflow_corpus/official/image/z_image.json]
+tests/test_ui_emitter_parity.py::test_parity_starter_set[workflow_corpus/official/image/flux2_klein_4b_t2i.json]
+tests/test_ui_emitter_parity.py::test_parity_starter_set[workflow_corpus/official/edit/flux2_klein_4b_image_edit_base.json]
+tests/test_ui_emitter_parity.py::test_parity_corpus_minus_allowlist[workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json]
+tests/test_ui_emitter_parity.py::test_parity_corpus_minus_allowlist[workflow_corpus/official/edit/flux2_klein_4b_image_edit_base.json]
+tests/test_ui_emitter_parity.py::test_parity_corpus_minus_allowlist[workflow_corpus/official/edit/flux2_klein_4b_image_edit_distilled.json]
+tests/test_ui_emitter_parity.py::test_parity_corpus_minus_allowlist[workflow_corpus/official/edit/flux2_klein_9b_image_edit_base.json]
+tests/test_ui_emitter_parity.py::test_parity_corpus_minus_allowlist[workflow_corpus/official/edit/flux2_klein_9b_image_edit_distilled.json]
+tests/test_ui_emitter_parity.py::test_parity_corpus_minus_allowlist[workflow_corpus/official/image/flux2_klein_4b_t2i.json]
+tests/test_ui_emitter_parity.py::test_parity_corpus_minus_allowlist[workflow_corpus/official/image/z_image.json]
+tests/test_ui_emitter_parity.py::test_structural_validation_corpus_wide[workflow_corpus/custom_nodes/ltxvideo/runexx/LTX-2.3_Talking_Avatar_Qwen_TTS.json]
+tests/test_ui_emitter_parity.py::test_ksampler_none_widget_roundtrip_alignment
+tests/test_v26_canonical_parity.py::test_canonical_parity_baseline_matches_current_ready_templates
+tests/test_widget_shape_evidence.py::test_raw_scalar_widget_overflow_is_not_hidden_by_compacted_candidate_count
+tests/test_workflow_lens.py::test_lens_ltx_parity_registered_inputs_via_lens
+tests/test_workflow_lens.py::test_lens_ltx_parity_first_last_conditioning_via_lens
+tests/test_workflow_lens.py::test_lens_ltx_parity_prompt_negative_paths_via_lens
+tests/test_workflow_lens.py::test_lens_ltx_parity_seeds_via_lens
+tests/test_workflow_lens.py::test_lens_ltx_parity_dimensions_frames_fps_via_lens
+tests/test_workflow_lens.py::test_lens_ltx_parity_distilled_guide_spine_via_lens
+tests/test_workflow_lens.py::test_lens_ltx_parity_sigmas_via_lens
+tests/test_workflow_lens.py::test_lens_ltx_parity_strength_defaults_via_lens
+```
+
+### Errors (39) — same 39 characterization errors
+(identical to characterization suite error list above)
+
+Total: 108 failed + 39 errors = 147 non-passing, matching the baseline recorded in `finalize.json`.
+
+---
+
+## Summary
+
+- **12** public symbols imported from `vibecomfy.workflow` (dataclasses, classes, regex)
+- **3** module-level aliases at workflow.py:9-11
+- **2** crossed private symbols confirmed: `_compute_dropped_bypassed_ids`, `_get_node_mode`
+- **108** pre-existing failures (FAILED) across the full suite
+- **39** pre-existing characterization errors (ERROR)
+- Zero new failures introduced by this audit task

@@ -1,7 +1,7 @@
 from typing import Any
 
 from .handles import Handle
-from .workflow import (
+from .ir import (
     ValidationIssue,
     ValidationReport,
     VibeEdge,

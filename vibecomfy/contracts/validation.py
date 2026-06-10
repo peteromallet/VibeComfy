@@ -11,6 +11,7 @@ from vibecomfy.contracts.intent_nodes import (
     is_intent_class_type,
     validate_intent_node_contract,
 )
+from vibecomfy.ir.diagnostic import Diagnostic
 
 
 OPAQUE_COMPONENT_CLASS_RE = re.compile(
@@ -20,12 +21,20 @@ OPAQUE_COMPONENT_CLASS_RE = re.compile(
 
 
 @dataclass(slots=True)
-class ContractIssue:
-    """A single issue produced by a semantic contract validation."""
+class ContractIssue(Diagnostic):
+    """A single issue produced by a semantic contract validation.
 
-    code: str
-    message: str
-    severity: str = "error"  # "error" | "warning"
+    Inherits ``code``, ``message``, ``severity``, and ``detail`` from
+    :class:`Diagnostic`; adds no further fields.
+
+    All parent fields are redeclared here because :class:`Diagnostic` is a
+    plain class (not a dataclass), so the dataclass machinery does not
+    automatically incorporate them into the generated ``__init__``.
+    """
+
+    code: str = field(default="")
+    message: str = field(default="")
+    severity: str = "error"
     detail: dict[str, Any] = field(default_factory=dict)
 
 

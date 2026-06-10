@@ -3,25 +3,32 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from vibecomfy.ir.diagnostic import Diagnostic
 from vibecomfy.schema.provider import SchemaProvider, schema_for
 
 
 @dataclass(frozen=True, slots=True)
-class NodeCallValidationIssue:
-    code: str
-    message: str
+class NodeCallValidationIssue(Diagnostic):
+    """A single issue found during schema-backed node-call validation.
+
+    Inherits ``code``, ``message``, ``severity``, and ``detail`` from
+    :class:`Diagnostic` and adds ``input`` for the specific input field.
+
+    All parent fields are redeclared here because :class:`Diagnostic` is a
+    plain class (not a dataclass), so the dataclass machinery does not
+    automatically incorporate them into the generated ``__init__``.
+    """
+
+    code: str = field(default="")
+    message: str = field(default="")
     severity: str = "error"
-    input: str | None = None
     detail: dict[str, Any] = field(default_factory=dict)
+    input: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {
-            "code": self.code,
-            "message": self.message,
-            "severity": self.severity,
-            "input": self.input,
-            "detail": dict(self.detail),
-        }
+        base = Diagnostic.to_json(self)
+        base["input"] = self.input
+        return base
 
 
 @dataclass(frozen=True, slots=True)
