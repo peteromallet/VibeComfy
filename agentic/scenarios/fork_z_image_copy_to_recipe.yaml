@@ -1,0 +1,27 @@
+name: fork-z-image-copy-to-recipe
+tier: 2
+description: "Discovery: agent forks image/z_image via copy-to-recipe without touching ready templates"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m2
+  - discovery
+  - structural
+  - positive
+assessment:
+  enforced:
+    - "command_log.json records a copy-to-recipe command for image/z_image with status=completed."
+    - "diff_summary.json shows files_added containing the forked recipe and ready_templates/ in files_unchanged."
+    - "actions.jsonl records op=copy-to-recipe with ready_templates_modified=false."
+  graded:
+    - "The forked recipe file (workspace/recipes/m2_z_image_fork.py) exists and contains z_image template content."
+  observed:
+    - "git_diff.txt captures the workspace tree addition."
+extras:
+  required_frozen_evidence:
+    - evidence/command_log.json
+    - evidence/actions.jsonl
+    - evidence/diff_summary.json
+    - evidence/tree_after.txt

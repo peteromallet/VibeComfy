@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from vibecomfy.registry.ready_template import _finalise_model_assets
+from vibecomfy.registry.ready_template import finalize_model_assets
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
@@ -27,7 +27,7 @@ def test_finalise_model_assets_filters_raw_assets_but_keeps_extras() -> None:
         }
     ]
 
-    _finalise_model_assets(workflow)
+    finalize_model_assets(workflow)
 
     assert workflow.metadata["model_assets"] == [
         {

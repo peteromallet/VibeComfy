@@ -10,6 +10,7 @@ import ast
 import argparse
 import json
 import os
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -46,6 +47,9 @@ def test_schemas_refresh_accepts_structured_cache_file(tmp_path: Path, monkeypat
 
     assert result["status"] == "ok"
     assert result["classes_indexed"] == 1
+    assert result["pack_version"] == "structured-cache"
+    assert result["source_kind"] == "structured_cache_copy"
+    assert result["authoritative"] is False
     index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
     assert index == {"TinyNode": "pack.json"}
 
@@ -98,9 +102,280 @@ def test_schemas_refresh_command_uses_local_source_without_server(
     assert code == 0
     assert payload["status"] == "ok"
     assert payload["version"] == "structured-cache"
+    assert payload["pack_version"] == "structured-cache"
+    assert payload["source_kind"] == "structured_cache_copy"
+    assert payload["authoritative"] is False
     assert payload["source"] == str(source)
     assert "server_url" not in payload
     assert json.loads((cache_root / "index.json").read_text(encoding="utf-8")) == {"OfflineNode": "pack.json"}
+
+
+def test_schemas_refresh_command_text_surfaces_non_authoritative_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cache_root = tmp_path / "object_info_cache"
+    monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                "OfflineNode": {
+                    "python_module": "custom_nodes.offline.nodes",
+                    "name": "OfflineNode",
+                    "display_name": "OfflineNode",
+                    "description": "",
+                    "category": "test",
+                    "function": "run",
+                    "input": {"required": {}, "optional": {}},
+                    "input_order": {"required": [], "optional": []},
+                    "output": ["STRING"],
+                    "output_name": ["value"],
+                    "output_is_list": [False],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    code = schemas_command._cmd_schemas_refresh(
+        argparse.Namespace(source=str(source), server_url=None, json=False)
+    )
+
+    assert code == 0
+    text = capsys.readouterr().out.strip()
+    assert "non-authoritative" in text
+    assert "legacy-import / legacy_object_info_import" in text
+
+
+def test_schemas_regen_core_uses_fake_provider_and_stamps_authoritative_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cache_root = tmp_path / "object_info_cache"
+    monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+
+    def fake_provider() -> dict:
+        return {
+            "CoreTinyNode": {
+                "python_module": ".",
+                "name": "CoreTinyNode",
+                "display_name": "CoreTinyNode",
+                "description": "",
+                "category": "core",
+                "function": "run",
+                "input": {"required": {}, "optional": {}},
+                "input_order": {"required": [], "optional": []},
+                "output": ["INT"],
+                "output_name": ["value"],
+                "output_is_list": [False],
+            }
+        }
+
+    code = schemas_command._cmd_schemas_regen_core(
+        argparse.Namespace(
+            comfy_version="0.24.0.1",
+            json=True,
+            source=None,
+            server_url=None,
+            object_info_provider=fake_provider,
+        )
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["status"] == "ok"
+    assert payload["comfy_version"] == "0.24.0.1"
+    assert payload["pack_slug"] == "comfy-core"
+    assert payload["pack_version"] == "0.24.0.1"
+    assert payload["evidence_identity"] == "comfy-core:0.24.0.1"
+    assert payload["source_kind"] == "runtime_core_object_info"
+    assert payload["authoritative"] is True
+    assert "not sandboxed" in payload["warning"]
+
+    pack_file = cache_root / "comfy-core@0.24.0.1.json"
+    index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    entry = json.loads(pack_file.read_text(encoding="utf-8"))["CoreTinyNode"]
+    assert index == {"CoreTinyNode": pack_file.name}
+    assert entry["pack_slug"] == "comfy-core"
+    assert entry["pack_version"] == "0.24.0.1"
+    assert entry["evidence_identity"] == "comfy-core:0.24.0.1"
+    assert entry["source_kind"] == "runtime_core_object_info"
+
+
+def test_schemas_regen_core_default_path_uses_explicit_runner_not_runtime_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cache_root = tmp_path / "object_info_cache"
+    monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+
+    def fail_runtime_provider(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("regen-core must not use the generic runtime provider")
+
+    monkeypatch.setattr(schemas_command, "RuntimeSchemaProvider", fail_runtime_provider)
+
+    calls: list[str] = []
+
+    def fake_runner(comfy_version: str) -> dict[str, object]:
+        calls.append(comfy_version)
+        return {
+            "CoreTinyNode": {
+                "python_module": ".",
+                "name": "CoreTinyNode",
+                "input": {},
+                "input_order": {"required": [], "optional": []},
+                "output": [],
+            }
+        }
+
+    code = schemas_command._cmd_schemas_regen_core(
+        argparse.Namespace(
+            comfy_version="0.25.0",
+            json=True,
+            source=None,
+            server_url=None,
+            object_info_provider=None,
+            object_info_runner=fake_runner,
+        )
+    )
+
+    assert code == 0
+    assert calls == ["0.25.0"]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["pack_slug"] == "comfy-core"
+    assert (cache_root / "comfy-core@0.25.0.json").is_file()
+
+
+def test_schemas_regen_core_registration_help_warns_unsandboxed() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="cmd", required=True)
+    schemas_command.register(subparsers)
+
+    schemas_parser = subparsers.choices["schemas"]
+    regen_action = next(a for a in schemas_parser._subparsers._group_actions if a.dest == "schemas_subcmd")
+    regen_parser = regen_action.choices["regen-core"]
+
+    regen_help = regen_parser.format_help()
+    assert "--comfy-version" in regen_help
+    assert "third-party Python code" in regen_help
+    assert "not sandboxed" in regen_help
+
+
+def test_schemas_regen_core_rejects_invalid_comfy_version() -> None:
+    with pytest.raises(ValueError, match="filesystem-safe"):
+        schemas_command._cmd_schemas_regen_core(
+            argparse.Namespace(
+                comfy_version="../bad version",
+                json=True,
+                source=None,
+                server_url=None,
+                object_info_provider=lambda: {},
+            )
+        )
+
+
+def test_core_regen_runner_installs_pinned_comfyui_and_captures_object_info(tmp_path: Path) -> None:
+    from vibecomfy.porting.object_info.core_regen import capture_core_object_info
+
+    env_root = tmp_path / "core_env"
+    venv_dir = env_root / "venv"
+    bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
+    bin_dir.mkdir(parents=True)
+    (venv_dir / "pyvenv.cfg").write_text("", encoding="utf-8")
+    python_path = bin_dir / ("python.exe" if sys.platform == "win32" else "python")
+    python_path.write_text("", encoding="utf-8")
+
+    commands: list[list[str]] = []
+
+    def fake_runner(command: list[str]) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if "-c" in command:
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps({"KSampler": {}}), stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    payload = capture_core_object_info("0.24.0.1", runner=fake_runner, env_root=env_root)
+
+    assert payload == {"KSampler": {}}
+    assert commands[0] == [
+        str(python_path),
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "comfyui==0.24.0.1",
+    ]
+    assert commands[1][0] == str(python_path)
+    assert commands[1][1] == "-c"
+
+
+def test_refresh_schema_cache_from_source_with_directory_containing_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``refresh_schema_cache_from_source`` should handle a structured cache directory."""
+    cache_root = tmp_path / "object_info_cache"
+    monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+    source_dir = tmp_path / "source_cache"
+    source_dir.mkdir()
+    (source_dir / "index.json").write_text(
+        json.dumps({"ClassX": "pack_a.json", "ClassY": "pack_b.json"}), encoding="utf-8"
+    )
+    (source_dir / "pack_a.json").write_text(
+        json.dumps({"ClassX": {"inputs": {}, "outputs": [{"name": "out", "type": "INT"}]}}),
+        encoding="utf-8",
+    )
+    (source_dir / "pack_b.json").write_text(
+        json.dumps({"ClassY": {"inputs": {}, "outputs": [{"name": "out", "type": "STRING"}]}}),
+        encoding="utf-8",
+    )
+
+    result = schemas_command.refresh_schema_cache_from_source(source_dir)
+
+    assert result["status"] == "ok"
+    assert result["classes_indexed"] == 2
+    assert result["packs_written"] == 2
+    assert result["version"] == "structured-cache"
+    assert result["pack_version"] == "structured-cache"
+    assert result["source_kind"] == "structured_cache_copy"
+    assert result["authoritative"] is False
+    assert result["source"] == str(source_dir)
+
+    assert (cache_root / "index.json").is_file()
+    assert (cache_root / "pack_a.json").is_file()
+    assert (cache_root / "pack_b.json").is_file()
+
+
+def test_refresh_schema_cache_from_source_with_index_json_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``refresh_schema_cache_from_source`` with an index.json path should resolve to its parent."""
+    cache_root = tmp_path / "object_info_cache"
+    monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+    source_dir = tmp_path / "source_cache"
+    source_dir.mkdir()
+    (source_dir / "index.json").write_text(
+        json.dumps({"ClassP": "pack_p.json"}), encoding="utf-8"
+    )
+    (source_dir / "pack_p.json").write_text(
+        json.dumps({"ClassP": {"inputs": {}, "outputs": [{"name": "out", "type": "FLOAT"}]}}),
+        encoding="utf-8",
+    )
+
+    result = schemas_command.refresh_schema_cache_from_source(source_dir / "index.json")
+
+    assert result["status"] == "ok"
+    assert result["classes_indexed"] == 1
+    assert result["packs_written"] == 1
+    assert result["version"] == "structured-cache"
+    assert result["source_kind"] == "structured_cache_copy"
+    assert result["authoritative"] is False
+
+    assert (cache_root / "pack_p.json").is_file()
+    new_index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    assert new_index == {"ClassP": "pack_p.json"}
 
 
 # ============================================================================

@@ -1,3 +1,5 @@
+from typing import Any
+
 from .run import run, run_embedded, run_embedded_sync, run_sync, smoke_runtime, smoke_runtime_sync
 from .session import EmbeddedSession, RunResult, ServerSession, SessionConfig, apply_memory_profile_override
 
@@ -6,6 +8,7 @@ __all__ = [
     "EnsureEnvResult",
     "EnsureFailure",
     "EnsurePackOutcome",
+    "EnsureWarning",
     "RunResult",
     "ServerSession",
     "SessionConfig",
@@ -22,16 +25,17 @@ __all__ = [
 _LAZY_ENSURE_ENV = None
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     global _LAZY_ENSURE_ENV
-    if name in {"ensure_env", "EnsureEnvResult", "EnsurePackOutcome", "EnsureFailure"}:
+    if name in {"ensure_env", "EnsureEnvResult", "EnsurePackOutcome", "EnsureFailure", "EnsureWarning"}:
         if _LAZY_ENSURE_ENV is None:
-            from .ensure_env import EnsureEnvResult as _EER, EnsureFailure as _EF, EnsurePackOutcome as _EPO, ensure_env as _ee  # noqa: E501
+            from .ensure_env import EnsureEnvResult as _EER, EnsureFailure as _EF, EnsurePackOutcome as _EPO, EnsureWarning as _EW, ensure_env as _ee  # noqa: E501
             _LAZY_ENSURE_ENV = {
                 "ensure_env": _ee,
                 "EnsureEnvResult": _EER,
                 "EnsurePackOutcome": _EPO,
                 "EnsureFailure": _EF,
+                "EnsureWarning": _EW,
             }
         return _LAZY_ENSURE_ENV[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

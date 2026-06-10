@@ -14,7 +14,14 @@ import pytest
 
 from vibecomfy.node_packs_lockfile import compute_schema_hash
 from vibecomfy.porting.object_info.consume import CACHE_DIR as _PROD_CACHE_DIR, effective_widget_names_for_class
-from vibecomfy.porting.object_info.serialize import CacheIdentity, build_cache, pack_key_from_module, refresh_from_source
+from vibecomfy.porting.object_info.serialize import (
+    LEGACY_IMPORT_PACK_VERSION,
+    LEGACY_IMPORT_SOURCE_KIND,
+    CacheIdentity,
+    build_cache,
+    pack_key_from_module,
+    refresh_from_source,
+)
 from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
 
 
@@ -400,7 +407,153 @@ def test_refresh_from_source(tmp_path: Path) -> None:
     assert result["status"] == "ok"
     assert result["classes_indexed"] == 3
     assert result["packs_written"] == 2
-    assert result["version"] == "runpod-snapshot"
+    assert result["version"] == LEGACY_IMPORT_PACK_VERSION
+    assert result["pack_version"] == LEGACY_IMPORT_PACK_VERSION
+    assert result["source_kind"] == LEGACY_IMPORT_SOURCE_KIND
+    assert result["authoritative"] is False
+
+
+def test_build_cache_demotes_generic_imports_to_legacy_metadata(tmp_path: Path) -> None:
+    source = tmp_path / "object_info.json"
+    source.write_text(json.dumps(_SAMPLE_OBJECT_INFO), encoding="utf-8")
+    cache_root = tmp_path / "cache_obj"
+
+    build_cache(str(source), cache_dir=str(cache_root))
+
+    pack_data = json.loads((cache_root / f"ComfyUI-KJNodes@{LEGACY_IMPORT_PACK_VERSION}.json").read_text(encoding="utf-8"))
+    entry = pack_data["LTX2_NAG"]
+    assert entry["pack_version"] == LEGACY_IMPORT_PACK_VERSION
+    assert entry["source_kind"] == LEGACY_IMPORT_SOURCE_KIND
+    assert entry["evidence_identity"] == "object_info.json"
+
+
+def test_build_cache_requires_explicit_pack_version_for_authoritative_identity(tmp_path: Path) -> None:
+    source = tmp_path / "object_info.json"
+    source.write_text(json.dumps(_SAMPLE_OBJECT_INFO), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="explicit pack_version"):
+        build_cache(
+            str(source),
+            identity=CacheIdentity(
+                pack_slug="ComfyUI-KJNodes",
+                git_commit="abc123",
+                source_kind="executed_object_info",
+            ),
+        )
+
+
+def test_build_cache_preserves_explicit_runpod_snapshot_identity_for_compatibility(tmp_path: Path) -> None:
+    source = tmp_path / "object_info.json"
+    source.write_text(json.dumps({"LTX2_NAG": _SAMPLE_OBJECT_INFO["LTX2_NAG"]}), encoding="utf-8")
+    cache_root = tmp_path / "cache_obj"
+
+    build_cache(
+        str(source),
+        cache_dir=str(cache_root),
+        version="runpod-snapshot",
+        identity=CacheIdentity(
+            pack_slug="ComfyUI-KJNodes",
+            pack_version="runpod-snapshot",
+            source_kind="executed_object_info",
+            evidence_identity="existing-runpod-snapshot.json",
+        ),
+    )
+
+    pack_data = json.loads((cache_root / "ComfyUI-KJNodes@runpod-snapshot.json").read_text(encoding="utf-8"))
+    entry = pack_data["LTX2_NAG"]
+    assert entry["pack_version"] == "runpod-snapshot"
+    assert entry["source_kind"] == "executed_object_info"
+    assert entry["evidence_identity"] == "existing-runpod-snapshot.json"
+
+
+def test_build_cache_full_pack_refresh_bool_true_clears_stale_classes(tmp_path: Path) -> None:
+    """``full_pack_refresh=True`` (bool) should fully replace all represented packs."""
+    initial_source = tmp_path / "initial.json"
+    initial_source.write_text(
+        json.dumps(
+            {
+                "ClassA": _object_info_entry(
+                    python_module="pack_one", name="ClassA", output_names=["IMAGE"]
+                ),
+                "ClassB": _object_info_entry(
+                    python_module="pack_one", name="ClassB", output_names=["STRING"]
+                ),
+                "ClassC": _object_info_entry(
+                    python_module="pack_two", name="ClassC", output_names=["FLOAT"]
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(initial_source), version="v1", cache_dir=str(cache_root))
+
+    partial_source = tmp_path / "partial.json"
+    partial_source.write_text(
+        json.dumps(
+            {
+                "ClassA": _object_info_entry(
+                    python_module="pack_one", name="ClassA", output_names=["IMAGE", "MASK"]
+                ),
+                "ClassC": _object_info_entry(
+                    python_module="pack_two", name="ClassC", output_names=["FLOAT"]
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    build_cache(str(partial_source), version="v2", cache_dir=str(cache_root), full_pack_refresh=True)
+
+    index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    assert index["ClassA"] == "pack_one@v2.json"
+    assert "ClassB" not in index  # stale class removed
+    assert index["ClassC"] == "pack_two@v2.json"
+
+    pack_one = json.loads((cache_root / "pack_one@v2.json").read_text(encoding="utf-8"))
+    assert sorted(pack_one) == ["ClassA"]
+    assert [o["name"] for o in pack_one["ClassA"]["outputs"]] == ["IMAGE", "MASK"]
+
+    pack_two = json.loads((cache_root / "pack_two@v2.json").read_text(encoding="utf-8"))
+    assert sorted(pack_two) == ["ClassC"]
+
+
+def test_build_cache_explicit_pack_slug_overrides_module_derived_key(tmp_path: Path) -> None:
+    """``pack_slug`` keyword should override the module-derived pack key."""
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                "SomeNode": _object_info_entry(
+                    python_module="custom_nodes.some_pack.nodes",
+                    name="SomeNode",
+                    output_names=["STRING"],
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+
+    build_cache(
+        str(source),
+        version="custom",
+        cache_dir=str(cache_root),
+        pack_slug="my-custom-slug",
+        pack_version="2.0.0",
+        git_commit="deadbeef",
+        source_kind="executed_object_info",
+    )
+
+    pack_file = cache_root / "my-custom-slug@custom.json"
+    assert pack_file.is_file()
+    pack_data = json.loads(pack_file.read_text(encoding="utf-8"))
+    entry = pack_data["SomeNode"]
+    assert entry["pack"] == "my-custom-slug"
+    assert entry["pack_slug"] == "my-custom-slug"
+    assert entry["pack_version"] == "2.0.0"
+    assert entry["git_commit"] == "deadbeef"
+    assert entry["source_kind"] == "executed_object_info"
 
 
 # ---------------------------------------------------------------------------
@@ -691,6 +844,239 @@ def test_identity_lookup_raises_typed_ambiguity_for_duplicate_identity_matches(
     assert len(err.matches) == 2
     assert {match["filename"] for match in err.matches} == {"nodes@dup-a.json", "nodes@dup-b.json"}
     assert "multiple object_info cache entries matched" in str(err)
+
+
+def test_resolve_class_entry_reports_identity_source_and_class_fallback_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_source = tmp_path / "first.json"
+    first_source.write_text(
+        json.dumps(
+            {
+                "ComfyMathExpression": _object_info_entry(
+                    python_module="nodes",
+                    name="ComfyMathExpression",
+                    output_names=["FLOAT"],
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    second_source = tmp_path / "second.json"
+    second_source.write_text(
+        json.dumps(
+            {
+                "ComfyMathExpression": _object_info_entry(
+                    python_module="nodes",
+                    name="ComfyMathExpression",
+                    output_names=["FLOAT", "INT"],
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(
+        str(first_source),
+        version="commit-v1",
+        cache_dir=str(cache_root),
+        identity=CacheIdentity(
+            pack_slug="nodes",
+            pack_version="commit-v1",
+            git_commit="abc123",
+            source_kind="executed_object_info",
+        ),
+        full_pack_refresh={"nodes"},
+    )
+    build_cache(
+        str(second_source),
+        version="legacy",
+        cache_dir=str(cache_root),
+        full_pack_refresh=False,
+    )
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    from vibecomfy.porting.object_info import ObjectInfoIdentity, resolve_class_entry
+
+    identity_result = resolve_class_entry(
+        "ComfyMathExpression",
+        ObjectInfoIdentity(pack_slug="nodes", git_commit="abc123"),
+    )
+    assert identity_result.entry is not None
+    assert identity_result.source == "identity"
+    assert identity_result.low_confidence is False
+    assert identity_result.warning is None
+    assert [output["name"] for output in identity_result.entry["outputs"]] == ["FLOAT"]
+
+    fallback_result = resolve_class_entry(
+        "ComfyMathExpression",
+        {"pack_slug": "nodes", "git_commit": "missing"},
+    )
+    assert fallback_result.entry is not None
+    assert fallback_result.source == "class_fallback"
+    assert fallback_result.low_confidence is True
+    assert fallback_result.warning is not None
+    assert fallback_result.warning.code == "unprovenanced_cache_fallback"
+    assert [output["name"] for output in fallback_result.entry["outputs"]] == ["FLOAT", "INT"]
+
+    miss_result = resolve_class_entry(
+        "ComfyMathExpression",
+        ObjectInfoIdentity(pack_slug="nodes", git_commit="missing"),
+        allow_class_fallback=False,
+    )
+    assert miss_result.entry is None
+    assert miss_result.source == "identity_miss"
+    assert miss_result.low_confidence is True
+    assert miss_result.warning is not None
+    assert miss_result.warning.code == "identity_cache_miss"
+
+
+def test_resolve_class_entry_distinguishes_provenanced_cache_miss_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                "ComfyMathExpression": _object_info_entry(
+                    python_module="nodes",
+                    name="ComfyMathExpression",
+                    output_names=["FLOAT"],
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    build_cache(
+        str(source),
+        version="evidence-v1",
+        cache_dir=str(cache_root),
+        identity=CacheIdentity(
+            pack_slug="nodes",
+            pack_version="evidence-v1",
+            evidence_identity="core-evidence.json",
+            source_kind="static_evidence",
+        ),
+        full_pack_refresh={"nodes"},
+    )
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    from vibecomfy.porting.object_info import ObjectInfoIdentity, get_class, resolve_class_entry
+
+    class_only = resolve_class_entry("ComfyMathExpression")
+    assert class_only.entry == get_class("ComfyMathExpression")
+    assert class_only.source == "class"
+    assert class_only.low_confidence is False
+
+    fallback = resolve_class_entry(
+        "ComfyMathExpression",
+        ObjectInfoIdentity(pack_slug="nodes", evidence_identity="missing-evidence.json"),
+    )
+    assert fallback.entry is not None
+    assert fallback.low_confidence is True
+    assert fallback.warning is not None
+    assert fallback.warning.code == "provenanced_cache_miss_fallback"
+
+
+def test_resolve_class_entry_reports_ambiguity_and_missing_class(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                "ComfyMathExpression": _object_info_entry(
+                    python_module="nodes",
+                    name="ComfyMathExpression",
+                    output_names=["FLOAT"],
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "cache_obj"
+    identity = CacheIdentity(
+        pack_slug="nodes",
+        evidence_identity="core-evidence.json",
+        source_kind="static_evidence",
+    )
+    build_cache(
+        str(source),
+        version="dup-a",
+        cache_dir=str(cache_root),
+        identity=identity,
+        full_pack_refresh={"nodes"},
+    )
+    build_cache(
+        str(source),
+        version="dup-b",
+        cache_dir=str(cache_root),
+        identity=identity,
+        full_pack_refresh={"nodes"},
+    )
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    from vibecomfy.errors import ObjectInfoIdentityAmbiguityError
+    from vibecomfy.porting.object_info import ObjectInfoIdentity, resolve_class_entry
+
+    with pytest.raises(ObjectInfoIdentityAmbiguityError):
+        resolve_class_entry(
+            "ComfyMathExpression",
+            ObjectInfoIdentity(pack_slug="nodes", evidence_identity="core-evidence.json"),
+        )
+
+    missing = resolve_class_entry("MissingClass")
+    assert missing.entry is None
+    assert missing.source == "miss"
+    assert missing.low_confidence is False
+    assert missing.warning is None
+
+    missing_identity = resolve_class_entry(
+        "MissingClass",
+        ObjectInfoIdentity(pack_slug="nodes", evidence_identity="core-evidence.json"),
+    )
+    assert missing_identity.entry is None
+    assert missing_identity.source == "miss"
+    assert missing_identity.low_confidence is True
+    assert missing_identity.warning is not None
+    assert missing_identity.warning.code == "identity_cache_miss"
+
+
+def test_resolve_class_entry_keeps_class_only_helper_apis_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "object_info.json"
+    raw = _object_info_entry(
+        python_module="nodes",
+        name="ComfyMathExpression",
+        output_names=["FLOAT", "INT"],
+    )
+    raw["input"] = {
+        "required": {
+            "expression": ["STRING", {"default": "a + b"}],
+            "round": ["BOOLEAN", {"default": False}],
+        },
+        "optional": {},
+    }
+    raw["input_order"] = {"required": ["expression", "round"], "optional": []}
+    source.write_text(json.dumps({"ComfyMathExpression": raw}), encoding="utf-8")
+    cache_root = tmp_path / "cache_obj"
+    build_cache(str(source), version="legacy", cache_dir=str(cache_root), full_pack_refresh=False)
+    _patch_consume_paths(monkeypatch, cache_root)
+
+    from vibecomfy.porting.object_info import (
+        check_output_arity_consensus,
+        class_defaults,
+        get_class,
+    )
+    from vibecomfy.porting.object_info.consume import output_names as class_output_names
+
+    assert get_class("ComfyMathExpression") is not None
+    assert class_output_names("ComfyMathExpression") == ["FLOAT", "INT"]
+    assert class_defaults("ComfyMathExpression") == {"expression": "a + b", "round": False}
+    assert check_output_arity_consensus("ComfyMathExpression", ui_output_count=2) == 2
+    assert check_output_arity_consensus("MissingClass", ui_output_count=5) == 0
 
 
 # ---------------------------------------------------------------------------

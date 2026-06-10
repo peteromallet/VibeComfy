@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib
 import json
 import re
@@ -43,8 +44,10 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     TURN_OUTCOME_KINDS,
     TurnContext,
     TurnOutcome,
+    classify_failure,
     failure_envelope,
 )
+from vibecomfy.comfy_nodes.agent_provider import ProviderError
 from vibecomfy.comfy_nodes.agent_session import (
     payload_hash,
     session_dir_for,
@@ -4279,7 +4282,7 @@ def test_agent_edit_idempotency_conflict_returns_stale_state_mismatch(
     assert "_allocation_failures" in conflict["audit_ref"]["path"]
 
 
-def test_agent_edit_stale_submit_fails_at_ingest_via_state_match_gate(
+def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4327,7 +4330,11 @@ def test_agent_edit_stale_submit_fails_at_ingest_via_state_match_gate(
     assert accepted["baseline_graph_hash"] == structural_graph_hash(first["graph"])
     assert accepted["baseline_graph_hash_kind"] == "structural"
 
-    stale = handle_agent_edit(
+    # The canvas now differs from the accepted baseline. Submit AUTO-REBASELINES
+    # to the live canvas instead of blocking: the submitted graph is authoritative
+    # on submit, so the edit proceeds and produces a candidate rather than failing
+    # with STALE_STATE_MISMATCH. (The stale-state guard remains on the APPLY path.)
+    rebaselined = handle_agent_edit(
         {
             "graph": original_graph,
             "task": "change the save prefix to something else",
@@ -4340,20 +4347,12 @@ def test_agent_edit_stale_submit_fails_at_ingest_via_state_match_gate(
         session_root=tmp_path,
     )
 
-    _assert_failure_defaults(
-        stale,
-        kind=FailureKind.STALE_STATE_MISMATCH.value,
-        stage="ingest",
-        audit_ref_expected=True,
-    )
-    assert stale["agent_failure_context"]["issues"][0]["failure_kind"] == FailureKind.STALE_STATE_MISMATCH.value
-    detail = stale["agent_failure_context"]["issues"][0]["detail"]
-    assert detail["reason"] == "hash_mismatch"
-    assert detail["client_graph_hash_label"] == "submit_structural_graph_hash"
-    assert detail["baseline_graph_hash"] == structural_graph_hash(first["graph"])
-    assert detail["client_graph_hash"] == structural_graph_hash(original_graph)
-    audit = json.loads(Path(stale["audit_ref"]["path"]).read_text(encoding="utf-8"))
-    assert audit["gates"]["state_match_ok"] is False
+    assert rebaselined["ok"] is True
+    assert "agent_failure_context" not in rebaselined
+    assert rebaselined["submit_graph_hash"] == payload_hash(original_graph)
+    assert rebaselined["candidate_graph_hash"] == payload_hash(rebaselined["graph"])
+    audit = json.loads(Path(rebaselined["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["gates"]["state_match_ok"] is True
 
 
 def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(
@@ -7538,6 +7537,129 @@ def test_chat_agent_message_outcome_derivable_from_turn_response(
     )
 
 
+# ── session bundle + chat reasoning tests ─────────────────────────────────────
+
+
+def test_read_session_chat_surfaces_trimmed_agent_reasoning(tmp_path: Path) -> None:
+    """The chat endpoint carries a trimmed view of the agent's per-step reasoning
+    so a reloaded panel's diagnostic report can show what the agent tried and the
+    engine diagnostics — without shipping the bulky diff/statements."""
+    from vibecomfy.comfy_nodes.agent_edit import read_session_chat
+
+    session_id = "reasoning-trim"
+    turn_dir = tmp_path / session_id / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    chat = {
+        "messages": [
+            {"role": "user", "text": "Add a VAE Decode", "turn_id": "0001"},
+            {
+                "role": "agent",
+                "text": "Nothing needed changing.",
+                "turn_id": "0001",
+                "outcome": {"kind": "noop"},
+                "change_details": {
+                    "done_summary": "No edits applied.",
+                    "batch_turns": [
+                        {
+                            "turn_number": 0,
+                            "batch_ok": False,
+                            "message": "I'll load ae.safetensors and wire a VAEDecode.",
+                            "batch": "vae = VAELoader(vae_name='ae.safetensors')",
+                            "diff": "HUGE DIFF " * 1000,  # bulky → must be dropped
+                            "statements": [{"x": 1}],  # bulky → must be dropped
+                            "diagnostics": [
+                                {
+                                    "code": "value_not_in_enum",
+                                    "severity": "error",
+                                    "message": "value 'ae.safetensors' is not in the declared enum.",
+                                    "detail": {
+                                        "input": "vae_name",
+                                        "value": "ae.safetensors",
+                                        "choices": ["pixel_space"],
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        ]
+    }
+    (turn_dir / "chat.json").write_text(json.dumps(chat), encoding="utf-8")
+
+    result = read_session_chat(tmp_path, session_id)
+    agent_msgs = [m for m in result["messages"] if m["role"] == "agent"]
+    assert len(agent_msgs) == 1
+    cd = agent_msgs[0].get("change_details")
+    assert isinstance(cd, dict), "agent message must carry trimmed change_details"
+    assert cd["done_summary"] == "No edits applied."
+    steps = cd["batch_turns"]
+    assert len(steps) == 1
+    step = steps[0]
+    assert step["batch_ok"] is False
+    assert "ae.safetensors" in step["message"]
+    assert "VAELoader" in step["batch"]
+    # Bulky fields are trimmed out entirely.
+    assert "diff" not in step
+    assert "statements" not in step
+    # The root-cause diagnostic and the valid enum choices survive.
+    diag = step["diagnostics"][0]
+    assert diag["code"] == "value_not_in_enum"
+    assert diag["detail"]["choices"] == ["pixel_space"]
+
+
+def test_read_session_bundle_bundles_text_and_binary_artifacts(tmp_path: Path) -> None:
+    """read_session_bundle returns every artifact under a session dir — text
+    files inline, binary as base64 — so the issue ZIP is self-contained."""
+    from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+
+    session_id = "bundle-all"
+    session_dir = tmp_path / session_id
+    turn_dir = session_dir / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "messages.jsonl").write_text('{"message": "hi"}\n', encoding="utf-8")
+    (turn_dir / "response.json").write_text('{"ok": true}', encoding="utf-8")
+    (session_dir / "session_state.json").write_text('{"turns": {}}', encoding="utf-8")
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x01\x02\x03"
+    (turn_dir / "preview.png").write_bytes(png_bytes)
+
+    result = read_session_bundle(tmp_path, session_id)
+    assert result["ok"] is True and result["exists"] is True
+    by_name = {f["name"]: f for f in result["files"]}
+
+    assert "turns/0001/messages.jsonl" in by_name
+    assert by_name["turns/0001/messages.jsonl"]["text"].strip() == '{"message": "hi"}'
+    assert "session_state.json" in by_name
+    png = by_name["turns/0001/preview.png"]
+    assert "base64" in png and "text" not in png
+    assert base64.b64decode(png["base64"]) == png_bytes
+
+
+def test_read_session_bundle_missing_session_returns_empty(tmp_path: Path) -> None:
+    from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+
+    result = read_session_bundle(tmp_path, "does-not-exist")
+    assert result["ok"] is True
+    assert result["exists"] is False
+    assert result["files"] == []
+
+
+def test_read_session_bundle_records_oversize_skips(tmp_path: Path) -> None:
+    from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+
+    session_id = "bundle-skip"
+    turn_dir = tmp_path / session_id / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    (turn_dir / "small.json").write_text("{}", encoding="utf-8")
+    (turn_dir / "big.json").write_text("x" * 5000, encoding="utf-8")
+
+    result = read_session_bundle(tmp_path, session_id, max_file_bytes=1000)
+    by_name = {f["name"]: f for f in result["files"]}
+    assert "turns/0001/small.json" in by_name
+    skipped = {s["name"]: s for s in result["skipped"]}
+    assert skipped.get("turns/0001/big.json", {}).get("reason") == "too_large"
+
+
 # ── batch lint wiring tests ───────────────────────────────────────────────────
 
 
@@ -7907,3 +8029,49 @@ def test_flag_off_lint_malformed_unknown_node_follows_pre_lint_behavior(
         str(i.get("message", "")) for i in (result.issues or ())
     )
     assert "999" in issue_messages
+
+
+# ---------------------------------------------------------------------------
+# Agent-runtime-unavailable classification
+#
+# Regression: a failure to load the agent runtime (e.g. ``import megaplan``
+# fails because a shadowing stub or broken editable install hides the package)
+# used to be flattened into a retryable ``ProviderError`` reported to the user
+# as "The model provider is temporarily unavailable. ... try again". That is a
+# setup fault, not a transient outage, and retrying never helps. It must be
+# classified as a non-retryable AGENT_RUNTIME_UNAVAILABLE failure whose
+# user-facing message names the real cause.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "stage, exc",
+    [
+        ("agent_batch", ModuleNotFoundError("No module named 'megaplan'")),
+        ("agent_response", ImportError("cannot import name 'AIAgent' from 'megaplan.agent'")),
+        ("agent_delta", ModuleNotFoundError("No module named 'arnold'")),
+    ],
+)
+def test_classify_import_failure_is_runtime_unavailable_not_retryable(stage, exc):
+    env = classify_failure(stage, exc)
+    assert env.kind is FailureKind.AGENT_RUNTIME_UNAVAILABLE
+    assert env.retryable is False
+    # The original cause must reach both the structured context and the message.
+    assert str(exc) in env.agent_failure_context.get("explanation", "")
+    assert str(exc) in env.message
+
+
+def test_classify_provider_error_wrapping_import_message_is_runtime_unavailable():
+    # Even when the worker error is flattened into ProviderError before it
+    # reaches classification, the "no module named" message routes it to the
+    # non-retryable runtime-unavailable kind via the message fallback.
+    env = classify_failure("agent_response", ProviderError("No module named 'megaplan'"))
+    assert env.kind is FailureKind.AGENT_RUNTIME_UNAVAILABLE
+    assert env.retryable is False
+
+
+def test_classify_genuine_provider_outage_stays_retryable_provider_error():
+    # A real transient provider failure must NOT be reclassified.
+    env = classify_failure("agent_response", ProviderError("502 upstream gateway timeout"))
+    assert env.kind is FailureKind.PROVIDER_ERROR
+    assert env.retryable is True

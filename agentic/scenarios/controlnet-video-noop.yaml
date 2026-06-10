@@ -1,0 +1,28 @@
+name: controlnet-video-noop
+tier: 3
+description: "Compose correctly: video workflow acknowledges that the ControlNet patch does not apply and leaves the graph unchanged"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m3
+  - compose
+  - structural
+  - negative
+  - controlnet
+assessment:
+  enforced:
+    - "compiled_api.json contains no ControlNetLoader or ControlNetApplyAdvanced nodes."
+    - "actions.jsonl records patch.apply for patch=controlnet with applies_to=false and status=no_effect."
+    - "If metadata.json contains patch_applications, the controlnet entry records called=true, topology_changed=false, nodes_added=[], and rewritten_edges=[]."
+    - "metadata.json entrypoint=patch and layer=vibecomfy/patches/controlnet.py:controlnet."
+  graded:
+    - "compiled_api.json remains a simple video graph with LoadImage and SaveVideo nodes only."
+  observed:
+    - "metadata.json requirements.models is empty for the no-op path."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

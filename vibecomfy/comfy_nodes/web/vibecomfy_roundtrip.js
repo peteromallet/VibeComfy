@@ -139,7 +139,8 @@ export {
 //   ok: false,
 //   kind: FailureKind — see agent_contracts.py FailureKind enum:
 //     SyntaxError, ASTScanFailure, OversizedPayload, MalformedModelJSON,
-//     MissingRequiredField, ProviderError, AuthError, TimeoutError,
+//     MissingRequiredField, ProviderError, AgentRuntimeUnavailable,
+//     AuthError, TimeoutError,
 //     ValidationError, UnsatisfiedInputError, RefusedEmit,
 //     EditorAheadConflict, StaleStateMismatch, UnsupportedNonDAG,
 //     SchemaLessQueueBlocker, LowConfidenceQueueBlocker,
@@ -219,6 +220,8 @@ const PANEL_IDS = Object.freeze({
   apply: "vibecomfy-agent-panel-apply",
   reject: "vibecomfy-agent-panel-reject",
   undo: "vibecomfy-agent-panel-undo",
+  havingIssues: "vibecomfy-agent-panel-having-issues",
+  issueModal: "vibecomfy-agent-panel-issue-modal",
   close: "vibecomfy-agent-panel-close",
   threadRegion: "vibecomfy-agent-panel-region-thread",
   promptRegion: "vibecomfy-agent-panel-region-prompt",
@@ -1291,6 +1294,9 @@ function panelSection(id, title) {
     color: "#9da1ac",
     fontWeight: "600",
   });
+  if (!title) {
+    heading.style.display = "none";
+  }
 
   const body = el("div");
   body.className = "vibecomfy-agent-panel-region-body";
@@ -1335,13 +1341,13 @@ function setButtonEmphasis(buttonNode, visible, tone) {
   setVisible(buttonNode, visible, "inline-flex");
   buttonNode.style.opacity = visible ? "1" : "0";
   if (tone === "primary") {
-    buttonNode.style.background = "#3d8bfd";
-    buttonNode.style.borderColor = "#4d98ff";
-    buttonNode.style.color = "#f6fbff";
+    buttonNode.style.background = "#f47f18";
+    buttonNode.style.borderColor = "#f47f18";
+    buttonNode.style.color = "#fff4ea";
   } else if (tone === "danger") {
-    buttonNode.style.background = "#492222";
+    buttonNode.style.background = "#642323";
     buttonNode.style.borderColor = "#8f4747";
-    buttonNode.style.color = "#ffd8d8";
+    buttonNode.style.color = "#ffd7d7";
   } else {
     buttonNode.style.background = "#272b33";
     buttonNode.style.borderColor = "#414855";
@@ -1496,6 +1502,404 @@ function clonePlainData(value) {
   }
 }
 
+// ── Agent panel issue report helpers ───────────────────────────────────────
+const ISSUE_REPORT_TURN_LIMIT = 3;
+const AGENT_SOLVE_TURN_LIMIT = 2;
+const REPORT_FIELD_LIMIT = 360;
+
+function compactReportText(value, limit = REPORT_FIELD_LIMIT) {
+  if (value == null) {
+    return null;
+  }
+  let text;
+  try {
+    text = typeof value === "string" ? value : JSON.stringify(value);
+  } catch (_error) {
+    text = String(value);
+  }
+  const compact = String(text || "").replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return null;
+  }
+  return compact.length > limit ? `${compact.slice(0, Math.max(0, limit - 1))}...` : compact;
+}
+
+function pageUrlForReport() {
+  try {
+    if (typeof window !== "undefined" && typeof window.location?.href === "string") {
+      return window.location.href;
+    }
+    if (typeof globalThis !== "undefined" && typeof globalThis.location?.href === "string") {
+      return globalThis.location.href;
+    }
+  } catch (_error) {
+    // Best effort only; reports still work without a browser location.
+  }
+  return "(unknown URL)";
+}
+
+function debugSnapshotForReport(panel) {
+  try {
+    if (typeof window !== "undefined" && typeof window.__vibecomfyPanelDebug === "function") {
+      const snapshot = window.__vibecomfyPanelDebug();
+      if (snapshot && typeof snapshot === "object") {
+        return snapshot;
+      }
+    }
+  } catch (_error) {
+    // Debug hook is optional in tests and degraded browser environments.
+  }
+  return {
+    panelId: panel?.panelId || null,
+    phase: panel?.state?.phase || null,
+    sessionId: panel?.state?.sessionId || null,
+    turnId: panel?.state?.turnId || null,
+    messageCount: Array.isArray(panel?.state?.chatMessages) ? panel.state.chatMessages.length : 0,
+    renderErrors: Array.isArray(panel?.__renderErrors) ? panel.__renderErrors.length : 0,
+  };
+}
+
+function turnTaskForReport(entry, panel) {
+  return compactReportText(
+    entry?.task
+    || entry?.raw_payload?.task
+    || entry?.raw_payload?.user_task
+    || entry?.raw_payload?.request?.task
+    || entry?.raw_payload?.prompt
+    || panel?.state?.lastSubmit?.task
+    || null,
+  );
+}
+
+function turnFailureForReport(entry) {
+  const failure = entry?.failure && typeof entry.failure === "object" ? entry.failure : null;
+  const raw = entry?.raw_payload && typeof entry.raw_payload === "object" ? entry.raw_payload : null;
+  const outcome = entry?.outcome && typeof entry.outcome === "object" ? entry.outcome : null;
+  const kind =
+    entry?.failure_kind
+    || failure?.kind
+    || raw?.failure_kind
+    || outcome?.failure_kind
+    || null;
+  const stage =
+    entry?.failure_stage
+    || failure?.stage
+    || raw?.failure_stage
+    || raw?.stage
+    || null;
+  // Only surface a failure line for an actual failure. A noop / clarify / candidate
+  // turn has a message but is NOT a failure — labeling it "Failure: …" (as the old
+  // message-triggered path did) is misleading. Require a genuine error signal.
+  const isFailure =
+    Boolean(kind)
+    || Boolean(failure)
+    || outcome?.kind === "error"
+    || raw?.kind === "error"
+    || entry?.status === "error"
+    || entry?.status === "failed";
+  if (!isFailure) {
+    return null;
+  }
+  const message =
+    entry?.message
+    || failure?.user_facing_message
+    || failure?.message
+    || failure?.error
+    || raw?.user_facing_message
+    || raw?.message
+    || raw?.error
+    || null;
+  return compactReportText(`${kind || "Failure"}${stage ? ` @ ${stage}` : ""}${message ? `: ${message}` : ""}`);
+}
+
+function turnChangeDetailsForReport(entry) {
+  const raw = entry?.raw_payload && typeof entry.raw_payload === "object" ? entry.raw_payload : null;
+  const changeDetails =
+    entry?.change_details
+    || entry?.changeDetails
+    || raw?.change_details
+    || raw?.changeDetails
+    || null;
+  if (changeDetails && typeof changeDetails === "object") {
+    const summary = compactReportText(changeDetails.done_summary || changeDetails.summary || null);
+    const count = Number.isFinite(changeDetails.landed_operation_count)
+      ? changeDetails.landed_operation_count
+      : (Array.isArray(changeDetails.operations) ? changeDetails.operations.length : null);
+    const ops = Array.isArray(changeDetails.operations)
+      ? changeDetails.operations
+        .map((op) => compactReportText(op?.summary || op?.field_path || op, 120))
+        .filter(Boolean)
+        .slice(0, 3)
+      : [];
+    return compactReportText([
+      summary,
+      count != null ? `${count} operation${count === 1 ? "" : "s"}` : null,
+      ops.length ? ops.join("; ") : null,
+    ].filter(Boolean).join(" | "));
+  }
+  if (entry?.done_summary) {
+    return compactReportText(entry.done_summary);
+  }
+  if (Number.isFinite(entry?.landed_op_count)) {
+    return `${entry.landed_op_count} landed operation${entry.landed_op_count === 1 ? "" : "s"}`;
+  }
+  const fieldChanges = entry?.field_changes || raw?.field_changes || null;
+  if (Array.isArray(fieldChanges) && fieldChanges.length) {
+    return compactReportText(
+      fieldChanges
+        .map((change) => change?.field_path || change?.path || null)
+        .filter(Boolean)
+        .slice(0, 5)
+        .join("; "),
+    );
+  }
+  return null;
+}
+
+// Map an agent outcome to a terminal turn status string.
+function _turnStatusFromOutcome(outcome) {
+  const kind = outcome && typeof outcome === "object" ? outcome.kind : null;
+  if (outcome && typeof outcome === "object" && outcome.failure_kind) {
+    return "error";
+  }
+  if (kind === "clarification" || kind === "clarify") {
+    return "clarify";
+  }
+  if (kind === "noop" || kind === "candidate" || kind === "error") {
+    return kind;
+  }
+  return kind || "done";
+}
+
+// Rebuild durable-shaped turn entries from the rehydrated chat transcript.
+//
+// `state.turns` is purely in-memory: it is populated as turns run live, but a
+// page reload restores only `state.chatMessages` (see _handleChatRehydrateSuccess)
+// and leaves `state.turns` empty. Without this fallback every diagnostic built
+// after a reload reports "No recent turn records were captured" even though the
+// full history (including per-step agent reasoning under change_details) is
+// sitting in the rehydrated messages.
+function turnsFromChatMessages(panel) {
+  const messages = Array.isArray(panel?.state?.chatMessages) ? panel.state.chatMessages : [];
+  const order = [];
+  const byKey = new Map();
+  let counter = 0;
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object") {
+      continue;
+    }
+    const raw = msg.raw && typeof msg.raw === "object" ? msg.raw : msg;
+    const turnId = msg.turnId || msg.turn_id || raw.turn_id || null;
+    const key = turnId || `__idx_${counter}`;
+    counter += 1;
+    let entry = byKey.get(key);
+    if (!entry) {
+      entry = { entry_type: "durable", turn_id: turnId || null };
+      byKey.set(key, entry);
+      order.push(entry);
+    }
+    const role = msg.role || raw.role || null;
+    const text = typeof msg.text === "string" ? msg.text : (typeof raw.text === "string" ? raw.text : null);
+    if (role === "user") {
+      if (!entry.task && text) {
+        entry.task = text;
+      }
+      continue;
+    }
+    // Any non-user message is the agent side of the turn.
+    const outcome = msg.outcome || raw.outcome || null;
+    const changeDetails = msg.change_details || raw.change_details || null;
+    if (text) {
+      entry.message = text;
+    }
+    if (outcome) {
+      entry.outcome = outcome;
+    }
+    if (changeDetails) {
+      entry.change_details = changeDetails;
+    }
+    entry.status = _turnStatusFromOutcome(outcome);
+    entry.failure_kind = (outcome && typeof outcome === "object" && outcome.failure_kind) || null;
+    entry.raw_payload = raw;
+  }
+  // Chat is chronological; most-recent-first matches live `state.turns` order.
+  return order.reverse();
+}
+
+const REASONING_STEP_LIMIT = 8;
+const REASONING_DIAG_LIMIT = 3;
+
+// Surface the agent's actual per-step reasoning for a turn: the message it
+// wrote, whether the batch landed, and the engine diagnostics (which carry the
+// real root data — e.g. value_not_in_enum with the list of valid `choices`, or
+// unknown_output_slot with the `available_slots`). This is where the genuine
+// "why did it do that" lives, so the issue report / coding-agent prompt embed
+// it rather than only the one-line outcome summary.
+function turnReasoningForReport(entry) {
+  const raw = entry?.raw_payload && typeof entry.raw_payload === "object" ? entry.raw_payload : null;
+  const changeDetails =
+    entry?.change_details
+    || entry?.changeDetails
+    || raw?.change_details
+    || raw?.changeDetails
+    || null;
+  const steps =
+    changeDetails && typeof changeDetails === "object" && Array.isArray(changeDetails.batch_turns)
+      ? changeDetails.batch_turns
+      : null;
+  if (!steps || !steps.length) {
+    return null;
+  }
+  const lines = [];
+  const shown = steps.slice(0, REASONING_STEP_LIMIT);
+  for (let i = 0; i < shown.length; i += 1) {
+    const step = shown[i];
+    if (!step || typeof step !== "object") {
+      continue;
+    }
+    const num = Number.isFinite(step.turn_number) ? step.turn_number : i;
+    const status = step.batch_ok === true ? "landed" : (step.batch_ok === false ? "rejected" : null);
+    const message = compactReportText(step.message, 240) || "(no message)";
+    lines.push(`    step ${num}${status ? ` [${status}]` : ""}: ${message}`);
+    const code = compactReportText(step.batch, 200);
+    if (code) {
+      lines.push(`      code: ${code}`);
+    }
+    const diagnostics = Array.isArray(step.diagnostics) ? step.diagnostics : [];
+    for (const diag of diagnostics.slice(0, REASONING_DIAG_LIMIT)) {
+      if (!diag || typeof diag !== "object") {
+        continue;
+      }
+      const detail = diag.detail && typeof diag.detail === "object" ? diag.detail : null;
+      const choices = detail && Array.isArray(detail.choices)
+        ? ` (valid: [${detail.choices.slice(0, 12).join(", ")}])`
+        : "";
+      const slots = detail && Array.isArray(detail.available_slots)
+        ? ` (slots: [${detail.available_slots.slice(0, 12).join(", ")}])`
+        : "";
+      const head = diag.code ? `${diag.code}: ` : "";
+      const diagText = compactReportText(`${head}${diag.message || ""}${choices}${slots}`, 260);
+      if (diagText) {
+        lines.push(`      - ${diagText}`);
+      }
+    }
+  }
+  if (steps.length > shown.length) {
+    lines.push(`    (+${steps.length - shown.length} more step(s) — see messages.jsonl)`);
+  }
+  return lines.length ? lines.join("\n") : null;
+}
+
+function collectRecentTurnSummaries(panel, limit = ISSUE_REPORT_TURN_LIMIT) {
+  let turns = Array.isArray(panel?.state?.turns) ? panel.state.turns : [];
+  if (turns.length === 0) {
+    // Reloaded panel: derive from the rehydrated chat transcript so the report
+    // is not blank just because the in-memory turn array was never refilled.
+    turns = turnsFromChatMessages(panel);
+  }
+  return turns.slice(0, limit).map((entry, index) => ({
+    label: entry?.turn_id || (Number.isFinite(entry?.turn_number) ? `turn ${entry.turn_number}` : `entry ${index + 1}`),
+    status: compactReportText(entry?.status || entry?.phase || "unknown", 80),
+    task: turnTaskForReport(entry, panel) || "(not captured)",
+    outcome: compactReportText(
+      entry?.done_summary
+      || entry?.outcome?.reason
+      || entry?.outcome?.clarification?.message
+      || entry?.message
+      || entry?.outcome?.kind
+      || entry?.exit_mode
+      || null,
+    ) || "(not captured)",
+    failure: turnFailureForReport(entry),
+    changes: turnChangeDetailsForReport(entry),
+    reasoning: turnReasoningForReport(entry),
+  }));
+}
+
+function formatTurnSummaries(summaries) {
+  if (!Array.isArray(summaries) || summaries.length === 0) {
+    return "- No recent turn records were captured in the panel state.";
+  }
+  return summaries.map((turn, index) => [
+    `- Turn ${index + 1}${turn.label ? ` (${turn.label})` : ""}`,
+    `  Task: ${turn.task}`,
+    `  Status/outcome: ${turn.status || "unknown"}${turn.outcome ? `; ${turn.outcome}` : ""}`,
+    turn.failure ? `  Error/failure: ${turn.failure}` : null,
+    turn.changes ? `  Key changes: ${turn.changes}` : null,
+    turn.reasoning ? `  Agent reasoning (per step — what it tried and why it was rejected):\n${turn.reasoning}` : null,
+  ].filter(Boolean).join("\n")).join("\n");
+}
+
+export function buildIssueReport(panel) {
+  const debug = debugSnapshotForReport(panel);
+  const sessionId = panel?.state?.sessionId || debug.sessionId || "(none)";
+  const phase = panel?.state?.phase || debug.phase || "(unknown)";
+  const summaries = collectRecentTurnSummaries(panel, ISSUE_REPORT_TURN_LIMIT);
+  return [
+    "VibeComfy agent-edit issue report",
+    "",
+    "I ran into a problem while using the VibeComfy ComfyUI agent-edit tool. Here is the browser-panel context that may help reproduce or diagnose it.",
+    "",
+    `Page URL: ${pageUrlForReport()}`,
+    `Panel session id: ${sessionId}`,
+    `Panel phase: ${phase}`,
+    `Panel id: ${debug.panelId || panel?.panelId || "(unknown)"}`,
+    `Current turn id: ${panel?.state?.turnId || debug.turnId || "(none)"}`,
+    `Message count: ${debug.messageCount ?? "(unknown)"}`,
+    `Render errors: ${Array.isArray(debug.renderErrors) ? debug.renderErrors.length : (debug.renderErrors ?? 0)}`,
+    "",
+    "Last turns:",
+    formatTurnSummaries(summaries),
+    "",
+    `Full per-turn artifacts (the agent's actual step-by-step reasoning, the code it tried, and the engine diagnostics) are under: out/editor_sessions/${sessionId}/turns/<NNNN>/ — see messages.jsonl, model_response.json, and response.json in each turn dir.`,
+  ].join("\n");
+}
+
+export function buildAgentSolvePrompt(panel) {
+  const debug = debugSnapshotForReport(panel);
+  const sessionId = panel?.state?.sessionId || debug.sessionId || "(unknown-session)";
+  const phase = panel?.state?.phase || debug.phase || "(unknown)";
+  const summaries = collectRecentTurnSummaries(panel, AGENT_SOLVE_TURN_LIMIT);
+  return [
+    "Can you spot what's going wrong here?",
+    "",
+    "I'm using the VibeComfy ComfyUI agent-edit tool.",
+    `Here's the page URL: ${pageUrlForReport()}`,
+    `Panel session id: ${sessionId}`,
+    `Panel phase: ${phase}`,
+    `Current turn id: ${panel?.state?.turnId || debug.turnId || "(none)"}`,
+    "",
+    "Here are the logs from my last 2 turns:",
+    formatTurnSummaries(summaries),
+    "",
+    "The tool's code lives at /Users/peteromalley/Documents/reigh-workspace/vibecomfy.",
+    "Browser panel code is under vibecomfy/comfy_nodes/web/.",
+    "Server code is under vibecomfy/comfy_nodes/agent_edit.py.",
+    `Turn artifacts are under /Users/peteromalley/Documents/reigh-workspace/ComfyUI/out/editor_sessions/${sessionId}/turns/.`,
+    "Each numbered turn dir holds the agent's ACTUAL reasoning — read these, not",
+    "just the summary above:",
+    "  - messages.jsonl: the per-step transcript — each line has the agent's",
+    "    `message` (its reasoning), the `batch` (the code it tried), and the",
+    "    engine's `report`/`diagnostics` (why each statement landed or was",
+    "    rejected, including the valid enum `choices` / `available_slots`).",
+    "  - model_response.json / model_request.json: the raw model reply and the",
+    "    prompt it was given.",
+    "  - response.json: the final outcome envelope (failure_kind, user_facing_message).",
+    "The single most useful thing you can do is read messages.jsonl for the failing",
+    "turn and trace what the agent believed vs. what the engine actually allowed.",
+    "",
+    "Please diagnose the failure and propose a fix. Don't settle for a superficial",
+    "patch that just makes the symptom go away — get to the very root of the issue.",
+    "Keep digging until you genuinely understand the foundational problem (why it",
+    "happens, not just where it surfaces), and then fix that underlying cause.",
+    "",
+    "Once you have a fix, test it yourself in the browser, or with me, to confirm it",
+    "actually resolves the problem. When you're confident it's fixed and verified,",
+    "offer to open a pull request against the original repo",
+    "(https://github.com/peteromallet/VibeComfy) so the fix helps everyone.",
+  ].join("\n");
+}
+
 // ── Audit download helpers ─────────────────────────────────────────────────
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -1569,10 +1973,7 @@ function downloadTurnAuditEntry(turnEntry, turnIndex = 0) {
   downloadBlob(blob, `vibecomfy-audit-${status}-${turnId}.json`);
 }
 
-function downloadCurrentAudit(panel) {
-  if (!panel) {
-    return;
-  }
+function buildCurrentAuditEnvelope(panel) {
   const latestTurn =
     Array.isArray(panel.state.turns) && panel.state.turns.length
       ? panel.state.turns[0]
@@ -1604,12 +2005,222 @@ function downloadCurrentAudit(panel) {
       envelope.response_payload = panel.state.failure;
     }
   }
+  return envelope;
+}
+
+function downloadCurrentAudit(panel) {
+  if (!panel) {
+    return;
+  }
+  const envelope = buildCurrentAuditEnvelope(panel);
   const blob = new Blob([JSON.stringify(envelope, null, 2)], {
     type: "application/json",
   });
   const turnId = panel.state.turnId || "current";
   const status = panel.state.phase || "unknown";
   downloadBlob(blob, `vibecomfy-audit-${status}-${turnId}.json`);
+}
+
+// ── Minimal stored-mode ZIP writer (no external deps) ──────────────────────
+let _crc32Table = null;
+function crc32(bytes) {
+  if (!_crc32Table) {
+    _crc32Table = new Uint32Array(256);
+    for (let n = 0; n < 256; n += 1) {
+      let c = n;
+      for (let k = 0; k < 8; k += 1) {
+        c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      }
+      _crc32Table[n] = c >>> 0;
+    }
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i += 1) {
+    crc = _crc32Table[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+// Build an uncompressed (stored) ZIP archive from [{ name, text }] entries.
+function buildZipBlob(files) {
+  const encoder = new TextEncoder();
+  const u16 = (n) => new Uint8Array([n & 0xff, (n >>> 8) & 0xff]);
+  const u32 = (n) => new Uint8Array([
+    n & 0xff,
+    (n >>> 8) & 0xff,
+    (n >>> 16) & 0xff,
+    (n >>> 24) & 0xff,
+  ]);
+
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  let entryCount = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes = file.bytes instanceof Uint8Array
+      ? file.bytes
+      : encoder.encode(String(file.text ?? ""));
+    const crc = crc32(dataBytes);
+    const size = dataBytes.length;
+
+    // Local file header (30 bytes + name) then data.
+    localParts.push(
+      u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(size), u32(size), u16(nameBytes.length), u16(0),
+      nameBytes, dataBytes,
+    );
+
+    // Central directory header (46 bytes + name).
+    centralParts.push(
+      u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(size), u32(size), u16(nameBytes.length), u16(0), u16(0),
+      u16(0), u16(0), u32(0), u32(offset), nameBytes,
+    );
+
+    offset += 30 + nameBytes.length + size;
+    entryCount += 1;
+  }
+
+  const centralStart = offset;
+  let centralSize = 0;
+  for (const part of centralParts) centralSize += part.length;
+
+  const endParts = [
+    u32(0x06054b50), u16(0), u16(0), u16(entryCount), u16(entryCount),
+    u32(centralSize), u32(centralStart), u16(0),
+  ];
+
+  return new Blob([...localParts, ...centralParts, ...endParts], {
+    type: "application/zip",
+  });
+}
+
+function _base64ToBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function _formatBundleBytes(n) {
+  if (!Number.isFinite(n)) {
+    return "?";
+  }
+  if (n < 1024) {
+    return `${n} B`;
+  }
+  if (n < 1024 * 1024) {
+    return `${(n / 1024).toFixed(1)} KiB`;
+  }
+  return `${(n / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+// Fetch every artifact under the session dir and add it to the ZIP under
+// `session/`, so the downloaded report is self-contained — a recipient on
+// another machine gets the actual messages.jsonl / model_response.json /
+// response.json etc., not just local paths pointing at files they don't have.
+async function appendSessionBundleFiles(panel, files) {
+  const sessionId = panel?.state?.sessionId || null;
+  if (!sessionId) {
+    files.push({ name: "session/_bundle_missing.txt", text: "No session id on the panel; turn artifacts were not bundled." });
+    return;
+  }
+  let payload;
+  try {
+    const res = await fetch(`/vibecomfy/agent-edit/session-bundle?session_id=${encodeURIComponent(sessionId)}`);
+    if (!res.ok) {
+      throw new Error(`session-bundle returned ${res.status}`);
+    }
+    payload = await res.json();
+  } catch (error) {
+    files.push({
+      name: "session/_bundle_error.txt",
+      text: `Failed to fetch session artifacts: ${String(error?.message || error)}\n`
+        + "The report above still points at the on-disk turn artifacts.",
+    });
+    return;
+  }
+  if (payload?.ok === false || payload?.exists === false) {
+    files.push({
+      name: "session/_bundle_missing.txt",
+      text: `No on-disk artifacts found for session ${sessionId} (exists=${payload?.exists}).`,
+    });
+    return;
+  }
+  const bundleFiles = Array.isArray(payload?.files) ? payload.files : [];
+  let added = 0;
+  for (const entry of bundleFiles) {
+    if (!entry || typeof entry.name !== "string") {
+      continue;
+    }
+    const name = `session/${entry.name}`;
+    if (typeof entry.text === "string") {
+      files.push({ name, text: entry.text });
+      added += 1;
+    } else if (typeof entry.base64 === "string") {
+      try {
+        files.push({ name, bytes: _base64ToBytes(entry.base64) });
+        added += 1;
+      } catch (_error) {
+        // Skip an undecodable binary blob rather than abort the whole ZIP.
+      }
+    }
+  }
+  const skipped = Array.isArray(payload?.skipped) ? payload.skipped : [];
+  const manifest = [
+    "VibeComfy session artifact bundle",
+    "",
+    `Session: ${sessionId}`,
+    `Session path: ${payload?.session_path || "(unknown)"}`,
+    `Files bundled: ${added}`,
+    `Total bytes: ${_formatBundleBytes(payload?.total_bytes)}`,
+    "",
+    "These files under session/ are the agent's actual turn artifacts — the same",
+    "messages.jsonl / model_response.json / response.json the report.txt points to,",
+    "copied here so this ZIP is self-contained.",
+  ];
+  if (skipped.length) {
+    manifest.push("", "Skipped (not bundled):");
+    for (const item of skipped) {
+      manifest.push(`  - ${item?.name || "(unknown)"}: ${item?.reason || "?"}${item?.size ? ` (${_formatBundleBytes(item.size)})` : ""}`);
+    }
+  }
+  files.push({ name: "session/_bundle_manifest.txt", text: manifest.join("\n") });
+}
+
+export async function collectIssueReportFiles(panel) {
+  const files = [{ name: "report.txt", text: buildIssueReport(panel) }];
+  try {
+    const envelope = buildCurrentAuditEnvelope(panel);
+    files.push({ name: "audit.json", text: JSON.stringify(envelope, null, 2) });
+  } catch (error) {
+    files.push({ name: "audit-error.txt", text: String(error?.stack || error) });
+  }
+  try {
+    const snapshot = buildAgentPanelDebugSnapshot(panel);
+    files.push({ name: "debug-snapshot.json", text: JSON.stringify(snapshot, null, 2) });
+  } catch (error) {
+    files.push({ name: "debug-snapshot-error.txt", text: String(error?.stack || error) });
+  }
+  // Also embed the agent-solve prompt so a recipient has the framed ask too.
+  try {
+    files.push({ name: "coding-agent-prompt.txt", text: buildAgentSolvePrompt(panel) });
+  } catch (error) {
+    files.push({ name: "coding-agent-prompt-error.txt", text: String(error?.stack || error) });
+  }
+  await appendSessionBundleFiles(panel, files);
+  return files;
+}
+
+async function downloadIssueReportZip(panel) {
+  const blob = buildZipBlob(await collectIssueReportFiles(panel));
+  const sessionId = panel?.state?.sessionId || "session";
+  const safeSession = String(sessionId).replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 60);
+  downloadBlob(blob, `vibecomfy-issue-report-${safeSession}.zip`);
 }
 
 function canonicalizeJsonValue(value) {
@@ -2831,14 +3442,23 @@ function createAgentPanelShell() {
     flexDirection: "column",
     gap: "2px",
   });
-  const title = el("div", "VibeComfy Agent Edit");
-  title.style.fontWeight = "700";
-  title.style.fontSize = "13px";
+  const title = el("div");
+  Object.assign(title.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "7px",
+    fontWeight: "700",
+    fontSize: "14px",
+    color: "#edf2f7",
+    letterSpacing: "0.02em",
+  });
+  const titleLogo = el("img");
+  titleLogo.src = "/extensions/vibecomfy/astrid_logo.png";
+  titleLogo.alt = "Astrid";
+  Object.assign(titleLogo.style, { width: "20px", height: "20px", display: "block", flexShrink: "0" });
+  title.appendChild(titleLogo);
+  title.appendChild(el("span", "Astrid"));
   headerLeft.appendChild(title);
-  const sub = el("div", "Durable agent edit panel.");
-  sub.style.fontSize = "11px";
-  sub.style.color = "#8d93a1";
-  headerLeft.appendChild(sub);
   header.appendChild(headerLeft);
 
   const headerRight = el("div");
@@ -2892,7 +3512,9 @@ function createAgentPanelShell() {
   // ── Compact meta row (now inside header area, not a full grid row) ──────
   const metaRow = el("div");
   Object.assign(metaRow.style, {
-    display: "flex",
+    // Hidden: the state/session/turn/baseline debug line is noise for users.
+    // Still populated by renderMeta() so the debug hook can read it.
+    display: "none",
     gap: "10px",
     padding: "4px 14px 6px 14px",
     borderBottom: "1px solid #282a32",
@@ -2926,7 +3548,7 @@ function createAgentPanelShell() {
   threadRegion.body.style.gap = "10px";
 
   // Chat section: persisted conversation bubbles (M3).
-  const chatRegion = panelSection(PANEL_IDS.chatRegion, "Chat");
+  const chatRegion = panelSection(PANEL_IDS.chatRegion, "");
   threadRegion.body.appendChild(chatRegion.section);
 
   const historyRegion = panelSection(PANEL_IDS.historyRegion, "");
@@ -2993,21 +3615,32 @@ function createAgentPanelShell() {
   Object.assign(composerButtons.style, {
     display: "flex",
     gap: "6px",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    width: "100%",
   });
 
   const submitBtn = button("Submit", () => submitAgentEdit(currentAgentPanel()));
   submitBtn.id = PANEL_IDS.submit;
   const stopBtn = button("Stop", () => stopAgentSubmit(currentAgentPanel()));
   stopBtn.style.display = "none";
-  const applyBtn = button("Apply Candidate", () => applyAgentCandidate(currentAgentPanel()));
+  const applyBtn = button("Apply", () => applyAgentCandidate(currentAgentPanel()));
   applyBtn.id = PANEL_IDS.apply;
-  const rejectBtn = button("Reject Candidate", () => rejectAgentCandidate(currentAgentPanel()));
+  const rejectBtn = button("Reject", () => rejectAgentCandidate(currentAgentPanel()));
   rejectBtn.id = PANEL_IDS.reject;
   const undoBtn = button("Undo Last Apply", () => undoLastApply(currentAgentPanel()));
   undoBtn.id = PANEL_IDS.undo;
   const newConvBtn = button("New conversation", () => newAgentConversation(currentAgentPanel()));
   newConvBtn.id = "vibecomfy-agent-panel-new-conversation";
+
+  // Keep all action buttons on a single line; stretch them to share the width
+  // and shrink (with an ellipsis) rather than wrap when the panel is narrow.
+  for (const b of [submitBtn, stopBtn, applyBtn, rejectBtn, undoBtn, newConvBtn]) {
+    b.style.flex = "1 1 0";
+    b.style.minWidth = "0";
+    b.style.whiteSpace = "nowrap";
+    b.style.overflow = "hidden";
+    b.style.textOverflow = "ellipsis";
+  }
 
   composerButtons.appendChild(submitBtn);
   composerButtons.appendChild(stopBtn);
@@ -3016,6 +3649,24 @@ function createAgentPanelShell() {
   composerButtons.appendChild(undoBtn);
   composerButtons.appendChild(newConvBtn);
   composer.appendChild(composerButtons);
+
+  const issueButtonRow = el("div");
+  Object.assign(issueButtonRow.style, {
+    display: "flex",
+    justifyContent: "center",
+  });
+  const havingIssuesBtn = button("Having issues?", () => showIssueModal(currentAgentPanel()));
+  havingIssuesBtn.id = PANEL_IDS.havingIssues;
+  setButtonEmphasis(havingIssuesBtn, true, "neutral");
+  Object.assign(havingIssuesBtn.style, {
+    padding: "4px 7px",
+    fontSize: "10px",
+    color: "#9da1ac",
+    background: "#171a20",
+    borderColor: "#303541",
+  });
+  issueButtonRow.appendChild(havingIssuesBtn);
+  composer.appendChild(issueButtonRow);
 
   const composerNotice = el("div");
   composerNotice.id = PANEL_IDS.composerNotice;
@@ -3152,6 +3803,48 @@ function createAgentPanelShell() {
   shell.appendChild(settingsPopover);
   root.appendChild(shell);
 
+  // ── Cmd/Ctrl+Enter in the prompt box submits the edit ──────────────────────
+  // ComfyUI binds Ctrl/Cmd+Enter globally to "Queue Prompt" via a bubble-phase
+  // window keydown listener. A listener ON the textarea (the event target) runs
+  // before any ancestor bubble-phase listener, so stopping propagation here
+  // keeps the shortcut scoped to the prompt box: it sends the agent query and
+  // never reaches ComfyUI's executor. Anywhere outside the prompt box the
+  // native Comfy binding is left untouched.
+  if (typeof textarea.addEventListener === "function") {
+    textarea.addEventListener("keydown", (event) => {
+      if (event?.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") {
+          event.stopImmediatePropagation();
+        }
+        submitAgentEdit(currentAgentPanel());
+      }
+    });
+  }
+
+  // ── Click outside the settings popover closes it ───────────────────────────
+  // The gear toggles `settingsPopover`. While it's open, a mousedown anywhere
+  // that isn't inside the popover (the rest of the side panel, or the ComfyUI
+  // canvas behind it) dismisses it. The gear itself is excluded so its own
+  // click toggles the popover rather than closing it here and reopening on the
+  // click that follows.
+  if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+    document.addEventListener("mousedown", (event) => {
+      if (settingsPopover.style.display === "none") {
+        return;
+      }
+      const target = event?.target;
+      const insidePopover =
+        typeof settingsPopover.contains === "function" && settingsPopover.contains(target);
+      const onGear =
+        typeof settingsGearBtn.contains === "function" && settingsGearBtn.contains(target);
+      if (!insidePopover && !onGear) {
+        settingsPopover.style.display = "none";
+      }
+    });
+  }
+
   return {
     panelId,
     root,
@@ -3176,6 +3869,7 @@ function createAgentPanelShell() {
       settingsTest,
       stop: stopBtn,
       newConversation: newConvBtn,
+      havingIssues: havingIssuesBtn,
     },
     sections: {
       thread: threadRegion.body,
@@ -3560,6 +4254,7 @@ function openAgentPanel({ mode = AGENT_PANEL_MOUNT_MODE.LAUNCHER, container = nu
   panel.root.dataset.open = "1";
   panel.root.style.pointerEvents = "auto";
   panel.root.style.transform = "translateX(0)";
+  setAgentLauncherVisible(false);
   panel.state.queueGuard = getQueueGuardStateForPanel();
   // Rehydrate chat on open (best-effort) — exactly one fetch per open.
   // Creation (ensureAgentPanel) intentionally does not fetch, so this single
@@ -3589,6 +4284,22 @@ function closeAgentPanel(panel) {
   panel.root.dataset.open = "0";
   panel.root.style.pointerEvents = "none";
   panel.root.style.transform = "translateX(432px)";
+  setAgentLauncherVisible(true);
+}
+
+// Show/hide the floating edge launcher. Hidden while the panel is open (it would
+// just overlap the panel); shown again on close so the user can reopen.
+function setAgentLauncherVisible(visible) {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const launcher = document.getElementById("vibecomfy-agent-launcher");
+  if (launcher) {
+    // Restore the launcher's flex layout explicitly. Using "" would clear the
+    // inline display and revert the button to its default inline-block, which
+    // drops the flex column gap and collapses the logo onto the label on reopen.
+    launcher.style.display = visible ? "flex" : "none";
+  }
 }
 
 function option(value, label, ownerDocument = null) {
@@ -7522,7 +8233,7 @@ function renderLifecycleTransition(panel, obligations = {}) {
   }
 }
 
-async function submitAgentEdit(panel) {
+async function submitAgentEdit(panel, { taskOverride } = {}) {
   if (panel?.state?.rebaselinePending || panel?.state?.inFlightRebaseline) {
     renderAgentPanel(panel);
     return panel.state.inFlightRebaseline || undefined;
@@ -7556,7 +8267,8 @@ async function submitAgentEdit(panel) {
       return;
     }
 
-    const task = (promptEl && typeof promptEl.value === "string" ? promptEl.value : "").trim();
+    const explicitTask = typeof taskOverride === "string" ? taskOverride.trim() : "";
+    const task = explicitTask || (promptEl && typeof promptEl.value === "string" ? promptEl.value : "").trim();
     if (!task) {
       const failure = agentPanelFailure("MissingTask", "Enter an edit instruction before submitting.", {
         retryable: true,
@@ -7569,6 +8281,17 @@ async function submitAgentEdit(panel) {
       fulfillLifecycleTransitionObligations(panel, obligations);
       renderLifecycleTransition(panel, obligations);
       return;
+    }
+
+    // Clear the prompt box immediately on submit — the task is already captured
+    // in `task`, and the rebaseline retry resubmits from lastSubmit.task, not here.
+    if (promptEl && typeof promptEl.value === "string") {
+      promptEl.value = "";
+      try {
+        if (typeof promptEl.dispatchEvent === "function" && typeof Event === "function") {
+          promptEl.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      } catch (_e) { /* no-op: input event is best-effort */ }
     }
 
     const pendingMessage = `Submitting: ${task.slice(0, 80)}${task.length > 80 ? "..." : ""}`;
@@ -7633,6 +8356,19 @@ async function submitAgentEdit(panel) {
     // Preserve the epoch allocated before serialization; SUBMIT_START above
     // returns the current epoch when payload.submitEpoch is supplied.
     submitEpoch = panel.state.submitEpoch;
+    // Optimistically surface the user's message in the chat thread the instant
+    // they hit Submit, instead of waiting for the server round-trip + rehydrate.
+    // Rehydrate replaces chatMessages wholesale and carries the server's own
+    // copy of this message, so there is no duplicate once the turn resolves.
+    if (!Array.isArray(panel.state.chatMessages)) {
+      panel.state.chatMessages = [];
+    }
+    panel.state.chatMessages.push({
+      role: "user",
+      text: task,
+      optimistic: true,
+      timestamp: new Date().toISOString(),
+    });
     pushHistory(panel, "pending", pendingMessage);
     pushTurnStatus(panel, "pending", {
       task,
@@ -7698,6 +8434,16 @@ async function submitAgentEdit(panel) {
       if (!isCurrentSubmit()) {
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
+      }
+      // Submit failed/cancelled: restore the instruction we cleared on submit so
+      // the user can retry without retyping it.
+      if (promptEl && typeof promptEl.value === "string" && !promptEl.value) {
+        promptEl.value = task;
+        try {
+          if (typeof promptEl.dispatchEvent === "function" && typeof Event === "function") {
+            promptEl.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+        } catch (_e) { /* no-op */ }
       }
       if (e?.name === "AbortError") {
         const obligations = transition(panel, "SUBMIT_ABORT", {
@@ -8866,6 +9612,7 @@ async function rebaselineCurrentCanvas(panel) {
   if (panel.state.inFlightRebaseline) {
     return panel.state.inFlightRebaseline;
   }
+  const retryTask = panel.state.lastSubmit?.task;
   const queuedObligations = transition(panel, "STALE_RECOVERY_REBASELINE_QUEUED");
   renderLifecycleTransition(panel, queuedObligations);
   try {
@@ -8884,7 +9631,7 @@ async function rebaselineCurrentCanvas(panel) {
     });
     fulfillLifecycleTransitionObligations(panel, successObligations);
     renderLifecycleTransition(panel, successObligations);
-    await submitAgentEdit(panel);
+    await submitAgentEdit(panel, { taskOverride: retryTask });
     return result;
   } catch (failure) {
     const failureObligations = transition(panel, "STALE_RECOVERY_REBASELINE_FAILURE", {
@@ -9002,22 +9749,34 @@ function ensureAgentLauncher() {
   const btn = document.createElement("button");
   btn.id = "vibecomfy-agent-launcher";
   btn.type = "button";
-  btn.textContent = "✨ VibeComfy Agent";
-  btn.title = "Open the VibeComfy agent edit panel";
+  btn.title = "Open the Astrid agent edit panel";
+  const launcherLogo = document.createElement("img");
+  launcherLogo.src = "/extensions/vibecomfy/astrid_logo.png";
+  launcherLogo.alt = "";
+  Object.assign(launcherLogo.style, { width: "14px", height: "14px", display: "block", flexShrink: "0" });
+  const launcherText = document.createElement("span");
+  launcherText.textContent = "Astrid";
+  launcherText.style.writingMode = "vertical-rl";
+  btn.appendChild(launcherLogo);
+  btn.appendChild(launcherText);
   Object.assign(btn.style, {
     position: "fixed",
     right: "0px",
     top: "45%",
     zIndex: "100000",
-    writingMode: "vertical-rl",
-    padding: "12px 7px",
-    background: "#7c3aed",
-    color: "#ffffff",
-    border: "none",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "6px",
+    padding: "10px 7px",
+    background: "#1b1d22",
+    color: "#f47f18",
+    border: "1px solid #f47f18",
+    borderRight: "none",
     borderRadius: "8px 0 0 8px",
     cursor: "pointer",
     fontSize: "12px",
-    fontWeight: "600",
+    fontWeight: "700",
     letterSpacing: "0.04em",
     boxShadow: "0 2px 12px rgba(0,0,0,0.45)",
   });
@@ -9046,8 +9805,8 @@ function ensureAgentSidebarTab() {
   }
   const tab = {
     id: AGENT_SIDEBAR_TAB_ID,
-    title: "VibeComfy Agent",
-    tooltip: "Open the VibeComfy agent edit panel",
+    title: "Astrid",
+    tooltip: "Open the Astrid agent edit panel",
     icon: "pi pi-sparkles",
     type: "custom",
     render: mountAgentSidebarPanel,
@@ -9061,7 +9820,7 @@ function ensureAgentSidebarTab() {
     try {
       manager.registerSidebarTab(
         AGENT_SIDEBAR_TAB_ID,
-        "VibeComfy Agent",
+        "Astrid",
         "pi pi-sparkles",
         mountAgentSidebarPanel,
       );
@@ -9130,6 +9889,294 @@ function makeBox(overlay) {
   });
   overlay.appendChild(box);
   return box;
+}
+
+async function copyTextToClipboard(text) {
+  if (
+    typeof navigator !== "undefined"
+    && navigator.clipboard
+    && typeof navigator.clipboard.writeText === "function"
+  ) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  if (typeof document === "undefined" || typeof document.createElement !== "function") {
+    return false;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  const parent = document.body || null;
+  if (!parent || typeof parent.appendChild !== "function") {
+    return false;
+  }
+  parent.appendChild(textarea);
+  if (typeof textarea.focus === "function") {
+    textarea.focus();
+  }
+  if (typeof textarea.select === "function") {
+    textarea.select();
+  }
+  let ok = false;
+  try {
+    ok = typeof document.execCommand === "function" && document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
+  return ok;
+}
+
+function issueModalOption({ title, copyLabel, description, onCopy, link, statusNode }) {
+  const optionBox = el("div");
+  Object.assign(optionBox.style, {
+    border: "1px solid #2a313c",
+    borderRadius: "8px",
+    background: "#0d0f14",
+    padding: "12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    minWidth: "0",
+  });
+
+  const heading = el("div", title);
+  Object.assign(heading.style, {
+    color: "#edf2f7",
+    fontSize: "13px",
+    fontWeight: "700",
+  });
+  optionBox.appendChild(heading);
+
+  const body = el("div", description);
+  Object.assign(body.style, {
+    color: "#9da1ac",
+    fontSize: "11px",
+    lineHeight: "1.45",
+  });
+  optionBox.appendChild(body);
+
+  const actions = el("div");
+  Object.assign(actions.style, {
+    display: "flex",
+    flexWrap: "nowrap",
+    alignItems: "center",
+    gap: "12px",
+  });
+
+  const copyBtn = button(copyLabel, onCopy);
+  setButtonEmphasis(copyBtn, true, "neutral");
+  Object.assign(copyBtn.style, {
+    fontSize: "11px",
+    padding: "6px 9px",
+  });
+  actions.appendChild(copyBtn);
+
+  if (link && link.href) {
+    const iconOnly = link.iconOnly === true;
+    const linkEl = el("a", iconOnly ? null : `${link.label || "File an issue"} ↗`);
+    linkEl.href = link.href;
+    linkEl.target = "_blank";
+    linkEl.rel = "noopener noreferrer";
+    linkEl.title = link.title || link.label || link.href;
+    if (iconOnly) {
+      linkEl.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>';
+      Object.assign(linkEl.style, {
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#edf2f7",
+        textDecoration: "none",
+        border: "1px solid #414855",
+        borderRadius: "6px",
+        background: "#272b33",
+        padding: "6px 9px",
+        whiteSpace: "nowrap",
+      });
+    } else {
+      Object.assign(linkEl.style, {
+        fontSize: "11px",
+        color: "#9ed0ff",
+        textDecoration: "none",
+        whiteSpace: "nowrap",
+      });
+    }
+    actions.appendChild(linkEl);
+  }
+
+  optionBox.appendChild(actions);
+
+  if (statusNode) {
+    optionBox.appendChild(statusNode);
+  }
+
+  return optionBox;
+}
+
+function showIssueModal(panel) {
+  if (!panel?.shell || typeof document === "undefined") {
+    return null;
+  }
+  const existing = getPanelElementById(panel, PANEL_IDS.issueModal);
+  if (existing && typeof existing.remove === "function") {
+    existing.remove();
+  }
+
+  const overlay = el("div");
+  overlay.id = PANEL_IDS.issueModal;
+  overlay.dataset.vibecomfyIssueModal = "1";
+  Object.assign(overlay.style, {
+    position: "absolute",
+    inset: "0",
+    zIndex: "10001",
+    background: "rgba(0,0,0,0.58)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "16px",
+    boxSizing: "border-box",
+  });
+
+  const closeModal = () => {
+    if (typeof document.removeEventListener === "function") {
+      document.removeEventListener("keydown", onKeyDown);
+    }
+    overlay.remove();
+  };
+  const onKeyDown = (event) => {
+    if (event?.key === "Escape") {
+      closeModal();
+    }
+  };
+  overlay.onclick = (event) => {
+    if (event?.target === overlay) {
+      closeModal();
+    }
+  };
+  if (typeof document.addEventListener === "function") {
+    document.addEventListener("keydown", onKeyDown);
+  }
+
+  const modal = el("div");
+  Object.assign(modal.style, {
+    width: "min(720px, 100%)",
+    maxHeight: "calc(100vh - 48px)",
+    overflow: "auto",
+    background: "#14161b",
+    border: "1px solid #343b47",
+    borderRadius: "8px",
+    boxShadow: "0 14px 42px rgba(0,0,0,0.55)",
+    padding: "14px",
+    color: "#edf2f7",
+    fontFamily: "monospace",
+    boxSizing: "border-box",
+  });
+  overlay.appendChild(modal);
+
+  const header = el("div");
+  Object.assign(header.style, {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginBottom: "12px",
+  });
+  const title = el("div", "Having issues?");
+  Object.assign(title.style, {
+    fontSize: "14px",
+    fontWeight: "700",
+  });
+  header.appendChild(title);
+  const closeBtn = button("X", closeModal);
+  closeBtn.title = "Close";
+  Object.assign(closeBtn.style, {
+    width: "28px",
+    height: "28px",
+    padding: "0",
+    fontSize: "13px",
+    lineHeight: "1",
+  });
+  header.appendChild(closeBtn);
+  modal.appendChild(header);
+
+  const status = el("div");
+  Object.assign(status.style, {
+    minHeight: "14px",
+    color: "#9ed0ff",
+    fontSize: "11px",
+    marginTop: "12px",
+    padding: "0 2px",
+  });
+
+  const copyAndConfirm = async (builder) => {
+    const text = builder(panel);
+    try {
+      const ok = await copyTextToClipboard(text);
+      status.textContent = ok ? "Copied!" : "Copy failed. Select and copy the generated text manually.";
+      status.style.color = ok ? "#9ed0ff" : "#ffb86c";
+    } catch (error) {
+      status.textContent = `Copy failed: ${String(error?.message || error)}`;
+      status.style.color = "#ffb86c";
+    }
+  };
+
+  const downloadReportAndCopyIntro = async () => {
+    try {
+      await downloadIssueReportZip(panel);
+    } catch (error) {
+      status.textContent = `Download failed: ${String(error?.message || error)}`;
+      status.style.color = "#ffb86c";
+      return;
+    }
+    try {
+      await copyTextToClipboard(buildIssueReport(panel));
+    } catch (_) {
+      // Clipboard copy is best-effort; the zip download is the primary action.
+    }
+    status.textContent = "";
+    status.appendChild(document.createTextNode("Please share this "));
+    const githubLink = el("a", "on Github");
+    githubLink.href = "https://github.com/peteromallet/VibeComfy/issues/new";
+    githubLink.target = "_blank";
+    githubLink.rel = "noopener noreferrer";
+    Object.assign(githubLink.style, {
+      color: "#9ed0ff",
+      textDecoration: "underline",
+    });
+    status.appendChild(githubLink);
+    status.appendChild(document.createTextNode(". Intro text also copied to your clipboard."));
+    status.style.color = "#9ed0ff";
+  };
+
+  const options = el("div");
+  Object.assign(options.style, {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: "10px",
+  });
+  options.appendChild(issueModalOption({
+    title: "Report an issue",
+    description: "Found a bug? Download a ready-to-share report (zip) of what's happening so you can file it or send it to us.",
+    copyLabel: "Download report",
+    onCopy: downloadReportAndCopyIntro,
+    link: {
+      href: "https://github.com/peteromallet/VibeComfy/issues/new",
+      title: "File a GitHub issue",
+      iconOnly: true,
+    },
+  }));
+  options.appendChild(issueModalOption({
+    title: "Solve it",
+    description: "Copy this for your coding agent — it'll work with you to get to the bottom of the issue and solve it, for you and others!",
+    copyLabel: "Copy for your coding agent",
+    onCopy: () => copyAndConfirm(buildAgentSolvePrompt),
+  }));
+  modal.appendChild(options);
+  modal.appendChild(status);
+
+  panel.shell.appendChild(overlay);
+  return overlay;
 }
 
 function row(uid, color, label, tooltip) {

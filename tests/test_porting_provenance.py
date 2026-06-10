@@ -50,6 +50,19 @@ def test_extract_provenance_preserves_aux_and_ver_metadata_and_dedupes_cnr_ids()
     report = extract_provenance(workflow)
 
     assert report.required_pack_slugs == {"custom-pack", "nested-pack"}
+    assert {requirement.identity_key for requirement in report.requirements} == {
+        "cnr:custom-pack|aux:-|ver:1.2.3",
+        "cnr:custom-pack|aux:-|ver:9.9.9",
+        "cnr:nested-pack|aux:-|ver:0.0.1",
+        "cnr:-|aux:owner/repo|ver:deadbeef",
+    }
+    assert any(
+        requirement.resolver_kind == "aux_git" and requirement.aux_id == "owner/repo"
+        for requirement in report.requirements
+    )
+    assert [conflict.code for conflict in report.conflicts] == ["conflicting_authored_versions"]
+    assert report.conflicts[0].locator_key == "cnr:custom-pack|aux:-"
+    assert report.conflicts[0].versions == ("1.2.3", "9.9.9")
     aux_only = report.aux_only[0]
     assert aux_only.node_id == "3"
     assert aux_only.aux_id == "owner/repo"
@@ -58,6 +71,34 @@ def test_extract_provenance_preserves_aux_and_ver_metadata_and_dedupes_cnr_ids()
     assert nested.scope == "subgraph"
     assert nested.subgraph_id == "sg-1"
     assert nested.ver == "0.0.1"
+
+
+def test_extract_provenance_builds_requirement_kinds_and_pins_for_commit_semver_core_and_conflicts() -> None:
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "KSampler", "properties": {"cnr_id": "comfy-core", "ver": "0.24.0"}},
+            {"id": 2, "type": "AuxCommitNode", "properties": {"aux_id": "owner/repo", "ver": "deadbeef"}},
+            {"id": 3, "type": "SemverNodeA", "properties": {"cnr_id": "custom-pack", "ver": "1.2.3"}},
+            {"id": 4, "type": "SemverNodeB", "properties": {"cnr_id": "custom-pack", "ver": "2.0.0"}},
+            {"id": 5, "type": "MarkdownNote", "properties": {"cnr_id": "ignored-pack", "ver": "9.9.9"}},
+            {"id": 6, "type": "MysteryExec", "properties": {}},
+        ]
+    }
+
+    report = extract_provenance(workflow)
+    requirements = {requirement.identity_key: requirement for requirement in report.requirements}
+    version_pins = {pin.identity_key: pin for pin in report.version_pins}
+
+    assert requirements["cnr:comfy-core|aux:-|ver:0.24.0"].resolver_kind == "comfy_core"
+    assert requirements["cnr:-|aux:owner/repo|ver:deadbeef"].resolver_kind == "aux_git"
+    assert requirements["cnr:custom-pack|aux:-|ver:1.2.3"].version_pin is not None
+    assert requirements["cnr:custom-pack|aux:-|ver:2.0.0"].version_pin is not None
+    assert version_pins["cnr:-|aux:owner/repo|ver:deadbeef"].version == "deadbeef"
+    assert version_pins["cnr:custom-pack|aux:-|ver:1.2.3"].version == "1.2.3"
+    assert "cnr:ignored-pack|aux:-|ver:9.9.9" not in requirements
+    assert [record.node_id for record in report.unprovenanced] == ["6"]
+    assert any(conflict.code == "conflicting_authored_versions" for conflict in report.conflicts)
+    assert any(warning.code == "helper_ui_node" for warning in report.warnings)
 
 
 def test_extract_provenance_reports_execution_like_records_without_provenance() -> None:
@@ -72,6 +113,10 @@ def test_extract_provenance_reports_execution_like_records_without_provenance() 
 
     assert [record.node_id for record in report.unprovenanced] == ["10"]
     assert report.unprovenanced[0].class_type == "KSampler"
+    assert report.low_confidence is True
+    assert [warning.code for warning in report.warnings if warning.low_confidence] == [
+        "unprovenanced_execution_node"
+    ]
 
 
 def test_extract_provenance_flags_comfy_core_records_for_non_core_classes() -> None:
@@ -87,6 +132,7 @@ def test_extract_provenance_flags_comfy_core_records_for_non_core_classes() -> N
     assert report.required_pack_slugs == {"comfy-core"}
     assert [record.node_id for record in report.core_slug_non_core] == ["20"]
     assert report.core_slug_non_core[0].class_type == "ResolutionSelector"
+    assert any(conflict.code == "suspicious_comfy_core" for conflict in report.conflicts)
 
 
 def test_extract_provenance_ignores_subgraph_proxy_nodes_for_core_mismatch_and_unprovenanced() -> None:
@@ -245,3 +291,5 @@ def test_extract_provenance_unprovenanced_skips_helpers_and_subgraph_proxies() -
     # Helper/UI nodes and subgraph proxies should not appear as unprovenanced
     helper_types = {r.class_type for r in report.records if not r.execution_looking}
     assert helper_types >= {"Note", "MarkdownNote", "Reroute", "sg-proxy-1"}
+    helper_warning_codes = {warning.code for warning in report.warnings if warning.code == "helper_ui_node"}
+    assert helper_warning_codes == {"helper_ui_node"}

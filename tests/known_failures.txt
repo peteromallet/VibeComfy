@@ -30,6 +30,7 @@ tests/test_gold_template_alignment.py::test_public_input_default_types_match
 tests/test_gold_template_alignment.py::test_public_input_keys_match
 tests/test_packaging.py::test_nodes_package_layout_stays_collapsed
 tests/test_packaging.py::test_top_level_public_api_exports_promised_names
+tests/test_porting_convert.py::test_real_fixture_talking_avatar_getnode_resolves_to_named_broadcast
 tests/test_porting_emitter.py::test_emit_ready_template_python_has_ready_metadata_contract
 tests/test_porting_emitter.py::test_generated_template_not_formatted_missing_section_comments
 tests/test_porting_emitter.py::test_ready_template_build_spacing_for_multiline_and_packed_simple_calls
@@ -201,3 +202,12 @@ tests/test_walking_skeleton.py::test_proof_d_edit_invariance_position_survives_w
 # Pre-existing by-design-red baseline carried in via the preview-fidelity/turn-progress
 # merges (2026-06; empty-content malformed handling is reworked in chat-epic M2).
 tests/test_comfy_nodes_agent_backend_spine.py::test_run_agent_turn_batch_empty_content_is_malformed
+# Pre-existing on origin/main (verified on a pristine origin/main checkout, not introduced by
+# the loose-work consolidation). These reference FailureKind.AGENT_RUNTIME_UNAVAILABLE, an enum
+# member the agent-edit error-classification tests expect but which is not yet on the FailureKind
+# enum — owned by the in-flight agent-edit-chat run. Allowlist drift reconciliation only.
+tests/test_comfy_nodes_agent_edit.py::test_agent_edit_submit_after_accept_still_blocks_real_structural_divergence
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_batch-exc0]
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_response-exc1]
+tests/test_comfy_nodes_agent_edit.py::test_classify_import_failure_is_runtime_unavailable_not_retryable[agent_delta-exc2]
+tests/test_comfy_nodes_agent_edit.py::test_classify_provider_error_wrapping_import_message_is_runtime_unavailable

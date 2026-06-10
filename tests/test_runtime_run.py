@@ -13,6 +13,7 @@ import pytest
 
 from vibecomfy.commands.run import _cmd_run
 import vibecomfy.runtime.session as session_module
+from vibecomfy.artifacts import Artifact
 from vibecomfy.runtime.session import SessionConfig
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
@@ -359,6 +360,150 @@ def test_run_embedded_resolves_comfy_filename_outputs_against_configured_output_
         }
     }
     assert metadata["compiled_prompt"]["1"]["inputs"]["filename_prefix"] == "test"
+
+
+def test_artifact_run_forwards_chain_kwargs_to_selected_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_embedded_sync(workflow: VibeWorkflow, *, chain_id=None, parent_run_id=None, **kwargs):
+        captured.update(
+            {
+                "workflow": workflow,
+                "chain_id": chain_id,
+                "parent_run_id": parent_run_id,
+                "kwargs": kwargs,
+            }
+        )
+        return types.SimpleNamespace(run_id="run-1")
+
+    monkeypatch.setattr("vibecomfy.runtime.run_embedded_sync", fake_run_embedded_sync)
+    monkeypatch.setattr(
+        "vibecomfy.runtime.run_sync",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("server runtime should not run")),
+    )
+
+    workflow = _workflow()
+    artifact = Artifact(workflow=workflow, node_id="1", output_slot=0, kind="image")
+    result = artifact.run(runtime="embedded", chain_id="chain-1", parent_run_id="run-0", backend="graphbuilder")
+
+    assert result.run_id == "run-1"
+    assert captured == {
+        "workflow": workflow,
+        "chain_id": "chain-1",
+        "parent_run_id": "run-0",
+        "kwargs": {"backend": "graphbuilder"},
+    }
+
+
+def test_run_sync_forwards_chain_kwargs_to_async_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run(workflow: VibeWorkflow, *, chain_id=None, parent_run_id=None, **kwargs):
+        captured.update(
+            {
+                "workflow": workflow,
+                "chain_id": chain_id,
+                "parent_run_id": parent_run_id,
+                "kwargs": kwargs,
+            }
+        )
+        return types.SimpleNamespace(run_id="run-sync")
+
+    monkeypatch.setattr(runtime_run_module, "run", fake_run)
+
+    workflow = _workflow()
+    result = runtime_run_module.run_sync(workflow, server_url="http://runtime.test", chain_id="chain-1", parent_run_id="run-0")
+
+    assert result.run_id == "run-sync"
+    assert captured == {
+        "workflow": workflow,
+        "chain_id": "chain-1",
+        "parent_run_id": "run-0",
+        "kwargs": {
+            "server_url": "http://runtime.test",
+            "backend": "api",
+            "config": None,
+            "ensure_models": False,
+            "shared_models_root": None,
+            "strict_drift": None,
+        },
+    }
+
+
+def test_run_embedded_sync_forwards_chain_kwargs_to_async_run_embedded(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run_embedded(workflow: VibeWorkflow, *, chain_id=None, parent_run_id=None, **kwargs):
+        captured.update(
+            {
+                "workflow": workflow,
+                "chain_id": chain_id,
+                "parent_run_id": parent_run_id,
+                "kwargs": kwargs,
+            }
+        )
+        return types.SimpleNamespace(run_id="run-embedded")
+
+    monkeypatch.setattr(runtime_run_module, "run_embedded", fake_run_embedded)
+
+    workflow = _workflow()
+    result = runtime_run_module.run_embedded_sync(workflow, chain_id="chain-1", parent_run_id="run-0")
+
+    assert result.run_id == "run-embedded"
+    assert captured == {
+        "workflow": workflow,
+        "chain_id": "chain-1",
+        "parent_run_id": "run-0",
+        "kwargs": {
+            "backend": "api",
+            "config": None,
+            "ensure_packs": False,
+            "ensure_models": False,
+            "strict_drift": None,
+        },
+    }
+
+
+def test_run_passes_chain_kwargs_into_metadata_writer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://runtime.test"
+
+    class FakeClient:
+        def __init__(self, server_url: str) -> None:
+            self.server_url = server_url
+
+        async def queue_prompt(self, prompt: dict) -> dict:
+            return {"prompt_id": "prompt-chain"}
+
+        async def history(self, prompt_id: str) -> dict:
+            return {prompt_id: {"outputs": {"9": {"filename": "chain.mp4"}}}}
+
+    def fake_run_metadata(**kwargs):
+        captured.update(kwargs)
+        return {"run_id": kwargs["run_id"], "outputs": kwargs["outputs"]}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(session_module, "ComfyClient", FakeClient)
+    monkeypatch.setattr(runtime_run_module, "_build_schema_provider", lambda active_url: None)
+    monkeypatch.setattr(runtime_run_module, "_run_metadata", fake_run_metadata)
+
+    result = asyncio.run(
+        runtime_run_module.run(
+            _workflow(),
+            server_url="http://runtime.test",
+            chain_id="chain-1",
+            parent_run_id="run-0",
+        )
+    )
+
+    assert result.prompt_id == "prompt-chain"
+    assert captured["chain_id"] == "chain-1"
+    assert captured["parent_run_id"] == "run-0"
 
 
 def test_cmd_run_prints_clear_failure(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

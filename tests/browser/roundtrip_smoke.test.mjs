@@ -13098,3 +13098,179 @@ test("VibeComfy detail row has overflowWrap containment (T18)", async () => {
     await harness.dispose();
   }
 });
+
+test("diagnostic report rebuilds turn history from rehydrated chat and surfaces agent reasoning + engine diagnostics", async () => {
+  // Regression: after a page reload `state.turns` is empty (only `chatMessages`
+  // is rehydrated), so the issue report / coding-agent prompt used to say
+  // "No recent turn records were captured" and dropped the agent's actual
+  // step-by-step reasoning — exactly the data needed to diagnose a failure.
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+  try {
+    const mod = await harness.loadExtension();
+
+    const panel = {
+      state: {
+        sessionId: "sess123",
+        phase: "IDLE",
+        turnId: null,
+        // Reloaded panel: turns array never refilled, but chat was rehydrated.
+        turns: [],
+        chatMessages: [
+          { role: "user", turn_id: "0003", text: "Make one up" },
+          {
+            role: "agent",
+            turn_id: "0003",
+            text: "Nothing needed changing; the workflow already matches that.",
+            outcome: { kind: "noop", reason: "No edits applied — identity verified." },
+            change_details: {
+              batch_turns: [
+                {
+                  turn_number: 0,
+                  batch_ok: false,
+                  message: "I'll load the standard Flux VAE (ae.safetensors) and wire it into a VAEDecode.",
+                  batch: "vae_loader = VAELoader(vae_name=\"ae.safetensors\")",
+                  diagnostics: [
+                    {
+                      code: "value_not_in_enum",
+                      message: "add_node rejected VAELoader.vae_name: value 'ae.safetensors' is not in the declared enum.",
+                      detail: { input: "vae_name", value: "ae.safetensors", choices: ["pixel_space"] },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    const prompt = mod.buildAgentSolvePrompt(panel);
+    const report = mod.buildIssueReport(panel);
+
+    for (const [name, text] of [["solve prompt", prompt], ["issue report", report]]) {
+      assert.ok(
+        !text.includes("No recent turn records"),
+        `${name} must rebuild turn history from chat (not report it empty)`,
+      );
+      assert.ok(text.includes("Make one up"), `${name} must include the user task`);
+      assert.ok(
+        text.includes("ae.safetensors") && text.includes("standard Flux VAE"),
+        `${name} must include the agent's per-step reasoning text`,
+      );
+      assert.ok(
+        text.includes("value_not_in_enum") && text.includes("pixel_space"),
+        `${name} must surface the engine diagnostic and the valid enum choices`,
+      );
+    }
+
+    // The coding-agent prompt should point at the raw artifacts where reasoning lives.
+    assert.ok(prompt.includes("messages.jsonl"), "solve prompt must point to messages.jsonl");
+    assert.ok(report.includes("messages.jsonl"), "issue report must point to messages.jsonl");
+
+    // A noop turn must NOT be mislabeled as a failure (regression: every turn
+    // with a message was rendered "Error/failure: Failure: …").
+    assert.ok(
+      !report.includes("Error/failure: Failure: Nothing needed changing"),
+      "a noop turn must not be labeled as a failure",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("noop and clarify turns are not labeled failures; real errors still are", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+  try {
+    const mod = await harness.loadExtension();
+    const panel = {
+      state: {
+        sessionId: "sess-fail",
+        phase: "IDLE",
+        turns: [
+          { entry_type: "durable", turn_id: "0003", status: "noop", task: "Make one up",
+            message: "Nothing needed changing; the workflow already matches that.",
+            outcome: { kind: "noop", reason: "No edits applied — identity verified." } },
+          { entry_type: "durable", turn_id: "0002", status: "clarify", task: "Add a VAE Decode",
+            message: "Which VAE filename should I load?",
+            outcome: { kind: "clarification", clarification: { message: "Which VAE filename should I load?" } } },
+          { entry_type: "durable", turn_id: "0001", status: "error", task: "Add a VAE Decode",
+            failure_kind: "ProviderError",
+            message: "The model provider is temporarily unavailable.",
+            outcome: { kind: "error", failure_kind: "ProviderError" } },
+        ],
+      },
+    };
+    const report = mod.buildIssueReport(panel);
+    // noop / clarify carry no "Error/failure" line...
+    assert.ok(!/Error\/failure: Failure: Nothing needed changing/.test(report), "noop must not be a failure");
+    assert.ok(!/Error\/failure: Failure: Which VAE filename/.test(report), "clarify must not be a failure");
+    // ...but their content still appears under the outcome line.
+    assert.ok(report.includes("No edits applied — identity verified"), "noop reason must still show");
+    assert.ok(report.includes("Which VAE filename should I load?"), "clarify message must still show");
+    // A genuine error keeps its failure line.
+    assert.ok(report.includes("ProviderError"), "real error keeps its failure label");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("issue-report zip bundles the actual session artifacts (self-contained)", async () => {
+  const sessionId = "sess-bundle";
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      [`/vibecomfy/agent-edit/session-bundle?session_id=${sessionId}`]: {
+        status: 200,
+        body: {
+          ok: true,
+          exists: true,
+          session_path: "/x/editor_sessions/sess-bundle",
+          total_bytes: 123,
+          files: [
+            { name: "turns/0001/messages.jsonl", text: "{\"message\":\"hi\"}\n" },
+            { name: "turns/0001/response.json", text: "{\"ok\":true}" },
+            { name: "turns/0001/preview.png", base64: Buffer.from("PNGDATA").toString("base64") },
+            { name: "session_state.json", text: "{\"turns\":{}}" },
+          ],
+          skipped: [{ name: "turns/0001/huge.json", reason: "too_large", size: 9999999 }],
+        },
+      },
+    },
+  });
+  try {
+    const mod = await harness.loadExtension();
+    const panel = { state: { sessionId, phase: "IDLE", turns: [] } };
+
+    const files = await mod.collectIssueReportFiles(panel);
+    const byName = new Map(files.map((f) => [f.name, f]));
+
+    // The report itself is still there...
+    assert.ok(byName.has("report.txt"), "report.txt present");
+    // ...and now the actual turn artifacts are bundled under session/.
+    assert.ok(byName.has("session/turns/0001/messages.jsonl"), "messages.jsonl bundled");
+    assert.equal(byName.get("session/turns/0001/messages.jsonl").text, "{\"message\":\"hi\"}\n");
+    assert.ok(byName.has("session/turns/0001/response.json"), "response.json bundled");
+    assert.ok(byName.has("session/session_state.json"), "session_state.json bundled");
+
+    // Binary artifact comes through as decoded bytes (not text).
+    const png = byName.get("session/turns/0001/preview.png");
+    assert.ok(png && png.bytes instanceof Uint8Array, "binary artifact bundled as bytes");
+    assert.equal(Buffer.from(png.bytes).toString("utf8"), "PNGDATA");
+
+    // The manifest records what was bundled and what was skipped (no silent drop).
+    const manifest = byName.get("session/_bundle_manifest.txt");
+    assert.ok(manifest, "bundle manifest present");
+    assert.ok(manifest.text.includes("huge.json") && manifest.text.includes("too_large"),
+      "manifest records skipped files");
+  } finally {
+    await harness.dispose();
+  }
+});

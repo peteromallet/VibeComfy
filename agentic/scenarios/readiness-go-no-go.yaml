@@ -1,0 +1,34 @@
+name: readiness-go-no-go
+tier: 4
+description: "Investigate: can I run this template right now? what's missing?"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m5
+  - investigate
+  - structural
+  - positive
+assessment:
+  enforced:
+    - "readiness_verdict.json parses as valid JSON with keys ready, missing_models, missing_packs."
+    - "Parsed readiness_verdict.json has ready equal to false."
+    - "Load and parse readiness_verdict.json. Verify parsed missing_models is a sorted list exactly equal to ['umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'wan2.1_t2v_1.3B_fp16.safetensors'] (string equality on each element, list equality)."
+    - "Load and parse readiness_verdict.json. Verify parsed missing_packs is a sorted list exactly equal to ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite'] (string equality on each element, list equality)."
+    - "command_log.jsonl is valid line-delimited JSON; every line parses as a JSON object."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'inspect'."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'doctor'."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'nodes'."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'fetch'."
+  graded:
+    - "The agent correctly identifies all missing models and packs, with lists sorted and deduplicated."
+  observed:
+    - "The readiness verdict clearly states the template is not ready and enumerates exactly what is missing."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl
+    - evidence/command_log.jsonl
+    - evidence/readiness_verdict.json

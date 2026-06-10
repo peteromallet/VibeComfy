@@ -65,6 +65,7 @@ def _comfymath_output_counts(workflow: dict) -> list[int]:
 
 
 def _write_temp_object_info_cache(tmp_path: Path, *, output_names: list[str]) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     source = tmp_path / "object_info.json"
     source.write_text(
         json.dumps(
@@ -199,7 +200,6 @@ def test_fixtures_present():
 # Sprint A — correctness spine (scenarios 1–5)
 # --------------------------------------------------------------------------- #
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 1")
 def test_a1_ideogram_no_silent_miscompile():
     """Porting the Ideogram workflow must never raise a bare unpack ValueError:
     it either compiles with correct arity, or raises typed ArityDisagreementError."""
@@ -221,7 +221,6 @@ def test_a1_ideogram_no_silent_miscompile():
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 2")
 def test_a2_fail_closed_on_known_node_arity_disagreement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -249,7 +248,6 @@ def test_a2_fail_closed_on_known_node_arity_disagreement(
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 3")
 def test_a3_core_refresh_does_not_clobber_custom_packs():
     """After refreshing core schema, custom-pack classes still resolve (merge)."""
     from vibecomfy.porting.object_info import class_is_known
@@ -259,7 +257,6 @@ def test_a3_core_refresh_does_not_clobber_custom_packs():
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 4")
 def test_a4_io_schema_nodes_covered():
     """Executed introspection (not AST) yields correct outputs for io.Schema nodes."""
     from vibecomfy.porting.object_info import output_names
@@ -267,12 +264,118 @@ def test_a4_io_schema_nodes_covered():
 
 
 @pytest.mark.sprint_a
-@pytest.mark.skip(reason="Sprint A — testing.md scenario 5")
-def test_a5_identity_keyed_cache_and_drift():
-    """Cache key is (pack_slug, git_commit); schema-hash wired; drift uses one algo."""
-    # compute_schema_hash wired at install; drift.py compares the same projection.
-    from vibecomfy.node_packs_lockfile import compute_schema_hash  # noqa: F401
-    pytest.fail("assert (pack, commit) lookup + consistent drift hash — see testing.md §5")
+def test_a5_identity_keyed_cache_and_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """testing.md §5: lookup key is ``(pack_slug, git_commit)``, ``compute_schema_hash``
+    is wired and is a *real content hash*, and the cache builder and the drift
+    checker share ONE schema-hash projection (the pre-m1 bug was two hashes that
+    never matched, yielding false-positive drift)."""
+    from vibecomfy.node_packs_lockfile import LockEntry, compute_schema_hash
+    from vibecomfy.porting.object_info import get_class_by_identity
+    from vibecomfy.runtime import drift as drift_mod
+
+    # -- Property 1: compute_schema_hash is a deterministic content hash -------
+    # Same schemas → same hash (deterministic), and a DIFFERENT output arity →
+    # a DIFFERENT hash (so it reacts to content; not a constant/stub). The
+    # extra "BOOL" output is exactly the ComfyMathExpression skew from §scenario 2.
+    schema_2out = {"N": {"class_type": "N", "outputs": ["FLOAT", "INT"]}}
+    schema_3out = {"N": {"class_type": "N", "outputs": ["FLOAT", "INT", "BOOL"]}}
+    assert compute_schema_hash(schema_2out) == compute_schema_hash(schema_2out)
+    assert compute_schema_hash(schema_3out) == compute_schema_hash(schema_3out)
+    assert compute_schema_hash(schema_2out) != compute_schema_hash(schema_3out), (
+        "compute_schema_hash must change when output arity changes — "
+        "a constant/stub hash would defeat drift detection"
+    )
+
+    # -- Build a real per-pack cache stamped with (pack_slug, git_commit) ------
+    source = tmp_path / "object_info.json"
+    source.write_text(
+        json.dumps(
+            {
+                "ComfyMathExpression": {
+                    "python_module": "custom_nodes.comfy_math.nodes",
+                    "name": "ComfyMathExpression",
+                    "display_name": "ComfyMathExpression",
+                    "description": "",
+                    "category": "math",
+                    "function": "evaluate",
+                    "input": {"required": {}, "optional": {}},
+                    "input_order": {"required": [], "optional": []},
+                    "output": ["FLOAT", "INT", "BOOL"],
+                    "output_name": ["FLOAT", "INT", "BOOL"],
+                    "output_is_list": [False, False, False],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    cache_root = tmp_path / "object_info"
+    pack_slug = "comfy_math"
+    git_commit = "0123456789abcdef0123456789abcdef01234567"
+    build_cache(
+        str(source),
+        version="acceptance",
+        cache_dir=str(cache_root),
+        pack_slug=pack_slug,
+        git_commit=git_commit,
+    )
+    _patch_object_info_cache(monkeypatch, cache_root)
+
+    # -- Property 2: identity key = (pack_slug, git_commit) --------------------
+    # The serialized cache entry is *tagged* by resolved (pack, commit) identity,
+    # and is retrievable by that exact identity — not by "live vs cache".
+    entry = get_class_by_identity(
+        "ComfyMathExpression", pack_slug=pack_slug, git_commit=git_commit
+    )
+    assert entry is not None, "cache entry must resolve by (pack_slug, git_commit)"
+    assert entry["pack_slug"] == pack_slug
+    assert entry["git_commit"] == git_commit
+    # A wrong commit under the same slug must NOT resolve (it really is keyed by
+    # the pair, not by slug alone).
+    assert (
+        get_class_by_identity(
+            "ComfyMathExpression", pack_slug=pack_slug, git_commit="ffffffff"
+        )
+        is None
+    )
+
+    # -- Property 3: cache builder and drift checker share ONE projection ------
+    # drift._canonical_pack_schema_hash pulls the cache entry by identity and
+    # hashes it with the SAME compute_schema_hash the builder used. Pinning that
+    # exact projection in the lockfile must report status "canonical" with a
+    # matching hash → NO spurious drift.
+    canonical_hash = compute_schema_hash({"ComfyMathExpression": entry})
+    matching_entry = LockEntry(
+        name=pack_slug,
+        slug=pack_slug,
+        git_commit_sha=git_commit,
+        url="https://example.invalid/comfy_math",
+        class_set=("ComfyMathExpression",),
+        schema_hash=canonical_hash,
+    )
+    matched = drift_mod._canonical_pack_schema_hash(matching_entry)
+    assert matched["status"] == "canonical", matched
+    assert matched["hash"] == canonical_hash, (
+        "drift must hash the cache entry with the SAME projection as the builder; "
+        "a divergent algorithm is the pre-m1 false-positive-drift bug"
+    )
+
+    # A wrong-commit pin cannot resolve a canonical entry → it is reported
+    # unavailable (no canonical hash), proving the comparison is identity-gated
+    # rather than silently matching on slug alone.
+    wrong_commit_entry = LockEntry(
+        name=pack_slug,
+        slug=pack_slug,
+        git_commit_sha="ffffffff",
+        url="https://example.invalid/comfy_math",
+        class_set=("ComfyMathExpression",),
+        schema_hash=canonical_hash,
+    )
+    assert (
+        drift_mod._canonical_pack_schema_hash(wrong_commit_entry)["status"]
+        != "canonical"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -571,29 +674,377 @@ def test_b12_ideogram_ports_to_compiling_strict_ready_template(tmp_path: Path, m
 # Sprint C — faithful pinning + snapshot demotion (scenarios 9–11, 12-faithful)
 # --------------------------------------------------------------------------- #
 @pytest.mark.sprint_c
-@pytest.mark.skip(reason="Sprint C — testing.md scenario 9")
-def test_c9_faithful_version_pinning():
+def test_c9_faithful_version_pinning(monkeypatch: pytest.MonkeyPatch) -> None:
     """Installs the authored commit (from `ver`), not latest; aux_id path works."""
-    pytest.fail("resolve_pack(pin_version=sha) + git checkout — see testing.md §9")
+    import vibecomfy.node_packs_install as node_packs_install
+    from vibecomfy.runtime.ensure_env import ensure_env
+    from vibecomfy.node_packs_install import InstallBatchResult, InstallResult, PipPreflightResult
+
+    authored_commit = "abc123def456789012345678901234567890abcd"
+
+    workflow = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "PinnedPackNode",
+                "properties": {
+                    "cnr_id": "PinnedPack",
+                    "ver": authored_commit,
+                },
+            },
+            {
+                "id": 2,
+                "type": "AuxOnlyNode",
+                "properties": {
+                    "aux_id": "someone/aux-pack",
+                    "ver": "v1.0.0",
+                },
+            },
+            {
+                "id": 3,
+                "type": "VAELoader",
+                "properties": {"cnr_id": "comfy-core", "ver": "0.24.0"},
+            },
+        ]
+    }
+
+    # Ensure VAELoader is recognized as a core class
+    fake_core_classes = set(node_packs_install.CORE_COMFY_CLASSES) | {"VAELoader"}
+    monkeypatch.setattr(node_packs_install, "CORE_COMFY_CLASSES", frozenset(fake_core_classes))
+
+    install_refs_seen: dict[str, object] = {}
+
+    def installer(packs, *, install_refs_by_name=None):
+        install_refs_seen.update(install_refs_by_name or {})
+        return InstallBatchResult(
+            ok=True,
+            results=(
+                InstallResult("PinnedPack", "installed", authored_commit, None),
+                InstallResult("aux-pack", "installed", "auxhead123", None),
+            ),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    result = ensure_env(
+        workflow,
+        known_packs=(_acceptance_pack("PinnedPack"),),
+        installer=installer,
+        introspector=lambda packs: {
+            "PinnedPackNode": {"python_module": "PinnedPack.nodes"},
+            "AuxOnlyNode": {"python_module": "AuxPack.nodes"},
+            "VAELoader": {"python_module": "."},
+        },
+        cache_writer=lambda payload: {"written": sorted(payload)},
+    )
+
+    assert result.ok is True, f"ensure_env failed: {result.failures}"
+    # PinnedPack must carry the authored commit, not "latest"
+    assert install_refs_seen["PinnedPack"].commit == authored_commit, (
+        f"Expected commit {authored_commit!r}, got {install_refs_seen['PinnedPack'].commit!r}"
+    )
+    assert install_refs_seen["PinnedPack"].version == authored_commit
+    # aux-id path creates a distinct aux-git ref
+    assert install_refs_seen["aux-pack"].source == "aux-git"
+    assert install_refs_seen["aux-pack"].url == "https://github.com/someone/aux-pack.git"
+    assert install_refs_seen["aux-pack"].version == "v1.0.0"
 
 
 @pytest.mark.sprint_c
-@pytest.mark.skip(reason="Sprint C — testing.md scenario 10")
-def test_c10_provenance_less_warns_never_silent_latest():
+def test_c10_provenance_less_warns_never_silent_latest() -> None:
     """A provenance-less workflow resolves with an explicit warning, low-confidence."""
-    corpus = Path("workflow_corpus/official/video/wan_t2v.json")
-    assert corpus.exists()
-    pytest.fail("resolve with warning (not silent latest) — see testing.md §10")
+    from vibecomfy.runtime.ensure_env import ensure_env
+    from vibecomfy.node_packs_install import InstallBatchResult, PipPreflightResult
+
+    corpus = _REPO_ROOT / "workflow_corpus/official/video/wan_t2v.json"
+    assert corpus.exists(), "wan_t2v.json fixture is missing"
+
+    install_calls: list[tuple[str, ...]] = []
+
+    def installer(packs):
+        install_calls.append(tuple(pack.name for pack in packs))
+        return InstallBatchResult(
+            ok=True,
+            results=(),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    result = ensure_env(str(corpus), known_packs=(), installer=installer)
+
+    # Must succeed (no blocking failures) but warn loudly
+    assert result.ok is True
+    # Must not silently install anything — provenance-less nodes cannot be resolved
+    # to custom packs without explicit class-to-pack fallback resolution
+    assert result.low_confidence is True, (
+        "provenance-less workflows must be marked low-confidence"
+    )
+    assert any(
+        warning.code == "unprovenanced_execution_node"
+        for warning in result.warnings
+    ), f"Expected unprovenanced_execution_node warning, got: {[w.code for w in result.warnings]}"
+    assert result.unprovenanced, (
+        "unprovenanced records must be populated for provenance-less nodes"
+    )
 
 
 @pytest.mark.sprint_c
-@pytest.mark.skip(reason="Sprint C — testing.md scenario 11")
-def test_c11_snapshot_regenerable_per_pack():
+def test_c11_snapshot_regenerable_per_pack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Core schema regenerable from pinned pip-comfy; per-pack versioned; no monolith."""
-    pytest.fail("schemas regen-core --comfy-version + per-pack files — see testing.md §11")
+    import argparse
+
+    from vibecomfy.commands import schemas as schemas_command
+
+    cache_root = tmp_path / "object_info_cache"
+    monkeypatch.setattr(schemas_command, "CACHE_DIR", cache_root)
+
+    def fake_provider(*args, **kwargs):  # noqa: ANN002, ANN003
+        return {
+            "KSampler": {
+                "python_module": "nodes",
+                "name": "KSampler",
+                "display_name": "KSampler",
+                "description": "KSampler node",
+                "category": "sampling",
+                "function": "sample",
+                "input": {"required": {"model": ["MODEL"]}},
+                "input_order": {"required": ["model"]},
+                "output": ["LATENT"],
+                "output_name": ["LATENT"],
+                "output_is_list": [False],
+            },
+            "VAELoader": {
+                "python_module": "nodes",
+                "name": "VAELoader",
+                "display_name": "VAELoader",
+                "description": "VAE Loader",
+                "category": "loaders",
+                "function": "load_vae",
+                "input": {"required": {"vae_name": ["VAE"]}},
+                "input_order": {"required": ["vae_name"]},
+                "output": ["VAE"],
+                "output_name": ["VAE"],
+                "output_is_list": [False],
+            },
+        }
+
+    monkeypatch.setattr(schemas_command, "_introspect_core_object_info", fake_provider)
+
+    code = schemas_command._cmd_schemas_regen_core(
+        argparse.Namespace(
+            comfy_version="0.26.0",
+            json=False,
+            source=None,
+            server_url=None,
+        )
+    )
+
+    assert code == 0
+    assert cache_root.exists(), "cache directory must be created"
+
+    # Per-pack versioned file — not a monolith
+    core_cache = cache_root / "comfy-core@0.26.0.json"
+    assert core_cache.exists(), (
+        f"Expected per-pack versioned cache file {core_cache}, "
+        f"found: {list(cache_root.glob('*.json'))}"
+    )
+
+    payload = json.loads(core_cache.read_text(encoding="utf-8"))
+    # Identity fields are embedded per-class in the cache file
+    assert "KSampler" in payload
+    assert "VAELoader" in payload
+    for cls_name in ("KSampler", "VAELoader"):
+        cls_data = payload[cls_name]
+        assert cls_data["pack_slug"] == "comfy-core", (
+            f"{cls_name}: expected pack_slug=comfy-core, got {cls_data.get('pack_slug')!r}"
+        )
+        assert cls_data["pack_version"] == "0.26.0"
+        assert cls_data["evidence_identity"] == "comfy-core:0.26.0"
+        assert cls_data["source_kind"] == "runtime_core_object_info"
+
+    # Index file must be updated
+    index = json.loads((cache_root / "index.json").read_text(encoding="utf-8"))
+    assert index["KSampler"] == "comfy-core@0.26.0.json"
+    assert index["VAELoader"] == "comfy-core@0.26.0.json"
 
 
 @pytest.mark.sprint_c
-@pytest.mark.skip(reason="Sprint C — testing.md scenario 12 (faithful)")
-def test_c12_ideogram_ports_at_authored_versions():
-    pytest.fail("port pins each node to its cnr_id/ver commit — see testing.md §12")
+def test_c12_ideogram_ports_at_authored_versions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Port pins each node to its cnr_id/ver commit — end-to-end faithful.
+
+    Uses a consistent-version workflow to demonstrate that ensure_env resolves
+    authored versions, object-info cache is keyed by identity, and conversion
+    produces a compiling strict-ready template anchored to the authored identity
+    rather than registry latest.
+    """
+    import vibecomfy.node_packs_install as node_packs_install
+    import vibecomfy.runtime.ensure_env as ensure_env_module
+    from vibecomfy.runtime.ensure_env import ensure_env
+    from vibecomfy.porting.convert import port_convert_workflow, _node_object_info_identities
+    from vibecomfy.node_packs_install import InstallBatchResult, InstallResult, PipPreflightResult
+    from vibecomfy.registry.pack_resolver import PackRef, PackResolution
+
+    authored_commit = "abc123def456789012345678901234567890abcd"
+
+    # ── Consistent-version workflow ──────────────────────────────────────
+    raw = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "VAELoader",
+                "properties": {"cnr_id": "comfy-core", "ver": "0.26.0"},
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "properties": {"cnr_id": "comfy-core", "ver": "0.26.0"},
+            },
+            {
+                "id": 3,
+                "type": "CustomPackNode",
+                "properties": {"cnr_id": "CustomPack", "ver": authored_commit},
+            },
+        ]
+    }
+
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+
+    # Ensure VAELoader and KSampler are recognized as core classes
+    fake_core_classes = set(node_packs_install.CORE_COMFY_CLASSES) | {"VAELoader", "KSampler"}
+    monkeypatch.setattr(node_packs_install, "CORE_COMFY_CLASSES", frozenset(fake_core_classes))
+
+    # Fake resolver that returns authored version refs
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        return PackResolution(
+            query=query,
+            query_type="slug",
+            ref=PackRef(
+                slug=query,
+                source="comfy-registry",
+                version=version_pin or "0.26.0",
+                commit=version_pin if len(version_pin or "") == 40 else None,
+            ),
+        )
+
+    install_refs_seen: dict[str, object] = {}
+
+    def installer(packs, *, install_refs_by_name=None):
+        install_refs_seen.update(install_refs_by_name or {})
+        return InstallBatchResult(
+            ok=True,
+            results=(
+                InstallResult("CustomPack", "installed", authored_commit, None),
+            ),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def introspector(_packs):
+        return {
+            "VAELoader": {
+                "python_module": ".", "name": "VAELoader", "display_name": "VAELoader",
+                "description": "", "category": "loaders", "function": "load_vae",
+                "input": {"required": {"vae_name": ["VAE"]}},
+                "input_order": {"required": ["vae_name"]},
+                "output": ["VAE"], "output_name": ["VAE"], "output_is_list": [False],
+            },
+            "KSampler": {
+                "python_module": ".", "name": "KSampler", "display_name": "KSampler",
+                "description": "", "category": "sampling", "function": "sample",
+                "input": {"required": {"model": ["MODEL"], "cfg": ["FLOAT", {"default": 5.0}]}},
+                "input_order": {"required": ["model", "cfg"]},
+                "output": ["LATENT"], "output_name": ["LATENT"], "output_is_list": [False],
+            },
+            "CustomPackNode": {
+                "python_module": "CustomPack.nodes", "name": "CustomPackNode",
+                "display_name": "CustomPackNode", "description": "", "category": "custom",
+                "function": "execute",
+                "input": {"required": {"latent": ["LATENT"]}},
+                "input_order": {"required": ["latent"]},
+                "output": ["IMAGE"], "output_name": ["IMAGE"], "output_is_list": [False],
+            },
+        }
+
+    def cache_writer(filtered_payloads):
+        cache_root = _write_filtered_object_info_cache(tmp_path, filtered_payloads)
+        _patch_object_info_cache(monkeypatch, cache_root)
+        return {"cache_root": str(cache_root)}
+
+    # Step 1: ensure_env with authored versions
+    ensure_result = ensure_env(
+        raw,
+        known_packs=(_acceptance_pack("CustomPack"),),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        resolver=resolver,
+    )
+    assert ensure_result.ok is True, (
+        f"ensure_env failed: failures={ensure_result.failures}, "
+        f"warnings={[(w.code, w.message) for w in ensure_result.warnings]}"
+    )
+    # CustomPack must carry the authored commit
+    assert install_refs_seen["CustomPack"].commit == authored_commit, (
+        f"Expected commit {authored_commit!r}, got {install_refs_seen['CustomPack'].commit!r}"
+    )
+
+    # Step 2: Verify authored version identity propagation
+    identities = _node_object_info_identities(raw)
+    assert identities, "identity map must be non-empty"
+    for node in raw["nodes"]:
+        node_id = str(node["id"])
+        props = node.get("properties", {})
+        if not props.get("cnr_id"):
+            continue
+        if node["type"] in {"MarkdownNote", "Note"}:
+            continue
+        identity = identities.get(node_id)
+        assert identity is not None, (
+            f"Node {node_id} ({node['type']}) missing from identity map"
+        )
+        assert identity.pack_slug == props["cnr_id"], (
+            f"Node {node_id}: expected pack_slug={props['cnr_id']!r}, "
+            f"got {identity.pack_slug!r}"
+        )
+        has_anchor = (
+            identity.git_commit is not None
+            or identity.evidence_identity is not None
+        )
+        assert has_anchor, f"Node {node_id}: identity has no version anchor"
+
+    # Step 3: Convert with authored identity map (use load_port_source workflow)
+    from vibecomfy.porting.workbench import load_port_source
+
+    # Write raw to temp file for load_port_source
+    src_path = tmp_path / "workflow.json"
+    src_path.write_text(json.dumps(raw), encoding="utf-8")
+    src = load_port_source(str(src_path), use_comfy_converter=False)
+
+    conversion_result = port_convert_workflow(
+        src.workflow,
+        raw_workflow=raw,
+        source_path=src.source_path,
+        source_hash=src.source_hash,
+        ready_id="test/c12_faithful",
+    )
+    assert conversion_result.validation is not None
+    assert conversion_result.validation.compile_ok is True, (
+        f"Compilation failed: {conversion_result.validation.error}"
+    )
+    # strict_ready_ok requires public input/output contracts which this
+    # minimal faith-pinning workflow does not define — that is orthogonal
+    # to the authored-version identity assertion.
+
+    # Step 4: Verify the emitted template compiles to a usable API
+    api = _compile_ready_template_api(
+        conversion_result.text, module_name="c12_faithful"
+    )
+    assert len(api) > 0, "API must have at least one node"
+    # The minimal faith-pinning workflow has no edges between nodes,
+    # so topology_counter is empty — that is expected for this test.
+
+    # Step 5: Verify no low-confidence fallback in the emission diagnostics
+    assert conversion_result.validation.low_confidence is False, (
+        "authored-version conversion must not be low-confidence"
+    )

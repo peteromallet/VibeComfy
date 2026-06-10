@@ -1,5 +1,38 @@
 import { getAgentPanelRuntime } from "./panel_runtime.js";
 
+// Idempotent injector for the animated "Working…" ellipsis used on the Submit
+// button while a turn is in flight. The keyframes are also defined by
+// panel_thread.js's pulse injector; guarding on a runtime flag keeps a single
+// <style> regardless of which renders first.
+function ensureWorkingDotsStyle() {
+  if (typeof document === "undefined" || !document?.head) return;
+  const runtime = getAgentPanelRuntime();
+  if (runtime._workingDotsStyleInjected) return;
+  if (document.getElementById("vibecomfy-working-dots-style")) {
+    runtime._workingDotsStyleInjected = true;
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = "vibecomfy-working-dots-style";
+  style.textContent = `
+    @keyframes vibecomfy-working-dots {
+      0%, 20% { content: ""; }
+      40% { content: "."; }
+      60% { content: ".."; }
+      80%, 100% { content: "..."; }
+    }
+    .vibecomfy-working-dots::after {
+      content: "";
+      animation: vibecomfy-working-dots 1.4s steps(1, end) infinite;
+      display: inline-block;
+      width: 1.1em;
+      text-align: left;
+    }
+  `;
+  document.head.appendChild(style);
+  runtime._workingDotsStyleInjected = true;
+}
+
 export function submitReadinessState(panel, deps = {}) {
   const { routeStatusState, ROUTE_STATUS_KIND } = deps;
   const routeStatus = typeof routeStatusState === "function"
@@ -76,6 +109,9 @@ export function syncComposerButtons(panel, { submitting = false, showUndo = fals
   }
   panel.buttons.stop.style.display = submitting ? "inline-flex" : "none";
   panel.buttons.undo.style.display = showUndo ? "inline-flex" : "none";
+  // Hide "New conversation" entirely while a turn is submitting; Stop is the
+  // in-flight escape hatch and the button returns once submitting ends.
+  panel.buttons.newConversation.style.display = submitting ? "none" : "inline-flex";
 }
 
 export function renderComposerNotice(panel, readinessState, deps = {}) {
@@ -123,28 +159,6 @@ export function renderComposerNotice(panel, readinessState, deps = {}) {
     notice.appendChild(actionRow);
     hasContent = true;
   }
-  const clarification = panel?.state?.clarification;
-  if (
-    (panel.state.phase === PANEL_STATE.CLARIFY || panel.state.phase === PANEL_STATE.AWAITING_REVIEW)
-    && clarification?.message
-  ) {
-    if (hasContent) {
-      const divider = el("div");
-      divider.style.height = "1px";
-      divider.style.background = "#2a313c";
-      divider.style.margin = "8px 0";
-      notice.appendChild(divider);
-    }
-    const heading = el("div", "Reply in the prompt");
-    heading.style.color = "#ffc107";
-    heading.style.fontWeight = "700";
-    heading.style.marginBottom = "4px";
-    notice.appendChild(heading);
-    const followUp = el("div", "Your answer continues this same session.");
-    followUp.style.color = "#9da1ac";
-    notice.appendChild(followUp);
-    hasContent = true;
-  }
   if (!readinessState.ready) {
     if (hasContent) {
       const divider = el("div");
@@ -160,17 +174,9 @@ export function renderComposerNotice(panel, readinessState, deps = {}) {
     notice.appendChild(readinessLabel);
     notice.appendChild(el("div", readinessState.message));
     hasContent = true;
-  } else if (panel.state.phase === PANEL_STATE.SUBMITTING) {
-    const submittingLabel = el("div", "Submitting edit request.");
-    submittingLabel.style.color = "#ffd36f";
-    submittingLabel.style.fontWeight = "700";
-    notice.appendChild(submittingLabel);
-    const stopHint = el("div", "Stop cancels this request locally and marks the visible turn cancelled.");
-    stopHint.style.color = "#9da1ac";
-    stopHint.style.marginTop = "4px";
-    notice.appendChild(stopHint);
-    hasContent = true;
   }
+  // The SUBMITTING indicator lives in the thread's live turn-progress row above
+  // the chat box; the composer notice no longer duplicates it below.
   notice.style.display = hasContent ? "block" : "none";
 }
 
@@ -210,7 +216,14 @@ export function renderComposerActions(panel, deps = {}) {
     || rebaselinePending
     || !canSubmit
     || !readinessState.ready;
-  panel.buttons.submit.textContent = submitting ? "Submitting..." : "Submit";
+  if (submitting) {
+    ensureWorkingDotsStyle();
+    panel.buttons.submit.textContent = "Working";
+    panel.buttons.submit.classList.add("vibecomfy-working-dots");
+  } else {
+    panel.buttons.submit.textContent = "Submit";
+    panel.buttons.submit.classList.remove("vibecomfy-working-dots");
+  }
   panel.buttons.stop.disabled = !submitting;
   panel.buttons.apply.disabled = actionState.applyDisabled;
   panel.buttons.reject.disabled = actionState.rejectDisabled;
@@ -226,6 +239,11 @@ export function renderComposerActions(panel, deps = {}) {
       : undoPending
         ? "Retry Undo Rebaseline"
         : "Undo Last Apply";
+  if (panel.buttons.newConversation) {
+    // Disabled while a turn is processing; the in-flight escape hatch is Stop.
+    panel.buttons.newConversation.disabled =
+      submitting || applying || Boolean(panel.state.inFlightRebaseline);
+  }
   panel.buttons.settingsSave.disabled =
     submitting
     || applying

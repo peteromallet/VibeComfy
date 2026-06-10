@@ -1,0 +1,29 @@
+name: add-depth-controlnet-image
+tier: 3
+description: "Compose correctly: image workflow adds the canonical ControlNet depth patch and rewires both sampler conditioning paths"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m3
+  - compose
+  - structural
+  - positive
+  - controlnet
+assessment:
+  enforced:
+    - "compiled_api.json contains a ControlNetLoader node and at least two ControlNetApplyAdvanced nodes."
+    - "compiled_api.json contains a KSampler whose inputs.positive and inputs.negative reference ControlNetApplyAdvanced nodes rather than the original CLIPTextEncode nodes."
+    - "metadata.json contains patch_applications with an entry for name=controlnet, called=true, topology_changed=true, and nodes_added including ControlNetLoader and ControlNetApplyAdvanced."
+    - "metadata.json.patch_applications for name=controlnet records rewritten_edges for BOTH to_input=positive and to_input=negative on the KSampler."
+    - "actions.jsonl records patch.apply for patch=controlnet with applies_to=true and status=applied, and also records finalize_metadata with status=completed."
+  graded:
+    - "metadata.json requirements.models includes depth.safetensors after finalize_metadata."
+  observed:
+    - "metadata.json entrypoint=patch and layer=vibecomfy/patches/controlnet.py:controlnet."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

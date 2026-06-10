@@ -18,8 +18,17 @@ def sync_sources(
     *,
     official: str | Path = "workflow_corpus/official",
     external: str | Path = "workflow_corpus/custom_nodes",
-    custom_nodes: str | Path = "custom_nodes",
+    custom_nodes: str | Path | None = None,
 ) -> SourceSyncResult:
+    # Default custom_nodes to the configured local-library path when the
+    # caller omits it.  Explicit-caller-wins: a caller-supplied value is
+    # always used as-is.
+    if custom_nodes is None:
+        from vibecomfy.local_library import Slot, resolved_path
+
+        configured = resolved_path(Slot.custom_nodes)
+        custom_nodes = configured if configured is not None else Path("custom_nodes")
+
     official_rows = index_workflows(official)
     external_vendor = index_workflows(external)
     custom_examples = index_custom_node_examples(custom_nodes)

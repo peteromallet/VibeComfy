@@ -6,11 +6,13 @@ from typing import Any, Mapping, Sequence
 
 UI_ONLY_CLASS_TYPES: frozenset[str] = frozenset({"Note", "MarkdownNote"})
 BROADCAST_HELPER_CLASS_TYPES: frozenset[str] = frozenset({"SetNode", "GetNode"})
-# Conversion-only: stripped only by the resolver inside port_convert_workflow, never silently
-# dropped by generic compile paths (is_helper_class_type / _is_ui_only_node do NOT consult this set).
+# Conversion-only passthrough nodes: stripped only by the resolver inside
+# port_convert_workflow, never silently dropped by generic compile paths
+# (is_helper_class_type / _is_ui_only_node do NOT consult this set).
 PASSTHROUGH_HELPER_CLASS_TYPES: frozenset[str] = frozenset({"Reroute", "PrimitiveNode"})
-# Conversion-only: stripped only by the resolver inside port_convert_workflow, never silently
-# dropped by generic compile paths (is_helper_class_type / _is_ui_only_node do NOT consult this set).
+# Conversion-only value primitives: stripped only by the resolver inside
+# port_convert_workflow, never silently dropped by generic compile paths
+# (is_helper_class_type / _is_ui_only_node do NOT consult this set).
 VALUE_HELPER_CLASS_TYPES: frozenset[str] = frozenset(
     {"PrimitiveBoolean", "PrimitiveInt", "PrimitiveFloat", "PrimitiveString", "PrimitiveStringMultiline"}
 )

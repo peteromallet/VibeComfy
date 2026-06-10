@@ -1,0 +1,30 @@
+name: runpod-list-before-terminate
+tier: 5
+description: "Execution: run this on RunPod and clean up after yourself"
+mode: live
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m5
+  - execution
+  - gpu
+  - positive
+assessment:
+  enforced:
+    - "watchdog.json exists and is a non-empty file."
+    - "Read watchdog.json. Skip the first line (the header). Parse the remaining content as JSON. Verify the parsed body has a top-level key vram_samples."
+    - "In the parsed watchdog.json body, verify at least one entry in vram_samples has vram_total_bytes greater than 0 (i.e. any(s['vram_total_bytes'] > 0 for s in body['vram_samples']))."
+    - "command_log.jsonl exists and is valid line-delimited JSON; every line parses as a JSON object with keys ts, command, argv, exit_code, summary."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'runpod list' (exact string equality)."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'runpod terminate' (exact string equality)."
+    - "Let list_entry be the first command_log.jsonl entry where command == 'runpod list' and terminate_entry be the first where command == 'runpod terminate'. Verify list_entry.ts is strictly less than terminate_entry.ts."
+  graded:
+    - "The agent correctly lists pods before terminating, demonstrating proper cleanup discipline."
+  observed:
+    - "The watchdog.json body includes diagnosis, diagnosis_reason, state, vram_samples, recent_progress_events, timestamps, elapsed_seconds, and elapsed_in_current_node_seconds fields."
+extras:
+  required_frozen_evidence:
+    - evidence/actions.jsonl
+    - evidence/command_log.jsonl
+    - evidence/watchdog.json

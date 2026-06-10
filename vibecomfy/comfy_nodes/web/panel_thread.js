@@ -253,11 +253,11 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
     minWidth: "0",
   });
 
-  const label = el("span", isUser ? "You" : "Agent");
+  const label = el("span", isUser ? "You" : "Astrid");
   Object.assign(label.style, {
     fontSize: "9px",
     fontWeight: "700",
-    color: isUser ? "#7db6ff" : "#02d4b3",
+    color: isUser ? "#74A7FF" : "#FF8A1A",
     textTransform: "uppercase",
     letterSpacing: "0.05em",
     marginBottom: "2px",
@@ -267,10 +267,11 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
   const text = el("div", String(msg.text || ""));
   Object.assign(text.style, {
     fontSize: "12px",
-    color: isUser ? "#d1d6e0" : "#c4ccd6",
-    background: isUser ? "#1a2436" : "#0f2a26",
+    color: isUser ? "#d8dce3" : "#d8dce3",
+    background: isUser ? "#1e2129" : "#1e2129",
+    borderLeft: isUser ? "none" : "2px solid #ff7a00",
     padding: "6px 10px",
-    borderRadius: isUser ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
+    borderRadius: isUser ? "10px 10px 3px 10px" : "3px 10px 10px 3px",
     maxWidth: "92%",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
@@ -280,7 +281,28 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
   });
   bubble.appendChild(text);
 
+  // Relative timestamp below the speech bubble, bottom-aligned to the bubble's
+  // side, mirroring the activity-row "just now" styling. Stamped server-side
+  // from the turn directory's mtime (read_chat_history); absent on messages
+  // that predate that field, in which case we simply render no time line.
+  const tsRel = _formatRelativeTime(msg.timestamp);
+  let tsLine = null;
+  if (tsRel) {
+    tsLine = el("div", tsRel);
+    Object.assign(tsLine.style, {
+      fontSize: "9px",
+      color: "#6b7080",
+      marginTop: "2px",
+      textAlign: "right",
+      alignSelf: isUser ? "flex-end" : "flex-start",
+    });
+    tsLine.title = msg.timestamp;
+  }
+
   if (isUser) {
+    if (tsLine) {
+      bubble.appendChild(tsLine);
+    }
     return;
   }
 
@@ -305,7 +327,9 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
 
   const detailToggle = el("span", "\u25b6 details");
   Object.assign(detailToggle.style, {
-    color: "#8d93a1",
+    // Match the relative-time line: same font size and muted color.
+    fontSize: "9px",
+    color: "#6b7080",
     cursor: "pointer",
     userSelect: "none",
   });
@@ -381,10 +405,68 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
         populateAgentBubbleDetail(detailBody, panel, msg, detailSnapshot, deps);
         liveThreadState.bubbleDetailSignatures[detailTurnKey] = detailSignature;
       }
+      // Scroll the freshly-expanded detail pane into full view (it usually opens
+      // below the fold). Use the thread's own scroll container (panel.thread, the
+      // same one scrollChatThreadToBottom drives) — a DOM ancestor-walk lands on the
+      // wrong element. Wait two frames so the grid has laid out first; guard the
+      // DOM APIs the jsdom test harness doesn't implement.
+      const bringExpandedDetailIntoView = function () {
+        try {
+          const container = panel?.thread;
+          if (!container || typeof detailRow.getBoundingClientRect !== "function"
+            || typeof container.getBoundingClientRect !== "function") {
+            return;
+          }
+          const rowRect = detailRow.getBoundingClientRect();
+          const boxRect = container.getBoundingClientRect();
+          let delta;
+          if (rowRect.height <= boxRect.height) {
+            // Fits: scroll DOWN just enough to reveal the bottom (top stays in view).
+            delta = rowRect.bottom - boxRect.bottom;
+            if (delta < 0) delta = 0;
+          } else {
+            // Taller than the viewport: align the top; the pane has its own scroll.
+            delta = rowRect.top - boxRect.top;
+          }
+          if (Math.abs(delta) > 1) {
+            const nextTop = container.scrollTop + delta;
+            if (typeof container.scrollTo === "function") {
+              container.scrollTo({ top: nextTop, behavior: "smooth" });
+            } else {
+              container.scrollTop = nextTop;
+            }
+          }
+        } catch (_err) { /* no-op */ }
+      };
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(function () { requestAnimationFrame(bringExpandedDetailIntoView); });
+      } else {
+        bringExpandedDetailIntoView();
+      }
     }
   };
 
-  detailRow.appendChild(detailToggle);
+  // Lay the relative time and the "details" toggle on one full-width row below
+  // the bubble: time on the bottom-left, details toggle pushed to the right
+  // edge (marginLeft:auto keeps it right whether or not a time is present). The
+  // expandable body drops below the row.
+  detailRow.style.alignSelf = "stretch";
+  detailRow.style.width = "100%";
+  const detailHeader = el("div");
+  Object.assign(detailHeader.style, {
+    display: "flex",
+    alignItems: "baseline",
+    gap: "8px",
+    width: "100%",
+  });
+  if (tsLine) {
+    tsLine.style.alignSelf = "auto";
+    tsLine.style.textAlign = "left";
+    detailHeader.appendChild(tsLine);
+  }
+  detailToggle.style.marginLeft = "auto";
+  detailHeader.appendChild(detailToggle);
+  detailRow.appendChild(detailHeader);
   detailRow.appendChild(detailBody);
   bubble.appendChild(detailRow);
 }
@@ -664,35 +746,10 @@ function ensureChatThreadMounts(body, deps = {}) {
 }
 
 function renderChatSessionLink(sessionRow, panel, deps = {}) {
-  const { clearNode, el } = deps;
-  const sessionLabel = panel?.state?.chatSessionPath || (panel?.state?.sessionId ? `out/editor_sessions/${panel.state.sessionId}` : null);
-  if (!sessionLabel) {
-    clearNode(sessionRow);
-    sessionRow.style.display = "none";
-    return;
-  }
-  const href = `/vibecomfy/agent-edit/session-json?session_id=${encodeURIComponent(panel.state.sessionId || "")}`;
-  let link = sessionRow.querySelectorAll("a")[0] || null;
-  if (!link) {
-    clearNode(sessionRow);
-    link = el("a");
-    link.target = "_blank";
-    link.rel = "noopener";
-    Object.assign(link.style, {
-      color: "#9ed0ff",
-      fontSize: "10px",
-      fontFamily: "monospace",
-      textDecoration: "none",
-      cursor: "pointer",
-      minWidth: "0",
-      overflowWrap: "anywhere",
-      wordBreak: "break-word",
-    });
-    sessionRow.appendChild(link);
-  }
-  link.textContent = `session: ${sessionLabel}`;
-  link.href = href;
-  sessionRow.style.display = "flex";
+  const { clearNode } = deps;
+  // The session path/link is intentionally not surfaced at the top of the chat.
+  clearNode(sessionRow);
+  sessionRow.style.display = "none";
 }
 
 function renderShowEarlierMessages(panel, olderMount, hiddenCount, deps = {}) {
@@ -781,16 +838,16 @@ function renderWelcomeExamples(body, deps = {}) {
 // ── Activity row rendering (live turn progress) ───────────────────────────
 
 const VC_COLORS = Object.freeze({
-  active: "#3d8bfd",
+  active: "#f47f18",
   success: "#4caf50",
   warning: "#ffc107",
   error: "#ff7f7f",
   muted: "#6b7080",
-  pending: "#02d4b3",
+  pending: "#f47f18",
 });
 
 const BATCH_STATUS_COLORS = Object.freeze({
-  in_progress: "#3d8bfd",
+  in_progress: "#f47f18",
   clarify: "#ffc107",
   done: "#4caf50",
   budget_exhausted: "#ffc107",
@@ -966,7 +1023,7 @@ function _injectProgressPulseStyle(deps = {}) {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #3d8bfd;
+      background: #f47f18;
       animation: vibecomfy-progress-pulse 1.2s ease-in-out infinite;
       margin-right: 4px;
       vertical-align: middle;
@@ -984,10 +1041,41 @@ function _injectProgressPulseStyle(deps = {}) {
       padding-left: 4px;
       border-left: 2px solid #282a32;
     }
+    @keyframes vibecomfy-working-dots {
+      0%, 20% { content: ""; }
+      40% { content: "."; }
+      60% { content: ".."; }
+      80%, 100% { content: "..."; }
+    }
+    .vibecomfy-working-dots::after {
+      content: "";
+      animation: vibecomfy-working-dots 1.4s steps(1, end) infinite;
+      display: inline-block;
+      width: 1.1em;
+      text-align: left;
+    }
   `;
   if (typeof document !== "undefined" && document?.head) {
     document.head.appendChild(style);
   }
+}
+
+// Format an ISO timestamp as a short relative string ("just now", "5 minutes
+// ago", "3 hours ago", "2 days ago"). Returns null for missing/unparseable
+// input so callers can skip the line entirely.
+function _formatRelativeTime(iso) {
+  if (typeof iso !== "string" || !iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const diffMs = Date.now() - then;
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 45) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+  const day = Math.floor(hr / 24);
+  return `${day} day${day === 1 ? "" : "s"} ago`;
 }
 
 function _renderBatchTurnRow(body, panel, entry, index, deps = {}) {
@@ -1196,10 +1284,13 @@ function _renderBatchTurnRow(body, panel, entry, index, deps = {}) {
       }
     }
 
-    if (typeof entry.timestamp === "string" && entry.timestamp) {
-      const tsLine = el("div", entry.timestamp);
+    const tsRel = _formatRelativeTime(entry.timestamp);
+    if (tsRel) {
+      const tsLine = el("div", tsRel);
       tsLine.style.fontSize = "9px";
       tsLine.style.color = "#6b7080";
+      tsLine.style.textAlign = "right";
+      tsLine.title = entry.timestamp;
       expandedBox.appendChild(tsLine);
     }
 
@@ -1212,13 +1303,20 @@ function _renderBatchTurnRow(body, panel, entry, index, deps = {}) {
 function _renderDurableTurnRow(body, panel, entry, index, deps = {}) {
   const { appendCodeLine, appendTextLine, button, el, downloadTurnAudit } = deps;
   const turnCard = el("div");
-  turnCard.style.borderLeft = "3px solid #3d8bfd";
+  turnCard.style.borderLeft = "3px solid #f47f18";
   turnCard.style.paddingLeft = "8px";
   turnCard.style.marginBottom = "8px";
   turnCard.style.display = "grid";
   turnCard.style.gap = "4px";
 
-  const statusColor = _statusColor(entry.status);
+  // A pending durable row is the in-flight placeholder shown while a turn is
+  // working — animate it (pulsing dot + "WORKING…" with cycling dots) so it
+  // reads as live progress instead of a static "PENDING" badge.
+  const isPending = entry.status === "pending";
+  if (isPending) {
+    _injectProgressPulseStyle(deps);
+  }
+  const statusColor = isPending ? (DURABLE_STATUS_COLORS.pending || "#f47f18") : _statusColor(entry.status);
 
   const headerRow = el("div");
   headerRow.style.display = "flex";
@@ -1226,13 +1324,24 @@ function _renderDurableTurnRow(body, panel, entry, index, deps = {}) {
   headerRow.style.alignItems = "center";
   headerRow.style.gap = "8px";
 
-  const statusBadge = el("span", entry.status || "unknown");
+  const statusGroup = el("div");
+  statusGroup.style.display = "flex";
+  statusGroup.style.alignItems = "center";
+  if (isPending) {
+    const dot = el("span");
+    dot.className = "vibecomfy-batch-progress-dot";
+    dot.style.background = statusColor;
+    statusGroup.appendChild(dot);
+  }
+
+  const statusBadge = el("span", isPending ? "in progress" : (entry.status || "unknown"));
   statusBadge.style.color = statusColor;
   statusBadge.style.fontWeight = "700";
   statusBadge.style.textTransform = "uppercase";
   statusBadge.style.fontSize = "10px";
   statusBadge.style.letterSpacing = "0.05em";
-  headerRow.appendChild(statusBadge);
+  statusGroup.appendChild(statusBadge);
+  headerRow.appendChild(statusGroup);
 
   const downloadBtn = button("Audit \u2193", () => downloadTurnAudit(panel, index));
   downloadBtn.style.fontSize = "10px";
@@ -1244,20 +1353,33 @@ function _renderDurableTurnRow(body, panel, entry, index, deps = {}) {
   if (entry.turn_id) {
     appendTextLine(turnCard, `turn ${entry.turn_id}`, "#8d93a1");
   }
-  if (entry.task) {
+  // While a turn is in progress the user's own message bubble is shown directly
+  // above this row, so echoing entry.task here just repeats it. Only show the
+  // task on terminal rows, where it identifies which past turn the row is.
+  if (entry.task && !isPending) {
     appendTextLine(turnCard, entry.task, "#edf2f7");
   }
   if (entry.failure_kind) {
     appendTextLine(turnCard, `${entry.failure_kind}${entry.failure_stage ? ` @ ${entry.failure_stage}` : ""}`, "#ffb86c");
   }
-  if (entry.message) {
+  // Skip the "Submitting: <task>" message — it just echoes entry.task shown
+  // above, so it reads as a duplicate. Real messages (errors) still render.
+  const isSubmittingEcho = typeof entry.message === "string"
+    && /^\s*submitting:/i.test(entry.message);
+  if (entry.message && !isSubmittingEcho) {
     appendTextLine(turnCard, entry.message, "#9da1ac");
   }
   if (entry.audit_ref?.path) {
     appendCodeLine(turnCard, `audit: ${entry.audit_ref.path}`, "#9ed0ff");
   }
-  if (entry.timestamp) {
-    appendTextLine(turnCard, entry.timestamp, "#8d93a1");
+  const relTime = _formatRelativeTime(entry.timestamp);
+  if (relTime) {
+    const timeLine = el("div", relTime);
+    timeLine.style.fontSize = "9px";
+    timeLine.style.color = "#6b7080";
+    timeLine.style.textAlign = "right";
+    timeLine.title = entry.timestamp; // exact timestamp on hover
+    turnCard.appendChild(timeLine);
   }
 
   body.appendChild(turnCard);

@@ -1,0 +1,30 @@
+name: wan22-i2v-second-pass-refine
+tier: 3
+description: "Compose correctly: add a high-res second refine pass that threads the base Wan 2.2 i2v latent through an upscale into a low-denoise sampler, then decodes the refined latent"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m4
+  - compose
+  - structural
+  - positive
+  - wan22
+assessment:
+  enforced:
+    - "compiled_api.json contains at least two KSamplerAdvanced nodes (the base pass plus the added refine pass) and exactly one LatentUpscale node."
+    - "compiled_api.json: the LatentUpscale node's inputs.samples references the base KSamplerAdvanced's LATENT output (its source node's class_type is KSamplerAdvanced), NOT an EmptyLatent/WanImageToVideo latent."
+    - "compiled_api.json: the refine KSamplerAdvanced's inputs.latent_image references the LatentUpscale node's output (the source node's class_type is LatentUpscale), NOT an Empty*Latent or WanImageToVideo node."
+    - "compiled_api.json: the VAEDecode node's inputs.samples references the refine KSamplerAdvanced (the sampler that consumes the upscaled latent), NOT the base KSamplerAdvanced."
+    - "actions.jsonl records finalize_metadata with status=completed."
+  graded:
+    - "The refine sampler is configured for a refinement pass (low cfg / partial step range / enabled noise) rather than re-running a full generation from scratch."
+    - "report.md describes the latent thread base -> upscale -> refine -> decode rather than a second independent generation."
+  observed:
+    - "metadata.json entrypoint=agentic and layer points at agentic/actors_m4/wan22_i2v_second_pass_refine.py."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

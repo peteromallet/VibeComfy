@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from vibecomfy.node_packs import CustomNodePack
 from vibecomfy.node_packs_install import InstallBatchResult, InstallResult, PipPreflightResult
 from vibecomfy.porting.object_info import consume as object_info_consume
+from vibecomfy.porting.object_info import serialize as object_info_serialize
+from vibecomfy.registry.pack_resolver import PackRef, PackResolution
 import vibecomfy.runtime.ensure_env as ensure_env_module
 from vibecomfy.runtime.ensure_env import ensure_env
 
@@ -59,6 +62,63 @@ def test_ensure_env_loads_raw_workflow_and_excludes_comfy_core_from_install(tmp_
     assert result.pack_outcomes[0].install_status == "installed"
     assert result.pack_outcomes[1].git_commit_sha is None
     assert not result.failures
+    assert result.low_confidence is False
+    assert result.warnings == ()
+
+
+def test_ensure_env_uses_provenance_requirements_for_authored_pins_and_aux_git() -> None:
+    workflow = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "PinnedPackNode",
+                "properties": {
+                    "cnr_id": "PinnedPack",
+                    "aux_id": "owner/pinned-pack",
+                    "ver": "1234567890abcdef1234567890abcdef12345678",
+                },
+            },
+            {
+                "id": 2,
+                "type": "AuxOnlyNode",
+                "properties": {"aux_id": "someone/aux-pack", "ver": "v1.2.3"},
+            },
+        ]
+    }
+    install_calls: list[object] = []
+
+    def installer(packs, *, install_refs_by_name=None):
+        install_calls.append((tuple(pack.name for pack in packs), install_refs_by_name))
+        return InstallBatchResult(
+            ok=True,
+            results=(
+                InstallResult("PinnedPack", "installed", "1234567890abcdef1234567890abcdef12345678", None),
+                InstallResult("aux-pack", "installed", "aux123", None),
+            ),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    result = ensure_env(
+        workflow,
+        known_packs=(_pack("PinnedPack"),),
+        installer=installer,
+        introspector=lambda packs: {
+            "PinnedPackNode": {"python_module": "PinnedPack.nodes"},
+            "AuxOnlyNode": {"python_module": "AuxPack.nodes"},
+        },
+        cache_writer=lambda payload: {"written": sorted(payload)},
+    )
+
+    assert result.ok is True
+    assert install_calls and install_calls[0][0] == ("PinnedPack", "aux-pack")
+    refs = install_calls[0][1]
+    assert refs["PinnedPack"].version == "1234567890abcdef1234567890abcdef12345678"
+    assert refs["PinnedPack"].commit == "1234567890abcdef1234567890abcdef12345678"
+    assert refs["aux-pack"].source == "aux-git"
+    assert refs["aux-pack"].url == "https://github.com/someone/aux-pack.git"
+    assert refs["aux-pack"].version == "v1.2.3"
+    assert result.aux_only[0].aux_id == "someone/aux-pack"
+    assert result.warnings[0].code == "aux_only_git_provenance"
 
 
 def test_ensure_env_collects_unresolved_and_install_failures_without_fail_fast() -> None:
@@ -96,6 +156,227 @@ def test_ensure_env_collects_unresolved_and_install_failures_without_fail_fast()
     assert outcomes["GoodPack"].ok is True
     assert outcomes["FailPack"].ok is False
     assert outcomes["MissingPack"].ok is False
+
+
+def test_ensure_env_reports_low_confidence_warnings_without_dropping_legacy_diagnostics() -> None:
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "UnknownExecutionNode", "properties": {}},
+        ]
+    }
+
+    result = ensure_env(workflow, known_packs=(), installer=lambda packs: (_ for _ in ()).throw(AssertionError("no install")))
+
+    assert result.ok is True
+    assert result.low_confidence is True
+    assert [warning.code for warning in result.warnings] == ["unprovenanced_execution_node"]
+    assert result.warnings[0].low_confidence is True
+    assert result.unprovenanced[0].class_type == "UnknownExecutionNode"
+    assert result.diagnostics == {
+        "aux_only_count": 0,
+        "unprovenanced_count": 1,
+        "core_slug_non_core_count": 0,
+    }
+
+
+def test_ensure_env_fails_on_conflicting_authored_versions_before_install() -> None:
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "PackNodeA", "properties": {"cnr_id": "VersionedPack", "ver": "1.0.0"}},
+            {"id": 2, "type": "PackNodeB", "properties": {"cnr_id": "VersionedPack", "ver": "2.0.0"}},
+        ]
+    }
+
+    def installer(packs):
+        raise AssertionError("conflicting authored versions must not install")
+
+    result = ensure_env(workflow, known_packs=(_pack("VersionedPack"),), installer=installer)
+
+    assert result.ok is False
+    assert [failure.code for failure in result.failures] == ["conflicting_authored_versions"]
+    assert result.failures[0].slug == "VersionedPack"
+
+
+def test_ensure_env_resolution_order_prefers_local_then_aux_then_cnr_and_class_fallback(tmp_path: Path) -> None:
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "LocalNode", "properties": {"cnr_id": "LocalPack", "ver": "1.0.0"}},
+            {"id": 2, "type": "AuxNode", "properties": {"aux_id": "author/aux-pack", "ver": "v2.0.0"}},
+            {"id": 3, "type": "RegistryNode", "properties": {"cnr_id": "RegistryPack", "ver": "3.0.0"}},
+            {"id": 4, "type": "FallbackNode", "properties": {}},
+        ]
+    }
+    local_root = tmp_path / "custom_nodes"
+    local_pack = local_root / "LocalPack"
+    local_pack.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.test"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/local/LocalPack.git"],
+        cwd=local_pack,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    local_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=local_pack,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    resolver_calls: list[tuple[str, str | None, str | None, bool]] = []
+
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        resolver_calls.append((query, version_pin, aux_id, allow_remote_lookup))
+        if aux_id == "author/aux-pack":
+            return PackResolution(
+                query=query,
+                query_type="aux_git",
+                ref=PackRef(slug="aux-pack", source="aux-git", version=version_pin, url="https://github.com/author/aux-pack.git"),
+            )
+        if query == "RegistryPack":
+            return PackResolution(
+                query=query,
+                query_type="slug",
+                ref=PackRef(slug="RegistryPack", source="comfy-registry", version=version_pin, url="https://example.test/RegistryPack.git"),
+            )
+        if query == "FallbackNode":
+            return PackResolution(
+                query=query,
+                query_type="class",
+                ref=PackRef(slug="FallbackPack", source="comfy-registry", url="https://example.test/FallbackPack.git"),
+            )
+        raise AssertionError(query)
+
+    install_calls: list[object] = []
+
+    def installer(packs, *, install_refs_by_name=None):
+        install_calls.append((tuple(pack.name for pack in packs), install_refs_by_name))
+        return InstallBatchResult(
+            ok=True,
+            results=(
+                InstallResult("LocalPack", "refreshed", local_head, None),
+                InstallResult("aux-pack", "installed", "auxhead", None),
+                InstallResult("RegistryPack", "installed", "registryhead", None),
+                InstallResult("FallbackPack", "installed", "fallbackhead", None),
+            ),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    result = ensure_env(
+        workflow,
+        known_packs=(_pack("LocalPack"),),
+        installer=installer,
+        introspector=lambda packs: {
+            "LocalNode": {},
+            "AuxNode": {},
+            "RegistryNode": {},
+            "FallbackNode": {},
+        },
+        cache_writer=lambda payload: {"written": sorted(payload)},
+        install_roots=(local_root,),
+        resolver=resolver,
+    )
+
+    assert result.ok is True
+    assert resolver_calls == [
+        ("aux-pack", "v2.0.0", "author/aux-pack", False),
+        ("RegistryPack", "3.0.0", None, True),
+        ("FallbackNode", None, None, True),
+    ]
+    assert install_calls[0][0] == ("aux-pack", "LocalPack", "RegistryPack", "FallbackPack")
+    refs = install_calls[0][1]
+    assert refs["LocalPack"].source == "local-git"
+    assert refs["LocalPack"].commit == local_head
+    assert refs["aux-pack"].source == "aux-git"
+    assert refs["RegistryPack"].source == "comfy-registry"
+    assert refs["FallbackPack"].slug == "FallbackPack"
+    assert result.low_confidence is True
+    assert "class_to_pack_fallback" in {warning.code for warning in result.warnings}
+
+
+def test_ensure_env_aux_id_prefers_local_git_without_remote_lookup(tmp_path: Path) -> None:
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "AuxNode", "properties": {"aux_id": "author/aux-pack", "ver": "v2.0.0"}},
+        ]
+    }
+    local_root = tmp_path / "custom_nodes"
+    local_pack = local_root / "aux-pack"
+    local_pack.mkdir(parents=True)
+    subprocess.run(["git", "init"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.email", "test@example.test"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=local_pack, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/author/aux-pack.git"],
+        cwd=local_pack,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    local_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=local_pack,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    resolver_calls: list[tuple[str, str | None, str | None, bool]] = []
+
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        resolver_calls.append((query, version_pin, aux_id, allow_remote_lookup))
+        raise AssertionError("local aux-id match should bypass remote resolver")
+
+    install_refs_seen: dict[str, PackRef] = {}
+
+    def installer(packs, *, install_refs_by_name=None):
+        install_refs_seen.update(install_refs_by_name or {})
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("aux-pack", "refreshed", local_head, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    result = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        introspector=lambda packs: {"AuxNode": {"python_module": "AuxPack.nodes"}},
+        cache_writer=lambda payload: {"written": sorted(payload)},
+        install_roots=(local_root,),
+        resolver=resolver,
+    )
+
+    assert result.ok is True
+    assert resolver_calls == []
+    assert install_refs_seen["aux-pack"].source == "local-git"
+    assert install_refs_seen["aux-pack"].version == "v2.0.0"
+    assert install_refs_seen["aux-pack"].commit == local_head
+
+
+def test_ensure_env_real_wan_t2v_reports_low_confidence_without_installing() -> None:
+    install_calls: list[tuple[str, ...]] = []
+
+    def installer(packs):
+        install_calls.append(tuple(pack.name for pack in packs))
+        return InstallBatchResult(
+            ok=True,
+            results=(),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    result = ensure_env("workflow_corpus/official/video/wan_t2v.json", known_packs=(), installer=installer)
+
+    assert result.ok is True
+    assert install_calls == []
+    assert result.low_confidence is True
+    assert any(warning.code == "unprovenanced_execution_node" for warning in result.warnings)
+    assert result.unprovenanced
 
 
 def test_ensure_env_fails_closed_for_suspicious_comfy_core_and_keeps_diagnostics_only() -> None:
@@ -267,6 +548,160 @@ def test_ensure_env_default_cache_write_requires_custom_git_identity(monkeypatch
     assert "without git commit identity" in result.failures[0].message
 
 
+def test_ensure_env_default_cache_write_uses_authored_semver_and_actual_head(monkeypatch) -> None:
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "SemverNode", "properties": {"cnr_id": "SemverPack", "ver": "1.2.3"}},
+        ]
+    }
+    build_calls: list[tuple[object, str]] = []
+
+    class FakeRuntimeSchemaProvider:
+        def __init__(self, *, server_url=None):
+            pass
+
+        def object_info(self):
+            return {"SemverNode": {"python_module": "SemverPack.nodes"}}
+
+    def installer(packs, *, install_refs_by_name=None):
+        assert install_refs_by_name["SemverPack"].version == "1.2.3"
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("SemverPack", "installed", "actualhead", None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        return PackResolution(
+            query=query,
+            query_type="slug",
+            ref=PackRef(slug="SemverPack", source="comfy-registry", version=version_pin, url="https://example.test/SemverPack.git"),
+        )
+
+    def fake_build_cache(source_path, *, version, identity, full_pack_refresh):
+        build_calls.append((identity, version))
+        return (1, 1)
+
+    monkeypatch.setattr(ensure_env_module, "RuntimeSchemaProvider", FakeRuntimeSchemaProvider)
+    monkeypatch.setattr(ensure_env_module, "build_cache", fake_build_cache)
+
+    result = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        resolver=resolver,
+    )
+
+    assert result.ok is True
+    identity, version = build_calls[0]
+    assert version == "1.2.3"
+    assert identity.pack_slug == "SemverPack"
+    assert identity.pack_version == "1.2.3"
+    assert identity.git_commit == "actualhead"
+
+
+def test_ensure_env_default_cache_write_refuses_commit_pin_head_mismatch(monkeypatch) -> None:
+    authored_commit = "1234567890abcdef1234567890abcdef12345678"
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "PinnedNode", "properties": {"cnr_id": "PinnedPack", "ver": authored_commit}},
+        ]
+    }
+
+    class FakeRuntimeSchemaProvider:
+        def __init__(self, *, server_url=None):
+            pass
+
+        def object_info(self):
+            return {"PinnedNode": {"python_module": "PinnedPack.nodes"}}
+
+    def installer(packs, *, install_refs_by_name=None):
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("PinnedPack", "installed", "differenthead", None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        return PackResolution(
+            query=query,
+            query_type="slug",
+            ref=PackRef(
+                slug="PinnedPack",
+                source="comfy-registry",
+                version=version_pin,
+                commit=authored_commit,
+                url="https://example.test/PinnedPack.git",
+            ),
+        )
+
+    monkeypatch.setattr(ensure_env_module, "RuntimeSchemaProvider", FakeRuntimeSchemaProvider)
+
+    result = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        resolver=resolver,
+    )
+
+    assert result.ok is False
+    assert [failure.code for failure in result.failures] == ["introspection_or_cache_failed"]
+    assert "does not match authored commit" in result.failures[0].message
+
+
+def test_ensure_env_default_cache_write_warns_when_semver_head_is_unverifiable(monkeypatch) -> None:
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "SemverNode", "properties": {"cnr_id": "SemverPack", "ver": "1.2.3"}},
+        ]
+    }
+    build_calls: list[object] = []
+
+    class FakeRuntimeSchemaProvider:
+        def __init__(self, *, server_url=None):
+            pass
+
+        def object_info(self):
+            return {"SemverNode": {"python_module": "SemverPack.nodes"}}
+
+    def installer(packs, *, install_refs_by_name=None):
+        assert install_refs_by_name["SemverPack"].version == "1.2.3"
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("SemverPack", "installed", None, None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        return PackResolution(
+            query=query,
+            query_type="slug",
+            ref=PackRef(slug="SemverPack", source="comfy-registry", version=version_pin, url="https://example.test/SemverPack.git"),
+        )
+
+    def fake_build_cache(source_path, *, version, identity, full_pack_refresh):
+        build_calls.append((version, identity, full_pack_refresh))
+        return (1, 1)
+
+    monkeypatch.setattr(ensure_env_module, "RuntimeSchemaProvider", FakeRuntimeSchemaProvider)
+    monkeypatch.setattr(ensure_env_module, "build_cache", fake_build_cache)
+
+    result = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        resolver=resolver,
+    )
+
+    assert result.ok is True
+    assert build_calls == []
+    assert result.cache_write_result == {"written": {}}
+    assert [warning.code for warning in result.warnings if warning.code == "cache_identity_unverified"] == [
+        "cache_identity_unverified"
+    ]
+    assert result.pack_outcomes[0].cache_written is False
+
+
 def test_ensure_env_second_call_is_noop_after_successful_realization(monkeypatch) -> None:
     monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
     workflow = {
@@ -412,3 +847,84 @@ def test_ensure_env_cache_writer_resets_stale_object_info_cache(monkeypatch, tmp
     assert result.ok is True
     assert cache_writes == 1
     assert object_info_consume.output_names("FreshEvidenceNode") == ["NEW"]
+
+
+def test_ensure_env_core_refresh_does_not_clobber_custom_pack_cache(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+    cache_root = tmp_path / "cache_obj"
+    cache_root.mkdir()
+    monkeypatch.setattr(object_info_serialize, "CACHE_DIR", cache_root)
+    monkeypatch.setattr(object_info_consume, "CACHE_DIR", cache_root)
+    monkeypatch.setattr(object_info_consume, "INDEX_PATH", cache_root / "index.json")
+    object_info_consume.reset_cache()
+
+    real_build_cache = object_info_serialize.build_cache
+
+    def scoped_build_cache(source_path, *, version, identity, full_pack_refresh):
+        return real_build_cache(
+            source_path,
+            version=version,
+            identity=identity,
+            full_pack_refresh=full_pack_refresh,
+            cache_dir=cache_root,
+        )
+
+    class FakeRuntimeSchemaProvider:
+        payloads: list[dict[str, dict[str, str]]] = []
+
+        def __init__(self, *, server_url=None):
+            pass
+
+        def object_info(self):
+            return FakeRuntimeSchemaProvider.payloads.pop(0)
+
+    monkeypatch.setattr(ensure_env_module, "RuntimeSchemaProvider", FakeRuntimeSchemaProvider)
+    monkeypatch.setattr(ensure_env_module, "build_cache", scoped_build_cache)
+
+    custom_workflow = {
+        "nodes": [
+            {"id": 1, "type": "ExamplePackNode", "properties": {"cnr_id": "ExamplePack", "ver": "1.2.3"}},
+        ]
+    }
+
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        return PackResolution(
+            query=query,
+            query_type="slug",
+            ref=PackRef(slug="ExamplePack", source="comfy-registry", version=version_pin, url="https://example.test/ExamplePack.git"),
+        )
+
+    def custom_installer(packs, *, install_refs_by_name=None):
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("ExamplePack", "installed", "customhead", None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    FakeRuntimeSchemaProvider.payloads.append({"ExamplePackNode": {"python_module": "ExamplePack.nodes"}})
+    first = ensure_env(
+        custom_workflow,
+        known_packs=(),
+        installer=custom_installer,
+        resolver=resolver,
+    )
+
+    core_workflow = {
+        "nodes": [
+            {"id": 2, "type": "VAELoader", "properties": {"cnr_id": "comfy-core"}},
+        ]
+    }
+    FakeRuntimeSchemaProvider.payloads.append({"VAELoader": {"python_module": "."}})
+    second = ensure_env(
+        core_workflow,
+        known_packs=(),
+        installer=lambda packs: (_ for _ in ()).throw(AssertionError("core-only should not install")),
+    )
+
+    assert first.ok is True
+    assert second.ok is True
+    assert (cache_root / "ExamplePack@1.2.3.json").is_file()
+    assert (cache_root / "comfy-core@runtime-core.json").is_file()
+    index = (cache_root / "index.json").read_text(encoding="utf-8")
+    assert "ExamplePack@1.2.3.json" in index
+    assert "comfy-core@runtime-core.json" in index

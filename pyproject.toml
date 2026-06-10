@@ -86,6 +86,7 @@ artifacts = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-m 'not gpu'"
+timeout = 60
 markers = [
   "comfy_version_compat: marks opt-in multi-ComfyUI-version compatibility tests (Sprint 4 scope).",
   "gpu: marks tests that provision live GPU resources",

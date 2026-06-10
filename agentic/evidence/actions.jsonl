@@ -1,0 +1,4 @@
+{"action": "build", "status": "completed", "workflow_id": "depth-controlnet-image"}
+{"action": "patch.apply", "patch": "controlnet", "applies_to": true, "status": "applied", "nodes_added": ["ControlNetLoader", "ControlNetApplyAdvanced", "ControlNetApplyAdvanced"]}
+{"action": "add_node", "class_type": "SaveImage", "filename_prefix": "depth_controlnet_image", "status": "completed"}
+{"action": "finalize_metadata", "status": "completed"}

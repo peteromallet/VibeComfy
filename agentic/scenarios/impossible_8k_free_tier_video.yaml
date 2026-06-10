@@ -1,0 +1,25 @@
+name: impossible-8k-free-tier-video
+tier: 2
+description: "Limits: agent refuses an impossible 8K/5000-frame free-tier video request and proposes a scaled-down plan anchored to template defaults"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m2
+  - discovery
+  - limits
+  - structural
+assessment:
+  enforced:
+    - "limits.json exists and contains defaults.width=832, defaults.height=480, and defaults.frames=33 from the wan_t2v template."
+    - "actions.jsonl records op=refusal with a reason referencing template defaults and free-tier bounds."
+    - "actions.jsonl includes a downscaled_plan field with a concrete, lower-resolution alternative."
+  graded:
+    - "No compiled_api.json exists (agent refused to build the impossible request)."
+  observed:
+    - "report.md explains the resource limits and downscaled alternative."
+extras:
+  required_frozen_evidence:
+    - evidence/limits.json
+    - evidence/actions.jsonl

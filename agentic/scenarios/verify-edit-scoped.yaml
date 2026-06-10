@@ -1,0 +1,32 @@
+name: verify-edit-scoped
+tier: 4
+description: "Investigate: prove only the seed changed when I tweaked this template"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m5
+  - investigate
+  - structural
+  - positive
+assessment:
+  enforced:
+    - "scoped_diff.json parses as valid JSON with keys changed_paths, changed_count, hash_before, hash_after."
+    - "Parsed scoped_diff.json has changed_count equal to 1."
+    - "Load and parse scoped_diff.json. Verify parsed changed_paths is a list containing exactly one string: the KSampler node's seed input path in dot notation (e.g. '<node_id>.inputs.seed')."
+    - "Load and parse scoped_diff.json. Verify that the single entry in changed_paths, when split on '.', yields a node id that corresponds to a KSampler node in compiled_api.json, followed by 'inputs', followed by 'seed'."
+    - "Parsed scoped_diff.json has hash_before not equal to hash_after."
+    - "command_log.jsonl is valid line-delimited JSON; every line parses as a JSON object."
+    - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'analyze' and parsed argv containing the string 'diff'."
+  graded:
+    - "The agent correctly demonstrates that only the seed input changed, with no unintended side effects on other nodes or edges."
+  observed:
+    - "The scoped_diff.json hash_before and hash_after are both valid hex strings of equal length."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl
+    - evidence/command_log.jsonl
+    - evidence/scoped_diff.json

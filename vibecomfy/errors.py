@@ -28,8 +28,6 @@ class VibeComfyError(RuntimeError):
 
     def __init__(self, message: str, *, next_action: str | None = None) -> None:
         self.message: str = str(message)
-        # Preserve legacy attribute name used by Block A code paths.
-        self._orig_message: str = self.message
         # Fall back to the class-level hint when no explicit action is given.
         self.next_action: str | None = (
             next_action if next_action is not None else self.default_next_action
@@ -248,15 +246,19 @@ __all__ = [
     "ContextVarBindingError",
     "ConversionParityError",
     "DriftError",
+    "MissingModelAssetError",
     "ModelAssetError",
     "ObjectInfoIdentityAmbiguityError",
     "ObjectInfoIdentityError",
     "QueueError",
     "RuntimeNodeError",
+    "SchemaMismatchError",
     "SchemaValidationError",
     "SubgraphFreshnessError",
+    "UnknownClassError",
     "ArityDisagreementError",
     # origin/main
+    "CanonicalParityFailure",
     "NodePackInstallError",
     "RuntimeStartupError",
     "SessionBusyError",

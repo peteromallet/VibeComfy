@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 from pathlib import Path
+import types
 
 import httpx
 import pytest
@@ -9,7 +12,10 @@ import pytest
 import vibecomfy.comfy_command as comfy_command_module
 from vibecomfy.memory_profile import MemoryProfile
 from vibecomfy.runtime.session import (
+    EmbeddedSession,
     SessionConfig,
+    ServerSession,
+    VibeSession,
     _comfy_server_argv,
     _comfyui_command,
     _embedded_configuration_for_session,
@@ -444,6 +450,188 @@ def test_run_metadata_omits_memory_profile_telemetry_when_unset() -> None:
 
     assert "memory_profile" not in metadata
     assert "memory_profile_label" not in metadata
+
+
+def test_run_metadata_adds_origin_fields_from_workflow_metadata_only_when_present() -> None:
+    workflow = _workflow()
+    workflow.metadata["entrypoint"] = "op"
+    workflow.metadata["layer"] = "ops/image.py:t2i"
+
+    metadata = _run_metadata(
+        run_id="run-test",
+        workflow=workflow,
+        api_dict={"1": {"class_type": "CheckpointLoaderSimple", "inputs": {}}},
+        queued={"prompt_id": "prompt-test"},
+        outputs=[],
+        runtime="embedded",
+    )
+
+    assert metadata["entrypoint"] == "op"
+    assert metadata["layer"] == "ops/image.py:t2i"
+
+
+def test_run_metadata_omits_new_fields_when_origin_and_chain_values_are_absent() -> None:
+    metadata = _run_metadata(
+        run_id="run-test",
+        workflow=_workflow(),
+        api_dict={"1": {"class_type": "CheckpointLoaderSimple", "inputs": {}}},
+        queued={"prompt_id": "prompt-test"},
+        outputs=[],
+        runtime="embedded",
+    )
+
+    assert "entrypoint" not in metadata
+    assert "layer" not in metadata
+    assert "chain_id" not in metadata
+    assert "parent_run_id" not in metadata
+
+
+def test_run_metadata_includes_chain_fields_only_when_provided() -> None:
+    metadata = _run_metadata(
+        run_id="run-test",
+        workflow=_workflow(),
+        api_dict={"1": {"class_type": "CheckpointLoaderSimple", "inputs": {}}},
+        queued={"prompt_id": "prompt-test"},
+        outputs=[],
+        runtime="embedded",
+        chain_id="chain-1",
+        parent_run_id="run-parent",
+    )
+
+    assert metadata["chain_id"] == "chain-1"
+    assert metadata["parent_run_id"] == "run-parent"
+
+
+def test_run_metadata_serializes_patch_applications_and_requirements() -> None:
+    workflow = _workflow()
+    workflow.metadata["patch_applications"] = [
+        {
+            "name": "seed:99",
+            "called": True,
+            "topology_changed": False,
+            "nodes_added": [],
+            "introduced_edges": [],
+            "rewritten_edges": [],
+            "value_changed": True,
+        }
+    ]
+    workflow.requirements.models.extend(["model-a.safetensors"])
+    workflow.requirements.custom_nodes.extend(["ComfyUI-ControlNet"])
+    workflow.requirements.missing_models.extend(["missing-model.safetensors"])
+    workflow.requirements.missing_nodes.extend(["MissingNode"])
+    workflow.requirements.unsupported.extend(["legacy-widget"])
+
+    metadata = _run_metadata(
+        run_id="run-test",
+        workflow=workflow,
+        api_dict={"1": {"class_type": "CheckpointLoaderSimple", "inputs": {}}},
+        queued={"prompt_id": "prompt-test"},
+        outputs=[],
+        runtime="embedded",
+    )
+
+    assert metadata["patch_applications"] == workflow.metadata["patch_applications"]
+    assert metadata["requirements"] == {
+        "models": ["model-a.safetensors"],
+        "custom_nodes": ["ComfyUI-ControlNet"],
+        "missing_models": ["missing-model.safetensors"],
+        "missing_nodes": ["MissingNode"],
+        "unsupported": ["legacy-widget"],
+    }
+    assert json.dumps(metadata["requirements"], sort_keys=True)
+
+
+def test_session_run_signatures_expose_chain_linkage_kwargs() -> None:
+    for fn in (VibeSession.run, EmbeddedSession.run, ServerSession.run):
+        params = inspect.signature(fn).parameters
+        assert "chain_id" in params
+        assert "parent_run_id" in params
+        assert params["chain_id"].kind is inspect.Parameter.KEYWORD_ONLY
+        assert params["parent_run_id"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_embedded_session_run_passes_chain_linkage_into_untracked_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run_untracked(self, workflow, *, backend="api", strict_drift=False, chain_id=None, parent_run_id=None):
+        captured.update(
+            {
+                "self": self,
+                "workflow": workflow,
+                "backend": backend,
+                "strict_drift": strict_drift,
+                "chain_id": chain_id,
+                "parent_run_id": parent_run_id,
+            }
+        )
+        return types.SimpleNamespace(run_id="embedded-run", prompt_id="prompt-1")
+
+    monkeypatch.setattr(EmbeddedSession, "_run_untracked", fake_run_untracked)
+
+    workflow = _workflow()
+    session = EmbeddedSession()
+    result = asyncio.run(
+        session.run(
+            workflow,
+            backend="graphbuilder",
+            strict_drift=True,
+            chain_id="chain-1",
+            parent_run_id="run-0",
+        )
+    )
+
+    assert result.run_id == "embedded-run"
+    assert result.prompt_id == "prompt-1"
+    assert captured == {
+        "self": session,
+        "workflow": workflow,
+        "backend": "graphbuilder",
+        "strict_drift": True,
+        "chain_id": "chain-1",
+        "parent_run_id": "run-0",
+    }
+
+
+def test_server_session_run_passes_chain_linkage_into_untracked_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_run_untracked(self, workflow, *, backend="api", strict_drift=False, chain_id=None, parent_run_id=None):
+        captured.update(
+            {
+                "self": self,
+                "workflow": workflow,
+                "backend": backend,
+                "strict_drift": strict_drift,
+                "chain_id": chain_id,
+                "parent_run_id": parent_run_id,
+            }
+        )
+        return types.SimpleNamespace(run_id="server-run", prompt_id="prompt-2")
+
+    monkeypatch.setattr(ServerSession, "_run_untracked", fake_run_untracked)
+
+    workflow = _workflow()
+    session = ServerSession()
+    result = asyncio.run(
+        session.run(
+            workflow,
+            backend="graphbuilder",
+            strict_drift=True,
+            chain_id="chain-1",
+            parent_run_id="run-0",
+        )
+    )
+
+    assert result.run_id == "server-run"
+    assert result.prompt_id == "prompt-2"
+    assert captured == {
+        "self": session,
+        "workflow": workflow,
+        "backend": "graphbuilder",
+        "strict_drift": True,
+        "chain_id": "chain-1",
+        "parent_run_id": "run-0",
+    }
 
 
 def test_model_fingerprint_wan_snapshot() -> None:

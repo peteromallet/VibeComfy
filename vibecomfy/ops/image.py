@@ -4,6 +4,7 @@ from typing import Any
 
 from vibecomfy.artifacts import Image
 from vibecomfy.cli_loader import load_workflow_any
+from vibecomfy.origin import stamp_workflow_origin
 from vibecomfy.ops._common import first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
@@ -45,6 +46,7 @@ def _t2i(
 ) -> Image:
     result = pick("image", "t2i", model=model, width=width, height=height, steps=steps, seed=seed, **overrides)
     workflow = load_workflow_any(result.template_id)
+    stamp_workflow_origin(workflow, "op", "ops/image.py:t2i")
     set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
     if seed is not None:
         workflow.set_seed(seed)

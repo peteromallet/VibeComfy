@@ -1,0 +1,29 @@
+name: wan22-stack-highlow-noise-lora
+tier: 3
+description: "Compose correctly: stack a 2-stage LoRA onto BOTH the high-noise and low-noise Wan 2.2 model chains, each reaching its own sampler"
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags:
+  - m4
+  - compose
+  - structural
+  - positive
+  - lora
+assessment:
+  enforced:
+    - "compiled_api.json contains at least four WanVideoLoraSelect nodes (the two pre-existing per-path heads plus one newly stacked LoRA select for each noise path)."
+    - "compiled_api.json node '6' (the high-noise LoRA head feeding WanVideoSetLoRAs '21') has inputs.prev_lora referencing a WanVideoLoraSelect node, NOT null/absent, so a stacked LoRA is chained into the high-noise path."
+    - "compiled_api.json node '11' (the low-noise LoRA head feeding WanVideoSetLoRAs '20') has inputs.prev_lora referencing a WanVideoLoraSelect node, NOT null/absent, so a stacked LoRA is chained into the low-noise path."
+    - "compiled_api.json WanVideoSampler '23' inputs.model resolves (via WanVideoSetLoRAs '21' -> WanVideoSetBlockSwap '16') back to the high-noise WanVideoModelLoader, and WanVideoSampler '24' inputs.model resolves (via WanVideoSetLoRAs '20' -> WanVideoSetBlockSwap '17') back to the low-noise WanVideoModelLoader, so each stacked LoRA reaches its own sampler."
+    - "actions.jsonl records finalize_metadata with status=completed."
+  graded:
+    - "The two stacked WanVideoLoraSelect nodes carry per-stage strengths (high-noise and low-noise are not identical), reflecting appropriate per-stage strength rather than a single copied value."
+  observed:
+    - "metadata.json entrypoint and layer reflect an agentic actor origin for this run."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

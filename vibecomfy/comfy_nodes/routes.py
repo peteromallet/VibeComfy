@@ -19,6 +19,7 @@ from .agent_edit import (
     _SESSION_ROOT,
     _safe_session_id,
     handle_agent_edit,
+    read_session_bundle,
     read_session_chat,
     read_session_json,
 )
@@ -511,6 +512,29 @@ def _handle_agent_edit_session_json(
         return classify_failure("session-json", exc).to_dict()
 
 
+def _handle_agent_edit_session_bundle(
+    params: dict[str, Any],
+    *,
+    session_root: Any = None,
+) -> dict[str, Any]:
+    """Return every artifact under a session dir so the browser can build a
+    self-contained issue-report ZIP. Reads only within the sanitized session
+    dir — no browsing, search, indexes, or arbitrary path reads."""
+    session_id_raw = params.get("session_id")
+    if not isinstance(session_id_raw, str) or not session_id_raw.strip():
+        return failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "session-bundle",
+            agent_failure_context={"explanation": "`session_id` is required."},
+        ).to_dict()
+
+    root = _root(session_root)
+    try:
+        return read_session_bundle(root, session_id_raw)
+    except Exception as exc:
+        return classify_failure("session-bundle", exc).to_dict()
+
+
 def _handle_agent_credentials(
     payload: Any,
     *,
@@ -689,6 +713,11 @@ try:
     @_PromptServer.instance.routes.get("/vibecomfy/agent-edit/session-json")
     async def agent_edit_session_json_route(request):  # type: ignore[no-untyped-def]
         result = _handle_agent_edit_session_json(dict(request.query))
+        return _web.json_response(result, status=400 if result.get("ok") is False else 200)
+
+    @_PromptServer.instance.routes.get("/vibecomfy/agent-edit/session-bundle")
+    async def agent_edit_session_bundle_route(request):  # type: ignore[no-untyped-def]
+        result = _handle_agent_edit_session_bundle(dict(request.query))
         return _web.json_response(result, status=400 if result.get("ok") is False else 200)
 
     @_PromptServer.instance.routes.post("/vibecomfy/agent/credentials")

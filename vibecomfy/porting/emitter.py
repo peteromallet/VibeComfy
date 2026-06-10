@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import contextlib
+import contextvars
 import hashlib
 import importlib
 import json
@@ -22,8 +24,250 @@ from vibecomfy.porting.object_info import (
     class_defaults,
     class_has_list_output,
     class_output_count,
+    ObjectInfoIdentity,
+    resolve_class_entry,
 )
 from vibecomfy.porting.object_info import output_names as class_output_names
+
+
+# --- Node-local object_info identity plumbing --------------------------------
+#
+# Conversion (T21) builds a ``node_id -> ObjectInfoIdentity`` map from
+# provenance and threads it into the top-level emitter entry points. Internal
+# helpers operate on ``VibeNode`` objects and don't take the map as a
+# parameter, so we expose it via a contextvar and read it from node-local call
+# sites that already have a node reference.
+#
+# When no identity map is active (legacy/unprovenanced flows, tests that call
+# helpers directly), all lookups fall back to the historical class-only
+# behavior, so this change is additive and non-breaking.
+
+_NODE_OBJECT_INFO_IDENTITIES: contextvars.ContextVar[
+    "dict[str, ObjectInfoIdentity] | None"
+] = contextvars.ContextVar("_NODE_OBJECT_INFO_IDENTITIES", default=None)
+
+# Recorder for identity-aware lookup warnings observed during emission. When a
+# recorder list is bound, node-local helpers append (node_id, class_type, code,
+# message) tuples so the top-level emit entry points can drain them into the
+# caller's ``EmissionDiagnostic`` list.
+_NODE_OBJECT_INFO_LOOKUP_WARNINGS: contextvars.ContextVar[
+    "list[tuple[str | None, str, str, str]] | None"
+] = contextvars.ContextVar("_NODE_OBJECT_INFO_LOOKUP_WARNINGS", default=None)
+
+
+@contextlib.contextmanager
+def _use_object_info_identities(
+    identities: "dict[str, Any] | None",
+):
+    """Bind an optional ``node_id -> ObjectInfoIdentity`` map for this emit.
+
+    Also opens a fresh warning recorder so identity-aware lookup helpers can
+    report ``unprovenanced_class_fallback`` / ``provenance_identity_cache_miss``
+    occurrences back to the top-level emit entry point.
+    """
+    normalized: "dict[str, ObjectInfoIdentity] | None" = None
+    if identities:
+        normalized = {}
+        for raw_id, ident in identities.items():
+            if ident is None:
+                continue
+            if isinstance(ident, ObjectInfoIdentity):
+                normalized[str(raw_id)] = ident
+            elif isinstance(ident, Mapping):
+                try:
+                    normalized[str(raw_id)] = ObjectInfoIdentity(
+                        pack_slug=str(ident.get("pack_slug") or ident.get("pack") or ""),
+                        git_commit=(str(ident["git_commit"]) if ident.get("git_commit") else None),
+                        evidence_identity=(
+                            str(ident["evidence_identity"]) if ident.get("evidence_identity") else None
+                        ),
+                    )
+                except Exception:
+                    continue
+        if not normalized:
+            normalized = None
+    id_token = _NODE_OBJECT_INFO_IDENTITIES.set(normalized)
+    warn_token = _NODE_OBJECT_INFO_LOOKUP_WARNINGS.set([])
+    try:
+        yield
+    finally:
+        _NODE_OBJECT_INFO_LOOKUP_WARNINGS.reset(warn_token)
+        _NODE_OBJECT_INFO_IDENTITIES.reset(id_token)
+
+
+# Mapping from consume-layer warning codes to emission diagnostic codes.
+_LOOKUP_WARNING_CODE_TO_EMISSION: dict[str, str] = {
+    "unprovenanced_cache_fallback": "unprovenanced_class_fallback",
+    "provenanced_cache_miss_fallback": "provenance_identity_cache_miss",
+    "identity_cache_miss": "provenance_identity_cache_miss",
+}
+
+
+def _record_lookup_warning(node: Any, class_type: str, warning: Any) -> None:
+    """If a warning recorder is bound, append this identity-lookup warning."""
+    if warning is None:
+        return
+    bucket = _NODE_OBJECT_INFO_LOOKUP_WARNINGS.get()
+    if bucket is None:
+        return
+    node_id = str(getattr(node, "id", "")) if node is not None else ""
+    bucket.append(
+        (
+            node_id or None,
+            class_type,
+            str(getattr(warning, "code", "") or ""),
+            str(getattr(warning, "message", "") or ""),
+        )
+    )
+
+
+def _drain_lookup_warning_diagnostics(
+    diagnostics: "list[EmissionDiagnostic] | None",
+) -> bool:
+    """Drain the bound warning recorder into *diagnostics*. Returns True if any
+    low-confidence warnings were emitted (so callers can flag low_confidence).
+
+    Dedupes by (node_id, class_type, emission code) so a class touched on many
+    code paths produces one diagnostic per node, not one per call site.
+    """
+    bucket = _NODE_OBJECT_INFO_LOOKUP_WARNINGS.get()
+    if not bucket:
+        return False
+    low_conf = False
+    seen: set[tuple[str | None, str, str]] = set()
+    for node_id, class_type, code, message in bucket:
+        emit_code = _LOOKUP_WARNING_CODE_TO_EMISSION.get(code)
+        if not emit_code:
+            continue
+        key = (node_id, class_type, emit_code)
+        if key in seen:
+            continue
+        seen.add(key)
+        low_conf = True
+        if diagnostics is not None:
+            diagnostics.append(
+                EmissionDiagnostic(
+                    code=emit_code,
+                    message=message,
+                    severity="warning",
+                    node_id=node_id,
+                    class_type=class_type,
+                    detail={"lookup_warning_code": code},
+                )
+            )
+    return low_conf
+
+
+def _identity_for_node(node: Any) -> "ObjectInfoIdentity | None":
+    """Return the bound identity for *node* (by ``node.id``), if any."""
+    table = _NODE_OBJECT_INFO_IDENTITIES.get()
+    if not table or node is None:
+        return None
+    node_id = getattr(node, "id", None)
+    if node_id is None:
+        return None
+    return table.get(str(node_id))
+
+
+def _identity_for_node_id(node_id: Any) -> "ObjectInfoIdentity | None":
+    table = _NODE_OBJECT_INFO_IDENTITIES.get()
+    if not table or node_id is None:
+        return None
+    return table.get(str(node_id))
+
+
+def _node_local_output_names(node: Any) -> list[str]:
+    """Identity-aware schema output names for *node*; class-only fallback."""
+    class_type = str(node.class_type)
+    identity = _identity_for_node(node)
+    if identity is not None:
+        try:
+            result = resolve_class_entry(class_type, identity=identity, allow_class_fallback=True)
+        except Exception:
+            return list(class_output_names(class_type))
+        _record_lookup_warning(node, class_type, result.warning)
+        entry = result.entry
+        if entry is not None:
+            outputs = entry.get("outputs") or []
+            names = [str(o.get("name", "")) for o in outputs if isinstance(o, Mapping)]
+            if names:
+                return names
+    return list(class_output_names(class_type))
+
+
+def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
+    """Identity-aware arity consensus check for *node*; class-only fallback.
+
+    Mirrors :func:`check_output_arity_consensus` semantics, but counts outputs
+    from the identity-resolved cache entry when one is available so that
+    provenanced nodes are validated against their pinned schema rather than the
+    most recent class-only cache.
+    """
+    class_type = str(node.class_type)
+    identity = _identity_for_node(node)
+    if identity is not None:
+        try:
+            result = resolve_class_entry(
+                class_type, identity=identity, allow_class_fallback=True
+            )
+        except Exception:
+            return check_output_arity_consensus(class_type, ui_output_count)
+        _record_lookup_warning(node, class_type, result.warning)
+        entry = result.entry
+        if entry is None:
+            return check_output_arity_consensus(class_type, ui_output_count)
+        cached_count = len(entry.get("outputs") or [])
+        if ui_output_count is None:
+            return cached_count
+        if cached_count < ui_output_count:
+            from vibecomfy.errors import ArityDisagreementError as _AD
+            raise _AD(
+                (
+                    f"output arity disagreement for {class_type}: cached snapshot "
+                    f"declares {cached_count} outputs but UI declares {ui_output_count}. "
+                    "Refresh the object_info schema snapshot."
+                ),
+                class_type=class_type,
+                snapshot_pack=entry.get("pack"),
+                snapshot_version=entry.get("pack_version"),
+                snapshot_output_count=cached_count,
+                ui_output_count=ui_output_count,
+            )
+        return cached_count
+    return check_output_arity_consensus(class_type, ui_output_count)
+
+
+def _node_local_class_defaults(node: Any) -> dict[str, Any]:
+    """Identity-aware schema defaults for *node*; class-only fallback."""
+    class_type = str(node.class_type)
+    identity = _identity_for_node(node)
+    if identity is not None:
+        try:
+            result = resolve_class_entry(
+                class_type, identity=identity, allow_class_fallback=True
+            )
+        except Exception:
+            return dict(class_defaults(class_type))
+        _record_lookup_warning(node, class_type, result.warning)
+        entry = result.entry
+        if entry is not None:
+            defaults: dict[str, Any] = {}
+            inputs = entry.get("inputs") or {}
+            if isinstance(inputs, Mapping):
+                for section in ("required", "optional"):
+                    group = inputs.get(section)
+                    if not isinstance(group, Mapping):
+                        continue
+                    for name, spec in group.items():
+                        if (
+                            isinstance(spec, (list, tuple))
+                            and len(spec) > 1
+                            and isinstance(spec[1], Mapping)
+                            and "default" in spec[1]
+                        ):
+                            defaults[str(name)] = spec[1]["default"]
+            return defaults
+    return dict(class_defaults(class_type))
 from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
 from vibecomfy.utils import repo_relative_path
 
@@ -888,7 +1132,7 @@ def _hoist_constants(
                 break
             node_meta: dict[str, Any] = getattr(node, "metadata", None) or {}
             val = constant_defs[name][0]  # emit_value
-            if not _is_schema_default(node.class_type, field, val, node_meta):
+            if not _is_schema_default(node.class_type, field, val, node_meta, node=node):
                 all_would_be_stripped = False
                 break
         if all_would_be_stripped:
@@ -1445,6 +1689,37 @@ def emit_ready_template_python(
     raw_workflow: dict[str, Any] | None = None,
     variable_name_locks: Mapping[str, str] | None = None,
     strict_variable_name_locks: bool = False,
+    object_info_identities: dict[str, Any] | None = None,
+) -> str:
+    with _use_object_info_identities(object_info_identities):
+        result_text = _emit_ready_template_python_inner(
+            workflow,
+            ready_metadata=ready_metadata,
+            ready_requirements=ready_requirements,
+            template_id=template_id,
+            registered_inputs=registered_inputs,
+            apply_overrides=apply_overrides,
+            diagnostics=diagnostics,
+            raw_workflow=raw_workflow,
+            variable_name_locks=variable_name_locks,
+            strict_variable_name_locks=strict_variable_name_locks,
+        )
+        _drain_lookup_warning_diagnostics(diagnostics)
+    return result_text
+
+
+def _emit_ready_template_python_inner(
+    workflow,
+    *,
+    ready_metadata: dict[str, Any],
+    ready_requirements: dict[str, Any],
+    template_id: str,
+    registered_inputs: dict[str, tuple[str, str]] | None = None,
+    apply_overrides: dict[str, Any] | None = None,
+    diagnostics: list[EmissionDiagnostic] | None = None,
+    raw_workflow: dict[str, Any] | None = None,
+    variable_name_locks: Mapping[str, str] | None = None,
+    strict_variable_name_locks: bool = False,
 ) -> str:
     metadata = dict(ready_metadata)
     requirements = dict(ready_requirements)
@@ -1637,6 +1912,39 @@ def emit_ready_template_python(
 
 
 def emit_scratchpad_python(
+    workflow,
+    *,
+    workflow_id: str | None = None,
+    source_path: str | None = None,
+    provenance: dict[str, Any] | None = None,
+    registered_inputs: dict[str, tuple[str, str]] | None = None,
+    apply_overrides: dict[str, Any] | None = None,
+    diagnostics: list[EmissionDiagnostic] | None = None,
+    keep_virtual_wires: bool = False,
+    prune_dead_branches: bool = True,
+    variable_name_locks: Mapping[str, str] | None = None,
+    strict_variable_name_locks: bool = False,
+    object_info_identities: dict[str, Any] | None = None,
+) -> str:
+    with _use_object_info_identities(object_info_identities):
+        result_text = _emit_scratchpad_python_inner(
+            workflow,
+            workflow_id=workflow_id,
+            source_path=source_path,
+            provenance=provenance,
+            registered_inputs=registered_inputs,
+            apply_overrides=apply_overrides,
+            diagnostics=diagnostics,
+            keep_virtual_wires=keep_virtual_wires,
+            prune_dead_branches=prune_dead_branches,
+            variable_name_locks=variable_name_locks,
+            strict_variable_name_locks=strict_variable_name_locks,
+        )
+        _drain_lookup_warning_diagnostics(diagnostics)
+    return result_text
+
+
+def _emit_scratchpad_python_inner(
     workflow,
     *,
     workflow_id: str | None = None,
@@ -1941,7 +2249,7 @@ def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
     if not output_names:
         ui_names = _declared_ui_output_names(node)
         ui_output_count = len(ui_names) if ui_names else None
-        count = check_output_arity_consensus(str(node.class_type), ui_output_count) or 0
+        count = _node_local_arity_check(node, ui_output_count) or 0
         output_names = {slot: f"output_{slot}" for slot in range(count)}
     encoded = encode_slot_names(output_names.values())
     return {
@@ -1967,7 +2275,7 @@ def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
             ui_output_count=len(ui_names),
         )
     ui_output_count = len(ui_names) if ui_names else None
-    check_output_arity_consensus(str(node.class_type), ui_output_count)
+    _node_local_arity_check(node, ui_output_count)
     if ui_names:
         return {index: name for index, name in enumerate(ui_names) if name}
     result: dict[int, str] = {}
@@ -1977,7 +2285,7 @@ def _agent_edit_raw_output_names(node: Any) -> dict[int, str]:
                 result[index] = name
     if result:
         return result
-    schema_names = class_output_names(str(node.class_type))
+    schema_names = _node_local_output_names(node)
     return {index: name for index, name in enumerate(schema_names) if isinstance(name, str) and name}
 
 
@@ -3853,13 +4161,23 @@ def _format_value(value: Any, *, elide_strings_over: int | None = None) -> str:
     return repr(value)
 
 
-def _is_schema_default(class_type: str, key: str, value: Any, node_metadata: Mapping[str, Any] | dict[str, Any]) -> bool:
+def _is_schema_default(
+    class_type: str,
+    key: str,
+    value: Any,
+    node_metadata: Mapping[str, Any] | dict[str, Any],
+    *,
+    node: Any = None,
+) -> bool:
     keep = node_metadata.get("keep_defaults") or node_metadata.get("keep_kwargs") or ()
     if key in set(str(item) for item in keep):
         return False
     defaults = dict(_CURATED_SCHEMA_DEFAULTS.get(class_type, {}))
     try:
-        defaults.update(class_defaults(class_type))
+        if node is not None:
+            defaults.update(_node_local_class_defaults(node))
+        else:
+            defaults.update(class_defaults(class_type))
     except Exception:
         pass
     return key in defaults and value == defaults[key]
@@ -4092,7 +4410,7 @@ def _schema_output_names_for_unpack(node: Any) -> list[str]:
     metadata_names = _node_output_names(node)
     cache_names: list[str] = []
     try:
-        cache_names = [str(name) for name in class_output_names(str(node.class_type)) if str(name)]
+        cache_names = [str(name) for name in _node_local_output_names(node) if str(name)]
     except Exception:
         cache_names = []
     if ui_names and metadata_names and len(ui_names) != len(metadata_names):
@@ -4109,7 +4427,7 @@ def _schema_output_names_for_unpack(node: Any) -> list[str]:
             ui_output_count=len(ui_names),
         )
     ui_output_count = len(ui_names) if ui_names else None
-    check_output_arity_consensus(str(node.class_type), ui_output_count)
+    _node_local_arity_check(node, ui_output_count)
     if ui_names:
         return ui_names
     if metadata_names:
@@ -4366,7 +4684,7 @@ def _node_kwargs(
     for key in ordered_static_keys:
         if key in incoming or key in incoming_exprs:
             continue
-        if key not in preserve_fields and strip_schema_defaults and _is_schema_default(cls, key, static_inputs[key], node_metadata):
+        if key not in preserve_fields and strip_schema_defaults and _is_schema_default(cls, key, static_inputs[key], node_metadata, node=node):
             continue
         if not _is_python_ident(key) and not (emit_reserved_keyword_args and key in RESERVED_WRAPPER_INPUT_NAMES):
             extras.append((key, _format_static_value(key, static_inputs[key])))
@@ -4651,7 +4969,7 @@ def _declared_output_names_for_call_metadata(node: Any) -> list[str]:
             ui_output_count=len(ui_names),
         )
     ui_output_count = len(ui_names) if ui_names else None
-    check_output_arity_consensus(str(node.class_type), ui_output_count)
+    _node_local_arity_check(node, ui_output_count)
     if ui_names:
         return ui_names
     return metadata_names

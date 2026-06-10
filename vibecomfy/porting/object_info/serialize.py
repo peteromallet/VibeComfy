@@ -24,6 +24,9 @@ from vibecomfy.porting.object_info.consume import (
     _WIDGET_LIKE_TYPES,
 )
 
+LEGACY_IMPORT_PACK_VERSION = "legacy-import"
+LEGACY_IMPORT_SOURCE_KIND = "legacy_object_info_import"
+
 # ---------------------------------------------------------------------------
 # public helpers
 # ---------------------------------------------------------------------------
@@ -110,7 +113,7 @@ def _make_cache_entry(
         })
 
     pack_slug = identity.pack_slug or pack_key_from_module(raw.get("python_module", ""))
-    pack_version = identity.pack_version or "runpod-snapshot"
+    pack_version = identity.pack_version or LEGACY_IMPORT_PACK_VERSION
 
     return OrderedDict({
         "pack": pack_slug,
@@ -137,7 +140,7 @@ def _make_cache_entry(
 
 def build_cache(
     source_path: str | Path,
-    version: str = "runpod-snapshot",
+    version: str | None = None,
     cache_dir: str | Path | None = None,
     *,
     identity: CacheIdentity | None = None,
@@ -145,7 +148,7 @@ def build_cache(
     pack_version: str | None = None,
     git_commit: str | None = None,
     evidence_identity: str | None = None,
-    source_kind: str = "object_info",
+    source_kind: str = LEGACY_IMPORT_SOURCE_KIND,
     full_pack_refresh: bool | set[str] = False,
 ) -> tuple[int, int]:
     """Parse *source_path* (an object_info JSON dump) and write per-pack files.
@@ -177,6 +180,7 @@ def build_cache(
         evidence_identity=evidence_identity or source_path.name,
         source_kind=source_kind,
     )
+    effective_version = base_identity.pack_version or LEGACY_IMPORT_PACK_VERSION
 
     existing_index = _read_existing_index(cache_root)
     existing_entries = _read_existing_entries(cache_root, existing_index)
@@ -209,7 +213,7 @@ def build_cache(
     # Write per-pack files (deterministically sorted)
     index: dict[str, str] = dict(existing_index)
     for pack_name in sorted(packs):
-        filename = f"{pack_name}@{version}.json"
+        filename = f"{pack_name}@{(version or effective_version)}.json"
         pack_entries = _merged_pack_entries(
             pack_name,
             packs[pack_name],
@@ -249,11 +253,16 @@ def _resolve_identity(
     identity: CacheIdentity | None,
     *,
     pack_slug: str | None,
-    pack_version: str,
+    pack_version: str | None,
     git_commit: str | None,
     evidence_identity: str | None,
     source_kind: str,
 ) -> CacheIdentity:
+    if identity is None and pack_version is None:
+        pack_version = LEGACY_IMPORT_PACK_VERSION
+        source_kind = LEGACY_IMPORT_SOURCE_KIND
+    elif pack_version is None:
+        raise ValueError("authoritative object_info cache writes require an explicit pack_version")
     if identity is None:
         return CacheIdentity(
             pack_slug=pack_slug,
@@ -336,11 +345,16 @@ def refresh_from_source(source_path: str, cache_dir: str | None = None) -> dict[
     class_count, pack_count = build_cache(
         source_path,
         cache_dir=cache_dir,
+        version=LEGACY_IMPORT_PACK_VERSION,
+        source_kind=LEGACY_IMPORT_SOURCE_KIND,
     )
     return {
         "status": "ok",
         "classes_indexed": class_count,
         "packs_written": pack_count,
         "cache_dir": str(cache_dir or CACHE_DIR),
-        "version": "runpod-snapshot",
+        "version": LEGACY_IMPORT_PACK_VERSION,
+        "pack_version": LEGACY_IMPORT_PACK_VERSION,
+        "source_kind": LEGACY_IMPORT_SOURCE_KIND,
+        "authoritative": False,
     }

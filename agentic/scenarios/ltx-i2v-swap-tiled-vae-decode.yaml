@@ -1,0 +1,25 @@
+name: ltx-i2v-swap-tiled-vae-decode
+tier: 3
+description: "Compose correctly: swap LTX tiled VAE decode for a standard VAEDecode without orphaning the latent or breaking the save chain."
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags: [m4, compose, structural, recovery, ltx]
+assessment:
+  enforced:
+    - "compiled_api.json contains NO node whose class_type is LTXVTiledVAEDecode."
+    - "compiled_api.json contains at least one VAEDecode node, and a VAEDecode node's inputs.samples references the same upstream latent the removed tiled decoder consumed (the SamplerCustomAdvanced/LTXVSeparateAVLatent latent at ['4824', 0]), NOT a fresh EmptyLTXVLatentVideo node."
+    - "compiled_api.json: the CreateVideo node 4819 inputs.images references a VAEDecode node output (the new standard decode), and that VAEDecode's inputs.vae references the shared checkpoint vae at ['3940', 2]."
+    - "compiled_api.json: the declared output SaveVideo node 4823 inputs.video still references CreateVideo 4819, and every node input edge reference points to a node that exists (no dangling required inputs)."
+    - "actions.jsonl records finalize_metadata with status=completed."
+  graded:
+    - "The swap preserves the rest of the graph (samplers, conditioning, audio decode, resolution) rather than rebuilding the pipeline; only the tiled decoder is replaced."
+    - "The agent explains that the tiled decode was the grid-artifact / temporal-tiling source and that a standard VAEDecode consumes the identical latent and vae."
+  observed:
+    - "Telemetry: the agent grounded the edit in the real video/ltx2_3_i2v template rather than authoring a graph from scratch."
+extras:
+  required_frozen_evidence:
+    - evidence/compiled_api.json
+    - evidence/metadata.json
+    - evidence/actions.jsonl

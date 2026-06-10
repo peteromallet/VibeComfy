@@ -135,17 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-# Back-compat aliases for the historical tools.format_as_python private surface.
-_load_module_from_path = load_module_from_path
-_build_workflow_for = build_workflow_for
-_extract_registered_inputs = extract_registered_inputs
-
-
 __all__ = [
     "REPO_ROOT",
-    "_build_workflow_for",
-    "_extract_registered_inputs",
-    "_load_module_from_path",
     "build_workflow_for",
     "extract_registered_inputs",
     "load_module_from_path",

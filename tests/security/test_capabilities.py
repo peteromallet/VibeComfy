@@ -16,7 +16,6 @@ from vibecomfy.security import (
 from vibecomfy.security._seed import (
     ALL_SEEDED,
     KNOWN_PASSTHROUGH,
-    OUTPUT_CLASS_NAMES,
     OUTPUT_NODE_NAMES,
     _OUTPUT_CLASSES_KEYS,
 )
@@ -49,10 +48,6 @@ def test_no_forbidden_imports_in_source(file_path: Path) -> None:
         assert not re.search(pattern, source), (
             f"Forbidden import pattern {pattern!r} found in {file_path.name}"
         )
-
-
-def test_output_class_alias_preserves_main_surface() -> None:
-    assert OUTPUT_CLASS_NAMES == _OUTPUT_CLASSES_KEYS
 
 
 def test_output_classes_map_to_filesystem_write() -> None:

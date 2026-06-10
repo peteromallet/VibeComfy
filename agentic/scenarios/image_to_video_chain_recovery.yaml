@@ -1,0 +1,35 @@
+name: image-to-video-chain-recovery
+tier: 1
+description: "Recovery structural image-to-video chaining scenario — agent tempts object-form i2v, captures ValueError, recovers with file path"
+mode: structural
+agents:
+  - id: chainer
+    dispatcher: fake
+tags:
+  - chaining
+  - structural
+  - recovery
+assessment:
+  enforced:
+    - "Stage 1 metadata.json exists and contains entrypoint=op, layer=ops/image.py:t2i, chain_id, and run_id."
+    - "Stage 2 metadata.json exists and contains entrypoint=op, layer=ops/video.py:i2v, chain_id matching stage 1, parent_run_id matching stage 1 run_id, and a run_id distinct from stage 1."
+    - "Stage 1 and stage 2 run_ids are distinct."
+    - "chain_id is identical across stage 1 and stage 2."
+    - "Stage 2 parent_run_id equals stage 1 run_id (chain lineage)."
+    - "Stage 1 parent_run_id is absent or null (first stage in chain)."
+    - "actions.jsonl contains an expected_error entry for stage2 video.i2v with error.type=ValueError and a message referencing filesystem path requirements."
+    - "actions.jsonl contains a recovered entry for stage2 video.i2v with status=recovered and recovery_action describing the retry with the stage-1 output path."
+    - "The recovery-stage actions.jsonl records the expected_error BEFORE the recovered entry (order matters)."
+    - "Stage 2 compiled_api.json contains at least one LoadImage node whose inputs.image field references the recovered stage 1 output image path (as observed in compiled_api.<node_id>.inputs.image)."
+  graded:
+    - "Both stages produce non-empty output files (image.png for stage 1, clip.mp4 for stage 2)."
+  observed:
+    - "Actions JSONL records three entries: stage1 op, stage2 expected_error, stage2 recovered."
+    - "The expected_error entry captures the ValueError type and message."
+extras:
+  required_frozen_evidence:
+    - evidence/stage1/compiled_api.json
+    - evidence/stage1/metadata.json
+    - evidence/stage2/compiled_api.json
+    - evidence/stage2/metadata.json
+    - evidence/actions.jsonl

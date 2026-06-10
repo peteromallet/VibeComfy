@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 import dataclasses
 import difflib
 import json
@@ -10,6 +11,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
@@ -1555,6 +1557,120 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
     return None
 
 
+# Bounds for the reasoning trim attached to rehydrated chat messages. The chat
+# endpoint is fetched on every page reload, so the embedded reasoning must stay
+# lean — keep enough per-step context to diagnose a turn (what the agent tried
+# and why the engine rejected it) without shipping the full diff/statements.
+_CHAT_REASONING_MAX_STEPS = 12
+_CHAT_REASONING_MAX_DIAGS = 4
+_CHAT_REASONING_MAX_OPERATIONS = 8
+
+
+def _trim_chat_text(value: Any, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return text if len(text) <= limit else text[: max(0, limit - 1)] + "…"
+
+
+def _compact_chat_change_details(change_details: Any) -> dict[str, Any] | None:
+    """Trim a turn's ``change_details`` to the reasoning the panel report needs.
+
+    The full ``change_details`` carries per-step diffs, statements, and provider
+    metadata that bloat the chat-rehydrate payload. The diagnostic report only
+    consumes the agent's per-step ``message`` / ``batch`` and the engine
+    ``diagnostics`` (which carry the root data — valid enum ``choices`` and
+    ``available_slots``), plus the change summary. Keep just those.
+    """
+    if not isinstance(change_details, dict):
+        return None
+    compact: dict[str, Any] = {}
+
+    summary = _trim_chat_text(
+        change_details.get("done_summary") or change_details.get("final_summary"),
+        400,
+    )
+    if summary is not None:
+        compact["done_summary"] = summary
+    if isinstance(change_details.get("landed_operation_count"), int):
+        compact["landed_operation_count"] = change_details["landed_operation_count"]
+
+    operations = change_details.get("operations")
+    if isinstance(operations, list) and operations:
+        trimmed_ops = []
+        for op in operations[:_CHAT_REASONING_MAX_OPERATIONS]:
+            if not isinstance(op, dict):
+                continue
+            entry = {}
+            op_summary = _trim_chat_text(op.get("summary"), 160)
+            if op_summary is not None:
+                entry["summary"] = op_summary
+            field_path = _trim_chat_text(op.get("field_path"), 160)
+            if field_path is not None:
+                entry["field_path"] = field_path
+            if entry:
+                trimmed_ops.append(entry)
+        if trimmed_ops:
+            compact["operations"] = trimmed_ops
+
+    batch_turns = change_details.get("batch_turns")
+    if isinstance(batch_turns, list) and batch_turns:
+        trimmed_steps = []
+        for step in batch_turns[:_CHAT_REASONING_MAX_STEPS]:
+            if not isinstance(step, dict):
+                continue
+            trimmed: dict[str, Any] = {}
+            if isinstance(step.get("turn_number"), int):
+                trimmed["turn_number"] = step["turn_number"]
+            if isinstance(step.get("batch_ok"), bool):
+                trimmed["batch_ok"] = step["batch_ok"]
+            if isinstance(step.get("landed_op_count"), int):
+                trimmed["landed_op_count"] = step["landed_op_count"]
+            message = _trim_chat_text(step.get("message"), 500)
+            if message is not None:
+                trimmed["message"] = message
+            batch = _trim_chat_text(step.get("batch"), 400)
+            if batch is not None:
+                trimmed["batch"] = batch
+            diagnostics = step.get("diagnostics")
+            if isinstance(diagnostics, list) and diagnostics:
+                trimmed_diags = []
+                for diag in diagnostics[:_CHAT_REASONING_MAX_DIAGS]:
+                    if not isinstance(diag, dict):
+                        continue
+                    diag_entry: dict[str, Any] = {}
+                    for key in ("code", "severity"):
+                        if isinstance(diag.get(key), str):
+                            diag_entry[key] = diag[key]
+                    diag_message = _trim_chat_text(diag.get("message"), 300)
+                    if diag_message is not None:
+                        diag_entry["message"] = diag_message
+                    detail = diag.get("detail")
+                    if isinstance(detail, dict):
+                        detail_entry = {}
+                        for key in ("input", "value", "slot", "class_type", "name"):
+                            if isinstance(detail.get(key), (str, int, float, bool)):
+                                detail_entry[key] = detail[key]
+                        for key in ("choices", "available_slots"):
+                            values = detail.get(key)
+                            if isinstance(values, list):
+                                detail_entry[key] = [v for v in values[:24] if isinstance(v, (str, int, float))]
+                        if detail_entry:
+                            diag_entry["detail"] = detail_entry
+                    if diag_entry:
+                        trimmed_diags.append(diag_entry)
+                if trimmed_diags:
+                    trimmed["diagnostics"] = trimmed_diags
+            if trimmed:
+                trimmed_steps.append(trimmed)
+        if trimmed_steps:
+            compact["batch_turns"] = trimmed_steps
+
+    return compact or None
+
+
 def read_session_chat(
     session_root: Path,
     session_id: str,
@@ -1654,6 +1770,17 @@ def read_session_chat(
         if chat_record is None:
             continue
 
+        # Best-effort wall-clock for this turn, used by the panel to show a
+        # relative timestamp ("5 minutes ago") below each chat bubble. Turn
+        # artifacts carry no explicit timestamp, so the turn directory's mtime
+        # is the most faithful proxy for when the exchange landed.
+        try:
+            turn_ts = datetime.fromtimestamp(
+                turn_dir.stat().st_mtime, tz=timezone.utc
+            ).isoformat()
+        except OSError:
+            turn_ts = None
+
         # Extract display messages from the chat record.
         messages = chat_record.get("messages", [])
         if isinstance(messages, list):
@@ -1664,11 +1791,21 @@ def read_session_chat(
                         "text": msg.get("text", ""),
                         "turn_id": msg.get("turn_id", turn_id),
                     }
+                    if turn_ts is not None:
+                        display_msg["timestamp"] = turn_ts
                     stamped_outcome = _stamped_message_outcome(msg.get("outcome"))
                     if msg["role"] == "agent" and stamped_outcome is None:
                         stamped_outcome = fallback_agent_outcome
                     if msg["role"] == "agent" and stamped_outcome is not None:
                         display_msg["outcome"] = stamped_outcome
+                    if msg["role"] == "agent":
+                        # Carry a trimmed view of the agent's per-step reasoning so a
+                        # reloaded panel's diagnostic report can show what the agent
+                        # tried and why the engine rejected it (the on-disk
+                        # change_details is otherwise unreachable after reload).
+                        reasoning = _compact_chat_change_details(msg.get("change_details"))
+                        if reasoning is not None:
+                            display_msg["change_details"] = reasoning
                     all_messages.append(display_msg)
         latest_turn_id = turn_id
 
@@ -1688,6 +1825,105 @@ def read_session_chat(
         ),
         "messages": display_messages,
         "latest_candidate": _latest_session_candidate_payload(session_dir, turn_ids),
+    }
+
+
+# Suffixes treated as UTF-8 text in the downloadable session bundle; everything
+# else is base64-encoded so binary artifacts (PNG previews, etc.) survive.
+_BUNDLE_TEXT_SUFFIXES = frozenset(
+    {".json", ".jsonl", ".py", ".txt", ".md", ".log", ".csv", ".yaml", ".yml", ".diff", ".html"}
+)
+_BUNDLE_MAX_FILE_BYTES = 8 * 1024 * 1024  # 8 MiB per file
+_BUNDLE_MAX_TOTAL_BYTES = 64 * 1024 * 1024  # 64 MiB per bundle
+
+
+def read_session_bundle(
+    session_root: Path,
+    session_id: str,
+    *,
+    max_file_bytes: int = _BUNDLE_MAX_FILE_BYTES,
+    max_total_bytes: int = _BUNDLE_MAX_TOTAL_BYTES,
+) -> dict[str, Any]:
+    """Read every artifact under a session dir for a self-contained issue bundle.
+
+    The issue-report ZIP is built in the browser, which cannot reach the
+    filesystem; the report/prompt point at ``messages.jsonl`` etc. that a
+    recipient on another machine does not have. This returns the full set of
+    session artifacts (turn dirs + session_state.json) so the browser can embed
+    them in the ZIP — making the report self-contained.
+
+    Files are returned with names relative to the session dir. Text artifacts
+    carry a ``text`` field; binary artifacts carry base64 ``base64``. Oversized
+    files and anything past the total cap are recorded in ``skipped`` rather
+    than silently dropped.
+    """
+    safe_id = _safe_session_id(session_id)
+    session_dir = session_dir_for(session_root, safe_id)
+    if not session_dir.is_dir():
+        return {
+            "ok": True,
+            "exists": False,
+            "session_id": safe_id,
+            "session_path": str(session_dir),
+            "files": [],
+            "skipped": [],
+            "file_count": 0,
+            "total_bytes": 0,
+        }
+
+    files: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    total = 0
+    try:
+        candidates = sorted(p for p in session_dir.rglob("*") if p.is_file())
+    except OSError as exc:
+        return {
+            "ok": True,
+            "exists": True,
+            "session_id": safe_id,
+            "session_path": str(session_dir),
+            "files": [],
+            "skipped": [{"name": "(walk)", "reason": f"walk_failed: {exc}"}],
+            "file_count": 0,
+            "total_bytes": 0,
+        }
+
+    for path in candidates:
+        try:
+            rel = path.relative_to(session_dir).as_posix()
+        except ValueError:
+            continue  # defensive: never escape the session dir
+        try:
+            size = path.stat().st_size
+        except OSError:
+            skipped.append({"name": rel, "reason": "stat_failed"})
+            continue
+        if size > max_file_bytes:
+            skipped.append({"name": rel, "reason": "too_large", "size": size})
+            continue
+        if total + size > max_total_bytes:
+            skipped.append({"name": rel, "reason": "bundle_full", "size": size})
+            continue
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            skipped.append({"name": rel, "reason": "read_failed"})
+            continue
+        total += len(raw)
+        if path.suffix.lower() in _BUNDLE_TEXT_SUFFIXES:
+            files.append({"name": rel, "text": raw.decode("utf-8", errors="replace")})
+        else:
+            files.append({"name": rel, "base64": base64.b64encode(raw).decode("ascii")})
+
+    return {
+        "ok": True,
+        "exists": True,
+        "session_id": safe_id,
+        "session_path": str(session_dir),
+        "files": files,
+        "skipped": skipped,
+        "file_count": len(files),
+        "total_bytes": total,
     }
 
 
@@ -2017,9 +2253,14 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
         guard_original = _deepcopy(state.graph)
         _stamp_identity_on_original(guard_original, state.workflow)
         state.guard_original_ui = guard_original
+    # Auto-rebaseline on submit: the live canvas the user submitted is always
+    # authoritative for an edit, so submit does NOT enforce a pinned baseline
+    # (baseline_graph_hash=None => the gate never blocks on canvas drift). The
+    # stale-state guard is retained on the APPLY path, where applying a candidate
+    # computed against an older canvas could clobber later manual edits.
     update_state_match_gate(
         context,
-        baseline_graph_hash=state.baseline_graph_hash,
+        baseline_graph_hash=None,
         client_graph_hash=state.submit_structural_graph_hash,
         client_graph_hash_label="submit_structural_graph_hash",
     )
@@ -2052,9 +2293,14 @@ def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult
     ledger = EditLedger.ingest(state.graph)
     state.guard_original_ui = ledger.stamped_copy()
     original_ui_ref = write_json_artifact(state.original_ui_path, state.guard_original_ui)
+    # Auto-rebaseline on submit: the live canvas the user submitted is always
+    # authoritative for an edit, so submit does NOT enforce a pinned baseline
+    # (baseline_graph_hash=None => the gate never blocks on canvas drift). The
+    # stale-state guard is retained on the APPLY path, where applying a candidate
+    # computed against an older canvas could clobber later manual edits.
     update_state_match_gate(
         context,
-        baseline_graph_hash=state.baseline_graph_hash,
+        baseline_graph_hash=None,
         client_graph_hash=state.submit_structural_graph_hash,
         client_graph_hash_label="submit_structural_graph_hash",
     )

@@ -54,6 +54,9 @@ READY_METADATA = ReadyMetadata.build(
     smoke_resolution='384x256x9_frames',
     comfy_configuration={'reserve_vram': 12, 'cache_none': True, 'fp8_e4m3fn_text_enc': True},
     external_python_marker='external_python:video/ltx2_3_i2v',
+    entrypoint='patch',
+    layer='vibecomfy/patches/resolution.py:resolution:384x256x9',
+    patch_applications=[{'name': 'resolution:384x256x9', 'layer': 'patch', 'called': True, 'topology_changed': False, 'nodes_added': [], 'introduced_edges': [], 'rewritten_edges': [], 'value_changed': True}],
 )
 
 def build() -> VibeWorkflow:

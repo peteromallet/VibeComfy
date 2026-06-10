@@ -42,6 +42,7 @@ def test_cli_command_registry_is_explicit_and_ordered() -> None:
         "agentic",
         "copy-to-recipe",
         "test",
+        "config",
     ]
 
 
