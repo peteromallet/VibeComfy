@@ -29,7 +29,7 @@ well-formed answer instead of an error.
 Contracts
 ---------
 All four entry points accept the same keyword arguments as the existing
-``megaplan_runtime`` adapter so that ``agent_provider`` can call them without
+``runtime`` adapter so that ``agent_provider`` can call them without
 changes.  Every call returns a plain ``dict``; normalization is handled by
 ``agent_provider``'s existing normalizers.
 """

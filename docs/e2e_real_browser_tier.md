@@ -374,7 +374,7 @@ changes that touch agent panel layout, scroll, lifecycle, or overlay code.
 - **Fixture-driven only:** The agent provider is always the fixture provider
   in this tier.  Real LLM calls are never made.  If you need to test
   provider-routing logic, use the jsdom harness or run the live server manually
-  with `VIBECOMFY_ARNOLD_RUNTIME_MODULE=vibecomfy.comfy_nodes.megaplan_runtime`.
+  with `VIBECOMFY_ARNOLD_RUNTIME_MODULE=vibecomfy.comfy_nodes.agent.runtime`.
 - **ComfyUI path:** The default external ComfyUI path is hardcoded to
   `/Users/peteromalley/Documents/reigh-workspace/ComfyUI`.  Override it with
   `COMFYUI_DIR` or `--comfyui-dir` if your checkout lives elsewhere.

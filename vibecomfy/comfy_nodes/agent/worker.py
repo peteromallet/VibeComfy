@@ -19,7 +19,7 @@ own modules, and also isolates the agent's HTTP/asyncio state from ComfyUI's
 aiohttp event loop.
 
 Protocol:
-    python megaplan_worker.py <request.json> <result.json>
+    python worker.py <request.json> <result.json>
 
 ``request.json`` -> {"agent_id": str, "agent_kwargs": {...},
                      "system_message": str|null, "user_message": str,

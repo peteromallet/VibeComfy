@@ -41,9 +41,9 @@ pre-existing and out of scope.
 `arnold.hermes` / `hermes_agent` / `arnold` (or `$VIBECOMFY_ARNOLD_RUNTIME_MODULE`).
 None were importable; the published harness installs as the **`megaplan`** package
 (`github.com/peteromallet/arnold`) and exposes no `run_agent_turn`/`run`.
-**Fix:** shipped adapter `vibecomfy/comfy_nodes/megaplan_runtime.py` (delegates one
+**Fix:** shipped adapter `vibecomfy/comfy_nodes/agent/runtime.py` (delegates one
 tool-free `AIAgent` turn) + launcher sets
-`VIBECOMFY_ARNOLD_RUNTIME_MODULE=vibecomfy.comfy_nodes.megaplan_runtime`.
+`VIBECOMFY_ARNOLD_RUNTIME_MODULE=vibecomfy.comfy_nodes.agent.runtime`.
 Status route now: `ok:true, provider_available:true, backend:megaplan.agent.run_agent.AIAgent`.
 
 ### B2 — `megaplan` editable install pointed at a stale worktree ✅
@@ -62,7 +62,7 @@ succeeded (v0.23.0).
 `sys.modules`, so megaplan's bare import resolves to ComfyUI's `utils`, which lacks
 the name. Worked in a standalone CLI process (no ComfyUI `utils` loaded).
 **Fix:** run each `AIAgent` turn in an **isolated subprocess**
-(`vibecomfy/comfy_nodes/megaplan_worker.py`); the worker never imports ComfyUI, so
+(`vibecomfy/comfy_nodes/agent/worker.py`); the worker never imports ComfyUI, so
 the bare imports resolve to megaplan's modules. Also isolates asyncio/HTTP state
 from ComfyUI's aiohttp loop.
 

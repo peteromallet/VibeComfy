@@ -8,7 +8,7 @@ flag, alongside the current path, then cut over. Incorporates a 3-model review
 the components that own them — there is no separate "revision" section.
 
 ## Relationship to existing work
-- **Reuses unchanged:** runtime wiring (`megaplan_runtime`/`megaplan_worker`/
+- **Reuses unchanged:** runtime wiring (`runtime`/`worker`/
   launcher), session/accept/audit/idempotency (`agent_session.py`, the accept
   routes), the panel UX, the scoped-uid machinery (`porting/uid.py`), the layout
   engine (`porting/layout*`, `layout_store.py`), and `EditorAheadError`

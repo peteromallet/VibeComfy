@@ -8,8 +8,8 @@ from . import diagnostics
 from . import edit
 from . import fixture_provider
 from . import gates
-from . import megaplan_runtime
-from . import megaplan_worker
+from . import runtime
+from . import worker
 from . import provider
 from . import routes
 from . import runtime_code

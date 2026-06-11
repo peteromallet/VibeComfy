@@ -36,7 +36,7 @@ export PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}"
 
 # 3. Point the agent runtime at the megaplan-backed adapter. Without this the
 #    agent/status route reports the Arnold/Hermes runtime as unavailable.
-export VIBECOMFY_ARNOLD_RUNTIME_MODULE="${VIBECOMFY_ARNOLD_RUNTIME_MODULE:-vibecomfy.comfy_nodes.megaplan_runtime}"
+export VIBECOMFY_ARNOLD_RUNTIME_MODULE="${VIBECOMFY_ARNOLD_RUNTIME_MODULE:-vibecomfy.comfy_nodes.agent.runtime}"
 
 # 3a. Ensure the arnold/megaplan backend is importable. Preferred install is the
 #     declared `agent` extra (pip install -e ".[agent]") or an editable dev

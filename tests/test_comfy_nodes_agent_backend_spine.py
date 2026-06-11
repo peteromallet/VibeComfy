@@ -18,7 +18,7 @@ from vibecomfy.comfy_nodes.agent.audit import (
     write_text_artifact,
 )
 from vibecomfy.comfy_nodes.agent import provider as agent_provider
-from vibecomfy.comfy_nodes.agent import megaplan_runtime
+from vibecomfy.comfy_nodes.agent import runtime
 from vibecomfy.comfy_nodes.agent.contracts import (
     APPLY_ELIGIBILITY_REASONS,
     FailureKind,
@@ -3944,11 +3944,11 @@ def test_run_agent_turn_batch_retries_empty_content_once_then_succeeds(monkeypat
     assert "batch_repl response was empty" in metadata["batch_repl_retry"]["reason"]
 
 
-def test_megaplan_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None:
+def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None:
     """The shipped megaplan adapter asks the worker for raw batch_repl content."""
     calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(megaplan_runtime, "_resolve_deepseek_key", lambda: "test-key")
+    monkeypatch.setattr(runtime, "_resolve_deepseek_key", lambda: "test-key")
 
     def _fake_run_worker(agent_kwargs, system_msg, user_msg, *, response_contract="python"):
         calls.append(
@@ -3961,9 +3961,9 @@ def test_megaplan_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch
         )
         return {"content": "Done.\n\n```batch\ndone()\n```"}
 
-    monkeypatch.setattr(megaplan_runtime, "_run_worker", _fake_run_worker)
+    monkeypatch.setattr(runtime, "_run_worker", _fake_run_worker)
 
-    response = megaplan_runtime.run_agent_turn_batch(
+    response = runtime.run_agent_turn_batch(
         task="finish",
         route="deepseek",
         model="deepseek-chat",
@@ -3980,7 +3980,7 @@ def test_megaplan_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch
     assert calls[0]["agent_kwargs"]["model"] == "deepseek-v4-pro"
 
 
-def test_megaplan_runtime_readiness_normalizes_route_and_status_wraps_it(
+def test_runtime_readiness_normalizes_route_and_status_wraps_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -3989,8 +3989,8 @@ def test_megaplan_runtime_readiness_normalizes_route_and_status_wraps_it(
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     monkeypatch.setattr(Path, "exists", lambda self: False)
 
-    readiness = megaplan_runtime.readiness(route="anthropic")
-    status = megaplan_runtime.get_agent_status(route="anthropic")
+    readiness = runtime.readiness(route="anthropic")
+    status = runtime.get_agent_status(route="anthropic")
 
     assert readiness == {
         "ready": False,
@@ -4006,13 +4006,13 @@ def test_megaplan_runtime_readiness_normalizes_route_and_status_wraps_it(
     assert status["readiness"] == "unavailable"
 
 
-def test_megaplan_runtime_readiness_reports_deepseek_key_presence(
+def test_runtime_readiness_reports_deepseek_key_presence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(megaplan_runtime, "_resolve_deepseek_key", lambda: "test-key")
+    monkeypatch.setattr(runtime, "_resolve_deepseek_key", lambda: "test-key")
 
-    readiness = megaplan_runtime.readiness(route="deepseek", model="deepseek-chat")
-    status = megaplan_runtime.get_agent_status(route="deepseek", model="deepseek-chat")
+    readiness = runtime.readiness(route="deepseek", model="deepseek-chat")
+    status = runtime.get_agent_status(route="deepseek", model="deepseek-chat")
 
     assert readiness == {
         "ready": True,

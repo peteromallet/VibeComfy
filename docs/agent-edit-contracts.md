@@ -550,7 +550,7 @@ Key fields:
 
 2. **Runtime load**: `_load_arnold_runtime()` is called exactly once. If it raises `ProviderError`, readiness returns `ready: false` immediately with the error as `reason`. The runtime is never re-imported inside a single readiness call.
 
-3. **Delegate to runtime**: When the runtime loads, `agent_provider.readiness()` prefers `runtime.readiness(route, model)` if the runtime exposes that callable. This is the backend-local readiness path implemented in [megaplan_runtime.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/megaplan_runtime.py:323). If `readiness` is absent, it falls back to `runtime.get_agent_status(route, model)`.
+3. **Delegate to runtime**: When the runtime loads, `agent_provider.readiness()` prefers `runtime.readiness(route, model)` if the runtime exposes that callable. This is the backend-local readiness path implemented in [runtime.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent/runtime.py:323). If `readiness` is absent, it falls back to `runtime.get_agent_status(route, model)`.
 
 4. **Normalize**: `_normalize_readiness_payload()` extracts `ready` (falling back to `ok` for legacy runtimes), picks a non-empty `reason` (falling back through `detail`, `error`, `message`, then a default), and strips all secret fields from the runtime payload via `_non_secret_mapping()` → `redact_closed_set()`.
 
@@ -570,7 +570,7 @@ Key fields:
 
 ### 5.6 Backend-local readiness
 
-`megaplan_runtime.readiness(route, model)` in [megaplan_runtime.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/megaplan_runtime.py:323) provides backend-specific readiness without importing `agent_provider`. It normalizes the route, resolves credentials directly (e.g. `DEEPSEEK_API_KEY` from environment or `~/.hermes/.env` for deepseek; Arnold OAuth/API key for anthropic), and returns `ready` with a descriptive `reason`. This keeps the dependency direction clean: the provider depends on the runtime, not vice versa.
+`runtime.readiness(route, model)` in [runtime.py](/Users/peteromalley/Documents/.megaplan-worktrees/agent-edit-chat-platform/vibecomfy/comfy_nodes/agent/runtime.py:323) provides backend-specific readiness without importing `agent_provider`. It normalizes the route, resolves credentials directly (e.g. `DEEPSEEK_API_KEY` from environment or `~/.hermes/.env` for deepseek; Arnold OAuth/API key for anthropic), and returns `ready` with a descriptive `reason`. This keeps the dependency direction clean: the provider depends on the runtime, not vice versa.
 
 ## 6. Cancellation (deferred)
 

@@ -13,7 +13,7 @@ agent-edit contracts.
 
 Wire it up by pointing the discovery env var at this module::
 
-    export VIBECOMFY_ARNOLD_RUNTIME_MODULE="vibecomfy.comfy_nodes.agent.megaplan_runtime"
+    export VIBECOMFY_ARNOLD_RUNTIME_MODULE="vibecomfy.comfy_nodes.agent.runtime"
 
 Routes
 ------
@@ -41,7 +41,7 @@ from typing import Any, Mapping, Sequence
 
 # How long to wait for a single agent turn (subprocess) before giving up.
 _TURN_TIMEOUT_SECONDS = float(os.getenv("VIBECOMFY_AGENT_TURN_TIMEOUT", "180"))
-_WORKER_PATH = str(Path(__file__).with_name("megaplan_worker.py"))
+_WORKER_PATH = str(Path(__file__).with_name("worker.py"))
 
 # DeepSeek direct endpoint defaults (OpenAI-compatible chat-completions).
 # Use deepseek-v4-pro: the advanced, reasoning-capable variant. The legacy
