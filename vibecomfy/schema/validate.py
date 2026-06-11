@@ -642,3 +642,9 @@ def _schema_accepts_dict(spec: Any) -> bool:
     if typ is None:
         return False
     return str(typ).strip().upper() in {"DICT", "JSON", "*"}
+
+
+def format_issue(issue: Any) -> str:
+    d = issue.detail or {}
+    loc = " ".join(f"{k}={d[k]}" for k in ("node_id", "class_type", "input") if k in d)
+    return f"[{issue.code}] {loc}: {issue.message}".strip()
