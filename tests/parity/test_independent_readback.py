@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.porting.parity import compile_equivalent
 from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 from vibecomfy.testing.canonical import canonical_equal

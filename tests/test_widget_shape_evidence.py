@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from vibecomfy.porting.ui_emitter import (
+from vibecomfy.porting.emit.ui import (
     WidgetShapeEvidence,
     derive_widget_shape_evidence,
 )

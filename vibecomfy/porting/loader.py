@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     workflow, metadata, requirements, template_id, registered_inputs = build_workflow_for(path)
-    from vibecomfy.porting.emitter import format_as_python
+    from vibecomfy.porting.emit.emitter import format_as_python
     text = format_as_python(
         workflow,
         ready_metadata=metadata,

@@ -84,9 +84,9 @@ from vibecomfy.contracts import (
     intent_node_properties,
 )
 from vibecomfy._graph_utils import UI_ONLY_CLASS_TYPES as GRAPH_UTILS_UI_ONLY_CLASS_TYPES
-from vibecomfy.porting.emitter import UI_ONLY_CLASS_TYPES as EMITTER_UI_ONLY_CLASS_TYPES
+from vibecomfy.porting.emit.emitter import UI_ONLY_CLASS_TYPES as EMITTER_UI_ONLY_CLASS_TYPES
 from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, LoweringResult
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema
 from vibecomfy.workflow import ValidationIssue, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 

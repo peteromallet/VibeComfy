@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from vibecomfy.comfy_nodes import agent_provider
-from vibecomfy.porting.edit_ops import (
+from vibecomfy.porting.edit.ops import (
     AgentDeltaTurnResult,
     EditOpParseError,
     normalize_delta_agent_response,

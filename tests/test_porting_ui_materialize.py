@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from vibecomfy.porting.ui_emitter import emit_ui_json, materialize_litegraph_node
+from vibecomfy.porting.emit.ui import emit_ui_json, materialize_litegraph_node
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 

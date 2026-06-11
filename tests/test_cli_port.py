@@ -1468,7 +1468,7 @@ def test_export_breadcrumb_auto_discovery(
     assert code == 0, f"first export failed with code {code}"
 
     # The default output path should now exist with a breadcrumb.
-    from vibecomfy.porting.ui_emitter import default_output_path
+    from vibecomfy.porting.emit.ui import default_output_path
     default_out = default_output_path(
         type("WF", (), {"nodes": {}, "edges": []})(), source_template="flat"
     )

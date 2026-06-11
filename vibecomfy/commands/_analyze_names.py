@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from vibecomfy.porting.emitter import _compute_variable_names
+from vibecomfy.porting.emit.emitter import _compute_variable_names
 from vibecomfy.workflow import VibeWorkflow
 
 

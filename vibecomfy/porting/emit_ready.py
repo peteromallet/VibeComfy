@@ -592,7 +592,7 @@ def emit_ready_template_python(
     strict_variable_name_locks: bool = False,
     object_info_identities: dict[str, Any] | None = None,
 ) -> str:
-    from vibecomfy.porting.emitter import _use_object_info_identities, _drain_lookup_warning_diagnostics  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import _use_object_info_identities, _drain_lookup_warning_diagnostics  # noqa: PLC0415
     with _use_object_info_identities(object_info_identities):
         result_text = _emit_ready_template_python_inner(
             workflow,
@@ -954,7 +954,7 @@ def _emit_build_function(
     node_id_prefix: str | None = None,
     required_ids: set[str] | None = None,
 ) -> list[str]:
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         EmissionDiagnostic,
         READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
         READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
@@ -1429,7 +1429,7 @@ def _check_template_formatting(
     2. If any line in the tail (after the build function body) is un-indented
        (does not start with 4 spaces, '#', blank, or a string-like line).
     """
-    from vibecomfy.porting.emitter import EmissionDiagnostic, READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import EmissionDiagnostic, READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED  # noqa: PLC0415
     lines = combined.split("\n")
 
     # Check 1: missing section comments for large workflows
@@ -1538,7 +1538,7 @@ def _apply_overrides(nodes: dict[str, Any], edges_in: dict[str, list[Any]], patc
 
 def _node_local_output_names(node: Any) -> list[str]:
     """Identity-aware schema output names for *node*; class-only fallback."""
-    from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
     from vibecomfy.porting.object_info import output_names as _class_output_names, resolve_class_entry  # noqa: PLC0415
     class_type = str(node.class_type)
     identity = _identity_for_node(node)
@@ -1565,7 +1565,7 @@ def _node_local_arity_check(node: Any, ui_output_count: int | None) -> int:
     provenanced nodes are validated against their pinned schema rather than the
     most recent class-only cache.
     """
-    from vibecomfy.porting.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import _identity_for_node, _record_lookup_warning  # noqa: PLC0415
     from vibecomfy.porting.object_info import resolve_class_entry, check_output_arity_consensus  # noqa: PLC0415
     class_type = str(node.class_type)
     identity = _identity_for_node(node)

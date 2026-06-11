@@ -20,7 +20,7 @@ import pytest
 
 from vibecomfy import load_workflow_any
 from vibecomfy.porting.convert import _ready_metadata, _ready_requirements
-from vibecomfy.porting.emitter import emit_ready_template_python, emit_scratchpad_python
+from vibecomfy.porting.emit.emitter import emit_ready_template_python, emit_scratchpad_python
 from vibecomfy.testing.snapshot_registry import STEM_TO_READY_ID
 
 from . import _canon

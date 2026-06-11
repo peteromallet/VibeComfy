@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from vibecomfy.porting.ui_emitter import _canonicalize_coord
+from vibecomfy.porting.emit.ui import _canonicalize_coord
 
 if TYPE_CHECKING:
     from vibecomfy.schema.types import NodeSchema

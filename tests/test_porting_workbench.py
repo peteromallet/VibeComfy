@@ -598,7 +598,7 @@ def test_analyze_source_can_include_opt_in_model_head_checks(tmp_path: Path) -> 
 
 def test_port_check_detects_local_helper_copy_in_strict_template(tmp_path: Path) -> None:
     """local_helper_copy_in_strict_template warning for ready template with def _node."""
-    from vibecomfy.porting.emitter import READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE
+    from vibecomfy.porting.emit.emitter import READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE
     from vibecomfy.porting.workbench import LoadedPortSource, _strict_template_style_diagnostics
     from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
@@ -648,7 +648,7 @@ def _node(wf, class_type, _id, _extras=None, _outputs=None, **kwargs):
 
 def test_port_check_no_false_positive_for_non_ready_source(tmp_path: Path) -> None:
     """No local_helper_copy_in_strict_template for scratchpad sources."""
-    from vibecomfy.porting.emitter import READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE
+    from vibecomfy.porting.emit.emitter import READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE
     from vibecomfy.porting.workbench import LoadedPortSource, _strict_template_style_diagnostics
     from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 

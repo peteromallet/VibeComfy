@@ -71,7 +71,7 @@ def test_engine_roundtrip_preserved_nonempty(flat_fixture, schema_provider):
     """Engine round-trip with prior_store: preserved is non-empty."""
     from vibecomfy.ingest.normalize import convert_to_vibe_format
     from vibecomfy.porting.layout_store import store_from_ui_json
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
     # Pass 1: initial emit stamps vibecomfy_uid into every node's properties.
     wf1 = convert_to_vibe_format(flat_fixture)
@@ -136,7 +136,7 @@ def test_structural_equivalence_with_direct_engine(flat_fixture, schema_provider
     """
     from vibecomfy.comfy_nodes.routes import _handle_roundtrip
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
     # Route path
     route_result = _handle_roundtrip(
@@ -240,7 +240,7 @@ def test_validated_failure_response_accept_preserves_nested_recovery() -> None:
 def test_exec_roundtrip_preserves_source_and_io() -> None:
     """Round-trip through the engine preserves source and io widget values."""
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
@@ -277,7 +277,7 @@ def test_exec_roundtrip_preserves_source_and_io() -> None:
 def test_exec_roundtrip_preserves_linked_in_references() -> None:
     """Exec round-trip preserves linked in_N references from upstream nodes."""
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
@@ -311,7 +311,7 @@ def test_exec_roundtrip_preserves_linked_in_references() -> None:
 def test_exec_roundtrip_preserves_downstream_out_references() -> None:
     """Exec round-trip preserves downstream out_N links to consumer nodes."""
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
@@ -354,7 +354,7 @@ def test_exec_roundtrip_preserves_dynamic_socket_counts() -> None:
     slots survive the engine round-trip regardless.
     """
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"
@@ -458,7 +458,7 @@ def test_exec_compile_preserves_linked_in_references() -> None:
 def test_exec_roundtrip_preserves_links_across_nodes() -> None:
     """Full round-trip preserves all link topology including exec in/out slots."""
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
 
     source = "return {'image': image}"

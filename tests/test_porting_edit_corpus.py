@@ -7,11 +7,11 @@ from typing import Any, Mapping
 
 import pytest
 
-from vibecomfy.porting.edit_apply import apply_delta
-from vibecomfy.porting.edit_ledger import EditLedger
-from vibecomfy.porting.edit_ops import parse_edit_delta
+from vibecomfy.porting.edit.apply import apply_delta
+from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.edit.ops import parse_edit_delta
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
-from vibecomfy.porting.agent_edit_normalize import normalize_ui_json
+from vibecomfy.porting.edit.normalize import normalize_ui_json
 
 
 class _SchemaProvider:

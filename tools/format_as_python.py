@@ -394,7 +394,7 @@ def format_as_python(
     raw_workflow: dict | None = None,
 ) -> str:
     """Compatibility wrapper for the package ready-template emitter."""
-    from vibecomfy.porting.emitter import emit_ready_template_python
+    from vibecomfy.porting.emit.emitter import emit_ready_template_python
 
     return emit_ready_template_python(
         workflow,

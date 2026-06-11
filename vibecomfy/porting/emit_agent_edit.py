@@ -11,7 +11,7 @@ from vibecomfy.porting.emit_subgraph import (
 )
 
 if TYPE_CHECKING:
-    from vibecomfy.porting.emitter import EmissionDiagnostic
+    from vibecomfy.porting.emit.emitter import EmissionDiagnostic
 
 
 def emit_agent_edit_python(

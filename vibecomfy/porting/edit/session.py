@@ -25,7 +25,7 @@ from .ops import (
     UpsertLinkOp,
 )
 from .types import FieldChange
-from vibecomfy.porting.emitter import EmissionDiagnostic, emit_agent_edit_python
+from vibecomfy.porting.emit.emitter import EmissionDiagnostic, emit_agent_edit_python
 from .projection import HELPER_NODE_TYPES, MODE_LABELS
 from vibecomfy.porting.layout.placement import (
     BatchPlacementFacts,

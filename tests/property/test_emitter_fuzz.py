@@ -20,7 +20,7 @@ import pytest
 
 from vibecomfy.ingest.normalize import _schema_input_names
 from vibecomfy.porting.parity import compile_equivalent
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource

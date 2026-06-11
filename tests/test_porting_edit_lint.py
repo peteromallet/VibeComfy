@@ -22,12 +22,12 @@ from typing import Any
 
 import pytest
 
-from vibecomfy.porting.edit_lint import (
+from vibecomfy.porting.edit.lint import (
     LintIndex,
     LintResult,
     lint_delta,
 )
-from vibecomfy.porting.edit_ops import (
+from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     LinkSourceRef,
     LinkTargetRef,

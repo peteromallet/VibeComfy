@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from vibecomfy.porting.edit_session import EditSession
+from vibecomfy.porting.edit.session import EditSession
 
 from . import _canon
 

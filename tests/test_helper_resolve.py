@@ -18,7 +18,7 @@ import pytest
 
 from vibecomfy.errors import ConversionParityError
 from vibecomfy.porting.helper_resolve import ResolveDiagnostics, resolve_helpers
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 

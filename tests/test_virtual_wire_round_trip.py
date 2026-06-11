@@ -27,7 +27,7 @@ import pytest
 
 from vibecomfy.porting.convert import _capture_virtual_wires, port_convert_workflow
 from vibecomfy.porting.layout_store import read_store, write_layout
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 

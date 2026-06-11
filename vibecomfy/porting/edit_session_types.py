@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from vibecomfy.porting.edit.ops import AnchorRef, LinkSourceRef
 from vibecomfy.porting.edit.types import FieldChange
-from vibecomfy.porting.emitter import EmissionDiagnostic
+from vibecomfy.porting.emit.emitter import EmissionDiagnostic
 
 
 class _ConstantFoldError(Exception):
@@ -90,7 +90,7 @@ class BatchResult:
         if self.landed_ops:
             parts.append("")
             parts.append("--- landed operations ---")
-            from vibecomfy.porting.edit_ops import (
+            from vibecomfy.porting.edit.ops import (
                 AddNodeOp,
                 RemoveLinkOp,
                 RemoveNodeOp,

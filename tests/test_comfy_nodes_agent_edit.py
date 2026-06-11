@@ -34,7 +34,7 @@ from vibecomfy.comfy_nodes.agent_edit import (
     read_session_json,
     split_terminal_clarify,
 )
-from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.comfy_nodes.agent_contracts import (
     AGENT_EDIT_TURN_CONTRACT_VERSION,
     FailureEnvelope,
@@ -57,7 +57,7 @@ from vibecomfy.comfy_nodes.agent_session import (
 from vibecomfy.porting.convert import ConversionWriteError
 from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, LoweringResult
 from vibecomfy.porting.refuse import EditorAheadError, RefusedEmit
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError, ScanFailure, ScanReport
 from vibecomfy.security.agent_generated_loader import (
     load_agent_generated_scratchpad,
@@ -1147,7 +1147,7 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
 
 def test_agent_edit_render_resolves_primitive_float_helpers_before_emission() -> None:
     from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
-    from vibecomfy.porting.edit_session import EditSession
+    from vibecomfy.porting.edit.session import EditSession
 
     session = EditSession(_primitive_float_helper_ui_graph())
     source = session.render()
@@ -1624,7 +1624,7 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
     captured_messages: list[list[dict[str, str]]] = []
     session_stats = {"init": 0, "search_calls": []}
 
-    from vibecomfy.porting import edit_session as edit_session_module
+    from vibecomfy.porting.edit import session as edit_session_module
 
     real_edit_session = edit_session_module.EditSession
 
@@ -1779,7 +1779,7 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
 
 def test_batch_repl_search_query_output_is_in_next_turn_report() -> None:
     from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
-    from vibecomfy.porting.edit_session import EditSession
+    from vibecomfy.porting.edit.session import EditSession
 
     provider = _Provider(
         {
@@ -5856,7 +5856,7 @@ def test_synthesize_message_budget_exhaustion() -> None:
 
 def test_synthesize_message_budget_exhaustion_with_landed_edits() -> None:
     """Budget exhaustion outcome produces plain budget message (no lead for outcome path)."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     state = _make_state(
         user_message="",
@@ -5877,7 +5877,7 @@ def test_synthesize_message_budget_exhaustion_with_landed_edits() -> None:
 
 def test_synthesize_message_partial_success_with_diagnostics() -> None:
     """Partial success: some edits landed, failure set (with budget exit) — lead + warning."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     failure = failure_envelope(
         FailureKind.MODEL_MISTAKE,
@@ -5918,7 +5918,7 @@ def test_synthesize_message_partial_success_with_diagnostics_no_lead() -> None:
 
 def test_synthesize_message_landed_edit_lead_single() -> None:
     """Single landed edit produces 'Applied 1 edit.' lead."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     state = _make_state(
         batch_field_changes=(FieldChange(uid="a", field_path="p", old=1, new=2),),
@@ -5929,7 +5929,7 @@ def test_synthesize_message_landed_edit_lead_single() -> None:
 
 def test_synthesize_message_landed_edit_lead_multiple() -> None:
     """Multiple landed edits produce 'Applied N edits.' lead."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     state = _make_state(
         batch_field_changes=(
@@ -6483,7 +6483,7 @@ def test_absent_field_old_not_serialized_in_to_dict() -> None:
 
 def test_synthesize_message_edit_outcome_with_done_summary() -> None:
     """Edit outcome uses repaired FieldChange values for the visible message."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     state = _make_state(
         graph={"nodes": [{"id": 3, "type": "KSampler", "properties": {"vibecomfy_uid": "ksampler"}}]},
@@ -6545,7 +6545,7 @@ def test_synthesize_message_clarify_outcome() -> None:
 
 def test_synthesize_message_edit_clarify_outcome() -> None:
     """Edit+clarify combines lead + clarification warning."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     state = _make_state(
         user_message="",
@@ -6563,7 +6563,7 @@ def test_synthesize_message_edit_clarify_outcome() -> None:
 
 def test_synthesize_message_failure_budget_with_lead() -> None:
     """Failure with budget exit and landed edits gives lead + budget message."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     failure = failure_envelope(
         FailureKind.MODEL_MISTAKE,
@@ -6625,7 +6625,7 @@ def test_synthesize_message_stale_state_failure_describes_baseline_mismatch() ->
 
 def test_synthesize_message_all_messages_are_non_empty() -> None:
     """Every code path produces a non-empty sentence-shaped message."""
-    from vibecomfy.porting.edit_types import FieldChange
+    from vibecomfy.porting.edit.types import FieldChange
 
     scenarios: list[tuple[AgentEditState, TurnOutcome | None, FailureEnvelope | None]] = [
         # (state, outcome, failure)
@@ -7752,7 +7752,7 @@ def test_format_batch_report_includes_lint_diagnostics() -> None:
     """_format_batch_report appends lint diagnostics and mentions
     lint_dropped_count in the summary line."""
     from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
-    from vibecomfy.porting.edit_session import BatchResult, StatementResult
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
 
     br = BatchResult(
         ok=True,
@@ -7794,7 +7794,7 @@ def test_format_batch_report_json_includes_lint_fields() -> None:
     """_format_batch_report_json includes lint_dropped in summary and
     lint_diagnostics top-level key when provided."""
     from vibecomfy.comfy_nodes.agent_edit import _format_batch_report_json
-    from vibecomfy.porting.edit_session import BatchResult, StatementResult
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
 
     br = BatchResult(
         ok=True,
@@ -7877,7 +7877,7 @@ def test_flag_off_lint_noop_field_set_follows_pre_lint_behavior(
         _stage_apply_delta,
         AgentEditState,
     )
-    from vibecomfy.porting.edit_ops import NodeTarget, SetModeOp
+    from vibecomfy.porting.edit.ops import NodeTarget, SetModeOp
     from pathlib import Path as _Path
 
     # Verify the flag is genuinely off
@@ -7954,7 +7954,7 @@ def test_flag_off_lint_malformed_unknown_node_follows_pre_lint_behavior(
         _stage_apply_delta,
         AgentEditState,
     )
-    from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
+    from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
     from pathlib import Path as _Path
 
     assert not _edit_lint_enabled()

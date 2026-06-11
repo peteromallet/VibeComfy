@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from vibecomfy.porting.layout_store import store_from_ui_json
-from vibecomfy.porting.ui_emitter import WidgetShapeEvidence, extract_raw_ui_node_map
+from vibecomfy.porting.emit.ui import WidgetShapeEvidence, extract_raw_ui_node_map
 from vibecomfy.porting.widget_shape_fence import (
     WidgetShapeDecision,
     WidgetShapeReason,

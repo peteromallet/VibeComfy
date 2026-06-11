@@ -32,7 +32,7 @@ from ._shared import (
 # Names that handlers dereference via this package so that
 # ``monkeypatch.setattr("vibecomfy.commands.port.<name>", ...)`` works.
 from vibecomfy.registry import load_workflow_reference
-from vibecomfy.porting.ui_emitter import default_output_path, emit_ui_json
+from vibecomfy.porting.emit.ui import default_output_path, emit_ui_json
 from vibecomfy.porting.layout import evaluate_felt_delta
 
 # --- Command handlers ---

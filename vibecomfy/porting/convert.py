@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from vibecomfy.porting.emitter import (
+from vibecomfy.porting.emit.emitter import (
     EmissionDiagnostic,
     EmissionSeverity,
     emit_ready_template_python,

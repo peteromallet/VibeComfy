@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
-from vibecomfy.porting.edit_ledger import EditLedger
+from vibecomfy.porting.edit.ledger import EditLedger
 from vibecomfy.workflow import VibeWorkflow, WorkflowSource
 
 
@@ -86,7 +86,7 @@ def _load_flat_fixture_wf() -> VibeWorkflow:
 
 def _emit_agent_edit_python_stub(wf: VibeWorkflow, **kwargs: Any) -> str:
     """Compatibility shim for early grounding tests."""
-    from vibecomfy.porting.emitter import emit_agent_edit_python
+    from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
     return emit_agent_edit_python(wf, **kwargs)
 
@@ -534,7 +534,7 @@ class TestAgentEditPythonEmitter:
     """Focused coverage for the T5 agent-edit rendering surface."""
 
     def test_agent_edit_python_is_parseable_assignment_view_with_identity_comments(self) -> None:
-        from vibecomfy.porting.emitter import emit_agent_edit_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
         rendered = emit_agent_edit_python(_load_flat_fixture_wf())
 
@@ -553,13 +553,13 @@ class TestAgentEditPythonEmitter:
         assert "slots latent='LATENT'" in rendered
 
     def test_agent_edit_python_rejects_raw_ui_json_before_emitter_internals(self) -> None:
-        from vibecomfy.porting.emitter import emit_agent_edit_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
         with pytest.raises(TypeError, match="emit_agent_edit_python requires VibeWorkflow"):
             emit_agent_edit_python(_load_flat_fixture_raw())  # type: ignore[arg-type]
 
     def test_agent_edit_python_preserves_locked_names_without_changing_scratchpad(self) -> None:
-        from vibecomfy.porting.emitter import emit_agent_edit_python, emit_scratchpad_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python, emit_scratchpad_python
 
         wf = _load_flat_fixture_wf()
         baseline_scratchpad = emit_scratchpad_python(wf, prune_dead_branches=False)
@@ -577,7 +577,7 @@ class TestAgentEditPythonEmitter:
         assert "_node(wf," not in rendered
 
     def test_agent_edit_python_tags_virtual_nodes(self) -> None:
-        from vibecomfy.porting.emitter import emit_agent_edit_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
         wf = VibeWorkflow("virtual", WorkflowSource("virtual"))
         wf.add_node("SetNode", uid="set-uid", name="LATENT")
@@ -598,7 +598,7 @@ class TestAgentEditLeanRender:
 
     def test_decorative_title_equal_to_class_is_dropped(self) -> None:
         """title='KSampler' on KSampler → no `title:` token."""
-        from vibecomfy.porting.emitter import emit_agent_edit_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
         wf = VibeWorkflow("lean-class", WorkflowSource("lean-class"))
         node = wf.add_node("KSampler", uid="k1")
@@ -608,7 +608,7 @@ class TestAgentEditLeanRender:
 
     def test_decorative_title_equal_to_var_name_is_dropped(self) -> None:
         """title matching rendered variable name → no `title:` token."""
-        from vibecomfy.porting.emitter import emit_agent_edit_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
         wf = VibeWorkflow("lean-var", WorkflowSource("lean-var"))
         node = wf.add_node("KSampler", uid="k1")
@@ -619,7 +619,7 @@ class TestAgentEditLeanRender:
 
     def test_decorative_title_pure_symbols_is_dropped(self) -> None:
         """title of only symbols ('---') → no `title:` token."""
-        from vibecomfy.porting.emitter import emit_agent_edit_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
         wf = VibeWorkflow("lean-symbols", WorkflowSource("lean-symbols"))
         node = wf.add_node("KSampler", uid="k1")
@@ -629,7 +629,7 @@ class TestAgentEditLeanRender:
 
     def test_meaningful_title_is_kept(self) -> None:
         """distinct meaningful title (including emoji) → `title:` token present."""
-        from vibecomfy.porting.emitter import emit_agent_edit_python
+        from vibecomfy.porting.emit.emitter import emit_agent_edit_python
 
         wf = VibeWorkflow("lean-meaningful", WorkflowSource("lean-meaningful"))
         node = wf.add_node("KSampler", uid="k1")
@@ -639,7 +639,7 @@ class TestAgentEditLeanRender:
 
     def test_long_string_elision_threshold_respected(self) -> None:
         """string widget value >400 chars is elided with [...elided N chars...]."""
-        from vibecomfy.porting.emitter import _format_value
+        from vibecomfy.porting.emit.emitter import _format_value
 
         long_str = "x" * 500
         result = _format_value(long_str, elide_strings_over=400)
@@ -667,7 +667,7 @@ class TestEmptyDone:
 
     def test_empty_done_succeeds(self) -> None:
         """done() on a session with zero ops passes all gates."""
-        from vibecomfy.porting.edit_session import EditSession
+        from vibecomfy.porting.edit.session import EditSession
 
         raw = _load_flat_fixture_raw()
         session = EditSession(raw)
@@ -677,7 +677,7 @@ class TestEmptyDone:
 
     def test_empty_done_returns_empty_summary(self) -> None:
         """Empty done() summary reports no changes."""
-        from vibecomfy.porting.edit_session import EditSession
+        from vibecomfy.porting.edit.session import EditSession
 
         raw = _load_flat_fixture_raw()
         session = EditSession(raw)
@@ -719,7 +719,7 @@ class TestIntegrationBoundaries:
 
     def test_emit_scratchpad_python_exists_and_location(self) -> None:
         """emit_scratchpad_python is in vibecomfy/porting/emitter.py."""
-        from vibecomfy.porting.emitter import emit_scratchpad_python
+        from vibecomfy.porting.emit.emitter import emit_scratchpad_python
 
         assert callable(emit_scratchpad_python)
         # The emitter takes a workflow + keyword args and returns a string.
@@ -728,7 +728,7 @@ class TestIntegrationBoundaries:
 
     def test_emit_scratchpad_python_accepts_vibeworkflow(self) -> None:
         """emit_scratchpad_python accepts VibeWorkflow and returns valid Python."""
-        from vibecomfy.porting.emitter import emit_scratchpad_python
+        from vibecomfy.porting.emit.emitter import emit_scratchpad_python
 
         wf = _load_flat_fixture_wf()
         result = emit_scratchpad_python(wf)
@@ -755,7 +755,7 @@ class TestIntegrationBoundaries:
 
     def test_edit_projection_constants_exist(self) -> None:
         """MODE_LABELS and HELPER_NODE_TYPES are in edit_projection.py."""
-        from vibecomfy.porting.edit_projection import HELPER_NODE_TYPES, MODE_LABELS
+        from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
 
         assert isinstance(MODE_LABELS, dict)
         assert MODE_LABELS[0] == "enabled"
@@ -803,7 +803,7 @@ class TestIntegrationBoundaries:
 
     def test_slugify_identifier_handles_keywords(self) -> None:
         """_slugify_identifier appends trailing underscore for Python keywords."""
-        from vibecomfy.porting.emitter import _slugify_identifier  # type: ignore[attr-defined]
+        from vibecomfy.porting.emit.emitter import _slugify_identifier  # type: ignore[attr-defined]
 
         # Non-keyword passes through
         assert _slugify_identifier("hello") == "hello"
@@ -815,7 +815,7 @@ class TestIntegrationBoundaries:
 
     def test_safe_var_handles_uuids_and_keywords(self) -> None:
         """_safe_var shortens UUIDs and adds trailing underscore for keywords."""
-        from vibecomfy.porting.emitter import _safe_var  # type: ignore[attr-defined]
+        from vibecomfy.porting.emit.emitter import _safe_var  # type: ignore[attr-defined]
 
         # UUID class types get short prefixes
         assert _safe_var("7b34ab90-36f9-45ba-a665-71d418f0df18").startswith("subgraph_")
@@ -825,7 +825,7 @@ class TestIntegrationBoundaries:
 
     def test_unique_var_avoids_keyword_conflicts(self) -> None:
         """_unique_var never returns a bare Python keyword."""
-        from vibecomfy.porting.emitter import _unique_var  # type: ignore[attr-defined]
+        from vibecomfy.porting.emit.emitter import _unique_var  # type: ignore[attr-defined]
 
         used: set[str] = set()
         # "in" is a keyword; _unique_var must suffix it.
@@ -835,7 +835,7 @@ class TestIntegrationBoundaries:
 
     def test_safe_kwarg_name_falls_back_for_digit_start(self) -> None:
         """_safe_kwarg_name uses fallback when name starts with digit."""
-        from vibecomfy.porting.emitter import _safe_kwarg_name  # type: ignore[attr-defined]
+        from vibecomfy.porting.emit.emitter import _safe_kwarg_name  # type: ignore[attr-defined]
 
         # Names starting with digits should fall back.
         result = _safe_kwarg_name("123abc", fallback="input_0")
@@ -845,7 +845,7 @@ class TestIntegrationBoundaries:
 
     def test_safe_output_name_returns_none_for_oob_slot(self) -> None:
         """_safe_output_name returns None for out-of-range slots."""
-        from vibecomfy.porting.emitter import _safe_output_name  # type: ignore[attr-defined]
+        from vibecomfy.porting.emit.emitter import _safe_output_name  # type: ignore[attr-defined]
 
         wf = _load_flat_fixture_wf()
         workflow_nodes = {nid: node for nid, node in wf.nodes.items()}
@@ -905,11 +905,11 @@ class TestIntegrationBoundaries:
         NOT tools/format_as_python.py.  M1 work must go into the porting
         emitter module.
         """
-        from vibecomfy.porting.emitter import emit_ready_template_python
+        from vibecomfy.porting.emit.emitter import emit_ready_template_python
 
         # The active emit path lives in the porting module.
         assert callable(emit_ready_template_python)
-        assert emit_ready_template_python.__module__ == "vibecomfy.porting.emitter"
+        assert emit_ready_template_python.__module__ == "vibecomfy.porting.emit.emitter"
 
     # ------------------------------------------------------------------
     # M1 scope contract: EditSession is standalone, not wired into handle_agent_edit
@@ -924,7 +924,7 @@ class TestIntegrationBoundaries:
 
     def test_emit_scratchpad_python_still_works_independently(self) -> None:
         """emit_scratchpad_python works independently; M1 does not replace it."""
-        from vibecomfy.porting.emitter import emit_scratchpad_python
+        from vibecomfy.porting.emit.emitter import emit_scratchpad_python
 
         wf = _load_flat_fixture_wf()
         result = emit_scratchpad_python(wf)
@@ -948,7 +948,7 @@ class TestEmitterVariableNameLocks:
         return wf
 
     def test_locked_aliases_bridge_vibenode_uid_and_ui_property_uid(self) -> None:
-        from vibecomfy.porting.emitter import emit_scratchpad_python
+        from vibecomfy.porting.emit.emitter import emit_scratchpad_python
 
         wf = self._tiny_uid_workflow()
         diagnostics = []
@@ -968,7 +968,7 @@ class TestEmitterVariableNameLocks:
         assert not [diag for diag in diagnostics if diag.code.startswith("locked_variable_")]
 
     def test_invalid_locked_alias_reports_diagnostic_and_does_not_emit_bad_python(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
             emit_scratchpad_python,
         )
@@ -986,7 +986,7 @@ class TestEmitterVariableNameLocks:
         assert any(diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID for diag in diagnostics)
 
     def test_colliding_locked_aliases_report_diagnostic(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
             emit_scratchpad_python,
         )
@@ -1007,7 +1007,7 @@ class TestEmitterVariableNameLocks:
         assert any(diag.code == READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION for diag in diagnostics)
 
     def test_strict_missing_locked_uid_reports_later_render_diagnostic(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
             emit_scratchpad_python,
         )
@@ -1027,7 +1027,7 @@ class TestEmitterVariableNameLocks:
         assert missing[0].detail["uid"] == "missing-uid"
 
     def test_subgraph_internal_locked_names_use_scope_qualified_uid(self) -> None:
-        from vibecomfy.porting.emitter import _build_subgraph_def, _emit_subgraph_functions
+        from vibecomfy.porting.emit.emitter import _build_subgraph_def, _emit_subgraph_functions
         from vibecomfy.porting.identity.uid import make_uid
 
         raw_subgraph = {
@@ -1101,7 +1101,7 @@ class TestAvailableNodeSignatures:
     # -- enumeration path via .schemas() -----------------------------------
 
     def test_enumeration_uses_schemas_method(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1140,7 +1140,7 @@ class TestAvailableNodeSignatures:
         assert loader.pack == "core"
 
     def test_enumeration_empty_provider_returns_empty(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
 
         provider = self._fake_provider({})
         rows = emit_available_node_signatures(provider)
@@ -1149,7 +1149,7 @@ class TestAvailableNodeSignatures:
     # -- focused / per-node path via .get_schema() -------------------------
 
     def test_focus_types_uses_get_schema(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1175,7 +1175,7 @@ class TestAvailableNodeSignatures:
         assert rows[0].class_type == "A"
 
     def test_focus_types_skips_unknown(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1198,7 +1198,7 @@ class TestAvailableNodeSignatures:
     # -- compatibility filtering -------------------------------------------
 
     def test_compatible_input_type_filters_by_output_compatibility(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1226,7 +1226,7 @@ class TestAvailableNodeSignatures:
         assert rows[0].class_type == "ModelProducer"
 
     def test_compatible_output_type_filters_by_input_compatibility(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1253,7 +1253,7 @@ class TestAvailableNodeSignatures:
         assert rows[0].class_type == "ModelConsumer"
 
     def test_combined_compatibility_filters(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1286,7 +1286,7 @@ class TestAvailableNodeSignatures:
     # -- unknown / wildcard compatibility ----------------------------------
 
     def test_unknown_type_is_compatible_with_everything(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1314,7 +1314,7 @@ class TestAvailableNodeSignatures:
         assert rows[0].class_type == "WildcardOut"
 
     def test_none_type_is_compatible_with_anything(self) -> None:
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1343,7 +1343,7 @@ class TestAvailableNodeSignatures:
     # -- formatted output --------------------------------------------------
 
     def test_format_signature_rows_basic(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             InputSignatureField,
             NodeSignatureRow,
             OutputSignatureField,
@@ -1366,7 +1366,7 @@ class TestAvailableNodeSignatures:
         assert "def KSampler(model: MODEL, seed: INT = ...) -> LATENT:" in text
 
     def test_format_signature_rows_no_outputs(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             InputSignatureField,
             NodeSignatureRow,
             format_signature_rows,
@@ -1386,7 +1386,7 @@ class TestAvailableNodeSignatures:
         assert "def SaveImage(images: IMAGE) -> None:" in text
 
     def test_format_signature_rows_show_pack(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             InputSignatureField,
             NodeSignatureRow,
             format_signature_rows,
@@ -1406,7 +1406,7 @@ class TestAvailableNodeSignatures:
         assert "def Foo() -> None:" in text
 
     def test_format_signature_rows_show_confidence(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             InputSignatureField,
             NodeSignatureRow,
             format_signature_rows,
@@ -1437,7 +1437,7 @@ class TestAvailableNodeSignatures:
         assert "def LowConf() -> None:" in text
 
     def test_format_signature_rows_deterministic(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             InputSignatureField,
             NodeSignatureRow,
             format_signature_rows,
@@ -1457,7 +1457,7 @@ class TestAvailableNodeSignatures:
         assert lines == ["def A() -> None:", "def M() -> None:", "def Z() -> None:"]
 
     def test_format_signature_rows_slot_name_codec(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             InputSignatureField,
             NodeSignatureRow,
             format_signature_rows,
@@ -1479,7 +1479,7 @@ class TestAvailableNodeSignatures:
         assert "def KwargsNode(in_: IMAGE, class_: STRING = ...) -> None:" in text
 
     def test_node_signature_row_frozen(self) -> None:
-        from vibecomfy.porting.emitter import (
+        from vibecomfy.porting.emit.emitter import (
             InputSignatureField,
             NodeSignatureRow,
             OutputSignatureField,
@@ -1500,7 +1500,7 @@ class TestAvailableNodeSignatures:
             row.class_type = "Other"  # type: ignore[misc]
 
     def test_input_signature_field_default_none(self) -> None:
-        from vibecomfy.porting.emitter import InputSignatureField
+        from vibecomfy.porting.emit.emitter import InputSignatureField
 
         f = InputSignatureField(name="test")
         assert f.name == "test"
@@ -1509,7 +1509,7 @@ class TestAvailableNodeSignatures:
         assert f.default is None
 
     def test_output_signature_field_default_none(self) -> None:
-        from vibecomfy.porting.emitter import OutputSignatureField
+        from vibecomfy.porting.emit.emitter import OutputSignatureField
 
         f = OutputSignatureField()
         assert f.name is None
@@ -1517,7 +1517,7 @@ class TestAvailableNodeSignatures:
 
     def test_unknown_compatibility_handles_both_none_and_star_types(self) -> None:
         """Both None and '*' types should match any filter."""
-        from vibecomfy.porting.emitter import emit_available_node_signatures
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures
         from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
 
         provider = self._fake_provider(
@@ -1669,7 +1669,7 @@ class TestPublicM1SurfaceImports:
             FieldChange,
             StatementResult,
         )
-        from vibecomfy.porting import edit_session as edit_session_module
+        from vibecomfy.porting.edit import session as edit_session_module
 
         session = EditSession(_load_flat_fixture_raw())
         rendered = session.render()
@@ -1684,7 +1684,7 @@ class TestPublicM1SurfaceImports:
         assert StatementResult.__name__ == "StatementResult"
         assert DoneResult.__name__ == "DoneResult"
         assert CompactDiagnostic.__name__ == "CompactDiagnostic"
-        assert FieldChange.__module__ == "vibecomfy.porting.edit_types"
+        assert FieldChange.__module__ == "vibecomfy.porting.edit.types"
         assert edit_session_module.FieldChange is FieldChange
 
 
@@ -2098,7 +2098,7 @@ class TestEditSessionPrimitiveLowering:
 
     def test_apply_batch_lowers_literal_assignment_to_set_node_field_op(self) -> None:
         from vibecomfy.porting import FieldChange
-        from vibecomfy.porting.edit_ops import SetNodeFieldOp
+        from vibecomfy.porting.edit.ops import SetNodeFieldOp
 
         session = self._primitive_session()
         result = session.apply_batch("widget.seed = 9\n")
@@ -2158,7 +2158,7 @@ sampler = KSampler(
     def test_apply_batch_lowers_schema_less_dict_widget_assignment_to_set_node_field_op(self) -> None:
         from vibecomfy.porting import FieldChange
         from vibecomfy.porting import EditSession
-        from vibecomfy.porting.edit_ops import SetNodeFieldOp
+        from vibecomfy.porting.edit.ops import SetNodeFieldOp
 
         raw = {
             "last_node_id": 1,
@@ -2343,7 +2343,7 @@ sampler = KSampler(
             assert after_nodes[node_id] == before
 
     def test_apply_batch_lowers_link_assignment_to_upsert_link_op(self) -> None:
-        from vibecomfy.porting.edit_ops import UpsertLinkOp
+        from vibecomfy.porting.edit.ops import UpsertLinkOp
 
         session = self._primitive_session()
         result = session.apply_batch("dst.value = src.in_\n")
@@ -2356,7 +2356,7 @@ sampler = KSampler(
         assert isinstance(dst["inputs"][0]["link"], int)
 
     def test_apply_batch_lowers_none_link_assignment_to_remove_link_op(self) -> None:
-        from vibecomfy.porting.edit_ops import RemoveLinkOp
+        from vibecomfy.porting.edit.ops import RemoveLinkOp
 
         session = self._primitive_session()
         linked = session.apply_batch("dst.value = src.in_\n")
@@ -2371,7 +2371,7 @@ sampler = KSampler(
         assert dst["inputs"][0].get("link") is None
 
     def test_apply_batch_lowers_delete_to_remove_node_op(self) -> None:
-        from vibecomfy.porting.edit_ops import RemoveNodeOp
+        from vibecomfy.porting.edit.ops import RemoveNodeOp
 
         session = self._primitive_session()
         result = session.apply_batch("del dst\n")
@@ -2381,7 +2381,7 @@ sampler = KSampler(
         assert session.ledger.resolve_node("", "dst") is None
 
     def test_apply_batch_lowers_mode_assignment_via_mode_labels_reverse_map(self) -> None:
-        from vibecomfy.porting.edit_ops import SetModeOp
+        from vibecomfy.porting.edit.ops import SetModeOp
 
         session = self._primitive_session()
         result = session.apply_batch("dst.mode = 'muted'\n")
@@ -2403,7 +2403,7 @@ sampler = KSampler(
         assert result.diagnostics[0].code == "original_virtual_node_immutable"
 
     def test_apply_batch_adds_node_with_linked_inputs_and_locks_assigned_name(self) -> None:
-        from vibecomfy.porting.edit_ops import AddNodeOp
+        from vibecomfy.porting.edit.ops import AddNodeOp
 
         session = self._primitive_session()
         result = session.apply_batch(
@@ -2443,7 +2443,7 @@ sampler = KSampler(
         assert any(diagnostic.code == code for diagnostic in result.diagnostics)
 
     def test_apply_batch_allows_vibecomfy_exec_and_keeps_fixed_wire_inputs(self) -> None:
-        from vibecomfy.porting.edit_ops import AddNodeOp
+        from vibecomfy.porting.edit.ops import AddNodeOp
 
         session = self._primitive_session()
         result = session.apply_batch(
@@ -2499,7 +2499,7 @@ sampler = KSampler(
         assert follow_up.diagnostics[0].code == "unbound_graph_name"
 
     def test_apply_batch_executes_sequentially_and_binds_successful_adds(self) -> None:
-        from vibecomfy.porting.edit_ops import AddNodeOp, UpsertLinkOp
+        from vibecomfy.porting.edit.ops import AddNodeOp, UpsertLinkOp
 
         session = self._primitive_session()
         result = session.apply_batch(
@@ -2517,7 +2517,7 @@ sampler = KSampler(
         assert isinstance(echo["inputs"][0]["link"], int)
 
     def test_apply_batch_skips_failed_dependencies_and_continues_independent_work(self) -> None:
-        from vibecomfy.porting.edit_ops import SetNodeFieldOp
+        from vibecomfy.porting.edit.ops import SetNodeFieldOp
 
         session = self._primitive_session()
         result = session.apply_batch(
@@ -2536,7 +2536,7 @@ sampler = KSampler(
         assert widget["widgets_values"][0] == 11
 
     def test_apply_batch_infers_true_splice_anchor_from_two_line_rewire(self) -> None:
-        from vibecomfy.porting.edit_ops import AddNodeOp
+        from vibecomfy.porting.edit.ops import AddNodeOp
 
         session = self._primitive_session()
         linked = session.apply_batch("dst.value = src.in_\n")
@@ -2559,7 +2559,7 @@ sampler = KSampler(
         assert 0 < added["pos"][0] < 750
 
     def test_apply_batch_does_not_treat_simple_new_link_as_splice(self) -> None:
-        from vibecomfy.porting.edit_ops import AddNodeOp
+        from vibecomfy.porting.edit.ops import AddNodeOp
 
         session = self._primitive_session()
         result = session.apply_batch(
@@ -2678,7 +2678,7 @@ sampler = KSampler(
         assert node is not None
 
         scope_graph = session.ledger.scopes[""].graph
-        from vibecomfy.porting.edit_apply import _group_index_for_node
+        from vibecomfy.porting.edit.apply import _group_index_for_node
         dst_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "dst"))
         mid_group = _group_index_for_node(scope_graph, node)
         assert dst_group is not None, "dst should be in MyGroup"
@@ -2737,7 +2737,7 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit_apply import _group_index_for_node
+        from vibecomfy.porting.edit.apply import _group_index_for_node
         scope_graph = session.ledger.scopes[""].graph
         groups = set()
         for name in ("a", "b", "c", "d", "e"):
@@ -2794,7 +2794,7 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit_apply import _group_index_for_node
+        from vibecomfy.porting.edit.apply import _group_index_for_node
         scope_graph = session.ledger.scopes[""].graph
         minted_uid = result.statements[0].detail["minted_uid"]
         mid_node = session.ledger.resolve_node("", minted_uid)
@@ -3159,7 +3159,7 @@ class TestSearchQuery:
     """Tests for the side-effect-free search() query."""
 
     def test_search_returns_structured_rows(self) -> None:
-        from vibecomfy.porting.emitter import NodeSignatureRow
+        from vibecomfy.porting.emit.emitter import NodeSignatureRow
 
         session = _primitive_session()
         result = session.search()
@@ -3209,7 +3209,7 @@ class TestSearchQuery:
 
     def test_search_focus_types_vibecomfy_exec_returns_usable_signature(self) -> None:
         """Agent search for focus_types=['vibecomfy.exec'] returns signature with source, io, fixed slots."""
-        from vibecomfy.porting.emitter import NodeSignatureRow
+        from vibecomfy.porting.emit.emitter import NodeSignatureRow
 
         session = _primitive_session()
         result = session.search(focus_types=["vibecomfy.exec"])
@@ -3427,7 +3427,7 @@ class TestDoneGateAByteFaithfulness:
 
     @staticmethod
     def _session():
-        from vibecomfy.porting.edit_session import EditSession
+        from vibecomfy.porting.edit.session import EditSession
 
         raw = {
             "last_node_id": 3,
@@ -3477,7 +3477,7 @@ class TestDoneGateAByteFaithfulness:
 
     def test_done_succeeds_after_one_field_edit(self):
         """done() passes gate A after a single field edit."""
-        from vibecomfy.porting.edit_ops import SetNodeFieldOp
+        from vibecomfy.porting.edit.ops import SetNodeFieldOp
 
         session = self._session()
         session.render()
@@ -3492,7 +3492,7 @@ class TestDoneGateAByteFaithfulness:
 
     def test_done_succeeds_after_link_upsert(self):
         """done() passes gate A after linking two nodes."""
-        from vibecomfy.porting.edit_ops import UpsertLinkOp
+        from vibecomfy.porting.edit.ops import UpsertLinkOp
 
         session = self._session()
         session.render()
@@ -3506,7 +3506,7 @@ class TestDoneGateAByteFaithfulness:
 
     def test_done_succeeds_after_multiple_edits(self):
         """done() passes gate A after multiple different edits."""
-        from vibecomfy.porting.edit_ops import SetNodeFieldOp, UpsertLinkOp
+        from vibecomfy.porting.edit.ops import SetNodeFieldOp, UpsertLinkOp
 
         session = self._session()
         session.render()
@@ -3535,7 +3535,7 @@ class TestDoneGateAByteFaithfulness:
         assert result.ok is True
 
         # Recompute independently to double-check
-        from vibecomfy.porting.edit_apply import apply_delta
+        from vibecomfy.porting.edit.apply import apply_delta
         applied = apply_delta(
             session.original_ui,
             tuple(session.landed_ops),
@@ -3547,7 +3547,7 @@ class TestDoneGateAByteFaithfulness:
 
     def test_done_after_add_node_passes(self):
         """done() passes gate A after adding a node."""
-        from vibecomfy.porting.edit_ops import AddNodeOp
+        from vibecomfy.porting.edit.ops import AddNodeOp
 
         session = self._session()
         session.render()
@@ -3566,7 +3566,7 @@ class TestDoneGateAGuardFailure:
 
     @staticmethod
     def _session():
-        from vibecomfy.porting.edit_session import EditSession
+        from vibecomfy.porting.edit.session import EditSession
 
         raw = {
             "last_node_id": 3,
@@ -3765,7 +3765,7 @@ class TestDoneProofCoverageMatrix:
         assert needle in result.summary
 
     def test_done_proof_gates_pass_for_remove_link(self) -> None:
-        from vibecomfy.porting.edit_session import EditSession
+        from vibecomfy.porting.edit.session import EditSession
 
         raw = {
             "last_node_id": 2,
@@ -3813,7 +3813,7 @@ class TestDoneGateCSummary:
 
     @staticmethod
     def _session():
-        from vibecomfy.porting.edit_session import EditSession
+        from vibecomfy.porting.edit.session import EditSession
 
         raw = {
             "last_node_id": 3,
@@ -3877,7 +3877,7 @@ class TestDoneGateCSummary:
 
     def test_summary_link_rewire_detects_original_link(self):
         """Rewire summary shows from/to when original ledger had a link."""
-        from vibecomfy.porting.edit_session import EditSession
+        from vibecomfy.porting.edit.session import EditSession
 
         raw = {
             "last_node_id": 3,
@@ -4737,8 +4737,8 @@ class TestRenderOpDiffExecSource:
 
     def test_render_op_diff_source_unified_diff(self) -> None:
         """_render_op_diff produces unified diff when old and new source are strings."""
-        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
-        from vibecomfy.porting.edit_session import _render_op_diff
+        from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit.session import _render_op_diff
 
         old_src = "def fn(x):\n    return x + 1\n"
         new_src = "def fn(x):\n    y = x * 2\n    return y + 1\n"
@@ -4762,8 +4762,8 @@ class TestRenderOpDiffExecSource:
 
     def test_render_op_diff_source_no_old_value_falls_back_to_truncated(self) -> None:
         """_render_op_diff falls back to truncated repr when old_value is None."""
-        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
-        from vibecomfy.porting.edit_session import _render_op_diff
+        from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit.session import _render_op_diff
 
         new_src = "x = 1\ny = 2\nz = 3\n"
         op = SetNodeFieldOp(
@@ -4780,8 +4780,8 @@ class TestRenderOpDiffExecSource:
 
     def test_render_op_diff_non_source_field_uses_truncated_even_with_old(self) -> None:
         """_render_op_diff uses truncated repr for non-source fields even with old_value."""
-        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
-        from vibecomfy.porting.edit_session import _render_op_diff
+        from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit.session import _render_op_diff
 
         op = SetNodeFieldOp(
             op="set_node_field",
@@ -4797,8 +4797,8 @@ class TestRenderOpDiffExecSource:
 
     def test_render_op_diff_source_identical_no_diff_output(self) -> None:
         """_render_op_diff produces no diff lines when old and new source are identical."""
-        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
-        from vibecomfy.porting.edit_session import _render_op_diff
+        from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit.session import _render_op_diff
 
         src = "def fn(x):\n    return x\n"
         op = SetNodeFieldOp(
@@ -4818,9 +4818,9 @@ class TestBatchResultRenderDiffWithFieldChanges:
 
     def test_render_diff_includes_unified_source_diff(self) -> None:
         """render_diff() passes old values from field_changes to _render_op_diff."""
-        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
-        from vibecomfy.porting.edit_session import BatchResult
-        from vibecomfy.porting.edit_types import FieldChange
+        from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit.session import BatchResult
+        from vibecomfy.porting.edit.types import FieldChange
 
         old_src = "def fn(x):\n    return x\n"
         new_src = "def fn(x):\n    return x * 2\n"
@@ -4845,8 +4845,8 @@ class TestBatchResultRenderDiffWithFieldChanges:
 
     def test_render_diff_field_changes_no_old_value_no_diff(self) -> None:
         """render_diff() without matching field_changes entry uses truncated repr."""
-        from vibecomfy.porting.edit_ops import NodeFieldTarget, SetNodeFieldOp
-        from vibecomfy.porting.edit_session import BatchResult
+        from vibecomfy.porting.edit.ops import NodeFieldTarget, SetNodeFieldOp
+        from vibecomfy.porting.edit.session import BatchResult
 
         new_src = "x = 1\ny = 2\n"
         op = SetNodeFieldOp(

@@ -13,7 +13,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Mapping
 
-from vibecomfy.porting.ui_emitter import _canonicalize_coord
+from vibecomfy.porting.emit.ui import _canonicalize_coord
 
 logger = logging.getLogger(__name__)
 

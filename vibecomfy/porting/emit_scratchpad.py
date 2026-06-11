@@ -6,7 +6,7 @@ from vibecomfy.porting.emit_prepare import _prepare_workflow_for_emit
 from vibecomfy.porting.emit_ready import _emit_build_function, _NODE_HELPER_SOURCE
 
 if TYPE_CHECKING:
-    from vibecomfy.porting.emitter import EmissionDiagnostic
+    from vibecomfy.porting.emit.emitter import EmissionDiagnostic
 
 
 def emit_scratchpad_python(
@@ -26,7 +26,7 @@ def emit_scratchpad_python(
 ) -> str:
     # Lazy import to avoid circular dependency with emitter.py
     # (emitter.py re-exports from this module).
-    from vibecomfy.porting.emitter import _drain_lookup_warning_diagnostics, _use_object_info_identities
+    from vibecomfy.porting.emit.emitter import _drain_lookup_warning_diagnostics, _use_object_info_identities
 
     with _use_object_info_identities(object_info_identities):
         result_text = _emit_scratchpad_python_inner(

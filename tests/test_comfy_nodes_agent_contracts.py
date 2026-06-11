@@ -24,7 +24,7 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     success_envelope,
     turn_envelope,
 )
-from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.security.agent_generated_loader import (
     AgentGeneratedLoadError,
     ScanFailure,

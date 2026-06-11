@@ -16,11 +16,11 @@ from typing import Any, Mapping
 
 import pytest
 
-from vibecomfy.porting.edit_apply import apply_delta
-from vibecomfy.porting.edit_ledger import EditLedger
-from vibecomfy.porting.edit_session import EditSession
+from vibecomfy.porting.edit.apply import apply_delta
+from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, socket_types_compatible
-from vibecomfy.porting.agent_edit_normalize import normalize_ui_json
+from vibecomfy.porting.edit.normalize import normalize_ui_json
 from tests.support.corpus_schema import (
     GraphInferredSchemaProvider,
     graph_inferred_schema_provider,
@@ -424,7 +424,7 @@ def test_case_d_subgraph_set_mode(subgraphed_wan_ui: dict[str, Any]) -> None:
     names from render).
     """
     import copy
-    from vibecomfy.porting.edit_ops import parse_edit_delta
+    from vibecomfy.porting.edit.ops import parse_edit_delta
 
     original = copy.deepcopy(subgraphed_wan_ui)
     scope_path = _scope_path_by_name(original, "Image to Video (Wan 2.2)")

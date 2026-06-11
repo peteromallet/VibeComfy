@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from vibecomfy.porting.edit_ops import NodeTarget
-from vibecomfy.porting.edit_projection import (
+from vibecomfy.porting.edit.ops import NodeTarget
+from vibecomfy.porting.edit.projection import (
     DEFAULT_MAX_TOKENS,
     ProjectionOptions,
     USER_STRING_FENCE,

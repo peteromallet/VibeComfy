@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format
-from vibecomfy.porting.ui_emitter import (
+from vibecomfy.porting.emit.ui import (
     emit_ui_json,
     offline_emitter_normalizer_self_consistency_check,
     structural_validate,

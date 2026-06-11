@@ -15,7 +15,7 @@ import warnings
 
 from vibecomfy.porting.layout.reconcile import reconcile
 from vibecomfy.porting.layout_store import store_from_ui_json
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 

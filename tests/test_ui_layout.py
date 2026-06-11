@@ -1402,7 +1402,7 @@ class TestEmitUiJsonEngineIntegration:
     def test_emit_ui_json_uses_engine_for_no_position_graph(self):
         """Engine positions a 5-node chain with > 2000 px x-span."""
         from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         wf = VibeWorkflow("span_test", WorkflowSource("span_test"))
         wf.add_node("TypeA", "1", uid="u1")
@@ -1428,7 +1428,7 @@ class TestEmitUiJsonEngineIntegration:
         import json
         import warnings
         from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         wf = VibeWorkflow("additive_test", WorkflowSource("additive_test"))
         wf.add_node("TypeA", "1", uid="a1")
@@ -1449,7 +1449,7 @@ class TestEmitUiJsonEngineIntegration:
     def test_emit_ui_json_anchors_kwarg_routes_to_placement(self):
         """Anchored node position is placed relative to anchor, differing from Phase-6 band pos."""
         from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         wf = VibeWorkflow("anchors_route_test", WorkflowSource("anchors_route_test"))
         wf.add_node("TypeA", "1", uid="na")
@@ -1492,7 +1492,7 @@ class TestEmitUiJsonGroupsIncludeSubgraphs:
     def test_emit_ui_json_groups_include_subgraphs(self):
         """When the workflow has subgraph definitions, emitted groups contain subgraph boxes."""
         from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         wf = VibeWorkflow("subgraph_test", WorkflowSource("subgraph_test"))
         wf.add_node("TypeA", "1", uid="inner_1")
@@ -1527,7 +1527,7 @@ class TestEmitUiJsonGroupsIncludeSubgraphs:
     def test_emit_ui_json_caller_groups_take_priority_over_engine_groups(self):
         """Caller-passed groups appear before engine groups, and duplicate titles are suppressed."""
         from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         wf = VibeWorkflow("priority_test", WorkflowSource("priority_test"))
         wf.add_node("TypeA", "1", uid="p1")
@@ -1590,7 +1590,7 @@ class TestEmitUiJsonByteIdentical:
         """json.dumps(emit_ui_json(wf), sort_keys=True) twice → identical."""
         import json
         from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         wf = VibeWorkflow("byte_id_test", WorkflowSource("byte_id_test"))
         wf.add_node("TypeA", "1", uid="ba")
@@ -1633,7 +1633,7 @@ class TestEmitUiJsonLayoutVersionBreadcrumb:
     def test_emit_ui_json_layout_version_breadcrumb_is_m4(self):
         """The layout_version breadcrumb in the emitted extra is 'm4'."""
         from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         wf = VibeWorkflow("version_test", WorkflowSource("version_test"))
         wf.add_node("TypeA", "1", uid="va")
@@ -1693,7 +1693,7 @@ class TestCorpusWideInvariants:
         import json as _json
 
         from vibecomfy.cli_loader import load_workflow_any
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
         from vibecomfy.porting.layout.sizing import _PREVIEW_CLASS_HINTS
 
         preview_hints = frozenset(_PREVIEW_CLASS_HINTS)
@@ -1760,7 +1760,7 @@ class TestCorpusWideInvariants:
         import json as _json
 
         from vibecomfy.cli_loader import load_workflow_any
-        from vibecomfy.porting.ui_emitter import emit_ui_json
+        from vibecomfy.porting.emit.ui import emit_ui_json
 
         mismatches: list[str] = []
         skipped: list[str] = []
@@ -1832,7 +1832,7 @@ def test_opens_clean_vendored_comfyui() -> None:
     ).convert_ui_to_api
 
     from vibecomfy.cli_loader import load_workflow_any
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
     # ── Resolve the four representative templates ──────────────────────
     # Resolve the edit template dynamically.

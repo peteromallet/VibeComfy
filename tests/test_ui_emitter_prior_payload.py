@@ -7,7 +7,7 @@ from typing import Any
 
 from vibecomfy.commands import port as port_mod
 from vibecomfy.porting.layout_store import store_from_ui_json
-from vibecomfy.porting.ui_emitter import extract_raw_ui_node_map
+from vibecomfy.porting.emit.ui import extract_raw_ui_node_map
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 

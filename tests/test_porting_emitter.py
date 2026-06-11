@@ -15,7 +15,7 @@ from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
 from vibecomfy.porting.convert import ManualTemplateRefusal, _check_manual_refusal, port_convert_workflow
 from vibecomfy.porting.object_info.serialize import build_cache
 from vibecomfy.porting.workbench import load_port_source
-from vibecomfy.porting.emitter import (
+from vibecomfy.porting.emit.emitter import (
     EmissionDiagnostic,
     READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
     READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED,
@@ -1237,7 +1237,7 @@ def test_unique_safe_names_emit_named_out() -> None:
 def test_duplicate_output_names_fall_back_to_numeric() -> None:
     """Duplicate output names fall back to .out(n) with diagnostic."""
     diags: list[EmissionDiagnostic] = []
-    from vibecomfy.porting.emitter import (
+    from vibecomfy.porting.emit.emitter import (
         EmissionDiagnostic,
         READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
     )
@@ -1262,7 +1262,7 @@ def test_duplicate_output_names_fall_back_to_numeric() -> None:
 def test_blank_output_names_fall_back_to_numeric() -> None:
     """Blank output names fall back to .out(n), with named slots where safe."""
     diags: list[EmissionDiagnostic] = []
-    from vibecomfy.porting.emitter import (
+    from vibecomfy.porting.emit.emitter import (
         READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
     )
 
@@ -1622,7 +1622,7 @@ def test_out_of_range_slot_falls_back_to_numeric() -> None:
 
 def test_widget_alias_success_emits_named_field() -> None:
     """When input_aliases maps widget_N to a name, the emitter uses that name."""
-    from vibecomfy.porting.emitter import EmissionDiagnostic
+    from vibecomfy.porting.emit.emitter import EmissionDiagnostic
 
     wf = _workflow_with_widget_aliases(
         "CheckpointLoaderSimple",
@@ -1641,7 +1641,7 @@ def test_widget_alias_success_emits_named_field() -> None:
 
 def test_widget_alias_fallback_keeps_positional_widget() -> None:
     """When widget_N index is beyond input_aliases range, keep positional."""
-    from vibecomfy.porting.emitter import EmissionDiagnostic
+    from vibecomfy.porting.emit.emitter import EmissionDiagnostic
 
     wf = _workflow_with_widget_aliases(
         "SomeNode",
@@ -1658,7 +1658,7 @@ def test_widget_alias_fallback_keeps_positional_widget() -> None:
     assert "widget_3=" in text
 
     # Verify diagnostics include schema_backed_widget_alias_not_resolved
-    from vibecomfy.porting.emitter import (
+    from vibecomfy.porting.emit.emitter import (
         READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED,
     )
     unresolved_codes = [
@@ -1958,7 +1958,7 @@ def test_flat_ready_template_reimport_yields_same_uids() -> None:
 import json
 from pathlib import Path
 import pytest
-from vibecomfy.porting.emitter import (
+from vibecomfy.porting.emit.emitter import (
     EmissionDiagnostic,
     _use_object_info_identities,
     _identity_for_node,

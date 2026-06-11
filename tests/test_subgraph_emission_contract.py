@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format, normalize_to_api
-from vibecomfy.porting.emitter import emit_ready_template_python
+from vibecomfy.porting.emit.emitter import emit_ready_template_python
 from vibecomfy.commands.validate import _subgraph_freshness_diagnostics
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 

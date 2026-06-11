@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from vibecomfy.porting import slot_codec  # noqa: F401 — public M1 submodule
+from vibecomfy.porting.identity import codec as slot_codec  # noqa: F401 — public M1 submodule
 from vibecomfy.porting.assets import AssetAnalysis
-from vibecomfy.porting.emitter import (
+from vibecomfy.porting.emit.emitter import (
     EmissionDiagnostic,
     InputSignatureField,
     NodeSignatureRow,
@@ -50,7 +50,7 @@ from vibecomfy.porting.report import (
     PortIssue,
     PortReport,
 )
-from vibecomfy.porting.slot_codec import (
+from vibecomfy.porting.identity.codec import (
     build_reverse_map,
     encode_slot_names,
     to_python_identifier,

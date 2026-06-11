@@ -40,7 +40,7 @@ def _handle_roundtrip(
     """
     from vibecomfy.ingest.normalize import convert_to_vibe_format  # noqa: PLC0415
     from vibecomfy.porting.layout import evaluate_felt_delta  # noqa: PLC0415
-    from vibecomfy.porting.ui_emitter import emit_ui_json  # noqa: PLC0415
+    from vibecomfy.porting.emit.ui import emit_ui_json  # noqa: PLC0415
     from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
 
     try:

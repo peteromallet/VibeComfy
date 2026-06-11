@@ -27,7 +27,7 @@ except ImportError:
 from vibecomfy import load_workflow_any
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.layout_store import store_from_ui_json
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema import get_schema_provider
 
 _TEMPLATES = [

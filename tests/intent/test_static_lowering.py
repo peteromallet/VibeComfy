@@ -33,7 +33,7 @@ from vibecomfy.porting.lowering import (
     extract_loop_plan,
     lower_workflow,
 )
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 

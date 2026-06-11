@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from vibecomfy.porting.edit_ledger import EditLedger
+from vibecomfy.porting.edit.ledger import EditLedger
 
 
 def _fixture(name: str) -> dict:

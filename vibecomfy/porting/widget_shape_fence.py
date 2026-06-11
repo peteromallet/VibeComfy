@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
-from vibecomfy.porting.ui_emitter import WidgetShapeEvidence
+from vibecomfy.porting.emit.ui import WidgetShapeEvidence
 
 _LOW_CONFIDENCE_THRESHOLD = 0.3
 _WIDGET_FIELD_PREFIX = "widget_"

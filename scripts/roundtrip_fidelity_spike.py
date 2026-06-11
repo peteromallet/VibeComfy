@@ -121,7 +121,7 @@ def main():
 
     # T3: created node -- broken 6-el codec vs the injection-aware 7-el fix
     from vibecomfy.workflow import VibeWorkflow, WorkflowSource
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
     from vibecomfy.schema import get_schema_provider
     wf = VibeWorkflow(id="t3", source=WorkflowSource(id="t3", path=None, source_type="api"))
     wf.node("KSampler", seed=999, steps=30, cfg=4.5, sampler_name="dpmpp_2m", scheduler="karras", denoise=0.7)

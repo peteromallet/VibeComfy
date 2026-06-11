@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from vibecomfy.porting import emitter
+from vibecomfy.porting.emit import emitter
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 

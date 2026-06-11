@@ -79,7 +79,7 @@ def _stage_validate(state: AgentEditState, _context: TurnContext) -> StageResult
 def _stage_emit(state: AgentEditState, _context: TurnContext) -> StageResult:
     from vibecomfy.porting.layout import evaluate_felt_delta
     from vibecomfy.porting.layout_store import store_from_ui_json, write_store
-    from vibecomfy.porting.ui_emitter import emit_ui_json
+    from vibecomfy.porting.emit.ui import emit_ui_json
 
     start = time.monotonic()
     recovery_report: list[dict[str, Any]] = []

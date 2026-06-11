@@ -20,7 +20,7 @@ from vibecomfy.contracts import (
 from vibecomfy.contracts.intent_nodes import INTENT_SPEC_MAX_BYTES
 from vibecomfy.contracts.validation import comfyui_node_issue_specs
 from vibecomfy.ingest.normalize import convert_to_vibe_format
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import NodeSchema, schema_for
 from vibecomfy.schema.validate import sanitize_api_against_schema, validate_api_against_schema
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource

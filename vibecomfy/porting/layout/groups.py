@@ -13,7 +13,7 @@ import hashlib
 import logging
 from typing import Any, Dict, List
 
-from vibecomfy.porting.ui_emitter import _canonicalize_coord
+from vibecomfy.porting.emit.ui import _canonicalize_coord
 
 logger = logging.getLogger(__name__)
 

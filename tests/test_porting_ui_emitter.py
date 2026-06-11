@@ -9,7 +9,7 @@ import warnings
 import pytest
 
 from vibecomfy.porting.refuse import RefusedEmit
-from vibecomfy.porting.ui_emitter import emit_ui_json
+from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
@@ -844,7 +844,7 @@ def test_offline_parity_gate_green_on_starter_set(path: str) -> None:
     """compile_equivalent(_normalize_ui_to_api(emit_ui_json(wf)), compile('api')) — never
     imports ComfyUI — is green for a >=5 starter set spanning image/video/edit."""
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import offline_emitter_normalizer_self_consistency_check
+    from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
     with open(path) as handle:
         raw = json.load(handle)
@@ -860,7 +860,7 @@ def test_offline_parity_never_imports_comfy() -> None:
     import builtins
 
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import offline_emitter_normalizer_self_consistency_check
+    from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
     with open("workflow_corpus/official/video/wan_t2v.json") as handle:
         raw = json.load(handle)
@@ -884,7 +884,7 @@ def test_offline_parity_never_imports_comfy() -> None:
 
 def test_ksampler_none_widget_alignment_roundtrips() -> None:
     """The KSampler None-named slot must be present for ComfyUI parity."""
-    from vibecomfy.porting.ui_emitter import offline_emitter_normalizer_self_consistency_check
+    from vibecomfy.porting.emit.ui import offline_emitter_normalizer_self_consistency_check
 
     wf = _wf()
     node = _ksampler()
@@ -902,7 +902,7 @@ def test_ksampler_none_widget_alignment_roundtrips() -> None:
 
 
 def test_structural_validate_detects_dangling_link() -> None:
-    from vibecomfy.porting.ui_emitter import structural_validate
+    from vibecomfy.porting.emit.ui import structural_validate
 
     envelope = {
         "nodes": [{"id": 1, "type": "LoadImage", "inputs": [], "outputs": [{"slot_index": 0}], "widgets_values": []}],
@@ -914,7 +914,7 @@ def test_structural_validate_detects_dangling_link() -> None:
 
 
 def test_structural_validate_detects_slot_out_of_range() -> None:
-    from vibecomfy.porting.ui_emitter import structural_validate
+    from vibecomfy.porting.emit.ui import structural_validate
 
     envelope = {
         "nodes": [
@@ -930,7 +930,7 @@ def test_structural_validate_detects_slot_out_of_range() -> None:
 
 def test_structural_validate_skips_schema_less_and_records() -> None:
     """Schema-less nodes skip slot/widget-length assertions and the skip is recorded."""
-    from vibecomfy.porting.ui_emitter import structural_validate
+    from vibecomfy.porting.emit.ui import structural_validate
 
     envelope = {
         "nodes": [
@@ -946,7 +946,7 @@ def test_structural_validate_skips_schema_less_and_records() -> None:
 @pytest.mark.parametrize("path", _STARTER_SET)
 def test_structural_validate_green_on_starter_set(path: str) -> None:
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import structural_validate
+    from vibecomfy.porting.emit.ui import structural_validate
 
     with open(path) as handle:
         raw = json.load(handle)
@@ -1457,7 +1457,7 @@ def _check_canonical_input_names(
 
 def test_default_output_path_from_source_name() -> None:
     from vibecomfy.ingest.normalize import convert_to_vibe_format
-    from vibecomfy.porting.ui_emitter import default_output_path
+    from vibecomfy.porting.emit.ui import default_output_path
 
     with open("workflow_corpus/official/video/wan_t2v.json") as handle:
         raw = json.load(handle)
@@ -1467,7 +1467,7 @@ def test_default_output_path_from_source_name() -> None:
 
 def test_output_path_hash_fallback_for_unnamed_source() -> None:
     """Programmatic IR with no source name → deterministic hash path; never empty/raising."""
-    from vibecomfy.porting.ui_emitter import default_output_path
+    from vibecomfy.porting.emit.ui import default_output_path
 
     wf = _wf()
     wf.nodes["1"] = VibeNode("1", "LoadImage")
@@ -1480,7 +1480,7 @@ def test_output_path_hash_fallback_for_unnamed_source() -> None:
 
 
 def test_output_path_out_override_wins() -> None:
-    from vibecomfy.porting.ui_emitter import default_output_path
+    from vibecomfy.porting.emit.ui import default_output_path
 
     wf = _wf()
     wf.nodes["1"] = VibeNode("1", "LoadImage")
@@ -1982,7 +1982,7 @@ def test_previously_flagged_files_pin_or_refuse_without_safe_overflow() -> None:
 def test_widget_order_matches_object_info_for_covered_class() -> None:
     """For a class present in the object_info cache, the raw widget order
     (nulls included) is authoritative for COUNT."""
-    from vibecomfy.porting.ui_emitter import _raw_widget_order_from_provider
+    from vibecomfy.porting.emit.ui import _raw_widget_order_from_provider
     from vibecomfy.schema.provider import ObjectInfoIndexSchemaProvider
 
     provider = ObjectInfoIndexSchemaProvider(
@@ -2630,7 +2630,7 @@ def test_main_positions_lean_omits_title() -> None:
 def test_canonicalize_group_geometry() -> None:
     """Group bounding boxes are canonicalized to M2 precision when
     include_main_positions=True."""
-    from vibecomfy.porting.ui_emitter import _canonicalize_group_geometry
+    from vibecomfy.porting.emit.ui import _canonicalize_group_geometry
 
     groups = [
         {
@@ -2703,7 +2703,7 @@ def test_schema_version_1_0_roundtrip() -> None:
     confirming the structural read path is version-agnostic.
     """
     from vibecomfy.ingest.normalize import _normalize_ui_to_api
-    from vibecomfy.porting.ui_emitter import _LITEGRAPH_VERSION as _VER
+    from vibecomfy.porting.emit.ui import _LITEGRAPH_VERSION as _VER
     from vibecomfy.porting.parity import compile_equivalent
 
     assert _VER == 1.0, f"_LITEGRAPH_VERSION should be 1.0, got {_VER}"

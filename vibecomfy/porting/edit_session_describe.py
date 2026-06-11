@@ -18,7 +18,7 @@ from vibecomfy.porting.edit.ledger import EditLedger
 from vibecomfy.schema import schema_for
 
 if TYPE_CHECKING:
-    from vibecomfy.porting.emitter import NodeSignatureRow
+    from vibecomfy.porting.emit.emitter import NodeSignatureRow
 
 
 class _DescribeMixin:
@@ -183,7 +183,7 @@ class _DescribeMixin:
         formatted:
             When ``True``, return a formatted text string instead of a list of rows.
         """
-        from vibecomfy.porting.emitter import emit_available_node_signatures, format_signature_rows as fmt_rows
+        from vibecomfy.porting.emit.emitter import emit_available_node_signatures, format_signature_rows as fmt_rows
 
         rows = emit_available_node_signatures(
             self.schema_provider,

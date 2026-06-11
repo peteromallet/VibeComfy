@@ -9,7 +9,7 @@ from typing import Any
 
 from vibecomfy.porting.layout_store import read_store, store_from_ui_json, write_store
 from vibecomfy.porting.latency import FALLBACK_LATENCY_BUDGET_MS
-from vibecomfy.porting.ui_emitter import default_output_path
+from vibecomfy.porting.emit.ui import default_output_path
 
 
 def _print_change_report(

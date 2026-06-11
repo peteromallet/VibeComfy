@@ -10,7 +10,7 @@ import pytest
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.convert import port_convert_workflow
-from vibecomfy.porting.emitter import emit_ready_template_python
+from vibecomfy.porting.emit.emitter import emit_ready_template_python
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 

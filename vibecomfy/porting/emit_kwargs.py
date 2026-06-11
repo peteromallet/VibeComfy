@@ -262,7 +262,7 @@ def _locked_variable_uid_map(
     from vibecomfy.porting.identity.uid import make_uid
     # Import EmissionDiagnostic and warning constants lazily to avoid circular
     # import (emitter.py imports from emit_kwargs.py at module level).
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         EmissionDiagnostic,
         READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION,
     )
@@ -323,7 +323,7 @@ def _apply_locked_variable_names(
         return
 
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         EmissionDiagnostic,
         READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
         READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
@@ -462,7 +462,7 @@ def _node_output_names(node: Any) -> list[str]:
 
 def _schema_output_names_for_unpack(node: Any) -> list[str]:
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         _node_local_output_names,
         _node_local_arity_check,
     )
@@ -498,7 +498,7 @@ def _schema_output_names_for_unpack(node: Any) -> list[str]:
 
 def _declared_output_names_for_call_metadata(node: Any) -> list[str]:
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import _node_local_arity_check  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import _node_local_arity_check  # noqa: PLC0415
 
     ui_names = _declared_ui_output_names(node)
     metadata_names = _node_output_names(node)
@@ -541,7 +541,7 @@ def _compute_output_variable_names(
     edges: list[Any],
 ) -> dict[str, dict[int, str]]:
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import _wrapper_module_for_class  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import _wrapper_module_for_class  # noqa: PLC0415
 
     unpackable: dict[str, list[str]] = {}
     for nid, node in sorted(workflow_nodes.items(), key=lambda item: _id_sort_key(item[0])):
@@ -698,7 +698,7 @@ def _is_schema_default(
     node: Any = None,
 ) -> bool:
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         _CURATED_SCHEMA_DEFAULTS,
         _node_local_class_defaults,
     )
@@ -783,7 +783,7 @@ def _output_fallback_diagnostic(
     numeric fallback is expected and not an avoidable concern.
     """
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         EmissionDiagnostic,
         READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
     )
@@ -880,7 +880,7 @@ def _is_single_output_ref(
 
 def _node_binding_expr(node_id: str, var_names: dict[str, str]) -> str:
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import _wrapper_module_for_class  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import _wrapper_module_for_class  # noqa: PLC0415
 
     var = var_names.get(str(node_id))
     if var is not None and _wrapper_module_for_class(var.split("_", 1)[0]) is not None:
@@ -922,7 +922,7 @@ def _edge_ref_expr(
 
 def _wrapper_kwarg_name(name: str) -> str:
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import RESERVED_WRAPPER_INPUT_NAMES  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import RESERVED_WRAPPER_INPUT_NAMES  # noqa: PLC0415
 
     return f"{name}_" if name in RESERVED_WRAPPER_INPUT_NAMES or keyword.iskeyword(name) else name
 
@@ -995,7 +995,7 @@ def _collect_emission_diagnostics(
       be resolved from schema / widget table evidence.
     """
     # Lazy import to avoid circular dependency
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         EmissionDiagnostic,
         READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
         READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
@@ -1138,7 +1138,7 @@ def _node_kwargs(
     external_refs: dict[tuple[str, str], str] | None = None,
 ) -> list[tuple[str, str]]:
     # Lazy imports to avoid circular dependency
-    from vibecomfy.porting.emitter import (  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import (  # noqa: PLC0415
         RESERVED_WRAPPER_INPUT_NAMES,
         _ui_widget_aliases,
         READABILITY_WARNING_SCHEMA_UNKNOWN_KWARG_HIDDEN_BY_EXTRAS,
@@ -1327,5 +1327,5 @@ def _node_kwargs(
 
 def _resolve_graph_field_get_string(value: Any, workflow_nodes: Any) -> Any:
     """Thin shim that delegates to emitter._resolve_graph_field_get_string."""
-    from vibecomfy.porting.emitter import _resolve_graph_field_get_string as _impl  # noqa: PLC0415
+    from vibecomfy.porting.emit.emitter import _resolve_graph_field_get_string as _impl  # noqa: PLC0415
     return _impl(value, workflow_nodes)

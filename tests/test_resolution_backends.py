@@ -17,9 +17,9 @@ from typing import Any
 
 import pytest
 
-from vibecomfy.porting.edit_ledger import EditLedger
-from vibecomfy.porting.edit_lint import LintIndex
-from vibecomfy.porting.edit_ops import LinkSourceRef, LinkTargetRef
+from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.edit.lint import LintIndex
+from vibecomfy.porting.edit.ops import LinkSourceRef, LinkTargetRef
 from vibecomfy.porting.resolution import (
     EditLedgerBackend,
     LintIndexBackend,
