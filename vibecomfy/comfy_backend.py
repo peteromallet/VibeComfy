@@ -1,7 +1,7 @@
 """Optional ComfyUI backend adoption hook (M2 Step 7, SD2).
 
 This module is an OPTIONAL optimization, never a hard dependency. M2's identity
-derivation is pure-Python (see ``vibecomfy.porting.scope.sg_key``); nothing in
+derivation is pure-Python (see ``vibecomfy.porting.identity.scope.sg_key``); nothing in
 the M2 feature set requires a real ComfyUI node catalog. ``ensure_nodes()`` lets
 a caller *adopt* the real catalog when it happens to be available — either via
 the ``[comfy]`` optional-dependency extra or the vendored ``vendor/ComfyUI``

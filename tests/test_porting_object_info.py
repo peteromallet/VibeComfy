@@ -22,7 +22,7 @@ from vibecomfy.porting.object_info.serialize import (
     pack_key_from_module,
     refresh_from_source,
 )
-from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
+from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 
 
 # ---------------------------------------------------------------------------
@@ -1133,7 +1133,7 @@ def test_widget_resolver_does_not_auto_apply_shifted_object_info(
     cache_root = _build_temp_cache(tmp_path)
     _patch_consume_paths(monkeypatch, cache_root)
 
-    from vibecomfy.porting.widget_aliases import resolve_widget_name_with_provenance
+    from vibecomfy.porting.widgets.aliases import resolve_widget_name_with_provenance
 
     result = resolve_widget_name_with_provenance("SomeUnknownClass", 1)
 
@@ -1144,7 +1144,7 @@ def test_widget_resolver_does_not_auto_apply_shifted_object_info(
 
 def test_widget_resolver_uses_schema_provider_before_object_info() -> None:
     from vibecomfy.schema import InputSpec, NodeSchema
-    from vibecomfy.porting.widget_aliases import resolve_widget_name_with_provenance
+    from vibecomfy.porting.widgets.aliases import resolve_widget_name_with_provenance
 
     class Provider:
         def get_schema(self, class_type: str) -> NodeSchema | None:

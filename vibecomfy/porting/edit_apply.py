@@ -31,7 +31,7 @@ from vibecomfy.porting.edit_ops import (
 from vibecomfy.porting.object_info.consume import output_names as cached_output_names
 from vibecomfy.porting.report import PortIssue
 from vibecomfy.porting.ui_emitter import materialize_litegraph_node
-from vibecomfy.porting.widget_schema import effective_widget_names_for_class
+from vibecomfy.porting.widgets.schema import effective_widget_names_for_class
 from vibecomfy.schema import InputSpec, schema_for, socket_types_compatible
 
 

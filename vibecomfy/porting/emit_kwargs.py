@@ -19,8 +19,8 @@ from vibecomfy.porting.object_info import (
     class_has_list_output,
     class_output_count,
 )
-from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
-from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
+from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
+from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 
 if TYPE_CHECKING:
     pass
@@ -259,7 +259,7 @@ def _locked_variable_uid_map(
     scope_path: str = "",
     diagnostics: "list[Any] | None" = None,
 ) -> dict[str, str]:
-    from vibecomfy.porting.uid import make_uid
+    from vibecomfy.porting.identity.uid import make_uid
     # Import EmissionDiagnostic and warning constants lazily to avoid circular
     # import (emitter.py imports from emit_kwargs.py at module level).
     from vibecomfy.porting.emitter import (  # noqa: PLC0415

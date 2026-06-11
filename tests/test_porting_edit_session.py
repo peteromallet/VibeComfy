@@ -343,7 +343,7 @@ class TestSlotAliasRoundTrip:
         """Every encoded name must be a valid Python identifier."""
         import keyword as kw
 
-        from vibecomfy.porting.slot_codec import to_python_identifier
+        from vibecomfy.porting.identity.codec import to_python_identifier
 
         raw_names = [
             "", "in", "class", "or", "and", "not", "if", "else", "for",
@@ -372,7 +372,7 @@ class TestSlotAliasRoundTrip:
 
     def test_codec_handles_builtin_shadowing(self) -> None:
         """Builtin names get a trailing underscore like keywords (PEP 8)."""
-        from vibecomfy.porting.slot_codec import to_python_identifier
+        from vibecomfy.porting.identity.codec import to_python_identifier
 
         assert to_python_identifier("list") == "list_"
         assert to_python_identifier("dict") == "dict_"
@@ -384,7 +384,7 @@ class TestSlotAliasRoundTrip:
 
     def test_codec_handles_leading_digits(self) -> None:
         """Leading digits get an underscore prefix."""
-        from vibecomfy.porting.slot_codec import to_python_identifier
+        from vibecomfy.porting.identity.codec import to_python_identifier
 
         assert to_python_identifier("3d_model") == "_3d_model"
         assert to_python_identifier("123") == "_123"
@@ -392,7 +392,7 @@ class TestSlotAliasRoundTrip:
 
     def test_codec_handles_empty_and_blank_names(self) -> None:
         """Empty names and whitespace-only names become '_'."""
-        from vibecomfy.porting.slot_codec import to_python_identifier
+        from vibecomfy.porting.identity.codec import to_python_identifier
 
         assert to_python_identifier("") == "_"
         # Whitespace-only becomes underscores from replacement, then collapses
@@ -401,7 +401,7 @@ class TestSlotAliasRoundTrip:
 
     def test_codec_handles_non_ascii_names(self) -> None:
         """Non-ASCII characters are replaced with underscores."""
-        from vibecomfy.porting.slot_codec import to_python_identifier
+        from vibecomfy.porting.identity.codec import to_python_identifier
 
         # é becomes _, and trailing _ is stripped → "caf"
         assert to_python_identifier("café") == "caf"
@@ -410,7 +410,7 @@ class TestSlotAliasRoundTrip:
 
     def test_codec_is_deterministic(self) -> None:
         """Same input always produces same output."""
-        from vibecomfy.porting.slot_codec import to_python_identifier
+        from vibecomfy.porting.identity.codec import to_python_identifier
 
         samples = ["in", "class", "MODEL", "3d_model", "", "list", "my_var"]
         for raw in samples:
@@ -422,14 +422,14 @@ class TestSlotAliasRoundTrip:
 
     def test_to_raw_name_raises_keyerror_for_unknown(self) -> None:
         """to_raw_name raises KeyError when encoded name is not in context."""
-        from vibecomfy.porting.slot_codec import to_raw_name
+        from vibecomfy.porting.identity.codec import to_raw_name
 
         with pytest.raises(KeyError):
             to_raw_name("nonexistent", context={"in": "in"})
 
     def test_to_raw_name_raises_valueerror_for_ambiguous_context(self) -> None:
         """to_raw_name raises ValueError when two raw names encode identically."""
-        from vibecomfy.porting.slot_codec import to_raw_name
+        from vibecomfy.porting.identity.codec import to_raw_name
 
         # "in" and "in_" both would map to "in_" without collision handling
         # But in standalone mode, they map to "in_" and "in_2" respectively,
@@ -440,7 +440,7 @@ class TestSlotAliasRoundTrip:
 
     def test_to_raw_name_round_trips_with_multi_entry_context(self) -> None:
         """Round-trip works with a multi-entry context."""
-        from vibecomfy.porting.slot_codec import to_python_identifier, to_raw_name
+        from vibecomfy.porting.identity.codec import to_python_identifier, to_raw_name
 
         context = {
             "MODEL": "MODEL",
@@ -468,14 +468,14 @@ class TestSlotCodecBatchAndReverseMap:
 
     def test_build_reverse_map_simple(self) -> None:
         """build_reverse_map returns encoded->raw mapping."""
-        from vibecomfy.porting.slot_codec import build_reverse_map
+        from vibecomfy.porting.identity.codec import build_reverse_map
 
         rm = build_reverse_map(["in", "out", "model"])
         assert rm == {"in_": "in", "out": "out", "model": "model"}
 
     def test_build_reverse_map_with_duplicates(self) -> None:
         """build_reverse_map handles duplicate raw names gracefully."""
-        from vibecomfy.porting.slot_codec import build_reverse_map
+        from vibecomfy.porting.identity.codec import build_reverse_map
 
         # Same raw name twice — should not raise
         rm = build_reverse_map(["in", "in", "out"])
@@ -483,7 +483,7 @@ class TestSlotCodecBatchAndReverseMap:
 
     def test_build_reverse_map_collision_raises(self) -> None:
         """build_reverse_map raises ValueError when two distinct names collide."""
-        from vibecomfy.porting.slot_codec import build_reverse_map
+        from vibecomfy.porting.identity.codec import build_reverse_map
 
         # "" and "_" both encode to "_" in standalone mode
         with pytest.raises(ValueError, match="Encoding collision"):
@@ -491,7 +491,7 @@ class TestSlotCodecBatchAndReverseMap:
 
     def test_encode_slot_names_produces_unique_identifiers(self) -> None:
         """encode_slot_names uses collision avoidance for suffixes."""
-        from vibecomfy.porting.slot_codec import encode_slot_names
+        from vibecomfy.porting.identity.codec import encode_slot_names
 
         mapping = encode_slot_names(["in", "in_", "in__"])
         # All mapped identifiers must be unique
@@ -503,7 +503,7 @@ class TestSlotCodecBatchAndReverseMap:
 
     def test_encode_slot_names_round_trips_via_reverse_map(self) -> None:
         """Encoding batch + reverse map recovers all original names."""
-        from vibecomfy.porting.slot_codec import build_reverse_map, encode_slot_names
+        from vibecomfy.porting.identity.codec import build_reverse_map, encode_slot_names
 
         raw_names = [
             "MODEL", "positive", "negative", "in", "out",
@@ -519,13 +519,13 @@ class TestSlotCodecBatchAndReverseMap:
 
     def test_encode_slot_names_empty_list(self) -> None:
         """encode_slot_names on empty list returns empty dict."""
-        from vibecomfy.porting.slot_codec import encode_slot_names
+        from vibecomfy.porting.identity.codec import encode_slot_names
 
         assert encode_slot_names([]) == {}
 
     def test_build_reverse_map_empty_list(self) -> None:
         """build_reverse_map on empty list returns empty dict."""
-        from vibecomfy.porting.slot_codec import build_reverse_map
+        from vibecomfy.porting.identity.codec import build_reverse_map
 
         assert build_reverse_map([]) == {}
 
@@ -1028,7 +1028,7 @@ class TestEmitterVariableNameLocks:
 
     def test_subgraph_internal_locked_names_use_scope_qualified_uid(self) -> None:
         from vibecomfy.porting.emitter import _build_subgraph_def, _emit_subgraph_functions
-        from vibecomfy.porting.uid import make_uid
+        from vibecomfy.porting.identity.uid import make_uid
 
         raw_subgraph = {
             "id": "sg-alpha",

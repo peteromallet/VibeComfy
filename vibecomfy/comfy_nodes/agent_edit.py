@@ -40,8 +40,8 @@ from .agent_contracts import (
     success_envelope,
     turn_envelope,
 )
-from vibecomfy.porting.edit_types import FieldChange
-from vibecomfy.porting.widget_aliases import widget_names_for_class
+from vibecomfy.porting.edit.types import FieldChange
+from vibecomfy.porting.widgets.aliases import widget_names_for_class
 from .agent_gates import (
     apply_stage_gate_updates,
     derive_gates,
@@ -71,7 +71,7 @@ from .agent_session import (
 )
 
 if TYPE_CHECKING:
-    from vibecomfy.porting.edit_session import EditSession
+    from vibecomfy.porting.edit.session import EditSession
     from vibecomfy.workflow import VibeWorkflow
 
 DeepSeekClient = Callable[[list[dict[str, str]]], dict[str, str]]
@@ -538,7 +538,7 @@ def _stage_ingest(state: AgentEditState, context: TurnContext) -> StageResult:
 
 
 def _stage_ingest_v2(state: AgentEditState, context: TurnContext) -> StageResult:
-    from vibecomfy.porting.edit_ledger import EditLedger
+    from vibecomfy.porting.edit.ledger import EditLedger
 
     start = time.monotonic()
     request_ref = write_json_artifact(state.request_path, state.request_payload)
@@ -614,7 +614,7 @@ def _stage_convert(state: AgentEditState, _context: TurnContext) -> StageResult:
 
 
 def _stage_project_v2(state: AgentEditState, _context: TurnContext) -> StageResult:
-    from vibecomfy.porting.edit_projection import render_edit_projection, ProjectionOptions
+    from vibecomfy.porting.edit.projection import render_edit_projection, ProjectionOptions
 
     start = time.monotonic()
     # The 8000-token default forces sparse mode on every real ComfyUI graph (140-200+
@@ -959,7 +959,7 @@ def _build_dev_success_response(
     )
     response["internal_outcome"] = internal_outcome.to_dict()
     if contract == "delta":
-        from vibecomfy.porting.edit_ops import op_to_dict
+        from vibecomfy.porting.edit.ops import op_to_dict
 
         response["delta_ops"] = [op_to_dict(op) for op in state.delta_ops]
     return response

@@ -5,7 +5,7 @@ mint_local_uid precedence, and the NOT-a-hash / NOT-uuid4 invariant.
 """
 from __future__ import annotations
 
-from vibecomfy.porting.uid import make_uid, mint_local_uid, parse_uid
+from vibecomfy.porting.identity.uid import make_uid, mint_local_uid, parse_uid
 
 
 # ---------------------------------------------------------------------------

@@ -5,9 +5,9 @@ from copy import deepcopy
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from vibecomfy.porting.edit_apply import apply_delta
-from vibecomfy.porting.edit_ledger import EditLedger
-from vibecomfy.porting.edit_ops import (
+from vibecomfy.porting.edit.apply import apply_delta
+from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
     LinkSourceRef,
@@ -20,7 +20,7 @@ from vibecomfy.porting.edit_ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
-from vibecomfy.porting.edit_projection import HELPER_NODE_TYPES, MODE_LABELS
+from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
 from vibecomfy.porting.layout.placement import (
     BatchPlacementFacts,
     build_batch_placement_facts,

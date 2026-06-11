@@ -18,8 +18,8 @@ from vibecomfy.metadata import (
     _infer_requirements,
     _register_common_inputs,
 )
-from vibecomfy.porting.uid import make_uid, mint_local_uid
-from vibecomfy.porting.widget_aliases import widget_names_for_class, widget_names_from_schema
+from vibecomfy.porting.identity.uid import make_uid, mint_local_uid
+from vibecomfy.porting.widgets.aliases import widget_names_for_class, widget_names_from_schema
 from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.security.gate import untrusted_scope
 from vibecomfy.security.provenance import PROVENANCE_KEY
@@ -572,7 +572,7 @@ def _schema_output_types(schema_provider: SchemaProvider | None, class_type: str
 
 def _schema_input_aliases(schema_provider: SchemaProvider | None, class_type: str) -> list[str | None]:
     """Build input aliases from schema, excluding link-only types so widget positions do not shift."""
-    from vibecomfy.porting.widget_aliases import LINK_ONLY_TYPES
+    from vibecomfy.porting.widgets.aliases import LINK_ONLY_TYPES
 
     schema = schema_for(schema_provider, class_type)
     if schema is None:

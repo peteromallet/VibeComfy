@@ -21,7 +21,7 @@ from vibecomfy.porting.strict_ready import (
     StrictReadyContext,
     apply_strict_ready_exceptions,
 )
-from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
+from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 from vibecomfy.schema import ConversionSchemaProvider, get_authoring_schema_provider
 from vibecomfy.schema.cache import latest_object_info_cache_path
 

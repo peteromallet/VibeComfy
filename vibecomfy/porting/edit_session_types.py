@@ -4,8 +4,8 @@ import ast
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from vibecomfy.porting.edit_ops import AnchorRef, LinkSourceRef
-from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.porting.edit.ops import AnchorRef, LinkSourceRef
+from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.porting.emitter import EmissionDiagnostic
 
 

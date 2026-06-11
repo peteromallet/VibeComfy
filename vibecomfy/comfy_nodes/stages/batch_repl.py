@@ -118,7 +118,7 @@ def _stage_agent_batch_repl(
         run_agent_turn_batch,
         split_terminal_clarify,
     )
-    from vibecomfy.porting.edit_session import EditSession
+    from vibecomfy.porting.edit.session import EditSession
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph
@@ -332,8 +332,8 @@ def _stage_agent_batch_repl(
             and batch_result.landed_ops
             and _agent_edit_batch_repl_enabled()
         ):
-            from vibecomfy.porting.edit_lint import LintIndex, lint_delta
-            from vibecomfy.porting.edit_ops import (
+            from vibecomfy.porting.edit.lint import LintIndex, lint_delta
+            from vibecomfy.porting.edit.ops import (
                 RemoveLinkOp,
                 SetModeOp,
                 SetNodeFieldOp,

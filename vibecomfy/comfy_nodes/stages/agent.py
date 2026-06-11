@@ -68,7 +68,7 @@ def _stage_agent_delta(
     route: str | None = None,
     model: str | None = None,
 ) -> StageResult:
-    from vibecomfy.porting.edit_ops import (
+    from vibecomfy.porting.edit.ops import (
         EDIT_OP_RESPONSE_SCHEMA_V2,
         normalize_delta_test_client_response,
     )

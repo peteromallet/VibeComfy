@@ -3,7 +3,7 @@ from __future__ import annotations
 import difflib
 from typing import Any
 
-from vibecomfy.porting.edit_ops import (
+from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
     LinkSourceRef,
@@ -14,13 +14,13 @@ from vibecomfy.porting.edit_ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
-from vibecomfy.porting.edit_projection import MODE_LABELS
+from vibecomfy.porting.edit.projection import MODE_LABELS
 from vibecomfy.porting.edit_session_types import (
     CompactDiagnostic,
     StatementResult,
     _diag,
 )
-from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.porting.edit.types import FieldChange
 
 _UNRESOLVED_OLD_VALUE = object()
 

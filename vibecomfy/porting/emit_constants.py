@@ -26,8 +26,8 @@ from vibecomfy.porting.emit_kwargs import (
     _topological_node_order,
 )
 from vibecomfy.porting._provenance_utils import _normalize_provenance_paths
-from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
-from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
+from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
+from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 
 logger = logging.getLogger(__name__)
 

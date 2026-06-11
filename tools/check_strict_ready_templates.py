@@ -20,7 +20,7 @@ from vibecomfy.porting.strict_ready import (
     StrictReadyContext,
     validate_strict_ready_workflow,
 )
-from vibecomfy.porting.widget_aliases import widget_alias_analysis
+from vibecomfy.porting.widgets.aliases import widget_alias_analysis
 from vibecomfy.porting.emitter import _wrapper_module_for_class
 from vibecomfy.porting.object_info import class_has_list_output, class_output_count
 from vibecomfy.porting.parity import _is_schema_default_input

@@ -90,7 +90,7 @@ def test_analyze_source_reports_widget_schema_that_compile_did_not_apply(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from vibecomfy.porting import widget_schema
+    from vibecomfy.porting.widgets import schema as widget_schema
 
     monkeypatch.setitem(widget_schema.WIDGET_SCHEMA, "PromptNode", ["text"])
     path = tmp_path / "workflow.json"

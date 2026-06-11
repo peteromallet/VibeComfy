@@ -42,8 +42,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
 from vibecomfy.porting.canonical_coords import snap_pos, snap_size
-from vibecomfy.porting.scope import compose_scope_path, sg_key
-from vibecomfy.porting.uid import make_uid, mint_local_uid
+from vibecomfy.porting.identity.scope import compose_scope_path, sg_key
+from vibecomfy.porting.identity.uid import make_uid, mint_local_uid
 
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow

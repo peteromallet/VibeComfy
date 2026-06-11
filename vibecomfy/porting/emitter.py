@@ -18,7 +18,7 @@ from typing import Any, Literal, Mapping
 from vibecomfy.errors import ArityDisagreementError, ConversionParityError
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
 from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
-from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
+from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
 from vibecomfy.porting.object_info import (
     check_output_arity_consensus,
     class_defaults,
@@ -421,7 +421,7 @@ def _node_local_class_defaults(node: Any) -> dict[str, Any]:
                             defaults[str(name)] = spec[1]["default"]
             return defaults
     return dict(class_defaults(class_type))
-from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
+from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 # -- readability warning codes ------------------------------------------------
 READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT = "avoidable_positional_output"
 READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY = "output_name_ambiguity"
@@ -2158,7 +2158,7 @@ def format_signature_rows(
     each signature.  If *show_confidence* is ``True``, a ``# confidence:
     0.XX`` suffix is appended.
     """
-    from vibecomfy.porting.slot_codec import to_python_identifier
+    from vibecomfy.porting.identity.codec import to_python_identifier
 
     lines: list[str] = []
     for row in sorted(rows, key=lambda r: r.class_type):

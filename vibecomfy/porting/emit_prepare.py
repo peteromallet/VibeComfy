@@ -16,7 +16,7 @@ from typing import Any, Mapping
 
 from vibecomfy.errors import ArityDisagreementError, ConversionParityError
 from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
-from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
+from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
 from vibecomfy.porting.emit_constants import (
     UI_ONLY_CLASS_TYPES,
     _AGENT_EDIT_STRING_ELIDE_THRESHOLD,
@@ -161,7 +161,7 @@ def _prepare_workflow_for_emit(
 # ---------------------------------------------------------------------------
 
 def _agent_edit_output_aliases(node: Any) -> dict[int, str]:
-    from vibecomfy.porting.slot_codec import encode_slot_names, to_python_identifier
+    from vibecomfy.porting.identity.codec import encode_slot_names, to_python_identifier
 
     output_names = _agent_edit_raw_output_names(node)
     if not output_names:
@@ -268,7 +268,7 @@ def _agent_edit_slot_alias_parts(node: Any, output_aliases: Mapping[int, str]) -
 # ---------------------------------------------------------------------------
 
 def _emit_agent_edit_lines(prepared: dict[str, Any]) -> list[str]:
-    from vibecomfy.porting.slot_codec import encode_slot_names, to_python_identifier
+    from vibecomfy.porting.identity.codec import encode_slot_names, to_python_identifier
 
     workflow_nodes = prepared["nodes"]
     edges_in = prepared["edges_in"]

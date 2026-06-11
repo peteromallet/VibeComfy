@@ -548,8 +548,8 @@ def _sg_def(name: str, nodes: list[dict], links: list | None = None) -> dict:
 def test_inner_definition_entries_keyed_by_scoped_uid(tmp_path: Path):
     """Inner nodes of a captured subgraph definition land in the store keyed by
     a scoped uid (scope_path#local), with canonicalized geometry."""
-    from vibecomfy.porting.scope import compose_scope_path, sg_key
-    from vibecomfy.porting.uid import make_uid
+    from vibecomfy.porting.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.porting.identity.uid import make_uid
 
     inner = {"id": 7, "type": "KSampler", "pos": [10.4, 20.6], "size": [200, 100]}
     definition = _sg_def("Upscale", [inner])
@@ -573,8 +573,8 @@ def test_inner_definition_entries_keyed_by_scoped_uid(tmp_path: Path):
 
 def test_inner_definition_uses_vibecomfy_uid_property(tmp_path: Path):
     """An inner node carrying properties['vibecomfy_uid'] is keyed by that uid."""
-    from vibecomfy.porting.scope import compose_scope_path, sg_key
-    from vibecomfy.porting.uid import make_uid
+    from vibecomfy.porting.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.porting.identity.uid import make_uid
 
     inner = {
         "id": 7,

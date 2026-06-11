@@ -458,7 +458,7 @@ def object_info_widget_order(class_type: str) -> list[str | None]:
 
 def effective_widget_names_for_class(class_type: str, *, allow_object_info_fallback: bool = False) -> list[str | None]:
     """Return curated widget names, optionally falling back to cached object_info."""
-    from vibecomfy.porting.widget_schema import WIDGET_SCHEMA
+    from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 
     curated = WIDGET_SCHEMA.get(class_type)
     if curated is not None:

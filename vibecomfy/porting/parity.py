@@ -102,7 +102,7 @@ def _canonical_key(
     # 2. Shared resolver fallback. This uses the same provenance ladder as
     # emission/compile so parity cannot drift from production behaviour.
     try:
-        from vibecomfy.porting.widget_aliases import resolve_widget_name_with_provenance
+        from vibecomfy.porting.widgets.aliases import resolve_widget_name_with_provenance
     except Exception:
         return key
     return resolve_widget_name_with_provenance(class_type, idx).name

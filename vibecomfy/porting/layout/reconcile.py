@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from vibecomfy.porting.layout.layering import compute_layers
-from vibecomfy.porting.uid import mint_local_uid
+from vibecomfy.porting.identity.uid import mint_local_uid
 
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow
@@ -459,7 +459,7 @@ def reconcile(
     **Stage 2 — legacy-hash bridge.**  For each remaining current node whose
     uid is empty (pre-uid files), a structural hash is computed via
     :func:`legacy_hash` and looked up in ``entries``.  On a hit a fresh uid is
-    minted via :func:`~vibecomfy.porting.uid.mint_local_uid`, assigned to the
+    minted via :func:`~vibecomfy.porting.identity.uid.mint_local_uid`, assigned to the
     IR node in-place, and the entry migrates from ``unmatched_legacy`` to
     ``matched``/``bridge_minted``.
 

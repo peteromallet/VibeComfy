@@ -10,7 +10,7 @@ import pytest
 
 from vibecomfy.ingest.normalize import convert_to_vibe_format
 from vibecomfy.porting.convert import port_convert_workflow
-from vibecomfy.porting.widget_aliases import LINK_ONLY_TYPES
+from vibecomfy.porting.widgets.aliases import LINK_ONLY_TYPES
 from vibecomfy.schema import InputSpec, NodeSchema
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 

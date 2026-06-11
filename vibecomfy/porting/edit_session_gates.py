@@ -3,8 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Mapping
 
-from vibecomfy.porting.edit_apply import apply_delta
-from vibecomfy.porting.edit_ops import EditOp
+from vibecomfy.porting.edit.apply import apply_delta
+from vibecomfy.porting.edit.ops import EditOp
 from vibecomfy.porting.edit_session_ir_utils import (
     _api_one_hop_neighbors,
     _changed_edge_endpoint_node_ids,

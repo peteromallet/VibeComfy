@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 
 from vibecomfy.comfy_nodes.agent_edit import _format_available_node_names, _present_class_types
 from vibecomfy.comfy_nodes.agent_provider import build_batch_messages
-from vibecomfy.porting.edit_session import EditSession
+from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.porting.ui_emitter import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource

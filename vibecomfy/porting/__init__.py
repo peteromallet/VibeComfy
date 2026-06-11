@@ -16,7 +16,7 @@ from vibecomfy.porting.emitter import (
     emit_available_node_signatures,
     format_signature_rows,
 )
-from vibecomfy.porting.edit_session import (
+from vibecomfy.porting.edit.session import (
     BatchResult,
     CompactDiagnostic,
     DoneResult,
@@ -26,7 +26,7 @@ from vibecomfy.porting.edit_session import (
     OutputSlotInfo,
     StatementResult,
 )
-from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.porting.parity import (
     class_type_counter,
     compile_equivalent,

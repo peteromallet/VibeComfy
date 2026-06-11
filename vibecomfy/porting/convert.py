@@ -32,7 +32,7 @@ from vibecomfy.porting.strict_ready import (
     StrictReadyContext,
     validate_strict_ready_workflow,
 )
-from vibecomfy.porting.widget_aliases import widget_alias_analysis
+from vibecomfy.porting.widgets.aliases import widget_alias_analysis
 from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow
 
 # -- model-like value detection ----------------------------------------------
@@ -425,7 +425,7 @@ def port_convert_workflow(
             class_widget_aliases[ct] = list(aliases)
         elif schema_provider is not None:
             try:
-                from vibecomfy.porting.widget_aliases import LINK_ONLY_TYPES
+                from vibecomfy.porting.widgets.aliases import LINK_ONLY_TYPES
                 schema = schema_provider.get_schema(ct) if hasattr(schema_provider, "get_schema") else None
                 if schema is not None:
                     inputs = getattr(schema, "inputs", None)

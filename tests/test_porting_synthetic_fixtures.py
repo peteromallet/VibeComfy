@@ -180,8 +180,8 @@ def test_virtual_wire_round_trip_vace_corpus(tmp_path: Path):
 
 def test_scoped_identity_prevents_inner_id_collision(tmp_path: Path):
     """Two cloned subgraph definitions with colliding inner ids yield distinct uids."""
-    from vibecomfy.porting.scope import compose_scope_path, sg_key
-    from vibecomfy.porting.uid import make_uid
+    from vibecomfy.porting.identity.scope import compose_scope_path, sg_key
+    from vibecomfy.porting.identity.uid import make_uid
 
     # Two definitions with the SAME inner node id (1) but different topologies.
     def_a = {

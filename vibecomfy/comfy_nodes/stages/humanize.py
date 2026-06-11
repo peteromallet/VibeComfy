@@ -23,8 +23,8 @@ from ..agent_provider import (
     ensure_sentence_message,
 )
 from ..agent_session import structural_graph_hash
-from vibecomfy.porting.edit_types import FieldChange
-from vibecomfy.porting.widget_aliases import widget_names_for_class
+from vibecomfy.porting.edit.types import FieldChange
+from vibecomfy.porting.widgets.aliases import widget_names_for_class
 
 if TYPE_CHECKING:
     from ..agent_edit import AgentEditState

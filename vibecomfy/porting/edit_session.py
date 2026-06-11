@@ -33,8 +33,8 @@ from vibecomfy.porting.layout.placement import (
     build_batch_placement_facts,
     infer_add_node_anchor_hint,
 )
-from vibecomfy.porting.slot_codec import to_raw_name
-from vibecomfy.porting.widget_schema import effective_widget_names_for_class
+from vibecomfy.porting.identity.codec import to_raw_name
+from vibecomfy.porting.widgets.schema import effective_widget_names_for_class
 from vibecomfy.schema import get_schema_provider, schema_for, socket_types_compatible
 
 if TYPE_CHECKING:

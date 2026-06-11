@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import itertools
 
-from vibecomfy.porting.scope import (
+from vibecomfy.porting.identity.scope import (
     compose_scope_path,
     mint_inner_uid,
     sanitize_subgraph_name,
     sg_key,
 )
-from vibecomfy.porting.uid import parse_uid
+from vibecomfy.porting.identity.uid import parse_uid
 
 
 def _def(name=None, *, nodes=None, links=None, graph_uuid="uuid-1"):

@@ -12,9 +12,9 @@ from vibecomfy.porting.edit_session_ir_utils import (
     _output_specs,
 )
 from vibecomfy.porting.edit_session_diff import _UNRESOLVED_OLD_VALUE
-from vibecomfy.porting.edit_projection import HELPER_NODE_TYPES, MODE_LABELS
-from vibecomfy.porting.edit_ops import LinkSourceRef
-from vibecomfy.porting.edit_ledger import EditLedger
+from vibecomfy.porting.edit.projection import HELPER_NODE_TYPES, MODE_LABELS
+from vibecomfy.porting.edit.ops import LinkSourceRef
+from vibecomfy.porting.edit.ledger import EditLedger
 from vibecomfy.schema import schema_for
 
 if TYPE_CHECKING:

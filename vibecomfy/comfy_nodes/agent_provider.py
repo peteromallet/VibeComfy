@@ -762,7 +762,7 @@ def run_agent_turn_delta(
     route: str | None = None,
     model: str | None = None,
 ):
-    from vibecomfy.porting.edit_ops import (
+    from vibecomfy.porting.edit.ops import (
         EDIT_OP_RESPONSE_SCHEMA_V2,
         EditOpParseError,
         normalize_delta_agent_response,

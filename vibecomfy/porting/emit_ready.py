@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
-from vibecomfy.porting.widget_aliases import resolve_widget_key_with_provenance
+from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
 from vibecomfy.porting.emit_constants import (
     _LOAD_IMAGE_FAMILY,
     _looks_like_placeholder_filename,

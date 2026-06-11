@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from typing import Any, Mapping
 
-from vibecomfy.porting.edit_ops import (
+from vibecomfy.porting.edit.ops import (
     AnchorRef,
     LinkSourceRef,
     NodeTarget,
@@ -13,7 +13,7 @@ from vibecomfy.porting.layout.placement import (
     InferredAnchorHint,
     infer_add_node_anchor_hint,
 )
-from vibecomfy.porting.slot_codec import to_raw_name
+from vibecomfy.porting.identity.codec import to_raw_name
 from vibecomfy.schema import schema_for, socket_types_compatible
 
 from vibecomfy.porting.edit_session_types import (

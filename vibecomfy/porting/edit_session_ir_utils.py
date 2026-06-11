@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Mapping
 
-from vibecomfy.porting.edit_ops import (
+from vibecomfy.porting.edit.ops import (
     AddNodeOp,
     EditOp,
     RemoveLinkOp,
@@ -13,7 +13,7 @@ from vibecomfy.porting.edit_ops import (
     UpsertLinkOp,
 )
 from vibecomfy.porting.resolution import _find_named_slot
-from vibecomfy.porting.widget_schema import effective_widget_names_for_class
+from vibecomfy.porting.widgets.schema import effective_widget_names_for_class
 from vibecomfy.schema import schema_for
 
 if TYPE_CHECKING:

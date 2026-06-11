@@ -13,8 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Generic, Mapping, Protocol, TypeVar
 
-from vibecomfy.porting.edit_ledger import EditLedger
-from vibecomfy.porting.edit_ops import (
+from vibecomfy.porting.edit.ledger import EditLedger
+from vibecomfy.porting.edit.ops import (
     LinkSourceRef,
     LinkTargetRef,
     NodeFieldTarget,

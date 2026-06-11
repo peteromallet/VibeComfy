@@ -7,7 +7,7 @@ from typing import Any
 
 from vibecomfy._graph_utils import is_api_link
 from vibecomfy.porting.formatting import format_value
-from vibecomfy.porting.widget_schema import WIDGET_SCHEMA, resolve_widget_name
+from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA, resolve_widget_name
 
 
 def node_kwargs(node: Any, edges_in: dict, var_names: dict[str, str]) -> list[tuple[str, str]]:

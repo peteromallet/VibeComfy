@@ -5,7 +5,7 @@ import json
 import sys
 from typing import Any
 
-from vibecomfy.porting.widget_aliases import widget_alias_analysis
+from vibecomfy.porting.widgets.aliases import widget_alias_analysis
 from vibecomfy.porting.workbench import load_port_source
 
 

@@ -6,7 +6,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from vibecomfy.porting.edit_types import FieldChange
+from vibecomfy.porting.edit.types import FieldChange
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
 
 DEFAULT_GATE_NAMES: tuple[str, ...] = (

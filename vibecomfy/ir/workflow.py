@@ -354,7 +354,7 @@ class VibeWorkflow:
         return node is not None and (vibe_input.field in node.inputs or vibe_input.field in node.widgets)
 
     def _mint_uid(self, seed: str | None = None) -> str:
-        from vibecomfy.porting.uid import make_uid
+        from vibecomfy.porting.identity.uid import make_uid
         self._uid_counter += 1
         local = seed if seed is not None else f"n{self._uid_counter}"
         return make_uid("", local)
