@@ -1,0 +1,261 @@
+{
+  "tasks": [
+    {
+      "id": "T1",
+      "description": "Unit 1 NO-OP: Verify `vibecomfy/testing/__init__.py:60-66` already imports 5 names from `.fixtures` (dry_runtime, make_handle_factory, make_workflow_factory, vibecomfy_handle_factory, vibecomfy_workflow_factory). Run characterization gate: `PYTHONHASHSEED=0 pytest tests/characterization -x -q`. Commit as NO-OP: 'Unit 1: testing fixture stubs — confirmed already wired (NO-OP)'.",
+      "depends_on": [],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 1,
+      "complexity_justification": "Trivial read-only verification of already-wired imports plus a commit with no code changes. A weak model cannot get this wrong."
+    },
+    {
+      "id": "T2",
+      "description": "Unit 2 NO-OP: Verify `_debug_resolver.py` is absent from the repo (zero file hits, zero content references). Gate: `python -c 'import vibecomfy'`. Commit as NO-OP: 'Unit 2: _debug_resolver.py removal — confirmed already gone (NO-OP)'.",
+      "depends_on": [],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "audit",
+      "complexity": 1,
+      "complexity_justification": "Trivial file-absence check + import smoke test + empty commit. No code is written or moved."
+    },
+    {
+      "id": "T3",
+      "description": "Unit 2 remainder — Delete `node_index.json`: Confirm file contains `[]` and has zero references (grep for 'node_index'). Delete the file. Gate: `python -c 'import vibecomfy'` then `PYTHONHASHSEED=0 pytest tests/characterization -x -q`. Commit: 'Unit 2: delete empty node_index.json (zero references)'.",
+      "depends_on": ["T1", "T2"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 1,
+      "complexity_justification": "Single file delete with zero references — mechanically trivial, failure mode is immediately obvious (file still exists or import breaks)."
+    },
+    {
+      "id": "T4",
+      "description": "Unit 3 — Delete `vibecomfy/patches/resize_schema.py`: Confirm NOT imported by `vibecomfy/patches/__init__.py` and has zero Python importers (grep for 'resize_schema'). Delete the file. Gate: `python -c 'import vibecomfy'` then characterization gate. Commit: 'Unit 3: delete dead resize_schema.py (zero importers)'.",
+      "depends_on": ["T1", "T2"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 1,
+      "complexity_justification": "Single file delete of confirmed-dead code (zero importers, not in __init__.py). Mechanical and failure-obvious."
+    },
+    {
+      "id": "T5",
+      "description": "Unit 9 — Delete 3 dead runtime files: Confirm zero Python importers for `vibecomfy/runtime/discovery.py`, `vibecomfy/runtime/policy.py`, `vibecomfy/runtime/metadata.py` (grep each filename for `from vibecomfy.runtime.<name> import` and `import vibecomfy.runtime.<name>`; `agentic/actors.py:8` is a docstring mention only, not an import). Confirm `runtime/prompt.py` and `runtime/fingerprint.py` are already absent. Delete all three files. Gate: `python -c 'import vibecomfy'` then characterization gate. Commit: 'Unit 9: delete dead runtime files (discovery, policy, metadata) — zero importers confirmed'.",
+      "depends_on": ["T1", "T2"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 1,
+      "complexity_justification": "Three independent file deletes, all confirmed zero-importers. Mechanical multi-delete — no logic, no cross-refs, failure is immediately obvious if any file was actually imported."
+    },
+    {
+      "id": "T6",
+      "description": "Unit 5 — Bundle `router.py` + `router_rules.py` into `vibecomfy/router/` package:\n1. Read `vibecomfy/router.py` and `vibecomfy/router_rules.py` to inventory all public names.\n2. Create `vibecomfy/router/` directory.\n3. Move `vibecomfy/router.py` → `vibecomfy/router/_core.py`; `vibecomfy/router_rules.py` → `vibecomfy/router/_rules.py`.\n4. Update cross-ref at `router/_core.py:8`: change `from vibecomfy.router_rules import rules` → `from ._rules import rules`.\n5. Create `vibecomfy/router/__init__.py` barrel re-exporting all public names: `RouterResult`, `pick`, `Rule`, `register_route`, `rules`.\n6. Create thin shim `vibecomfy/router_rules.py`: `from vibecomfy.router._rules import *` (preserves `extras.py:36`).\n7. Verify: `python -c \"from vibecomfy.router import pick, RouterResult; from vibecomfy.router_rules import register_route, rules; print('OK')\"`.\n8. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 5: bundle router + router_rules into router/ package with thin shim'.",
+      "depends_on": ["T3", "T4", "T5"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 2,
+      "complexity_justification": "Two-file move with one cross-ref update, a barrel __init__, and one thin shim. Linear mechanics across ~5 file operations — the logic is straightforward (package the two router files together) and failure is immediately caught by the explicit import verification. No non-local contracts at risk."
+    },
+    {
+      "id": "T7",
+      "description": "Unit 6 part A — Move `vibecomfy/fixtures.py` → `vibecomfy/testing/_fixtures_smoke.py`:\n1. Read `vibecomfy/fixtures.py` to confirm it has a `__main__` block and a `main()` function.\n2. Move the file: `git mv vibecomfy/fixtures.py vibecomfy/testing/_fixtures_smoke.py`.\n3. Create thin shim `vibecomfy/fixtures.py` that: (a) does `from vibecomfy.testing._fixtures_smoke import *` and `from vibecomfy.testing._fixtures_smoke import __all__`, (b) wraps `if __name__ == '__main__': from vibecomfy.testing._fixtures_smoke import main; main()` so `python -m vibecomfy.fixtures list` continues to work.\n4. Verify: `python -m vibecomfy.fixtures list` runs without error.\n5. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 6a: move fixtures.py → testing/_fixtures_smoke.py with thin shim preserving __main__'.",
+      "depends_on": ["T3", "T4", "T5"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 2,
+      "complexity_justification": "Single-file move with a thin shim that must preserve a `__main__` block for `python -m`. Slightly more nuanced than a bare `import *` shim because the __main__ guard must delegate correctly. Failure is local and immediately caught by the `python -m vibecomfy.fixtures list` verification."
+    },
+    {
+      "id": "T8",
+      "description": "Unit 6 part B — Move `vibecomfy/_agent_edit_debug.py` → `vibecomfy/commands/_agent_edit_debug.py`:\n1. Move the file: `git mv vibecomfy/_agent_edit_debug.py vibecomfy/commands/_agent_edit_debug.py`.\n2. Create thin shim `vibecomfy/_agent_edit_debug.py`: `from vibecomfy.commands._agent_edit_debug import *` (preserves 3 importers: `scripts/vibecomfy_debug.py:10`, `commands/debug.py:5`, `tests/test_cli_debug.py:143,181`).\n3. Verify: `python -c \"from vibecomfy._agent_edit_debug import main, add_debug_subcommands, dispatch; print('OK')\"`.\n4. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 6b: move _agent_edit_debug.py → commands/ with thin shim'.",
+      "depends_on": ["T3", "T4", "T5"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 2,
+      "complexity_justification": "Single-file move with a bare `import *` thin shim. Linear and mechanical — failure is immediately caught by the explicit import verification. The 3 importers remain untouched and see no difference."
+    },
+    {
+      "id": "T9",
+      "description": "Unit 7 — Bundle `porting/wrapper_discovery.py` + `porting/wrapper_codegen.py` into `vibecomfy/porting/wrappers/` package:\n1. Inventory all public names: read `vibecomfy/porting/wrapper_discovery.py` (exports: `ClassSpec`, `InputFieldSpec`, `DiscoveryError`, `Source`, `DEFAULT_PRECEDENCE`, `discover_all`, `discover_pack`, `known_pack_slug`, `sha256_of_path`) and `vibecomfy/porting/wrapper_codegen.py` (exports: `GENERATOR_VERSION`, `RenderResult`, `parse_generated_header`, `render_pack`, `render_widget_schema`).\n2. Create `vibecomfy/porting/wrappers/` directory.\n3. Move: `vibecomfy/porting/wrapper_discovery.py` → `vibecomfy/porting/wrappers/discovery.py`; `vibecomfy/porting/wrapper_codegen.py` → `vibecomfy/porting/wrappers/codegen.py`.\n4. Update cross-ref at `wrappers/codegen.py:71`: `from vibecomfy.porting.wrapper_discovery import ClassSpec, InputFieldSpec` → `from .discovery import ClassSpec, InputFieldSpec`.\n5. Create `vibecomfy/porting/wrappers/__init__.py` barrel re-exporting ALL public names from both submodules.\n6. Create thin shims: `vibecomfy/porting/wrapper_discovery.py` (`from vibecomfy.porting.wrappers.discovery import *`) and `vibecomfy/porting/wrapper_codegen.py` (`from vibecomfy.porting.wrappers.codegen import *`).\n7. Verify: `python -c \"from vibecomfy.porting import wrapper_discovery as wd; from vibecomfy.porting import wrapper_codegen as wc; print('OK')\"`.\n8. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 7: bundle wrappers into porting/wrappers/ package with thin shims'.",
+      "depends_on": ["T6", "T7", "T8"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 2,
+      "complexity_justification": "Two-file move into a new subpackage with one cross-ref update, a barrel exporting ~14 names, and two thin shims. All mechanical — the barrel must accurately mirror the original public surface, but any omission is caught by the explicit import verification. No non-local contracts, no logic changes."
+    },
+    {
+      "id": "T10",
+      "description": "Unit 8 — Bundle eval files into `vibecomfy/runtime/eval/` package:\n1. Inventory public names from `vibecomfy/runtime/eval.py` (`compile_eval_subgraph`, `EvalNodeResult`, `eval_node`, `eval_node_sync`, `queue_api_for_plan`) and `vibecomfy/runtime/eval_plan.py` (`EvalNodePlan`, `plan_eval_node`), `vibecomfy/runtime/eval_prompt.py`, and `vibecomfy/runtime/preview_types.py` (`PreviewInjection`, `PreviewPlan`, `preview_plan_for_type`).\n2. Create `vibecomfy/runtime/eval/` directory.\n3. Move: `vibecomfy/runtime/eval.py` → `vibecomfy/runtime/eval/core.py`; `vibecomfy/runtime/eval_plan.py` → `vibecomfy/runtime/eval/plan.py`; `vibecomfy/runtime/eval_prompt.py` → `vibecomfy/runtime/eval/prompt.py`; `vibecomfy/runtime/preview_types.py` → `vibecomfy/runtime/eval/preview_types.py`.\n4. Update cross-refs: `plan.py:8` → `from .preview_types import preview_plan_for_type`; `prompt.py:11` → `from .plan import EvalNodePlan, plan_eval_node`.\n5. Create `vibecomfy/runtime/eval/__init__.py` barrel re-exporting: `compile_eval_subgraph`, `EvalNodePlan`, `plan_eval_node`, `EvalNodeResult`, `eval_node`, `eval_node_sync`, `queue_api_for_plan`, `PreviewInjection`, `PreviewPlan`, `preview_plan_for_type`. Omit `queue_eval_subgraph` (does not exist).\n6. Create thin shims: `vibecomfy/runtime/eval_prompt.py` (`from vibecomfy.runtime.eval.prompt import *`) and `vibecomfy/runtime/eval_plan.py` (`from vibecomfy.runtime.eval.plan import *`).\n7. Verify barrel: `python -c \"from vibecomfy.runtime.eval import compile_eval_subgraph; print('OK')\"`.\n8. Verify shims: `python -c \"import vibecomfy.runtime.eval_prompt as ep; from vibecomfy.runtime.eval_plan import plan_eval_node; print('OK')\"`.\n9. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 8: bundle eval files into runtime/eval/ package with thin shims'.",
+      "depends_on": ["T9"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 3,
+      "complexity_justification": "Four files moved across two directory levels, two cross-ref updates, a barrel exporting ~10 names from 4 submodules, and two thin shims. The barrel path `from vibecomfy.runtime.eval import compile_eval_subgraph` must work because `runtime/eval` transitions from a .py module to a package directory — this is a non-trivial Python import resolution edge case. The `commands/runtime.py:13` consumer relies on this byte-identical path. A missed export in the barrel or wrong cross-ref would break the characterization gate."
+    },
+    {
+      "id": "T11",
+      "description": "Unit 4 — Bundle all 4 `node_packs_*` files into `vibecomfy/node_packs/` package:\n\n**CRITICAL MOVE ORDER** (to avoid transient name collision between `node_packs.py` file and `node_packs/` directory):\n1. Create `vibecomfy/node_packs/` directory first.\n2. Move all 4 files in: `vibecomfy/node_packs.py` → `vibecomfy/node_packs/_defs.py`; `vibecomfy/node_packs_lockfile.py` → `vibecomfy/node_packs/_lockfile.py`; `vibecomfy/node_packs_install.py` → `vibecomfy/node_packs/_install.py`; `vibecomfy/node_packs_git.py` → `vibecomfy/node_packs/_git.py`.\n3. Update internal cross-refs to relative imports:\n   - `_defs.py:7`: `from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile` → `from ._lockfile import LockEntry, read_lockfile`\n   - `_install.py:7`: `from vibecomfy.node_packs import CustomNodePack, get_known_node_packs, resolve_node_packs, unresolved_class_types` → `from ._defs import CustomNodePack, get_known_node_packs, resolve_node_packs, unresolved_class_types`\n   - `_install.py:8`: `from vibecomfy.node_packs_lockfile import LockEntry, upsert_lockfile_entry` → `from ._lockfile import LockEntry, upsert_lockfile_entry`\n   - `_git.py` has zero cross-refs (confirmed) — no changes needed.\n4. Inventory all public names from each submodule (check `__all__` if present, otherwise all public functions/classes).\n5. Create `vibecomfy/node_packs/__init__.py` barrel re-exporting all public names from all four submodules.\n6. Create thin shims at ALL old root locations: `vibecomfy/node_packs.py` → `from vibecomfy.node_packs._defs import *`; `vibecomfy/node_packs_lockfile.py` → `from vibecomfy.node_packs._lockfile import *`; `vibecomfy/node_packs_install.py` → `from vibecomfy.node_packs._install import *`; `vibecomfy/node_packs_git.py` → `from vibecomfy.node_packs._git import *`.\n7. Verify edge case: `python -c \"import vibecomfy.node_packs_install as npi; print(dir(npi)[:10])\"` — must show re-exported names.\n8. Verify key paths: `python -c \"from vibecomfy.node_packs import resolve_node_packs, CustomNodePack; print('OK')\"`; `python -c \"from vibecomfy.node_packs_lockfile import LockEntry; print('OK')\"`; `python -c \"from vibecomfy.node_packs_git import find_installed_pack_ref; print('OK')\"`.\n9. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 4: bundle all node_packs_* files into node_packs/ package with thin shims'.",
+      "depends_on": ["T10"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 3,
+      "complexity_justification": "Four files moved (1581 LOC total), three cross-ref updates, a barrel exporting from 4 submodules, and four thin shims. The move order is critical — creating the package dir before moving files avoids a transient name collision that would break imports. The barrel must accurately re-export from all 4 submodules, and ~50+ external importers rely on the shims working correctly for both `from` and direct `import` styles. A missed export in the barrel or wrong move order would cascade through multiple consumers and not all failures would be caught by the characterization gate alone."
+    },
+    {
+      "id": "T12",
+      "description": "Unit 10 — Rewrite `vibecomfy/nodes/__init__.py` with programmatic wildcard imports:\n1. **Capture `__all__` length BEFORE**: `python -c \"from vibecomfy.nodes import *; print(len(__all__))\"` — record this number.\n2. Read current `vibecomfy/nodes/__init__.py` to understand the 19 hardcoded `from vibecomfy.nodes.<pack> import *` lines.\n3. Rewrite `vibecomfy/nodes/__init__.py` to loop over `_generated.MODULES`:\n```python\nfrom __future__ import annotations\nfrom vibecomfy.nodes._generated import MODULES\n\n__all__: list[str] = []\nfor _module_name in MODULES:\n    _mod = __import__(f\"vibecomfy.nodes.{_module_name}\", fromlist=[\"*\"])\n    _mod_all = getattr(_mod, \"__all__\", None)\n    if _mod_all is not None:\n        __all__.extend(_mod_all)\n        for _name in _mod_all:\n            globals()[_name] = getattr(_mod, _name)\n```\n4. **Keep `vibecomfy/nodes/__init__.pyi` as-is** (19 wildcard import lines — type-checkers resolve them statically).\n5. Keep ALL 19 shim files (do not delete any).\n6. **Verify `__all__` length AFTER**: `python -c \"from vibecomfy.nodes import *; print(len(__all__))\"` — must match the BEFORE number exactly.\n7. Verify shim paths: `python -c \"from vibecomfy.nodes.core import SaveImage; print('OK')\"` and `python -c \"from vibecomfy.nodes import SaveImage; print('OK')\"`.\n8. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 10: programmatic nodes/__init__.py via _generated.MODULES loop'.",
+      "depends_on": ["T11"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 2,
+      "complexity_justification": "Single-file rewrite from 19 hardcoded lines to a loop. The logic is straightforward (iterate MODULES, import*, merge into globals) but the verification step (capturing __all__ length before/after) is critical — any discrepancy indicates silent symbol loss across ~110 import sites. The .pyi is untouched. Failure mode is local and caught by the explicit before/after comparison."
+    },
+    {
+      "id": "T13",
+      "description": "Unit 11 — Schema/diagnostics tidy:\n\n**Part A — Merge format.py into validate.py:**\n1. Read `vibecomfy/schema/format.py` (9 LOC, `format_issue` function).\n2. Append the `format_issue` function to `vibecomfy/schema/validate.py`.\n3. Create thin shim `vibecomfy/schema/format.py`: `from vibecomfy.schema.validate import format_issue` (preserves 3 importers: `doctor.py:31`, `validate.py:17`, `session.py:931`).\n4. Verify: `python -c \"from vibecomfy.schema.format import format_issue; print('OK')\"`.\n\n**Part B — Extract diagnostics types to findings.py:**\n5. Read `vibecomfy/diagnostics/__init__.py` lines 8-53 to identify: `Severity` type alias, `DiagnosticFinding` dataclass, `PatchSuggestion` dataclass, `finding_messages`, `findings_payload`, `patch_suggestions_payload`.\n6. Create `vibecomfy/diagnostics/findings.py` with these types (keep `health.py` imports if needed).\n7. Rewrite `vibecomfy/diagnostics/__init__.py` as pure re-export barrel:\n```python\nfrom __future__ import annotations\nfrom vibecomfy.diagnostics.findings import (\n    DiagnosticFinding, PatchSuggestion, Severity,\n    finding_messages, findings_payload, patch_suggestions_payload,\n)\nfrom vibecomfy.diagnostics.health import HealthReport, SubcheckFinding, SubcheckResult\n\n__all__ = [\n    \"DiagnosticFinding\", \"HealthReport\", \"PatchSuggestion\", \"Severity\",\n    \"SubcheckFinding\", \"SubcheckResult\",\n    \"finding_messages\", \"findings_payload\", \"patch_suggestions_payload\",\n]\n```\n8. Confirm `vibecomfy/diagnostics/provider.py:22` already imports `InputSpec`/`OutputSpec` from `.types` (no change needed).\n9. Confirm `registry.py` and `factory.py` are already absent from `vibecomfy/schema/` (no merge needed).\n10. Verify: `python -c \"from vibecomfy.diagnostics import DiagnosticFinding, HealthReport; print('OK')\"`.\n11. Gate: `python -c 'import vibecomfy'` + characterization gate. Commit: 'Unit 11: merge format.py→validate.py; extract diagnostics→findings.py; barrel __init__'.",
+      "depends_on": ["T12"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "code",
+      "complexity": 2,
+      "complexity_justification": "Two independent sub-tasks across different packages: an append+shim in schema/ and an extract+barrel in diagnostics/. Both are linear — no logic changes, just moving code and updating imports. Failure in either is caught by the explicit import verifications. The diagnostics barrel must accurately re-export from findings.py and health.py."
+    },
+    {
+      "id": "T14",
+      "description": "Final validation — Run full test suite and compare against baseline:\n1. Run full pytest (NOT just characterization): `PYTHONHASHSEED=0 pytest tests/ -x -q --tb=short 2>&1 | tail -20`.\n2. Compare failure list against `tests/known_failures.txt` baseline — confirm NO NEW failures (no test IDs in the run that aren't listed in the baseline).\n3. Run final import smoke: `python -c \"import vibecomfy; print([n for n in vibecomfy.__all__])\"` — verify all names importable.\n4. Report: pass/fail status, any new failures, any regressions.",
+      "depends_on": ["T13"],
+      "status": "pending",
+      "executor_notes": "",
+      "reviewer_verdict": "",
+      "kind": "test",
+      "complexity": 1,
+      "complexity_justification": "Mechanical test execution and baseline comparison. No code changes — purely running the suite and diffing against a known-failures file."
+    }
+  ],
+  "watch_items": [
+    "MOVE ORDER — T11 (node_packs): Create `vibecomfy/node_packs/` directory BEFORE moving files into it. Python cannot have both a `node_packs.py` file and a `node_packs/` package directory simultaneously. The sequence is: mkdir → move all 4 files in → create __init__.py → create 4 thin shims at old root locations.",
+    "MOVE ORDER — T10 (eval): `runtime/eval.py` (module) transitions to `runtime/eval/` (package). The `runtime/eval/__init__.py` barrel must exist before any import of `vibecomfy.runtime.eval` is attempted. Move the file, create the directory+barrel, then verify.",
+    "SYMBOL LOSS — T12 (nodes init): Capture `len(__all__)` BEFORE the programmatic rewrite and verify it's identical AFTER. Any discrepancy means the loop isn't importing all 19 packs or packs changed their `__all__`. Record both numbers in executor_notes.",
+    "THIN SHIM __main__ — T7 (fixtures): The `vibecomfy/fixtures.py` shim must preserve the `if __name__ == '__main__':` block so `python -m vibecomfy.fixtures list` continues to work. A bare `import *` shim without the `__main__` guard will silently break this entrypoint.",
+    "CHARACTERIZATION GATE SCOPE: `tests/characterization/` does NOT cover `test_agentic_affordances.py`, `test_cli_debug.py`, `test_wrapper_discovery.py`, or `test_wrapper_codegen.py`. Rely on explicit verification commands in T8, T9, T10 for those paths.",
+    "UNIT 1/2 NO-OPs — T1 and T2: These commit empty changes. Verify the current working tree state matches expectations BEFORE committing; if `_debug_resolver.py` exists or `testing/__init__.py` does not have the fixture imports, the state has drifted from plan assumptions.",
+    "GIT COMMIT — Every task commits its own unit with a descriptive message. Do NOT squash across tasks. If a task fails mid-way (e.g., gate fails), fix it within the task turn before committing. If truly stuck, cancel the task and let the orchestrator decide.",
+    "PYTHON IMPORT EDGE CASE — T11: `commands/nodes.py:22` does `import vibecomfy.node_packs_install as node_packs_install` (direct `import`, not `from`). The thin shim's `from ._install import *` populates the module namespace, so `node_packs_install.SomeClass` attribute access works through the shim. Verify with `dir()` on the imported module."
+  ],
+  "sense_checks": [
+    {
+      "id": "SC1",
+      "task_id": "T1",
+      "question": "Does `vibecomfy/testing/__init__.py:60-66` import all 5 names from `.fixtures`, and does the characterization gate pass green?",
+      "verdict": ""
+    },
+    {
+      "id": "SC2",
+      "task_id": "T2",
+      "question": "Is `_debug_resolver.py` confirmed absent from the entire repo (no file, no content grep hits), and does `import vibecomfy` succeed?",
+      "verdict": ""
+    },
+    {
+      "id": "SC3",
+      "task_id": "T3",
+      "question": "Is `node_index.json` deleted, confirmed to have had zero references, and do both `import vibecomfy` and the characterization gate pass after deletion?",
+      "verdict": ""
+    },
+    {
+      "id": "SC4",
+      "task_id": "T4",
+      "question": "Is `vibecomfy/patches/resize_schema.py` deleted, confirmed not imported by `patches/__init__.py` and zero Python importers, and do both gates pass?",
+      "verdict": ""
+    },
+    {
+      "id": "SC5",
+      "task_id": "T5",
+      "question": "Are `discovery.py`, `policy.py`, and `metadata.py` all deleted from `vibecomfy/runtime/`, confirmed zero Python importers for each, and do both gates pass?",
+      "verdict": ""
+    },
+    {
+      "id": "SC6",
+      "task_id": "T6",
+      "question": "Do `from vibecomfy.router import pick, RouterResult` and `from vibecomfy.router_rules import register_route, rules` both work? Does `import vibecomfy` still succeed (router is now a package)?",
+      "verdict": ""
+    },
+    {
+      "id": "SC7",
+      "task_id": "T7",
+      "question": "Does `python -m vibecomfy.fixtures list` run without error through the thin shim? Does the shim correctly delegate `__main__` to the moved module?",
+      "verdict": ""
+    },
+    {
+      "id": "SC8",
+      "task_id": "T8",
+      "question": "Does `from vibecomfy._agent_edit_debug import main, add_debug_subcommands, dispatch` work through the thin shim?",
+      "verdict": ""
+    },
+    {
+      "id": "SC9",
+      "task_id": "T9",
+      "question": "Do `from vibecomfy.porting import wrapper_discovery as wd` and `from vibecomfy.porting import wrapper_codegen as wc` both work? Are all ~14 public names accessible?",
+      "verdict": ""
+    },
+    {
+      "id": "SC10",
+      "task_id": "T10",
+      "question": "Does `from vibecomfy.runtime.eval import compile_eval_subgraph` work (barrel path), and do `import vibecomfy.runtime.eval_prompt as ep` and `from vibecomfy.runtime.eval_plan import plan_eval_node` work (shim paths)?",
+      "verdict": ""
+    },
+    {
+      "id": "SC11",
+      "task_id": "T11",
+      "question": "Do all four import paths work: `from vibecomfy.node_packs import resolve_node_packs`, `from vibecomfy.node_packs_lockfile import LockEntry`, `from vibecomfy.node_packs_git import find_installed_pack_ref`, and `import vibecomfy.node_packs_install as npi` with working attribute access?",
+      "verdict": ""
+    },
+    {
+      "id": "SC12",
+      "task_id": "T12",
+      "question": "Is `len(__all__)` identical before and after the programmatic rewrite? Do `from vibecomfy.nodes.core import SaveImage` and `from vibecomfy.nodes import SaveImage` both work?",
+      "verdict": ""
+    },
+    {
+      "id": "SC13",
+      "task_id": "T13",
+      "question": "Does `from vibecomfy.schema.format import format_issue` work (thin shim), and does `from vibecomfy.diagnostics import DiagnosticFinding, HealthReport` work (barrel re-export)?",
+      "verdict": ""
+    },
+    {
+      "id": "SC14",
+      "task_id": "T14",
+      "question": "Does the full pytest run show NO new failures beyond `tests/known_failures.txt`? Are all names in `vibecomfy.__all__` importable?",
+      "verdict": ""
+    }
+  ],
+  "user_actions": [],
+  "meta_commentary": "This is a 14-task decomposition of the 13-step M0 Tier 1 plan. All work is mechanical — file moves, barrel __init__ creation, thin shim creation, and deletes — with no logic changes. The DAG is shaped into 9 sequential batches:\n\n- Batch 1 (Phase 0): T1, T2 — two NO-OP verification+commits, c=1 each\n- Batch 2 (Phase 1): T3, T4, T5 — three file-delete tasks, c=1 each (3 parallel siblings, well under limit)\n- Batch 3 (Phase 2a): T6, T7, T8 — three simple move+shim tasks (router, fixtures, _agent_edit_debug), c=2 each (3 siblings touching different directories)\n- Batch 4 (Phase 2b): T9 — wrappers bundle, c=2 solo (2 files + barrel + 2 shims)\n- Batch 5 (Phase 2c): T10 — eval bundle, c=3 solo (4 files + barrel + 2 shims + cross-refs; heavyweight)\n- Batch 6 (Phase 3): T11 — node_packs bundle, c=3 solo (4 files + barrel + 4 shims + critical move order; highest risk)\n- Batch 7 (Phase 4): T12 — nodes init programmatic, c=2 solo (single file but symbol-preservation verification)\n- Batch 8 (Phase 5): T13 — schema/diagnostics tidy, c=2 solo (two independent sub-operations)\n- Batch 9 (Final): T14 — full test run, c=1 solo\n\nKey risks the executor must manage:\n1. T11 move order: create `node_packs/` dir first, then move files in, then create __init__.py and shims. Wrong order = transient name collision.\n2. T10: `runtime/eval` transitions from .py module to package directory. The barrel must exist before any import.\n3. T12: capture `len(__all__)` before and after programmatic rewrite — any discrepancy is a silent symbol loss.\n4. T7: the fixtures shim must preserve the `__main__` block, not just `import *`.\n5. Every task commits its own unit — gate green between each commit.\n\nThe characterization gate (`PYTHONHASHSEED=0 pytest tests/characterization -x -q`) is the primary correctness check per task. T14 runs the full suite against `tests/known_failures.txt` (237 known baseline failures). No user actions are needed — all work is fully mechanical.",
+  "validation": {},
+  "baseline_test_failures": "tests/known_failures.txt",
+  "baseline_test_command": "PYTHONHASHSEED=0 pytest tests/ -x -q --tb=short 2>&1",
+  "baseline_test_note": "237 known failures recorded in tests/known_failures.txt (generated 2026-05-30, epic/scratchpad-emitter-m5-preserve). Any NEW failure IDs not in this file is a regression. Characterization gate (`tests/characterization/`) is the per-task correctness check — it must stay green.",
+  "suite_runs_ndjson_path": "suite_runs.ndjson"
+}
