@@ -5,18 +5,16 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from .agent_contracts import (
-    REBASELINE_RECOVERY_FIELDS,
+from .contracts import (
     FailureKind,
     TurnContext,
-    _extract_rebaseline_recovery,
     apply_eligibility_payload,
     classify_failure,
     derive_apply_eligibility,
     ensure_agent_edit_response_contract,
     failure_envelope,
 )
-from .agent_edit import (
+from .edit import (
     DEFAULT_CHAT_DISPLAY_MESSAGES,
     _SESSION_ROOT,
     _safe_session_id,
@@ -25,9 +23,9 @@ from .agent_edit import (
     read_session_chat,
     read_session_json,
 )
-from .agent_provider import readiness, handle_credential_submission
-from .agent_session import accept_turn, payload_hash, rebaseline_session, reject_turn, session_dir_for, turn_dir_for
-from .agent_audit import artifact_ref_for_path, write_audit
+from .provider import readiness, handle_credential_submission
+from .session import accept_turn, payload_hash, rebaseline_session, reject_turn, session_dir_for, turn_dir_for
+from .audit import artifact_ref_for_path, write_audit
 
 
 def _handle_roundtrip(
@@ -40,7 +38,7 @@ def _handle_roundtrip(
     """
     from vibecomfy.ingest.normalize import convert_to_vibe_format  # noqa: PLC0415
     from vibecomfy.porting.layout import evaluate_felt_delta  # noqa: PLC0415
-    from vibecomfy.porting.emit.ui import emit_ui_json  # noqa: PLC0415
+    from vibecomfy.porting.ui_emitter import emit_ui_json  # noqa: PLC0415
     from vibecomfy.schema import get_schema_provider  # noqa: PLC0415
 
     try:
@@ -101,7 +99,7 @@ def _validated_failure_response(
     response = failure.to_dict() if hasattr(failure, "to_dict") else dict(failure)
     if stage == "accept":
         _promote_accept_rebaseline_recovery(response)
-    recovery = _extract_rebaseline_recovery(response)
+    recovery = _extract_failure_recovery(response)
     if recovery is not None:
         response.setdefault("rebaseline_recovery", recovery)
         outcome = response.get("outcome")
@@ -127,10 +125,11 @@ def _promote_accept_rebaseline_recovery(response: dict[str, Any]) -> None:
             if isinstance(issue, Mapping) and isinstance(issue.get("rebaseline_recovery"), Mapping):
                 return
     reason = context.get("reason")
-    recovery: dict[str, Any] = {field: None for field in REBASELINE_RECOVERY_FIELDS}
-    recovery["action"] = "rebaseline"
-    recovery["endpoint"] = "/vibecomfy/agent-edit/rebaseline"
-    recovery["reason"] = reason if isinstance(reason, str) and reason else "stale_state_recovery"
+    recovery = {
+        "action": "rebaseline",
+        "endpoint": "/vibecomfy/agent-edit/rebaseline",
+        "reason": reason if isinstance(reason, str) and reason else "stale_state_recovery",
+    }
     issue = {
         "code": "stale_state_mismatch",
         "detail": context.get("explanation")
@@ -143,6 +142,39 @@ def _promote_accept_rebaseline_recovery(response: dict[str, Any]) -> None:
         **dict(context),
         "issues": [*issues, issue] if isinstance(issues, list) else [issue],
     }
+
+
+def _extract_failure_recovery(response: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(response, Mapping):
+        return None
+    top_level = response.get("rebaseline_recovery")
+    if isinstance(top_level, Mapping):
+        return dict(top_level)
+    contexts: list[Any] = [response.get("agent_failure_context")]
+    outcome = response.get("outcome")
+    if isinstance(outcome, Mapping):
+        outcome_recovery = outcome.get("rebaseline_recovery")
+        if isinstance(outcome_recovery, Mapping):
+            return dict(outcome_recovery)
+        contexts.append(outcome.get("agent_failure_context"))
+    debug = response.get("debug")
+    if isinstance(debug, Mapping):
+        failure_debug = debug.get("failure")
+        if isinstance(failure_debug, Mapping):
+            contexts.append(failure_debug.get("agent_failure_context"))
+    for context in contexts:
+        if not isinstance(context, Mapping):
+            continue
+        issues = context.get("issues")
+        if not isinstance(issues, list):
+            continue
+        for issue in issues:
+            if not isinstance(issue, Mapping):
+                continue
+            recovery = issue.get("rebaseline_recovery")
+            if isinstance(recovery, Mapping):
+                return dict(recovery)
+    return None
 
 
 def _validated_success_response(

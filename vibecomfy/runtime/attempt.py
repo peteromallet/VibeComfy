@@ -48,7 +48,7 @@ def build_attempt_bundle(
             Optional :class:`~vibecomfy.runtime.session.SessionConfig` for
             model-root resolution (used when computing *actual_sha256*).
     """
-    from vibecomfy.comfy_nodes.agent_audit import (
+    from vibecomfy.comfy_nodes.agent.audit import (
         redact_audit_metadata,
         runtime_intent_metadata_from_api,
     )

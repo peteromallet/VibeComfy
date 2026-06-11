@@ -9,11 +9,6 @@
 // `client_structural_graph_hash` only as a backend-parity diagnostic
 // snapshot in submit/rebaseline payloads; it never blocks Apply locally.
 
-import {
-  extractRebaselineRecovery,
-  normalizeRebaselineRecovery,
-} from "./agent_edit_response_contract_generated.js";
-
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
   IDLE: "IDLE",
@@ -1364,11 +1359,62 @@ function _syncRebaselineRecovery(panel, payload) {
   } else if (payload.clearRebaselineRecovery) {
     panel.state.rebaselineRecovery = null;
   } else {
-    const recovery = extractRebaselineRecovery(payload);
+    const recovery = _extractRebaselineRecovery(payload);
     if (recovery) {
       panel.state.rebaselineRecovery = recovery;
     }
   }
+}
+
+function _normalizeRebaselineRecovery(recovery) {
+  if (!recovery || typeof recovery !== "object") {
+    return null;
+  }
+  return {
+    action: typeof recovery.action === "string" ? recovery.action : null,
+    endpoint: typeof recovery.endpoint === "string" ? recovery.endpoint : null,
+    reason: typeof recovery.reason === "string" ? recovery.reason : null,
+    last_known_baseline_graph_hash:
+      typeof recovery.last_known_baseline_graph_hash === "string"
+        ? recovery.last_known_baseline_graph_hash
+        : null,
+    submit_graph_hash:
+      typeof recovery.submit_graph_hash === "string" ? recovery.submit_graph_hash : null,
+    submit_structural_graph_hash:
+      typeof recovery.submit_structural_graph_hash === "string"
+        ? recovery.submit_structural_graph_hash
+        : null,
+    client_graph_hash:
+      typeof recovery.client_graph_hash === "string" ? recovery.client_graph_hash : null,
+    client_structural_graph_hash:
+      typeof recovery.client_structural_graph_hash === "string"
+        ? recovery.client_structural_graph_hash
+        : null,
+  };
+}
+
+function _extractRebaselineRecovery(payload) {
+  const topLevel = _normalizeRebaselineRecovery(payload?.rebaseline_recovery);
+  if (topLevel) {
+    return topLevel;
+  }
+  const issueSources = [
+    payload?.agent_failure_context?.issues,
+    payload?.outcome?.agent_failure_context?.issues,
+    payload?.debug?.failure?.agent_failure_context?.issues,
+  ];
+  for (const issues of issueSources) {
+    if (!Array.isArray(issues)) {
+      continue;
+    }
+    for (const issue of issues) {
+      const recovery = _normalizeRebaselineRecovery(issue?.rebaseline_recovery);
+      if (recovery) {
+        return recovery;
+      }
+    }
+  }
+  return null;
 }
 
 function _stringOrCurrent(value, current) {

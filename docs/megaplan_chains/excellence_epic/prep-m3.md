@@ -88,7 +88,7 @@ See `docs/release_notes/v2.8.0.md` for the full public migration guide. Key migr
 2. **Validate after compile changes:** `vibecomfy port check <ready-id> --json`
 3. **Update extracted imports:**
    - Old: `from vibecomfy.workflow import _classify_helper`
-   - New: `from vibecomfy._workflow_helpers import classify_helper`
+   - New: `from vibecomfy._compile._helpers import classify_helper`
 4. **Snapshot regeneration:** `uv run pytest tests/test_snapshot_*.py --update-snapshots` (only when node ID changes are explained by gap-reuse behavior)
 
 ---
@@ -96,20 +96,20 @@ See `docs/release_notes/v2.8.0.md` for the full public migration guide. Key migr
 ## 5. Extraction Map
 
 ```
-vibecomfy/porting/helpers.py ──extract──> vibecomfy/_workflow_helpers.py
+vibecomfy/porting/helpers.py ──extract──> vibecomfy/_compile/_helpers.py
   (keep porting/helpers.py as compatibility wrapper; mark temp exports # REMOVE-M4)
 
-vibecomfy/porting/helper_resolve.py ──extract──> vibecomfy/_helper_resolve.py
+vibecomfy/porting/helper_resolve.py ──extract──> vibecomfy/_compile/_resolve.py
   (keep conversion wrappers/errors in porting; IR-neutral core extracted)
 
-vibecomfy/porting/widget_aliases.py ──extract──> vibecomfy/_widget_aliases.py
+vibecomfy/porting/widget_aliases.py ──extract──> vibecomfy/_compile/_widgets.py
   vibecomfy/porting/widget_schema.py (static subset)
   (keep emitter/object-info fallback in porting; static compile-time subset extracted)
 
 vibecomfy/workflow.py:
-  - Import helper classification from _workflow_helpers (not porting)
-  - Import helper-edge resolution from _helper_resolve (not porting)
-  - Import widget aliasing from _widget_aliases (not porting)
+  - Import helper classification from _compile._helpers (not porting)
+  - Import helper-edge resolution from _compile._resolve (not porting)
+  - Import widget aliasing from _compile._widgets (not porting)
   - Move OPAQUE_COMPONENT_CLASS_RE to contracts/validation.py
   - Move VAELoaderKJ/LTX audio VAE check to contracts/validation.py
 
@@ -117,9 +117,9 @@ Protected IR-core modules (import-linter):
   - vibecomfy.workflow
   - vibecomfy.metadata
   - vibecomfy.contracts.ir
-  - vibecomfy._workflow_helpers (after T4)
-  - vibecomfy._helper_resolve (after T5, if created)
-  - vibecomfy._widget_aliases (after T6)
+  - vibecomfy._compile._helpers (after T4)
+  - vibecomfy._compile._resolve (after T5, if created)
+  - vibecomfy._compile._widgets (after T6)
   - vibecomfy.handles (only if exact-module syntax groups it)
 
 Forbidden imports for protected modules:
@@ -229,9 +229,9 @@ source_modules =
     vibecomfy.workflow
     vibecomfy.metadata
     vibecomfy.contracts.ir
-    vibecomfy._workflow_helpers
-    vibecomfy._helper_resolve
-    vibecomfy._widget_aliases
+    vibecomfy._compile._helpers
+    vibecomfy._compile._resolve
+    vibecomfy._compile._widgets
 forbidden_modules =
     vibecomfy.porting
     vibecomfy.commands

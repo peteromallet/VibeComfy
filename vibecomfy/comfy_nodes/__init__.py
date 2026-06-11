@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .exec_node import EXEC_CLASS_TYPE, VibeComfyExec
 from vibecomfy.contracts.intent_nodes import KIND_TO_CLASS_TYPE
 
 WEB_DIRECTORY = "./web"
@@ -16,7 +15,7 @@ try:
 
         return web.json_response({"status": "ok"})
 
-    from . import routes  # noqa: F401
+    from .agent import routes  # noqa: F401
 
 except ImportError:
     pass
@@ -126,7 +125,7 @@ class VibeComfyCodeIntent(_VibeComfyIntentNodeBase):
         }
 
     def execute(self, value: Any, **kwargs: Any) -> tuple[Any]:
-        from vibecomfy.comfy_nodes.runtime_code import execute_runtime_code
+        from vibecomfy.comfy_nodes.agent.runtime_code import execute_runtime_code
 
         return (execute_runtime_code(value=value, **kwargs),)
 
@@ -137,14 +136,12 @@ class VibeComfyLoopIntent(_VibeComfyIntentNodeBase):
 
 NODE_CLASS_MAPPINGS = {
     "VibeComfyStripConditioningKeys": VibeComfyStripConditioningKeys,
-    EXEC_CLASS_TYPE: VibeComfyExec,
     KIND_TO_CLASS_TYPE["code"]: VibeComfyCodeIntent,
     KIND_TO_CLASS_TYPE["loop"]: VibeComfyLoopIntent,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VibeComfyStripConditioningKeys": "VibeComfy Strip Conditioning Keys",
-    EXEC_CLASS_TYPE: "VibeComfy Exec",
     KIND_TO_CLASS_TYPE["code"]: "VibeComfy Code Intent",
     KIND_TO_CLASS_TYPE["loop"]: "VibeComfy Loop Intent",
 }

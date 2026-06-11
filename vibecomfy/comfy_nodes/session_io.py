@@ -7,12 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
-from .agent_contracts import ensure_agent_edit_response_contract, TurnContext
-from .agent_session import read_state, session_dir_for
+from .agent.contracts import ensure_agent_edit_response_contract, TurnContext
+from .agent.session import read_state, session_dir_for
 from .stages.humanize import _field_changes_payload, _json_safe, _safe_session_id
 
 if TYPE_CHECKING:
-    from .agent_edit import AgentEditState
+    from .agent.edit import AgentEditState
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CHAT_DISPLAY_MESSAGES = 50

@@ -28,14 +28,14 @@ def _ensure_import_path() -> None:
 
 def _load_fields() -> tuple[str, ...]:
     """Load REBASELINE_RECOVERY_FIELDS from the Python source of truth."""
-    from vibecomfy.comfy_nodes.agent_contracts import REBASELINE_RECOVERY_FIELDS
+    from vibecomfy.comfy_nodes.agent.contracts import REBASELINE_RECOVERY_FIELDS
 
     return REBASELINE_RECOVERY_FIELDS
 
 
 def _load_constants() -> dict[str, object]:
     """Load shared constants from the Python source of truth."""
-    from vibecomfy.comfy_nodes.agent_contracts import (
+    from vibecomfy.comfy_nodes.agent.contracts import (
         FAILURE_HINT_KEYS,
         INTERNAL_TO_PUBLIC_OUTCOME,
         PUBLIC_OUTCOME_KINDS,

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 from vibecomfy.custom_node_refs import normalize_custom_node_requirements
-from vibecomfy.templates import load_comfy_metadata  # shared cached loader
 from vibecomfy.utils import find_repo_root
 
 from vibecomfy.metadata import (
@@ -838,7 +837,7 @@ def _metadata_with_static_derivations(metadata: dict[str, Any], path: Path, sour
         if source_workflow:
             out["source_workflow"] = source_workflow
     out.setdefault("vibecomfy_version", _project_version())
-    out.setdefault("comfy_core", load_comfy_metadata())
+    out.setdefault("comfy_core", _comfy_core_metadata())
     return out
 
 
@@ -910,6 +909,17 @@ def _project_version() -> str:
     project = data.get("project") if isinstance(data, dict) else None
     version = project.get("version") if isinstance(project, dict) else None
     return str(version) if version else "0"
+
+
+def _comfy_core_metadata() -> dict[str, Any]:
+    try:
+        data = json.loads((_repo_root() / "vibecomfy" / "comfy_metadata.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    core = data.get("core") if isinstance(data, dict) and isinstance(data.get("core"), dict) else data
+    if not isinstance(core, dict):
+        return {}
+    return {key: value for key, value in core.items() if key in {"version", "commit", "tested_at", "status"}}
 
 
 def _call_name(func: ast.AST) -> str:

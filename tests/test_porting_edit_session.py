@@ -742,7 +742,7 @@ class TestIntegrationBoundaries:
 
     def test_handle_agent_edit_exists_and_location(self) -> None:
         """handle_agent_edit is in vibecomfy/comfy_nodes/agent_edit.py."""
-        from vibecomfy.comfy_nodes.agent_edit import handle_agent_edit
+        from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
 
         assert callable(handle_agent_edit)
         # M1 must NOT wire into handle_agent_edit.

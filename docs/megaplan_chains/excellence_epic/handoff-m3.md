@@ -14,7 +14,7 @@
 | 1 | `VibeWorkflow.set_input(name, value)` raises `ValueError` for unregistered names, unknown aliases, stale node targets, and stale field targets. Previously it parked unknowns silently in `metadata['unbound_inputs']`. | All callers of `set_input`, `set_prompt`, `set_seed`, `set_steps`, `set_model`. | Use `wf.inputs` to inspect registered names; fix template public-input registration before calling setters. |
 | 2 | `set_input` no longer writes new `metadata['unbound_inputs']` entries. | Code that relied on deferred unknown-input parking. | Register inputs explicitly with `wf.register_input(name, node_id, field)` before calling `set_input`. |
 | 3 | `VibeWorkflow.validate()` calls `compile('api')` unconditionally regardless of `schema_provider`. Compile failures produce error-severity `api_compile_failed` issues; `report.ok = False` when compile fails. | Code that assumed `report.ok = True` when no schema provider was given. | Check `report.ok`; fix compile errors exposed by unconditional check. |
-| 4 | IR-neutral modules extracted: `vibecomfy._workflow_helpers`, `vibecomfy._helper_resolve`, `vibecomfy._widget_aliases`. These are public but prefixed private-by-convention. `vibecomfy.porting.helpers`, `vibecomfy.porting.helper_resolve`, `vibecomfy.porting.widget_aliases` remain as compatibility wrappers (marked `# REMOVE-M4`). | Code importing directly from `porting.helpers` or `porting.helper_resolve`. | Import from `vibecomfy._workflow_helpers` / `vibecomfy._helper_resolve` / `vibecomfy._widget_aliases`. |
+| 4 | IR-neutral modules extracted: `vibecomfy._compile._helpers`, `vibecomfy._compile._resolve`, `vibecomfy._compile._widgets`. These are public via the `_compile/` private package. `vibecomfy.porting.helpers`, `vibecomfy.porting.helper_resolve`, `vibecomfy.porting.widget_aliases` remain as compatibility wrappers (marked `# REMOVE-M4`). | Code importing directly from `porting.helpers` or `porting.helper_resolve`. | Import from `vibecomfy._compile._helpers` / `vibecomfy._compile._resolve` / `vibecomfy._compile._widgets`. |
 | 5 | `VibeWorkflow._next_node_id()` returns the lowest unused positive numeric id (gap-filling) rather than `max + 1`. | Code relying on monotonically-increasing auto node-id assignment. | Explicit node ids remain unaffected; tests that snapshot auto-ids must accept lowest-unused behavior. |
 | 6 | `VibeWorkflow.connect()` / `replace_edge()`: bare string source refs default to output slot `0`; malformed refs raise `ValueError`. | Code passing bare string without intent of slot 0. | Explicit `Handle` refs or `"node_id.0"` syntax unchanged; check callers that relied on no-error behavior for malformed refs. |
 | 7 | `vibecomfy.contracts.ir` added — stable IR contract anchor with 6 stable `ir.*` codes and `IRContractAnchor` dataclass. Lazily exposed via `vibecomfy.contracts`. | Any code that cached `vibecomfy.contracts.__all__` at import time. | Re-import after lazy attribute access; use `vibecomfy.contracts.ir` symbols for stable contract codes. |
@@ -85,9 +85,9 @@ source_modules =
     vibecomfy.workflow
     vibecomfy.metadata
     vibecomfy.contracts.ir
-    vibecomfy._workflow_helpers
-    vibecomfy._helper_resolve
-    vibecomfy._widget_aliases
+    vibecomfy._compile._helpers
+    vibecomfy._compile._resolve
+    vibecomfy._compile._widgets
 forbidden_modules =
     vibecomfy.porting
     vibecomfy.commands

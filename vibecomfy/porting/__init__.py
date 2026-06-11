@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from vibecomfy.porting.identity import codec as slot_codec  # noqa: F401 — public M1 submodule
+from vibecomfy.porting import slot_codec  # noqa: F401 — public M1 submodule
 from vibecomfy.porting.assets import AssetAnalysis
-from vibecomfy.porting.emit.emitter import (
+from vibecomfy.porting.emitter import (
     EmissionDiagnostic,
     InputSignatureField,
     NodeSignatureRow,
@@ -16,7 +16,7 @@ from vibecomfy.porting.emit.emitter import (
     emit_available_node_signatures,
     format_signature_rows,
 )
-from vibecomfy.porting.edit.session import (
+from vibecomfy.porting.edit_session import (
     BatchResult,
     CompactDiagnostic,
     DoneResult,
@@ -26,21 +26,12 @@ from vibecomfy.porting.edit.session import (
     OutputSlotInfo,
     StatementResult,
 )
-from vibecomfy.porting.edit.types import FieldChange
+from vibecomfy.porting.edit_types import FieldChange
 from vibecomfy.porting.parity import (
     class_type_counter,
     compile_equivalent,
     topology_counter,
     widget_value_counter,
-)
-from vibecomfy.porting.provenance import (
-    ProvenanceConflict,
-    ProvenanceRecord,
-    ProvenanceReport,
-    ProvenanceRequirement,
-    ProvenanceVersionPin,
-    ProvenanceWarning,
-    extract_provenance,
 )
 from vibecomfy.porting.report import (
     AssetCandidate,
@@ -50,7 +41,7 @@ from vibecomfy.porting.report import (
     PortIssue,
     PortReport,
 )
-from vibecomfy.porting.identity.codec import (
+from vibecomfy.porting.slot_codec import (
     build_reverse_map,
     encode_slot_names,
     to_python_identifier,
@@ -101,12 +92,6 @@ __all__ = [
     "OutputSignatureField",
     "PortArtifact",
     "PortIssue",
-    "ProvenanceConflict",
-    "ProvenanceRecord",
-    "ProvenanceReport",
-    "ProvenanceRequirement",
-    "ProvenanceVersionPin",
-    "ProvenanceWarning",
     "PortReport",
     "READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT",
     "READABILITY_WARNING_CODES",
@@ -133,7 +118,6 @@ __all__ = [
     "to_python_identifier",
     "to_raw_name",
     "topology_counter",
-    "extract_provenance",
     "validate_strict_ready_workflow",
     "widget_value_counter",
 ]

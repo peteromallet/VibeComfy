@@ -4,7 +4,6 @@ import importlib.metadata
 import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable
 from typing import Any
 
 
@@ -17,22 +16,22 @@ _REGISTERED_READY_ROOTS: list[Path] = []
 
 @dataclass(frozen=True)
 class PluginAPI:
-    def register_block(self, fn: Callable[..., Any]) -> Callable[..., Any]:
+    def register_block(self, fn: Any) -> Any:
         from vibecomfy.blocks import block
 
         return block(fn)
 
-    def register_patch(self, patch: Callable[..., Any]) -> Callable[..., Any]:
+    def register_patch(self, patch: Any) -> Any:
         from vibecomfy.patches.registry import register
 
         return register(patch)
 
-    def register_op(self, verb_kind: str, verb_name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
+    def register_op(self, verb_kind: str, verb_name: str, fn: Any) -> Any:
         from vibecomfy.ops.registry import register_op
 
         return register_op(verb_kind, verb_name, fn)
 
-    def register_route(self, verb_kind: str, verb_name: str, predicate: Callable[..., Any], template_id: str, patches: Any = ()) -> Callable[..., Any]:
+    def register_route(self, verb_kind: str, verb_name: str, predicate: Any, template_id: str, patches: Any = ()) -> Any:
         from vibecomfy.router_rules import register_route
 
         return register_route(verb_kind, verb_name, predicate, template_id, patches)

@@ -10,8 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-from ._time_utils import _now
-from .agent_contracts import FailureEnvelope, FailureKind, TurnContext, failure_envelope
+from .contracts import FailureEnvelope, FailureKind, TurnContext, failure_envelope
 
 STATE_FILE_NAME = "session_state.json"
 LOCK_FILE_NAME = ".session_state.lock"
@@ -98,6 +97,10 @@ def canonical_json_bytes(value: Any) -> bytes:
 
 def payload_hash(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 class SessionStateLock:
@@ -401,37 +404,6 @@ def _normalize_structural_link(value: Any) -> Any:
             for key, entry in sorted(value.items(), key=lambda item: str(item[0]))
         }
     return value
-
-
-_EXEC_CLASS_TYPE = "vibecomfy.exec"
-_EXEC_STABLE_IN_RE = re.compile(r"^in_\d+$")
-_EXEC_STABLE_OUT_RE = re.compile(r"^out_\d+$")
-
-
-def _exec_stable_input_name(name: Any, idx: int) -> str | None:
-    """Return a stable wire key for a ``vibecomfy.exec`` input socket.
-
-    Prefers the existing ``name`` when it already matches the ``in_N`` pattern
-    (as set by the frontend reconciliation in T11).  Otherwise derives a stable
-    name from the socket's ordinal position, skipping the fixed widget inputs
-    (``source`` at 0, ``io`` at 1) so that the first data socket always maps to
-    ``in_0`` regardless of widget ordering.
-    """
-    if isinstance(name, str) and _EXEC_STABLE_IN_RE.match(name):
-        return name
-    # Data sockets start at index 2 (after source + io widgets)
-    data_idx = idx - 2
-    return f"in_{data_idx}" if data_idx >= 0 else f"in_{idx}"
-
-
-def _exec_stable_output_name(name: Any, idx: int) -> str | None:
-    """Return a stable wire key for a ``vibecomfy.exec`` output socket.
-
-    Prefers the existing ``name`` when it already matches the ``out_N`` pattern.
-    """
-    if isinstance(name, str) and _EXEC_STABLE_OUT_RE.match(name):
-        return name
-    return f"out_{idx}"
 
 
 def structural_graph_projection(graph: Any) -> dict[str, Any]:

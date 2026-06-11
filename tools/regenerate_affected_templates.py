@@ -55,7 +55,7 @@ def regenerate_one(ready_id: str, source: str, *, dry_run: bool = False) -> tupl
         ManualTemplateRefusal,
     )
     from vibecomfy.errors import ConversionParityError
-    from vibecomfy._workflow_helpers import HelperDiagnostic
+    from vibecomfy._compile._helpers import HelperDiagnostic
     from vibecomfy.schema import ConversionSchemaProvider
 
     source_path = REPO_ROOT / source

@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from vibecomfy.comfy_nodes.agent_edit import _format_available_node_names, _present_class_types
-from vibecomfy.comfy_nodes.agent_provider import build_batch_messages
+from vibecomfy.comfy_nodes.agent.edit import _format_available_node_names, _present_class_types
+from vibecomfy.comfy_nodes.agent.provider import build_batch_messages
 from vibecomfy.porting.edit.session import EditSession
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec

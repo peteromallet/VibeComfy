@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from vibecomfy.comfy_nodes.agent_contracts import (
+from vibecomfy.comfy_nodes.agent.contracts import (
     AGENT_EDIT_TURN_CONTRACT_VERSION,
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,

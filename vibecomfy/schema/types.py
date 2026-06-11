@@ -27,17 +27,6 @@ class NodeSchema:
     pack: str | None
     inputs: dict[str, InputSpec]
     outputs: list[OutputSpec]
-    # -- provenance fields (defaults so existing code works unchanged) ------
-    source_provider: str = "unknown"
-    source_path: str | None = None
-    source_cache_path: str | None = None
-    source_server_url: str | None = None
-    source_package: str | None = None
-    source_version: str | None = None
-    source_hash: str | None = None
-    confidence: float = 1.0
-    conflicts: tuple[str, ...] = ()
-    ignored_evidence: tuple[str, ...] = ()
 
 
 class SchemaIndexError(ValueError):

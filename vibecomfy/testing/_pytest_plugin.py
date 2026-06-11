@@ -1,4 +1,4 @@
-"""Pytest plugin for VibeComfy user tests.
+"""Pytest plugin for VibeComfy user tests (T9).
 
 Triggers on `test_workflow_*.py` files; auto-wraps functions that return a
 `VibeWorkflow` with `assert_compiles_cleanly`. Plain `test_*` functions in

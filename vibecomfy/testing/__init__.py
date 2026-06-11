@@ -56,11 +56,25 @@ __all__ = [
     "canonicalize_api",
 ]
 
-# Real implementations from fixtures (T4).
-from .fixtures import (
-    dry_runtime,
-    make_handle_factory,
-    make_workflow_factory,
-    vibecomfy_handle_factory,
-    vibecomfy_workflow_factory,
-)
+
+def _not_yet_implemented(_name: str):
+    def _stub(*_args, **_kwargs):  # pragma: no cover - placeholder
+        raise NotImplementedError(
+            f"vibecomfy.testing.{_name} is forward-declared by T1; "
+            "implementation lands in a later batch."
+        )
+
+    _stub.__name__ = _name
+    _stub.__qualname__ = _name
+    return _stub
+
+
+# Forward-declared placeholders. Later batches replace each of these with
+# `from .<module> import <name>` re-exports.
+# (T2: assertions now imported above.)
+
+vibecomfy_workflow_factory = _not_yet_implemented("vibecomfy_workflow_factory")
+vibecomfy_handle_factory = _not_yet_implemented("vibecomfy_handle_factory")
+dry_runtime = _not_yet_implemented("dry_runtime")
+make_workflow_factory = _not_yet_implemented("make_workflow_factory")
+make_handle_factory = _not_yet_implemented("make_handle_factory")

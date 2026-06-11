@@ -734,7 +734,7 @@ def test_exec_node_registered_and_not_intent() -> None:
     assert is_intent_class_type(EXEC_CLASS_TYPE) is False
 
     # --- classification: NOT in UI-only / helper class sets -----------------
-    from vibecomfy._workflow_helpers import (
+    from vibecomfy._compile._helpers import (
         UI_ONLY_CLASS_TYPES,
         BROADCAST_HELPER_CLASS_TYPES,
         HELPER_CLASS_TYPES,
@@ -804,7 +804,7 @@ def test_exec_node_survives_compile_api() -> None:
 
 
 def test_exec_node_has_builtin_schema_and_widget_aliases() -> None:
-    from vibecomfy._widget_aliases import WIDGET_SCHEMA
+    from vibecomfy._compile._widgets import WIDGET_SCHEMA
     from vibecomfy.schema.provider import schema_for
 
     schema = schema_for(None, "vibecomfy.exec")
@@ -818,7 +818,7 @@ def test_exec_node_has_builtin_schema_and_widget_aliases() -> None:
 
 
 def test_runtime_code_executor_returns_json_result_from_child_process() -> None:
-    from vibecomfy.comfy_nodes.runtime_code import execute_runtime_code
+    from vibecomfy.comfy_nodes.agent.runtime_code import execute_runtime_code
 
     result = execute_runtime_code(
         value=2,
@@ -839,8 +839,8 @@ def test_runtime_code_executor_returns_json_result_from_child_process() -> None:
 
 
 def test_runtime_code_executor_rejects_non_json_inputs_and_outputs(monkeypatch: pytest.MonkeyPatch) -> None:
-    from vibecomfy.comfy_nodes import runtime_code
-    from vibecomfy.comfy_nodes.runtime_code import RuntimeCodeExecutionError, execute_runtime_code
+    from vibecomfy.comfy_nodes.agent import runtime_code
+    from vibecomfy.comfy_nodes.agent.runtime_code import RuntimeCodeExecutionError, execute_runtime_code
 
     with pytest.raises(RuntimeCodeExecutionError, match="runtime_input_not_json"):
         execute_runtime_code(
@@ -875,8 +875,8 @@ def test_runtime_code_executor_enforces_timeout_and_scrubbed_child_environment(
 ) -> None:
     import os
 
-    from vibecomfy.comfy_nodes import runtime_code
-    from vibecomfy.comfy_nodes.runtime_code import RuntimeCodeExecutionError
+    from vibecomfy.comfy_nodes.agent import runtime_code
+    from vibecomfy.comfy_nodes.agent.runtime_code import RuntimeCodeExecutionError
 
     monkeypatch.setenv("VIBECOMFY_RUNTIME_TEST_SECRET", "leak")
     monkeypatch.setattr(

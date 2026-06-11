@@ -5,7 +5,7 @@ from __future__ import annotations
 import keyword
 from typing import Any
 
-from vibecomfy._graph_utils import is_api_link
+from vibecomfy._compile._graph import is_api_link
 from .formatting import format_value
 from vibecomfy.porting.widgets.schema import WIDGET_SCHEMA
 from vibecomfy.porting.widgets.aliases import resolve_widget_name

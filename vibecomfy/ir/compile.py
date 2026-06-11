@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from vibecomfy import _graph_utils as graph_utils
-from vibecomfy import _helper_resolve as helper_resolve
-from vibecomfy import _widget_aliases as widget_aliases
-from vibecomfy import _workflow_helpers as workflow_helpers
+from vibecomfy._compile import _graph as graph_utils
+from vibecomfy._compile import _resolve as helper_resolve
+from vibecomfy._compile import _widgets as widget_aliases
+from vibecomfy._compile import _helpers as workflow_helpers
 from vibecomfy.ir.types import VibeEdge, VibeNode, WorkflowCompileError
 
 

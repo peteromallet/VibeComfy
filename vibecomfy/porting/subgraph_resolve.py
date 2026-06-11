@@ -67,7 +67,7 @@ def resolve_subgraph_helpers(
     if pre_collected_broadcasts is not None:
         top_broadcasts = pre_collected_broadcasts
     else:
-        from vibecomfy._workflow_helpers import collect_broadcast_sources
+        from vibecomfy._compile._helpers import collect_broadcast_sources
         top_broadcasts = collect_broadcast_sources(top_level_nodes, top_level_edges)
 
     for sg in subgraphs:

@@ -9,13 +9,12 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from vibecomfy.porting.emit.emitter import (
+from vibecomfy.porting.emitter import (
     EmissionDiagnostic,
     EmissionSeverity,
     emit_ready_template_python,
     emit_scratchpad_python,
 )
-from vibecomfy.porting.object_info.consume import ObjectInfoIdentity
 from vibecomfy.porting.helper_resolve import ResolveDiagnostics, resolve_helpers
 from vibecomfy.porting.parity import (
     class_type_counter,
@@ -32,7 +31,8 @@ from vibecomfy.porting.strict_ready import (
     StrictReadyContext,
     validate_strict_ready_workflow,
 )
-from vibecomfy.porting.widgets.aliases import widget_alias_analysis
+from vibecomfy.porting.widget_aliases import widget_alias_analysis
+from vibecomfy.utils import repo_relative_path
 from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow
 
 # -- model-like value detection ----------------------------------------------
@@ -40,12 +40,7 @@ from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow
 _MODEL_LIKE_EXTENSIONS: frozenset[str] = frozenset(
     {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx"}
 )
-from vibecomfy.porting._provenance_utils import (
-    _normalize_provenance_paths,
-    _PROVENANCE_PATH_KEYS,
-    _repo_relative_provenance_path,
-)
-
+_PROVENANCE_PATH_KEYS: frozenset[str] = frozenset({"source_path", "source_workflow_path", "source_workflow"})
 logger = logging.getLogger(__name__)
 
 
@@ -79,13 +74,7 @@ class PortConvertValidation:
     # Readability diagnostics collected during emission
     emission_diagnostics: list[EmissionDiagnostic] = field(default_factory=list)
 
-    # True when conversion emitted ``unprovenanced_class_fallback`` or
-    # ``provenance_identity_cache_miss`` warnings — downstream tooling must
-    # treat the resulting graph as low-confidence (e.g., the emitted template
-    # may not faithfully reflect the pinned object_info schema).
-    low_confidence: bool = False
-
-    # Model-like value comparison
+    # Model-like value comparison (T8)
     model_value_change: bool = False
     """True when aliasing changed a model-like value between source and emitted."""
     model_value_dropped: bool = False
@@ -132,7 +121,6 @@ class PortConvertValidation:
             "source_topology_snapshot": self.source_topology_snapshot,
             "emitted_topology_snapshot": self.emitted_topology_snapshot,
             "emission_diagnostics": [d.to_json() for d in self.emission_diagnostics],
-            "low_confidence": self.low_confidence,
             "model_value_change": self.model_value_change,
             "model_value_dropped": self.model_value_dropped,
             "hidden_model_filenames": self.hidden_model_filenames,
@@ -176,24 +164,10 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
     ``resolve_subgraph_helpers`` and ``resolve_helpers`` (which delete these nodes
     in place). Returns ``{}`` when the graph has no virtual-wire nodes.
     """
-    from vibecomfy._workflow_helpers import (
+    from vibecomfy._compile._helpers import (
         BROADCAST_HELPER_CLASS_TYPES,
         broadcast_name,
     )
-
-    # Build endpoint index once (O(N+M)) instead of scanning edges per node.
-    edges_by_endpoint: dict[str, list[list]] = {}
-    for edge in workflow.edges:
-        from_s = str(edge.from_node)
-        to_s = str(edge.to_node)
-        incident = [edge.from_node, edge.from_output, edge.to_node, edge.to_input]
-        if from_s == to_s:
-            # Self-loop: record once under the node_id so the lookup below
-            # finds it without double-insertion.
-            edges_by_endpoint.setdefault(from_s, []).append(incident)
-        else:
-            edges_by_endpoint.setdefault(from_s, []).append(incident)
-            edges_by_endpoint.setdefault(to_s, []).append(incident)
 
     captured: dict[str, dict[str, Any]] = {}
     for node_id, node in workflow.nodes.items():
@@ -208,7 +182,11 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
             if node.class_type in BROADCAST_HELPER_CLASS_TYPES
             else None
         )
-        endpoints = edges_by_endpoint.get(str(node_id), [])
+        endpoints = [
+            [edge.from_node, edge.from_output, edge.to_node, edge.to_input]
+            for edge in workflow.edges
+            if str(edge.from_node) == str(node_id) or str(edge.to_node) == str(node_id)
+        ]
         captured[uid] = {
             "type": node.class_type,
             "channel": channel,
@@ -217,40 +195,6 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
             "endpoints": endpoints,
         }
     return captured
-
-
-def _node_object_info_identities(raw_workflow: dict[str, Any]) -> dict[str, ObjectInfoIdentity]:
-    """Derive a node_id -> ObjectInfoIdentity map from raw workflow provenance.
-
-    Uses the shared provenance requirement builder, independent of ensure-env.
-    Returns an empty dict when provenance data is absent or unparseable.
-    """
-    from vibecomfy.porting.provenance import extract_provenance
-
-    try:
-        report = extract_provenance(raw_workflow)
-    except Exception:
-        return {}
-
-    result: dict[str, ObjectInfoIdentity] = {}
-    for req in report.requirements:
-        pack_slug: str | None = req.cnr_id
-        if not pack_slug and req.aux_id:
-            # Use owner/repo from aux_id as the slug (no registry cnr_id)
-            pack_slug = req.aux_id
-        if not pack_slug:
-            continue
-        git_commit: str | None = None
-        if req.version_pin is not None:
-            git_commit = req.version_pin.version or None
-        identity = ObjectInfoIdentity(
-            pack_slug=pack_slug,
-            git_commit=git_commit,
-            evidence_identity=req.identity_key or None,
-        )
-        for node_id in req.node_ids:
-            result[node_id] = identity
-    return result
 
 
 def port_convert_workflow(
@@ -282,7 +226,7 @@ def port_convert_workflow(
     # their sources.  Capturing this snapshot avoids a use-after-delete
     # race between resolve_helpers (which deletes SetNode) and
     # resolve_subgraph_helpers (which needs SetNode broadcast data).
-    from vibecomfy._workflow_helpers import collect_broadcast_sources as _collect_broadcasts
+    from vibecomfy._compile._helpers import collect_broadcast_sources as _collect_broadcasts
     _pre_resolve_broadcasts = _collect_broadcasts(workflow.nodes, workflow.edges)
 
     # ── M2 Step 8: snapshot furniture BEFORE any helper resolution ──────
@@ -333,7 +277,7 @@ def port_convert_workflow(
     # channel (FG-005): convert each HelperDiagnostic into an
     # EmissionDiagnostic so they flow through the standard
     # PortConvertValidation.to_json() reporting path.
-    from vibecomfy._workflow_helpers import HelperDiagnostic
+    from vibecomfy._compile._helpers import HelperDiagnostic
 
     for hd in resolve_diagnostics.diagnostics:
         sev: EmissionSeverity = "warning"
@@ -351,12 +295,6 @@ def port_convert_workflow(
                 detail=hd.detail,
             )
         )
-
-    # Derive node-level object-info identities from the raw workflow via the
-    # shared provenance requirement builder, independent of ensure-env.
-    object_info_identities: dict[str, ObjectInfoIdentity] | None = None
-    if raw_workflow is not None:
-        object_info_identities = _node_object_info_identities(raw_workflow) or None
 
     if ready_id is None:
         complete_provenance = _conversion_provenance(
@@ -377,7 +315,6 @@ def port_convert_workflow(
             diagnostics=emission_diagnostics,
             keep_virtual_wires=keep_virtual_wires,
             prune_dead_branches=prune_dead_branches,
-            object_info_identities=object_info_identities,
         )
         mode: PortConvertMode = "scratchpad"
     else:
@@ -399,7 +336,6 @@ def port_convert_workflow(
             registered_inputs=registered_inputs,
             diagnostics=emission_diagnostics,
             raw_workflow=raw_workflow,
-            object_info_identities=object_info_identities,
         )
         mode = "ready_template"
 
@@ -425,7 +361,7 @@ def port_convert_workflow(
             class_widget_aliases[ct] = list(aliases)
         elif schema_provider is not None:
             try:
-                from vibecomfy.porting.widgets.aliases import LINK_ONLY_TYPES
+                from vibecomfy.porting.widget_aliases import LINK_ONLY_TYPES
                 schema = schema_provider.get_schema(ct) if hasattr(schema_provider, "get_schema") else None
                 if schema is not None:
                     inputs = getattr(schema, "inputs", None)
@@ -448,11 +384,6 @@ def port_convert_workflow(
     if validate:
         result.validation = validate_emitted_module(text, schema_provider=schema_provider)
         result.validation.emission_diagnostics = emission_diagnostics
-        if any(
-            d.code in ("unprovenanced_class_fallback", "provenance_identity_cache_miss")
-            for d in emission_diagnostics
-        ):
-            result.validation.low_confidence = True
         if ready_id is not None and result.validation is not None:
             _run_strict_ready_candidate_validation(
                 result.validation,
@@ -509,7 +440,7 @@ def port_convert_workflow(
                                 result.validation.source_topology_snapshot = len(src_topo)
                                 result.validation.emitted_topology_snapshot = len(emit_topo)
 
-                                # -- model-like value comparison --------
+                                # -- model-like value comparison (T8) --------
                                 _run_model_value_comparison(
                                     result.validation,
                                     source_api,
@@ -771,6 +702,22 @@ def _ready_metadata(
     return metadata
 
 
+def _normalize_provenance_paths(provenance: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(provenance)
+    for key in _PROVENANCE_PATH_KEYS:
+        value = normalized.get(key)
+        if isinstance(value, str) and value:
+            normalized[key] = _repo_relative_provenance_path(value)
+    return normalized
+
+
+def _repo_relative_provenance_path(path: str) -> str:
+    normalized = repo_relative_path(path)
+    if Path(normalized).is_absolute():
+        logger.warning("provenance path is outside the repo; keeping absolute path: %s", normalized)
+    return normalized
+
+
 def _ready_requirements(workflow: VibeWorkflow) -> dict[str, Any]:
     model_assets = workflow.metadata.get("model_assets")
     models = model_assets if isinstance(model_assets, list) else list(workflow.requirements.models)
@@ -868,6 +815,7 @@ def port_convert_and_write(
         target: Destination file path.
         dry_run: If True, emit conversion payload and evidence without writing.
         diff: If True, produce unified diff + JSON diff metadata (forces dry_run).
+        schema_provider: Optional schema provider for validation.
 
     Returns:
         A dict with `written`, `dry_run`, `diff`, and `validation` keys.
@@ -915,7 +863,7 @@ def port_convert_and_write(
             next_action="vibecomfy port --parity-check <target>",
         )
 
-    # Gate 2b: model-like value change / drop prevents write
+    # Gate 2b: model-like value change / drop prevents write (T8)
     if validation.model_value_change:
         raise ConversionWriteError(
             f"Model-like value changed after aliasing for {target}. "
@@ -991,7 +939,7 @@ def port_convert_and_write(
     }
 
 
-# -- model-like value snapshot & comparison -----------------------------
+# -- model-like value snapshot & comparison (T8) -----------------------------
 
 
 def _looks_like_model_value(value: Any) -> bool:
@@ -1159,7 +1107,7 @@ def _run_model_value_comparison(
                 )
             )
 
-    # Compare model-like values across all five sources
+    # Compare model-like values across all five sources (T8)
     _compare_model_values_across_sources(
         validation,
         src_snapshot,

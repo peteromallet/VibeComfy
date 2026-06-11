@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from vibecomfy._helper_resolve import (  # REMOVE-M4 compatibility exports
+from vibecomfy._compile._resolve import (  # REMOVE-M4 compatibility exports
     HelperResolveErrorSpec,
     ResolveDiagnostics,
     resolve_helpers as _resolve_helpers,
 )
-from vibecomfy._workflow_helpers import HelperDiagnostic
+from vibecomfy._compile._helpers import HelperDiagnostic
 from vibecomfy.errors import ConversionParityError
 from vibecomfy.porting.object_info import get_class
 from vibecomfy.workflow import VibeNode, VibeWorkflow

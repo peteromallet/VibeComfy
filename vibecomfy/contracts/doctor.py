@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from vibecomfy.contracts.model import WorkflowRuntimeContract
-from vibecomfy.ir import VibeWorkflow
+from vibecomfy.workflow import VibeWorkflow
 
 
 @dataclass(slots=True)

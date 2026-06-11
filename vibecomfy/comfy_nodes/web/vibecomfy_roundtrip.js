@@ -6,7 +6,6 @@ import {
   setCurrentAgentPanel,
 } from "./panel_runtime.js";
 import {
-  ALL_AGENT_PANEL_RENDER_SECTIONS,
   consumeAgentPanelDirtySections,
   ensureScheduledAgentPanelDirtyFlush,
   hasPendingAgentPanelFlush,
@@ -18,7 +17,6 @@ import {
   noteAgentPanelCommit,
   scheduleRenderAgentPanel,
   setRenderGateway,
-  SETTINGS_STATUS_RENDER_SECTIONS,
 } from "./panel_scheduler.js";
 import {
   collectThreadMessageEntries as collectThreadMessageEntriesImpl,
@@ -38,7 +36,6 @@ import {
   renderComposerActions as renderComposerActionsImpl,
   renderComposerNotice as renderComposerNoticeImpl,
   renderComposerNoticeSection as renderComposerNoticeSectionImpl,
-  renderDeveloper as renderDeveloperImpl,
   submitReadinessState as submitReadinessStateImpl,
   syncComposerButtons as syncComposerButtonsImpl,
 } from "./panel_composer.js";
@@ -48,11 +45,9 @@ import {
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
   installQueueGuard as installQueueGuardAdapter,
-  SUPPORTED_FRONTEND,
 } from "./comfy_adapter.js";
 import {
   createAgentEditState,
-  PANEL_STATE,
   RENDER_SECTIONS,
   normalizeDeltaOpsFromSubmit,
   normalizeObligationDirtySections,
@@ -64,15 +59,6 @@ import {
   readRebaselineRecovery,
   extractRebaselineRecovery,
 } from "./agent_edit_response_contract.js";
-import {
-  buildStatusUrl,
-  clearAgentStatusRetry,
-  refreshAgentStatus,
-  ROUTE_STATUS_KIND,
-  routeOptionsFromStatus,
-  routeStatusState,
-  scheduleAgentStatusRetry,
-} from "./agent_status_poller.js";
 
 export { RENDER_SECTIONS };
 export {
@@ -177,6 +163,19 @@ export {
 // { kind: "SerializeError" }. Backend failures carry a `kind` field
 // matching FailureKind.
 
+const SUPPORTED_FRONTEND = "1.39.x";
+const PANEL_STATE = Object.freeze({
+  IDLE: "IDLE",
+  SUBMITTING: "SUBMITTING",
+  AWAITING_REVIEW: "AWAITING_REVIEW",
+  APPLYING: "APPLYING",
+  // CLARIFY — the agent asked a question instead of producing a candidate.
+  // There is NO candidate to review (the graph is byte-identical), so we never
+  // enter AWAITING_REVIEW for these turns; the prompt stays open for the answer.
+  CLARIFY: "CLARIFY",
+  ERROR: "ERROR",
+});
+
 const APPLY_ELIGIBILITY_REASON = Object.freeze({
   APPLYABLE: "applyable",
   NO_CANDIDATE: "no_candidate",
@@ -188,6 +187,14 @@ const APPLY_ELIGIBILITY_REASON = Object.freeze({
   QUEUE_BLOCKED_WARNING: "queue_blocked_warning",
 });
 
+const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
+const SETTINGS_STATUS_RENDER_SECTIONS = Object.freeze([
+  RENDER_SECTIONS.THREAD,
+  RENDER_SECTIONS.SETTINGS,
+  RENDER_SECTIONS.COMPOSER,
+  RENDER_SECTIONS.NOTICE,
+]);
+const AGENT_STATUS_RETRY_DELAYS_MS = Object.freeze([250, 1000, 3000]);
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
 const AGENT_PANEL_SECTION_RENDER_RETRY_LIMIT = 3;
 const AGENT_SIDEBAR_TAB_ID = "vibecomfy.agent-edit";
@@ -228,6 +235,8 @@ const PANEL_IDS = Object.freeze({
   debugRegion: "vibecomfy-agent-panel-region-debug",
   developerRegion: "vibecomfy-agent-panel-region-developer",
   previewToggle: "vibecomfy-agent-preview-toggle",
+  changeEngine: "vibecomfy-agent-panel-change-engine",
+  welcomeOverlay: "vibecomfy-agent-panel-welcome-overlay",
 });
 
 const ROUTE_ALIASES = Object.freeze({
@@ -245,6 +254,14 @@ const ROUTE_LABELS = Object.freeze({
   deepseek: "deepseek",
   anthropic: "anthropic",
   "openai-codex": "openai-codex",
+});
+
+const ROUTE_STATUS_KIND = Object.freeze({
+  LOADING: "loading_status",
+  READY: "ready",
+  MISSING_OPTIONS: "missing_route_options",
+  MALFORMED: "malformed_status",
+  UNAVAILABLE: "status_unavailable",
 });
 
 const INTENT_NODE_CLASS_TYPES = new Set(["vibecomfy.code", "vibecomfy.loop"]);
@@ -276,7 +293,7 @@ const LOWERED_BADGE = "lowered";
 
 // ── localStorage helpers (safe wrappers — tolerate missing/throwing storage) ─
 const LS_ACTIVE_SESSION_KEY = "vibecomfy_active_session_id";
-const LS_EXEC_ACKNOWLEDGED_KEY = "vibecomfy_exec_acknowledged";
+const LS_AGENT_PROVIDER_KEY = "vibecomfy_agent_provider";
 
 function _lsGet(key) {
   try {
@@ -309,6 +326,23 @@ function _lsRemove(key) {
   } catch (_e) {
     // Best-effort.
   }
+}
+
+const CANONICAL_AGENT_PROVIDERS = new Set(["anthropic", "openai-codex", "deepseek"]);
+
+function getPersistedAgentProvider() {
+  const raw = _lsGet(LS_AGENT_PROVIDER_KEY);
+  if (raw == null) return null;
+  if (CANONICAL_AGENT_PROVIDERS.has(raw)) return raw;
+  return null;
+}
+
+function setPersistedAgentProvider(value) {
+  if (value == null) {
+    _lsRemove(LS_AGENT_PROVIDER_KEY);
+    return;
+  }
+  _lsSet(LS_AGENT_PROVIDER_KEY, String(value));
 }
 
 // ── Shared VibeComfy palette ────────────────────────────────────────────────
@@ -540,89 +574,6 @@ function patchIntentNodePrototype(nodeType, nodeData) {
     this.type = this.type || classType;
     decorateIntentNode(this, classType);
     drawIntentBadge(ctx, this);
-    return result;
-  };
-}
-
-// ── Exec node socket reconciliation ─────────────────────────────────────
-// Fixed wire keys SD1: in_0..in_15 and out_0..out_15 (16 each).
-// Reconciliation is idempotent across create/configure/reload and
-// is strictly gated to the vibecomfy.exec class type.
-
-const EXEC_SLOT_COUNT = 16;
-const EXEC_CLASS_TYPE_JS = "vibecomfy.exec";
-
-function _execSlotNames(prefix) {
-  const names = [];
-  for (let i = 0; i < EXEC_SLOT_COUNT; i += 1) {
-    names.push(prefix + i);
-  }
-  return names;
-}
-
-const EXEC_INPUT_NAMES = _execSlotNames("in_");
-const EXEC_OUTPUT_NAMES = _execSlotNames("out_");
-
-function _reconcileExecSockets(node) {
-  // inputs: keep exactly in_0..in_15, extra after the stable range
-  if (Array.isArray(node.inputs)) {
-    while (node.inputs.length > EXEC_SLOT_COUNT) {
-      // Remove tail-first so earlier sockets keep their index
-      node.removeInput(node.inputs.length - 1);
-    }
-    for (let i = 0; i < EXEC_SLOT_COUNT; i += 1) {
-      if (i >= node.inputs.length) {
-        node.addInput(EXEC_INPUT_NAMES[i], "*");
-      } else {
-        // Ensure stable wire key name
-        node.inputs[i].name = EXEC_INPUT_NAMES[i];
-        if ("label" in node.inputs[i] || typeof node.inputs[i] === "object") {
-          node.inputs[i].label = EXEC_INPUT_NAMES[i];
-        }
-      }
-    }
-  }
-
-  // outputs: keep exactly out_0..out_15
-  if (Array.isArray(node.outputs)) {
-    while (node.outputs.length > EXEC_SLOT_COUNT) {
-      node.removeOutput(node.outputs.length - 1);
-    }
-    for (let i = 0; i < EXEC_SLOT_COUNT; i += 1) {
-      if (i >= node.outputs.length) {
-        node.addOutput(EXEC_OUTPUT_NAMES[i], "*");
-      } else {
-        node.outputs[i].name = EXEC_OUTPUT_NAMES[i];
-        if ("label" in node.outputs[i] || typeof node.outputs[i] === "object") {
-          node.outputs[i].label = EXEC_OUTPUT_NAMES[i];
-        }
-      }
-    }
-  }
-}
-
-function patchExecNodePrototype(nodeType, nodeData) {
-  const proto = nodeType?.prototype;
-  const classType = String(nodeData?.name || nodeData?.type || "").trim();
-  if (!proto || classType !== EXEC_CLASS_TYPE_JS || proto.__vibecomfyExecPatched === classType) {
-    return;
-  }
-  proto.__vibecomfyExecPatched = classType;
-
-  const originalCreated = proto.onNodeCreated;
-  proto.onNodeCreated = function patchedExecNodeCreated(...args) {
-    const result = typeof originalCreated === "function" ? originalCreated.apply(this, args) : undefined;
-    this.type = this.type || classType;
-    // Read io from widget values first; derived metadata is fallback.
-    _reconcileExecSockets(this);
-    return result;
-  };
-
-  const originalConfigure = proto.onConfigure;
-  proto.onConfigure = function patchedExecNodeConfigure(...args) {
-    const result = typeof originalConfigure === "function" ? originalConfigure.apply(this, args) : undefined;
-    this.type = this.type || classType;
-    _reconcileExecSockets(this);
     return result;
   };
 }
@@ -2305,40 +2256,6 @@ function _structuralSocketNames(sockets) {
     : [];
 }
 
-/** Build stable in_N / out_N name arrays for vibecomfy.exec nodes by ordinal
- *  position, so the structural projection is deterministic after frontend
- *  reconciliation and API reload regardless of display label changes.
- *
- *  For inputs, data sockets start at index 2 (after source + io widgets),
- *  so index 2 → "in_0", index 3 → "in_1", etc.  When the existing name
- *  already matches the in_N / out_N pattern (set by reconciliation), it is
- *  preserved. */
-function _execStableSocketName(name, idx, prefix) {
-  if (typeof name === "string") {
-    const stableRe = prefix === "in_" ? /^in_\d+$/ : /^out_\d+$/;
-    if (stableRe.test(name)) {
-      return name;
-    }
-  }
-  // Data sockets start at index 2 for inputs (after source + io widgets).
-  const dataIdx = prefix === "in_" ? idx - 2 : idx;
-  return dataIdx >= 0 ? prefix + dataIdx : prefix + idx;
-}
-
-/** Build stable in_N / out_N name arrays for vibecomfy.exec nodes by ordinal
- *  position, so the structural projection is deterministic after frontend
- *  reconciliation and API reload regardless of display label changes. */
-function _execStableSocketNames(sockets, prefix) {
-  if (!Array.isArray(sockets)) {
-    return [];
-  }
-  return sockets.map((socket, idx) =>
-    socket && typeof socket === "object"
-      ? _execStableSocketName(socket.name ?? null, idx, prefix)
-      : null,
-  );
-}
-
 function _structuralSlotName(names, slot) {
   if (Number.isInteger(slot) && slot >= 0 && slot < names.length) {
     return names[slot] ?? null;
@@ -2358,65 +2275,29 @@ export function buildStructuralGraphProjection(graph) {
       continue;
     }
     const nodeId = rawNode.id ?? null;
-    const nodeType = rawNode.type;
-    if (nodeType === EXEC_CLASS_TYPE_JS) {
-      inputNames.set(nodeId, _execStableSocketNames(rawNode.inputs, "in_"));
-      outputNames.set(nodeId, _execStableSocketNames(rawNode.outputs, "out_"));
-    } else {
-      inputNames.set(nodeId, _structuralSocketNames(rawNode.inputs));
-      outputNames.set(nodeId, _structuralSocketNames(rawNode.outputs));
-    }
+    inputNames.set(nodeId, _structuralSocketNames(rawNode.inputs));
+    outputNames.set(nodeId, _structuralSocketNames(rawNode.outputs));
   }
 
   const nodes = rawNodes.map((rawNode) => {
     const node = rawNode && typeof rawNode === "object" ? rawNode : {};
-    const nodeType = node.type;
-    let wiredInputs;
-    let liveOutputs;
-    if (nodeType === EXEC_CLASS_TYPE_JS) {
-      const inputsList = Array.isArray(node.inputs) ? node.inputs : [];
-      wiredInputs = inputsList
-        .map((input, idx) =>
-          input && typeof input === "object" && input.link != null
-            ? _execStableSocketName(input.name ?? null, idx, "in_")
-            : null,
-        )
-        .filter((name) => name != null)
-        .sort();
-      const outputsList = Array.isArray(node.outputs) ? node.outputs : [];
-      liveOutputs = outputsList
-        .map((output, idx) => {
-          if (!output || typeof output !== "object" || output.name == null) {
-            return null;
-          }
-          const hasLinks = Array.isArray(output.links)
-            ? output.links.length > 0
-            : Boolean(output.links);
-          return hasLinks
-            ? _execStableSocketName(output.name ?? null, idx, "out_")
-            : null;
-        })
-        .filter((name) => name != null)
-        .sort();
-    } else {
-      wiredInputs = Array.isArray(node.inputs)
-        ? node.inputs
-            .filter((input) => input && typeof input === "object" && input.link != null && input.name != null)
-            .map((input) => String(input.name))
-            .sort()
-        : [];
-      liveOutputs = Array.isArray(node.outputs)
-        ? node.outputs
-            .filter((output) => {
-              if (!output || typeof output !== "object" || output.name == null) {
-                return false;
-              }
-              return Array.isArray(output.links) ? output.links.length > 0 : Boolean(output.links);
-            })
-            .map((output) => String(output.name))
-            .sort()
-        : [];
-    }
+    const wiredInputs = Array.isArray(node.inputs)
+      ? node.inputs
+          .filter((input) => input && typeof input === "object" && input.link != null && input.name != null)
+          .map((input) => String(input.name))
+          .sort()
+      : [];
+    const liveOutputs = Array.isArray(node.outputs)
+      ? node.outputs
+          .filter((output) => {
+            if (!output || typeof output !== "object" || output.name == null) {
+              return false;
+            }
+            return Array.isArray(output.links) ? output.links.length > 0 : Boolean(output.links);
+          })
+          .map((output) => String(output.name))
+          .sort()
+      : [];
     return {
       id: node.id ?? null,
       type: node.type ?? null,
@@ -2786,6 +2667,33 @@ function getBackendStageInfo(payload) {
   return { stage, progress };
 }
 
+function buildStatusUrl(route, model) {
+  const params = new URLSearchParams();
+  if (route) {
+    params.set("route", route);
+  }
+  if (model) {
+    params.set("model", model);
+  }
+  const query = params.toString();
+  return query ? `/vibecomfy/agent/status?${query}` : "/vibecomfy/agent/status";
+}
+
+function routeStatusState(panel) {
+  return panel?.state?.routeStatus || { kind: ROUTE_STATUS_KIND.LOADING };
+}
+
+function routeOptionsFromStatus(status) {
+  if (!status || typeof status !== "object" || Array.isArray(status)) {
+    return null;
+  }
+  const options = status.route_options;
+  if (!options || typeof options !== "object" || Array.isArray(options)) {
+    return null;
+  }
+  return options;
+}
+
 function getRouteOptions(panel) {
   return routeOptionsFromStatus(panel.state.statusSnapshot);
 }
@@ -2797,6 +2705,41 @@ function getRouteDescriptor(panel, route = panel.fields.route.value) {
 
 function nextMacrotask() {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function clearAgentStatusRetry(panel) {
+  const retry = panel?.state?.statusRetry;
+  if (retry?.timerId) {
+    clearTimeout(retry.timerId);
+  }
+  if (panel?.state) {
+    panel.state.statusRetry = null;
+  }
+}
+
+function scheduleAgentStatusRetry(panel, route, model, { quiet = true } = {}) {
+  if (!panel?.state) {
+    return;
+  }
+  const prior = panel.state.statusRetry;
+  const priorAttempts =
+    prior?.route === route && prior?.model === model && Number.isFinite(prior?.attempts)
+      ? prior.attempts
+      : 0;
+  const attempts = priorAttempts + 1;
+  if (attempts > AGENT_STATUS_RETRY_DELAYS_MS.length) {
+    panel.state.statusRetry = { route, model, attempts: priorAttempts, exhausted: true, timerId: null };
+    return;
+  }
+  const delayMs = AGENT_STATUS_RETRY_DELAYS_MS[attempts - 1];
+  const timerId = setTimeout(() => {
+    if (!panel?.state?.statusRetry || panel.state.statusRetry.timerId !== timerId) {
+      return;
+    }
+    panel.state.statusRetry.timerId = null;
+    refreshAgentStatus(panel, { quiet });
+  }, delayMs);
+  panel.state.statusRetry = { route, model, attempts, exhausted: false, timerId };
 }
 
 function populateRouteSelect(selectNode, routeOptions, {
@@ -2830,6 +2773,155 @@ function populateRouteSelect(selectNode, routeOptions, {
     selectNode.appendChild(node);
   }
   selectNode.value = desired.includes(preferredRoute) ? preferredRoute : desired[0];
+}
+
+async function refreshAgentStatus(panel, { quiet = false } = {}) {
+  const route = normalizeRoutePreference(panel.fields.route.value);
+  const model = normalizeModelPreference(panel.fields.model.value);
+  const requestEpoch =
+    (Number.isFinite(panel.state.statusRequestEpoch) ? panel.state.statusRequestEpoch : 0) + 1;
+  panel.state.statusRequestEpoch = requestEpoch;
+  const priorRetry = panel.state.statusRetry;
+  const retryAttempts =
+    priorRetry?.route === route && priorRetry?.model === model && Number.isFinite(priorRetry?.attempts)
+      ? priorRetry.attempts
+      : 0;
+  if (priorRetry?.timerId) {
+    clearTimeout(priorRetry.timerId);
+  }
+  panel.state.statusRetry = retryAttempts > 0
+    ? { route, model, attempts: retryAttempts, exhausted: false, timerId: null }
+    : null;
+  panel.state.routeStatus = {
+    kind: ROUTE_STATUS_KIND.LOADING,
+    requestedRoute: route,
+    model,
+  };
+  if (typeof document !== "undefined") {
+    renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
+  }
+  try {
+    // Keep the initial "loading" paint observable, then let tests/users observe
+    // the completed state after the request has actually been issued.
+    await nextMacrotask();
+    const res = await fetch(buildStatusUrl(route, model));
+    let status = null;
+    try {
+      status = await res.json();
+    } catch (error) {
+      if (Number.isFinite(requestEpoch) && panel.state.statusRequestEpoch !== requestEpoch) {
+        return;
+      }
+      console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", error);
+      panel.state.statusSnapshot = null;
+      panel.state.routeStatus = {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        requestedRoute: route,
+        model,
+        detail: String(error),
+      };
+      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: "Malformed status payload",
+        selectedRoute: route,
+      });
+      panel.fields.route.value = route;
+      if (typeof document !== "undefined") {
+        markAgentPanelDirtyAfterCommit(panel, SETTINGS_STATUS_RENDER_SECTIONS, "status");
+      }
+      return;
+    }
+    if (Number.isFinite(requestEpoch) && panel.state.statusRequestEpoch !== requestEpoch) {
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    clearAgentStatusRetry(panel);
+    panel.state.statusSnapshot = status;
+    const requestedRoute = normalizeRoutePreference(status?.requested_route || route);
+    const routeOptions = routeOptionsFromStatus(status);
+    if (!status || typeof status !== "object" || Array.isArray(status)) {
+      console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", status);
+      panel.state.routeStatus = {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        requestedRoute,
+        model,
+      };
+      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: "Malformed status payload",
+        selectedRoute: requestedRoute,
+      });
+      panel.fields.route.value = requestedRoute;
+    } else if (!routeOptions) {
+      console.warn("[vibecomfy] status payload missing route_options", status);
+      panel.state.routeStatus = {
+        kind: ROUTE_STATUS_KIND.MISSING_OPTIONS,
+        requestedRoute,
+        model,
+      };
+      panel.state.settingsMessage = "Status missing route options; route/model controls disabled.";
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: "Route options unavailable",
+        selectedRoute: requestedRoute,
+      });
+      panel.fields.route.value = requestedRoute;
+    } else {
+      populateRouteSelect(panel.fields.route, routeOptions, { selectedRoute: requestedRoute });
+      panel.fields.route.value = requestedRoute;
+      if (!routeOptions[requestedRoute]) {
+        console.warn("[vibecomfy] status payload missing descriptor for requested route", {
+          requestedRoute,
+          routeOptions,
+        });
+        panel.state.routeStatus = {
+          kind: ROUTE_STATUS_KIND.MALFORMED,
+          requestedRoute,
+          model,
+        };
+        panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
+      } else {
+        panel.state.routeStatus = {
+          kind: ROUTE_STATUS_KIND.READY,
+          requestedRoute,
+          model,
+        };
+        if (!quiet) {
+          const availability = status?.provider_available === false ? "provider unavailable" : "provider ready";
+          panel.state.settingsMessage = `${status?.requested_route || route} → ${status?.route || route} (${availability})`;
+        }
+      }
+    }
+    if (typeof status?.model === "string" && !panel.fields.model.value.trim()) {
+      panel.fields.model.value = status.model;
+    }
+  } catch (e) {
+    if (Number.isFinite(requestEpoch) && panel.state.statusRequestEpoch !== requestEpoch) {
+      return;
+    }
+    panel.state.settingsMessage = `Status unavailable: ${String(e)}`;
+    panel.state.statusSnapshot = null;
+    panel.state.routeStatus = {
+      kind: ROUTE_STATUS_KIND.UNAVAILABLE,
+      requestedRoute: route,
+      model,
+      detail: String(e),
+    };
+    populateRouteSelect(panel.fields.route, null, {
+      placeholderLabel: "Status unavailable",
+      selectedRoute: route,
+    });
+    panel.fields.route.value = route;
+    scheduleAgentStatusRetry(panel, route, model, { quiet: true });
+  }
+  if (typeof document === "undefined") {
+    return;
+  }
+  const statusDirtySections = Array.isArray(panel?.state?.chatMessages) && panel.state.chatMessages.length
+    ? [...SETTINGS_STATUS_RENDER_SECTIONS, RENDER_SECTIONS.META, RENDER_SECTIONS.THREAD]
+    : SETTINGS_STATUS_RENDER_SECTIONS;
+  markAgentPanelDirtyAfterCommit(panel, statusDirtySections, "status");
 }
 
 function submitReadinessState(panel) {
@@ -3546,13 +3638,7 @@ function createAgentPanelShell() {
     if (panel) {
       panel.fields.route.value = normalizeRoutePreference(routeSelect.value);
       renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
-      refreshAgentStatus(panel, { quiet: true }, {
-        normalizeRoutePreference,
-        normalizeModelPreference,
-        renderAgentPanel,
-        nextMacrotask,
-        populateRouteSelect,
-      });
+      refreshAgentStatus(panel, { quiet: true });
     }
   };
   settingsButtons.appendChild(settingsSave);
@@ -3563,6 +3649,20 @@ function createAgentPanelShell() {
   settingsRegion.body.appendChild(settingsButtons);
   settingsRegion.body.appendChild(settingsStatus);
   settingsRegion.body.appendChild(settingsGuidance);
+
+  const changeEngineBtn = button("Change Engine", () => {
+    const p = currentAgentPanel();
+    if (p) {
+      openChooseEngineOverlay(p, { onResolved: () => {
+        settingsPopover.style.display = "none";
+        renderAgentPanel(p);
+      }});
+    }
+  });
+  changeEngineBtn.id = PANEL_IDS.changeEngine;
+  changeEngineBtn.style.marginTop = "8px";
+  settingsRegion.body.appendChild(changeEngineBtn);
+
   settingsPopover.appendChild(settingsRegion.section);
 
   // ── Developer section inside settings popover ────────────────────────────
@@ -4045,13 +4145,14 @@ function openAgentPanel({ mode = AGENT_PANEL_MOUNT_MODE.LAUNCHER, container = nu
     console.warn("[vibecomfy] chat rehydration render failed", err);
   });
   renderAgentPanel(panel);
-  refreshAgentStatus(panel, { quiet: true }, {
-    normalizeRoutePreference,
-    normalizeModelPreference,
-    renderAgentPanel,
-    nextMacrotask,
-    populateRouteSelect,
-  });
+  const persisted = getPersistedAgentProvider();
+  if (persisted) {
+    panel.fields.route.value = persisted;
+    populateRouteSelect(panel.fields.route, null, { selectedRoute: persisted });
+  } else {
+    openChooseEngineOverlay(panel, { onResolved: () => {} });
+  }
+  refreshAgentStatus(panel, { quiet: true });
   ensureScheduledAgentPanelDirtyFlush(panel, "open-backstop");
   return panel;
 }
@@ -5433,23 +5534,10 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
           newValueDisplay = String(fc.new);
         }
 
-        // Include old_value for source fields so overlay/panel can render a
-        // unified diff or provide a copy-source affordance.
-        let oldValueForDisplay = null;
-        if ("old" in fc) {
-          if (fc.old === null || fc.old === undefined) {
-            oldValueForDisplay = null;
-          } else if (typeof fc.old === "string") {
-            oldValueForDisplay = fc.old;
-          } else {
-            oldValueForDisplay = null;
-          }
-        }
         editedFields.push({
           uid: fc.uid,
           field_path: fc.field_path,
           new_value: newValueDisplay,
-          old_value: oldValueForDisplay,
         });
       }
     }
@@ -6030,20 +6118,6 @@ export function drawPreviewOverlay(ctx, diff) {
     var _fieldNewValueLabel = function (field) {
       if (!field || field.new_value === null || field.new_value === undefined) {
         return "";
-      }
-      // For source fields on vibecomfy.exec nodes, show a compact line-count
-      // diff rather than the full source text (which is unreadable on canvas).
-      if (
-        field.field_path === "source" &&
-        typeof field.old_value === "string" &&
-        typeof field.new_value === "string"
-      ) {
-        var oldLines = field.old_value.split("\\n").length;
-        var newLines = field.new_value.split("\\n").length;
-        if (oldLines === newLines) {
-          return "source: " + oldLines + " lines (changed)";
-        }
-        return "source: " + oldLines + " → " + newLines + " lines";
       }
       return String(field.new_value);
     };
@@ -6812,72 +6886,6 @@ function appendCandidateDetail(body, panel, message = null, snapshot = null) {
     }
     body.appendChild(rowNode);
   }
-
-  // ── Exec source changes: copy-source affordance ─────────────────────────
-  // Surface vibecomfy.exec source field changes with a copy button using the
-  // existing copyTextToClipboard pattern, so users can inspect agent-written
-  // code before applying the candidate.
-  (function () {
-    var lfs = panel.state.lastSubmitFieldChanges;
-    if (!lfs) return;
-    var allChanges = [];
-    if (Array.isArray(lfs.outcomeChanges)) allChanges.push.apply(allChanges, lfs.outcomeChanges);
-    if (Array.isArray(lfs.batchTurnChanges)) {
-      for (var bi = 0; bi < lfs.batchTurnChanges.length; bi += 1) {
-        var btc = lfs.batchTurnChanges[bi];
-        if (Array.isArray(btc.changes)) allChanges.push.apply(allChanges, btc.changes);
-      }
-    }
-    var seenSourceKeys = {};
-    for (var ci = 0; ci < allChanges.length; ci += 1) {
-      var fc = allChanges[ci];
-      if (!fc || fc.field_path !== "source") continue;
-      if (!fc.uid) continue;
-      var key = fc.uid + "::source";
-      if (seenSourceKeys[key]) continue;
-      seenSourceKeys[key] = true;
-      var newSource = (fc.new != null && typeof fc.new === "string") ? fc.new : null;
-      var oldSource = (fc.old != null && typeof fc.old === "string") ? fc.old : null;
-      if (newSource === null && oldSource === null) continue;
-      var sourceToCopy = newSource !== null ? newSource : oldSource;
-      var oldLines = oldSource ? oldSource.split("\\n").length : 0;
-      var newLines = newSource ? newSource.split("\\n").length : 0;
-      var label = "source: " + fc.uid;
-      if (oldSource && newSource) {
-        label += " (" + oldLines + " → " + newLines + " lines)";
-      } else if (newSource) {
-        label += " (" + newLines + " lines)";
-      } else {
-        label += " (removed)";
-      }
-      var row = el("div");
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.gap = "8px";
-      row.style.margin = "2px 0";
-      row.style.paddingLeft = "8px";
-      row.style.borderLeft = "2px solid " + (VC_COLORS.edited || "#ffc107");
-      var labelSpan = el("span", label);
-      labelSpan.style.color = (VC_COLORS.edited || "#ffc107");
-      labelSpan.style.fontSize = "11px";
-      labelSpan.style.fontFamily = "monospace";
-      row.appendChild(labelSpan);
-      (function (srcText) {
-        var copyBtn = button("Copy", function () {
-          copyTextToClipboard(srcText).then(function (ok) {
-            copyBtn.textContent = ok ? "Copied!" : "Copy failed";
-            setTimeout(function () { copyBtn.textContent = "Copy"; }, 2000);
-          });
-        });
-        copyBtn.style.fontSize = "10px";
-        copyBtn.style.padding = "2px 6px";
-        setButtonEmphasis(copyBtn, false, "neutral");
-        row.appendChild(copyBtn);
-      })(sourceToCopy);
-      body.appendChild(row);
-    }
-  })();
-
   const affected = {
     preserved: rows.filter((item) => item.text.startsWith("preserved:")).length,
     edited: rows.filter((item) => item.text.startsWith("edited:")).length,
@@ -7357,6 +7365,152 @@ function adapterCapabilitySnapshot() {
   };
 }
 
+function renderDeveloper(panel) {
+  const body = panel?.sections?.developer;
+  if (!body) {
+    return;
+  }
+  clearNode(body);
+
+  const caps = adapterCapabilitySnapshot();
+
+  const devData = el("div");
+  Object.assign(devData.style, {
+    display: "grid",
+    gap: "4px",
+    fontSize: "10px",
+    color: "#8d93a1",
+    lineHeight: "1.4",
+  });
+
+  // ── Adapter capability state ──────────────────────────────────────────
+  const adapterSection = renderDeveloperSubsection("Adapter Capabilities");
+  const capLines = [
+    `graphApply: ${caps.graphApply.available ? "✓" : "✗"} (${caps.graphApply.detail})`,
+    `previewForeground: ${caps.previewForeground.available ? "✓" : "✗"} (${caps.previewForeground.detail})`,
+    caps.previewStrategy ? `preview strategy: ${caps.previewStrategy}${caps.previewPolling ? " (polling fallback)" : ""}` : null,
+    `queueGuard: ${caps.queueGuard.available ? "✓" : "✗"} (${caps.queueGuard.detail})`,
+    caps.queueGuard.fallbackWarning ? `queueGuard fallback: ${caps.queueGuard.fallbackWarning}` : null,
+    `supportsAll: ${caps.supportsAll ? "yes" : "no"} (frontend ${caps.frontendVersion})`,
+  ].filter(Boolean);
+  for (const line of capLines) {
+    const div = el("div", line);
+    div.style.color = line.startsWith("graphApply: ✗") || line.startsWith("previewForeground: ✗") || line.startsWith("queueGuard: ✗") ? "#ff8d8d" : "#8d93a1";
+    adapterSection.appendChild(div);
+  }
+  devData.appendChild(adapterSection);
+
+  // ── Queue guard state ─────────────────────────────────────────────────
+  const qgSection = renderDeveloperSubsection("Queue Guard State");
+  const qgState = getQueueGuardStateForPanel();
+  const runtime = getAgentPanelRuntime();
+  const qgLines = [
+    `hookInstalled: ${qgState.hookInstalled}`,
+    `hookPath: ${qgState.hookPath || "none"}`,
+    qgState.fallbackWarning ? `fallbackWarning: ${qgState.fallbackWarning}` : null,
+    qgState.activeContext ? `activeContext: turn=${qgState.activeContext.turnId || "?"} queueAllowed=${qgState.activeContext.queueAllowed}` : "activeContext: none",
+    qgState.lastBlockNotice ? `lastBlock: ${qgState.lastBlockNotice.at || "?"} — ${qgState.lastBlockNotice.message}` : "lastBlockNotice: none",
+    `blockedTurnKeys: ${runtime.queueGuardBlockedTurnKeys.size}`,
+  ].filter(Boolean);
+  for (const line of qgLines) {
+    qgSection.appendChild(el("div", line));
+  }
+  devData.appendChild(qgSection);
+
+  // ── Hashes ────────────────────────────────────────────────────────────
+  const hashSection = renderDeveloperSubsection("Hashes");
+  const hashLines = [
+    `baselineGraphHash: ${panel.state.baselineGraphHash || "none"}`,
+    panel.state.baselineGraphHashKind ? `baselineGraphHashKind: ${panel.state.baselineGraphHashKind}` : null,
+    panel.state.baselineGraphHashVersion != null ? `baselineGraphHashVersion: ${panel.state.baselineGraphHashVersion}` : null,
+    `candidateGraphHash: ${panel.state.candidateGraphHash || "none"}`,
+    `serverSubmitGraphHash: ${panel.state.serverSubmitGraphHash || "none"}`,
+    panel.state.lastSubmit?.client_graph_hash ? `lastSubmit.client_graph_hash: ${panel.state.lastSubmit.client_graph_hash}` : null,
+    panel.state.lastSubmit?.client_structural_graph_hash ? `lastSubmit.client_structural_graph_hash: ${panel.state.lastSubmit.client_structural_graph_hash}` : null,
+  ].filter(Boolean);
+  for (const line of hashLines) {
+    hashSection.appendChild(el("div", line));
+  }
+  devData.appendChild(hashSection);
+
+  // ── Raw booleans ──────────────────────────────────────────────────────
+  const boolSection = renderDeveloperSubsection("Raw Booleans");
+  const boolLines = [
+    `canvasApplyAllowed: ${panel.state.canvasApplyAllowed}`,
+    `queueAllowed: ${panel.state.queueAllowed}`,
+    `applyAllowed: ${panel.state.applyAllowed}`,
+    `applyEligibility: ${JSON.stringify(panel.state.applyEligibility)}`,
+    panel.state.applyEligibilityWarning ? `applyEligibilityWarning: ${JSON.stringify(panel.state.applyEligibilityWarning)}` : null,
+  ].filter(Boolean);
+  for (const line of boolLines) {
+    boolSection.appendChild(el("div", line));
+  }
+  devData.appendChild(boolSection);
+
+  // ── Missing-contract warning ──────────────────────────────────────────
+  if (panel.state.applyEligibilityWarning && panel.state.applyEligibilityWarning.reason === APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT) {
+    const mcSection = renderDeveloperSubsection("Missing Contract");
+    mcSection.style.color = "#ffc107";
+    mcSection.appendChild(el("div", `turn_id: ${panel.state.applyEligibilityWarning.turn_id || "?"}`));
+    mcSection.appendChild(el("div", `message: ${panel.state.applyEligibilityWarning.message}`));
+    if (panel.state.applyEligibilityWarning.candidate_graph_hash) {
+      mcSection.appendChild(el("div", `candidate_graph_hash: ${panel.state.applyEligibilityWarning.candidate_graph_hash}`));
+    }
+    devData.appendChild(mcSection);
+  }
+
+  // ── Raw JSON ──────────────────────────────────────────────────────────
+  const rawSection = renderDeveloperSubsection("Raw JSON");
+  const statusSnapshot = scrubDebugPayload(panel.state.statusSnapshot);
+  const debugPayload = scrubDebugPayload(panel.state.debugPayload);
+  if (statusSnapshot || debugPayload) {
+    if (statusSnapshot) {
+      rawSection.appendChild(createDetails("Status snapshot", statusSnapshot));
+    }
+    if (debugPayload) {
+      rawSection.appendChild(createDetails("Debug payload", debugPayload));
+    }
+    devData.appendChild(rawSection);
+  }
+
+  body.appendChild(devData);
+  if (Object.prototype.hasOwnProperty.call(body, "textContent")) {
+    const summaryText = [
+      "Adapter Capabilities",
+      ...capLines,
+      "Queue Guard State",
+      ...qgLines,
+      "Raw Booleans",
+      ...boolLines,
+    ].join("\n");
+    body.textContent = summaryText;
+    if (body.parentNode && Object.prototype.hasOwnProperty.call(body.parentNode, "textContent")) {
+      body.parentNode.textContent = summaryText;
+    }
+  }
+}
+
+function renderDeveloperSubsection(title) {
+  const section = el("div");
+  Object.assign(section.style, {
+    border: "1px solid #282a32",
+    borderRadius: "4px",
+    padding: "6px",
+    background: "#0d0f14",
+  });
+  const heading = el("div", title);
+  Object.assign(heading.style, {
+    fontSize: "10px",
+    fontWeight: "700",
+    color: "#9da1ac",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    marginBottom: "4px",
+  });
+  section.appendChild(heading);
+  return section;
+}
+
 function renderSettings(panel) {
   const routeStatus = routeStatusState(panel);
   const descriptor = getRouteDescriptor(panel);
@@ -7527,16 +7681,7 @@ function renderSettingsSection(panel) {
 
 function renderDeveloperSection(panel) {
   recordAgentPanelRenderCount(panel, RENDER_SECTIONS.DEVELOPER);
-  renderDeveloperImpl(panel, {
-    adapterCapabilitySnapshot,
-    APPLY_ELIGIBILITY_REASON,
-    clearNode,
-    createDetails,
-    el,
-    getAgentPanelRuntime,
-    getQueueGuardStateForPanel,
-    scrubDebugPayload,
-  });
+  renderDeveloper(panel);
 }
 
 function recordAgentPanelRenderError(panel, section, err) {
@@ -7745,13 +7890,7 @@ async function saveAgentSettings(panel) {
       clearCredentialInput(panel);
     }
   }
-  await refreshAgentStatus(panel, { quiet: Boolean(apiKey) }, {
-    normalizeRoutePreference,
-    normalizeModelPreference,
-    renderAgentPanel,
-    nextMacrotask,
-    populateRouteSelect,
-  });
+  await refreshAgentStatus(panel, { quiet: Boolean(apiKey) });
 }
 
 async function testAgentSettings(panel) {
@@ -7760,13 +7899,7 @@ async function testAgentSettings(panel) {
   }
   panel.state.settingsMessage = "Testing provider status…";
   renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
-  await refreshAgentStatus(panel, {}, {
-    normalizeRoutePreference,
-    normalizeModelPreference,
-    renderAgentPanel,
-    nextMacrotask,
-    populateRouteSelect,
-  });
+  await refreshAgentStatus(panel);
 }
 
 async function newAgentConversation(panel) {
@@ -8445,30 +8578,6 @@ async function applyAgentCandidate(panel) {
   }
   if (panel.state.inFlightApply) {
     return panel.state.inFlightApply;
-  }
-
-  // One-time acknowledgment for vibecomfy.exec: warn that arbitrary Python runs
-  // in-process with no sandbox or reliable timeout, and may freeze/crash ComfyUI.
-  if (!_lsGet(LS_EXEC_ACKNOWLEDGED_KEY)) {
-    const candidateNodes = Array.isArray(panel.state.candidateGraph?.nodes)
-      ? panel.state.candidateGraph.nodes
-      : [];
-    const hasExec = candidateNodes.some(
-      (n) => n && typeof n === "object" && n.type === EXEC_CLASS_TYPE_JS,
-    );
-    if (hasExec) {
-      const confirmed = window.confirm(
-        "⚠️ This candidate contains a vibecomfy.exec code node. " +
-        "Exec runs arbitrary Python in-process with NO sandbox and NO reliable timeout. " +
-        "Hung or crashing code can freeze or kill ComfyUI. " +
-        "Save your work before queueing.\n\n" +
-        "Press OK to acknowledge and continue, or Cancel to abort.",
-      );
-      if (!confirmed) {
-        return;
-      }
-      _lsSet(LS_EXEC_ACKNOWLEDGED_KEY, "1");
-    }
   }
 
   const applyPromise = (async () => {
@@ -9552,6 +9661,427 @@ function makeBox(overlay) {
   return box;
 }
 
+function openChooseEngineOverlay(panel, { onResolved }) {
+  if (!panel?.shell || typeof document === "undefined") {
+    return null;
+  }
+  // Idempotent mount — remove any existing welcome overlay first.
+  const existing = getPanelElementById(panel, PANEL_IDS.welcomeOverlay);
+  if (existing && typeof existing.remove === "function") {
+    existing.remove();
+  }
+
+  // Constrain the overlay to the panel area (mirrors the "Having issues?" modal,
+  // which appends to panel.shell with position:absolute). panel.shell is a
+  // positioned ancestor, so inset:0 anchors to the panel, not the viewport.
+  // Deliberately NO click-outside / Escape close — the user must pick an engine.
+  const overlay = el("div");
+  overlay.id = PANEL_IDS.welcomeOverlay;
+  Object.assign(overlay.style, {
+    position: "absolute",
+    inset: "0",
+    zIndex: "10001",
+    background: "rgba(0,0,0,0.6)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "16px",
+    boxSizing: "border-box",
+  });
+
+  const box = el("div");
+  Object.assign(box.style, {
+    width: "min(460px, 100%)",
+    maxHeight: "100%",
+    overflow: "auto",
+    background: "#222",
+    color: "#eee",
+    padding: "16px",
+    borderRadius: "8px",
+    fontFamily: "monospace",
+    boxSizing: "border-box",
+  });
+  overlay.appendChild(box);
+
+  // ── header ──
+  const titleRow = el("div");
+  Object.assign(titleRow.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "2px",
+  });
+  const titleLogo = el("img");
+  titleLogo.src = "/extensions/vibecomfy/astrid_logo.png";
+  titleLogo.alt = "Astrid";
+  Object.assign(titleLogo.style, { width: "20px", height: "20px", display: "block", flexShrink: "0" });
+  titleRow.appendChild(titleLogo);
+  const title = el("div", "Choose Your Engine");
+  Object.assign(title.style, {
+    fontSize: "17px",
+    fontWeight: "700",
+    color: "#edf2f7",
+  });
+  titleRow.appendChild(title);
+  box.appendChild(titleRow);
+
+  const subtitle = el("div", "Choose who does the thinking. You can change this later.");
+  Object.assign(subtitle.style, {
+    fontSize: "11px",
+    color: "#8d93a1",
+    marginBottom: "14px",
+  });
+  box.appendChild(subtitle);
+
+  // Countdown timer handle so the thank-you screen can never fire twice.
+  let countdownTimer = null;
+  function clearCountdown() {
+    if (countdownTimer != null) {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }
+
+  // Tear down the overlay (and any pending countdown) exactly once.
+  function teardownOverlay() {
+    clearCountdown();
+    if (overlay && typeof overlay.remove === "function") {
+      overlay.remove();
+    }
+  }
+
+  // Commit the chosen route WITHOUT removing the overlay or calling onResolved —
+  // the thank-you screen and the final onResolved happen after a short delay.
+  function commitRoute(route) {
+    setPersistedAgentProvider(route);
+    panel.fields.route.value = route;
+    populateRouteSelect(panel.fields.route, null, { selectedRoute: route });
+    refreshAgentStatus(panel, { quiet: true });
+  }
+
+  // ── card colors ──
+  const claudeColor = "#e6a817";
+  const codexColor = "#02d4b3";
+  const deepseekColor = "#7e8ba3";
+
+  // Selection state. Each card registers a setSelected() that lights it up and
+  // reveals its extra content; selecting one deselects the others.
+  let selectedRoute = null;
+  const cardRegistry = []; // { route, setSelected(bool) }
+  let deepseekKeyInput = null;
+  let deepseekErrorNode = null;
+
+  // ── card helper ──
+  // makeCard returns { card, body, setSelected }. The card is a single-select
+  // radio-like tile; `body` is an (initially hidden) container directly under
+  // the description for per-card revealed content.
+  function makeCard(label, description, accentColor, route) {
+    const card = el("div");
+    Object.assign(card.style, {
+      border: "1px solid #333a45",
+      borderRadius: "8px",
+      background: "#1a1d24",
+      padding: "12px",
+      cursor: "pointer",
+      marginBottom: "8px",
+      transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+    });
+
+    const labelNode = el("div", label);
+    Object.assign(labelNode.style, {
+      fontWeight: "700",
+      fontSize: "13px",
+      color: accentColor,
+      marginBottom: "4px",
+    });
+    card.appendChild(labelNode);
+
+    const descNode = el("div", description);
+    Object.assign(descNode.style, {
+      fontSize: "11px",
+      color: "#9da1ac",
+      lineHeight: "1.45",
+    });
+    card.appendChild(descNode);
+
+    // Per-card revealed content lives here (hidden until selected).
+    const body = el("div");
+    Object.assign(body.style, {
+      display: "none",
+      marginTop: "10px",
+      flexDirection: "column",
+      gap: "8px",
+    });
+    card.appendChild(body);
+
+    function setSelected(isSelected) {
+      if (isSelected) {
+        card.style.borderColor = accentColor;
+        card.style.background = "#242830";
+        card.style.boxShadow = `0 0 0 1px ${accentColor}, 0 0 12px -2px ${accentColor}`;
+        body.style.display = "flex";
+      } else {
+        card.style.borderColor = "#333a45";
+        card.style.background = "#1a1d24";
+        card.style.boxShadow = "none";
+        body.style.display = "none";
+      }
+    }
+    setSelected(false);
+
+    card.onmouseenter = function () {
+      if (selectedRoute !== route) card.style.background = "#21242b";
+    };
+    card.onmouseleave = function () {
+      if (selectedRoute !== route) card.style.background = "#1a1d24";
+    };
+
+    card.onclick = function () { selectRoute(route); };
+
+    return { card, body, setSelected };
+  }
+
+  // ── cards (order: Claude, DeepSeek, Codex) ──
+  const claudeCard = makeCard(
+    "Claude",
+    "The sharpest hand. Uses your local Claude CLI.",
+    claudeColor,
+    "anthropic",
+  );
+  const deepseekCard = makeCard(
+    "DeepSeek",
+    "Open source. Pay as you go — your key, your bill.",
+    deepseekColor,
+    "deepseek",
+  );
+  const codexCard = makeCard(
+    "Codex",
+    "Sanctioned. Uses your local Codex CLI login. This should be okay.",
+    codexColor,
+    "openai-codex",
+  );
+
+  cardRegistry.push({ route: "anthropic", setSelected: claudeCard.setSelected });
+  cardRegistry.push({ route: "deepseek", setSelected: deepseekCard.setSelected });
+  cardRegistry.push({ route: "openai-codex", setSelected: codexCard.setSelected });
+
+  // ── Claude revealed content: ToS warning (no buttons) ──
+  const claudeWarning = el(
+    "div",
+    "Astrid drives your local `claude` CLI in headless mode. Anthropic’s terms don’t explicitly sanction automated CLI use — use at your own risk.",
+  );
+  Object.assign(claudeWarning.style, {
+    fontSize: "11px",
+    lineHeight: "1.45",
+    color: "#e6c98a",
+    padding: "8px",
+    borderRadius: "4px",
+    border: `1px solid ${claudeColor}`,
+    background: "#2a230f",
+  });
+  claudeCard.body.appendChild(claudeWarning);
+
+  // ── DeepSeek revealed content: key field + "where do I get a key?" + error ──
+  deepseekKeyInput = el("input");
+  deepseekKeyInput.onclick = function (event) { event.stopPropagation(); };
+  deepseekKeyInput.type = "password";
+  deepseekKeyInput.placeholder = "Paste your DeepSeek API key…";
+  Object.assign(deepseekKeyInput.style, {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "6px 8px",
+    borderRadius: "4px",
+    border: "1px solid #414855",
+    background: "#0d0f14",
+    color: "#edf2f7",
+    fontFamily: "monospace",
+    fontSize: "12px",
+  });
+  deepseekKeyInput.oninput = function () { updateConfirmEnabled(); };
+  deepseekCard.body.appendChild(deepseekKeyInput);
+
+  const keyLink = el("a", "Where do I get a key?");
+  keyLink.onclick = function (event) { event.stopPropagation(); };
+  keyLink.href = "https://platform.deepseek.com";
+  keyLink.target = "_blank";
+  keyLink.rel = "noopener";
+  Object.assign(keyLink.style, {
+    fontSize: "11px",
+    color: deepseekColor,
+    textDecoration: "underline",
+    cursor: "pointer",
+  });
+  deepseekCard.body.appendChild(keyLink);
+
+  deepseekErrorNode = el("div");
+  Object.assign(deepseekErrorNode.style, {
+    display: "none",
+    fontSize: "11px",
+    color: "#e07070",
+    padding: "6px 8px",
+    borderRadius: "4px",
+    background: "#2a1a1a",
+  });
+  deepseekCard.body.appendChild(deepseekErrorNode);
+
+  // Vertical order: Claude (top), DeepSeek (middle), Codex (bottom).
+  box.appendChild(claudeCard.card);
+  box.appendChild(deepseekCard.card);
+  box.appendChild(codexCard.card);
+
+  // ── Confirm button (below all cards) ──
+  const confirmBtn = button("Confirm Selection", function () {
+    onConfirm();
+  });
+  Object.assign(confirmBtn.style, {
+    width: "100%",
+    marginTop: "6px",
+  });
+  box.appendChild(confirmBtn);
+
+  function deepseekKeyOk() {
+    return !!(deepseekKeyInput && deepseekKeyInput.value.trim());
+  }
+
+  function confirmEnabled() {
+    if (!selectedRoute) return false;
+    if (selectedRoute === "deepseek") return deepseekKeyOk();
+    return true;
+  }
+
+  function updateConfirmEnabled() {
+    const enabled = confirmEnabled();
+    confirmBtn.disabled = !enabled;
+    if (enabled) {
+      Object.assign(confirmBtn.style, {
+        opacity: "1",
+        cursor: "pointer",
+        background: "#2f6f8f",
+        borderColor: "#3f93bd",
+        color: "#edf2f7",
+      });
+    } else {
+      Object.assign(confirmBtn.style, {
+        opacity: "0.5",
+        cursor: "not-allowed",
+        background: "#272b33",
+        borderColor: "#414855",
+        color: "#edf2f7",
+      });
+    }
+  }
+
+  function selectRoute(route) {
+    selectedRoute = route;
+    cardRegistry.forEach(function (entry) {
+      entry.setSelected(entry.route === route);
+    });
+    if (deepseekErrorNode) deepseekErrorNode.style.display = "none";
+    updateConfirmEnabled();
+  }
+
+  // ── thank-you screen + deferred resolution ──
+  function showThankYouAndClose(route) {
+    // Replace the box's contents with a centered thank-you screen.
+    box.innerHTML = "";
+    Object.assign(box.style, {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      textAlign: "center",
+      gap: "10px",
+    });
+
+    const heading = el("div", "Thank you for making your choice.");
+    Object.assign(heading.style, {
+      fontSize: "16px",
+      fontWeight: "700",
+      color: "#edf2f7",
+    });
+    box.appendChild(heading);
+
+    const subtext = el("div", "You can change this anytime in Settings.");
+    Object.assign(subtext.style, {
+      fontSize: "12px",
+      color: "#8d93a1",
+    });
+    box.appendChild(subtext);
+
+    let remaining = 2;
+    const countdownLine = el("div", "Closing in " + remaining + "…");
+    Object.assign(countdownLine.style, {
+      fontSize: "12px",
+      color: "#9da1ac",
+      marginTop: "4px",
+    });
+    box.appendChild(countdownLine);
+
+    clearCountdown();
+    countdownTimer = setInterval(function () {
+      remaining -= 1;
+      if (remaining > 0) {
+        countdownLine.textContent = "Closing in " + remaining + "…";
+      } else {
+        clearCountdown();
+        teardownOverlay();
+        if (typeof onResolved === "function") {
+          onResolved(route);
+        }
+      }
+    }, 1000);
+  }
+
+  async function onConfirm() {
+    if (!confirmEnabled()) return;
+    const route = selectedRoute;
+
+    if (route === "deepseek") {
+      const apiKey = deepseekKeyInput.value.trim();
+      if (!apiKey) return;
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "Storing…";
+      Object.assign(confirmBtn.style, { opacity: "0.5", cursor: "not-allowed" });
+      deepseekErrorNode.style.display = "none";
+
+      let stored = false;
+      try {
+        const res = await fetch("/vibecomfy/agent/credentials", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: "deepseek", api_key: apiKey }),
+        });
+        const result = await res.json();
+        if (result && result.stored) {
+          stored = true;
+        } else {
+          deepseekErrorNode.textContent = (result && result.reason) || "Failed to store key.";
+          deepseekErrorNode.style.display = "block";
+        }
+      } catch (e) {
+        deepseekErrorNode.textContent = "Credential save failed: " + String(e);
+        deepseekErrorNode.style.display = "block";
+      }
+
+      if (!stored) {
+        // Stay on the screen; restore the button.
+        confirmBtn.textContent = "Confirm Selection";
+        updateConfirmEnabled();
+        return;
+      }
+    }
+
+    commitRoute(route);
+    showThankYouAndClose(route);
+  }
+
+  // Initial disabled state.
+  updateConfirmEnabled();
+
+  panel.shell.appendChild(overlay);
+  return overlay;
+}
+
 async function copyTextToClipboard(text) {
   if (
     typeof navigator !== "undefined"
@@ -9909,7 +10439,6 @@ app.registerExtension({
   menuCommands: [{ path: ["Extensions", "VibeComfy"], commands: ["VibeComfy.Roundtrip", "VibeComfy.AgentEdit"] }],
   async beforeRegisterNodeDef(nodeType, nodeData) {
     patchIntentNodePrototype(nodeType, nodeData);
-    patchExecNodePrototype(nodeType, nodeData);
   },
   async setup() {
     await checkFrontendVersion();

@@ -38,7 +38,6 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("agentic", "vibecomfy.commands.agentic"),
     CommandSpec("copy-to-recipe", "vibecomfy.commands.copy_to_recipe"),
     CommandSpec("test", "vibecomfy.commands.test"),
-    CommandSpec("config", "vibecomfy.commands.config"),
 )
 
 

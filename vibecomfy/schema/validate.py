@@ -4,7 +4,6 @@ import copy
 import re
 from typing import Any
 
-from vibecomfy.porting.resolution import _normalize_type
 from vibecomfy.schema.provider import SchemaProvider, schema_for, schema_registry_empty
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
@@ -122,10 +121,7 @@ def validate_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
 
         for name in sorted(provided_inputs - declared_inputs):
             value = payload_inputs.get(name)
-            if (
-                getattr(schema, "source_provider", None) == "widget_schema"
-                and _is_api_link(value)
-            ) or _preserve_linked_undeclared_input(name, value):
+            if getattr(schema, "source_provider", None) == "widget_schema" and _is_api_link(value):
                 continue
             if (
                 not _issue_suppressed(class_type, "unknown_input")
@@ -305,15 +301,7 @@ def sanitize_api_against_schema(api_dict: dict[str, Any], provider: SchemaProvid
         if not schema_inputs:
             continue
         for name in list(inputs):
-            if (
-                name not in schema_inputs
-                and not _is_dynamic_payload_input(class_type, name, inputs)
-                and not (
-                    getattr(schema, "source_provider", None) == "widget_schema"
-                    and _is_api_link(inputs.get(name))
-                )
-                and not _preserve_linked_undeclared_input(name, inputs.get(name))
-            ):
+            if name not in schema_inputs and not _is_dynamic_payload_input(class_type, name, inputs):
                 del inputs[name]
                 continue
             value = inputs[name]
@@ -369,18 +357,6 @@ def _incoming_inputs(workflow: VibeWorkflow) -> dict[str, set[str]]:
 
 
 _LTX_IMAGE_SLOT_RE = re.compile(r"^num_images\.(?:image|index|strength)_(\d+)$")
-_FIXED_SLOT_INPUT_RE = re.compile(r"^in_(\d+)$")
-
-
-def _preserve_linked_undeclared_input(name: str, value: Any) -> bool:
-    """Keep linked fixed-slot inputs even when the local schema omits them.
-
-    Some Comfy-compatible nodes accept numbered wildcard sockets through the
-    prompt payload path even when the best available local schema is narrower.
-    Stripping a linked ``in_N`` here breaks delivery before runtime sees it.
-    """
-
-    return bool(_FIXED_SLOT_INPUT_RE.match(name)) and _is_api_link(value)
 
 
 def _is_dynamic_payload_input(class_type: str, input_name: str, inputs: dict[str, Any] | None = None) -> bool:
@@ -496,6 +472,15 @@ def _edge_input_type(schema, to_input: str) -> str | None:
     return _normalize_type(getattr(spec, "type", None))
 
 
+def _normalize_type(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().upper()
+    if not text or text == "*":
+        return None
+    return text
+
+
 def socket_types_compatible(output_type: Any, input_type: Any) -> bool:
     """Return whether a Comfy output socket type can connect to an input type."""
 
@@ -575,8 +560,12 @@ def _is_boolean_literal(value: Any) -> bool:
 
 
 def _is_api_link(value: Any) -> bool:
-    from vibecomfy._graph_utils import is_api_link as _graph_is_api_link
-    return _graph_is_api_link(value, allow_tuple=True, require_string_node_id=True, require_numeric_node_id=False, require_int_slot=True)
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and isinstance(value[1], int)
+    )
 
 
 def _truncate(value: Any, n: int = 120) -> str:
@@ -642,9 +631,3 @@ def _schema_accepts_dict(spec: Any) -> bool:
     if typ is None:
         return False
     return str(typ).strip().upper() in {"DICT", "JSON", "*"}
-
-
-def format_issue(issue: Any) -> str:
-    d = issue.detail or {}
-    loc = " ".join(f"{k}={d[k]}" for k in ("node_id", "class_type", "input") if k in d)
-    return f"[{issue.code}] {loc}: {issue.message}".strip()

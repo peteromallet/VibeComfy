@@ -1,4 +1,4 @@
-"""Pytest fixtures and plain factory helpers for VibeComfy user tests.
+"""Pytest fixtures and plain factory helpers for VibeComfy user tests (T4).
 
 Builders use only the public `VibeWorkflow` surface — `add_node`, `connect`,
 `register_input`, `finalize_metadata` — never private internals.

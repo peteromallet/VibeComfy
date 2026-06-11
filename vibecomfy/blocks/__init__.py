@@ -7,7 +7,6 @@ from typing import Any, Callable, Mapping, Protocol, TypeVar
 import warnings
 
 from vibecomfy.handles import Handle
-from vibecomfy.origin import stamp_workflow_origin
 from vibecomfy.workflow import VibeWorkflow
 
 _RAW_HANDLE_WARNING_SITES: set[tuple[str, int]] = set()
@@ -92,27 +91,15 @@ def block(fn: BlockFn) -> BlockFn:
     if first_param is None or first_param.name != "workflow":
         raise TypeError(f"{fn.__module__}.{fn.__qualname__} must accept workflow as its first parameter")
     name = f"{fn.__module__}.{fn.__name__}"
-    layer = f"{fn.__module__.replace('.', '/')}.py:{fn.__name__}"
-
-    def wrapped(*args: Any, **kwargs: Any) -> Handles:
-        result = fn(*args, **kwargs)
-        workflow = args[0]
-        stamp_workflow_origin(workflow, "block", layer)
-        return result
-
-    wrapped.__name__ = fn.__name__
-    wrapped.__qualname__ = fn.__qualname__
-    wrapped.__module__ = fn.__module__
-    wrapped.__doc__ = fn.__doc__
     spec = BlockSpec(
         name=name,
         module=fn.__module__,
         qualname=fn.__qualname__,
         signature=str(sig),
     )
-    setattr(wrapped, "__vibecomfy_block__", spec)
-    _BLOCK_REGISTRY[name] = wrapped
-    return wrapped  # type: ignore[return-value]
+    setattr(fn, "__vibecomfy_block__", spec)
+    _BLOCK_REGISTRY[name] = fn
+    return fn
 
 
 def block_spec(fn: Callable[..., Any]) -> BlockSpec | None:
@@ -124,4 +111,4 @@ def registered_blocks() -> Mapping[str, Block]:
     return MappingProxyType(dict(_BLOCK_REGISTRY))
 
 
-__all__ = ["Block", "BlockSpec", "Handles", "block", "block_spec", "registered_blocks"]
+__all__ = ["Block", "BlockSpec", "Handle", "Handles", "block", "block_spec", "registered_blocks"]

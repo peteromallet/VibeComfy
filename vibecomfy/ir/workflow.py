@@ -6,9 +6,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
-from vibecomfy import _helper_resolve as helper_resolve
-from vibecomfy import _widget_aliases as widget_aliases
-from vibecomfy import _workflow_helpers as workflow_helpers
+from vibecomfy._compile import _resolve as helper_resolve
+from vibecomfy._compile import _widgets as widget_aliases
+from vibecomfy._compile import _helpers as workflow_helpers
 from vibecomfy.handles import Handle
 from vibecomfy.ir.compile import (
     _compile_intent_runtime_inputs,

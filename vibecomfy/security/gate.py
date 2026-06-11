@@ -250,7 +250,7 @@ def require_confirmation(
     try:
         ctx.stdout.write("\n".join(prompt_lines))
         ctx.stdout.flush()
-    except (OSError, ValueError):
+    except Exception:
         pass
     answer = ctx.stdin.readline().strip().lower()
     if answer in ("y", "yes"):

@@ -1,121 +1,25 @@
-import {
-  PUBLIC_OUTCOME_KINDS,
-  INTERNAL_OUTCOME_KIND_MAP,
-  FAILURE_HINT_KEYS,
-  NORMALIZED_RESPONSE_MARKER,
-  responseHasCandidatePayload,
-  normalizeRebaselineRecovery as _normalizeRebaselineRecoverySnake,
-  extractRebaselineRecovery as _extractRebaselineRecoverySnake,
-} from "./agent_edit_response_contract_generated.js";
+const PUBLIC_OUTCOME_KINDS = Object.freeze([
+  "candidate",
+  "noop",
+  "clarify",
+  "error",
+]);
 
-// ── camelCase ↔ snake_case bridge for rebaseline recovery ────────────────
-// The generated module exports pure snake_case functions.  Raw API responses
-// frequently carry camelCase keys (rebaselineRecovery, agentFailureContext,
-// lastKnownBaselineGraphHash, etc.).  The helpers below map those camelCase
-// aliases onto the canonical snake_case paths before delegating to the
-// generated module, and then convert the canonical snake_case output back
-// to camelCase for backward compatibility with existing consumers.
-//
-// SD2: Snake_case is canonical for the rebaseline-recovery schema.
-// camelCase on the JS surface is a presentation transform layered on top.
+const INTERNAL_OUTCOME_KIND_MAP = Object.freeze({
+  edit: "candidate",
+  "edit+clarify": "candidate",
+});
 
-const _RECOVERY_CAMEL_TO_SNAKE = {
-  lastKnownBaselineGraphHash: "last_known_baseline_graph_hash",
-  submitGraphHash: "submit_graph_hash",
-  submitStructuralGraphHash: "submit_structural_graph_hash",
-  clientGraphHash: "client_graph_hash",
-  clientStructuralGraphHash: "client_structural_graph_hash",
-};
+const FAILURE_HINT_KEYS = Object.freeze([
+  "agent_failure_context",
+  "failureKind",
+  "failure_kind",
+  "nextAction",
+  "next_action",
+  "retryable",
+]);
 
-const _RECOVERY_SNAKE_TO_CAMEL = {
-  last_known_baseline_graph_hash: "lastKnownBaselineGraphHash",
-  submit_graph_hash: "submitGraphHash",
-  submit_structural_graph_hash: "submitStructuralGraphHash",
-  client_graph_hash: "clientGraphHash",
-  client_structural_graph_hash: "clientStructuralGraphHash",
-};
-
-function _aliasRecoveryFields(obj) {
-  if (!isObject(obj)) return obj;
-  const result = { ...obj };
-  for (const [camel, snake] of Object.entries(_RECOVERY_CAMEL_TO_SNAKE)) {
-    if (camel in result && !(snake in result)) {
-      result[snake] = result[camel];
-    }
-  }
-  return result;
-}
-
-function _camelCaseCompact(recovery) {
-  // Convert a snake_case recovery object to camelCase and strip nulls.
-  if (!isObject(recovery)) return recovery;
-  const result = {};
-  for (const [key, value] of Object.entries(recovery)) {
-    if (value === null || value === undefined) continue;
-    result[_RECOVERY_SNAKE_TO_CAMEL[key] || key] = value;
-  }
-  return result;
-}
-
-function _aliasResponsePaths(response) {
-  // Return a shallow-augmented copy with camelCase structural paths
-  // mapped to their snake_case equivalents so the generated extractor
-  // (which only walks snake_case paths) sees them.
-  if (!isObject(response)) return response;
-  const r = { ...response };
-
-  // Top-level recovery aliases
-  if (isObject(r.rebaselineRecovery) && !isObject(r.rebaseline_recovery)) {
-    r.rebaseline_recovery = _aliasRecoveryFields(r.rebaselineRecovery);
-  }
-  if (isObject(r.agentFailureContext) && !isObject(r.agent_failure_context)) {
-    r.agent_failure_context = r.agentFailureContext;
-  }
-
-  // outcome.* aliases
-  if (isObject(r.outcome)) {
-    r.outcome = { ...r.outcome };
-    // Promote outcome.rebaselineRecovery / outcome.rebaseline_recovery to
-    // top-level so the generated extractor (which only checks
-    // response.rebaseline_recovery) can find it.
-    if (isObject(r.outcome.rebaselineRecovery) && !isObject(r.rebaseline_recovery)) {
-      r.rebaseline_recovery = _aliasRecoveryFields(r.outcome.rebaselineRecovery);
-    }
-    if (isObject(r.outcome.rebaseline_recovery) && !isObject(r.rebaseline_recovery)) {
-      r.rebaseline_recovery = r.outcome.rebaseline_recovery;
-    }
-    if (isObject(r.outcome.agentFailureContext) && !isObject(r.outcome.agent_failure_context)) {
-      r.outcome.agent_failure_context = r.outcome.agentFailureContext;
-    }
-  }
-
-  // debug.failure.* aliases
-  if (isObject(r.debug?.failure)) {
-    r.debug = { ...r.debug };
-    r.debug.failure = { ...r.debug.failure };
-    if (isObject(r.debug.failure.agentFailureContext) && !isObject(r.debug.failure.agent_failure_context)) {
-      r.debug.failure.agent_failure_context = r.debug.failure.agentFailureContext;
-    }
-  }
-
-  // issues[].rebaselineRecovery → rebaseline_recovery inside agent_failure_context
-  const ctxPaths = [
-    r.agent_failure_context,
-    r.outcome?.agent_failure_context,
-    r.debug?.failure?.agent_failure_context,
-  ];
-  for (const ctx of ctxPaths) {
-    if (!Array.isArray(ctx?.issues)) continue;
-    ctx.issues = ctx.issues.map((issue) => {
-      if (isObject(issue?.rebaselineRecovery) && !isObject(issue?.rebaseline_recovery)) {
-        return { ...issue, rebaseline_recovery: _aliasRecoveryFields(issue.rebaselineRecovery) };
-      }
-      return issue;
-    });
-  }
-
-  return r;
-}
+const NORMALIZED_RESPONSE_MARKER = "__agentEditResponseNormalized";
 
 function isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -161,6 +65,15 @@ function hasFailureHints(response) {
   return FAILURE_HINT_KEYS.some((key) => Object.prototype.hasOwnProperty.call(response, key));
 }
 
+function responseHasCandidatePayload(response) {
+  if (!isObject(response)) {
+    return false;
+  }
+  return isObject(response.candidate)
+    || isObject(response.candidate_graph)
+    || isObject(response.graph);
+}
+
 function resultHasNoCandidateEligibility(response) {
   const legacyEligibility = isObject(response.apply_eligibility) ? response.apply_eligibility : null;
   const normalizedEligibility = isObject(response.eligibility) ? response.eligibility : null;
@@ -197,25 +110,64 @@ function normalizeRebaselineRecovery(recovery) {
   if (!isObject(recovery)) {
     return null;
   }
-  // Alias camelCase fields → snake_case, delegate to the generated
-  // canonical normalizer, then convert output back to camelCase with
-  // null-stripping for backward compatibility.
-  return _camelCaseCompact(
-    _normalizeRebaselineRecoverySnake(_aliasRecoveryFields(recovery)),
-  );
+  return compactObject({
+    action: asString(recovery.action),
+    endpoint: asString(recovery.endpoint),
+    reason: asString(recovery.reason),
+    lastKnownBaselineGraphHash:
+      asString(recovery.lastKnownBaselineGraphHash)
+      || asString(recovery.last_known_baseline_graph_hash),
+    submitGraphHash: asString(recovery.submitGraphHash) || asString(recovery.submit_graph_hash),
+    submitStructuralGraphHash:
+      asString(recovery.submitStructuralGraphHash)
+      || asString(recovery.submit_structural_graph_hash),
+    clientGraphHash: asString(recovery.clientGraphHash) || asString(recovery.client_graph_hash),
+    clientStructuralGraphHash:
+      asString(recovery.clientStructuralGraphHash)
+      || asString(recovery.client_structural_graph_hash),
+  });
 }
 
 function extractRebaselineRecovery(response) {
   if (!isObject(response)) {
     return null;
   }
-  // The generated extractor walks only snake_case paths and calls its own
-  // normalizeRebaselineRecovery internally (snake_case output).  We alias
-  // camelCase structural paths before the call, then convert the result
-  // back to camelCase + compact for backward compatibility.
-  const aliased = _aliasResponsePaths(response);
-  const snake = _extractRebaselineRecoverySnake(aliased);
-  return _camelCaseCompact(snake);
+  const directSources = [
+    response.rebaselineRecovery,
+    response.rebaseline_recovery,
+    response.outcome?.rebaselineRecovery,
+    response.outcome?.rebaseline_recovery,
+  ];
+  for (const source of directSources) {
+    const recovery = normalizeRebaselineRecovery(source);
+    if (recovery) {
+      return recovery;
+    }
+  }
+
+  const contexts = [
+    response.agent_failure_context,
+    response.agentFailureContext,
+    response.outcome?.agent_failure_context,
+    response.outcome?.agentFailureContext,
+    response.debug?.failure?.agent_failure_context,
+    response.debug?.failure?.agentFailureContext,
+  ];
+  for (const context of contexts) {
+    const issues = context?.issues;
+    if (!Array.isArray(issues)) {
+      continue;
+    }
+    for (const issue of issues) {
+      const recovery = normalizeRebaselineRecovery(
+        issue?.rebaselineRecovery || issue?.rebaseline_recovery,
+      );
+      if (recovery) {
+        return recovery;
+      }
+    }
+  }
+  return null;
 }
 
 function publicErrorOutcomeFromResponse(response, { defaultStage = null } = {}) {

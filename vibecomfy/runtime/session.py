@@ -13,8 +13,9 @@ import urllib.request
 import uuid
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
+from vibecomfy.comfy_command import comfyui_command
 from vibecomfy.errors import (
     MODEL_DOCTOR_NEXT_ACTION,
     ModelAssetError,
@@ -31,7 +32,7 @@ from .client import ComfyClient
 from .drift import enforce_strict_drift
 from .execution import normalize_prompt_id
 from .model_policy import apply_model_preflight, resolve_model_preflight_policy
-from .watchdog import Watchdog, _is_disabled, write_report
+from .watchdog import Watchdog, write_report
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +150,7 @@ class PreparedPrompt(dict):
 @dataclass(slots=True)
 class SessionConfig:
     memory_profile: MemoryProfile | None = None
-    vram_policy: Literal["auto", "high", "normal", "low"] = "auto"
+    vram_policy: str = "auto"
     reserve_vram_gb: float | None = None
     cache_policy: str = "smart"
     disable_smart_memory: bool = False
@@ -158,25 +159,6 @@ class SessionConfig:
     port: int | None = None
     strict_drift: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.vram_policy not in {"auto", "high", "normal", "low"}:
-            raise ValueError(
-                f"vram_policy must be one of 'auto', 'high', 'normal', 'low', "
-                f"got {self.vram_policy!r}"
-            )
-        if (
-            self.cache_policy not in {"smart", "classic", "none"}
-            and not self.cache_policy.startswith("lru:")
-        ):
-            raise ValueError(
-                f"cache_policy must be 'smart', 'classic', 'none', or 'lru:<n>', "
-                f"got {self.cache_policy!r}"
-            )
-        if not isinstance(self.warm_policy, str) or not self.warm_policy:
-            raise ValueError(
-                f"warm_policy must be a non-empty string, got {self.warm_policy!r}"
-            )
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "SessionConfig":
@@ -207,15 +189,7 @@ class VibeSession(Protocol):
     async def start(self) -> None:
         ...
 
-    async def run(
-        self,
-        workflow: VibeWorkflow,
-        *,
-        backend: str = "api",
-        strict_drift: bool | None = None,
-        chain_id: str | None = None,
-        parent_run_id: str | None = None,
-    ) -> RunResult:
+    async def run(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool | None = None) -> RunResult:
         ...
 
     async def flush(self) -> None:
@@ -261,14 +235,12 @@ class EmbeddedSession:
         ensure_packs: bool = False,
         ensure_models: bool = False,
         strict_drift: bool | None = None,
-        chain_id: str | None = None,
-        parent_run_id: str | None = None,
     ) -> RunResult:
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
         if ensure_packs:
             from vibecomfy.custom_node_refs import check_pack_pin_compatibility
-            from vibecomfy.node_packs_install import install_required_packs, missing_packs_for_workflow
+            from vibecomfy.node_packs_install import install_pack, missing_packs_for_workflow, restore_pack
             from vibecomfy.node_packs_lockfile import read_lockfile
 
             lockfile_entries = read_lockfile()
@@ -293,21 +265,15 @@ class EmbeddedSession:
                     )
             except ValueError as exc:
                 raise RuntimeError("ensure_packs: " + str(exc)) from exc
-            if packs:
-                lock_entries = {entry.name: entry for entry in lockfile_entries}
-                batch = install_required_packs(
-                    packs,
-                    restore_entries=[entry for pack in packs if (entry := lock_entries.get(pack.name)) is not None],
-                )
-                if not batch.ok:
-                    errors = [
-                        f"{result.name}: {result.error or result.status}"
-                        for result in batch.results
-                        if result.status not in {"installed", "refreshed"}
-                    ]
-                    if not errors and batch.preflight.error:
-                        errors.append(batch.preflight.error)
-                    raise RuntimeError("ensure_packs: install failed: " + "; ".join(errors))
+            installed_or_refreshed = False
+            lock_entries = {entry.name: entry for entry in lockfile_entries}
+            for pack in packs:
+                lock_entry = lock_entries.get(pack.name)
+                result = restore_pack(lock_entry) if lock_entry is not None else install_pack(name=pack.name)
+                if result.status not in {"installed", "refreshed"}:
+                    raise RuntimeError(f"ensure_packs: install failed for {pack.name}: {result.error}")
+                installed_or_refreshed = True
+            if installed_or_refreshed:
                 await self.reload_for_nodepack_change(reason="ensure_packs")
         if ensure_models:
             policy = resolve_model_preflight_policy(mode="embedded", ensure_models=True)
@@ -316,26 +282,12 @@ class EmbeddedSession:
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
-            return await self._run_untracked(
-                workflow,
-                backend=backend,
-                strict_drift=resolved_strict,
-                chain_id=chain_id,
-                parent_run_id=parent_run_id,
-            )
+            return await self._run_untracked(workflow, backend=backend, strict_drift=resolved_strict)
         finally:
             if self._inflight_run is task:
                 self._inflight_run = None
 
-    async def _run_untracked(
-        self,
-        workflow: VibeWorkflow,
-        *,
-        backend: str = "api",
-        strict_drift: bool = False,
-        chain_id: str | None = None,
-        parent_run_id: str | None = None,
-    ) -> RunResult:
+    async def _run_untracked(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool = False) -> RunResult:
         total_start = time.monotonic()
         timings: dict[str, float] = {}
         phase_start = time.monotonic()
@@ -416,8 +368,6 @@ class EmbeddedSession:
             config=self.config,
             timings=timings,
             schema_validation_skipped=schema_validation_skipped,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
         )
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
         return RunResult(
@@ -510,8 +460,6 @@ class ServerSession:
         ensure_models: bool = False,
         shared_models_root: str | Path | None = None,
         strict_drift: bool | None = None,
-        chain_id: str | None = None,
-        parent_run_id: str | None = None,
     ) -> RunResult:
         if self._inflight_run is not None and not self._inflight_run.done():
             raise RuntimeError("session already has a run in flight; concurrent run() is not supported in P1")
@@ -525,26 +473,12 @@ class ServerSession:
         self._inflight_run = task
         try:
             resolved_strict = strict_drift if strict_drift is not None else self.config.strict_drift
-            return await self._run_untracked(
-                workflow,
-                backend=backend,
-                strict_drift=resolved_strict,
-                chain_id=chain_id,
-                parent_run_id=parent_run_id,
-            )
+            return await self._run_untracked(workflow, backend=backend, strict_drift=resolved_strict)
         finally:
             if self._inflight_run is task:
                 self._inflight_run = None
 
-    async def _run_untracked(
-        self,
-        workflow: VibeWorkflow,
-        *,
-        backend: str = "api",
-        strict_drift: bool = False,
-        chain_id: str | None = None,
-        parent_run_id: str | None = None,
-    ) -> RunResult:
+    async def _run_untracked(self, workflow: VibeWorkflow, *, backend: str = "api", strict_drift: bool = False) -> RunResult:
         total_start = time.monotonic()
         timings: dict[str, float] = {}
         phase_start = time.monotonic()
@@ -620,8 +554,6 @@ class ServerSession:
             config=self.config,
             timings=timings,
             schema_validation_skipped=schema_validation_skipped,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
         )
         metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
         return RunResult(
@@ -826,14 +758,55 @@ def _is_benign_embedded_cleanup_exception(exc: Exception) -> bool:
     )
 
 
-from .config import (  # noqa: E402
-    _comfy_server_argv,
-    _comfyui_command,
-    _config_requests_sage_attention,
-    _env_requests_sage_attention,
-    _partition_comfy_config,
-    _spawn_comfy_server,
-)
+def _partition_comfy_config(values: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split mixed config into SessionConfig kwargs and raw extra Comfy keys.
+
+    HiddenSwitch keys are translated first, then typed SessionConfig field
+    names overwrite translated values when both forms are present.
+    """
+    typed_fields = {
+        "memory_profile",
+        "port",
+        "vram_policy",
+        "cache_policy",
+        "warm_policy",
+        "reserve_vram_gb",
+        "disable_smart_memory",
+        "auto_flush_vram_threshold_gb",
+    }
+    kwargs: dict[str, Any] = {}
+    extra: dict[str, Any] = {}
+
+    if "memory_profile" in values and values["memory_profile"] is not None:
+        profile = MemoryProfile.parse(values["memory_profile"])
+        kwargs["memory_profile"] = profile
+        kwargs.update(profile.to_session_overrides())
+
+    for key, value in values.items():
+        if key in typed_fields:
+            continue
+        if key == "reserve_vram":
+            kwargs["reserve_vram_gb"] = value
+        elif key in {"highvram", "lowvram", "normalvram"}:
+            if value:
+                kwargs["vram_policy"] = key.removesuffix("vram")
+        elif key == "cache_none":
+            if value:
+                kwargs["cache_policy"] = "none"
+        elif key == "cache_classic":
+            if value:
+                kwargs["cache_policy"] = "classic"
+        elif key == "cache_lru":
+            if value:
+                kwargs["cache_policy"] = f"lru:{value}"
+        else:
+            extra[key] = value
+
+    for key, value in values.items():
+        if key in typed_fields and key != "memory_profile":
+            kwargs[key] = value
+
+    return kwargs, extra
 
 
 def _schema_validate_disabled() -> bool:
@@ -982,8 +955,6 @@ def _run_metadata(
     config: SessionConfig | None = None,
     timings: dict[str, float] | None = None,
     schema_validation_skipped: list[str] | None = None,
-    chain_id: str | None = None,
-    parent_run_id: str | None = None,
 ) -> dict[str, Any]:
     if comfy_outputs is None:
         comfy_outputs = _raw_comfy_outputs(queued)
@@ -1014,31 +985,10 @@ def _run_metadata(
         "runtime": runtime,
         "schema_validation_skipped": schema_validation_skipped or [],
     }
-    entrypoint = workflow.metadata.get("entrypoint")
-    layer = workflow.metadata.get("layer")
-    if isinstance(entrypoint, str) and entrypoint:
-        metadata["entrypoint"] = entrypoint
-    if isinstance(layer, str) and layer:
-        metadata["layer"] = layer
-    if chain_id is not None:
-        metadata["chain_id"] = chain_id
-    if parent_run_id is not None:
-        metadata["parent_run_id"] = parent_run_id
     if timings:
         metadata["timings"] = timings
     if config is not None and config.memory_profile is not None:
         metadata.update(MemoryProfile.parse(config.memory_profile).to_telemetry())
-    patch_applications = workflow.metadata.get("patch_applications")
-    if isinstance(patch_applications, list):
-        metadata["patch_applications"] = patch_applications
-    reqs = workflow.requirements
-    metadata["requirements"] = {
-        "models": reqs.models,
-        "custom_nodes": reqs.custom_nodes,
-        "missing_models": reqs.missing_models,
-        "missing_nodes": reqs.missing_nodes,
-        "unsupported": reqs.unsupported,
-    }
     return metadata
 
 
@@ -1225,23 +1175,6 @@ def _embedded_configuration_for_session(config: SessionConfig) -> Configuration 
     extra_model_paths = Path.cwd() / "extra_model_paths.yaml"
     if extra_model_paths.is_file():
         values.setdefault("extra_model_paths_config", [str(extra_model_paths)])
-    # Inject local-library YAML (custom_nodes + model type paths) when configured.
-    # Appended AFTER the CWD extra_model_paths.yaml so project-local overrides win.
-    # Normalizes a pre-existing scalar extra_model_paths_config to a list first.
-    try:
-        from vibecomfy.runtime._local_library_yaml import acquire_library_yaml
-
-        library_yaml = acquire_library_yaml()
-        if library_yaml is not None:
-            existing = values.get("extra_model_paths_config")
-            if existing is None:
-                values["extra_model_paths_config"] = [str(library_yaml)]
-            elif isinstance(existing, str):
-                values["extra_model_paths_config"] = [existing, str(library_yaml)]
-            else:
-                values["extra_model_paths_config"] = [*existing, str(library_yaml)]
-    except Exception:
-        pass
     if not values:
         return None
 
@@ -1252,10 +1185,101 @@ def _embedded_configuration_for_session(config: SessionConfig) -> Configuration 
     return configuration
 
 
+def _embedded_shutdown_timeout_sec() -> float:
+    raw = os.environ.get("VIBECOMFY_EMBEDDED_SHUTDOWN_TIMEOUT_SEC", "15")
+    try:
+        value = float(raw)
+    except ValueError:
+        return 15.0
+    return max(value, 0.1)
 
 
 def _embedded_configuration(workflow: VibeWorkflow) -> Configuration | None:
     return _embedded_configuration_for_session(SessionConfig.from_workflow_metadata(workflow))
+
+
+def _comfy_server_argv(config: SessionConfig) -> tuple[str, ...]:
+    argv = [*_comfyui_command(), "serve"]
+    if config.vram_policy in {"high", "low", "normal"}:
+        argv.append(f"--{config.vram_policy}vram")
+    if config.reserve_vram_gb is not None:
+        argv.extend(["--reserve-vram", str(config.reserve_vram_gb)])
+    if config.disable_smart_memory:
+        argv.append("--disable-smart-memory")
+    if config.cache_policy == "classic":
+        argv.append("--cache-classic")
+    elif config.cache_policy == "none":
+        argv.append("--cache-none")
+    elif config.cache_policy.startswith("lru:"):
+        argv.extend(["--cache-lru", config.cache_policy.split(":", 1)[1]])
+    if _config_requests_sage_attention(config):
+        argv.append("--use-sage-attention")
+    for key, flag in (
+        ("input_directory", "--input-directory"),
+        ("output_directory", "--output-directory"),
+        ("temp_directory", "--temp-directory"),
+    ):
+        value = config.extra.get(key)
+        if value:
+            argv.extend([flag, str(value)])
+    argv.extend(["--port", str(config.port or 8188)])
+    return tuple(argv)
+
+
+def _env_requests_sage_attention() -> bool:
+    raw = (
+        os.environ.get("VIBECOMFY_ATTENTION_PROFILE")
+        or os.environ.get("REIGH_VIBECOMFY_ATTENTION_PROFILE")
+        or ""
+    )
+    return raw.strip().lower() in {"sage", "sageattn", "sageattention", "optimized"}
+
+
+def _config_requests_sage_attention(config: SessionConfig) -> bool:
+    if bool(config.extra.get("use_sage_attention")):
+        return True
+    return _env_requests_sage_attention()
+
+
+async def _spawn_comfy_server(
+    config: SessionConfig, log_path: str | Path | None = None
+) -> tuple[asyncio.subprocess.Process, str, Any | None]:
+    log_handle = None
+    if log_path:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        log_handle = Path(log_path).open("ab", buffering=0)
+    argv = _comfy_server_argv(config)
+    if log_handle:
+        log_handle.write(f"[vibecomfy] launching managed Comfy server: {json.dumps(list(argv))}\n".encode())
+    env = os.environ.copy()
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        stdout=log_handle or asyncio.subprocess.DEVNULL,
+        stderr=log_handle or asyncio.subprocess.DEVNULL,
+        env=env,
+    )
+    managed_url = f"http://127.0.0.1:{config.port or 8188}"
+    client = ComfyClient(managed_url)
+    ready_timeout_sec = int(config.extra.get("ready_timeout_sec") or os.environ.get("VIBECOMFY_SESSION_READY_TIMEOUT_SEC") or 300)
+    for second in range(ready_timeout_sec):
+        if await client.ready():
+            break
+        if log_handle and second and second % 30 == 0:
+            log_handle.write(f"[vibecomfy] waiting for managed Comfy server readiness: {second}/{ready_timeout_sec}s\n".encode())
+        await asyncio.sleep(1)
+    else:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+        if log_handle:
+            log_handle.close()
+        raise TimeoutError(f"Managed Comfy server did not become ready within {ready_timeout_sec} seconds")
+    return process, managed_url, log_handle
+
+
+def _comfyui_command() -> tuple[str, ...]:
+    return comfyui_command()
 
 
 async def _maybe_flush_for_policy(session: VibeSession, fp: tuple[Any, ...]) -> None:
@@ -1306,7 +1330,7 @@ async def _start_watchdog(
     The watchdog must NEVER raise into the run path. Any error here is logged
     and ignored. Must be called from inside a running event loop.
     """
-    if _is_disabled():
+    if os.environ.get("VIBECOMFY_WATCHDOG", "1").strip() in {"0", "false", "False", "no", "off"}:
         return None
     if not server_url:
         return None

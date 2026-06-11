@@ -1,4 +1,4 @@
-"""Tests for the vibecomfy.comfy_nodes.routes._handle_roundtrip core helper.
+"""Tests for the vibecomfy.comfy_nodes.agent.routes._handle_roundtrip core helper.
 
 All tests call _handle_roundtrip or the engine primitives it wraps directly —
 no aiohttp, no ComfyUI boot required.
@@ -38,7 +38,7 @@ def schema_provider():
 
 def test_response_envelope_shape(flat_fixture, schema_provider):
     """Route returns {graph, report: {change, recovery, felt}, version: 1}."""
-    from vibecomfy.comfy_nodes.routes import _handle_roundtrip
+    from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
 
     result = _handle_roundtrip({"graph": flat_fixture}, schema_provider=schema_provider)
 
@@ -105,7 +105,7 @@ def test_engine_roundtrip_preserved_nonempty(flat_fixture, schema_provider):
 
 def test_recovery_one_entry_per_emitted_node(flat_fixture, schema_provider):
     """Every emitted node id appears in the recovery report."""
-    from vibecomfy.comfy_nodes.routes import _handle_roundtrip
+    from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
 
     result = _handle_roundtrip({"graph": flat_fixture}, schema_provider=schema_provider)
 
@@ -134,7 +134,7 @@ def test_structural_equivalence_with_direct_engine(flat_fixture, schema_provider
     Checks: same uid set, same class_type per uid, same edge set
     (not byte-for-byte — per gate flag correctness-6/issue_hints-3).
     """
-    from vibecomfy.comfy_nodes.routes import _handle_roundtrip
+    from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
     from vibecomfy.ingest.normalize import convert_to_vibe_format
     from vibecomfy.porting.emit.ui import emit_ui_json
 
@@ -184,7 +184,7 @@ def test_structural_equivalence_with_direct_engine(flat_fixture, schema_provider
 
 def test_malformed_payload_returns_error_envelope():
     """Malformed payload returns {error, kind} dict, never raises."""
-    from vibecomfy.comfy_nodes.routes import _handle_roundtrip
+    from vibecomfy.comfy_nodes.agent.routes import _handle_roundtrip
 
     result = _handle_roundtrip({"graph": {"nodes": "oops"}})
 
@@ -196,8 +196,8 @@ def test_malformed_payload_returns_error_envelope():
 
 
 def test_validated_failure_response_accept_preserves_nested_recovery() -> None:
-    from vibecomfy.comfy_nodes.agent_contracts import FailureKind, failure_envelope
-    from vibecomfy.comfy_nodes.routes import _validated_failure_response
+    from vibecomfy.comfy_nodes.agent.contracts import FailureKind, failure_envelope
+    from vibecomfy.comfy_nodes.agent.routes import _validated_failure_response
 
     recovery = {
         "action": "rebaseline",

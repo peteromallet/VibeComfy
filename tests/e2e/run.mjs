@@ -384,7 +384,7 @@ function spawnComfyUI({ comfyuiDir, python, port, runtimeRoot }) {
   childEnv.PORT = String(port);
   childEnv.REPO_ROOT = REPO_ROOT;
   childEnv.PYTHONPATH = childEnv.PYTHONPATH ? `${REPO_ROOT}${path.delimiter}${childEnv.PYTHONPATH}` : REPO_ROOT;
-  childEnv.VIBECOMFY_ARNOLD_RUNTIME_MODULE = "vibecomfy.comfy_nodes.fixture_provider";
+  childEnv.VIBECOMFY_ARNOLD_RUNTIME_MODULE = "vibecomfy.comfy_nodes.agent.fixture_provider";
   childEnv.VIBECOMFY_FIXTURE_DIR = childEnv.VIBECOMFY_FIXTURE_DIR || path.join(REPO_ROOT, "tests", "fixtures", "editor_sessions");
   const outputDir = path.join(runtimeRoot, "output");
   const tempDir = path.join(runtimeRoot, "temp");

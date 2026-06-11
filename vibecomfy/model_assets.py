@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from vibecomfy._graph_utils import node_id_sort_key
+from vibecomfy._compile._graph import node_id_sort_key
 
 
 HF_SPLIT_FILES_DIRS = {

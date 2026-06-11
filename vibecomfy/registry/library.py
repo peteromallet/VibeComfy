@@ -50,9 +50,6 @@ def workflow_from_id(workflow_id: str, *, schema_provider: SchemaProvider | None
     return convert_to_vibe_format(api, source_path=match["path"], workflow_id=match["id"], schema_provider=schema_provider)
 
 
-workflow_from_template = workflow_from_id  # back-compat alias (CLAUDE.md)
-
-
 def load_workflow_reference(
     value: str,
     *,

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.comfy_nodes import fixture_provider
+from vibecomfy.comfy_nodes.agent import fixture_provider
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

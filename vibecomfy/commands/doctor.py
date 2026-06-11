@@ -64,7 +64,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "recommended_command": f"vibecomfy port check {args.path} --json",
         }
         if json_output:
-            emit(payload, json=json_output, text_renderer=_render_doctor_error)
+            emit(payload, json=True, text_renderer=_render_doctor_error)
         else:
             print("Layer: Porting helper diagnostics")
             for issue in helper_issues:
@@ -105,7 +105,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             "suggested_patches": suggested_patches,
         }
         if json_output:
-            emit(payload, json=json_output, text_renderer=_render_doctor_error)
+            emit(payload, json=True, text_renderer=_render_doctor_error)
         else:
             print("Layer: VibeWorkflow validation")
             for issue in validation_issues:
@@ -298,23 +298,10 @@ def _nodepack_lockfile_drift() -> tuple[list[DiagnosticFinding], list[Diagnostic
 
 
 def _doctor_nodepack_dir(name: str) -> Path | None:
-    """Find the on-disk directory for a custom node pack, if installed.
-
-    Searches the configured local-library custom_nodes path first when SET,
-    then falls back through the standard locations.
-    """
-    from vibecomfy.local_library import Slot, resolved_path
-
-    configured = resolved_path(Slot.custom_nodes)
-    candidates: list[Path] = []
-    if configured is not None:
-        candidates.append(configured / name)
-    candidates.extend(
-        [
-            Path("vendor") / name,
-            Path("custom_nodes") / name,
-            Path("vendor") / "ComfyUI" / "custom_nodes" / name,
-        ]
+    candidates = (
+        Path("vendor") / name,
+        Path("custom_nodes") / name,
+        Path("vendor") / "ComfyUI" / "custom_nodes" / name,
     )
     for candidate in candidates:
         if candidate.is_dir():

@@ -5,7 +5,7 @@ from typing import Any, Mapping
 
 from vibecomfy.contracts.intent_nodes import INTENT_NODE_QUEUE_BLOCKER_CODE
 
-from .agent_contracts import (
+from .contracts import (
     ApplyEligibility,
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,

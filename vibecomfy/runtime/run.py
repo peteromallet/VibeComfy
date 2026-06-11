@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from pathlib import Path
@@ -44,8 +45,6 @@ async def run(
     ensure_models: bool = False,
     shared_models_root: str | Path | None = None,
     strict_drift: bool | None = None,
-    chain_id: str | None = None,
-    parent_run_id: str | None = None,
 ) -> RunResult:
     run_id = f"run-{int(time.time())}"
     run_dir = Path("out/runs") / run_id
@@ -106,8 +105,6 @@ async def run(
         runtime="server",
         config=managed_config,
         schema_validation_skipped=schema_validation_skipped,
-        chain_id=chain_id,
-        parent_run_id=parent_run_id,
     )
     metadata_path = atomic_write_json(run_dir / "metadata.json", metadata)
     return RunResult(
@@ -128,8 +125,6 @@ def run_sync(
     ensure_models: bool = False,
     shared_models_root: str | Path | None = None,
     strict_drift: bool | None = None,
-    chain_id: str | None = None,
-    parent_run_id: str | None = None,
 ) -> RunResult:
     return asyncio.run(
         run(
@@ -140,8 +135,6 @@ def run_sync(
             ensure_models=ensure_models,
             shared_models_root=shared_models_root,
             strict_drift=strict_drift,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
         )
     )
 
@@ -154,20 +147,10 @@ async def run_embedded(
     ensure_packs: bool = False,
     ensure_models: bool = False,
     strict_drift: bool | None = None,
-    chain_id: str | None = None,
-    parent_run_id: str | None = None,
 ) -> RunResult:
     session = EmbeddedSession(config or SessionConfig.from_workflow_metadata(workflow))
     try:
-        return await session.run(
-            workflow,
-            backend=backend,
-            ensure_packs=ensure_packs,
-            ensure_models=ensure_models,
-            strict_drift=strict_drift,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
+        return await session.run(workflow, backend=backend, ensure_packs=ensure_packs, ensure_models=ensure_models, strict_drift=strict_drift)
     finally:
         await session.stop()
 
@@ -180,21 +163,8 @@ def run_embedded_sync(
     ensure_packs: bool = False,
     ensure_models: bool = False,
     strict_drift: bool | None = None,
-    chain_id: str | None = None,
-    parent_run_id: str | None = None,
 ) -> RunResult:
-    return asyncio.run(
-        run_embedded(
-            workflow,
-            backend=backend,
-            config=config,
-            ensure_packs=ensure_packs,
-            ensure_models=ensure_models,
-            strict_drift=strict_drift,
-            chain_id=chain_id,
-            parent_run_id=parent_run_id,
-        )
-    )
+    return asyncio.run(run_embedded(workflow, backend=backend, config=config, ensure_packs=ensure_packs, ensure_models=ensure_models, strict_drift=strict_drift))
 
 
 async def smoke_runtime(*, server_url: str | None = None) -> dict[str, Any]:

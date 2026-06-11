@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from vibecomfy.comfy_nodes.agent_audit import (
+from vibecomfy.comfy_nodes.agent.audit import (
     REDACTED,
     artifact_entry,
     normalize_agent_edit_v2_metadata,
@@ -17,9 +17,9 @@ from vibecomfy.comfy_nodes.agent_audit import (
     write_audit,
     write_text_artifact,
 )
-from vibecomfy.comfy_nodes import agent_provider
-from vibecomfy.comfy_nodes import megaplan_runtime
-from vibecomfy.comfy_nodes.agent_contracts import (
+from vibecomfy.comfy_nodes.agent import provider as agent_provider
+from vibecomfy.comfy_nodes.agent import megaplan_runtime
+from vibecomfy.comfy_nodes.agent.contracts import (
     APPLY_ELIGIBILITY_REASONS,
     FailureKind,
     StageResult,
@@ -27,26 +27,26 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     derive_apply_eligibility,
     failure_envelope,
 )
-from vibecomfy.comfy_nodes.agent_diagnostics import (
+from vibecomfy.comfy_nodes.agent.diagnostics import (
     lower_stage_result,
     queue_stage_diagnostics,
     queue_stage_result,
     validate_stage_diagnostics,
     validate_stage_result,
 )
-from vibecomfy.comfy_nodes.agent_edit import (
+from vibecomfy.comfy_nodes.agent.edit import (
     AgentEditState,
     _failure_response,
     _stale_rebaseline_recovery_issue,
 )
-from vibecomfy.comfy_nodes.agent_gates import (
+from vibecomfy.comfy_nodes.agent.gates import (
     EXPLICIT_QUEUE_BLOCKER_CODES,
     derive_gates,
     initialize_gates,
     update_queue_gate,
     update_state_match_gate,
 )
-from vibecomfy.comfy_nodes.agent_session import (
+from vibecomfy.comfy_nodes.agent.session import (
     STRUCTURAL_PROJECTION_VERSION,
     _SENTINEL_LINK_ABSENT,
     _SENTINEL_NO_VALUE,
@@ -83,7 +83,7 @@ from vibecomfy.contracts import (
     RUNTIME_CODE_POLICY_VERSION,
     intent_node_properties,
 )
-from vibecomfy._graph_utils import UI_ONLY_CLASS_TYPES as GRAPH_UTILS_UI_ONLY_CLASS_TYPES
+from vibecomfy._compile._graph import UI_ONLY_CLASS_TYPES as GRAPH_UTILS_UI_ONLY_CLASS_TYPES
 from vibecomfy.porting.emit.emitter import UI_ONLY_CLASS_TYPES as EMITTER_UI_ONLY_CLASS_TYPES
 from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, LoweringResult
 from vibecomfy.porting.emit.ui import emit_ui_json
@@ -6024,7 +6024,7 @@ def test_unscopable_remove_link_and_unsupported_op_kind_produce_diagnostics() ->
 def test_scoped_sentinel_payload_round_trips_sentinels() -> None:
     """_scoped_sentinel_payload converts sentinel objects to payload-safe dicts
     and passes through non-sentinel values unchanged."""
-    from vibecomfy.comfy_nodes.agent_session import _scoped_sentinel_payload
+    from vibecomfy.comfy_nodes.agent.session import _scoped_sentinel_payload
 
     assert _scoped_sentinel_payload(_SENTINEL_NO_VALUE) == {"sentinel": "missing_value"}
     assert _scoped_sentinel_payload(_SENTINEL_LINK_ABSENT) == {"sentinel": "link_absent"}
@@ -7377,7 +7377,7 @@ def test_v2_accept_audit_record_written_with_scoped_response_fields(
 def test_exec_structural_projection_uses_stable_wire_keys() -> None:
     """Exec node wired inputs / live outputs use stable in_N/out_N wire keys,
     not display labels.  This prevents false stale/rebaseline after reload."""
-    from vibecomfy.comfy_nodes.agent_session import (
+    from vibecomfy.comfy_nodes.agent.session import (
         structural_graph_hash,
         structural_graph_projection,
     )
@@ -7445,7 +7445,7 @@ def test_exec_structural_projection_uses_stable_wire_keys() -> None:
 def test_exec_structural_hash_stable_after_display_label_change() -> None:
     """Changing display labels (e.g. via semantic io names) on exec sockets
     does NOT alter the structural hash — wire identity is ordinal in_N/out_N."""
-    from vibecomfy.comfy_nodes.agent_session import structural_graph_hash
+    from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
 
     base = {
         "nodes": [
@@ -7504,7 +7504,7 @@ def test_exec_structural_hash_stable_after_display_label_change() -> None:
 def test_exec_structural_hash_changes_on_io_signature_edit() -> None:
     """Real io widget value changes (input/output key edits) DO change the
     structural hash because widgets_values is included in the projection."""
-    from vibecomfy.comfy_nodes.agent_session import structural_graph_hash
+    from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
 
     base = {
         "nodes": [
@@ -7565,7 +7565,7 @@ def test_exec_structural_hash_changes_on_io_signature_edit() -> None:
 def test_exec_structural_hash_same_after_reload_reconcile() -> None:
     """After a reload/reconcile cycle (different socket names), exec nodes
     still produce the same structural hash because stable wire keys are used."""
-    from vibecomfy.comfy_nodes.agent_session import structural_graph_hash
+    from vibecomfy.comfy_nodes.agent.session import structural_graph_hash
 
     # Pre-reconcile: socket names are whatever the backend emitted.
     pre = {

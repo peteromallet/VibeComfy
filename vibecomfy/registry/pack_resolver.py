@@ -64,53 +64,22 @@ class RegistryHTTPClient(Protocol):
 def resolve_pack(
     class_name_or_slug: str,
     *,
-    version_pin: str | None = None,
-    aux_id: str | None = None,
-    local_metadata: PackRef | dict[str, Any] | None = None,
     allow_remote_lookup: bool = True,
     cache_root: Path | None = None,
     client: RegistryHTTPClient | None = None,
 ) -> PackResolution:
     """Resolve a ComfyUI class name or pack slug/name to a structured pack ref."""
     query = class_name_or_slug.strip()
-    normalized_aux_id = _normalize_optional(aux_id)
     if not query:
         raise ValueError("class_name_or_slug must not be empty")
     if _looks_like_local_path(query):
         return PackResolution(
             query=query,
             query_type="local",
-            ref=_apply_version_pin(
-                PackRef(slug=Path(query).name, source="local", path=query),
-                version_pin=version_pin,
-                local_metadata=local_metadata,
-            ),
+            ref=PackRef(slug=Path(query).name, source="local", path=query),
         )
     if _looks_like_git_url(query):
-        return PackResolution(
-            query=query,
-            query_type="git",
-            ref=_apply_version_pin(
-                PackRef(slug=_slug_from_git_url(query), source="git", url=query),
-                version_pin=version_pin,
-                local_metadata=local_metadata,
-            ),
-        )
-    if normalized_aux_id is not None:
-        return PackResolution(
-            query=query,
-            query_type="aux_git",
-            ref=_apply_version_pin(
-                PackRef(
-                    slug=_slug_from_aux_id(normalized_aux_id),
-                    source="aux-git",
-                    url=_git_url_from_aux_id(normalized_aux_id),
-                    name=query,
-                ),
-                version_pin=version_pin,
-                local_metadata=local_metadata,
-            ),
-        )
+        return PackResolution(query=query, query_type="git", ref=PackRef(slug=_slug_from_git_url(query), source="git", url=query))
     if not allow_remote_lookup:
         raise PackNotFoundError(f"remote lookup disabled for {query!r}")
 
@@ -118,10 +87,10 @@ def resolve_pack(
     if _looks_like_class_name(query):
         resolution = registry.resolve_class(query)
         if resolution is not None:
-            return _resolution_with_pin(resolution, version_pin=version_pin, local_metadata=local_metadata)
+            return resolution
     resolution = registry.resolve_slug_or_name(query)
     if resolution is not None:
-        return _resolution_with_pin(resolution, version_pin=version_pin, local_metadata=local_metadata)
+        return resolution
     raise PackNotFoundError(f"unknown pack or class: {query}")
 
 
@@ -313,66 +282,6 @@ def _normalize_lookup_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
-def _normalize_optional(value: str | None) -> str | None:
-    if value is None:
-        return None
-    text = value.strip()
-    return text or None
-
-
-def _resolution_with_pin(
-    resolution: PackResolution,
-    *,
-    version_pin: str | None,
-    local_metadata: PackRef | dict[str, Any] | None,
-) -> PackResolution:
-    return PackResolution(
-        query=resolution.query,
-        query_type=resolution.query_type,
-        ref=_apply_version_pin(resolution.ref, version_pin=version_pin, local_metadata=local_metadata),
-        candidates=resolution.candidates,
-        cache_hit=resolution.cache_hit,
-        endpoint=resolution.endpoint,
-    )
-
-
-def _apply_version_pin(
-    ref: PackRef,
-    *,
-    version_pin: str | None,
-    local_metadata: PackRef | dict[str, Any] | None,
-) -> PackRef:
-    metadata = _normalize_local_metadata(local_metadata)
-    pinned_version = _normalize_optional(version_pin)
-    commit = metadata.get("commit") or metadata.get("git_commit") or ref.commit
-    if pinned_version is not None and _looks_like_commit_pin(pinned_version):
-        commit = pinned_version
-    if metadata.get("version") is not None:
-        version = str(metadata["version"])
-    elif pinned_version is not None:
-        version = pinned_version
-    else:
-        version = ref.version
-    return PackRef(
-        slug=str(metadata.get("slug") or ref.slug),
-        source=str(metadata.get("source") or ref.source),
-        version=version,
-        commit=commit,
-        url=str(metadata.get("url") or ref.url) if metadata.get("url") or ref.url else None,
-        path=str(metadata.get("path") or ref.path) if metadata.get("path") or ref.path else None,
-        name=str(metadata.get("name") or ref.name) if metadata.get("name") or ref.name else None,
-        registry_id=str(metadata.get("registry_id") or ref.registry_id) if metadata.get("registry_id") or ref.registry_id else None,
-    )
-
-
-def _normalize_local_metadata(local_metadata: PackRef | dict[str, Any] | None) -> dict[str, Any]:
-    if local_metadata is None:
-        return {}
-    if isinstance(local_metadata, PackRef):
-        return local_metadata.to_dict()
-    return {str(key): value for key, value in local_metadata.items() if value is not None}
-
-
 def _ref_identity(ref: PackRef) -> str:
     return f"{ref.source}:{ref.slug}:{ref.registry_id or ''}"
 
@@ -389,10 +298,6 @@ def _looks_like_git_url(value: str) -> bool:
     return value.startswith(("git@", "ssh://")) or value.endswith(".git") or "github.com/" in value
 
 
-def _looks_like_commit_pin(value: str) -> bool:
-    return bool(re.fullmatch(r"[0-9a-fA-F]{7,40}", value))
-
-
 def _looks_like_local_path(value: str) -> bool:
     return value.startswith(("./", "../", "/", "~"))
 
@@ -400,11 +305,3 @@ def _looks_like_local_path(value: str) -> bool:
 def _slug_from_git_url(url: str) -> str:
     stripped = url.rstrip("/").removesuffix(".git")
     return stripped.rsplit("/", 1)[-1]
-
-
-def _git_url_from_aux_id(aux_id: str) -> str:
-    return f"https://github.com/{aux_id}.git"
-
-
-def _slug_from_aux_id(aux_id: str) -> str:
-    return aux_id.rsplit("/", 1)[-1]

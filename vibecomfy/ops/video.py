@@ -6,7 +6,6 @@ from typing import Any, Union
 
 from vibecomfy.artifacts import Artifact, Image, Video
 from vibecomfy.cli_loader import load_workflow_any
-from vibecomfy.origin import stamp_workflow_origin
 from vibecomfy.ops._common import first_output, set_prompt_preserving_registration
 from vibecomfy.ops._namespace import dispatch, namespace_getattr
 from vibecomfy.ops.registry import register_op
@@ -53,7 +52,6 @@ def _t2v(
 ) -> Video:
     result = pick("video", "t2v", model=model, width=width, height=height, length=length, fps=fps, seed=seed, **overrides)
     workflow = load_workflow_any(result.template_id)
-    stamp_workflow_origin(workflow, "op", "ops/video.py:t2v")
     set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
     if seed is not None:
         workflow.set_seed(seed)
@@ -102,7 +100,6 @@ def _i2v(
     image_path = _resolve_i2v_image_path(image)
     result = pick("video", "i2v", model=model, image=image_path, length=length, fps=fps, seed=seed, **overrides)
     workflow = load_workflow_any(result.template_id)
-    stamp_workflow_origin(workflow, "op", "ops/video.py:i2v")
     set_prompt_preserving_registration(workflow, prompt, result.explicit_patches)
     try:
         workflow.set_input("image", image_path)

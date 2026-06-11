@@ -12,7 +12,7 @@ from typing import Any
 from vibecomfy.cli_loader import load_workflow_any
 from vibecomfy.commands._output import emit
 from vibecomfy.errors import SubgraphFreshnessError
-from vibecomfy.porting.emit.emitter import _build_subgraph_def, _disambiguated_subgraph_slugs
+from vibecomfy.porting.emitter import _build_subgraph_def, _disambiguated_subgraph_slugs
 from vibecomfy.schema import get_schema_provider
 from vibecomfy.schema.format import format_issue
 from vibecomfy.workflow import ValidationIssue, ValidationReport, VibeWorkflow

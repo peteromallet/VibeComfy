@@ -33,7 +33,7 @@ from vibecomfy.porting.layout.layering import _role_precedence_rank, compute_lay
 from vibecomfy.porting.layout.placement import place_constrained
 from vibecomfy.porting.layout.sizing import _DEFAULT_NODE_WIDTH, estimate_node_size
 from vibecomfy.porting.layout.types import LayoutResult
-from vibecomfy.porting.emit.ui import _canonicalize_coord
+from vibecomfy.porting.ui_emitter import _canonicalize_coord
 
 logger = logging.getLogger(__name__)
 

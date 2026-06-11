@@ -335,16 +335,14 @@ def _cmd_nodes_ensure(args: argparse.Namespace) -> int:
         for class_type in unresolved:
             print(f"- {class_type}")
         return 1
-    batch = node_packs_install.install_required_packs(packs)
-    for result in batch.results:
+    for pack in packs:
+        result = node_packs_install.install_pack(name=pack.name)
         detail = f" {result.git_commit_sha}" if result.git_commit_sha else ""
         print(f"{result.name}: {result.status}{detail}")
         if result.error:
             print(result.error, file=sys.stderr)
-    if not batch.ok:
-        if batch.preflight.error:
-            print(batch.preflight.error, file=sys.stderr)
-        return 1
+        if result.status not in {"installed", "refreshed"}:
+            return 1
     print(
         "Nodepacks installed/refreshed. If a vibecomfy session is active, "
         "call session.reload_for_nodepack_change(...) or restart it."
@@ -392,7 +390,7 @@ def _cmd_nodes_restore(args: argparse.Namespace) -> int:
 
 
 def _installed_nodepack_dir(name: str) -> Path | None:
-    candidate = node_packs_install.default_install_root() / name
+    candidate = node_packs_install.DEFAULT_INSTALL_ROOT / name
     return candidate if candidate.is_dir() else None
 
 
@@ -461,7 +459,7 @@ def _cmd_nodes_drift(args: argparse.Namespace) -> int:
     to_ref: str | None = getattr(args, "to_ref", None)
 
     # Resolve pack dir
-    pack_dir = node_packs_install.default_install_root() / pack_name
+    pack_dir = node_packs_install.DEFAULT_INSTALL_ROOT / pack_name
     if not pack_dir.is_dir():
         payload = {
             "status": "unavailable",

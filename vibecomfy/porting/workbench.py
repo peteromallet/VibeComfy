@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +22,7 @@ from vibecomfy.node_packs import resolve_node_packs, unresolved_class_types
 from vibecomfy.custom_node_refs import check_pack_pin_compatibility
 from vibecomfy.node_packs_lockfile import read_lockfile
 from vibecomfy.porting.assets import analyze_model_assets
-from vibecomfy.porting.emit.emitter import (
+from vibecomfy.porting.emitter import (
     READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
     READABILITY_WARNING_HIDDEN_MODEL_FILENAME,
     READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE,
@@ -30,14 +31,16 @@ from vibecomfy.porting.emit.emitter import (
 )
 from vibecomfy.porting.report import NodePackSuggestion, PortIssue, PortReport
 from vibecomfy.porting.strict_ready import StrictReadyContext, validate_strict_ready_workflow
-from vibecomfy.porting.widgets.aliases import widget_alias_analysis, widget_names_for_class
+from vibecomfy.porting.widget_aliases import widget_alias_analysis, widget_names_for_class
 from vibecomfy.registry.ready import workflow_from_ready
 from vibecomfy.scratchpad_loader import load_scratchpad
 from vibecomfy.schema import schema_for, schema_registry_empty
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
 
-from vibecomfy.contracts.validation import OPAQUE_COMPONENT_CLASS_RE as _OPAQUE_COMPONENT_CLASS_RE  # noqa: E402
+_OPAQUE_COMPONENT_CLASS_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 _KNOWN_RUNTIME_REQUIRED_INPUTS: dict[str, frozenset[str]] = {
     # VideoHelperSuite validates these at Comfy queue time. Keep this local
@@ -206,9 +209,9 @@ def analyze_source(
     for issue in validation_report.issues:
         report.diagnostics.append(_port_issue_from_validation(issue, category="schema"))
 
-    # -- readability diagnostics --------------------------------------
+    # -- readability diagnostics (T9) --------------------------------------
     report.diagnostics.extend(_readability_diagnostics(workflow, api_prompt=api_prompt))
-    # -- strict-template style diagnostics ---------------------------
+    # -- strict-template style diagnostics (T5) ---------------------------
     report.diagnostics.extend(_strict_template_style_diagnostics(loaded))
     if resolved_mode in {"strict_ready", "app_active"}:
         strict_diagnostics = validate_strict_ready_workflow(
@@ -1010,7 +1013,7 @@ def _hash_file(path: str | Path) -> str | None:
         return None
 
 
-# -- readability diagnostics ---------------------------------------------
+# -- readability diagnostics (T9) ---------------------------------------------
 
 
 def _readability_diagnostics(

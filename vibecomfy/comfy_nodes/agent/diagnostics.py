@@ -14,7 +14,7 @@ from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringResult
 from vibecomfy.schema.validate import validate_against_schema, validate_api_link_shapes
 from vibecomfy.workflow import ValidationIssue, VibeWorkflow
 
-from .agent_contracts import FailureKind, StageResult
+from .contracts import FailureKind, StageResult
 
 UNSATISFIED_INPUT_CODES = frozenset(
     {

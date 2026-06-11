@@ -7,7 +7,6 @@ from typing import Any
 from vibecomfy.cli_loader import load_workflow_any
 from vibecomfy.registry.library import load_workflow_reference
 from vibecomfy.runtime.model_policy import (
-    ModelPreflightPolicy,
     apply_model_preflight,
     normalized_models_root,
     resolve_model_preflight_policy,
@@ -235,7 +234,7 @@ def _server_ensure_models_enabled(
     return not ensure_models_disabled
 
 
-def _active_session_policy(session_metadata: dict[str, Any] | None, *, shared_root: str | None) -> ModelPreflightPolicy:
+def _active_session_policy(session_metadata: dict[str, Any] | None, *, shared_root: str | None):
     local_root = session_metadata.get("models_root_normalized") if session_metadata else None
     if not local_root:
         return resolve_model_preflight_policy(
@@ -265,7 +264,7 @@ def _memory_profile_restart_required_message(target: str) -> str:
     )
 
 
-def register(subparsers: Any) -> None:
+def register(subparsers) -> None:
     run = subparsers.add_parser("run")
     run.add_argument("path")
     run.add_argument("--ready", action="store_true")

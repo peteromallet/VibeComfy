@@ -7,7 +7,7 @@ import subprocess
 
 import pytest
 
-from vibecomfy.comfy_nodes.agent_session import payload_hash, structural_graph_hash
+from vibecomfy.comfy_nodes.agent.session import payload_hash, structural_graph_hash
 
 _WORKTREE_ROOT = pathlib.Path(__file__).resolve().parent.parent
 

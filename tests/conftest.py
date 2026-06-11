@@ -72,7 +72,7 @@ def _isolate_comfyui_import_state() -> None:
         pass
 
     try:
-        from vibecomfy.comfy_nodes import agent_edit
+        from vibecomfy.comfy_nodes.agent import edit as agent_edit
 
         agent_edit._RUNTIME_OBJECT_INFO_PATH.clear()
     except Exception:

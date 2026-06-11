@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from vibecomfy._widget_aliases import (
+from vibecomfy._compile._widgets import (
     COMPILE_WIDGET_ALIAS_CLASS_TYPES,
     WIDGET_SCHEMA,
     apply_positional_widget_aliases,
@@ -31,7 +31,7 @@ def test_workflow_imports_ir_neutral_widget_aliases_not_porting() -> None:
     imports = _imports(ROOT / "vibecomfy" / "workflow.py")
 
     assert "vibecomfy.porting.widget_aliases" not in imports
-    assert "from vibecomfy import _widget_aliases as widget_aliases" in source
+    assert "from vibecomfy._compile import _widgets as widget_aliases" in source
 
 
 def test_ir_neutral_widget_aliases_do_not_import_porting_or_object_info() -> None:

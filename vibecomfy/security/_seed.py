@@ -41,6 +41,8 @@ _OUTPUT_CLASSES_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Back-compat alias from the main hardening branch.
+OUTPUT_CLASS_NAMES: frozenset[str] = _OUTPUT_CLASSES_KEYS
 
 # ── Literal copy of all class names from _STATIC_NODE_PACKS in vibecomfy/node_packs.py:19 ─
 ALL_STATIC_PACK_CLASSES: frozenset[str] = frozenset(
@@ -261,7 +263,7 @@ ALL_STATIC_PACK_CLASSES: frozenset[str] = frozenset(
 )
 
 # ── Union of all seeded class names ──────────────────────────────────────────
-ALL_SEEDED: frozenset[str] = OUTPUT_NODE_NAMES | _OUTPUT_CLASSES_KEYS | ALL_STATIC_PACK_CLASSES
+ALL_SEEDED: frozenset[str] = OUTPUT_NODE_NAMES | OUTPUT_CLASS_NAMES | ALL_STATIC_PACK_CLASSES
 
 # ── Curated keyword pattern for side-effecting node detection ─────────────────
 # Matches nodes whose CLASS NAME indicates side effects at edit time.

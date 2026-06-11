@@ -1,8 +1,51 @@
 from __future__ import annotations
 
-# Single source of truth for the public surface and lazy-import routing.
-# name → (module, attr)
-_EXPORTS = {
+__all__ = [
+    "COMPILED_EDGE_ENDPOINT_RESOLVED",
+    "ContractDoctorDiagnostic",
+    "ContractDoctorReport",
+    "ContractIssue",
+    "ContractReport",
+    "HELPER_EDGE_REWIRED_OR_REPORTED",
+    "INTENT_CODE_MAX_BYTES",
+    "INTENT_LOOP_MAX_ITERATIONS",
+    "INTENT_NODE_CONTRACT_INVALID_CODE",
+    "INTENT_NODE_EDITOR_ONLY_CODE",
+    "INTENT_NODE_QUEUE_BLOCKER_CODE",
+    "IntentNodeProblem",
+    "IntentNodeValidationResult",
+    "IR_CONTRACT_ANCHORS",
+    "IR_CONTRACT_CODES",
+    "IR_CONTRACT_SHAPE",
+    "IR_CONTRACT_VERSION",
+    "IRContractAnchor",
+    "LTXFirstLastTwoStageContract",
+    "NormalizedRuntimeCodeContract",
+    "PUBLIC_INPUT_STALE_TARGET",
+    "PUBLIC_INPUT_UNREGISTERED",
+    "RUNTIME_CODE_CONTRACT_VERSION",
+    "RUNTIME_CODE_EXECUTION_MODE",
+    "RUNTIME_CODE_POLICY_VERSION",
+    "RuntimeCodeContractValidationResult",
+    "VALIDATION_OK_COMPILES_API",
+    "VALIDATION_REPORT_OK_FIELD",
+    "WorkflowRuntimeContract",
+    "build_contract",
+    "intent_node_payload_from_metadata",
+    "intent_node_properties",
+    "intent_node_properties_from_metadata",
+    "is_intent_class_type",
+    "doctor_contract",
+    "ir_contract_codes",
+    "is_ir_contract_code",
+    "require_ir_contract_code",
+    "validate_intent_node_contract",
+    "validate_runtime_code_contract",
+    "validate_typed_io_spec",
+]
+
+
+_LAZY_ATTRS = {
     "COMPILED_EDGE_ENDPOINT_RESOLVED": ("vibecomfy.contracts.ir", "COMPILED_EDGE_ENDPOINT_RESOLVED"),
     "ContractDoctorDiagnostic": ("vibecomfy.contracts.doctor", "ContractDoctorDiagnostic"),
     "ContractDoctorReport": ("vibecomfy.contracts.doctor", "ContractDoctorReport"),
@@ -46,12 +89,10 @@ _EXPORTS = {
     "validate_typed_io_spec": ("vibecomfy.contracts.intent_nodes", "validate_typed_io_spec"),
 }
 
-__all__ = tuple(_EXPORTS)
-
 
 def __getattr__(name: str):
-    if name in _EXPORTS:
-        module_name, attr_name = _EXPORTS[name]
+    if name in _LAZY_ATTRS:
+        module_name, attr_name = _LAZY_ATTRS[name]
         from importlib import import_module
 
         value = getattr(import_module(module_name), attr_name)

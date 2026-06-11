@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from vibecomfy.porting.edit.types import FieldChange
+from vibecomfy.porting.edit_types import FieldChange
 from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError
 
 DEFAULT_GATE_NAMES: tuple[str, ...] = (
@@ -57,46 +57,6 @@ PUBLIC_OUTCOME_KINDS: tuple[str, ...] = (
     "error",
 )
 
-# Canonical snake_case field list for rebaseline-recovery objects.
-# Sourced from the JS lifecycle module's _normalizeRebaselineRecovery keys
-# (agent_edit_lifecycle.js L1369–1394, snake_case) and cross-checked against
-# _stale_rebaseline_recovery_issue (agent_edit.py) and
-# _promote_accept_rebaseline_recovery (routes.py).
-REBASELINE_RECOVERY_FIELDS: tuple[str, ...] = (
-    "action",
-    "endpoint",
-    "reason",
-    "last_known_baseline_graph_hash",
-    "submit_graph_hash",
-    "submit_structural_graph_hash",
-    "client_graph_hash",
-    "client_structural_graph_hash",
-)
-
-# Maps internal TurnOutcome kinds to their canonical public outcome kind.
-# Sourced from public_outcome_from_turn_outcome (this module, L885–925) and
-# cross-checked against the JS INTERNAL_OUTCOME_KIND_MAP
-# (agent_edit_response_contract.js L8–11).
-# "budget" is context-dependent (candidate vs noop) — not in this static map.
-INTERNAL_TO_PUBLIC_OUTCOME: Mapping[str, str] = MappingProxyType({
-    "edit": "candidate",
-    "edit+clarify": "candidate",
-    "clarify": "clarify",
-    "noop": "noop",
-    "failure": "error",
-})
-
-# Well-known keys that, when present on a response object, signal a failure.
-# Sourced from FAILURE_HINT_KEYS in agent_edit_response_contract.js L13–20.
-FAILURE_HINT_KEYS: tuple[str, ...] = (
-    "agent_failure_context",
-    "failureKind",
-    "failure_kind",
-    "nextAction",
-    "next_action",
-    "retryable",
-)
-
 
 class FailureKind(str, Enum):
     SYNTAX_ERROR = "SyntaxError"
@@ -105,6 +65,7 @@ class FailureKind(str, Enum):
     MALFORMED_MODEL_JSON = "MalformedModelJSON"
     MISSING_REQUIRED_FIELD = "MissingRequiredField"
     PROVIDER_ERROR = "ProviderError"
+    AGENT_RUNTIME_UNAVAILABLE = "AgentRuntimeUnavailable"
     AUTH_ERROR = "AuthError"
     TIMEOUT_ERROR = "TimeoutError"
     VALIDATION_ERROR = "ValidationError"
@@ -236,6 +197,15 @@ FAILURE_SPECS: Mapping[FailureKind, FailureSpec] = MappingProxyType(
             graph_unchanged=True,
             user_facing_message=(
                 "The model provider is temporarily unavailable. The graph is unchanged."
+            ),
+        ),
+        FailureKind.AGENT_RUNTIME_UNAVAILABLE: FailureSpec(
+            retryable=False,
+            next_action="install/configure the agent runtime (see details); not a transient outage",
+            graph_unchanged=True,
+            user_facing_message=(
+                "The agent runtime could not be loaded. This is a setup problem, "
+                "not a transient outage — see details."
             ),
         ),
         FailureKind.AUTH_ERROR: FailureSpec(
@@ -1081,6 +1051,30 @@ def _scan_failure_from_issue(value: Any) -> dict[str, Any] | None:
     return None
 
 
+def _is_runtime_unavailable(exc_or_issue: Any, lower_message: str) -> bool:
+    """True when the agent runtime itself could not be loaded/imported.
+
+    These are setup/config faults (a missing ``megaplan``/Arnold runtime, a
+    shadowed package, a broken editable install) — not transient provider
+    outages.  They surface as ``ImportError``/``ModuleNotFoundError`` in the
+    worker subprocess, whose type is preserved through ``error_type`` and (for
+    in-process raises) the exception MRO.  Mapping them to a retryable
+    ``ProviderError`` ("temporarily unavailable, try again") is actively
+    misleading, so classify them as a non-retryable runtime-unavailable fault.
+    """
+    runtime_exc_names = {"ModuleNotFoundError", "ImportError"}
+    if any(t.__name__ in runtime_exc_names for t in type(exc_or_issue).__mro__):
+        return True
+    error_type = None
+    if isinstance(exc_or_issue, Mapping):
+        error_type = exc_or_issue.get("error_type")
+    else:
+        error_type = getattr(exc_or_issue, "error_type", None)
+    if isinstance(error_type, str) and error_type in runtime_exc_names:
+        return True
+    return "no module named" in lower_message
+
+
 def _context_ids(context: TurnContext | Mapping[str, Any] | None) -> dict[str, Any]:
     if isinstance(context, TurnContext):
         return {
@@ -1156,6 +1150,23 @@ def classify_failure(
             stage,
             context,
             agent_failure_context={"explanation": str(exc_or_issue)},
+        )
+
+    # A failure to load the agent runtime itself (missing/shadowed module,
+    # broken editable install) is a setup fault, not a transient provider
+    # outage.  Detect it before the stage-specific branches so it is never
+    # mislabeled as a retryable ProviderError ("temporarily unavailable").
+    if _is_runtime_unavailable(exc_or_issue, lower_message):
+        explanation = str(exc_or_issue)
+        envelope = failure_envelope(
+            FailureKind.AGENT_RUNTIME_UNAVAILABLE,
+            stage,
+            context,
+            agent_failure_context={"explanation": explanation},
+        )
+        return replace(
+            envelope,
+            user_facing_message=f"{envelope.user_facing_message} ({explanation})",
         )
 
     if stage == "agent_response":
@@ -1364,14 +1375,11 @@ __all__ = [
     "ApplyEligibility",
     "CANVAS_APPLY_GATE_NAMES",
     "DEFAULT_GATE_NAMES",
-    "FAILURE_HINT_KEYS",
     "FAILURE_SPECS",
     "FailureEnvelope",
     "FailureKind",
     "GateResult",
-    "INTERNAL_TO_PUBLIC_OUTCOME",
     "PUBLIC_OUTCOME_KINDS",
-    "REBASELINE_RECOVERY_FIELDS",
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
     "TURN_OUTCOME_KINDS",

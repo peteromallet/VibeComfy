@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .agent_audit import redact_closed_set
-from .agent_contracts import AGENT_EDIT_TURN_CONTRACT_VERSION
+from .audit import redact_closed_set
+from .contracts import AGENT_EDIT_TURN_CONTRACT_VERSION
 
 
 LOGGER = logging.getLogger(__name__)
@@ -226,9 +226,6 @@ def build_batch_messages(
         "Known limits:\n"
         "- `attr = None` disconnects a wire (not a null literal)\n"
         "- List-socket inputs, reorder/group, cross-subgraph: out of scope\n\n"
-        "vibecomfy.exec: `e=vibecomfy.exec(source=\"def fn(x):\\n return dict(y=x)\","
-        "io={\"i\":[\"x\"],\"o\":[\"y\"]})` wire in_N/out_N."
-        " return dict; torch/np/Image; no f-strings.\n\n"
         "Use the graph's real names:\n"
         "Reference EXISTING nodes by the EXACT variable names shown in the Current\n"
         "scratchpad Python above (e.g. its decode and save nodes). NEVER invent a\n"
@@ -736,6 +733,11 @@ def run_agent_turn(
         raise AuthError(str(exc)) from exc
     except TimeoutError:
         raise
+    except ImportError:
+        # The agent runtime could not be loaded — a setup fault, not a
+        # transient provider outage.  Preserve the type so it is classified
+        # as a non-retryable AGENT_RUNTIME_UNAVAILABLE failure.
+        raise
     except (ProviderError, MalformedModelJSON, MissingRequiredField):
         raise
     except Exception as exc:
@@ -762,7 +764,7 @@ def run_agent_turn_delta(
     route: str | None = None,
     model: str | None = None,
 ):
-    from vibecomfy.porting.edit.ops import (
+    from vibecomfy.porting.edit_ops import (
         EDIT_OP_RESPONSE_SCHEMA_V2,
         EditOpParseError,
         normalize_delta_agent_response,
@@ -785,6 +787,11 @@ def run_agent_turn_delta(
     except PermissionError as exc:
         raise AuthError(str(exc)) from exc
     except TimeoutError:
+        raise
+    except ImportError:
+        # The agent runtime could not be loaded — a setup fault, not a
+        # transient provider outage.  Preserve the type so it is classified
+        # as a non-retryable AGENT_RUNTIME_UNAVAILABLE failure.
         raise
     except (ProviderError, MalformedModelJSON, MissingRequiredField):
         raise
@@ -975,6 +982,11 @@ def run_agent_turn_batch(
                 )
                 continue
             raise
+        except ImportError:
+            # The agent runtime could not be loaded — a setup fault, not a
+            # transient provider outage.  Preserve the type so it is classified
+            # as a non-retryable AGENT_RUNTIME_UNAVAILABLE failure.
+            raise
         except (ProviderError, MissingRequiredField):
             raise
         except Exception as exc:
@@ -999,12 +1011,17 @@ def readiness(*, route: str | None = None, model: str | None = None) -> dict[str
             "error": str(exc),
         }
 
+    # Probe the runtime with the REQUESTED route (e.g. "anthropic" /
+    # "openai-codex"), not the collapsed normalized one, so the runtime can
+    # report honest per-route readiness. The surrounding provider metadata still
+    # carries the normalized ``selected_route``.
+    probe_route = route_descriptor.requested_route or selected_route
     readiness_fn: Callable[..., Any] | None = getattr(runtime, "readiness", None)
     if callable(readiness_fn):
-        raw_status = readiness_fn(route=selected_route, model=selected_model)
+        raw_status = readiness_fn(route=probe_route, model=selected_model)
     else:
         status_fn: Callable[..., Any] | None = getattr(runtime, "get_agent_status", None)
-        raw_status = status_fn(route=selected_route, model=selected_model) if status_fn else {}
+        raw_status = status_fn(route=probe_route, model=selected_model) if status_fn else {}
     if not isinstance(raw_status, Mapping):
         raw_status = {}
 

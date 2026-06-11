@@ -15,7 +15,7 @@ import keyword
 from typing import Any, Mapping
 
 from vibecomfy.errors import ArityDisagreementError, ConversionParityError
-from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
+from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
 from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
 from vibecomfy.porting.emit_constants import (
     UI_ONLY_CLASS_TYPES,

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vibecomfy.comfy_nodes.agent_edit import (
+from vibecomfy.comfy_nodes.agent.edit import (
     AgentEditState,
     _StageBlocked,
     _ABSENT_FIELD_OLD,
@@ -35,7 +35,7 @@ from vibecomfy.comfy_nodes.agent_edit import (
     split_terminal_clarify,
 )
 from vibecomfy.porting.edit.types import FieldChange
-from vibecomfy.comfy_nodes.agent_contracts import (
+from vibecomfy.comfy_nodes.agent.contracts import (
     AGENT_EDIT_TURN_CONTRACT_VERSION,
     FailureEnvelope,
     FailureKind,
@@ -47,8 +47,8 @@ from vibecomfy.comfy_nodes.agent_contracts import (
     classify_failure,
     failure_envelope,
 )
-from vibecomfy.comfy_nodes.agent_provider import ProviderError
-from vibecomfy.comfy_nodes.agent_session import (
+from vibecomfy.comfy_nodes.agent.provider import ProviderError
+from vibecomfy.comfy_nodes.agent.session import (
     payload_hash,
     session_dir_for,
     structural_graph_hash,
@@ -254,7 +254,7 @@ def _allocate_action_candidate(
     session_id: str,
     label: str,
 ) -> tuple[str, str, str]:
-    from vibecomfy.comfy_nodes.agent_session import allocate_turn, record_idempotent_response
+    from vibecomfy.comfy_nodes.agent.session import allocate_turn, record_idempotent_response
 
     graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": [label]}], "links": []}
     candidate_graph = {
@@ -544,7 +544,7 @@ def test_agent_edit_turn_event_payload_compacts_and_excludes_sensitive_fields(
 def test_agent_edit_route_extracts_only_non_empty_string_client_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    routes = importlib.import_module("vibecomfy.comfy_nodes.routes")
+    routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
     real_aiohttp = sys.modules.get("aiohttp")
     real_server = sys.modules.get("server")
 
@@ -655,7 +655,7 @@ def test_agent_edit_contract_defaults_to_batch_repl_and_warns_for_legacy(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     agent_edit_module._WARNED_LEGACY_CONTRACTS.clear()
     agent_edit_module._WARNED_IGNORED_PUBLIC_PROTOCOL_ENVS.clear()
@@ -699,7 +699,7 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     state = AgentEditState(
         task="change the save prefix",
@@ -763,7 +763,7 @@ def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
@@ -817,7 +817,7 @@ def test_handle_agent_edit_batch_repl_uses_product_response_builder_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     builder_calls: list[str] = []
@@ -867,7 +867,7 @@ def test_handle_agent_edit_dev_delta_uses_dev_success_builder_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     _use_dev_delta(monkeypatch)
     builder_calls: list[str] = []
@@ -916,7 +916,7 @@ def test_handle_agent_edit_dev_delta_uses_dev_failure_builder_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     _use_dev_delta(monkeypatch)
 
@@ -1072,8 +1072,8 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
             "message": "Changed the save prefix.",
         }
 
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
-    from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent.audit import write_audit as real_write_audit
 
     stage_order: list[str] = []
 
@@ -1146,7 +1146,7 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
 
 
 def test_agent_edit_render_resolves_primitive_float_helpers_before_emission() -> None:
-    from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
+    from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
     from vibecomfy.porting.edit.session import EditSession
 
     session = EditSession(_primitive_float_helper_ui_graph())
@@ -1179,7 +1179,7 @@ def test_agent_edit_batch_internal_failure_is_not_provider_error(
         raise RuntimeError("Resolver bug: unresolved helper node 285 survived to emission")
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit._stage_agent_batch_repl",
+        "vibecomfy.comfy_nodes.agent.edit._stage_agent_batch_repl",
         _boom,
     )
 
@@ -1217,10 +1217,10 @@ def test_agent_edit_batch_empty_model_response_is_malformed_not_provider_error(
     )
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    from vibecomfy.comfy_nodes import agent_provider as provider_mod
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit.run_agent_turn_batch",
+        "vibecomfy.comfy_nodes.agent.edit.run_agent_turn_batch",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             provider_mod.MalformedModelJSON(
                 "Agent batch_repl response was empty. Expected exactly one ```batch fenced block."
@@ -1270,7 +1270,7 @@ def test_agent_edit_batch_empty_model_response_retries_once_then_commits(
     )
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
-    from vibecomfy.comfy_nodes import agent_provider as provider_mod
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
 
     calls: list[dict[str, object]] = []
     responses = iter(
@@ -1373,10 +1373,10 @@ def test_handle_agent_edit_dev_delta_classifies_provider_error_as_closed_failure
     )
     _use_dev_delta(monkeypatch)
 
-    from vibecomfy.comfy_nodes import agent_provider as provider_mod
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit.run_agent_turn_delta",
+        "vibecomfy.comfy_nodes.agent.edit.run_agent_turn_delta",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(provider_mod.ProviderError("not installed")),
     )
 
@@ -1420,8 +1420,8 @@ def test_flag_off_dev_full_stage_order_and_prompt_unchanged(
     )
     _use_dev_full(monkeypatch)
 
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
-    from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent.audit import write_audit as real_write_audit
 
     stage_order: list[str] = []
 
@@ -1530,8 +1530,8 @@ def test_flag_off_dev_delta_stage_order_and_prompt_unchanged(
             "message": "Set save prefix.",
         }
 
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
-    from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent.audit import write_audit as real_write_audit
 
     stage_order: list[str] = []
 
@@ -1778,7 +1778,7 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
 
 
 def test_batch_repl_search_query_output_is_in_next_turn_report() -> None:
-    from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
     from vibecomfy.porting.edit.session import EditSession
 
     provider = _Provider(
@@ -1805,7 +1805,7 @@ def test_batch_repl_search_query_output_is_in_next_turn_report() -> None:
 
 
 def test_batch_budget_failure_kind_prefers_schema_gap_then_unrepresentable_then_model_mistake() -> None:
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     assert (
         agent_edit_module._batch_budget_failure_kind(
@@ -1983,7 +1983,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
         assert (turn_dir / "messages.jsonl").is_file()
         events.append((event, payload, client_id))
 
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._ws_send", _capture_ws_send)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._ws_send", _capture_ws_send)
 
     def _fake_batch_client(_messages):
         return {
@@ -2075,7 +2075,7 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     events: list[tuple[str, dict[str, object], str | None]] = []
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit._ws_send",
+        "vibecomfy.comfy_nodes.agent.edit._ws_send",
         lambda event, payload, *, client_id=None: events.append((event, payload, client_id)),
     )
     responses = iter(
@@ -2494,7 +2494,7 @@ def test_handle_agent_edit_batch_repl_refused_done_skips_emit_and_budget_failure
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
     events: list[tuple[str, dict[str, object], str | None]] = []
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit._ws_send",
+        "vibecomfy.comfy_nodes.agent.edit._ws_send",
         lambda event, payload, *, client_id=None: events.append((event, payload, client_id)),
     )
     responses = iter(
@@ -2996,7 +2996,7 @@ def test_handle_agent_edit_batch_repl_budget_exhaustion_reports_final_status_met
     ) -> None:
         events.append((event, payload, client_id))
 
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._ws_send", _capture_ws_send)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._ws_send", _capture_ws_send)
 
     responses = iter(
         [
@@ -3231,12 +3231,12 @@ def test_handle_agent_edit_validates_lowered_copy_after_load_python(
             gate_updates={"queue_validate_ok": True},
         )
 
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_validate", _validate)
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_emit", _emit)
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_summarize", _summarize)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._stage_validate", _validate)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._stage_emit", _emit)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._stage_summarize", _summarize)
 
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
-    from vibecomfy.comfy_nodes.agent_audit import write_audit as real_write_audit
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent.audit import write_audit as real_write_audit
 
     stage_order: list[str] = []
 
@@ -3645,7 +3645,7 @@ def test_handle_agent_edit_batch_repl_audit_failure_includes_typed_product_failu
 ) -> None:
     provider = _batch_repl_provider()
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit._stage_audit",
+        "vibecomfy.comfy_nodes.agent.edit._stage_audit",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
     responses = iter(
@@ -3958,7 +3958,7 @@ def test_agent_edit_stage_failure_keeps_untouched_gates_false_and_writes_audit(
     def _boom(*_args, **_kwargs):
         raise RuntimeError("convert exploded")
 
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_convert", _boom)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._stage_convert", _boom)
 
     result = handle_agent_edit(
         {
@@ -4001,9 +4001,9 @@ def test_agent_edit_uses_provider_seam_and_classifies_provider_unavailable(
         }
     )
 
-    from vibecomfy.comfy_nodes import agent_provider as provider_mod
+    from vibecomfy.comfy_nodes.agent import provider as provider_mod
 
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit.run_agent_turn", provider_mod.run_agent_turn)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit.run_agent_turn", provider_mod.run_agent_turn)
     monkeypatch.setattr(
         provider_mod,
         "_load_arnold_runtime",
@@ -4047,14 +4047,14 @@ def test_agent_edit_classifies_provider_malformed_and_missing_fields(
 
     for index, (provider_payload, expected_kind) in enumerate(cases, start=1):
         def _fake_run_agent_turn(*_args, _payload=provider_payload, **_kwargs):
-            from vibecomfy.comfy_nodes import agent_provider as provider_mod
+            from vibecomfy.comfy_nodes.agent import provider as provider_mod
             return provider_mod._normalize_agent_response(  # type: ignore[attr-defined]
                 _payload,
                 route="arnold",
                 model="agent-edit",
             )
 
-        monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit.run_agent_turn", _fake_run_agent_turn)
+        monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit.run_agent_turn", _fake_run_agent_turn)
         result = handle_agent_edit(
             {
                 "graph": _ui_graph(),
@@ -4101,7 +4101,7 @@ def test_agent_edit_convert_stage_classifies_known_errors(
     def _boom(*_args, **_kwargs):
         raise exc_factory()
 
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_convert", _boom)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._stage_convert", _boom)
 
     result = handle_agent_edit(
         {
@@ -4151,7 +4151,7 @@ def test_agent_edit_hostile_loader_failure_keeps_exact_failure_envelope(
         raise AgentGeneratedLoadError("scan failed", report=report)
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit.load_agent_generated_scratchpad", _reject,
+        "vibecomfy.comfy_nodes.agent.edit.load_agent_generated_scratchpad", _reject,
         raising=False,
     )
     monkeypatch.setattr(
@@ -4205,7 +4205,7 @@ def test_agent_edit_emit_stage_classifies_refusal_and_editor_ahead(
     def _boom(*_args, **_kwargs):
         raise exc
 
-    monkeypatch.setattr("vibecomfy.comfy_nodes.agent_edit._stage_emit", _boom)
+    monkeypatch.setattr("vibecomfy.comfy_nodes.agent.edit._stage_emit", _boom)
 
     result = handle_agent_edit(
         {
@@ -4284,7 +4284,7 @@ def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _use_dev_full(monkeypatch)
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     provider = _Provider(
         {
@@ -4357,7 +4357,7 @@ def test_agent_edit_submit_after_accept_allows_only_volatile_reserialize_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _use_dev_full(monkeypatch)
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     provider = _Provider(
         {
@@ -4419,7 +4419,7 @@ def test_agent_edit_submit_after_accept_still_blocks_real_structural_divergence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _use_dev_full(monkeypatch)
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     provider = _Provider(
         {
@@ -4492,7 +4492,7 @@ def test_agent_edit_queue_blockers_keep_canvas_apply_true_but_queue_false(
         }
     )
 
-    from vibecomfy.comfy_nodes.agent_contracts import StageResult
+    from vibecomfy.comfy_nodes.agent.contracts import StageResult
 
     queue_issue = {
         "code": "schema_less_queue_blocker",
@@ -4502,7 +4502,7 @@ def test_agent_edit_queue_blockers_keep_canvas_apply_true_but_queue_false(
         "message": "schema-less queue blocker",
     }
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit.queue_stage_result",
+        "vibecomfy.comfy_nodes.agent.edit.queue_stage_result",
         lambda **_kwargs: StageResult(
             stage="queue_validate",
             ok=False,
@@ -4541,8 +4541,8 @@ def test_agent_edit_unknown_transition_audit_failure_does_not_rollback_session_s
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _use_dev_full(monkeypatch)
-    from vibecomfy.comfy_nodes import agent_audit, agent_edit as agent_edit_module
-    from vibecomfy.comfy_nodes.agent_session import read_state
+    from vibecomfy.comfy_nodes.agent import audit as agent_audit, edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent.session import read_state
 
     provider = _Provider(
         {
@@ -4590,7 +4590,7 @@ def test_agent_edit_writes_unknown_transition_audit_with_unknown_turn_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _use_dev_full(monkeypatch)
-    from vibecomfy.comfy_nodes.agent_session import read_state
+    from vibecomfy.comfy_nodes.agent.session import read_state
 
     provider = _Provider(
         {
@@ -4642,7 +4642,7 @@ def test_agent_edit_audit_failure_returns_exact_failure_envelope(
     )
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.agent_edit._stage_audit",
+        "vibecomfy.comfy_nodes.agent.edit._stage_audit",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
     )
 
@@ -4672,7 +4672,7 @@ def test_agent_edit_route_returns_closed_failure_envelopes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit
 
     missing_task = _handle_agent_edit({"graph": _ui_graph()}, session_root=tmp_path)
     _assert_failure_defaults(
@@ -4684,7 +4684,7 @@ def test_agent_edit_route_returns_closed_failure_envelopes(
     assert "ValueError" not in json.dumps(missing_task, sort_keys=True)
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.routes.handle_agent_edit",
+        "vibecomfy.comfy_nodes.agent.routes.handle_agent_edit",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     unexpected = _handle_agent_edit(
@@ -4705,8 +4705,8 @@ def test_agent_edit_route_preserves_classified_handler_failure_without_open_kind
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_contracts import failure_envelope
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit
+    from vibecomfy.comfy_nodes.agent.contracts import failure_envelope
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit
 
     classified = failure_envelope(
         FailureKind.PROVIDER_ERROR,
@@ -4714,7 +4714,7 @@ def test_agent_edit_route_preserves_classified_handler_failure_without_open_kind
         agent_failure_context={"explanation": "provider unavailable"},
     ).to_dict()
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.routes.handle_agent_edit",
+        "vibecomfy.comfy_nodes.agent.routes.handle_agent_edit",
         lambda *_args, **_kwargs: classified,
     )
 
@@ -4732,8 +4732,8 @@ def test_agent_edit_route_preserves_classified_handler_failure_without_open_kind
 def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import read_state
-    from vibecomfy.comfy_nodes.routes import (
+    from vibecomfy.comfy_nodes.agent.session import read_state
+    from vibecomfy.comfy_nodes.agent.routes import (
         _handle_agent_edit_accept,
         _handle_agent_edit_audit,
         _handle_agent_edit_reject,
@@ -4801,11 +4801,11 @@ def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> 
     than the backend's canonical ``submit_graph_hash``. Accept must match the
     client's own submit-time hash (``submitted_client_graph_hash``), otherwise a
     user can never apply a candidate from the panel (StaleStateMismatch)."""
-    from vibecomfy.comfy_nodes.agent_session import (
+    from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
         record_idempotent_response,
     )
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["browser"]}], "links": []}
     candidate_graph = {
@@ -4870,11 +4870,11 @@ def test_agent_edit_accept_matches_browser_client_graph_hash(tmp_path: Path) -> 
 def test_agent_edit_v2_accept_requires_server_hash_candidate_hash_and_live_token(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import (
+    from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
         record_idempotent_response,
     )
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2"]}], "links": []}
     candidate_graph = {
@@ -4992,7 +4992,7 @@ def test_agent_edit_accept_route_forwards_live_graph_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import routes
+    from vibecomfy.comfy_nodes.agent import routes
 
     live_graph = {"nodes": [{"id": 1, "type": "SaveImage"}], "links": []}
     captured: dict[str, object] = {}
@@ -5036,11 +5036,11 @@ def test_agent_edit_accept_route_forwards_live_graph_payload(
 def test_agent_edit_v2_accept_fails_closed_without_live_graph(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import (
+    from vibecomfy.comfy_nodes.agent.session import (
         allocate_turn,
         record_idempotent_response,
     )
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     graph = {"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2"]}], "links": []}
     candidate_graph = {
@@ -5099,7 +5099,7 @@ def test_agent_edit_v2_accept_fails_closed_without_live_graph(
 def test_agent_edit_rebaseline_route_returns_no_candidate_apply_eligibility(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_rebaseline
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_rebaseline
 
     graph = _ui_graph()
 
@@ -5126,8 +5126,8 @@ def test_agent_edit_rebaseline_route_returns_no_candidate_apply_eligibility(
 def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import read_state
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_reject
+    from vibecomfy.comfy_nodes.agent.session import read_state
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
 
     turn_id, submit_graph_hash, candidate_graph_hash = _allocate_action_candidate(
         tmp_path,
@@ -5167,8 +5167,8 @@ def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
 def test_agent_edit_action_routes_cover_replay_conflict_state_mismatch_and_audit_redaction(
     tmp_path: Path,
 ) -> None:
-    from vibecomfy.comfy_nodes.agent_session import read_state
-    from vibecomfy.comfy_nodes.routes import (
+    from vibecomfy.comfy_nodes.agent.session import read_state
+    from vibecomfy.comfy_nodes.agent.routes import (
         _handle_agent_edit_accept,
         _handle_agent_edit_audit,
         _handle_agent_edit_reject,
@@ -5396,7 +5396,7 @@ def test_route_accept_idempotency_replays_same_request_body(
     tmp_path: Path,
 ) -> None:
     """Route-level same-body replay for the accept endpoint."""
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
         tmp_path,
@@ -5421,7 +5421,7 @@ def test_route_accept_idempotency_conflicts_on_different_request_body(
     tmp_path: Path,
 ) -> None:
     """Route-level different-body conflict for the accept endpoint."""
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_accept
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
 
     turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
         tmp_path,
@@ -5458,7 +5458,7 @@ def test_route_reject_idempotency_replays_same_request_body(
     tmp_path: Path,
 ) -> None:
     """Route-level same-body replay for the reject endpoint."""
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_reject
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
 
     turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
         tmp_path,
@@ -5483,7 +5483,7 @@ def test_route_reject_idempotency_conflicts_on_different_request_body(
     tmp_path: Path,
 ) -> None:
     """Route-level different-body conflict for the reject endpoint."""
-    from vibecomfy.comfy_nodes.routes import _handle_agent_edit_reject
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
 
     turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
         tmp_path,
@@ -5520,8 +5520,8 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_provider
-    from vibecomfy.comfy_nodes.routes import _handle_agent_credentials, _handle_agent_status
+    from vibecomfy.comfy_nodes.agent import provider as agent_provider
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_credentials, _handle_agent_status
 
     monkeypatch.setenv("ARNOLD_API_KEY", "arnold-secret")
     monkeypatch.setattr(
@@ -5567,10 +5567,10 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from vibecomfy.comfy_nodes import agent_provider
-    from vibecomfy.comfy_nodes.agent_audit import write_audit
-    from vibecomfy.comfy_nodes.agent_contracts import TurnContext
-    from vibecomfy.comfy_nodes.routes import _handle_agent_credentials, _handle_agent_status
+    from vibecomfy.comfy_nodes.agent import provider as agent_provider
+    from vibecomfy.comfy_nodes.agent.audit import write_audit
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_credentials, _handle_agent_status
 
     monkeypatch.setenv("ARNOLD_API_KEY", "arnold-secret")
     monkeypatch.setenv("HERMES_API_KEY", "hermes-secret")
@@ -6478,7 +6478,7 @@ def test_absent_field_old_not_serialized_in_to_dict() -> None:
     assert d["old"] is None
     assert d["new"] == 1
     # The sentinel _ABSENT_FIELD_OLD must never leak into serialized output
-    from vibecomfy.comfy_nodes.agent_edit import _ABSENT_FIELD_OLD
+    from vibecomfy.comfy_nodes.agent.edit import _ABSENT_FIELD_OLD
     assert d["old"] is not _ABSENT_FIELD_OLD
 
 def test_synthesize_message_edit_outcome_with_done_summary() -> None:
@@ -6504,7 +6504,7 @@ def test_synthesize_message_edit_outcome_with_done_summary() -> None:
 
 def test_rendered_chat_message_uses_humanized_repaired_old_value(tmp_path: Path) -> None:
     """Persisted chat text uses the final human message, not raw gate summary text."""
-    from vibecomfy.comfy_nodes.agent_edit import _change_details_payload
+    from vibecomfy.comfy_nodes.agent.edit import _change_details_payload
 
     context = TurnContext(session_id="chat-repaired", turn_id="0001")
     state = _make_state(
@@ -6665,7 +6665,7 @@ def test_batch_repl_ingest_writes_request_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The ``batch_repl`` product path write ``request.json`` during ingest."""
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
@@ -6697,7 +6697,7 @@ def test_chat_json_written_for_allocated_success_response(
 ) -> None:
     """``chat.json`` is written for an allocated success response in the
     ``batch_repl`` path."""
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
@@ -6736,7 +6736,7 @@ def test_chat_json_written_for_allocated_stage_blocked_response(
 ) -> None:
     """``chat.json`` is written for an allocated stage-blocked (failure)
     response in the ``batch_repl`` path."""
-    from vibecomfy.comfy_nodes import agent_edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
 
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
 
@@ -6907,7 +6907,7 @@ def test_read_session_chat_default_display_window_returns_more_than_five_message
 def test_agent_edit_chat_endpoint_defaults_to_bounded_fifty_message_window(
     tmp_path: Path,
 ) -> None:
-    routes = importlib.import_module("vibecomfy.comfy_nodes.routes")
+    routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
     session_id = "endpoint-window-test"
     turns_dir = session_dir_for(tmp_path, session_id) / "turns"
 
@@ -7479,7 +7479,7 @@ def test_chat_endpoint_response_has_public_outcome_kind(
 ) -> None:
     """The chat endpoint response (via _handle_agent_edit_chat) carries an
     outcome with a valid public kind."""
-    routes = importlib.import_module("vibecomfy.comfy_nodes.routes")
+    routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
     session_id = "chat-endpoint-outcome"
     result = routes._handle_agent_edit_chat(
         {"session_id": session_id},
@@ -7541,7 +7541,7 @@ def test_read_session_chat_surfaces_trimmed_agent_reasoning(tmp_path: Path) -> N
     """The chat endpoint carries a trimmed view of the agent's per-step reasoning
     so a reloaded panel's diagnostic report can show what the agent tried and the
     engine diagnostics — without shipping the bulky diff/statements."""
-    from vibecomfy.comfy_nodes.agent_edit import read_session_chat
+    from vibecomfy.comfy_nodes.agent.edit import read_session_chat
 
     session_id = "reasoning-trim"
     turn_dir = tmp_path / session_id / "turns" / "0001"
@@ -7608,7 +7608,7 @@ def test_read_session_chat_surfaces_trimmed_agent_reasoning(tmp_path: Path) -> N
 def test_read_session_bundle_bundles_text_and_binary_artifacts(tmp_path: Path) -> None:
     """read_session_bundle returns every artifact under a session dir — text
     files inline, binary as base64 — so the issue ZIP is self-contained."""
-    from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+    from vibecomfy.comfy_nodes.agent.edit import read_session_bundle
 
     session_id = "bundle-all"
     session_dir = tmp_path / session_id
@@ -7633,7 +7633,7 @@ def test_read_session_bundle_bundles_text_and_binary_artifacts(tmp_path: Path) -
 
 
 def test_read_session_bundle_missing_session_returns_empty(tmp_path: Path) -> None:
-    from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+    from vibecomfy.comfy_nodes.agent.edit import read_session_bundle
 
     result = read_session_bundle(tmp_path, "does-not-exist")
     assert result["ok"] is True
@@ -7642,7 +7642,7 @@ def test_read_session_bundle_missing_session_returns_empty(tmp_path: Path) -> No
 
 
 def test_read_session_bundle_records_oversize_skips(tmp_path: Path) -> None:
-    from vibecomfy.comfy_nodes.agent_edit import read_session_bundle
+    from vibecomfy.comfy_nodes.agent.edit import read_session_bundle
 
     session_id = "bundle-skip"
     turn_dir = tmp_path / session_id / "turns" / "0001"
@@ -7663,7 +7663,7 @@ def test_read_session_bundle_records_oversize_skips(tmp_path: Path) -> None:
 def test_field_change_is_noop_with_lint_dropped_ids() -> None:
     """_field_change_is_noop returns True when (uid, field_path) is in
     lint_dropped_op_ids even if old != new."""
-    from vibecomfy.comfy_nodes.agent_edit import (
+    from vibecomfy.comfy_nodes.agent.edit import (
         _field_change_is_noop,
         _ABSENT_FIELD_OLD,
     )
@@ -7704,7 +7704,7 @@ def test_field_change_is_noop_with_lint_dropped_ids() -> None:
 def test_real_field_changes_respects_lint_dropped_op_ids() -> None:
     """_real_field_changes excludes changes whose (uid, field_path) is in
     lint_dropped_op_ids, even when the old/new values differ."""
-    from vibecomfy.comfy_nodes.agent_edit import _real_field_changes
+    from vibecomfy.comfy_nodes.agent.edit import _real_field_changes
 
     changes = (
         FieldChange(uid="a", field_path="f1", old="old", new="new"),
@@ -7728,7 +7728,7 @@ def test_real_field_changes_respects_lint_dropped_op_ids() -> None:
 def test_noop_field_changes_respects_lint_dropped_op_ids() -> None:
     """_noop_field_changes includes changes whose (uid, field_path) is in
     lint_dropped_op_ids PLUS the usual value no-ops."""
-    from vibecomfy.comfy_nodes.agent_edit import _noop_field_changes
+    from vibecomfy.comfy_nodes.agent.edit import _noop_field_changes
 
     changes = (
         FieldChange(uid="a", field_path="f1", old="old", new="new"),
@@ -7751,7 +7751,7 @@ def test_noop_field_changes_respects_lint_dropped_op_ids() -> None:
 def test_format_batch_report_includes_lint_diagnostics() -> None:
     """_format_batch_report appends lint diagnostics and mentions
     lint_dropped_count in the summary line."""
-    from vibecomfy.comfy_nodes.agent_edit import _format_batch_report
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
     from vibecomfy.porting.edit.session import BatchResult, StatementResult
 
     br = BatchResult(
@@ -7793,7 +7793,7 @@ def test_format_batch_report_includes_lint_diagnostics() -> None:
 def test_format_batch_report_json_includes_lint_fields() -> None:
     """_format_batch_report_json includes lint_dropped in summary and
     lint_diagnostics top-level key when provided."""
-    from vibecomfy.comfy_nodes.agent_edit import _format_batch_report_json
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report_json
     from vibecomfy.porting.edit.session import BatchResult, StatementResult
 
     br = BatchResult(
@@ -7835,7 +7835,7 @@ def test_format_batch_report_json_includes_lint_fields() -> None:
 def test_field_change_is_noop_without_lint_dropped_ids_flag_off() -> None:
     """When lint_dropped_op_ids is None (flag-off), behavior matches the
     original: only old==new changes are no-ops."""
-    from vibecomfy.comfy_nodes.agent_edit import (
+    from vibecomfy.comfy_nodes.agent.edit import (
         _field_change_is_noop,
         _real_field_changes,
         _noop_field_changes,
@@ -7872,7 +7872,7 @@ def test_flag_off_lint_noop_field_set_follows_pre_lint_behavior(
     lint gate.  The pre-lint path never classifies it as a no-op."""
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LINT", "0")
 
-    from vibecomfy.comfy_nodes.agent_edit import (
+    from vibecomfy.comfy_nodes.agent.edit import (
         _edit_lint_enabled,
         _stage_apply_delta,
         AgentEditState,
@@ -7923,7 +7923,7 @@ def test_flag_off_lint_noop_field_set_follows_pre_lint_behavior(
         ),
     )
 
-    from vibecomfy.comfy_nodes.agent_contracts import TurnContext
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
     result = _stage_apply_delta(
         state, TurnContext(session_id="flag-off-noop", turn_id="0001")
     )
@@ -7949,7 +7949,7 @@ def test_flag_off_lint_malformed_unknown_node_follows_pre_lint_behavior(
     producing a lint-specific "unknown_node" rejection."""
     monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_LINT", "0")
 
-    from vibecomfy.comfy_nodes.agent_edit import (
+    from vibecomfy.comfy_nodes.agent.edit import (
         _edit_lint_enabled,
         _stage_apply_delta,
         AgentEditState,
@@ -7999,7 +7999,7 @@ def test_flag_off_lint_malformed_unknown_node_follows_pre_lint_behavior(
         ),
     )
 
-    from vibecomfy.comfy_nodes.agent_contracts import TurnContext
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
     result = _stage_apply_delta(
         state, TurnContext(session_id="flag-off-unk", turn_id="0001")
     )

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Sequence
 
 from vibecomfy._git_utils import git_head, git_stdout
-from vibecomfy._graph_utils import UI_ONLY_CLASS_TYPES, is_api_link, node_id_sort_key
+from vibecomfy._compile._graph import UI_ONLY_CLASS_TYPES, is_api_link, node_id_sort_key
 
 
 def test_ui_only_class_types_matches_legacy_strip_set() -> None:
@@ -78,8 +78,8 @@ def test_workflow_helpers_is_api_link_narrowing_rejects_string_and_float_slots()
     # The new body uses isinstance(slot, int) via require_int_slot=True, narrowing both to False.
     # first_link_input and resolve_compile_link_value only see real compiled API links
     # where slots are always ints, so the narrowing is safe.
-    from vibecomfy._workflow_helpers import is_api_link as wh_is_api_link, first_link_input
-    from vibecomfy._helper_resolve import resolve_compile_link_value
+    from vibecomfy._compile._helpers import is_api_link as wh_is_api_link, first_link_input
+    from vibecomfy._compile._resolve import resolve_compile_link_value
 
     # Narrowed: string slot and float slot now rejected
     assert not wh_is_api_link(["abc", "3"])

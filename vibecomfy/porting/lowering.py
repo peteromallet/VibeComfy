@@ -26,7 +26,7 @@ from vibecomfy.contracts.intent_nodes import (
 )
 from vibecomfy.metadata import OUTPUT_NODE_NAMES
 from vibecomfy.porting.canonical_coords import snap_pos
-from vibecomfy.porting.identity.uid import make_uid, parse_uid
+from vibecomfy.porting.uid import make_uid, parse_uid
 from vibecomfy.workflow import ValidationIssue
 
 if TYPE_CHECKING:
@@ -1101,9 +1101,6 @@ def lower_workflow(
     that :func:`~vibecomfy.porting.layout.groups.build_subgraph_groups`
     can materialize per-iteration visual groups.  Default (``False``) keeps
     flat native emission unchanged.
-
-    The sole production caller is
-    :mod:`vibecomfy.comfy_nodes.agent_edit` (``agent_edit.py:3147``).
     """
     loop_nodes = discover_loop_nodes(workflow)
 

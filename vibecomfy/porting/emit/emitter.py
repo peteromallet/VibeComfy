@@ -17,7 +17,7 @@ from typing import Any, Literal, Mapping
 
 from vibecomfy.errors import ArityDisagreementError, ConversionParityError
 from vibecomfy.node_packs_lockfile import LockEntry, read_lockfile
-from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
+from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
 from vibecomfy.porting.widgets.aliases import resolve_widget_key_with_provenance
 from vibecomfy.porting.object_info import (
     check_output_arity_consensus,

@@ -7,7 +7,7 @@ from time import perf_counter
 from typing import Any
 
 from vibecomfy.porting.layout import LatencyBudgetReport
-from vibecomfy.porting.emit.ui import emit_ui_json
+from vibecomfy.porting.ui_emitter import emit_ui_json
 
 FALLBACK_LATENCY_BUDGET_MS = 5000.0
 

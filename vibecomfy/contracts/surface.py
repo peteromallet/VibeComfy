@@ -10,7 +10,7 @@ from vibecomfy.porting.strict_ready import (
     StrictReadyContext,
     validate_strict_ready_workflow,
 )
-from vibecomfy.porting.widgets.aliases import widget_alias_analysis
+from vibecomfy.porting.widget_aliases import widget_alias_analysis
 from vibecomfy.utils import find_repo_root
 from vibecomfy.workflow import VibeWorkflow
 

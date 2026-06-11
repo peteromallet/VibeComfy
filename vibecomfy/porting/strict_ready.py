@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-
+import re
 from typing import TYPE_CHECKING
 from typing import Any, Iterable, Mapping
 
@@ -26,7 +26,10 @@ STRICT_READY_HELPER_IN_EMITTED_OUTPUT = "strict_ready_helper_in_emitted_output"
 OPAQUE_COMPONENT_NODE_CLASS = "opaque_component_node_class"
 HIDDEN_MODEL_FILENAME = "hidden_model_filename"
 
-from vibecomfy.contracts.validation import OPAQUE_COMPONENT_CLASS_RE  # noqa: E402
+OPAQUE_COMPONENT_CLASS_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 STRICT_READY_VIOLATION_CODES: frozenset[str] = frozenset(
     {
@@ -425,7 +428,7 @@ def _helper_in_emitted_output_diagnostics(workflow: VibeWorkflow) -> list[PortIs
     (which pass through workbench.py) do not hard-error on helpers that conversion
     is expected to strip.
     """
-    from vibecomfy._workflow_helpers import RESOLVABLE_HELPER_CLASS_TYPES
+    from vibecomfy._compile._helpers import RESOLVABLE_HELPER_CLASS_TYPES
 
     issues: list[PortIssue] = []
     for node_id, node in sorted(workflow.nodes.items(), key=lambda item: _sort_key(item[0])):

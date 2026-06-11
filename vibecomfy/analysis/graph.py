@@ -7,7 +7,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from vibecomfy._graph_utils import is_api_link
+from vibecomfy._compile._graph import is_api_link
 from vibecomfy.schema import SchemaProvider, schema_for
 from vibecomfy.security import provenance as _provenance
 from vibecomfy.workflow import VibeNode, VibeOutput, VibeWorkflow

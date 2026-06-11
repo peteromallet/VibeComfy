@@ -2,7 +2,7 @@
 
 Wire it up by setting the standard discovery env var::
 
-    export VIBECOMFY_ARNOLD_RUNTIME_MODULE="vibecomfy.comfy_nodes.fixture_provider"
+    export VIBECOMFY_ARNOLD_RUNTIME_MODULE="vibecomfy.comfy_nodes.agent.fixture_provider"
 
 This module reads recorded agent-edit turns from
 ``tests/fixtures/editor_sessions/`` (the repository root is resolved via the
@@ -183,7 +183,7 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
     fixture_count = len(manifest)
     return {
         "ready": True,
-        "backend": "vibecomfy.comfy_nodes.fixture_provider",
+        "backend": "vibecomfy.comfy_nodes.agent.fixture_provider",
         "route": route,
         "model": model or "agent-edit",
         "reason": (

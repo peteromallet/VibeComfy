@@ -28,6 +28,8 @@ class VibeComfyError(RuntimeError):
 
     def __init__(self, message: str, *, next_action: str | None = None) -> None:
         self.message: str = str(message)
+        # Preserve legacy attribute name used by Block A code paths.
+        self._orig_message: str = self.message
         # Fall back to the class-level hint when no explicit action is given.
         self.next_action: str | None = (
             next_action if next_action is not None else self.default_next_action
@@ -155,82 +157,18 @@ class UnknownClassError(SchemaValidationError):
     default_next_action = "vibecomfy schema refresh"
 
 
-class ArityDisagreementError(SchemaValidationError):
-    """Cached output arity disagrees with UI-declared output arity."""
+class UnknownNodeSchemaError(SchemaValidationError):
+    """Code generation needs a node's output schema, but the node class is
 
-    default_next_action = "vibecomfy schema refresh"
+    absent from both the object_info snapshot and the curated fallback table.
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        class_type: str,
-        snapshot_pack: str | None,
-        snapshot_version: str | None,
-        snapshot_output_count: int,
-        ui_output_count: int,
-        next_action: str | None = None,
-    ) -> None:
-        self.class_type = class_type
-        self.snapshot_pack = snapshot_pack
-        self.snapshot_version = snapshot_version
-        self.snapshot_output_count = snapshot_output_count
-        self.ui_output_count = ui_output_count
-        super().__init__(message, next_action=next_action)
+    Raised (fail-closed) instead of silently emitting structurally-broken
+    Python with the wrong output arity. The message names the offending
+    ``class_type`` and the snapshot version so a stale snapshot is the obvious
+    remedy.
+    """
 
-    def to_dict(self) -> dict[str, object]:
-        payload = super().to_dict()
-        payload.update(
-            {
-                "class_type": self.class_type,
-                "snapshot_pack": self.snapshot_pack,
-                "snapshot_version": self.snapshot_version,
-                "snapshot_output_count": self.snapshot_output_count,
-                "ui_output_count": self.ui_output_count,
-            }
-        )
-        return payload
-
-
-class ObjectInfoIdentityError(SchemaValidationError):
-    """Identity-keyed object_info lookup could not be resolved unambiguously."""
-
-    default_next_action = "vibecomfy schema refresh"
-
-
-class ObjectInfoIdentityAmbiguityError(ObjectInfoIdentityError):
-    """Multiple cached object_info entries matched one requested identity."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        class_type: str,
-        pack_slug: str,
-        git_commit: str | None,
-        evidence_identity: str | None,
-        matches: list[dict[str, object]],
-        next_action: str | None = None,
-    ) -> None:
-        self.class_type = class_type
-        self.pack_slug = pack_slug
-        self.git_commit = git_commit
-        self.evidence_identity = evidence_identity
-        self.matches = matches
-        super().__init__(message, next_action=next_action)
-
-    def to_dict(self) -> dict[str, object]:
-        payload = super().to_dict()
-        payload.update(
-            {
-                "class_type": self.class_type,
-                "pack_slug": self.pack_slug,
-                "git_commit": self.git_commit,
-                "evidence_identity": self.evidence_identity,
-                "matches": self.matches,
-            }
-        )
-        return payload
+    default_next_action = "vibecomfy schemas refresh"
 
 
 class CanonicalParityFailure(ConversionParityError):
@@ -246,19 +184,15 @@ __all__ = [
     "ContextVarBindingError",
     "ConversionParityError",
     "DriftError",
-    "MissingModelAssetError",
     "ModelAssetError",
-    "ObjectInfoIdentityAmbiguityError",
-    "ObjectInfoIdentityError",
     "QueueError",
     "RuntimeNodeError",
-    "SchemaMismatchError",
     "SchemaValidationError",
+    "SchemaMismatchError",
     "SubgraphFreshnessError",
     "UnknownClassError",
-    "ArityDisagreementError",
+    "UnknownNodeSchemaError",
     # origin/main
-    "CanonicalParityFailure",
     "NodePackInstallError",
     "RuntimeStartupError",
     "SessionBusyError",

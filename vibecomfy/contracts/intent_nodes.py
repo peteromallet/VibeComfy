@@ -3,14 +3,12 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+import re
 from typing import Any, Final
 
-from vibecomfy.security.agent_generated_loader import (
-    _FORBIDDEN_NAMES,
-    ScanFailure,
-    ScanReport,
-    scan_python_source_with_policy,
-)
+from vibecomfy.security.agent_generated_loader import ScanFailure, ScanReport, scan_python_source_with_policy
+
+VIBECOMFY_INTENT_CLASS_RE = re.compile(r"^vibecomfy\.[a-z]+$")
 
 SHIPPED_INTENT_KINDS: Final[tuple[str, ...]] = ("code", "loop")
 DEFERRED_INTENT_KINDS: Final[tuple[str, ...]] = ("branch", "workflowref")
@@ -62,8 +60,22 @@ RUNTIME_CODE_SAFE_BUILTINS: Final[frozenset[str]] = frozenset(
         "tuple",
     }
 )
-RUNTIME_CODE_FORBIDDEN_NAMES: Final[frozenset[str]] = _FORBIDDEN_NAMES | frozenset(
+RUNTIME_CODE_FORBIDDEN_NAMES: Final[frozenset[str]] = frozenset(
     {
+        "__builtins__",
+        "__import__",
+        "breakpoint",
+        "compile",
+        "delattr",
+        "dir",
+        "eval",
+        "exec",
+        "getattr",
+        "globals",
+        "locals",
+        "open",
+        "setattr",
+        "vars",
         "os",
         "sys",
         "subprocess",
@@ -125,10 +137,7 @@ RUNTIME_CODE_ALLOWED_EXPRESSION_NODES: Final[tuple[type[ast.AST], ...]] = (
     ast.IsNot,
     ast.In,
     ast.NotIn,
-    # Note: ast.comprehension intentionally omitted — ListComp, SetComp,
-    # DictComp, and GeneratorExp are NOT in this allowlist, so the
-    # visit() guard rejects comprehensions before any child
-    # ast.comprehension node could be reached.
+    ast.comprehension,
 )
 RUNTIME_CODE_REJECTED_IO_TYPES: Final[frozenset[str]] = frozenset(
     {
@@ -151,9 +160,6 @@ KIND_TO_CLASS_TYPE: Final[dict[str, str]] = {
 CLASS_TYPE_TO_KIND: Final[dict[str, str]] = {
     class_type: kind for kind, class_type in KIND_TO_CLASS_TYPE.items()
 }
-INTENT_CLASS_TYPES: Final[frozenset[str]] = frozenset(
-    f"vibecomfy.{kind}" for kind in ALL_INTENT_KINDS
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +220,7 @@ class RuntimeCodeContractValidationResult:
 
 
 def is_intent_class_type(class_type: str) -> bool:
-    return class_type in INTENT_CLASS_TYPES
+    return bool(VIBECOMFY_INTENT_CLASS_RE.match(class_type))
 
 
 def intent_node_properties(

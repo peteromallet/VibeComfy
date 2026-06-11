@@ -65,7 +65,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from vibecomfy._workflow_helpers import (
+from vibecomfy._compile._helpers import (
     broadcast_name,
     collect_broadcast_sources,
     is_broadcast_helper_class_type,
