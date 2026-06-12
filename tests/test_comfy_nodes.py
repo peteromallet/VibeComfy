@@ -107,7 +107,7 @@ def test_code_intent_execute_flag_off_calls_execute_runtime_code(monkeypatch: py
         return value * 2
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.runtime_code.execute_runtime_code",
+        "vibecomfy.comfy_nodes.agent.runtime_code.execute_runtime_code",
         _fake_execute_runtime_code,
     )
 
@@ -168,7 +168,7 @@ def test_code_intent_execute_dynamic_remaps_inputs_and_builds_16_tuple(
         return {"result": named_inputs.get("a", 0) + named_inputs.get("b", 0)}
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.runtime_code.execute_runtime_code_dynamic",
+        "vibecomfy.comfy_nodes.agent.runtime_code.execute_runtime_code_dynamic",
         _fake_dynamic,
     )
 
@@ -199,7 +199,7 @@ def test_code_intent_execute_dynamic_empty_io_returns_16_nones(
     prompt = _make_prompt("1", vibecomfy_props)
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.runtime_code.execute_runtime_code_dynamic",
+        "vibecomfy.comfy_nodes.agent.runtime_code.execute_runtime_code_dynamic",
         lambda *, named_inputs, vibecomfy_props: {"value": named_inputs.get("x", 0) * 2},
     )
 
@@ -220,7 +220,7 @@ def test_code_intent_execute_dynamic_missing_prompt_does_not_crash(
     captured: list[dict] = []
 
     monkeypatch.setattr(
-        "vibecomfy.comfy_nodes.runtime_code.execute_runtime_code_dynamic",
+        "vibecomfy.comfy_nodes.agent.runtime_code.execute_runtime_code_dynamic",
         lambda *, named_inputs, vibecomfy_props: (
             captured.append({"named_inputs": named_inputs, "props": vibecomfy_props})
             or {"value": None}
@@ -246,7 +246,7 @@ def test_execute_runtime_code_dynamic_empty_outputs_sentinel_wraps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Empty io.outputs must always return {"value": <result>}."""
-    from vibecomfy.comfy_nodes import runtime_code
+    from vibecomfy.comfy_nodes.agent import runtime_code
 
     monkeypatch.setattr(runtime_code, "_run_worker", lambda payload, *, timeout_ms: 42)
 
@@ -264,7 +264,7 @@ def test_execute_runtime_code_dynamic_empty_outputs_sentinel_wraps(
 
 def test_execute_runtime_code_dynamic_single_output(monkeypatch: pytest.MonkeyPatch) -> None:
     """Single io.outputs entry: result is mapped directly to the output name."""
-    from vibecomfy.comfy_nodes import runtime_code
+    from vibecomfy.comfy_nodes.agent import runtime_code
 
     monkeypatch.setattr(runtime_code, "_run_worker", lambda payload, *, timeout_ms: 99)
 
@@ -284,8 +284,8 @@ def test_execute_runtime_code_dynamic_multiple_outputs_requires_dict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """N>1 outputs with scalar worker result → runtime_output_shape_mismatch."""
-    from vibecomfy.comfy_nodes import runtime_code
-    from vibecomfy.comfy_nodes.runtime_code import RuntimeCodeExecutionError
+    from vibecomfy.comfy_nodes.agent import runtime_code
+    from vibecomfy.comfy_nodes.agent.runtime_code import RuntimeCodeExecutionError
 
     monkeypatch.setattr(runtime_code, "_run_worker", lambda payload, *, timeout_ms: 7)
 
@@ -309,7 +309,7 @@ def test_execute_runtime_code_dynamic_multiple_outputs_dict_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """N>1 outputs with dict worker result: keys mapped to output names."""
-    from vibecomfy.comfy_nodes import runtime_code
+    from vibecomfy.comfy_nodes.agent import runtime_code
 
     monkeypatch.setattr(
         runtime_code,
@@ -336,7 +336,7 @@ def test_execute_runtime_code_dynamic_asymmetric_inputs_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Asymmetric: inputs declared but outputs empty → sentinel {"value": result}."""
-    from vibecomfy.comfy_nodes import runtime_code
+    from vibecomfy.comfy_nodes.agent import runtime_code
 
     monkeypatch.setattr(runtime_code, "_run_worker", lambda payload, *, timeout_ms: "side-effect")
 
@@ -356,7 +356,7 @@ def test_execute_runtime_code_dynamic_always_returns_dict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """execute_runtime_code_dynamic always returns a dict regardless of worker output type."""
-    from vibecomfy.comfy_nodes import runtime_code
+    from vibecomfy.comfy_nodes.agent import runtime_code
 
     for worker_result in [None, 0, "text", [], {}]:
         monkeypatch.setattr(

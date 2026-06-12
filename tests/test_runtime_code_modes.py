@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from vibecomfy.comfy_nodes.runtime_code import (
+from vibecomfy.comfy_nodes.agent.runtime_code import (
     RuntimeCodeExecutionError,
     execute_runtime_code_dynamic,
 )
@@ -175,41 +175,41 @@ def test_unrestricted_with_ack_executes() -> None:
 # ── agent prompt (_code_mode_clause / build_messages) ───────────────────────
 
 def test_code_mode_clause_raises_for_unrestricted() -> None:
-    from vibecomfy.comfy_nodes.agent_provider import _code_mode_clause
+    from vibecomfy.comfy_nodes.agent.provider import _code_mode_clause
     with pytest.raises(ValueError, match="agent cannot emit unrestricted mode"):
         _code_mode_clause(EXECUTION_MODE_UNRESTRICTED)
 
 
 def test_code_mode_clause_sandboxed_strict_mentions_no_imports() -> None:
-    from vibecomfy.comfy_nodes.agent_provider import _code_mode_clause
+    from vibecomfy.comfy_nodes.agent.provider import _code_mode_clause
     clause = _code_mode_clause(EXECUTION_MODE_SANDBOXED_STRICT)
     assert "sandboxed_strict" in clause
     assert "NO imports" in clause or "NO import" in clause
 
 
 def test_code_mode_clause_sandboxed_loose_mentions_allowlist() -> None:
-    from vibecomfy.comfy_nodes.agent_provider import _code_mode_clause
+    from vibecomfy.comfy_nodes.agent.provider import _code_mode_clause
     clause = _code_mode_clause(EXECUTION_MODE_SANDBOXED_LOOSE)
     assert "sandboxed_loose" in clause
     assert "math" in clause
 
 
 def test_build_messages_default_is_sandboxed_loose() -> None:
-    from vibecomfy.comfy_nodes.agent_provider import build_messages
+    from vibecomfy.comfy_nodes.agent.provider import build_messages
     msgs = build_messages(task="do something", python_source="# empty")
     system = msgs[0]["content"]
     assert "sandboxed_loose" in system
 
 
 def test_build_messages_strict_mode() -> None:
-    from vibecomfy.comfy_nodes.agent_provider import build_messages
+    from vibecomfy.comfy_nodes.agent.provider import build_messages
     msgs = build_messages(task="do something", python_source="# empty", execution_mode=EXECUTION_MODE_SANDBOXED_STRICT)
     system = msgs[0]["content"]
     assert "sandboxed_strict" in system
 
 
 def test_build_messages_raises_for_unrestricted() -> None:
-    from vibecomfy.comfy_nodes.agent_provider import build_messages
+    from vibecomfy.comfy_nodes.agent.provider import build_messages
     with pytest.raises(ValueError, match="agent cannot emit unrestricted mode"):
         build_messages(task="do something", python_source="# empty", execution_mode=EXECUTION_MODE_UNRESTRICTED)
 
@@ -220,7 +220,7 @@ def test_agent_edit_call_site_uses_sandboxed_loose(monkeypatch) -> None:
     """agent_edit._stage_agent hard-codes execution_mode='sandboxed_loose' in its build_messages call."""
     captured = {}
 
-    from vibecomfy.comfy_nodes import agent_edit as _ae
+    from vibecomfy.comfy_nodes.agent import edit as _ae
     original = _ae.build_messages
 
     def _spy(*args, **kwargs):
@@ -230,7 +230,7 @@ def test_agent_edit_call_site_uses_sandboxed_loose(monkeypatch) -> None:
     monkeypatch.setattr(_ae, "build_messages", _spy)
 
     # _stage_agent is the call site; confirm it exists and the spy works.
-    from vibecomfy.comfy_nodes.agent_edit import _stage_agent  # noqa: F401 — verify importable
+    from vibecomfy.comfy_nodes.agent.edit import _stage_agent  # noqa: F401 — verify importable
     # The call site hard-codes execution_mode="sandboxed_loose"; simulate the call.
     _ae.build_messages(task="test", python_source="# x", execution_mode="sandboxed_loose")
     assert captured.get("execution_mode") == "sandboxed_loose"
