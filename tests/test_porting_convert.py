@@ -7,7 +7,7 @@ Covers:
 
 from __future__ import annotations
 
-from vibecomfy.porting.convert import _capture_virtual_wires
+from vibecomfy.porting.convert import _capture_virtual_wires, port_convert_workflow
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -117,3 +117,25 @@ def test_capture_virtual_wires_equality():
     }
 
     assert result == expected, f"virtual wire capture mismatch:\n{result!r}\n!=\n{expected!r}"
+
+
+def test_port_convert_ready_template_emits_structured_custom_node_refs():
+    wf = _wf("structured-refs")
+    wf.nodes["1"] = _regular_node("1", "ExampleCustomNode")
+    wf.metadata["requirements"] = {
+        "custom_nodes": ["ExamplePack"],
+        "custom_node_refs": [
+            {
+                "slug": "ExamplePack",
+                "source": "git",
+                "url": "https://example.test/ExamplePack.git",
+                "commit": "abc123",
+            }
+        ],
+    }
+
+    result = port_convert_workflow(wf, ready_id="test/structured_refs", validate=False)
+
+    assert "custom_node_refs" in result.text
+    assert "ExamplePack" in result.text
+    assert "abc123" in result.text

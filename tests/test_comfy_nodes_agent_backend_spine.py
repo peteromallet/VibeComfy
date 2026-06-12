@@ -3306,8 +3306,8 @@ def test_agent_provider_readiness_prefers_runtime_readiness_and_status_derives_o
     status = agent_provider.get_agent_status(route="anthropic", model="m1")
 
     assert calls == [
-        ("readiness", {"route": "arnold", "model": "m1"}),
-        ("readiness", {"route": "arnold", "model": "m1"}),
+        ("readiness", {"route": "anthropic", "model": "m1"}),
+        ("readiness", {"route": "anthropic", "model": "m1"}),
     ]
     assert readiness["ready"] is False
     assert readiness["reason"] == "credential missing"
@@ -3950,13 +3950,14 @@ def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None
 
     monkeypatch.setattr(runtime, "_resolve_deepseek_key", lambda: "test-key")
 
-    def _fake_run_worker(agent_kwargs, system_msg, user_msg, *, response_contract="python"):
+    def _fake_run_worker(agent_kwargs, system_msg, user_msg, *, response_contract="python", agent_id=None):
         calls.append(
             {
                 "agent_kwargs": agent_kwargs,
                 "system_msg": system_msg,
                 "user_msg": user_msg,
                 "response_contract": response_contract,
+                "agent_id": agent_id,
             }
         )
         return {"content": "Done.\n\n```batch\ndone()\n```"}
@@ -3975,6 +3976,7 @@ def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None
 
     assert response == {"content": "Done.\n\n```batch\ndone()\n```"}
     assert calls[0]["response_contract"] == "batch_repl"
+    assert calls[0]["agent_id"] == "hermes"
     assert calls[0]["system_msg"] == "system batch prompt"
     assert calls[0]["user_msg"] == "user batch prompt"
     assert calls[0]["agent_kwargs"]["model"] == "deepseek-v4-pro"
@@ -3992,18 +3994,27 @@ def test_runtime_readiness_normalizes_route_and_status_wraps_it(
     readiness = runtime.readiness(route="anthropic")
     status = runtime.get_agent_status(route="anthropic")
 
-    assert readiness == {
-        "ready": False,
-        "backend": "megaplan.agent.run_agent.AIAgent",
-        "route": "arnold",
-        "model": "anthropic/claude-opus-4.6",
-        "reason": "No Anthropic/OpenRouter credential found for the Arnold route.",
-    }
-    assert status["ok"] is False
-    assert status["ready"] is False
-    assert status["route"] == "arnold"
+    assert readiness["backend"] == "arnold.pipelines.megaplan.agent.run_agent.AIAgent"
+    assert readiness["route"] == "anthropic"
+    assert readiness["model"] == "anthropic/claude-opus-4.6"
+    assert readiness["shannon_adapter_registered"] in {True, False}
+    if readiness["shannon_adapter_registered"]:
+        assert "claude_cli_present" in readiness
+        assert "bun_present" in readiness
+        assert readiness["ready"] is (
+            readiness["claude_cli_present"] and readiness["bun_present"]
+        )
+    else:
+        assert readiness["ready"] is False
+        assert readiness["reason"] == (
+            "claude/shannon adapter not wired yet (no Claude/Shannon adapter "
+            "registered in the arnold dispatcher)."
+        )
+    assert status["ok"] is bool(readiness["ready"])
+    assert status["ready"] is bool(readiness["ready"])
+    assert status["route"] == "anthropic"
     assert status["detail"] == readiness["reason"]
-    assert status["readiness"] == "unavailable"
+    assert status["readiness"] == ("ready" if readiness["ready"] else "unavailable")
 
 
 def test_runtime_readiness_reports_deepseek_key_presence(
@@ -4016,7 +4027,7 @@ def test_runtime_readiness_reports_deepseek_key_presence(
 
     assert readiness == {
         "ready": True,
-        "backend": "megaplan.agent.run_agent.AIAgent",
+        "backend": "arnold.pipelines.megaplan.agent.run_agent.AIAgent",
         "route": "deepseek",
         "model": "deepseek-chat",
         "base_url": "https://api.deepseek.com/v1",

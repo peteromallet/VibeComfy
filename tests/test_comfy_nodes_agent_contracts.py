@@ -40,6 +40,7 @@ def test_failure_kind_enum_matches_closed_contract_exactly() -> None:
         "MalformedModelJSON",
         "MissingRequiredField",
         "ProviderError",
+        "AgentRuntimeUnavailable",
         "AuthError",
         "TimeoutError",
         "ValidationError",

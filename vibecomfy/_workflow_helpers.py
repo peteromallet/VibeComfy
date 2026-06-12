@@ -1,3 +1,3 @@
-import sys
-from vibecomfy._compile import _helpers as _real
-sys.modules[__name__] = _real
+from __future__ import annotations
+
+from vibecomfy._compile._helpers import *  # noqa: F401,F403

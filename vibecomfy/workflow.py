@@ -5,9 +5,9 @@ from dataclasses import dataclass, field, replace
 import warnings
 from typing import TYPE_CHECKING, Any
 
-from vibecomfy._compile import _resolve as helper_resolve
+from vibecomfy import _helper_resolve as helper_resolve
 from vibecomfy._compile import _widgets as widget_aliases
-from vibecomfy._compile import _helpers as workflow_helpers
+from vibecomfy import _workflow_helpers as workflow_helpers
 from vibecomfy.errors import VibeComfyError
 from vibecomfy.handles import Handle
 
@@ -1071,7 +1071,7 @@ def _is_intent_node_class_type(class_type: str) -> bool:
 
         return is_intent_class_type(class_type)
     except Exception:
-        return str(class_type).startswith("vibecomfy.")
+        return class_type in {"vibecomfy.code", "vibecomfy.loop"}
 
 
 def _is_runtime_backed_code_intent_node(node: VibeNode) -> bool:

@@ -103,6 +103,7 @@ COMPILE_WIDGET_ALIAS_CLASS_TYPES: frozenset[str] = frozenset(
         "WanVideoVACEStartToEndFrame",
         "WanVideoVRAMManagement",
         "WidgetToString",
+        "vibecomfy.exec",
     }
 )
 
@@ -128,6 +129,7 @@ WIDGET_SEMANTIC_NAMES: dict[str, dict[str, str]] = {
     "PrimitiveStringMultiline": {"widget_0": "value"},
     "PrimitiveFloat": {"widget_0": "value", "widget_1": "control_after_generate"},
     "PrimitiveBoolean": {"widget_0": "value"},
+    "vibecomfy.exec": {"widget_0": "source", "widget_1": "io"},
 }
 
 WIDGET_SCHEMA: dict[str, list[str | None]] = {
@@ -149,6 +151,7 @@ WIDGET_SCHEMA: dict[str, list[str | None]] = {
     "FluxGuidance": ["guidance"],
     "Flux2Scheduler": ["steps", "width", "height"],
     "GetImageSize": [],
+    "vibecomfy.exec": ["source", "io"],
     "ImageResize": ["resize_mode", "resolutions", "interpolation", "aspect_ratio_tolerance"],
     "ImageScale": ["upscale_method", "width", "height", "crop"],
     "ImageScaleBy": ["upscale_method", "scale_by"],

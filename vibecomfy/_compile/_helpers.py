@@ -198,9 +198,7 @@ def first_link_input(inputs: Mapping[str, Any]) -> list[Any] | None:
 def is_api_link(value: Any) -> bool:
     if not isinstance(value, list) or len(value) != 2:
         return False
-    try:
-        int(value[1])
-    except (TypeError, ValueError):
+    if isinstance(value[1], bool) or not isinstance(value[1], int):
         return False
     return True
 

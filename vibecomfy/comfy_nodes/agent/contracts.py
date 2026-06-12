@@ -57,6 +57,43 @@ PUBLIC_OUTCOME_KINDS: tuple[str, ...] = (
     "error",
 )
 
+# Canonical snake_case field list for rebaseline-recovery objects.
+# Sourced from the JS lifecycle module's _normalizeRebaselineRecovery keys
+# (agent_edit_lifecycle.js L1369-1394, snake_case) and cross-checked against
+# _stale_rebaseline_recovery_issue (agent_edit.py) and
+# _promote_accept_rebaseline_recovery (routes.py).
+REBASELINE_RECOVERY_FIELDS: tuple[str, ...] = (
+    "action",
+    "endpoint",
+    "reason",
+    "last_known_baseline_graph_hash",
+    "submit_graph_hash",
+    "submit_structural_graph_hash",
+    "client_graph_hash",
+    "client_structural_graph_hash",
+)
+
+# Maps internal TurnOutcome kinds to their canonical public outcome kind.
+# Sourced from public_outcome_from_turn_outcome and cross-checked against the
+# JS INTERNAL_OUTCOME_KIND_MAP.
+INTERNAL_TO_PUBLIC_OUTCOME: Mapping[str, str] = MappingProxyType({
+    "edit": "candidate",
+    "edit+clarify": "candidate",
+    "clarify": "clarify",
+    "noop": "noop",
+    "failure": "error",
+})
+
+# Well-known keys that, when present on a response object, signal a failure.
+FAILURE_HINT_KEYS: tuple[str, ...] = (
+    "agent_failure_context",
+    "failureKind",
+    "failure_kind",
+    "nextAction",
+    "next_action",
+    "retryable",
+)
+
 
 class FailureKind(str, Enum):
     SYNTAX_ERROR = "SyntaxError"
@@ -1375,11 +1412,14 @@ __all__ = [
     "ApplyEligibility",
     "CANVAS_APPLY_GATE_NAMES",
     "DEFAULT_GATE_NAMES",
+    "FAILURE_HINT_KEYS",
     "FAILURE_SPECS",
     "FailureEnvelope",
     "FailureKind",
     "GateResult",
+    "INTERNAL_TO_PUBLIC_OUTCOME",
     "PUBLIC_OUTCOME_KINDS",
+    "REBASELINE_RECOVERY_FIELDS",
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
     "TURN_OUTCOME_KINDS",

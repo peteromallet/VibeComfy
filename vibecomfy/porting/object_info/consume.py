@@ -7,8 +7,12 @@ All public functions are deterministic and do not require ComfyUI or network.
 from __future__ import annotations
 
 import json
+import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from vibecomfy.errors import ArityDisagreementError, ObjectInfoIdentityAmbiguityError
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -132,6 +136,27 @@ _index: dict[str, str] | None = None
 _pack_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
 
+@dataclass(frozen=True)
+class ObjectInfoIdentity:
+    pack_slug: str
+    git_commit: str | None = None
+    evidence_identity: str | None = None
+
+
+@dataclass(frozen=True)
+class ObjectInfoLookupWarning:
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ObjectInfoLookupResult:
+    entry: dict[str, Any] | None
+    source: str
+    low_confidence: bool = False
+    warning: ObjectInfoLookupWarning | None = None
+
+
 def _normalize_output_name(name: str) -> str:
     cleaned = name.strip().replace(" ", "_")
     return cleaned.upper()
@@ -159,6 +184,16 @@ def _load_pack(filename: str) -> dict[str, dict[str, Any]]:
     return _pack_cache[filename]
 
 
+def _all_pack_filenames() -> list[str]:
+    filenames = {
+        str(path.name)
+        for path in CACHE_DIR.glob("*.json")
+        if path.name != INDEX_PATH.name
+    }
+    filenames.update(str(filename) for filename in _load_index().values())
+    return sorted(filenames)
+
+
 def _resolve_class_type(class_type: str) -> dict[str, Any] | None:
     idx = _load_index()
     filename = idx.get(class_type)
@@ -166,6 +201,52 @@ def _resolve_class_type(class_type: str) -> dict[str, Any] | None:
         return None
     pack = _load_pack(filename)
     return pack.get(class_type)
+
+
+def _identity_matches(
+    entry: dict[str, Any],
+    *,
+    pack_slug: str,
+    git_commit: str | None,
+    evidence_identity: str | None,
+) -> bool:
+    if entry.get("pack_slug") != pack_slug:
+        return False
+    if git_commit is not None:
+        return entry.get("git_commit") == git_commit
+    return entry.get("evidence_identity") == evidence_identity
+
+
+def _identity_key(pack_slug: str, git_commit: str | None, evidence_identity: str | None) -> tuple[str, str]:
+    if git_commit is not None and evidence_identity is not None:
+        raise ValueError("identity lookup accepts git_commit or evidence_identity, not both")
+    if git_commit is None and evidence_identity is None:
+        raise ValueError("identity lookup requires git_commit or evidence_identity")
+    return (
+        pack_slug,
+        f"git_commit:{git_commit}" if git_commit is not None else f"evidence_identity:{evidence_identity}",
+    )
+
+
+def _identity_lookup_matches(
+    class_type: str,
+    *,
+    pack_slug: str,
+    git_commit: str | None,
+    evidence_identity: str | None,
+) -> list[tuple[str, dict[str, Any]]]:
+    _identity_key(pack_slug, git_commit, evidence_identity)
+    matches: list[tuple[str, dict[str, Any]]] = []
+    for filename in _all_pack_filenames():
+        entry = _load_pack(filename).get(class_type)
+        if isinstance(entry, dict) and _identity_matches(
+            entry,
+            pack_slug=pack_slug,
+            git_commit=git_commit,
+            evidence_identity=evidence_identity,
+        ):
+            matches.append((filename, entry))
+    return matches
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +268,181 @@ def get_class(class_type: str) -> dict[str, Any] | None:
     if curated_outputs is None:
         return None
     return {"outputs": curated_outputs}
+
+
+def resolve_class_entry(
+    class_type: str,
+    identity: ObjectInfoIdentity | dict[str, Any] | None = None,
+    *,
+    allow_class_fallback: bool = True,
+) -> ObjectInfoLookupResult:
+    """Resolve an object_info entry, preferring an explicit pack identity.
+
+    Class-only callers can pass no identity and get the historical cache/curated
+    lookup semantics. Identity-aware callers get a provenance-sensitive result
+    with source and warning metadata when a fallback is used or blocked.
+    """
+    normalized_identity = _coerce_identity(identity)
+    if normalized_identity is None:
+        entry = get_class(class_type)
+        return ObjectInfoLookupResult(
+            entry=entry,
+            source="class" if entry is not None else "miss",
+            low_confidence=False,
+        )
+
+    try:
+        entry = get_class_by_identity(
+            class_type,
+            pack_slug=normalized_identity.pack_slug,
+            git_commit=normalized_identity.git_commit,
+            evidence_identity=normalized_identity.evidence_identity,
+        )
+    except ObjectInfoIdentityAmbiguityError:
+        raise
+    if entry is not None:
+        return ObjectInfoLookupResult(entry=entry, source="identity", low_confidence=False)
+
+    if not allow_class_fallback:
+        return ObjectInfoLookupResult(
+            entry=None,
+            source="identity_miss",
+            low_confidence=True,
+            warning=ObjectInfoLookupWarning(
+                code="identity_cache_miss",
+                message=(
+                    f"No object_info cache entry for {class_type} matched identity "
+                    f"{_identity_label(normalized_identity)}."
+                ),
+            ),
+        )
+
+    fallback = get_class(class_type)
+    if fallback is None:
+        return ObjectInfoLookupResult(
+            entry=None,
+            source="miss",
+            low_confidence=True,
+            warning=ObjectInfoLookupWarning(
+                code="identity_cache_miss",
+                message=(
+                    f"No object_info cache entry for {class_type} matched identity "
+                    f"{_identity_label(normalized_identity)}, and class fallback was unavailable."
+                ),
+            ),
+        )
+
+    if _entry_has_authoritative_identity(fallback):
+        code = "provenanced_cache_miss_fallback"
+        message = (
+            f"No object_info cache entry for {class_type} matched identity "
+            f"{_identity_label(normalized_identity)}; using a different provenanced class cache entry."
+        )
+    else:
+        code = "unprovenanced_cache_fallback"
+        message = (
+            f"No object_info cache entry for {class_type} matched identity "
+            f"{_identity_label(normalized_identity)}; using non-authoritative class fallback."
+        )
+    return ObjectInfoLookupResult(
+        entry=fallback,
+        source="class_fallback",
+        low_confidence=True,
+        warning=ObjectInfoLookupWarning(code=code, message=message),
+    )
+
+
+def get_class_by_identity(
+    class_type: str,
+    *,
+    pack_slug: str,
+    git_commit: str | None = None,
+    evidence_identity: str | None = None,
+) -> dict[str, Any] | None:
+    """Return the cache entry for *class_type* keyed by explicit pack identity."""
+    matches = _identity_lookup_matches(
+        class_type,
+        pack_slug=pack_slug,
+        git_commit=git_commit,
+        evidence_identity=evidence_identity,
+    )
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise ObjectInfoIdentityAmbiguityError(
+            (
+                f"multiple object_info cache entries matched {class_type} for pack {pack_slug}; "
+                "provide a more specific identity or refresh duplicate cache files."
+            ),
+            class_type=class_type,
+            pack_slug=pack_slug,
+            git_commit=git_commit,
+            evidence_identity=evidence_identity,
+            matches=[
+                {
+                    "filename": filename,
+                    "pack_version": entry.get("pack_version"),
+                    "git_commit": entry.get("git_commit"),
+                    "evidence_identity": entry.get("evidence_identity"),
+                    "source_kind": entry.get("source_kind"),
+                }
+                for filename, entry in matches
+            ],
+        )
+    return matches[0][1]
+
+
+def has_class_identity(
+    class_type: str,
+    *,
+    pack_slug: str,
+    git_commit: str | None = None,
+    evidence_identity: str | None = None,
+) -> bool:
+    """Return True when an explicit object_info identity resolves for *class_type*."""
+    return get_class_by_identity(
+        class_type,
+        pack_slug=pack_slug,
+        git_commit=git_commit,
+        evidence_identity=evidence_identity,
+    ) is not None
+
+
+def _coerce_identity(identity: ObjectInfoIdentity | dict[str, Any] | None) -> ObjectInfoIdentity | None:
+    if identity is None:
+        return None
+    if isinstance(identity, ObjectInfoIdentity):
+        return identity
+    pack_slug = identity.get("pack_slug") or identity.get("pack") or identity.get("slug")
+    git_commit = identity.get("git_commit") or identity.get("commit")
+    evidence_identity = identity.get("evidence_identity")
+    if not pack_slug:
+        raise ValueError("object_info identity requires pack_slug")
+    if git_commit and evidence_identity:
+        raise ValueError("object_info identity accepts git_commit or evidence_identity, not both")
+    if not git_commit and not evidence_identity:
+        raise ValueError("object_info identity requires git_commit or evidence_identity")
+    return ObjectInfoIdentity(
+        pack_slug=str(pack_slug),
+        git_commit=str(git_commit) if git_commit else None,
+        evidence_identity=str(evidence_identity) if evidence_identity else None,
+    )
+
+
+def _identity_label(identity: ObjectInfoIdentity) -> str:
+    key = f"git_commit={identity.git_commit}" if identity.git_commit else f"evidence_identity={identity.evidence_identity}"
+    return f"pack_slug={identity.pack_slug}, {key}"
+
+
+def _entry_has_authoritative_identity(entry: dict[str, Any]) -> bool:
+    if entry.get("git_commit"):
+        return True
+    source_kind = str(entry.get("source_kind") or "")
+    return bool(entry.get("evidence_identity")) and source_kind not in {
+        "",
+        "legacy_object_info_import",
+        "structured_cache_copy",
+    }
 
 
 def object_info_widget_order(class_type: str) -> list[str | None]:
@@ -308,26 +564,45 @@ def snapshot_version() -> str:
     return str(version) if version else "unknown"
 
 
-def require_class_output_count(class_type: str) -> int:
-    """Return the declared output count for *class_type*, failing CLOSED.
+def check_output_arity_consensus(class_type: str, ui_output_count: int | None) -> int:
+    """Return the cached output count after checking cache vs UI arity evidence.
 
-    Unlike :func:`class_output_count` (which fails open to ``0`` for unknown
-    classes), this raises :class:`UnknownNodeSchemaError` when *class_type* is in
-    neither the object_info snapshot nor the curated fallback. Use this at
-    codegen/arity-determining sites where a wrong (silently-zero) count produces
-    structurally-broken Python that fails far downstream with an opaque
-    ``ValueError: not enough values to unpack``.
+    Unknown classes preserve historical defaults: the cached count is returned
+    without raising or warning because there is no reliable snapshot evidence to
+    compare against.
     """
-    if not class_is_known(class_type):
-        from vibecomfy.errors import UnknownNodeSchemaError
-
-        version = snapshot_version()
-        raise UnknownNodeSchemaError(
-            f"node {class_type!r} is not present in the object_info snapshot "
-            f"(comfy_core {version}); the snapshot may be stale — refresh it with "
-            f"'vibecomfy schemas refresh' before porting this workflow."
+    cached_count = class_output_count(class_type)
+    if ui_output_count is None or not class_is_known(class_type):
+        return cached_count
+    if cached_count < ui_output_count:
+        entry = get_class(class_type) or {}
+        raise ArityDisagreementError(
+            (
+                f"output arity disagreement for {class_type}: cached snapshot "
+                f"declares {cached_count} outputs but UI declares {ui_output_count}. "
+                "Refresh the object_info schema snapshot."
+            ),
+            class_type=class_type,
+            snapshot_pack=entry.get("pack"),
+            snapshot_version=entry.get("pack_version"),
+            snapshot_output_count=cached_count,
+            ui_output_count=ui_output_count,
         )
-    return len(output_names(class_type))
+    if cached_count > ui_output_count:
+        warnings.warn(
+            (
+                f"output arity disagreement for {class_type}: cached snapshot "
+                f"declares {cached_count} outputs but UI declares {ui_output_count}; "
+                "continuing because the extra cached outputs may be unused."
+            ),
+            stacklevel=2,
+        )
+    return cached_count
+
+
+def require_class_output_count(class_type: str, ui_output_count: int | None = None) -> int:
+    """Return class output count while enforcing typed cache-vs-UI arity checks."""
+    return check_output_arity_consensus(class_type, ui_output_count)
 
 
 def class_has_list_output(class_type: str) -> bool:
@@ -375,6 +650,18 @@ def _normalize_input_type(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def reset_cache() -> None:
+    """Clear the module-level object-info index and pack cache.
+
+    Callers should invoke this after writing new object_info cache files
+    (e.g. after an ``ensure_env`` run) so that subsequent ``consume`` reads
+    pick up the latest on-disk state.
+    """
+    global _index, _pack_cache
+    _index = None
+    _pack_cache.clear()
 
 
 def cache_stats() -> dict[str, Any]:

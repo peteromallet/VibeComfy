@@ -11,13 +11,13 @@ lockfile updates within the same process lifetime.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from vibecomfy.errors import DriftError
+from vibecomfy.node_packs_lockfile import compute_schema_hash
 from vibecomfy.workflow import VibeWorkflow
 
 logger = logging.getLogger(__name__)
@@ -161,9 +161,14 @@ def _collect_nodepack_drift(
         if entry.schema_hash is not None or entry.class_schema_sha256 is not None:
             pinned_hash = entry.schema_hash or entry.class_schema_sha256
             pack_info["pinned_schema_hash"] = pinned_hash
-            actual_hash = _compute_pack_schema_hash(entry, pack_dir)
-            pack_info["actual_schema_hash"] = actual_hash
-            if actual_hash is not None and pinned_hash is not None and actual_hash != pinned_hash:
+            schema_check = _canonical_pack_schema_hash(entry)
+            pack_info["schema_hash_status"] = schema_check["status"]
+            if schema_check.get("reason"):
+                pack_info["schema_hash_reason"] = schema_check["reason"]
+            actual_hash = schema_check.get("hash")
+            if actual_hash is not None:
+                pack_info["actual_schema_hash"] = actual_hash
+            if schema_check["status"] == "canonical" and actual_hash is not None and pinned_hash is not None and actual_hash != pinned_hash:
                 mismatches.append(
                     f"{entry.name} schema hash {actual_hash} does not match "
                     f"pinned {pinned_hash}"
@@ -235,11 +240,23 @@ def _collect_comfy_commit_drift(
 
 
 def _nodepack_dir(name: str) -> Path | None:
-    """Find the on-disk directory for a custom node pack, if installed."""
-    candidates = (
+    """Find the on-disk directory for a custom node pack, if installed.
+
+    Searches the configured local-library custom_nodes path first when SET,
+    then falls back through the standard locations.
+    """
+    from vibecomfy.local_library import Slot, resolved_path
+
+    configured = resolved_path(Slot.custom_nodes)
+    candidates: list[Path] = []
+    if configured is not None:
+        candidates.append(configured / name)
+    candidates.extend(
+        [
         Path("vendor") / name,
         Path("custom_nodes") / name,
         Path("vendor") / "ComfyUI" / "custom_nodes" / name,
+        ]
     )
     for candidate in candidates:
         if candidate.is_dir():
@@ -274,30 +291,45 @@ def _comfyui_git_head() -> str | None:
     return None
 
 
-def _compute_pack_schema_hash(
-    entry: Any,  # LockEntry
-    pack_dir: Path,
-) -> str | None:
-    """Compute a best-effort schema hash for an installed pack.
+def _canonical_pack_schema_hash(entry: Any) -> dict[str, Any]:
+    """Return a canonical object_info schema hash when cache metadata supports it."""
+    from vibecomfy.porting.object_info import get_class_by_identity
 
-    Looks for ``*.py`` files in the pack directory (excluding ``__pycache__``)
-    and hashes their combined content. This is a heuristic; the lockfile's
-    ``schema_hash`` / ``class_schema_sha256`` fields are the authoritative
-    source.
-    """
-    try:
-        sha = hashlib.sha256()
-        py_files = sorted(
-            p for p in pack_dir.rglob("*.py")
-            if "__pycache__" not in str(p)
-        )
-        if not py_files:
-            return None
-        for py_path in py_files:
-            sha.update(py_path.read_bytes())
-        return sha.hexdigest()
-    except OSError:
-        return None
+    class_set = tuple(getattr(entry, "class_set", ()) or ())
+    pack_slug = getattr(entry, "slug", None) or getattr(entry, "name", None)
+    git_commit = getattr(entry, "git_commit_sha", None) or getattr(entry, "commit", None)
+    if not class_set:
+        return {
+            "status": "unverified_legacy",
+            "hash": None,
+            "reason": "lockfile entry has no class_set for canonical object_info verification",
+        }
+    if not pack_slug or not git_commit:
+        return {
+            "status": "unavailable",
+            "hash": None,
+            "reason": "lockfile entry has no pack slug or git commit identity",
+        }
+
+    schemas: dict[str, dict[str, Any]] = {}
+    for class_type in class_set:
+        cached = get_class_by_identity(class_type, pack_slug=pack_slug, git_commit=git_commit)
+        if cached is None:
+            return {
+                "status": "unavailable",
+                "hash": None,
+                "reason": f"object_info cache has no canonical entry for {class_type}",
+            }
+        class_hash = cached.get("class_schema_sha256") or cached.get("schema_hash")
+        if not class_hash:
+            return {
+                "status": "unavailable",
+                "hash": None,
+                "reason": f"object_info cache entry for {class_type} has no canonical schema hash",
+            }
+        schemas[class_type] = cached
+
+    return {"status": "canonical", "hash": compute_schema_hash(schemas)}
 
 
 # ---------------------------------------------------------------------------

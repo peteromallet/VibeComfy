@@ -13,18 +13,34 @@ from __future__ import annotations
 import json
 import os
 from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from vibecomfy.node_packs_lockfile import compute_schema_hash
 from vibecomfy.porting.object_info.consume import (
     CACHE_DIR,
     INDEX_PATH,
     _WIDGET_LIKE_TYPES,
 )
 
+LEGACY_IMPORT_PACK_VERSION = "legacy-import"
+LEGACY_IMPORT_SOURCE_KIND = "legacy_object_info_import"
+
 # ---------------------------------------------------------------------------
 # public helpers
 # ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class CacheIdentity:
+    """Identity metadata stamped onto generated object_info cache entries."""
+
+    pack_slug: str | None = None
+    pack_version: str | None = None
+    git_commit: str | None = None
+    evidence_identity: str | None = None
+    source_kind: str = "object_info"
+
 
 def pack_key_from_module(python_module: str) -> str:
     """Derive a deterministic pack key from a ``python_module`` string.
@@ -45,7 +61,12 @@ def pack_key_from_module(python_module: str) -> str:
     return parts[0]
 
 
-def _make_cache_entry(raw: dict[str, Any]) -> dict[str, Any]:
+def _make_cache_entry(
+    raw: dict[str, Any],
+    *,
+    identity: CacheIdentity,
+    schema_hash: str,
+) -> dict[str, Any]:
     """Normalize one object_info entry into the cache format."""
     inp: dict[str, dict[str, list]] = raw.get("input", {})
     input_order: dict[str, list[str]] = raw.get("input_order", {})
@@ -91,9 +112,18 @@ def _make_cache_entry(raw: dict[str, Any]) -> dict[str, Any]:
             "is_list": out_is_list[i] if i < len(out_is_list) else False,
         })
 
+    pack_slug = identity.pack_slug or pack_key_from_module(raw.get("python_module", ""))
+    pack_version = identity.pack_version or LEGACY_IMPORT_PACK_VERSION
+
     return OrderedDict({
-        "pack": pack_key_from_module(raw.get("python_module", "")),
-        "pack_version": "runpod-snapshot",
+        "pack": pack_slug,
+        "pack_slug": pack_slug,
+        "pack_version": pack_version,
+        "git_commit": identity.git_commit,
+        "evidence_identity": identity.evidence_identity,
+        "source_kind": identity.source_kind,
+        "schema_hash": schema_hash,
+        "class_schema_sha256": schema_hash,
         "python_module": raw.get("python_module", ""),
         "category": raw.get("category", ""),
         "name": raw.get("name", ""),
@@ -110,10 +140,25 @@ def _make_cache_entry(raw: dict[str, Any]) -> dict[str, Any]:
 
 def build_cache(
     source_path: str | Path,
-    version: str = "runpod-snapshot",
+    version: str | None = None,
     cache_dir: str | Path | None = None,
+    *,
+    identity: CacheIdentity | None = None,
+    pack_slug: str | None = None,
+    pack_version: str | None = None,
+    git_commit: str | None = None,
+    evidence_identity: str | None = None,
+    source_kind: str = LEGACY_IMPORT_SOURCE_KIND,
+    full_pack_refresh: bool | set[str] = False,
 ) -> tuple[int, int]:
     """Parse *source_path* (an object_info JSON dump) and write per-pack files.
+
+    By default this is merge-preserving: classes present in *source_path* are
+    refreshed, same-pack classes absent from the source are kept, and packs not
+    represented in the source remain indexed unchanged. Pass
+    ``full_pack_refresh=True`` (or a set of pack keys) when the source is known
+    to be a complete snapshot for the represented pack(s); then stale classes in
+    those packs are removed from the rewritten pack file and index.
 
     Returns ``(class_count, pack_count)``.
     """
@@ -127,21 +172,61 @@ def build_cache(
     with open(source_path, "r", encoding="utf-8") as fh:
         raw_data: dict[str, dict[str, Any]] = json.load(fh)
 
+    base_identity = _resolve_identity(
+        identity,
+        pack_slug=pack_slug,
+        pack_version=pack_version or version,
+        git_commit=git_commit,
+        evidence_identity=evidence_identity or source_path.name,
+        source_kind=source_kind,
+    )
+    effective_version = base_identity.pack_version or LEGACY_IMPORT_PACK_VERSION
+
+    existing_index = _read_existing_index(cache_root)
+    existing_entries = _read_existing_entries(cache_root, existing_index)
+
     # Group by pack
     packs: dict[str, dict[str, dict[str, Any]]] = {}
+    raw_packs: dict[str, dict[str, dict[str, Any]]] = {}
     for class_type, entry in sorted(raw_data.items()):
-        pk = pack_key_from_module(entry.get("python_module", ""))
-        packs.setdefault(pk, OrderedDict())[class_type] = _make_cache_entry(entry)
+        pk = base_identity.pack_slug or pack_key_from_module(entry.get("python_module", ""))
+        raw_packs.setdefault(pk, OrderedDict())[class_type] = entry
+
+    schema_hashes = {
+        pack_name: compute_schema_hash(raw_packs[pack_name])
+        for pack_name in raw_packs
+    }
+    for pack_name, raw_entries in sorted(raw_packs.items()):
+        pack_identity = _identity_for_pack(base_identity, pack_name)
+        packs[pack_name] = OrderedDict(
+            (
+                class_type,
+                _make_cache_entry(
+                    entry,
+                    identity=pack_identity,
+                    schema_hash=schema_hashes[pack_name],
+                ),
+            )
+            for class_type, entry in raw_entries.items()
+        )
 
     # Write per-pack files (deterministically sorted)
-    index: dict[str, str] = {}
+    index: dict[str, str] = dict(existing_index)
     for pack_name in sorted(packs):
-        pack_entries = packs[pack_name]
-        filename = f"{pack_name}@{version}.json"
+        filename = f"{pack_name}@{(version or effective_version)}.json"
+        pack_entries = _merged_pack_entries(
+            pack_name,
+            packs[pack_name],
+            existing_entries,
+            full_refresh=_is_full_pack_refresh(pack_name, full_pack_refresh),
+        )
         filepath = cache_root / filename
         with open(filepath, "w", encoding="utf-8") as fh:
             json.dump(pack_entries, fh, indent=2, sort_keys=True, ensure_ascii=False)
-        for class_type in pack_entries:
+        for class_type, entry in existing_entries.items():
+            if entry.get("pack") == pack_name and class_type not in pack_entries:
+                index.pop(class_type, None)
+        for class_type in sorted(pack_entries):
             index[class_type] = filename
 
     # Write index
@@ -149,6 +234,103 @@ def build_cache(
         json.dump(index, fh, indent=2, sort_keys=True, ensure_ascii=False)
 
     return len(raw_data), len(packs)
+
+
+def _read_existing_index(cache_root: Path) -> dict[str, str]:
+    index_path = cache_root / "index.json"
+    if not index_path.is_file():
+        return {}
+    try:
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(class_type): str(filename) for class_type, filename in data.items()}
+
+
+def _resolve_identity(
+    identity: CacheIdentity | None,
+    *,
+    pack_slug: str | None,
+    pack_version: str | None,
+    git_commit: str | None,
+    evidence_identity: str | None,
+    source_kind: str,
+) -> CacheIdentity:
+    if identity is None and pack_version is None:
+        pack_version = LEGACY_IMPORT_PACK_VERSION
+        source_kind = LEGACY_IMPORT_SOURCE_KIND
+    elif pack_version is None:
+        raise ValueError("authoritative object_info cache writes require an explicit pack_version")
+    if identity is None:
+        return CacheIdentity(
+            pack_slug=pack_slug,
+            pack_version=pack_version,
+            git_commit=git_commit,
+            evidence_identity=evidence_identity,
+            source_kind=source_kind,
+        )
+    return CacheIdentity(
+        pack_slug=identity.pack_slug if identity.pack_slug is not None else pack_slug,
+        pack_version=identity.pack_version if identity.pack_version is not None else pack_version,
+        git_commit=identity.git_commit if identity.git_commit is not None else git_commit,
+        evidence_identity=(
+            identity.evidence_identity if identity.evidence_identity is not None else evidence_identity
+        ),
+        source_kind=identity.source_kind or source_kind,
+    )
+
+
+def _identity_for_pack(identity: CacheIdentity, pack_name: str) -> CacheIdentity:
+    return CacheIdentity(
+        pack_slug=identity.pack_slug or pack_name,
+        pack_version=identity.pack_version,
+        git_commit=identity.git_commit,
+        evidence_identity=identity.evidence_identity,
+        source_kind=identity.source_kind,
+    )
+
+
+def _read_existing_entries(cache_root: Path, index: dict[str, str]) -> dict[str, dict[str, Any]]:
+    entries: dict[str, dict[str, Any]] = {}
+    pack_cache: dict[str, dict[str, Any]] = {}
+    for class_type, filename in sorted(index.items()):
+        if filename not in pack_cache:
+            path = cache_root / filename
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                raw = {}
+            pack_cache[filename] = raw if isinstance(raw, dict) else {}
+        entry = pack_cache[filename].get(class_type)
+        if isinstance(entry, dict):
+            entries[class_type] = entry
+    return entries
+
+
+def _is_full_pack_refresh(pack_name: str, full_pack_refresh: bool | set[str]) -> bool:
+    if isinstance(full_pack_refresh, set):
+        return pack_name in full_pack_refresh
+    return bool(full_pack_refresh)
+
+
+def _merged_pack_entries(
+    pack_name: str,
+    refreshed_entries: dict[str, dict[str, Any]],
+    existing_entries: dict[str, dict[str, Any]],
+    *,
+    full_refresh: bool,
+) -> dict[str, dict[str, Any]]:
+    if full_refresh:
+        return OrderedDict((class_type, refreshed_entries[class_type]) for class_type in sorted(refreshed_entries))
+    merged: dict[str, dict[str, Any]] = {
+        class_type: entry
+        for class_type, entry in existing_entries.items()
+        if entry.get("pack") == pack_name
+    }
+    merged.update(refreshed_entries)
+    return OrderedDict((class_type, merged[class_type]) for class_type in sorted(merged))
 
 
 # ---------------------------------------------------------------------------
@@ -163,11 +345,16 @@ def refresh_from_source(source_path: str, cache_dir: str | None = None) -> dict[
     class_count, pack_count = build_cache(
         source_path,
         cache_dir=cache_dir,
+        version=LEGACY_IMPORT_PACK_VERSION,
+        source_kind=LEGACY_IMPORT_SOURCE_KIND,
     )
     return {
         "status": "ok",
         "classes_indexed": class_count,
         "packs_written": pack_count,
         "cache_dir": str(cache_dir or CACHE_DIR),
-        "version": "runpod-snapshot",
+        "version": LEGACY_IMPORT_PACK_VERSION,
+        "pack_version": LEGACY_IMPORT_PACK_VERSION,
+        "source_kind": LEGACY_IMPORT_SOURCE_KIND,
+        "authoritative": False,
     }

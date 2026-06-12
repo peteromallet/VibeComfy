@@ -455,6 +455,9 @@ def finalise_model_assets(workflow: VibeWorkflow) -> None:
     workflow.metadata["model_assets"] = final_assets
 
 
+finalize_model_assets = finalise_model_assets
+
+
 def _asset_name_appears_in_workflow_text(workflow: VibeWorkflow, name: str) -> bool:
     for node in workflow.nodes.values():
         for value in list(node.inputs.values()) + list(node.widgets.values()):
@@ -474,6 +477,7 @@ __all__ = [
     "build_authored_ready_workflow",
     "build_api_ready_workflow",
     "finalize_ready_template",
+    "finalize_model_assets",
     "finalise_model_assets",
     "ready_node",
     "ready_workflow",

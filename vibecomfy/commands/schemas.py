@@ -11,7 +11,7 @@ from typing import Any
 
 from vibecomfy.commands._output import emit
 from vibecomfy.porting.object_info.consume import get_class, list_classes
-from vibecomfy.porting.object_info.serialize import CACHE_DIR, refresh_from_source
+from vibecomfy.porting.object_info.serialize import CACHE_DIR, CacheIdentity, build_cache, refresh_from_source
 from vibecomfy.schema import RuntimeSchemaProvider
 
 
@@ -83,9 +83,55 @@ def _cmd_schemas_refresh(args: argparse.Namespace) -> int:
             print("--source is required unless --server-url is supplied", file=__import__("sys").stderr)
             return 2
         result = refresh_schema_cache_from_source(args.source)
+    identity = f"{result.get('pack_version', result.get('version', 'unknown'))} / {result.get('source_kind', 'unknown')}"
+    confidence = "authoritative" if result.get("authoritative", False) else "non-authoritative"
     msg = (
         f"Cache refreshed: {result['classes_indexed']} classes "
-        f"across {result['packs_written']} packs → {result['cache_dir']}"
+        f"across {result['packs_written']} packs → {result['cache_dir']} "
+        f"[{confidence}; identity {identity}]"
+    )
+    return emit(result, json=args.json, text_renderer=lambda _: msg)
+
+
+def _cmd_schemas_regen_core(args: argparse.Namespace) -> int:
+    """``schemas regen-core`` — introspect core ComfyUI schemas and stamp them."""
+    comfy_version = _validate_comfy_version(args.comfy_version)
+    object_info = _introspect_core_object_info(args)
+    source = Path("out/cache") / f"object_info.comfy-core.{comfy_version}.json"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text(json_module.dumps(object_info, indent=2, sort_keys=True), encoding="utf-8")
+
+    pack_version = comfy_version
+    class_count, pack_count = build_cache(
+        source,
+        version=pack_version,
+        cache_dir=CACHE_DIR,
+        identity=CacheIdentity(
+            pack_slug="comfy-core",
+            pack_version=pack_version,
+            evidence_identity=f"comfy-core:{comfy_version}",
+            source_kind="runtime_core_object_info",
+        ),
+        full_pack_refresh={"comfy-core"},
+    )
+    result: dict[str, Any] = {
+        "status": "ok",
+        "classes_indexed": class_count,
+        "packs_written": pack_count,
+        "cache_dir": str(CACHE_DIR),
+        "source": str(source),
+        "pack_slug": "comfy-core",
+        "version": pack_version,
+        "pack_version": pack_version,
+        "evidence_identity": f"comfy-core:{comfy_version}",
+        "source_kind": "runtime_core_object_info",
+        "authoritative": True,
+        "comfy_version": comfy_version,
+        "warning": _REGEN_CORE_UNSANDBOXED_WARNING,
+    }
+    msg = (
+        f"Core schema cache regenerated for ComfyUI {comfy_version}: "
+        f"{class_count} classes across {pack_count} pack(s) -> {CACHE_DIR}"
     )
     return emit(result, json=args.json, text_renderer=lambda _: msg)
 
@@ -105,6 +151,41 @@ def refresh_schema_cache_from_source(source: str | Path) -> dict[str, Any]:
     return result
 
 
+_REGEN_CORE_UNSANDBOXED_WARNING = (
+    "WARNING: this command imports and introspects ComfyUI core code. "
+    "Introspection executes third-party Python code and is not sandboxed."
+)
+
+
+def _validate_comfy_version(value: str) -> str:
+    version = str(value or "").strip()
+    if not version:
+        raise ValueError("--comfy-version is required")
+    if any(char.isspace() for char in version) or "/" in version or "\\" in version:
+        raise ValueError("--comfy-version must be a single filesystem-safe version token")
+    return version
+
+
+def _introspect_core_object_info(args: argparse.Namespace) -> dict[str, Any]:
+    provider = getattr(args, "object_info_provider", None)
+    runner = getattr(args, "object_info_runner", None)
+    if provider is not None:
+        payload = provider()
+    elif runner is not None:
+        payload = runner(_validate_comfy_version(args.comfy_version))
+    elif args.source:
+        payload = json_module.loads(Path(args.source).read_text(encoding="utf-8"))
+    elif args.server_url:
+        payload = RuntimeSchemaProvider(server_url=args.server_url).object_info()
+    else:
+        from vibecomfy.porting.object_info.core_regen import capture_core_object_info
+
+        payload = capture_core_object_info(_validate_comfy_version(args.comfy_version))
+    if not isinstance(payload, dict):
+        raise ValueError("object_info provider must return a JSON object")
+    return payload
+
+
 def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     copied = 0
@@ -118,7 +199,10 @@ def _copy_structured_cache(source_dir: Path) -> dict[str, Any]:
         "packs_written": max(0, copied - 1),
         "cache_dir": str(CACHE_DIR),
         "version": "structured-cache",
+        "pack_version": "structured-cache",
         "source": str(source_dir),
+        "authoritative": False,
+        "source_kind": "structured_cache_copy",
     }
 
 
@@ -143,7 +227,10 @@ def _copy_single_structured_cache_file(source_file: Path, data: dict[str, Any]) 
         "packs_written": 1,
         "cache_dir": str(CACHE_DIR),
         "version": "structured-cache",
+        "pack_version": "structured-cache",
         "source": str(source_file),
+        "authoritative": False,
+        "source_kind": "structured_cache_copy",
     }
 
 
@@ -373,6 +460,29 @@ def register(subparsers) -> None:
         help="Future: fetch object_info from a live runtime (not implemented)",
     )
     refresh.set_defaults(func=_cmd_schemas_refresh)
+
+    # --- schemas regen-core -----------------------------------------------
+    regen_core = schemas_sub.add_parser(
+        "regen-core",
+        help="Regenerate authoritative ComfyUI core object_info cache",
+        description=(
+            "Regenerate the authoritative ComfyUI core object_info cache. "
+            + _REGEN_CORE_UNSANDBOXED_WARNING
+        ),
+        epilog=_REGEN_CORE_UNSANDBOXED_WARNING,
+    )
+    regen_core.add_argument(
+        "--comfy-version",
+        required=True,
+        help="ComfyUI version identity to stamp on the core object_info cache, e.g. 0.24.0.1",
+    )
+    regen_core.add_argument("--json", action="store_true", help="Output as JSON")
+    regen_core.add_argument("--source", help=argparse.SUPPRESS)
+    regen_core.add_argument(
+        "--server-url",
+        help="Fetch object_info from a live server URL instead of the default runtime provider",
+    )
+    regen_core.set_defaults(func=_cmd_schemas_regen_core)
 
     # --- schemas validate-coverage ----------------------------------------
     validate = schemas_sub.add_parser(

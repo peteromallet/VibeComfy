@@ -160,6 +160,9 @@ KIND_TO_CLASS_TYPE: Final[dict[str, str]] = {
 CLASS_TYPE_TO_KIND: Final[dict[str, str]] = {
     class_type: kind for kind, class_type in KIND_TO_CLASS_TYPE.items()
 }
+INTENT_CLASS_TYPES: Final[frozenset[str]] = frozenset(
+    f"vibecomfy.{kind}" for kind in ALL_INTENT_KINDS
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +223,7 @@ class RuntimeCodeContractValidationResult:
 
 
 def is_intent_class_type(class_type: str) -> bool:
-    return bool(VIBECOMFY_INTENT_CLASS_RE.match(class_type))
+    return class_type in INTENT_CLASS_TYPES
 
 
 def intent_node_properties(
@@ -997,6 +1000,7 @@ __all__ = [
     "INTENT_NODE_CONTRACT_INVALID_CODE",
     "INTENT_NODE_EDITOR_ONLY_CODE",
     "INTENT_NODE_QUEUE_BLOCKER_CODE",
+    "INTENT_CLASS_TYPES",
     "INTENT_SPEC_MAX_BYTES",
     "INTENT_NODE_VALIDATION_PHASE",
     "IntentNodeProblem",

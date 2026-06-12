@@ -335,14 +335,16 @@ def _cmd_nodes_ensure(args: argparse.Namespace) -> int:
         for class_type in unresolved:
             print(f"- {class_type}")
         return 1
-    for pack in packs:
-        result = node_packs_install.install_pack(name=pack.name)
+    batch = node_packs_install.install_required_packs(packs)
+    for result in batch.results:
         detail = f" {result.git_commit_sha}" if result.git_commit_sha else ""
         print(f"{result.name}: {result.status}{detail}")
         if result.error:
             print(result.error, file=sys.stderr)
-        if result.status not in {"installed", "refreshed"}:
-            return 1
+    if not batch.ok:
+        if batch.preflight.error:
+            print(batch.preflight.error, file=sys.stderr)
+        return 1
     print(
         "Nodepacks installed/refreshed. If a vibecomfy session is active, "
         "call session.reload_for_nodepack_change(...) or restart it."

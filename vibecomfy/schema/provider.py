@@ -117,6 +117,23 @@ def schema_for(provider: object | None, class_type: str) -> object | None:
 
 
 def _builtin_schema(class_type: str) -> NodeSchema | None:
+    if class_type == "vibecomfy.exec":
+        from vibecomfy.comfy_nodes.exec_node import EXEC_SLOT_COUNT
+
+        inputs = {
+            "source": InputSpec("STRING", required=True),
+            "io": InputSpec("JSON", required=True),
+        }
+        inputs.update({f"in_{index}": InputSpec("*", required=False) for index in range(EXEC_SLOT_COUNT)})
+        return NodeSchema(
+            class_type="vibecomfy.exec",
+            pack="vibecomfy",
+            inputs=inputs,
+            outputs=[OutputSpec("*", f"out_{index}") for index in range(EXEC_SLOT_COUNT)],
+            source_provider="vibecomfy_builtin",
+            source_package="vibecomfy",
+            confidence=1.0,
+        )
     if class_type == "vibecomfy.code":
         return NodeSchema(
             class_type="vibecomfy.code",

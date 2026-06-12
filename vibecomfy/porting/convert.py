@@ -15,6 +15,7 @@ from vibecomfy.porting.emitter import (
     emit_ready_template_python,
     emit_scratchpad_python,
 )
+from vibecomfy.porting.object_info.consume import ObjectInfoIdentity
 from vibecomfy.porting.helper_resolve import ResolveDiagnostics, resolve_helpers
 from vibecomfy.porting.parity import (
     class_type_counter,
@@ -74,6 +75,9 @@ class PortConvertValidation:
     # Readability diagnostics collected during emission
     emission_diagnostics: list[EmissionDiagnostic] = field(default_factory=list)
 
+    # True when conversion emitted low-confidence provenance diagnostics.
+    low_confidence: bool = False
+
     # Model-like value comparison (T8)
     model_value_change: bool = False
     """True when aliasing changed a model-like value between source and emitted."""
@@ -121,6 +125,7 @@ class PortConvertValidation:
             "source_topology_snapshot": self.source_topology_snapshot,
             "emitted_topology_snapshot": self.emitted_topology_snapshot,
             "emission_diagnostics": [d.to_json() for d in self.emission_diagnostics],
+            "low_confidence": self.low_confidence,
             "model_value_change": self.model_value_change,
             "model_value_dropped": self.model_value_dropped,
             "hidden_model_filenames": self.hidden_model_filenames,
@@ -195,6 +200,35 @@ def _capture_virtual_wires(workflow: VibeWorkflow) -> dict[str, dict[str, Any]]:
             "endpoints": endpoints,
         }
     return captured
+
+
+def _node_object_info_identities(raw_workflow: dict[str, Any]) -> dict[str, ObjectInfoIdentity]:
+    """Derive a node_id -> ObjectInfoIdentity map from raw workflow provenance."""
+    from vibecomfy.porting.provenance import extract_provenance
+
+    try:
+        report = extract_provenance(raw_workflow)
+    except Exception:
+        return {}
+
+    result: dict[str, ObjectInfoIdentity] = {}
+    for req in report.requirements:
+        pack_slug: str | None = req.cnr_id
+        if not pack_slug and req.aux_id:
+            pack_slug = req.aux_id
+        if not pack_slug:
+            continue
+        git_commit: str | None = None
+        if req.version_pin is not None:
+            git_commit = req.version_pin.version or None
+        identity = ObjectInfoIdentity(
+            pack_slug=pack_slug,
+            git_commit=git_commit,
+            evidence_identity=req.identity_key or None,
+        )
+        for node_id in req.node_ids:
+            result[node_id] = identity
+    return result
 
 
 def port_convert_workflow(

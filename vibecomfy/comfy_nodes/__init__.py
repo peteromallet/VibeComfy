@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .exec_node import EXEC_CLASS_TYPE, VibeComfyExec
 from vibecomfy.contracts.intent_nodes import KIND_TO_CLASS_TYPE
 
 WEB_DIRECTORY = "./web"
@@ -136,12 +137,14 @@ class VibeComfyLoopIntent(_VibeComfyIntentNodeBase):
 
 NODE_CLASS_MAPPINGS = {
     "VibeComfyStripConditioningKeys": VibeComfyStripConditioningKeys,
+    EXEC_CLASS_TYPE: VibeComfyExec,
     KIND_TO_CLASS_TYPE["code"]: VibeComfyCodeIntent,
     KIND_TO_CLASS_TYPE["loop"]: VibeComfyLoopIntent,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "VibeComfyStripConditioningKeys": "VibeComfy Strip Conditioning Keys",
+    EXEC_CLASS_TYPE: "VibeComfy Exec",
     KIND_TO_CLASS_TYPE["code"]: "VibeComfy Code Intent",
     KIND_TO_CLASS_TYPE["loop"]: "VibeComfy Loop Intent",
 }

@@ -405,7 +405,7 @@ def test_turn_event_name_matches_between_backend_emit_and_frontend_listener() ->
     (`vibecomfy.agent_edit.turn` vs `vibecomfy/agent-edit/turn`), which delivered
     zero live events. Pin them together so the two sides can never drift again."""
     repo_root = Path(__file__).resolve().parents[1]
-    backend_src = (repo_root / "vibecomfy" / "comfy_nodes" / "agent_edit.py").read_text(
+    backend_src = (repo_root / "vibecomfy" / "comfy_nodes" / "agent" / "edit.py").read_text(
         encoding="utf-8"
     )
     frontend_src = (
@@ -726,13 +726,15 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
     context = TurnContext(session_id="runner-session", turn_id="runner-turn")
     calls: list[str] = []
 
-    def _fake_run_stage(name, passed_state, passed_context, **kwargs):
+    def _fake_run_stage(name, passed_state, passed_context, fn=None, **kwargs):
         calls.append(name)
         assert passed_state is state
         assert passed_context is context
-        if name == "ingest_v2":
+        if name == "ingest":
+            assert fn is agent_edit_module._stage_ingest_v2
             assert kwargs == {}
-        elif name == "agent_batch_repl":
+        elif name == "agent_batch":
+            assert fn is agent_edit_module._stage_agent_batch_repl
             assert kwargs == {
                 "deepseek_client": "client",
                 "route": "router",
@@ -756,7 +758,7 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
     )
 
     assert returned is state
-    assert calls == ["ingest_v2", "agent_batch_repl"]
+    assert calls == ["ingest", "agent_batch"]
 
 
 def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner(
@@ -1196,7 +1198,7 @@ def test_agent_edit_batch_internal_failure_is_not_provider_error(
     _assert_failure_defaults(
         result,
         kind=FailureKind.VALIDATION_ERROR.value,
-        stage="agent_batch_repl",
+        stage="agent_batch",
         audit_ref_expected=True,
     )
     assert "temporarily unavailable" not in result["message"]
@@ -2453,13 +2455,13 @@ def test_handle_agent_edit_batch_repl_rejects_malformed_or_non_terminal_clarify_
     _assert_failure_defaults(
         result,
         kind=failure_kind,
-        stage="agent_batch_repl",
+        stage="agent_batch",
         audit_ref_expected=True,
     )
     _assert_product_failure_contract(
         result,
         failure_kind=failure_kind,
-        stage="agent_batch_repl",
+        stage="agent_batch",
     )
     assert not result.get("clarification_required", False)
     assert "question" not in result["outcome"]

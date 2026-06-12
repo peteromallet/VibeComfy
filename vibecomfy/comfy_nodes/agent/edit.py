@@ -2504,11 +2504,11 @@ def _stage_agent_batch_repl(
     client_id: str | None = None,
     conversation_messages: list[dict[str, Any]] | None = None,
 ) -> StageResult:
-    from vibecomfy.porting.edit_session import EditSession
+    from vibecomfy.porting.edit import session as edit_session_module
 
     start = time.monotonic()
     prepared_ui = state.guard_original_ui or state.graph
-    session = EditSession(prepared_ui, schema_provider=state.schema_provider)
+    session = edit_session_module.EditSession(prepared_ui, schema_provider=state.schema_provider)
     state.batch_session = session
     initial_render = session.render()
     present_types = _present_class_types(session)
@@ -3936,7 +3936,7 @@ def _run_stage(
         failure_stage = (
             "agent_response"
             if name in {"agent", "agent_delta"}
-            or (name == "agent_batch" and _is_provider_exception(exc))
+            or (name in {"agent_batch", "agent_batch_repl"} and _is_provider_exception(exc))
             else name
         )
         failure = classify_failure(failure_stage, exc, context)
@@ -3953,16 +3953,47 @@ def _run_stage(
         failure_kind = None
         if isinstance(result.value, dict):
             failure_kind = result.value.get("failure_kind")
+        public_stage = name
+        issue_codes = {
+            str(issue.get("code"))
+            for issue in result.issues
+            if isinstance(issue, dict) and issue.get("code") is not None
+        }
+        diagnostic_codes: set[str] = set()
+        if name == "agent_batch_repl":
+            for turn in state.batch_turns:
+                if not isinstance(turn, Mapping):
+                    continue
+                diagnostics = list(turn.get("diagnostics") or [])
+                for statement in turn.get("statements") or []:
+                    if isinstance(statement, Mapping):
+                        diagnostics.extend(statement.get("diagnostics") or [])
+                diagnostic_codes.update(
+                    str(diagnostic.get("code"))
+                    for diagnostic in diagnostics
+                    if isinstance(diagnostic, Mapping) and diagnostic.get("code") is not None
+                )
+        parse_or_query_codes = {
+            "batch_syntax_error",
+            "nested_call_not_allowed",
+            "unsupported_query_call",
+        }
+        if (
+            name == "agent_batch_repl"
+            and "batch_budget_exhausted" in issue_codes
+            and not diagnostic_codes.intersection(parse_or_query_codes)
+        ):
+            public_stage = "agent_batch"
         failure = failure_envelope(
             failure_kind or FailureKind.VALIDATION_ERROR,
-            name,
+            public_stage,
             context,
             agent_failure_context={
-                "explanation": f"Stage {name} blocked the agent edit.",
+                "explanation": f"Stage {public_stage} blocked the agent edit.",
                 "issues": [dict(issue) for issue in result.issues if isinstance(issue, dict)],
             },
         )
-        if failure.kind is FailureKind.STALE_STATE_MISMATCH and name in {"ingest", "ingest_v2"}:
+        if failure.kind is FailureKind.STALE_STATE_MISMATCH and public_stage in {"ingest", "ingest_v2"}:
             failure = dataclasses.replace(
                 failure,
                 user_facing_message=(

@@ -8,6 +8,11 @@ import warnings
 
 from vibecomfy._compile._graph import is_api_link
 from vibecomfy.comfy_backend import check_comfy_compatibility, require_comfy_compatibility
+# vibecomfy.exec class type: mirrored as a literal to avoid a module-level import of
+# vibecomfy.comfy_nodes.exec_node, which would re-execute comfy_nodes/__init__ (route
+# registration side-effect) at boot and pull torch eagerly. Mirrors
+# vibecomfy.comfy_nodes.exec_node.EXEC_CLASS_TYPE (see agent_session.py for the same pattern).
+EXEC_CLASS_TYPE = "vibecomfy.exec"
 from vibecomfy.metadata import (
     OUTPUT_NODE_NAMES,
     _infer_requirements,
@@ -19,6 +24,9 @@ from vibecomfy.schema import OutputSpec, SchemaProvider, schema_for
 from vibecomfy.security.gate import untrusted_scope
 from vibecomfy.security.provenance import PROVENANCE_KEY
 from vibecomfy.workflow import RawWidgetPayload, VibeEdge, VibeNode, VibeOutput, VibeWorkflow, WorkflowSource
+
+EXEC_SOURCE_MAX_BYTES = 48 * 1024
+EXEC_SOURCE_MAX_TOTAL_BYTES = 768 * 1024
 
 
 def detect_workflow_shape(raw: dict[str, Any]) -> str:
@@ -49,7 +57,9 @@ def normalize_to_api(
     """
     shape = detect_workflow_shape(raw)
     if shape == "api":
-        return raw.get("prompt", raw)
+        api = raw.get("prompt", raw)
+        _enforce_exec_source_limits(api, surface="api")
+        return api
     if shape != "ui":
         raise ValueError(f"Unsupported workflow shape: {shape}")
 
@@ -82,6 +92,7 @@ def normalize_to_api(
                     stacklevel=2,
                 )
             else:
+                _enforce_exec_source_limits(converted, surface="ui.converter")
                 if not _has_unknown_widget_inputs(converted):
                     _merge_slim_ui(raw, converted)
                     return converted
@@ -142,6 +153,7 @@ def _normalize_ui_to_api(raw: dict[str, Any], *, schema_provider: SchemaProvider
         if widgets_present:
             api_node["_raw_widgets"] = _raw_widget_payload_dict(widgets, source="ui.widgets_values")
         api[node_id] = api_node
+    _enforce_exec_source_limits(api, surface="ui.offline")
     return api
 
 
@@ -311,6 +323,7 @@ def _convert_to_vibe_format_impl(
             schema_provider=schema_provider,
             comfy_converter_strict=True,
         )
+    _enforce_exec_source_limits(api_workflow, surface="api.ingest")
     source = WorkflowSource(
         id=workflow_id or (Path(source_path).stem if source_path else "workflow"),
         path=source_path,
@@ -323,6 +336,7 @@ def _convert_to_vibe_format_impl(
         raw_inputs = dict(node.get("inputs", {}))
         inputs: dict[str, Any] = {}
         widgets: dict[str, Any] = {}
+        class_type = str(node.get("class_type", "Unknown"))
         for key, value in raw_inputs.items():
             if is_api_link(
                 value,
@@ -332,11 +346,10 @@ def _convert_to_vibe_format_impl(
                 require_int_slot=False,
             ):
                 continue
-            if key.startswith("widget_"):
+            if key.startswith("widget_") or _is_exec_widget_key(class_type, key):
                 widgets[key] = value
             else:
                 inputs[key] = value
-        class_type = str(node.get("class_type", "Unknown"))
         raw_widgets = _coerce_raw_widget_payload(node.get("_raw_widgets"))
         if raw_widgets is None:
             raw_ui = node.get("_ui")
@@ -376,6 +389,8 @@ def _convert_to_vibe_format_impl(
         schema_source = _schema_source_provenance(schema_provider, class_type)
         if schema_source is not None:
             metadata.setdefault("schema_source", schema_source)
+        if class_type == EXEC_CLASS_TYPE:
+            _rebuild_exec_reload_metadata(metadata, widgets.get("io"))
         # S4 capability fence: ingest is the external-JSON boundary, so every
         # ingested node is tagged untrusted_source. Unconditional set — never
         # `setdefault` — so a hostile JSON cannot pre-declare itself trusted.
@@ -415,6 +430,68 @@ def _convert_to_vibe_format_impl(
     workflow.metadata["_ingest_snapshot"] = capture_ingest_snapshot(api_workflow, workflow)
 
     return workflow
+
+
+def _is_exec_widget_key(class_type: str, key: str) -> bool:
+    return class_type == EXEC_CLASS_TYPE and key in {"source", "io"}
+
+
+def _normalize_exec_io_metadata(io_value: Any) -> dict[str, list[list[str | None]]] | None:
+    from vibecomfy.comfy_nodes.exec_node import ExecNodeContractError, parse_io
+
+    try:
+        io_spec = parse_io(io_value)
+    except ExecNodeContractError:
+        return None
+    normalized: dict[str, list[list[str | None]]] = {"inputs": [], "outputs": []}
+    for field in ("inputs", "outputs"):
+        normalized[field] = [[name, type_name] for name, type_name in io_spec.get(field, ())]
+    return normalized
+
+
+def _rebuild_exec_reload_metadata(metadata: dict[str, Any], io_value: Any) -> None:
+    ui = metadata.get("_ui")
+    if not isinstance(ui, dict):
+        ui = {}
+        metadata["_ui"] = ui
+    properties = ui.get("properties")
+    if not isinstance(properties, dict):
+        properties = {}
+        ui["properties"] = properties
+    vibecomfy = properties.get("vibecomfy")
+    if not isinstance(vibecomfy, dict):
+        vibecomfy = {}
+        properties["vibecomfy"] = vibecomfy
+    normalized_io = _normalize_exec_io_metadata(io_value)
+    if normalized_io is None:
+        vibecomfy.pop("io", None)
+    else:
+        vibecomfy["io"] = normalized_io
+
+
+def _enforce_exec_source_limits(api_workflow: dict[str, Any], *, surface: str) -> None:
+    total_bytes = 0
+    for node_id, node in api_workflow.items():
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("class_type", "")) != EXEC_CLASS_TYPE:
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        source = inputs.get("source")
+        if not isinstance(source, str):
+            continue
+        source_bytes = len(source.encode("utf-8"))
+        if source_bytes > EXEC_SOURCE_MAX_BYTES:
+            raise ValueError(
+                f"{EXEC_CLASS_TYPE} source at node {node_id!r} exceeds {EXEC_SOURCE_MAX_BYTES} bytes on {surface}"
+            )
+        total_bytes += source_bytes
+    if total_bytes > EXEC_SOURCE_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"{EXEC_CLASS_TYPE} source total exceeds {EXEC_SOURCE_MAX_TOTAL_BYTES} bytes on {surface}"
+        )
 
 
 # Recognized litegraph `control_after_generate` tokens. Capture is restricted to
