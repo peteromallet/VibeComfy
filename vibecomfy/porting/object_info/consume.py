@@ -109,6 +109,11 @@ _CURATED_OUTPUTS: dict[str, list[dict[str, str]]] = {
         {"name": "positive", "type": "CONDITIONING"},
         {"name": "negative", "type": "CONDITIONING"},
     ],
+    "LTXVAddGuideMulti": [
+        {"name": "positive", "type": "CONDITIONING"},
+        {"name": "negative", "type": "CONDITIONING"},
+        {"name": "latent", "type": "LATENT"},
+    ],
     "LTXVCropGuides": [
         {"name": "positive", "type": "CONDITIONING"},
         {"name": "negative", "type": "CONDITIONING"},

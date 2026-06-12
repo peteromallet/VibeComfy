@@ -153,6 +153,7 @@ def collect_records_with_skips(ready_root: Path = READY_ROOT) -> tuple[list[Pari
         try:
             api = _compile_ready_template(path, template_id)
         except Exception as exc:  # noqa: BLE001 - diagnostics should report every non-buildable template.
+            _reset_leaked_workflow_context()
             skipped.append(
                 {
                     "id": template_id,
@@ -204,6 +205,23 @@ def _compile_ready_template(path: Path, template_id: str) -> dict[str, Any]:
     if not isinstance(workflow, VibeWorkflow):
         raise TypeError(f"Ready template {template_id} build() must return VibeWorkflow, got {type(workflow).__name__}")
     return workflow.compile("api")
+
+
+def _reset_leaked_workflow_context() -> None:
+    """Keep one failed template from poisoning later template imports."""
+    try:
+        from vibecomfy.workflow_context import active_workflow, reset_workflow
+    except Exception:
+        return
+    workflow = active_workflow()
+    token = getattr(workflow, "_workflow_context_token", None) if workflow is not None else None
+    if token is None:
+        return
+    try:
+        reset_workflow(token)
+    except Exception:
+        return
+    workflow._workflow_context_token = None
 
 
 def _canonical_sha256(form: dict[str, Any]) -> str:

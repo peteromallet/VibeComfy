@@ -215,13 +215,13 @@ def build() -> VibeWorkflow:
         a=intconstant,
     )
 
-    _, comfy_int = ComfyMathExpression(
+    _, comfy_int, _ = ComfyMathExpression(
         _id='2191',
         expression='a/2',
         **{'values.a': intconstant_3},
     )
 
-    _, comfy_int_2 = ComfyMathExpression(
+    _, comfy_int_2, _ = ComfyMathExpression(
         _id='2192',
         expression='a/2',
         **{'values.a': intconstant_2},
@@ -476,4 +476,3 @@ def build() -> VibeWorkflow:
     )
 
     return wf.finalize(PUBLIC_INPUT_METADATA, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='LTX-2')
-

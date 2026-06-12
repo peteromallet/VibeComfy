@@ -132,7 +132,7 @@ def build() -> VibeWorkflow:
     )
 
     intconstant_2 = INTConstant(_id='497', value=650)
-    _, comfy_int = ComfyMathExpression(_id='699', expression='a', **{'values.a': 24.0})
+    _, comfy_int, _ = ComfyMathExpression(_id='699', expression='a', **{'values.a': 24.0})
 
     ltxavtextencoderloader = LTXAVTextEncoderLoader(
         _id='742',
@@ -304,7 +304,7 @@ def build() -> VibeWorkflow:
         audio_vae=vaeloaderkj,
     )
 
-    comfy_float_2, _ = ComfyMathExpression(
+    comfy_float_2, _, _ = ComfyMathExpression(
         _id='700',
         expression='a/b',
         **{'values.b': 24.0, 'values.a': count_2},
@@ -357,7 +357,7 @@ def build() -> VibeWorkflow:
         nag_cond_video=negative,
     )
 
-    comfy_float_3, _ = ComfyMathExpression(
+    comfy_float_3, _, _ = ComfyMathExpression(
         _id='701',
         expression='a+b',
         **{'values.a': comfy_float_2, 'values.b': intconstant},
@@ -560,4 +560,3 @@ def build() -> VibeWorkflow:
     )
 
     return wf.finalize(PUBLIC_INPUT_METADATA, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one', filename_prefix='LTX-2')
-

@@ -166,7 +166,7 @@ def generate_video_c4106aee(
     Inner nodes: SolidMask, LTXVSeparateAVLatentx2, LTXVLatentUpsampler, CLIPTextEncode, LTXVAudioVAEEncode, CFGGuiderx2, SetLatentNoiseMask, LTXVConcatAVLatentx2, RandomNoisex2, SamplerCustomAdvancedx2, SimpleCalculatorKJx2, GetImageSizeAndCount, VRAM_Debug, ComfyMathExpression, EmptyLTXVLatentVideo, TrimAudioDurationx2, VAEDecode, ResizeImageMaskNode, 2413a8aa-1f77-466f-8508-ed07fa6ac302, LTXVPreprocess, ResizeImagesByLongerEdge, LTXVImgToVideoInplaceKJx2.
     """
 
-    comfy_float, _ = ComfyMathExpression(
+    comfy_float, _, _ = ComfyMathExpression(
         expression='a /  b ',
         **{'values.a': frames_count, 'values.b': values_b},
     )
@@ -406,7 +406,7 @@ def generate_video(
     randomnoise = RandomNoise(control_after_generate='fixed', noise_seed=noise_seed)
     randomnoise_2 = RandomNoise(noise_seed=405, control_after_generate='fixed')
 
-    comfy_float, _ = ComfyMathExpression(
+    comfy_float, _, _ = ComfyMathExpression(
         expression='a /  b ',
         **{'values.a': frames_count, 'values.b': values_b},
     )
@@ -617,7 +617,7 @@ def generate_video_a3fb563d(
     randomnoise = RandomNoise(control_after_generate='fixed', noise_seed=noise_seed)
     randomnoise_2 = RandomNoise(noise_seed=405, control_after_generate='fixed')
 
-    comfy_float, _ = ComfyMathExpression(
+    comfy_float, _, _ = ComfyMathExpression(
         expression='a /  b ',
         **{'values.a': frames_count, 'values.b': values_b},
     )
@@ -828,7 +828,7 @@ def generate_video_4acc9924(
     randomnoise = RandomNoise(control_after_generate='fixed', noise_seed=noise_seed)
     randomnoise_2 = RandomNoise(noise_seed=405, control_after_generate='fixed')
 
-    comfy_float, _ = ComfyMathExpression(
+    comfy_float, _, _ = ComfyMathExpression(
         expression='a /  b ',
         **{'values.a': frames_count, 'values.b': values_b},
     )
@@ -1522,4 +1522,3 @@ def build() -> VibeWorkflow:
     )
 
     return wf.finalize(PUBLIC_INPUT_METADATA, output_node=vhs_videocombine, output_type='VHS_VideoCombine', name='video', artifact_kind='video', mime_type='video/mp4', expected_cardinality='one')
-
