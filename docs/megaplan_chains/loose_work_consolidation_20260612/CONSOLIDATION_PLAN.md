@@ -105,6 +105,34 @@ Verification:
 - `pytest tests/test_comfy_nodes.py tests/test_runtime_code_modes.py tests/test_contracts_reexport.py`: `42 passed`.
 - `pytest tests/test_comfy_nodes_agent_backend_spine.py tests/test_comfy_nodes_agent_contracts.py tests/test_comfy_nodes_agent_edit.py`: no new regressions; `424 passed`, one `known_failures.txt` baseline failure in `test_agent_edit_submit_after_accept_still_blocks_real_structural_divergence`.
 
+## Final PR Outcome
+
+Landing branch: `land/code-node-dynamic-io-20260612`.
+
+PR: https://github.com/peteromallet/VibeComfy/pull/84
+
+Final head: `7960738`.
+
+Additional merge-blocker repairs made on the landing branch:
+
+- Restored canonical parity for generated video templates by updating stale `ComfyMathExpression` unpacking, adding a curated `LTXVAddGuideMulti` output fallback, and making the parity checker reset leaked workflow context after a skipped template.
+- Added missing snapshot stem mappings for `empty_image_red` and `empty_image_red_smoke_required`.
+
+Final local verification:
+
+- `uv run --frozen python -m tools.check_canonical_parity --all`: `canonical parity passed: 64 templates`.
+- `uv run --frozen pytest tests/test_v26_canonical_parity.py tests/test_comfy_nodes.py tests/test_runtime_code_modes.py tests/test_contracts_reexport.py`: `47 passed`.
+- `uv run --frozen python scripts/regenerate_snapshots.py --check`: all snapshot stems unchanged.
+- CI fast-suite file list without local coverage plugin: one known `known_failures.txt` baseline failure, no new regressions.
+
+Final GitHub checks on `7960738`:
+
+- `ci / test`: success.
+- `canonical-parity`: success.
+- `Strict-ready gates`: success.
+
+No cleanup deletions have been performed yet; residue branch/worktree deletion still requires explicit approval.
+
 ## DeepSeek / Subagent Provenance
 
 Initial read-only Codex subagent outputs:
