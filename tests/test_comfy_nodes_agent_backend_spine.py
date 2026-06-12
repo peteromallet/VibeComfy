@@ -3089,7 +3089,7 @@ def test_agent_provider_lazy_loads_arnold_and_normalizes_response(monkeypatch) -
     assert "Return only JSON with keys `python` and `message`." in calls[0]["messages"][0]["content"]
     assert "Prefer direct static graph edits first." in calls[0]["messages"][0]["content"]
     assert "Use `vibecomfy.loop` only for bounded, visible sweeps" in calls[0]["messages"][0]["content"]
-    assert "Use `vibecomfy.code` only for inspectable typed logic" in calls[0]["messages"][0]["content"]
+    assert "Use `vibecomfy.code` for inspectable typed logic" in calls[0]["messages"][0]["content"]
     assert "intent_node_properties(...)" in calls[0]["messages"][0]["content"]
     assert "User request:\nchange it" in calls[0]["messages"][1]["content"]
     assert "Current scratchpad Python" in calls[0]["messages"][1]["content"]
