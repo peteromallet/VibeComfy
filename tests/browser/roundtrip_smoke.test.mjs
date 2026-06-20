@@ -13051,14 +13051,14 @@ test("VibeComfy empty-state examples are clickable and fill the composer prompt"
     await waitFor(() => /Try an example/.test(harness.textDump()));
 
     const example = harness.document.body.querySelectorAll(
-      (node) => node.textContent === "Add a VAE Decode after the sampler output",
+      (node) => node.textContent === "Save the output",
     )[0];
     assert(example, "expected an empty-state example row");
     example.click();
 
     assert.equal(
       harness.document.getElementById("vibecomfy-agent-panel-prompt")?.value,
-      "Add a VAE Decode after the sampler output",
+      "Save the output",
     );
   } finally {
     await harness.dispose();

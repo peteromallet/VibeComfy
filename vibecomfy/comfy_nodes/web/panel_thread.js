@@ -1507,10 +1507,10 @@ function renderWelcomeExamples(body, deps = {}) {
 
   const examplePrompts = [
     "Add a code node that processes images with PIL",
-    "Connect the output of LoadImage to a PreviewImage node",
-    "Replace the CLIPTextEncode prompt text with something new",
-    "Add a VAE Decode after the sampler output",
-    "Wire the model output into a SaveImage node",
+    "Explain what's happening in this workflow in depth",
+    "Make the prompts more specific",
+    "Save the output",
+    "Improve this workflow so it's cleaner, more reliable, and easier to understand",
   ];
   for (const example of examplePrompts) {
     const row = el("div", example);
