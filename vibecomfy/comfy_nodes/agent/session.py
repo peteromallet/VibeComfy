@@ -6,6 +6,7 @@ import os
 import re
 import time
 import socket
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -136,6 +137,7 @@ class SessionStateLock:
         self.lock_path = session_dir / LOCK_FILE_NAME
         self.timeout_seconds = timeout_seconds
         self._fd: int | None = None
+        self._lock_id: str | None = None
 
     # ------------------------------------------------------------------
     # helpers
@@ -157,10 +159,12 @@ class SessionStateLock:
 
     def _write_lock_metadata(self, fd: int) -> None:
         """Write structured owner metadata into the open file descriptor."""
+        self._lock_id = uuid.uuid4().hex
         payload = {
             "pid": os.getpid(),
             "hostname": socket.gethostname(),
             "timestamp": time.time(),
+            "lock_id": self._lock_id,
         }
         os.write(
             fd, (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
@@ -276,6 +280,26 @@ class SessionStateLock:
             # Another process touched the lock -- abort to avoid a race.
             return False
 
+        # Content-level verification: re-read metadata to confirm the
+        # lock still belongs to the same dead/stale owner we identified
+        # above.  This guards against filesystem edge cases where inode
+        # and mtime alone do not capture a replacement.
+        recheck = self._read_lock_metadata()
+        if recheck is None:
+            # File corrupted between reads — quarantine is still safe.
+            pass
+        else:
+            recheck_pid = recheck.get("pid")
+            recheck_hostname = recheck.get("hostname")
+            recheck_timestamp = recheck.get("timestamp")
+            if not (
+                recheck_pid == pid
+                and recheck_hostname == hostname
+                and recheck_timestamp == timestamp
+            ):
+                # Owner changed — abort, the lock is now live.
+                return False
+
         self._quarantine_lock("dead_or_stale_owner")
         return True
 
@@ -308,10 +332,19 @@ class SessionStateLock:
         if self._fd is not None:
             os.close(self._fd)
             self._fd = None
-        try:
-            self.lock_path.unlink()
-        except FileNotFoundError:
-            pass
+        # Verify ownership before unlinking: another process may have
+        # recovered and replaced this lock between __enter__ and
+        # __exit__.  Only unlink when the file still carries our
+        # lock_id; otherwise a racing live writer would lose its lock.
+        if self._lock_id is not None:
+            current = self._read_lock_metadata()
+            if isinstance(current, dict) and current.get("lock_id") == self._lock_id:
+                try:
+                    self.lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+            # If lock_id differs or metadata is unreadable the lock
+            # belongs to a successor — leave it alone.
 
 
 def default_state() -> dict[str, Any]:
@@ -728,6 +761,19 @@ def write_state_atomic(session_dir: Path, state: dict[str, Any]) -> None:
     tmp.replace(target)
 
 
+def _write_response_atomic(response_path: Path, response: dict[str, Any]) -> None:
+    """Write *response* to *response_path* atomically via a temp file + rename."""
+    response_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = response_path.with_name(
+        f".{response_path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+    )
+    tmp.write_text(
+        json.dumps(response, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(response_path)
+
+
 def _record_key(scope: OperationScope, idempotency_key: str | None) -> str | None:
     if not idempotency_key:
         return None
@@ -1136,11 +1182,12 @@ def record_idempotent_response(
     candidate_graph_hash = _mapping_graph_hash(response)
     candidate_structural_graph_hash = _mapping_graph_structural_hash(response)
     agent_edit_protocol = "v2_delta" if isinstance(response.get("delta_ops"), list) else "v1"
-    # Always write response.json for all allocated edit turns, even without an
-    # idempotency key, so every completed turn has a durable response artifact.
-    response_path.parent.mkdir(parents=True, exist_ok=True)
-    response_path.write_text(json.dumps(response, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    # Persist state mutation and idempotency record BEFORE publishing
+    # response.json so that durable state always precedes the response
+    # artifact.  If state persistence fails the response never becomes
+    # visible, preventing orphaned successful responses.
     if key is None:
+        # Unkeyed edit path: persist turn state first, then publish response.
         if scope == "edit" and turn_id is not None:
             session_dir = session_dir_for(session_root, session_id)
             with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
@@ -1154,6 +1201,8 @@ def record_idempotent_response(
                     ] = STRUCTURAL_PROJECTION_VERSION
                     turn_record["agent_edit_protocol"] = agent_edit_protocol
                     write_state_atomic(session_dir, state)
+        # Atomically publish response.json after durable state completes.
+        _write_response_atomic(response_path, response)
         return None
     response_digest = payload_hash(response)
     record = {
@@ -1164,6 +1213,8 @@ def record_idempotent_response(
         "operation": operation,
         "turn_id": turn_id,
     }
+    # Keyed edit path: persist turn state + idempotency record first,
+    # then publish response.
     session_dir = session_dir_for(session_root, session_id)
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
@@ -1178,6 +1229,9 @@ def record_idempotent_response(
                 turn_record["agent_edit_protocol"] = agent_edit_protocol
         state["idempotency_records"][key] = record
         write_state_atomic(session_dir, state)
+    # Atomically publish response.json after durable state + idempotency
+    # record completes.
+    _write_response_atomic(response_path, response)
     return record
 
 

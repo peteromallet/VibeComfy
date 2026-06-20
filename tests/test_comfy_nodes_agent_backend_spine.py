@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 import os
+import socket
 import subprocess
 import threading
+import time
 import warnings
 from pathlib import Path
 
@@ -49,6 +51,9 @@ from vibecomfy.comfy_nodes.agent.gates import (
     update_state_match_gate,
 )
 from vibecomfy.comfy_nodes.agent.session import (
+    DEFAULT_LOCK_TIMEOUT_SECONDS,
+    LOCK_FILE_NAME,
+    LOCK_LEASE_SECONDS,
     STRUCTURAL_PROJECTION_VERSION,
     _SENTINEL_LINK_ABSENT,
     _SENTINEL_NO_VALUE,
@@ -62,6 +67,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     _load_turn_request_graph,
     _normalize_link_endpoint,
     _normalize_target_uid,
+    _process_alive,
     _read_field_value_from_node,
     _read_link_source_endpoint,
     _resolve_submit_value_for_op,
@@ -74,8 +80,10 @@ from vibecomfy.comfy_nodes.agent.session import (
     rebaseline_session,
     reject_turn,
     structural_graph_hash,
+    session_dir_for,
     write_state_atomic,
 )
+from vibecomfy.comfy_nodes.agent.session import SessionStateLock
 from vibecomfy.contracts import (
     INTENT_NODE_CONTRACT_INVALID_CODE,
     INTENT_NODE_EDITOR_ONLY_CODE,
@@ -8062,3 +8070,750 @@ def test_exec_structural_hash_same_after_reload_reconcile() -> None:
     assert structural_graph_hash(pre) == structural_graph_hash(post), (
         "Structural hash must be stable across reload/reconcile"
     )
+
+
+# ── T14: SessionStateLock tests ─────────────────────────────────────────
+
+
+def test_session_lock_acquire_release_normal(tmp_path: Path) -> None:
+    """Normal acquire/release: lock file created with structured metadata on
+    enter, removed on exit."""
+    session_dir = tmp_path / "session"
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    with SessionStateLock(session_dir):
+        assert session_dir.is_dir()
+        assert lock_path.is_file()
+        # Metadata must be valid JSON with required keys.
+        raw = lock_path.read_text(encoding="utf-8").strip()
+        metadata = json.loads(raw)
+        assert isinstance(metadata, dict)
+        assert isinstance(metadata.get("pid"), int)
+        assert isinstance(metadata.get("hostname"), str)
+        assert isinstance(metadata.get("timestamp"), (int, float))
+        assert isinstance(metadata.get("lock_id"), str)
+        assert len(metadata["lock_id"]) == 32  # uuid4 hex
+
+    # Lock file must be removed after __exit__.
+    assert not lock_path.exists()
+
+
+def test_session_lock_live_owner_timeout(tmp_path: Path, monkeypatch) -> None:
+    """When a lock is held by a live process on the same host, acquisition
+    must time out rather than overwriting the live owner."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Pre-create a lock that looks like it belongs to a live process.
+    live_metadata = json.dumps({
+        "pid": os.getpid(),
+        "hostname": socket.gethostname(),
+        "timestamp": time.time(),
+        "lock_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    }) + "\n"
+    lock_path.write_text(live_metadata, encoding="utf-8")
+
+    # Ensure _process_alive sees a live owner.
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.session._process_alive",
+        lambda pid: True,
+    )
+
+    with pytest.raises(TimeoutError):
+        with SessionStateLock(session_dir, timeout_seconds=0.2):
+            pass
+
+
+def test_session_lock_dead_pid_recovery(tmp_path: Path, monkeypatch) -> None:
+    """A lock owned by a dead process on the same host must be recovered
+    and allow a new acquisition."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Pre-create a lock with a pid that will be considered dead.
+    dead_metadata = json.dumps({
+        "pid": 999999,
+        "hostname": socket.gethostname(),
+        "timestamp": time.time(),
+        "lock_id": "deaddeaddeaddeaddeaddeaddeaddead",
+    }) + "\n"
+    lock_path.write_text(dead_metadata, encoding="utf-8")
+
+    # Make _process_alive report the pid as dead.
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.session._process_alive",
+        lambda pid: False,
+    )
+
+    # Acquisition must succeed (lock recovered and replaced).
+    with SessionStateLock(session_dir, timeout_seconds=2.0):
+        assert lock_path.is_file()
+        # The new lock must carry our metadata.
+        raw = lock_path.read_text(encoding="utf-8").strip()
+        metadata = json.loads(raw)
+        assert metadata["pid"] == os.getpid()
+        assert metadata["hostname"] == socket.gethostname()
+
+    assert not lock_path.exists()
+
+
+def test_session_lock_stale_timestamp_recovery(tmp_path: Path) -> None:
+    """A lock owned by a different host with a stale timestamp (> LOCK_LEASE_SECONDS)
+    must be recovered and allow a new acquisition."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Pre-create a lock with a different hostname and old timestamp.
+    stale_metadata = json.dumps({
+        "pid": 12345,
+        "hostname": "other-host.example.com",
+        "timestamp": time.time() - LOCK_LEASE_SECONDS - 5.0,
+        "lock_id": "staleeeeeeeeeeeeeeeeeeeeeeeeeee",
+    }) + "\n"
+    lock_path.write_text(stale_metadata, encoding="utf-8")
+
+    # Acquisition must succeed — recovery clears the stale cross-host lock.
+    with SessionStateLock(session_dir, timeout_seconds=2.0):
+        assert lock_path.is_file()
+        raw = lock_path.read_text(encoding="utf-8").strip()
+        metadata = json.loads(raw)
+        assert metadata["pid"] == os.getpid()
+
+    assert not lock_path.exists()
+
+
+def test_session_lock_corrupt_metadata_quarantine(tmp_path: Path) -> None:
+    """A lock file with corrupt/non-JSON metadata must be quarantined
+    and acquisition must succeed."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Write non-JSON garbage into the lock file.
+    lock_path.write_text("NOT VALID JSON {{{", encoding="utf-8")
+    # Make the file old enough to not be treated as brand-new.
+    old_mtime = time.time() - 1.0
+    os.utime(lock_path, (old_mtime, old_mtime))
+
+    with SessionStateLock(session_dir, timeout_seconds=2.0):
+        assert lock_path.is_file()
+        # The corrupt lock should have been quarantined (renamed).
+        corrupt_files = list(session_dir.glob(".corrupt-*"))
+        assert len(corrupt_files) >= 1, (
+            f"Expected at least one .corrupt-* file, got {sorted(p.name for p in session_dir.iterdir())}"
+        )
+
+    assert not lock_path.exists()
+
+
+def test_session_lock_ambiguous_cross_host_fresh_lease_timeout(
+    tmp_path: Path,
+) -> None:
+    """A lock owned by a different host with a fresh lease must NOT be
+    recovered; the caller must time out (ambiguous metadata)."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Pre-create a lock with a different hostname and recent timestamp.
+    fresh_metadata = json.dumps({
+        "pid": 12345,
+        "hostname": "other-host.example.com",
+        "timestamp": time.time(),
+        "lock_id": "freshhhhhhhhhhhhhhhhhhhhhhhhhhh",
+    }) + "\n"
+    lock_path.write_text(fresh_metadata, encoding="utf-8")
+
+    with pytest.raises(TimeoutError):
+        with SessionStateLock(session_dir, timeout_seconds=0.3):
+            pass
+
+
+def test_session_lock_exit_preserves_successor_lock(tmp_path: Path) -> None:
+    """__exit__ must verify lock_id ownership and leave the lock alone
+    when a successor has replaced it."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Acquire the lock normally.
+    with SessionStateLock(session_dir):
+        original_metadata = json.loads(
+            lock_path.read_text(encoding="utf-8").strip()
+        )
+        original_lock_id = original_metadata["lock_id"]
+
+        # Simulate a successor replacing the lock while we hold it.
+        successor = json.dumps({
+            "pid": 99999,
+            "hostname": socket.gethostname(),
+            "timestamp": time.time(),
+            "lock_id": "successorccccccccccccccccccccc",
+        }) + "\n"
+        lock_path.write_text(successor, encoding="utf-8")
+
+    # After __exit__, the successor's lock must still exist.
+    assert lock_path.is_file()
+    surviving = json.loads(lock_path.read_text(encoding="utf-8").strip())
+    assert surviving["lock_id"] == "successorccccccccccccccccccccc"
+    assert surviving["lock_id"] != original_lock_id
+
+
+def test_session_lock_brand_new_file_not_quarantined(tmp_path: Path) -> None:
+    """A lock file younger than 0.1s without valid metadata must NOT be
+    quarantined — it may belong to a just-created lock that hasn't
+    flushed its metadata yet."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Write empty content and make the mtime extremely recent.
+    lock_path.write_text("", encoding="utf-8")
+    # Touch to ensure mtime is now.
+    os.utime(lock_path, (time.time(), time.time()))
+
+    from vibecomfy.comfy_nodes.agent.session import SessionStateLock as SSL
+
+    lock = SSL(session_dir, timeout_seconds=0.3)
+    # _try_recover must return False for a brand-new empty lock.
+    result = lock._try_recover()
+    assert result is False, (
+        f"Expected _try_recover to return False for brand-new file, got {result}"
+    )
+    # The lock file must still exist (not quarantined).
+    assert lock_path.is_file()
+
+
+def test_session_lock_malformed_metadata_quarantine(tmp_path: Path) -> None:
+    """Lock metadata with wrong-typed fields must be quarantined."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Missing 'pid' field entirely.
+    malformed = json.dumps({
+        "hostname": socket.gethostname(),
+        "timestamp": time.time(),
+        "lock_id": "malformedmalformedmalformeddd",
+    }) + "\n"
+    lock_path.write_text(malformed, encoding="utf-8")
+    old_mtime = time.time() - 1.0
+    os.utime(lock_path, (old_mtime, old_mtime))
+
+    with SessionStateLock(session_dir, timeout_seconds=2.0):
+        assert lock_path.is_file()
+        corrupt_files = list(session_dir.glob(".corrupt-*malformed_metadata*"))
+        assert len(corrupt_files) >= 1, (
+            "Expected a .corrupt-* file for malformed metadata"
+        )
+
+
+def test_session_lock_dead_owner_content_recheck_prevents_race(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When the lock content changes between the first read and recheck
+    in _try_recover, recovery must be aborted (return False)."""
+    session_dir = tmp_path / "session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = session_dir / LOCK_FILE_NAME
+
+    # Pre-create a dead-owner lock.
+    dead_metadata = json.dumps({
+        "pid": 999999,
+        "hostname": socket.gethostname(),
+        "timestamp": time.time() - 10.0,
+        "lock_id": "deadbeefdeadbeefdeadbeefdeadbeef",
+    }) + "\n"
+    lock_path.write_text(dead_metadata, encoding="utf-8")
+
+    # Make _process_alive return False (dead owner).
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.session._process_alive",
+        lambda pid: False,
+    )
+
+    from vibecomfy.comfy_nodes.agent.session import SessionStateLock as SSL
+
+    lock = SSL(session_dir, timeout_seconds=2.0)
+
+    # Monkey-patch _read_lock_metadata so the recheck returns different
+    # content (simulating a racing successor).
+    original_read = lock._read_lock_metadata
+    call_count = [0]
+
+    def _racing_read():
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return original_read()
+        # On recheck, return content from a live successor.
+        return {
+            "pid": os.getpid(),
+            "hostname": socket.gethostname(),
+            "timestamp": time.time(),
+            "lock_id": "successorccccccccccccccccccccc",
+        }
+
+    lock._read_lock_metadata = _racing_read
+
+    # _try_recover must return False because the recheck shows a different owner.
+    result = lock._try_recover()
+    assert result is False, (
+        f"Expected _try_recover to return False after content recheck race, got {result}"
+    )
+    # The lock file must still exist (not cleared).
+    assert lock_path.is_file()
+
+
+def test_session_lock_metadata_includes_lock_id(tmp_path: Path) -> None:
+    """Every acquired lock must include a unique lock_id that differs
+    between acquisitions."""
+    session_dir = tmp_path / "session"
+
+    with SessionStateLock(session_dir) as lock1:
+        id1 = lock1._lock_id
+        assert isinstance(id1, str)
+        assert len(id1) == 32
+
+    with SessionStateLock(session_dir) as lock2:
+        id2 = lock2._lock_id
+        assert isinstance(id2, str)
+        assert len(id2) == 32
+
+    assert id1 != id2, "lock_id must differ between acquisitions"
+
+
+# ── T16: response durability tests ──────────────────────────────────────
+
+
+def test_response_durability_unkeyed_state_failure_prevents_response_json(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When write_state_atomic raises during an unkeyed edit, response.json
+    must never be published — no orphaned success artifact survives a
+    state-persistence failure."""
+    root = tmp_path / "sessions"
+    request = {"task": "unkeyed test", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+    )
+    response = {"ok": True, "turn_id": str(allocation.context.turn_id), "graph": {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}}
+    response_path = allocation.turn_dir / "response.json"
+
+    # Inject a failure into write_state_atomic so state persistence fails
+    # only once (subsequent calls use the real implementation).
+    from vibecomfy.comfy_nodes.agent import session as session_mod
+
+    _call_count = [0]
+    _real_write = session_mod.write_state_atomic
+
+    def _failing_once(*args: object, **kwargs: object) -> None:
+        _call_count[0] += 1
+        if _call_count[0] == 1:
+            raise OSError("injected state write failure")
+        _real_write(*args, **kwargs)
+
+    monkeypatch.setattr(session_mod, "write_state_atomic", _failing_once)
+
+    with pytest.raises(OSError, match="injected state write failure"):
+        record_idempotent_response(
+            session_root=root,
+            session_id="s1",
+            scope="edit",
+            idempotency_key=None,
+            request_hash=allocation.request_hash,
+            response=response,
+            response_path=response_path,
+            operation="edit",
+            turn_id=str(allocation.context.turn_id),
+        )
+
+    # response.json must NOT exist — the response artifact must never be
+    # published when state persistence fails.
+    assert not response_path.is_file(), (
+        f"response.json at {response_path} must not exist after state-write failure"
+    )
+
+    # The session state must be intact for a subsequent turn allocation
+    # (no partial corruption from the failed write).
+    replay = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload={"task": "recovery check"},
+    )
+    assert replay.context.turn_id is not None
+
+
+def test_response_durability_keyed_state_failure_prevents_response_json(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When write_state_atomic raises during a keyed edit, response.json
+    must never be published and the idempotency record must not be
+    durably persisted — the entire turn is rolled back."""
+    root = tmp_path / "sessions"
+    request = {"task": "keyed test", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+        idempotency_key="durability-key-1",
+    )
+    response = {"ok": True, "turn_id": str(allocation.context.turn_id), "graph": {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}}
+    response_path = allocation.turn_dir / "response.json"
+
+    from vibecomfy.comfy_nodes.agent import session as session_mod
+
+    _call_count = [0]
+    _real_write = session_mod.write_state_atomic
+
+    def _failing_once(*args: object, **kwargs: object) -> None:
+        _call_count[0] += 1
+        if _call_count[0] == 1:
+            raise OSError("injected state write failure")
+        _real_write(*args, **kwargs)
+
+    monkeypatch.setattr(session_mod, "write_state_atomic", _failing_once)
+
+    with pytest.raises(OSError, match="injected state write failure"):
+        record_idempotent_response(
+            session_root=root,
+            session_id="s1",
+            scope="edit",
+            idempotency_key="durability-key-1",
+            request_hash=allocation.request_hash,
+            response=response,
+            response_path=response_path,
+            operation="edit",
+            turn_id=str(allocation.context.turn_id),
+        )
+
+    # response.json must NOT exist.
+    assert not response_path.is_file(), (
+        f"response.json at {response_path} must not exist after state-write failure"
+    )
+
+    # The idempotency record must not be durably stored — a subsequent
+    # allocation with the same key must produce a new turn (not a replay
+    # or conflict referencing the failed attempt).
+    replay_check = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+        idempotency_key="durability-key-1",
+    )
+    assert replay_check.replay is None, (
+        "Idempotency replay must not be returned for a failed keyed response"
+    )
+    assert replay_check.conflict is None, (
+        "Idempotency conflict must not be returned for a failed keyed response"
+    )
+    # A fresh turn allocation succeeds — the key is available.
+    assert replay_check.context.turn_id is not None
+
+
+def test_response_durability_keyed_state_failure_preserves_idempotency_record_integrity(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """After a keyed state-write failure, the idempotency key must not be
+    partially recorded — a completely fresh allocation with that key must
+    produce a net-new turn (not a stale-state conflict against partial
+    state)."""
+    root = tmp_path / "sessions"
+    request_a = {"task": "first attempt", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request_a,
+        idempotency_key="integrity-key-2",
+    )
+    response = {"ok": True, "turn_id": str(allocation.context.turn_id), "graph": {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}}
+    response_path = allocation.turn_dir / "response.json"
+
+    from vibecomfy.comfy_nodes.agent import session as session_mod
+
+    _call_count = [0]
+    _real_write = session_mod.write_state_atomic
+
+    def _failing_once(*args: object, **kwargs: object) -> None:
+        _call_count[0] += 1
+        if _call_count[0] == 1:
+            raise OSError("injected state write failure")
+        _real_write(*args, **kwargs)
+
+    monkeypatch.setattr(session_mod, "write_state_atomic", _failing_once)
+
+    with pytest.raises(OSError):
+        record_idempotent_response(
+            session_root=root,
+            session_id="s1",
+            scope="edit",
+            idempotency_key="integrity-key-2",
+            request_hash=allocation.request_hash,
+            response=response,
+            response_path=response_path,
+            operation="edit",
+            turn_id=str(allocation.context.turn_id),
+        )
+
+    # A second attempt with the same key but a different body must NOT
+    # see a conflict — because the first attempt's record was never
+    # durably persisted.
+    request_b = {"task": "second attempt", "graph": {"nodes": [{"id": 3, "type": "CLIPTextEncode"}], "links": []}}
+    second = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request_b,
+        idempotency_key="integrity-key-2",
+    )
+    assert second.conflict is None, (
+        "No conflict expected — the failed first attempt must not leave a durable idempotency record"
+    )
+    assert second.replay is None
+    assert second.context.turn_id is not None
+
+
+def test_response_durability_unkeyed_success_publishes_response_and_updates_state(
+    tmp_path: Path,
+) -> None:
+    """On a successful unkeyed edit, response.json must be published and
+    turn state must carry the candidate graph hashes."""
+    root = tmp_path / "sessions"
+    request = {"task": "unkeyed success", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+    )
+    turn_id = str(allocation.context.turn_id)
+    candidate_graph = {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}
+    response = {"ok": True, "turn_id": turn_id, "graph": candidate_graph}
+    response_path = allocation.turn_dir / "response.json"
+
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=response_path,
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    # response.json must exist with the expected payload.
+    assert response_path.is_file(), f"response.json must exist at {response_path}"
+    written = json.loads(response_path.read_text(encoding="utf-8"))
+    assert written == response
+
+    # Turn state must be updated with candidate graph hashes.
+    session_dir = session_dir_for(root, "s1")
+    state = read_state(session_dir)
+    turn_record = state["turns"].get(turn_id)
+    assert isinstance(turn_record, dict)
+    assert turn_record.get("candidate_graph_hash") == payload_hash(candidate_graph)
+    assert turn_record.get("candidate_structural_graph_hash") == structural_graph_hash(candidate_graph)
+    assert turn_record.get("candidate_structural_graph_hash_version") == STRUCTURAL_PROJECTION_VERSION
+    assert turn_record.get("agent_edit_protocol") == "v1"
+
+
+def test_response_durability_keyed_success_publishes_response_and_idempotency_record(
+    tmp_path: Path,
+) -> None:
+    """On a successful keyed edit, response.json must be published and
+    the idempotency record must be durably stored so that a subsequent
+    allocation replays correctly."""
+    root = tmp_path / "sessions"
+    request = {"task": "keyed success", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+        idempotency_key="success-key-3",
+    )
+    turn_id = str(allocation.context.turn_id)
+    candidate_graph = {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}
+    response = {"ok": True, "turn_id": turn_id, "graph": candidate_graph}
+    response_path = allocation.turn_dir / "response.json"
+
+    result = record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="success-key-3",
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=response_path,
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    # response.json must exist.
+    assert response_path.is_file(), f"response.json must exist at {response_path}"
+    written = json.loads(response_path.read_text(encoding="utf-8"))
+    assert written == response
+
+    # The returned record must carry the right hashes.
+    assert result is not None
+    assert result["request_hash"] == allocation.request_hash
+    assert result["turn_id"] == turn_id
+    assert result["operation"] == "edit"
+
+    # Idempotency replay must work.
+    replay = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+        idempotency_key="success-key-3",
+    )
+    assert replay.replay is not None, "Replay must be returned for a successfully recorded key"
+    assert replay.replay.response == response
+    assert replay.replay.record["request_hash"] == allocation.request_hash
+
+    # Turn state must also be updated.
+    session_dir = session_dir_for(root, "s1")
+    state = read_state(session_dir)
+    turn_record = state["turns"].get(turn_id)
+    assert isinstance(turn_record, dict)
+    assert turn_record.get("candidate_graph_hash") == payload_hash(candidate_graph)
+
+
+def test_response_durability_keyed_success_consistent_conflict_after_replay(
+    tmp_path: Path,
+) -> None:
+    """After a successful keyed response, replay with a different body
+    must produce a consistent conflict — proving the idempotency record
+    is fully intact."""
+    root = tmp_path / "sessions"
+    request_a = {"task": "conflict test A", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request_a,
+        idempotency_key="conflict-key-4",
+    )
+    response = {"ok": True, "turn_id": str(allocation.context.turn_id), "graph": {"nodes": [{"id": 2, "type": "PreviewImage"}], "links": []}}
+
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="conflict-key-4",
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=str(allocation.context.turn_id),
+    )
+
+    # Different body, same key → conflict.
+    request_b = {"task": "conflict test B", "graph": {"nodes": [{"id": 3, "type": "CLIPTextEncode"}], "links": []}}
+    conflict = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request_b,
+        idempotency_key="conflict-key-4",
+    )
+    assert conflict.conflict is not None, "Conflict must be returned for mismatched body"
+    assert conflict.conflict.failure.kind is FailureKind.STALE_STATE_MISMATCH
+
+
+def test_response_durability_accept_state_failure_preserves_no_idempotency_record(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """When `_mutate_turn_state` (used by accept_turn) fails during
+    write_state_atomic, the idempotency record must not be durably
+    persisted — subsequent replay must not find it."""
+    root = tmp_path / "sessions"
+    request = _request_graph("accept-durability")
+    allocation = allocate_turn(session_root=root, session_id="s1", request_payload=request)
+    turn_id = str(allocation.context.turn_id)
+    _record_candidate_response(root=root, session_id="s1", allocation=allocation)
+    action_hash = payload_hash(request["graph"])
+
+    from vibecomfy.comfy_nodes.agent import session as session_mod
+
+    _call_count = [0]
+
+    def _failing_first_then_real(*args: object, **kwargs: object) -> None:
+        _call_count[0] += 1
+        if _call_count[0] == 1:
+            raise OSError("injected state write failure in accept")
+        # On subsequent calls, use the real write_state_atomic.
+        original_write(*args, **kwargs)
+
+    original_write = session_mod.write_state_atomic
+    monkeypatch.setattr(
+        session_mod, "write_state_atomic", _failing_first_then_real
+    )
+
+    with pytest.raises(OSError, match="injected state write failure in accept"):
+        accept_turn(
+            session_root=root,
+            session_id="s1",
+            turn_id=turn_id,
+            client_graph_hash=action_hash,
+            request_payload={"turn_id": turn_id, "action": "accept"},
+            idempotency_key="accept-dur-5",
+            response_writer=_response_writer(tmp_path / "responses"),
+        )
+
+    # The idempotency record must not be durably stored — a subsequent
+    # accept with the same key must succeed as a fresh operation (no
+    # idempotency replay or conflict from the failed attempt).
+    second = accept_turn(
+        session_root=root,
+        session_id="s1",
+        turn_id=turn_id,
+        client_graph_hash=action_hash,
+        request_payload={"turn_id": turn_id, "action": "accept"},
+        idempotency_key="accept-dur-5",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+    assert isinstance(second, dict), (
+        "Second accept must succeed — no idempotency record from failed attempt"
+    )
+
+
+def test_response_durability_v2_delta_protocol_detection_after_success(
+    tmp_path: Path,
+) -> None:
+    """When a successful response carries delta_ops (v2 protocol), the
+    turn record must reflect agent_edit_protocol='v2_delta' after the
+    durable response is published."""
+    root = tmp_path / "sessions"
+    request = {"task": "v2 delta test", "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []}}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+    )
+    turn_id = str(allocation.context.turn_id)
+    response = {
+        "ok": True,
+        "turn_id": turn_id,
+        "delta_ops": [{"op": "add_node", "node": {"id": 2, "type": "PreviewImage"}}],
+    }
+
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    assert (allocation.turn_dir / "response.json").is_file()
+    session_dir = session_dir_for(root, "s1")
+    state = read_state(session_dir)
+    turn_record = state["turns"].get(turn_id)
+    assert isinstance(turn_record, dict)
+    assert turn_record.get("agent_edit_protocol") == "v2_delta"
