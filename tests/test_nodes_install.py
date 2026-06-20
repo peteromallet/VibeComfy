@@ -581,7 +581,9 @@ def test_install_idempotent_when_clean(tmp_path: Path) -> None:
     ]
 
 
-def test_install_existing_refuses_incomplete_sentinel(tmp_path: Path) -> None:
+def test_install_recovers_legacy_sentinel_without_owner_metadata(tmp_path: Path) -> None:
+    """A sentinel without pid/hostname/timestamp has no detectable owner
+    and is quarantined so the install can proceed."""
     install_root = tmp_path / "custom_nodes"
     install_dir = install_root / "ComfyUI-VideoHelperSuite"
     install_dir.mkdir(parents=True)
@@ -598,17 +600,22 @@ def test_install_existing_refuses_incomplete_sentinel(tmp_path: Path) -> None:
         cm_cli_resolver=lambda _root, _runner: None,
     )
 
-    assert result.status == "failed"
-    assert "incomplete install sentinel" in (result.error or "")
-    assert runner.calls == []
+    # Sentinel without owner metadata is quarantined; install proceeds.
+    assert result.status == "refreshed"
+    assert result.git_commit_sha == "cleanhead"
+    assert not sentinel.exists()
+    assert len(list(sentinel.parent.glob(".corrupt-*"))) >= 1
+    assert len(runner.calls) >= 1
 
 
-def test_install_refuses_corrupt_sentinel_for_fresh_install(tmp_path: Path) -> None:
+def test_install_quarantines_corrupt_sentinel_and_proceeds(tmp_path: Path) -> None:
+    """A corrupt (unparseable) sentinel has no detectable owner
+    and is quarantined so the install can proceed."""
     install_root = tmp_path / "custom_nodes"
     sentinel = install_root / ".vibecomfy-install-state" / "ComfyUI-VideoHelperSuite.json"
     sentinel.parent.mkdir(parents=True)
     sentinel.write_text("{not json", encoding="utf-8")
-    runner = FakeRunner()
+    runner = FakeRunner(sha="freshhead")
 
     result = install_pack(
         name="ComfyUI-VideoHelperSuite",
@@ -618,9 +625,98 @@ def test_install_refuses_corrupt_sentinel_for_fresh_install(tmp_path: Path) -> N
         cm_cli_resolver=lambda _root, _runner: None,
     )
 
+    # Corrupt sentinel is quarantined; install proceeds.
+    assert result.status == "installed"
+    assert result.git_commit_sha == "freshhead"
+    assert not sentinel.exists()
+    assert len(list(sentinel.parent.glob(".corrupt-*"))) >= 1
+    assert len(runner.calls) >= 1
+
+
+
+def test_install_refuses_live_owner_sentinel(tmp_path: Path) -> None:
+    """A sentinel whose owner PID is still alive blocks the install."""
+    import os, json, time
+    install_root = tmp_path / "custom_nodes"
+    sentinel_dir = install_root / ".vibecomfy-install-state"
+    sentinel_dir.mkdir(parents=True)
+    sentinel = sentinel_dir / "ComfyUI-VideoHelperSuite.json"
+    # Write a sentinel with the current PID — simulating a live owner.
+    payload = {
+        "complete": False,
+        "phase": "clone",
+        "name": "ComfyUI-VideoHelperSuite",
+        "repo_url": "https://example.test/vhs.git",
+        "install_dir": str(tmp_path / "custom_nodes" / "ComfyUI-VideoHelperSuite"),
+        "pid": os.getpid(),
+        "hostname": "localhost",  # will not match real hostname → lease path
+        "timestamp": time.time(),
+    }
+    sentinel.write_text(json.dumps(payload), encoding="utf-8")
+    runner = FakeRunner(sha="cleanhead", porcelain="")
+
+    result = install_pack(
+        name="ComfyUI-VideoHelperSuite",
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    # Different hostname but fresh lease — treated as potentially live.
     assert result.status == "failed"
-    assert "corrupt or unreadable" in (result.error or "")
+    assert "active" in (result.error or "")
     assert runner.calls == []
+
+
+def test_install_recovers_dead_owner_sentinel(tmp_path: Path) -> None:
+    """A sentinel whose owner PID no longer exists is recovered
+    (cleared) so the install can proceed."""
+    import os, json, time
+    install_root = tmp_path / "custom_nodes"
+    sentinel_dir = install_root / ".vibecomfy-install-state"
+    sentinel_dir.mkdir(parents=True)
+    sentinel = sentinel_dir / "ComfyUI-VideoHelperSuite.json"
+    # Use a PID that almost certainly does not exist (large number).
+    dead_pid = 99999
+    # Make sure it's really dead on this system.
+    try:
+        os.kill(dead_pid, 0)
+        # If it exists, pick another unlikely PID.
+        dead_pid = 99998
+        try:
+            os.kill(dead_pid, 0)
+            dead_pid = 99997
+        except OSError:
+            pass
+    except OSError:
+        pass
+    payload = {
+        "complete": False,
+        "phase": "clone",
+        "name": "ComfyUI-VideoHelperSuite",
+        "repo_url": "https://example.test/vhs.git",
+        "install_dir": str(tmp_path / "custom_nodes" / "ComfyUI-VideoHelperSuite"),
+        "pid": dead_pid,
+        "hostname": __import__("socket").gethostname(),  # same host
+        "timestamp": time.time(),
+    }
+    sentinel.write_text(json.dumps(payload), encoding="utf-8")
+    runner = FakeRunner(sha="recoveredhead", porcelain="")
+
+    result = install_pack(
+        name="ComfyUI-VideoHelperSuite",
+        install_root=install_root,
+        lockfile_path=tmp_path / "custom_nodes.lock",
+        runner=runner,
+        cm_cli_resolver=lambda _root, _runner: None,
+    )
+
+    # Dead owner — sentinel is cleared, install proceeds.
+    assert result.status == "installed"
+    assert result.git_commit_sha == "recoveredhead"
+    assert not sentinel.exists()
+    assert len(runner.calls) >= 1
 
 
 def test_install_refuses_dirty_without_force(tmp_path: Path) -> None:
@@ -907,7 +1003,9 @@ def test_restore_existing_clean_dir_at_correct_sha_is_noop(tmp_path: Path) -> No
     assert not any(call[:4] == ["git", "-C", str(install_dir), "checkout"] for call in runner.calls)
 
 
-def test_restore_refuses_incomplete_sentinel_before_false_refreshed(tmp_path: Path) -> None:
+def test_restore_recovers_legacy_sentinel_without_owner_metadata(tmp_path: Path) -> None:
+    """A sentinel without pid/hostname/timestamp has no detectable owner
+    and is quarantined so the restore can proceed."""
     install_root = tmp_path / "custom_nodes"
     install_dir = install_root / "ExamplePack"
     install_dir.mkdir(parents=True)
@@ -919,12 +1017,17 @@ def test_restore_refuses_incomplete_sentinel_before_false_refreshed(tmp_path: Pa
 
     result = restore_pack(entry, install_root=install_root, runner=runner)
 
-    assert result.status == "failed"
-    assert "incomplete install sentinel" in (result.error or "")
-    assert runner.calls == []
+    # Sentinel without owner metadata is quarantined; restore proceeds.
+    assert result.status == "refreshed"
+    assert result.git_commit_sha == "pinnedsha"
+    assert not sentinel.exists()
+    assert len(list(sentinel.parent.glob(".corrupt-*"))) >= 1
+    assert len(runner.calls) >= 1
 
 
-def test_restore_refuses_corrupt_sentinel_before_retrying(tmp_path: Path) -> None:
+def test_restore_quarantines_corrupt_sentinel_and_proceeds(tmp_path: Path) -> None:
+    """A corrupt (unparseable) sentinel has no detectable owner
+    and is quarantined so the restore can proceed."""
     install_root = tmp_path / "custom_nodes"
     install_dir = install_root / "ExamplePack"
     install_dir.mkdir(parents=True)
@@ -936,9 +1039,12 @@ def test_restore_refuses_corrupt_sentinel_before_retrying(tmp_path: Path) -> Non
 
     result = restore_pack(entry, install_root=install_root, runner=runner)
 
-    assert result.status == "failed"
-    assert "corrupt or unreadable" in (result.error or "")
-    assert runner.calls == []
+    # Corrupt sentinel is quarantined; restore proceeds.
+    assert result.status == "refreshed"
+    assert result.git_commit_sha == "pinnedsha"
+    assert not sentinel.exists()
+    assert len(list(sentinel.parent.glob(".corrupt-*"))) >= 1
+    assert len(runner.calls) >= 1
 
 
 def test_restore_keeps_sentinel_when_verification_head_mismatches(tmp_path: Path) -> None:

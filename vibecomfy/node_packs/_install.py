@@ -1,5 +1,5 @@
 from __future__ import annotations
-import importlib.util, json, re, shutil, subprocess, sys, tempfile
+import importlib.util, json, os, re, shutil, socket, subprocess, sys, tempfile, time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Literal, Mapping, Protocol, Sequence
@@ -15,6 +15,7 @@ from vibecomfy.workflow import VibeWorkflow
 InstallStatus = Literal["installed", "refreshed", "skipped_dirty", "failed"]
 DEFAULT_INSTALL_ROOT = Path("custom_nodes")  # Canonical install root for custom node packs.
 INSTALL_STATE_DIR = ".vibecomfy-install-state"
+SENTINEL_LEASE_SECONDS = 1800  # 30 minutes
 
 
 def default_install_root() -> Path:
@@ -128,6 +129,7 @@ class InstallBatchResult:
 class _InstallSentinel:
     path: Path
     unreadable: bool = False
+    live_owner_pid: int | None = None
 
     @property
     def incomplete(self) -> bool:
@@ -135,6 +137,11 @@ class _InstallSentinel:
 
     @property
     def reason(self) -> str:
+        if self.live_owner_pid is not None:
+            return (
+                f"incomplete install sentinel for {self.path.stem} is owned by active"
+                f" process pid={self.live_owner_pid}: {self.path}"
+            )
         if self.unreadable:
             return f"incomplete install sentinel for {self.path.stem} is corrupt or unreadable: {self.path}"
         return f"incomplete install sentinel is present: {self.path}"
@@ -147,6 +154,9 @@ class _InstallSentinel:
             "install_dir": str(install_dir),
             "phase": phase,
             "complete": False,
+            "pid": os.getpid(),
+            "hostname": socket.gethostname(),
+            "timestamp": time.time(),
         }
         if git_commit_sha is not None:
             payload["git_commit_sha"] = git_commit_sha
@@ -652,17 +662,108 @@ def _finalize_install(
 
 
 def _install_sentinel(install_root: Path, name: str) -> _InstallSentinel:
+    """Create an install sentinel, recovering dead/stale/corrupt sentinels.
+
+    Recovery rules (conservative):
+    * No sentinel file -> fresh sentinel.
+    * Corrupt / unreadable sentinel -> quarantine and return fresh sentinel
+      (no active owner detectable).
+    * Valid sentinel with structured owner metadata (pid, hostname, timestamp):
+      - Same host, pid alive -> refuse (live owner).
+      - Same host, pid dead -> recover (clear sentinel).
+      - Different host, lease stale -> recover.
+      - Different host, lease fresh -> refuse (owner may be active on other host).
+    * Valid sentinel without owner metadata (legacy / incomplete) -> quarantine
+      and return fresh sentinel (no active owner detectable).
+    """
     path = install_root / INSTALL_STATE_DIR / f"{_safe_pack_slug(name)}.json"
+    if not path.exists():
+        return _InstallSentinel(path)
+
+    # Attempt to read sentinel payload.
     try:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict) or data.get("complete") is not False:
-                return _InstallSentinel(path, unreadable=True)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("complete") is not False:
+            # Malformed or already-complete marker — quarantine as corrupt.
+            _quarantine_sentinel(path)
+            return _InstallSentinel(path)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return _InstallSentinel(path, unreadable=True)
-    return _InstallSentinel(path)
+        # Unreadable / corrupt — quarantine.
+        _quarantine_sentinel(path)
+        return _InstallSentinel(path)
+
+    # Valid, incomplete sentinel.  Check owner metadata.
+    owner_pid = data.get("pid")
+    owner_hostname = data.get("hostname")
+    owner_timestamp = data.get("timestamp")
+
+    if owner_pid is not None and owner_hostname is not None and owner_timestamp is not None:
+        current_hostname = socket.gethostname()
+        if owner_hostname == current_hostname:
+            # Same host — we can test the process directly.
+            if _process_alive(owner_pid):
+                return _InstallSentinel(path, live_owner_pid=owner_pid)
+            else:
+                # Process is dead — safe to recover.
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                return _InstallSentinel(path)
+        else:
+            # Different host — fall back to lease staleness.
+            if time.time() - owner_timestamp > SENTINEL_LEASE_SECONDS:
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                return _InstallSentinel(path)
+            else:
+                return _InstallSentinel(path, live_owner_pid=owner_pid)
+    else:
+        # No structured owner metadata — no active owner detectable.
+        _quarantine_sentinel(path)
+        return _InstallSentinel(path)
+
+
 def _has_incomplete_install(sentinel: _InstallSentinel) -> bool:
     return sentinel.incomplete
+
+
+def _process_alive(pid: int) -> bool:
+    """Return True if a process with *pid* exists on this host."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we cannot signal it — treat as alive.
+        return True
+    except OSError:
+        # On some platforms os.kill(pid, 0) may raise OSError for
+        # permission or ESRCH-like reasons; err conservatively.
+        return True
+    return True
+
+
+def _quarantine_sentinel(path: Path) -> None:
+    """Rename *path* to a ``.corrupt-<timestamp>`` sibling so it cannot block
+    the next install."""
+    ts = int(time.time())
+    dest = path.with_name(f".corrupt-{ts}-{path.name}")
+    # If the destination already exists (unlikely), append a counter.
+    counter = 0
+    while dest.exists():
+        counter += 1
+        dest = path.with_name(f".corrupt-{ts}-{counter}-{path.name}")
+    try:
+        path.rename(dest)
+    except (OSError, FileNotFoundError):
+        # Best-effort — if we cannot rename, try to unlink.
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
 def _safe_pack_slug(name: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip(".-")
     return slug or "pack"

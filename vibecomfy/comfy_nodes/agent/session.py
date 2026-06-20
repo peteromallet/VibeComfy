@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +22,22 @@ STATE_SCHEMA_VERSION = 1
 # it can no longer match (the StaleStateMismatch-on-every-submit failure mode).
 STRUCTURAL_PROJECTION_VERSION = 3
 DEFAULT_LOCK_TIMEOUT_SECONDS = 10.0
+LOCK_LEASE_SECONDS = 30.0
 LOCK_POLL_SECONDS = 0.025
+
+def _process_alive(pid: int) -> bool:
+    """Return ``True`` when a process with *pid* exists on this host."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    else:
+        return True
+
 
 OperationScope = Literal["edit", "accept", "reject", "rebaseline"]
 TurnState = Literal["candidate", "accepted", "rejected", "unknown"]
@@ -104,6 +120,12 @@ def _now() -> str:
 
 
 class SessionStateLock:
+    """Mutual-exclusion lock for per-session state files.
+
+    Structured owner metadata (pid, hostname, timestamp) is stored in the lock
+    file so that dead-owner and stale-lease locks can be recovered safely.
+    """
+
     def __init__(
         self,
         session_dir: Path,
@@ -115,6 +137,152 @@ class SessionStateLock:
         self.timeout_seconds = timeout_seconds
         self._fd: int | None = None
 
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+
+    def _read_lock_metadata(self) -> dict[str, Any] | None:
+        """Read structured owner metadata from the lock file.
+
+        Returns ``None`` for corrupt, unreadable, empty, or legacy-format
+        (non-JSON) locks so the caller can quarantine them.
+        """
+        try:
+            raw = self.lock_path.read_text(encoding="utf-8").strip()
+            if not raw:
+                return None
+            return json.loads(raw)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
+            return None
+
+    def _write_lock_metadata(self, fd: int) -> None:
+        """Write structured owner metadata into the open file descriptor."""
+        payload = {
+            "pid": os.getpid(),
+            "hostname": socket.gethostname(),
+            "timestamp": time.time(),
+        }
+        os.write(
+            fd, (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+        )
+
+    def _quarantine_lock(self, reason: str) -> bool:
+        """Rename *lock_path* to a ``.corrupt-<ts>-...`` sibling.
+
+        Returns ``True`` when the lock is gone after the call (whether we
+        removed it or it disappeared on its own).
+        """
+        ts = int(time.time())
+        dest = self.lock_path.with_name(
+            f".corrupt-{ts}-{self.lock_path.name}-{reason}"
+        )
+        counter = 0
+        while dest.exists():
+            counter += 1
+            dest = self.lock_path.with_name(
+                f".corrupt-{ts}-{counter}-{self.lock_path.name}-{reason}"
+            )
+        try:
+            self.lock_path.rename(dest)
+            return True
+        except FileNotFoundError:
+            return True  # already gone
+        except OSError:
+            try:
+                self.lock_path.unlink()
+                return True
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+
+    # ------------------------------------------------------------------
+    # recovery
+    # ------------------------------------------------------------------
+
+    def _try_recover(self) -> bool:
+        """Attempt to recover a dead-owner or stale-lease lock.
+
+        Recovery rules (conservative):
+
+        * Corrupt / unreadable / legacy-format -> quarantine, retry.
+        * Malformed metadata (missing or wrong-typed fields) -> quarantine, retry.
+        * Same host, pid alive -> **refuse** (live owner).
+        * Same host, pid dead -> recover.
+        * Different host, lease stale (> *LOCK_LEASE_SECONDS*) -> recover.
+        * Different host, lease fresh -> **preserve timeout** (ambiguous).
+
+        Returns ``True`` if the lock was cleared (caller should retry
+        ``O_EXCL`` immediately).  Returns ``False`` if ownership is
+        ambiguous or live (caller should continue waiting).
+        """
+        # Stat *before* reading so we can detect file replacement.
+        try:
+            stat_before = self.lock_path.stat()
+        except FileNotFoundError:
+            return True  # lock vanished, retry O_EXCL
+
+        metadata = self._read_lock_metadata()
+
+        # -- no structured metadata we can act on --
+        if metadata is None:
+            # The lock file may belong to a just-created lock whose
+            # metadata has not been flushed yet (window between O_EXCL
+            # and os.write).  If the file is brand-new, treat it as a
+            # live lock and wait rather than quarantining a valid owner.
+            try:
+                file_age = time.time() - self.lock_path.stat().st_mtime
+                if file_age < 0.1:
+                    return False
+            except FileNotFoundError:
+                return True
+            self._quarantine_lock("corrupt_or_legacy")
+            return True
+
+        pid = metadata.get("pid")
+        hostname = metadata.get("hostname")
+        timestamp = metadata.get("timestamp")
+
+        if not (
+            isinstance(pid, int)
+            and isinstance(hostname, str)
+            and isinstance(timestamp, (int, float))
+        ):
+            self._quarantine_lock("malformed_metadata")
+            return True
+
+        # -- live / ambiguous check --
+        if hostname == socket.gethostname():
+            # Same host -- we can test the process directly.
+            if _process_alive(pid):
+                return False  # live owner, cannot recover
+            # Dead owner -> fall through to quarantine.
+        else:
+            # Different host -- fall back to lease staleness.
+            if time.time() - timestamp <= LOCK_LEASE_SECONDS:
+                return False  # fresh lease, ambiguous
+            # Stale lease -> fall through to quarantine.
+
+        # -- file unchanged since we read it? --
+        try:
+            stat_after = self.lock_path.stat()
+        except FileNotFoundError:
+            return True  # vanished
+
+        if (
+            stat_after.st_ino != stat_before.st_ino
+            or stat_after.st_mtime_ns != stat_before.st_mtime_ns
+        ):
+            # Another process touched the lock -- abort to avoid a race.
+            return False
+
+        self._quarantine_lock("dead_or_stale_owner")
+        return True
+
+    # ------------------------------------------------------------------
+    # context manager
+    # ------------------------------------------------------------------
+
     def __enter__(self) -> "SessionStateLock":
         self.session_dir.mkdir(parents=True, exist_ok=True)
         deadline = time.monotonic() + self.timeout_seconds
@@ -125,11 +293,15 @@ class SessionStateLock:
                     os.O_CREAT | os.O_EXCL | os.O_WRONLY,
                     0o600,
                 )
-                os.write(self._fd, f"{os.getpid()} {time.time()}\n".encode("ascii"))
+                self._write_lock_metadata(self._fd)
                 return self
             except FileExistsError:
+                if self._try_recover():
+                    continue  # lock cleared, retry O_EXCL immediately
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"Timed out acquiring session lock {self.lock_path}")
+                    raise TimeoutError(
+                        f"Timed out acquiring session lock {self.lock_path}"
+                    )
                 time.sleep(LOCK_POLL_SECONDS)
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
