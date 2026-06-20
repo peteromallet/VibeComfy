@@ -1483,3 +1483,178 @@ def test_prompt_id_consistency_across_run_result_and_metadata(
     assert metadata["queued"]["prompt_id"] == "meta-check-id"
     # RunResult does not gain extra fields beyond what is already in its dataclass
     assert not hasattr(result, "extra_field")
+
+
+# ---------------------------------------------------------------------------
+# T6: _allocate_run_dir tests (collision-resistant run directory allocation)
+# ---------------------------------------------------------------------------
+
+
+def test_allocate_run_dir_prefix_and_unique_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_allocate_run_dir produces IDs with stable prefix, timestamp, and uuid4 hex."""
+    import time as _time
+
+    monkeypatch.chdir(tmp_path)
+    run_id, run_dir = runtime_run_module._allocate_run_dir("testprefix")
+
+    # Stable prefix
+    assert run_id.startswith(
+        "testprefix-"
+    ), f"Expected 'testprefix-' prefix, got {run_id!r}"
+
+    # Format: testprefix-<timestamp>-<8 hex chars>
+    suffix = run_id[len("testprefix-"):]
+    parts = suffix.split("-")
+    assert len(parts) == 2, f"Expected 2 parts after prefix, got {parts}"
+
+    # First part is integer timestamp within a reasonable window
+    assert parts[0].isdigit(), f"Expected integer timestamp, got {parts[0]!r}"
+    ts = int(parts[0])
+    now = int(_time.time())
+    assert abs(ts - now) <= 5, f"Timestamp {ts} too far from now ({now})"
+
+    # Second part is 8 lowercase hex chars (uuid4 hex fragment)
+    assert len(parts[1]) == 8, f"Expected 8 hex chars, got {parts[1]!r} (len={len(parts[1])})"
+    assert all(c in "0123456789abcdef" for c in parts[1]), (
+        f"Non-hex chars in uuid fragment {parts[1]!r}"
+    )
+
+    # Directory was created
+    assert run_dir.exists()
+    assert run_dir.is_dir()
+
+
+def test_allocate_run_dir_smoke_prefix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_allocate_run_dir('smoke') produces IDs with 'smoke-' prefix."""
+    monkeypatch.chdir(tmp_path)
+    run_id, run_dir = runtime_run_module._allocate_run_dir("smoke")
+    assert run_id.startswith("smoke-")
+    assert run_dir.exists()
+
+
+def test_allocate_run_dir_collision_raises_file_exists_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A forced collision in _allocate_run_dir raises FileExistsError (no artifact merging)."""
+    import time as _time
+    import uuid as _uuid
+
+    monkeypatch.chdir(tmp_path)
+
+    # Freeze uuid4 and time so a second call inevitably collides
+    fixed_uuid = "deadbeef-cafe-4bad-babe-123456789abc"
+    monkeypatch.setattr(_uuid, "uuid4", lambda: _uuid.UUID(fixed_uuid))
+    frozen_time = 1000000.0
+    monkeypatch.setattr(_time, "time", lambda: frozen_time)
+
+    # First allocation succeeds
+    run_id1, run_dir1 = runtime_run_module._allocate_run_dir("collision")
+    assert run_dir1.exists()
+    assert run_id1 == "collision-1000000-deadbeef"
+
+    # Second allocation with identical prefix+timestamp+uuid must collide
+    with pytest.raises(FileExistsError):
+        runtime_run_module._allocate_run_dir("collision")
+
+
+def test_allocate_run_dir_different_prefixes_no_collision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Different prefixes produce distinct directories even with frozen time + uuid."""
+    import time as _time
+    import uuid as _uuid
+
+    monkeypatch.chdir(tmp_path)
+
+    fixed_uuid = "deadbeef-cafe-4bad-babe-123456789abc"
+    monkeypatch.setattr(_uuid, "uuid4", lambda: _uuid.UUID(fixed_uuid))
+    frozen_time = 2000000.0
+    monkeypatch.setattr(_time, "time", lambda: frozen_time)
+
+    run_id_a, run_dir_a = runtime_run_module._allocate_run_dir("alpha")
+    run_id_b, run_dir_b = runtime_run_module._allocate_run_dir("beta")
+
+    assert run_id_a.startswith("alpha-")
+    assert run_id_b.startswith("beta-")
+    assert run_id_a != run_id_b
+    assert run_dir_a != run_dir_b
+    assert run_dir_a.exists()
+    assert run_dir_b.exists()
+
+
+def test_run_uses_collision_resistant_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """run() produces a run_id with the 'run-' collision-resistant prefix and uuid suffix."""
+    import re
+
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://127.0.0.1:8188"
+
+    class _FakeClient:
+        def __init__(self, server_url: str) -> None:
+            pass
+
+        async def queue_prompt(self, prompt: dict) -> dict:
+            return {"prompt_id": "prompt-t6-run"}
+
+        async def history(self, prompt_id: str) -> dict:
+            return {prompt_id: {"outputs": {}}}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", _FakeClient)
+    monkeypatch.setattr(
+        runtime_run_module, "_build_schema_provider", lambda active_url: None
+    )
+    # _wait_for_server_history needs to return something valid
+    async def _fake_history(url: str, pid: str | None, config=None) -> dict:
+        return {pid: {"outputs": {}}} if pid else {}
+
+    monkeypatch.setattr(runtime_run_module, "_wait_for_server_history", _fake_history)
+
+    result = asyncio.run(runtime_run_module.run(_make_one_shot_run_wf()))
+
+    # run_id format: run-<timestamp>-<8 hex>
+    assert re.match(r"^run-\d+-[0-9a-f]{8}$", result.run_id), (
+        f"run_id {result.run_id!r} does not match expected collision-resistant pattern"
+    )
+    run_dir = tmp_path / "out" / "runs" / result.run_id
+    assert run_dir.is_dir()
+    assert (run_dir / "metadata.json").exists()
+
+
+def test_smoke_runtime_uses_collision_resistant_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """smoke_runtime() produces a run_id with the 'smoke-' collision-resistant prefix."""
+    import re
+
+    @asynccontextmanager
+    async def fake_server(*args, **kwargs):
+        yield "http://127.0.0.1:8188"
+
+    class _FakeClient:
+        def __init__(self, server_url: str) -> None:
+            self.server_url = server_url
+
+        async def object_info(self) -> dict:
+            return {"KSampler": {}, "SaveImage": {}}
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime_run_module, "comfy_server", fake_server)
+    monkeypatch.setattr(runtime_run_module, "ComfyClient", _FakeClient)
+
+    result = asyncio.run(runtime_run_module.smoke_runtime())
+
+    assert re.match(r"^smoke-\d+-[0-9a-f]{8}$", result["run_id"]), (
+        f"run_id {result['run_id']!r} does not match expected collision-resistant pattern"
+    )
+    assert result["node_count"] == 2
+    run_dir = tmp_path / "out" / "runs" / result["run_id"]
+    assert run_dir.is_dir()

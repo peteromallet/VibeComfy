@@ -18,6 +18,7 @@ from vibecomfy.runtime.session import (
     SessionConfig,
     _cleanup_session_files,
     _comfy_server_argv,
+    _session_ready,
     current_source_revision,
     find_active_session,
 )
@@ -108,6 +109,8 @@ async def _daemon_main(args: argparse.Namespace) -> int:
 
 def _cmd_session_start(args: argparse.Namespace) -> int:
     session_dir = _session_dir(args.id)
+    # Clear stale markers before spawning (shared readiness contract)
+    _cleanup_session_files(session_dir)
     session_dir.mkdir(parents=True, exist_ok=True)
     config = _config_from_args(args)
     config.setdefault("server_log_path", str(session_dir / "comfy.log"))
@@ -130,14 +133,12 @@ def _cmd_session_start(args: argparse.Namespace) -> int:
             stderr=stderr,
             start_new_session=True,
         )
-    url_path = session_dir / "url"
     ready_timeout_sec = int(config.get("ready_timeout_sec") or os.environ.get("VIBECOMFY_SESSION_READY_TIMEOUT_SEC") or 300)
     for _ in range(ready_timeout_sec):
-        if url_path.exists():
-            url = url_path.read_text(encoding="utf-8").strip()
-            if url:
-                print(f"session {args.id}: {url}")
-                return 0
+        if _session_ready(session_dir):
+            url = (session_dir / "url").read_text(encoding="utf-8").strip()
+            print(f"session {args.id}: {url}")
+            return 0
         if process.poll() is not None:
             print(f"session {args.id} failed to start; see {log_path}", file=sys.stderr)
             return 1

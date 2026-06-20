@@ -245,6 +245,9 @@ def ensure_env(
 
     realization_signature = _realization_signature(
         class_types_by_slug,
+        requirements_by_slug=requirement_plan.requirements_by_slug,
+        resolved_refs_by_slug=resolved_refs_by_slug,
+        install_refs_by_slug=requirement_plan.install_refs_by_slug,
         installer=installer,
         introspector=introspector,
         cache_writer=cache_writer,
@@ -723,16 +726,38 @@ def _call_installer(
 def _realization_signature(
     class_types_by_slug: Mapping[str, frozenset[str]],
     *,
+    requirements_by_slug: Mapping[str, ProvenanceRequirement],
+    resolved_refs_by_slug: Mapping[str, PackRef],
+    install_refs_by_slug: Mapping[str, PackRef],
     installer: Installer,
     introspector: Introspector | None,
     cache_writer: CacheWriter | None,
     server_url: str | None,
 ) -> tuple[object, ...]:
+    # Authored pack identity per slug: (slug, cnr_id, aux_id, version)
+    authored_identity = tuple(
+        (slug, req.cnr_id, req.aux_id, req.version_pin.version if req.version_pin else None)
+        for slug, req in sorted(requirements_by_slug.items())
+    )
+    # Merged refs: resolved takes priority over planned/fallback
+    merged_refs: dict[str, PackRef] = {}
+    for slug, ref in install_refs_by_slug.items():
+        merged_refs[slug] = ref
+    for slug, ref in resolved_refs_by_slug.items():
+        merged_refs[slug] = ref
+    # Resolved/fallback ref identity per slug:
+    #   (slug, source, version, commit, url, path, registry_id)
+    ref_identity = tuple(
+        (slug, ref.source, ref.version, ref.commit, ref.url, ref.path, ref.registry_id)
+        for slug, ref in sorted(merged_refs.items())
+    )
     return (
         tuple(
             (slug, tuple(sorted(class_types)))
             for slug, class_types in sorted(class_types_by_slug.items())
         ),
+        authored_identity,
+        ref_identity,
         id(installer),
         id(introspector),
         id(cache_writer),

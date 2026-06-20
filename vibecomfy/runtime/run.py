@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,20 @@ from .session import (
 logger = logging.getLogger(__name__)
 
 
+def _allocate_run_dir(prefix: str) -> tuple[str, Path]:
+    """Allocate a collision-resistant run directory.
+
+    Returns ``(run_id, run_dir)`` where *run_id* carries a stable *prefix*
+    and a unique suffix (timestamp + uuid4 hex).  The directory is created
+    with ``parents=True, exist_ok=False`` so that a coincident collision
+    raises ``FileExistsError`` instead of silently sharing a directory.
+    """
+    run_id = f"{prefix}-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+    run_dir = Path("out/runs") / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_id, run_dir
+
+
 async def run(
     workflow: VibeWorkflow,
     *,
@@ -48,9 +63,7 @@ async def run(
     chain_id: str | None = None,
     parent_run_id: str | None = None,
 ) -> RunResult:
-    run_id = f"run-{int(time.time())}"
-    run_dir = Path("out/runs") / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_id, run_dir = _allocate_run_dir("run")
     log_path = run_dir / "comfy.log"
     resolved_config = config or SessionConfig.from_workflow_metadata(workflow)
     managed_config = resolved_config if server_url is None else None
@@ -199,9 +212,7 @@ def run_embedded_sync(
 
 
 async def smoke_runtime(*, server_url: str | None = None) -> dict[str, Any]:
-    run_id = f"smoke-{int(time.time())}"
-    run_dir = Path("out/runs") / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_id, run_dir = _allocate_run_dir("smoke")
     log_path = run_dir / "comfy.log"
     async with comfy_server(server_url=server_url, log_path=log_path) as active_url:
         client = ComfyClient(active_url)

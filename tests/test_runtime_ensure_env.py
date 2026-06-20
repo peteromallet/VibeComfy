@@ -849,6 +849,230 @@ def test_ensure_env_cache_writer_resets_stale_object_info_cache(monkeypatch, tmp
     assert object_info_consume.output_names("FreshEvidenceNode") == ["NEW"]
 
 
+def test_ensure_env_same_slug_different_version_avoids_noop_reuse(monkeypatch) -> None:
+    """Prove that same slug/classes with a different authored version produces noop=False.
+
+    The _realization_signature incorporates authored identity (slug, cnr_id, aux_id,
+    version) and ref identity (slug, source, version, commit, url, path, registry_id).
+    Changing the version pin must produce a different signature so the second call is
+    NOT short-circuited as a noop.
+    """
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+
+    workflow_v1 = {
+        "nodes": [
+            {"id": 1, "type": "PackNode", "properties": {"cnr_id": "TestPack", "ver": "1.0.0"}},
+        ]
+    }
+    workflow_v2 = {
+        "nodes": [
+            {"id": 1, "type": "PackNode", "properties": {"cnr_id": "TestPack", "ver": "2.0.0"}},
+        ]
+    }
+    events: list[object] = []
+
+    def installer(packs, *, install_refs_by_name=None):
+        events.append(("install", tuple(pack.name for pack in packs)))
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("TestPack", "installed", "abc123", None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def introspector(packs):
+        events.append(("introspect", tuple(pack.name for pack in packs)))
+        return {"PackNode": {"python_module": "TestPack.nodes"}}
+
+    def cache_writer(payload):
+        events.append(("cache", sorted(payload)))
+        return {"written": sorted(payload)}
+
+    first = ensure_env(
+        workflow_v1,
+        known_packs=(_pack("TestPack"),),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+    )
+    second = ensure_env(
+        workflow_v2,
+        known_packs=(_pack("TestPack"),),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+    )
+
+    assert first.ok is True
+    assert first.noop is False
+    assert second.ok is True
+    assert second.noop is False, (
+        "same slug/classes with different authored version must NOT be a noop"
+    )
+    # Both calls fully executed the pipeline
+    assert events == [
+        ("install", ("TestPack",)),
+        ("introspect", ("TestPack",)),
+        ("cache", ["TestPack"]),
+        ("install", ("TestPack",)),
+        ("introspect", ("TestPack",)),
+        ("cache", ["TestPack"]),
+    ]
+
+
+def test_ensure_env_same_slug_different_ref_identity_avoids_noop_reuse(monkeypatch) -> None:
+    """Prove that same slug/classes with different install ref identity produces noop=False.
+
+    The ref identity in _realization_signature is built from (slug, source, version,
+    commit, url, path, registry_id). Two resolver paths that return different sources
+    or URLs for the same slug must produce different signatures.
+    """
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "PackNode", "properties": {"cnr_id": "TestPack", "ver": "1.0.0"}},
+        ]
+    }
+    events: list[object] = []
+
+    resolver_calls: list[object] = []
+
+    def make_resolver(source: str, url: str):
+        def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+            resolver_calls.append((source, query, version_pin))
+            return PackResolution(
+                query=query,
+                query_type="slug",
+                ref=PackRef(
+                    slug="TestPack",
+                    source=source,
+                    version=version_pin,
+                    url=url,
+                ),
+            )
+        return resolver
+
+    def installer(packs, *, install_refs_by_name=None):
+        events.append(("install", tuple(pack.name for pack in packs)))
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("TestPack", "installed", "abc123", None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def introspector(packs):
+        events.append(("introspect", tuple(pack.name for pack in packs)))
+        return {"PackNode": {"python_module": "TestPack.nodes"}}
+
+    def cache_writer(payload):
+        events.append(("cache", sorted(payload)))
+        return {"written": sorted(payload)}
+
+    first = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        resolver=make_resolver("comfy-registry", "https://example.test/TestPack.git"),
+    )
+    second = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        resolver=make_resolver("git-proxy", "https://mirror.example.test/TestPack.git"),
+    )
+
+    assert first.ok is True
+    assert first.noop is False
+    assert second.ok is True
+    assert second.noop is False, (
+        "same slug/classes with different install ref identity must NOT be a noop"
+    )
+    # Both calls fully executed the pipeline
+    assert events == [
+        ("install", ("TestPack",)),
+        ("introspect", ("TestPack",)),
+        ("cache", ["TestPack"]),
+        ("install", ("TestPack",)),
+        ("introspect", ("TestPack",)),
+        ("cache", ["TestPack"]),
+    ]
+
+
+def test_ensure_env_same_identity_second_call_is_noop(monkeypatch) -> None:
+    """Confirm that _identical_ authored identity + ref identity + classes still produces noop=True.
+
+    This is the positive counter-case to the regression tests above: when nothing
+    relevant changes, the dedupe must still trigger.
+    """
+    monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
+
+    workflow = {
+        "nodes": [
+            {"id": 1, "type": "PackNode", "properties": {"cnr_id": "TestPack", "ver": "1.0.0"}},
+        ]
+    }
+    events: list[object] = []
+
+    def resolver(query, *, version_pin=None, aux_id=None, local_metadata=None, allow_remote_lookup=True):
+        return PackResolution(
+            query=query,
+            query_type="slug",
+            ref=PackRef(
+                slug="TestPack",
+                source="comfy-registry",
+                version=version_pin,
+                url="https://example.test/TestPack.git",
+            ),
+        )
+
+    def installer(packs, *, install_refs_by_name=None):
+        events.append(("install", tuple(pack.name for pack in packs)))
+        return InstallBatchResult(
+            ok=True,
+            results=(InstallResult("TestPack", "installed", "abc123", None),),
+            preflight=PipPreflightResult(ok=True),
+        )
+
+    def introspector(packs):
+        events.append(("introspect", tuple(pack.name for pack in packs)))
+        return {"PackNode": {"python_module": "TestPack.nodes"}}
+
+    def cache_writer(payload):
+        events.append(("cache", sorted(payload)))
+        return {"written": sorted(payload)}
+
+    first = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        resolver=resolver,
+    )
+    second = ensure_env(
+        workflow,
+        known_packs=(),
+        installer=installer,
+        introspector=introspector,
+        cache_writer=cache_writer,
+        resolver=resolver,
+    )
+
+    assert first.ok is True
+    assert first.noop is False
+    assert second.ok is True
+    assert second.noop is True, "identical realization inputs must still trigger noop"
+    assert events == [
+        ("install", ("TestPack",)),
+        ("introspect", ("TestPack",)),
+        ("cache", ["TestPack"]),
+    ]
+
+
 def test_ensure_env_core_refresh_does_not_clobber_custom_pack_cache(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(ensure_env_module, "_REALIZED_SIGNATURES", set())
     cache_root = tmp_path / "cache_obj"

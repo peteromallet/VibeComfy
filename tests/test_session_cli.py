@@ -124,6 +124,9 @@ def test_session_cli_start_persists_memory_profiles(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(session_cmd.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(session_module.os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
     FakePopen.started = []
 
     for profile in range(1, 6):
@@ -155,6 +158,9 @@ def test_session_cli_start_without_memory_profile_leaves_config_unchanged(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(session_cmd.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(session_module.os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
     FakePopen.started = []
     args = argparse.Namespace(
         id="default",
@@ -256,16 +262,24 @@ def test_find_active_session_returns_url_or_cleans_stale_files(
     assert not (session_dir / "config.json").exists()
 
 
-def test_find_active_session_rejects_stale_source_revision(
+def test_find_active_session_healthy_daemon_survives_source_revision_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A healthy daemon must survive git HEAD movement after launch.
+
+    source_revision is advisory metadata only (SD2).  A mismatch between
+    the launch revision and the current git HEAD must never terminate or
+    hide an otherwise-healthy session.  The advisory fields are still
+    exposed via active_session_metadata().
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(session_module, "current_source_revision", lambda: "new-sha")
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
     session_dir = tmp_path / "out/sessions/default"
     session_dir.mkdir(parents=True)
     (session_dir / "pid").write_text("4242", encoding="utf-8")
     (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
-    (session_dir / "config.json").write_text("{}", encoding="utf-8")
+    (session_dir / "config.json").write_text('{"port": 8200}', encoding="utf-8")
     (session_dir / "source_revision").write_text("old-sha", encoding="utf-8")
 
     kill_calls: list[tuple[int, int]] = []
@@ -275,12 +289,24 @@ def test_find_active_session_rejects_stale_source_revision(
 
     monkeypatch.setattr(session_module.os, "kill", fake_kill)
 
-    assert find_active_session("default") is None
-    assert kill_calls == [(4242, signal.SIGTERM)]
-    assert not (session_dir / "pid").exists()
-    assert not (session_dir / "url").exists()
-    assert not (session_dir / "config.json").exists()
-    assert not (session_dir / "source_revision").exists()
+    # The daemon is healthy (pid + url + /system_stats OK) — the revision
+    # mismatch must not hide the session or terminate the process.
+    assert find_active_session("default") == "http://127.0.0.1:8200"
+    # Only the process-aliveness check (os.kill(pid, 0)) — no SIGTERM.
+    assert kill_calls == [(4242, 0)]
+
+    # Session files must still be present (no cleanup).
+    assert (session_dir / "pid").exists()
+    assert (session_dir / "url").exists()
+    assert (session_dir / "config.json").exists()
+    assert (session_dir / "source_revision").exists()
+
+    # Advisory mismatch metadata is visible.
+    meta = session_module.active_session_metadata("default")
+    assert meta is not None
+    assert meta["launch_source_revision"] == "old-sha"
+    assert meta["current_source_revision"] == "new-sha"
+    assert meta["url"] == "http://127.0.0.1:8200"
 
 
 def test_find_active_session_accepts_matching_source_revision(
@@ -332,16 +358,25 @@ def test_find_active_session_rejects_dead_server_url(
     assert not (session_dir / "config.json").exists()
 
 
-def test_find_active_session_rejects_missing_source_revision_when_current_known(
+def test_find_active_session_healthy_daemon_survives_missing_source_revision(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A healthy daemon survives even when no source_revision was written at launch.
+
+    If current_source_revision is known but the daemon was launched without
+    writing a source_revision file (e.g. git was unavailable), the session
+    must not be terminated or hidden.  active_session_metadata() still
+    exposes current_source_revision as an advisory diagnostic field.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(session_module, "current_source_revision", lambda: "new-sha")
+    monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
     session_dir = tmp_path / "out/sessions/default"
     session_dir.mkdir(parents=True)
     (session_dir / "pid").write_text("4242", encoding="utf-8")
     (session_dir / "url").write_text("http://127.0.0.1:8200", encoding="utf-8")
-    (session_dir / "config.json").write_text("{}", encoding="utf-8")
+    (session_dir / "config.json").write_text('{"port": 8200}', encoding="utf-8")
+    # No source_revision file written.
 
     kill_calls: list[tuple[int, int]] = []
 
@@ -350,11 +385,23 @@ def test_find_active_session_rejects_missing_source_revision_when_current_known(
 
     monkeypatch.setattr(session_module.os, "kill", fake_kill)
 
-    assert find_active_session("default") is None
-    assert kill_calls == [(4242, signal.SIGTERM)]
-    assert not (session_dir / "pid").exists()
-    assert not (session_dir / "url").exists()
-    assert not (session_dir / "config.json").exists()
+    # The daemon is healthy — missing source_revision must not hide it.
+    assert find_active_session("default") == "http://127.0.0.1:8200"
+    # Only the process-aliveness check (os.kill(pid, 0)) — no SIGTERM.
+    assert kill_calls == [(4242, 0)]
+
+    # Session files must still be present (no cleanup).
+    assert (session_dir / "pid").exists()
+    assert (session_dir / "url").exists()
+    assert (session_dir / "config.json").exists()
+    assert not (session_dir / "source_revision").exists()
+
+    # Advisory metadata still exposes current revision when available.
+    meta = session_module.active_session_metadata("default")
+    assert meta is not None
+    assert meta["current_source_revision"] == "new-sha"
+    assert "launch_source_revision" not in meta
+    assert meta["url"] == "http://127.0.0.1:8200"
 
 
 def test_daemon_config_carry_through_typed_and_raw_hiddenswitch(

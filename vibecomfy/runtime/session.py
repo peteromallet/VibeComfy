@@ -678,51 +678,45 @@ async def _resolve_inflight_before_stop(session: Any, wait_for_inflight: bool) -
 
 def active_session_metadata(id: str = "default") -> dict[str, Any] | None:
     session_dir = Path("out/sessions") / id
-    pid_path = session_dir / "pid"
-    url_path = session_dir / "url"
     revision_path = session_dir / "source_revision"
-    if not pid_path.exists() or not url_path.exists():
+
+    if not _session_ready(session_dir):
+        # Process may be alive but unhealthy — attempt graceful termination
+        pid_path = session_dir / "pid"
+        if pid_path.exists():
+            try:
+                pid = int(pid_path.read_text(encoding="utf-8").strip())
+                os.kill(pid, 0)
+                _terminate_session_pid(pid)
+            except (ProcessLookupError, PermissionError, OSError, ValueError):
+                pass
         _cleanup_session_files(session_dir)
         return None
+
+    # Read pid and url safely (we know they exist from _session_ready)
     try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-        url = url_path.read_text(encoding="utf-8").strip()
+        pid = int((session_dir / "pid").read_text(encoding="utf-8").strip())
+        url = (session_dir / "url").read_text(encoding="utf-8").strip()
     except (OSError, ValueError):
         _cleanup_session_files(session_dir)
         return None
+
     if not url:
         _cleanup_session_files(session_dir)
         return None
+
+    # source_revision is advisory diagnostic metadata only and must
+    # never influence session liveness (SD2).
     current_revision = current_source_revision()
-    if current_revision is not None:
+    session_revision: str | None = None
+    if revision_path.exists():
         try:
             session_revision = revision_path.read_text(encoding="utf-8").strip()
         except OSError:
-            _terminate_session_pid(pid)
-            _cleanup_session_files(session_dir)
-            return None
-        if session_revision != current_revision:
-            _terminate_session_pid(pid)
-            _cleanup_session_files(session_dir)
-            return None
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        _cleanup_session_files(session_dir)
-        return None
-    except PermissionError:
-        if not _session_url_healthy(url):
-            _cleanup_session_files(session_dir)
-            return None
-    except OSError:
-        _cleanup_session_files(session_dir)
-        return None
-    if not _session_url_healthy(url):
-        _terminate_session_pid(pid)
-        _cleanup_session_files(session_dir)
-        return None
+            session_revision = None
+
     config = _read_session_config(session_dir)
-    return {
+    result: dict[str, Any] = {
         "id": id,
         "pid": pid,
         "url": url,
@@ -731,6 +725,11 @@ def active_session_metadata(id: str = "default") -> dict[str, Any] | None:
         "models_root_normalized": config.get("models_root_normalized"),
         "locality": config.get("locality"),
     }
+    if session_revision is not None:
+        result["launch_source_revision"] = session_revision
+    if current_revision is not None:
+        result["current_source_revision"] = current_revision
+    return result
 
 
 def find_active_session(id: str = "default") -> str | None:
@@ -749,9 +748,42 @@ def _read_session_config(session_dir: Path) -> dict[str, Any]:
 def _session_url_healthy(url: str) -> bool:
     try:
         with urllib.request.urlopen(f"{url.rstrip('/')}/system_stats", timeout=2) as response:
-            return 200 <= response.status < 500
-    except (OSError, urllib.error.URLError, ValueError):
+            if response.status != 200:
+                return False
+            json.loads(response.read())
+            return True
+    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
         return False
+
+
+def _session_ready(session_dir: Path) -> bool:
+    """Shared session readiness: daemon-written pid + url exist and /system_stats returns HTTP 200 with valid JSON."""
+    pid_path = session_dir / "pid"
+    url_path = session_dir / "url"
+
+    if not pid_path.exists() or not url_path.exists():
+        return False
+
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+        url = url_path.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return False
+
+    if not url:
+        return False
+
+    # Check process is alive (PermissionError is inconclusive — fall through to HTTP check)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    except OSError:
+        return False
+
+    return _session_url_healthy(url)
 
 
 def _terminate_session_pid(pid: int) -> None:
@@ -762,7 +794,7 @@ def _terminate_session_pid(pid: int) -> None:
 
 
 def current_source_revision() -> str | None:
-    """Return a stable source revision for stale-session detection when available."""
+    """Return the current source revision as advisory diagnostic metadata when available."""
     env_revision = os.environ.get("VIBECOMFY_SOURCE_REVISION")
     if env_revision:
         return env_revision.strip() or None
