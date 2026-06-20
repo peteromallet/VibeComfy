@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import vibecomfy.runtime.prompt as prompt_module
 import vibecomfy.runtime.session as session_module
 from vibecomfy.contracts import (
     INTENT_CODE_MAX_BYTES,
@@ -24,6 +25,7 @@ from vibecomfy.runtime.session import (
     _warm_schema_provider,
 )
 from vibecomfy.schema import InputSpec, NodeSchema
+from vibecomfy.schema.cache import write_object_info_cache
 from vibecomfy.workflow import VibeNode, VibeWorkflow, WorkflowSource
 
 from tests._runtime_session_helpers import (
@@ -301,6 +303,69 @@ def test_embedded_path_does_not_spawn_extra_comfy_server(
     assert entered is False
     assert len(unavailable) == 1
     assert "using structural validation only" in unavailable[0]
+
+
+def test_cache_only_warmup_rejects_runtime_fingerprint_mismatch(tmp_path: Path) -> None:
+    cache_path = tmp_path / "object_info.stale-runtime.json"
+    write_object_info_cache(
+        cache_path,
+        {"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": ["STRING", {}]}}}},
+        runtime_fingerprint="stale-runtime",
+    )
+
+    class Provider:
+        def __init__(self) -> None:
+            self.cache_path = cache_path
+            self._object_info = None
+
+        def _cache_validation_expected(self) -> dict[str, str]:
+            return {"runtime_fingerprint": "fresh-runtime"}
+
+    for warm in (_warm_schema_provider, prompt_module._warm_schema_provider):
+        provider = Provider()
+        unavailable: list[str] = []
+
+        effective = asyncio.run(warm(provider, on_unavailable=unavailable.append, cache_only=True))
+
+        assert effective is None
+        assert provider._object_info is None
+        assert len(unavailable) == 1
+        assert "cache_runtime_fingerprint_mismatch" in unavailable[0]
+        assert "using structural validation only" in unavailable[0]
+
+
+def test_cache_only_prepare_reports_cache_mismatch_and_skipped_classes(tmp_path: Path) -> None:
+    cache_path = tmp_path / "object_info.stale-runtime.json"
+    write_object_info_cache(
+        cache_path,
+        {"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": ["STRING", {}]}}}},
+        runtime_fingerprint="stale-runtime",
+    )
+
+    class Provider:
+        def __init__(self) -> None:
+            self.cache_path = cache_path
+            self._object_info = None
+
+        def _cache_validation_expected(self) -> dict[str, str]:
+            return {"runtime_fingerprint": "fresh-runtime"}
+
+    unavailable: list[str] = []
+    api = asyncio.run(
+        _prepare_prompt_async(
+            _workflow(),
+            backend="api",
+            schema_provider=Provider(),
+            on_unavailable=unavailable.append,
+            cache_only=True,
+        )
+    )
+
+    assert api["1"]["class_type"] == "CheckpointLoaderSimple"
+    assert api.schema_validation_skipped == ["CheckpointLoaderSimple", "KSampler"]
+    assert len(unavailable) == 2
+    assert "cache_runtime_fingerprint_mismatch" in unavailable[0]
+    assert unavailable[1] == "schema validation skipped for class types: CheckpointLoaderSimple, KSampler"
 
 
 def _patch_watchdog_and_flush(monkeypatch: pytest.MonkeyPatch) -> None:

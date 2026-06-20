@@ -314,6 +314,7 @@ class TestHivemindErrors:
         )
         assert result.warnings
         assert any("timed out" in w for w in result.warnings)
+        assert {"type": "HivemindError", "message": "timed out after 0.5s"} in result.warning_details
         assert len(result.sources) >= 1  # local results still present
 
     @patch("vibecomfy.executor.research.build_search_corpus")
@@ -335,6 +336,7 @@ class TestHivemindErrors:
         )
         assert result.warnings
         assert any("unexpected" in w for w in result.warnings)
+        assert {"type": "RuntimeError", "message": "something unexpected"} in result.warning_details
 
     @patch("vibecomfy.executor.research.build_search_corpus")
     def test_hivemind_none_client_skips_silently(self, mock_corpus) -> None:
@@ -638,6 +640,7 @@ class TestResearchIntegration:
         assert "warnings" in d
         assert isinstance(d["sources"], list)
         assert isinstance(d["warnings"], list)
+        assert {"type": "HivemindError", "message": "unreachable"} in d["warning_details"]
         assert any("unreachable" in w for w in d["warnings"])
 
     @patch("vibecomfy.executor.research.build_search_corpus")
@@ -693,6 +696,9 @@ class TestResearchIntegration:
             web_search_client=web_client,
         )
         assert any("web search" in w and "offline" in w for w in result.warnings)
+        assert result.warning_details == (
+            {"type": "RuntimeError", "message": "offline"},
+        )
 
 
 # ── HivemindClient protocol ──────────────────────────────────────────────────

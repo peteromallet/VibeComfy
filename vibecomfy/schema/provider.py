@@ -13,10 +13,12 @@ from vibecomfy.runtime.client import ComfyClient
 from vibecomfy.runtime.server import comfy_server
 
 from .cache import (
+    CACHE_METADATA_KEY,
     load_object_info_cache,
     object_info_cache_candidates,
     object_info_cache_path,
     runtime_fingerprint,
+    validate_object_info_cache,
     write_object_info_cache,
 )
 
@@ -70,6 +72,22 @@ class SchemaSourceInfo:
             "confidence": self.confidence,
             "conflicts": list(self.conflicts),
             "ignored_evidence": list(self.ignored_evidence),
+        }
+
+
+@dataclass(frozen=True)
+class SourceScanWarning:
+    code: str
+    message: str
+    class_type: str | None = None
+    path: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "class_type": self.class_type,
+            "path": self.path,
         }
 
 
@@ -228,9 +246,22 @@ class LocalSchemaProvider:
 class SourceSchemaProvider:
     """Best-effort INPUT_TYPES reader for installed custom-node source trees."""
 
-    def __init__(self, roots: list[str | Path] | None = None) -> None:
-        self.roots = [Path(root) for root in (roots or _default_source_roots())]
+    def __init__(
+        self,
+        roots: list[str | Path] | None = None,
+        *,
+        max_roots: int = 8,
+        max_files_per_root: int = 2_000,
+        max_total_files: int = 5_000,
+    ) -> None:
+        self.scan_warnings: list[SourceScanWarning] = []
+        self.max_roots = max(0, max_roots)
+        self.max_files_per_root = max(0, max_files_per_root)
+        self.max_total_files = max(0, max_total_files)
+        raw_roots = _default_source_roots() if roots is None else roots
+        self.roots = self._bounded_roots([Path(root) for root in raw_roots])
         self._schemas: dict[str, NodeSchema | None] = {}
+        self._provenance: dict[str, SchemaSourceInfo] = {}
 
     def get(self, class_type: str) -> NodeSchema | None:
         return self.get_schema(class_type)
@@ -240,11 +271,89 @@ class SourceSchemaProvider:
             self._schemas[class_type] = self._find_schema(class_type)
         return self._schemas[class_type]
 
+    def provenance_for(self, class_type: str) -> SchemaSourceInfo | None:
+        return self._provenance.get(class_type)
+
+    def warnings(self) -> list[SourceScanWarning]:
+        return list(self.scan_warnings)
+
+    def _bounded_roots(self, roots: list[Path]) -> list[Path]:
+        bounded: list[Path] = []
+        seen: set[Path] = set()
+        for root in roots:
+            normalized = root.expanduser()
+            key = normalized.resolve() if normalized.exists() else normalized
+            if key in seen:
+                continue
+            seen.add(key)
+            if len(bounded) >= self.max_roots:
+                self.scan_warnings.append(
+                    SourceScanWarning(
+                        code="source_scan_root_cap_skipped",
+                        message=f"source scan root cap {self.max_roots} skipped {normalized}",
+                        path=str(normalized),
+                    )
+                )
+                continue
+            bounded.append(normalized)
+        return bounded
+
     def _find_schema(self, class_type: str) -> NodeSchema | None:
-        for path in _candidate_python_files(self.roots, class_type):
-            schema = _schema_from_python_source(path, class_type)
-            if schema is not None:
+        for path in _direct_python_files(self.roots, class_type):
+            schema = self._schema_from_path(path, class_type)
+            if schema is not None or class_type in self._provenance:
                 return schema
+        for path in _candidate_python_files(
+            self.roots,
+            class_type,
+            warnings=self.scan_warnings,
+            max_files_per_root=self.max_files_per_root,
+            max_total_files=self.max_total_files,
+        ):
+            schema = self._schema_from_path(path, class_type)
+            if schema is not None or class_type in self._provenance:
+                return schema
+        return None
+
+    def _schema_from_path(self, path: Path, class_type: str) -> NodeSchema | None:
+        schema = _schema_from_python_source(path, class_type)
+        if schema is not None:
+            info = SchemaSourceInfo(
+                provider_name="source_parser",
+                source_path=str(path),
+                package=schema.pack,
+                confidence=0.9,
+            )
+            self._provenance[class_type] = info
+            for warning in self.scan_warnings:
+                if warning.class_type == class_type:
+                    info.ignored_evidence.append(warning.code)
+            return NodeSchema(
+                class_type=schema.class_type,
+                pack=schema.pack,
+                inputs=schema.inputs,
+                outputs=schema.outputs,
+                source_provider=info.provider_name,
+                source_path=info.source_path,
+                source_package=info.package,
+                confidence=info.confidence,
+                ignored_evidence=tuple(info.ignored_evidence),
+            )
+        if _source_contains_class(path, class_type):
+            warning = SourceScanWarning(
+                code="dynamic_input_types_miss",
+                message=f"{class_type} in {path} did not expose a statically parseable INPUT_TYPES return",
+                class_type=class_type,
+                path=str(path),
+            )
+            self.scan_warnings.append(warning)
+            self._provenance[class_type] = SchemaSourceInfo(
+                provider_name="source_parser",
+                source_path=str(path),
+                package=path.parent.name,
+                confidence=0.0,
+                ignored_evidence=[warning.code],
+            )
         return None
 
 
@@ -269,7 +378,7 @@ class ObjectInfoSchemaProvider:
             self._schemas = {
                 class_type: _schema_from_object_info(class_type, info)
                 for class_type, info in data.items()
-                if isinstance(info, dict)
+                if class_type != CACHE_METADATA_KEY and isinstance(info, dict)
             }
         return self._schemas
 
@@ -468,9 +577,12 @@ class ConversionSchemaProvider:
     ) -> None:
         self._local = LocalSchemaProvider(node_index_path)
         self._source = SourceSchemaProvider(source_roots)
+        self._expected_cache_fingerprint = runtime_fingerprint(runtime_server_url)
+        self._expected_cache_identity = self._object_info_cache_expected_identity(runtime_server_url)
+        self._rejected_object_info_cache: SchemaSourceInfo | None = None
         self._object_info: ObjectInfoSchemaProvider | None = None
         if object_info_cache_path is not None:
-            self._object_info = ObjectInfoSchemaProvider(object_info_cache_path)
+            self._object_info = self._validated_object_info_provider(object_info_cache_path)
         self._object_info_index: ObjectInfoIndexSchemaProvider | None = None
         if object_info_index_root is not None:
             self._object_info_index = ObjectInfoIndexSchemaProvider(object_info_index_root)
@@ -479,7 +591,6 @@ class ConversionSchemaProvider:
         if enable_runtime:
             self._runtime = RuntimeSchemaProvider(server_url=runtime_server_url)
         self._enable_runtime = enable_runtime
-        self._expected_cache_fingerprint = runtime_fingerprint(runtime_server_url)
 
     def get_schema(self, class_type: str) -> NodeSchema | None:
         # 1. Committed node_index.json
@@ -534,30 +645,24 @@ class ConversionSchemaProvider:
                 )
                 return self._with_provenance(
                     schema,
-                    SchemaSourceInfo(
-                        provider_name="object_info_index",
-                        cache_path=str(cache_path),
-                        package=schema.pack,
-                        confidence=0.7,
-                    ),
+                    self._object_info_index_cache_info(schema, cache_path),
                 )
 
         # 3. Source parser
         schema = self._source.get_schema(class_type)
         if schema is not None:
+            source_info = self._source.provenance_for(class_type) or SchemaSourceInfo(
+                provider_name="source_parser",
+                source_path=schema.source_path,
+                package=schema.pack,
+                confidence=0.9,
+            )
             _logger.info(
                 "schema hit: %s provider=source_parser roots=%s",
                 class_type,
                 self._source.roots,
             )
-            return self._with_provenance(
-                schema,
-                SchemaSourceInfo(
-                    provider_name="source_parser",
-                    source_path=None,  # resolved per-file inside SourceSchemaProvider
-                    confidence=0.9,
-                ),
-            )
+            return self._with_provenance(schema, source_info)
 
         # 4. Widget schema fallback - build a minimal NodeSchema from aliases
         widget_names = self._widget_schema.get(class_type)
@@ -658,6 +763,85 @@ class ConversionSchemaProvider:
             info.ignored_evidence.append("missing_cache_fingerprint")
         return info
 
+    def _validated_object_info_provider(self, path: str | Path) -> ObjectInfoSchemaProvider | None:
+        cache_path = Path(path)
+        data = load_object_info_cache(cache_path)
+        result = validate_object_info_cache(
+            data,
+            expected=self._expected_cache_identity,
+            policy="strict",
+            cache_path=cache_path,
+        )
+        if result.ok:
+            return ObjectInfoSchemaProvider(cache_path)
+        self._rejected_object_info_cache = self._object_info_cache_rejection_info(cache_path, result)
+        _logger.warning(
+            "rejected object_info cache: path=%s reason=%s expected=%s actual=%s conflicts=%s",
+            cache_path,
+            result.reason,
+            result.expected,
+            result.actual,
+            self._rejected_object_info_cache.conflicts,
+        )
+        return None
+
+    def _object_info_cache_rejection_info(self, path: Path, result: Any) -> SchemaSourceInfo:
+        info = SchemaSourceInfo(
+            provider_name="object_info_cache",
+            cache_path=str(path),
+            confidence=0.0,
+        )
+        reason = result.reason or "unknown"
+        conflict_prefix = (
+            "rejected_metadata_less_object_info_cache"
+            if reason == "cache_metadata_missing"
+            else "rejected_stale_object_info_cache"
+            if reason
+            in {
+                "cache_format_version_missing",
+                "cache_format_version_mismatch",
+                "cache_checksum_mismatch",
+                "cache_runtime_fingerprint_mismatch",
+                "cache_server_url_mismatch",
+                "cache_authored_pack_fingerprint_mismatch",
+                "cache_authored_index_fingerprint_mismatch",
+            }
+            else "rejected_invalid_object_info_cache"
+        )
+        info.conflicts.append(f"{conflict_prefix}:{reason}")
+        metadata_hash = result.actual.get("runtime_fingerprint") or result.actual.get("checksum")
+        if isinstance(metadata_hash, str):
+            info.hash = metadata_hash
+        return info
+
+    def _object_info_index_cache_info(self, schema: NodeSchema, cache_path: Path) -> SchemaSourceInfo:
+        info = SchemaSourceInfo(
+            provider_name="object_info_index",
+            cache_path=str(cache_path),
+            package=schema.pack,
+            confidence=0.7,
+        )
+        data = load_object_info_cache(cache_path) or {}
+        metadata = data.get(CACHE_METADATA_KEY)
+        if isinstance(metadata, dict):
+            authored_pack = metadata.get("authored_pack_fingerprint")
+            authored_index = metadata.get("authored_index_fingerprint")
+            checksum = metadata.get("checksum")
+            package = metadata.get("package")
+            version = metadata.get("version")
+            for value in (authored_pack, authored_index, checksum):
+                if isinstance(value, str) and value:
+                    info.hash = value
+                    break
+            if isinstance(package, str):
+                info.package = package
+            if isinstance(version, str):
+                info.version = version
+        return info
+
+    def _object_info_cache_expected_identity(self, runtime_server_url: str | None) -> dict[str, Any]:
+        return {"runtime_fingerprint": self._expected_cache_fingerprint}
+
     @staticmethod
     def _with_provenance(schema: NodeSchema, info: SchemaSourceInfo) -> NodeSchema:
         # NodeSchema is frozen, so we must construct a new one with provenance.
@@ -704,27 +888,62 @@ class RuntimeSchemaProvider:
             self._schemas = {
                 class_type: _schema_from_object_info(class_type, info)
                 for class_type, info in self.object_info().items()
-                if isinstance(info, dict)
+                if class_type != CACHE_METADATA_KEY and isinstance(info, dict)
             }
         return self._schemas
 
     def object_info(self) -> dict[str, Any]:
         if self._object_info is None:
-            cached = load_object_info_cache(self.cache_path)
+            cached = self._load_valid_cached_object_info()
             if cached is not None:
-                self._object_info = cached
+                self._set_object_info(cached)
             else:
-                self._object_info = _run_async(self.object_info_async())
+                self._set_object_info(_run_async(self.object_info_async()))
         return self._object_info
 
     async def object_info_async(self) -> dict[str, Any]:
-        cached = load_object_info_cache(self.cache_path)
+        cached = self._load_valid_cached_object_info()
         if cached is not None:
-            return cached
+            self._set_object_info(cached)
+            return self._object_info
         async with comfy_server(server_url=self.server_url, log_path=self.log_path) as active_url:
             data = await ComfyClient(active_url).object_info()
-        write_object_info_cache(self.cache_path, data)
-        return data
+        write_object_info_cache(
+            self.cache_path,
+            data,
+            runtime_fingerprint=runtime_fingerprint(self.server_url),
+            server_url=active_url,
+        )
+        self._set_object_info(data)
+        return self._object_info
+
+    def _load_valid_cached_object_info(self) -> dict[str, Any] | None:
+        cached = load_object_info_cache(self.cache_path)
+        result = validate_object_info_cache(
+            cached,
+            expected=self._cache_validation_expected(),
+            policy="strict",
+            cache_path=self.cache_path,
+        )
+        if result.ok:
+            return cached if isinstance(cached, dict) else None
+        if cached is not None:
+            _logger.warning(
+                "rejected runtime object_info cache: path=%s reason=%s expected=%s actual=%s",
+                self.cache_path,
+                result.reason,
+                result.expected,
+                result.actual,
+            )
+        return None
+
+    def _cache_validation_expected(self) -> dict[str, Any]:
+        return {"runtime_fingerprint": runtime_fingerprint(self.server_url)}
+
+    def _set_object_info(self, data: dict[str, Any]) -> None:
+        if self._object_info != data:
+            self._schemas = None
+        self._object_info = data
 
 
 def get_schema_provider(
@@ -920,18 +1139,29 @@ def _parse_outputs(info: dict[str, Any]) -> list[OutputSpec]:
 
 
 def _default_source_roots() -> list[Path]:
-    roots = [
+    return [
         Path("custom_nodes"),
         Path("vendor") / "ComfyUI",
     ]
-    tmp = Path("/tmp")
-    if tmp.exists():
-        roots.extend(sorted(path for path in tmp.glob("ComfyUI-*") if path.is_dir()))
-    return roots
 
 
-def _candidate_python_files(roots: list[Path], class_type: str) -> list[Path]:
+_SOURCE_SCAN_EXCLUDED_DIRS = frozenset({".git", "__pycache__", "venv", ".venv", "node_modules"})
+
+
+def _direct_python_files(roots: list[Path], class_type: str) -> list[Path]:
+    return [path for root in roots if (path := root / f"{class_type}.py").is_file()]
+
+
+def _candidate_python_files(
+    roots: list[Path],
+    class_type: str,
+    *,
+    warnings: list[SourceScanWarning] | None = None,
+    max_files_per_root: int = 2_000,
+    max_total_files: int = 5_000,
+) -> list[Path]:
     candidates: list[Path] = []
+    total_scanned = 0
     for root in roots:
         if not root.exists():
             continue
@@ -939,9 +1169,34 @@ def _candidate_python_files(roots: list[Path], class_type: str) -> list[Path]:
         if direct.is_file():
             candidates.append(direct)
         try:
-            for path in root.rglob("*.py"):
-                if any(part in {".git", "__pycache__", "venv", ".venv"} for part in path.parts):
+            root_scanned = 0
+            for path in sorted(root.rglob("*.py")):
+                if path == direct:
                     continue
+                if any(part in _SOURCE_SCAN_EXCLUDED_DIRS for part in path.parts):
+                    continue
+                if root_scanned >= max_files_per_root:
+                    if warnings is not None:
+                        warnings.append(
+                            SourceScanWarning(
+                                code="source_scan_file_cap_skipped",
+                                message=f"source scan file cap {max_files_per_root} reached under {root}",
+                                path=str(root),
+                            )
+                        )
+                    break
+                if total_scanned >= max_total_files:
+                    if warnings is not None:
+                        warnings.append(
+                            SourceScanWarning(
+                                code="source_scan_total_file_cap_skipped",
+                                message=f"source scan total file cap {max_total_files} reached before {path}",
+                                path=str(path),
+                            )
+                        )
+                    return sorted(dict.fromkeys(candidates))
+                root_scanned += 1
+                total_scanned += 1
                 try:
                     text = path.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
@@ -974,6 +1229,14 @@ def _schema_from_python_source(path: Path, class_type: str) -> NodeSchema | None
                 },
             )
     return None
+
+
+def _source_contains_class(path: Path, class_type: str) -> bool:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"), filename=str(path))
+    except (OSError, SyntaxError):
+        return False
+    return any(isinstance(node, ast.ClassDef) and node.name == class_type for node in ast.walk(tree))
 
 
 def _class_literal_values(node: ast.ClassDef) -> dict[str, Any]:

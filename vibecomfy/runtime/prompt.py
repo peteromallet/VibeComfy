@@ -38,13 +38,34 @@ async def _warm_schema_provider(
         if getattr(provider, "_object_info", None) is not None:
             return provider
         if cache_only:
-            from vibecomfy.schema.cache import load_object_info_cache
+            from vibecomfy.schema.cache import load_object_info_cache, validate_object_info_cache
 
             cached = load_object_info_cache(provider.cache_path)
             if cached is None:
                 on_unavailable(f"object_info cache unavailable at {provider.cache_path}; using structural validation only")
                 return None
-            provider._object_info = cached
+            expected = (
+                provider._cache_validation_expected()
+                if callable(getattr(provider, "_cache_validation_expected", None))
+                else {}
+            )
+            result = validate_object_info_cache(
+                cached,
+                expected=expected,
+                policy="strict",
+                cache_path=provider.cache_path,
+            )
+            if not result.ok:
+                on_unavailable(
+                    f"object_info cache rejected at {provider.cache_path}: {result.reason}; "
+                    "using structural validation only"
+                )
+                return None
+            setter = getattr(provider, "_set_object_info", None)
+            if callable(setter):
+                setter(cached)
+            else:
+                provider._object_info = cached
             return provider
 
         provider._object_info = await provider.object_info_async()

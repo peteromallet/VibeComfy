@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .cache import CACHE_METADATA_KEY
 from .parsing import schema_from_object_info
 from .types import NodeSchema, SchemaIndexError
 
@@ -44,5 +45,5 @@ def schemas_from_object_info(object_info: dict[str, Any]) -> dict[str, NodeSchem
     return {
         class_type: schema_from_object_info(class_type, info)
         for class_type, info in object_info.items()
-        if isinstance(info, dict)
+        if class_type != CACHE_METADATA_KEY and isinstance(info, dict)
     }

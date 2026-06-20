@@ -9,8 +9,25 @@ canonical ``to_dict()`` serializer so the executor can produce the standard
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from types import MappingProxyType
 from typing import Any, Mapping
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+_WARNING_DETAIL_MAX_MESSAGE = 160
+_SENSITIVE_QUERY_KEYS = frozenset({
+    "api_key",
+    "apikey",
+    "auth",
+    "authorization",
+    "key",
+    "password",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+})
 
 
 def _freeze_jsonish(value: Any) -> Any:
@@ -27,6 +44,48 @@ def _thaw_jsonish(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_thaw_jsonish(v) for v in value]
     return value
+
+
+def _safe_exception_message(exc: BaseException) -> str:
+    message = " ".join(str(exc).split())
+    if not message:
+        return ""
+    message = re.sub(
+        r"https?://[^\s]+",
+        lambda match: _sanitize_url_for_warning(match.group(0)),
+        message,
+    )
+    if len(message) > _WARNING_DETAIL_MAX_MESSAGE:
+        return message[: _WARNING_DETAIL_MAX_MESSAGE - 3].rstrip() + "..."
+    return message
+
+
+def _sanitize_url_for_warning(raw_url: str) -> str:
+    try:
+        parsed = urlsplit(raw_url)
+    except ValueError:
+        return "<url>"
+    query_pairs = []
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        if key.lower() in _SENSITIVE_QUERY_KEYS:
+            query_pairs.append((key, "<redacted>"))
+        else:
+            query_pairs.append((key, value))
+    return urlunsplit((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        urlencode(query_pairs),
+        "",
+    ))
+
+
+def warning_detail_from_exception(exc: BaseException) -> dict[str, str]:
+    """Return a compact, JSON-safe exception detail for research warnings."""
+    return {
+        "type": type(exc).__name__,
+        "message": _safe_exception_message(exc),
+    }
 
 
 # ── classify decision ────────────────────────────────────────────────────────
@@ -536,6 +595,7 @@ class ResearchResult:
     summary: str = ""
     sources: tuple[dict[str, Any], ...] = ()
     warnings: tuple[str, ...] = ()
+    warning_details: tuple[dict[str, Any], ...] = ()
 
     # ── structured precedent fields (SD2, optional) ──────────────────
     precedent_slices: tuple[WorkflowSlice, ...] = ()
@@ -544,6 +604,15 @@ class ResearchResult:
     def __post_init__(self) -> None:
         object.__setattr__(self, "sources", tuple(self.sources))
         object.__setattr__(self, "warnings", tuple(self.warnings))
+        object.__setattr__(
+            self,
+            "warning_details",
+            tuple(
+                MappingProxyType({str(k): _freeze_jsonish(v) for k, v in detail.items()})
+                if isinstance(detail, Mapping) else detail
+                for detail in self.warning_details
+            ),
+        )
         object.__setattr__(self, "precedent_slices", tuple(self.precedent_slices))
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -551,6 +620,8 @@ class ResearchResult:
             "sources": _thaw_jsonish(self.sources),
             "warnings": list(self.warnings),
         }
+        if self.warning_details:
+            result["warning_details"] = _thaw_jsonish(self.warning_details)
         if self.precedent_slices:
             result["precedent_slices"] = [s.to_dict() for s in self.precedent_slices]
         if self.adaptation_plan is not None:
@@ -685,4 +756,5 @@ __all__ = [
     "Report",
     "ResearchResult",
     "WorkflowSlice",
+    "warning_detail_from_exception",
 ]

@@ -162,6 +162,9 @@ def _build_model_manifest(
             entry["size_bytes"] = asset["size_bytes"]
         if asset.get("hf_revision"):
             entry["hf_revision"] = asset["hf_revision"]
+        for key in ("node_id", "class_type", "field", "value", "reference_type", "downloadable"):
+            if key in asset:
+                entry[key] = asset[key]
         manifest.append(entry)
 
     # Also include unresolved entries so the manifest is complete
@@ -173,6 +176,9 @@ def _build_model_manifest(
                 "node_id": ref.get("node_id"),
                 "class_type": ref.get("class_type"),
                 "field": ref.get("field"),
+                "value": ref.get("value"),
+                "reference_type": ref.get("reference_type"),
+                "downloadable": ref.get("downloadable", False),
                 "expected_sha256": None,
                 "actual_sha256": None,
                 "unresolved": True,

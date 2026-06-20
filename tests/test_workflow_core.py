@@ -1403,6 +1403,52 @@ class TestLookupId:
         assert info["outputs"] == []
         assert info["model_assets"] == []
 
+    def test_model_assets_include_registry_and_unresolved_reference_metadata(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from vibecomfy.registry.models_loader import ModelEntry, ModelSource, ModelTarget
+
+        wf = VibeWorkflow("test", WorkflowSource("test"))
+        wf.nodes["1"] = VibeNode("1", "UNETLoader", inputs={"unet_name": "registry.safetensors"})
+        wf.nodes["2"] = VibeNode("2", "UNETLoader", inputs={"unet_name": "https://example.test/external.safetensors"})
+        registry = [
+            ModelEntry(
+                id="registry",
+                source=ModelSource(kind="url", url="https://example.test/registry.safetensors"),
+                min_size=1,
+                targets=(ModelTarget(node_pack="comfy_core", path="diffusion_models/registry.safetensors"),),
+            )
+        ]
+        monkeypatch.setattr("vibecomfy.registry.models_loader.load_registry", lambda: registry)
+
+        registry_info = wf.lookup_id("1")["model_assets"]
+        external_info = wf.lookup_id("2")["model_assets"]
+
+        assert registry_info == [
+            {
+                "name": "registry.safetensors",
+                "url": "https://example.test/registry.safetensors",
+                "subdir": "diffusion_models",
+                "node_id": "1",
+                "class_type": "UNETLoader",
+                "field": "unet_name",
+                "value": "registry.safetensors",
+                "reference_type": "registry-backed",
+                "downloadable": True,
+            }
+        ]
+        assert external_info == [
+            {
+                "name": "https://example.test/external.safetensors",
+                "subdir": "diffusion_models",
+                "node_id": "2",
+                "class_type": "UNETLoader",
+                "field": "unet_name",
+                "value": "https://example.test/external.safetensors",
+                "reference_type": "external-url",
+                "downloadable": False,
+                "unresolved": True,
+            }
+        ]
+
     def test_variable_name_from_id_map(self) -> None:
         """Reverse lookup from _id_map returns the variable name."""
         wf = VibeWorkflow("test", WorkflowSource("test"))

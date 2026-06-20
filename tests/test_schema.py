@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -32,7 +33,15 @@ from vibecomfy.schema import (
     socket_types_compatible,
     validate_node_call,
 )
-from vibecomfy.schema.cache import load_object_info_cache
+from vibecomfy.schema.cache import (
+    CACHE_METADATA_KEY,
+    OBJECT_INFO_CACHE_FORMAT_VERSION,
+    load_object_info_cache,
+    object_info_payload_checksum,
+    runtime_fingerprint,
+    validate_object_info_cache,
+    write_object_info_cache,
+)
 from vibecomfy.workflow import ValidationIssue, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 
 
@@ -589,20 +598,226 @@ def test_malformed_object_info_cache_is_ignored(tmp_path) -> None:
     assert load_object_info_cache(cache) is None
 
 
+def test_object_info_cache_checksum_excludes_metadata() -> None:
+    data = {
+        "CacheNode": {"input": {"required": {"image": ["IMAGE", {}]}}},
+        CACHE_METADATA_KEY: {"format_version": 1, "checksum": "old"},
+    }
+    changed_metadata = {
+        **data,
+        CACHE_METADATA_KEY: {"format_version": 2, "checksum": "new", "note": "ignored"},
+    }
+
+    assert object_info_payload_checksum(data) == object_info_payload_checksum(changed_metadata)
+
+
+def test_write_object_info_cache_stamps_metadata_and_validates(tmp_path) -> None:
+    cache = tmp_path / "object_info.runtime-id.json"
+    write_object_info_cache(
+        cache,
+        {
+            "CacheNode": {
+                "input": {"required": {"image": ["IMAGE", {}]}},
+                "output": ["IMAGE"],
+            },
+            CACHE_METADATA_KEY: {
+                "format_version": 1,
+                "runtime_fingerprint": "stale-runtime",
+                "checksum": "stale-checksum",
+            },
+        },
+        server_url="http://runtime.test/",
+    )
+
+    data = load_object_info_cache(cache)
+    assert data is not None
+    assert data["CacheNode"]["output"] == ["IMAGE"]
+    metadata = data[CACHE_METADATA_KEY]
+    assert metadata["format_version"] == OBJECT_INFO_CACHE_FORMAT_VERSION
+    assert metadata["runtime_fingerprint"] == "runtime-id"
+    assert metadata["server_url"] == "http://runtime.test"
+    assert metadata["checksum"] == object_info_payload_checksum(data)
+
+    result = validate_object_info_cache(
+        data,
+        expected={"runtime_fingerprint": "runtime-id", "server_url": "http://runtime.test/"},
+        cache_path=cache,
+    )
+    assert result.ok is True
+    assert result.reason is None
+    assert result.severity == "ok"
+    assert result.cache_path == str(cache)
+
+
+def test_validate_object_info_cache_reports_structured_mismatch(tmp_path) -> None:
+    data = {
+        "CacheNode": {"input": {"required": {"image": ["IMAGE", {}]}}},
+    }
+    data[CACHE_METADATA_KEY] = {
+        "format_version": OBJECT_INFO_CACHE_FORMAT_VERSION,
+        "checksum": object_info_payload_checksum(data),
+        "runtime_fingerprint": "actual-runtime",
+        "authored_pack_fingerprint": "actual-pack",
+    }
+
+    result = validate_object_info_cache(
+        data,
+        expected={"runtime_fingerprint": "expected-runtime", "authored_pack_fingerprint": "actual-pack"},
+        cache_path=tmp_path / "object_info.actual-runtime.json",
+    )
+
+    assert result.ok is False
+    assert result.reason == "cache_runtime_fingerprint_mismatch"
+    assert result.expected["runtime_fingerprint"] == "expected-runtime"
+    assert result.actual["runtime_fingerprint"] == "actual-runtime"
+    assert result.severity == "error"
+
+
+def test_validate_object_info_cache_covers_identity_and_format_failures(tmp_path) -> None:
+    base = {
+        "CacheNode": {"input": {"required": {"image": ["IMAGE", {}]}}},
+    }
+    metadata = {
+        "format_version": OBJECT_INFO_CACHE_FORMAT_VERSION,
+        "checksum": object_info_payload_checksum(base),
+        "runtime_fingerprint": "runtime-id",
+        "server_url": "http://runtime.test",
+        "authored_pack_fingerprint": "pack-id",
+        "authored_index_fingerprint": "index-id",
+    }
+    matching = {**base, CACHE_METADATA_KEY: metadata}
+
+    ok = validate_object_info_cache(
+        matching,
+        expected={
+            "runtime_fingerprint": "runtime-id",
+            "server_url": "http://runtime.test/",
+            "authored_pack_fingerprint": "pack-id",
+            "authored_index_fingerprint": "index-id",
+        },
+        cache_path=tmp_path / "object_info.runtime-id.json",
+    )
+    assert ok.ok is True
+    assert ok.reason is None
+    assert ok.actual["server_url"] == "http://runtime.test"
+
+    cases = [
+        (
+            {**base, CACHE_METADATA_KEY: {**metadata, "format_version": 1}},
+            {"runtime_fingerprint": "runtime-id"},
+            "cache_format_version_mismatch",
+        ),
+        (
+            {**base, CACHE_METADATA_KEY: {key: value for key, value in metadata.items() if key != "format_version"}},
+            {"runtime_fingerprint": "runtime-id"},
+            "cache_format_version_missing",
+        ),
+        (
+            {**base, CACHE_METADATA_KEY: {**metadata, "server_url": "http://other-runtime.test"}},
+            {"server_url": "http://runtime.test"},
+            "cache_server_url_mismatch",
+        ),
+        (
+            {**base, CACHE_METADATA_KEY: {**metadata, "authored_index_fingerprint": "stale-index"}},
+            {"authored_index_fingerprint": "index-id"},
+            "cache_authored_index_fingerprint_mismatch",
+        ),
+        (
+            ["not", "an", "object"],
+            {"runtime_fingerprint": "runtime-id"},
+            "cache_payload_not_object",
+        ),
+    ]
+    for data, expected, reason in cases:
+        result = validate_object_info_cache(data, expected=expected)
+        assert result.ok is False
+        assert result.reason == reason
+        assert result.severity == "error"
+
+
+def test_validate_object_info_cache_detects_payload_checksum_mismatch() -> None:
+    data = {
+        "CacheNode": {"input": {"required": {"image": ["IMAGE", {}]}}},
+    }
+    data[CACHE_METADATA_KEY] = {
+        "format_version": OBJECT_INFO_CACHE_FORMAT_VERSION,
+        "checksum": object_info_payload_checksum(data),
+        "runtime_fingerprint": "runtime-id",
+    }
+    data["CacheNode"]["output"] = ["LATENT"]
+
+    result = validate_object_info_cache(data, expected={"runtime_fingerprint": "runtime-id"})
+
+    assert result.ok is False
+    assert result.reason == "cache_checksum_mismatch"
+    assert result.actual["checksum"] != result.actual["computed_checksum"]
+
+
+def test_validate_object_info_cache_legacy_policy() -> None:
+    data = {"LegacyNode": {"input": {"required": {"image": ["IMAGE", {}]}}}}
+
+    strict = validate_object_info_cache(data, expected={"runtime_fingerprint": "runtime-id"})
+    legacy = validate_object_info_cache(data, expected={"runtime_fingerprint": "runtime-id"}, policy="allow_legacy")
+
+    assert strict.ok is False
+    assert strict.reason == "cache_metadata_missing"
+    assert strict.severity == "error"
+    assert legacy.ok is True
+    assert legacy.reason == "cache_metadata_missing"
+    assert legacy.severity == "warning"
+
+
+def test_write_object_info_cache_replace_failure_preserves_existing_file(tmp_path, monkeypatch) -> None:
+    import vibecomfy.schema.cache as cache_module
+
+    cache = tmp_path / "object_info.runtime-id.json"
+    cache.write_text(json.dumps({"ExistingNode": {"input": {}}}), encoding="utf-8")
+
+    def fail_replace(src, dst):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(cache_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        write_object_info_cache(cache, {"NewNode": {"input": {}}})
+
+    assert json.loads(cache.read_text(encoding="utf-8")) == {"ExistingNode": {"input": {}}}
+    assert list(tmp_path.glob(f".{cache.name}.*.tmp")) == []
+
+
+def test_write_object_info_cache_pre_replace_failure_preserves_existing_bytes(tmp_path, monkeypatch) -> None:
+    import vibecomfy.schema.cache as cache_module
+
+    cache = tmp_path / "object_info.runtime-id.json"
+    existing = b'{"ExistingNode":{"input":{}}}\n'
+    cache.write_bytes(existing)
+
+    def fail_fsync(fd):
+        raise OSError("simulated pre-replace failure")
+
+    monkeypatch.setattr(cache_module.os, "fsync", fail_fsync)
+
+    with pytest.raises(OSError, match="simulated pre-replace failure"):
+        write_object_info_cache(cache, {"NewNode": {"input": {}}})
+
+    assert cache.read_bytes() == existing
+    assert list(tmp_path.glob(f".{cache.name}.*.tmp")) == []
+
+
 def test_runtime_schema_provider_reads_cached_object_info(tmp_path) -> None:
     provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
-    provider.cache_path.write_text(
-        json.dumps(
-            {
-                "RuntimeNode": {
-                    "pack": "runtime-pack",
-                    "input": {"required": {"image": ["IMAGE", {"default": None}]}},
-                    "output": ["LATENT"],
-                    "output_name": ["latent"],
-                }
+    write_object_info_cache(
+        provider.cache_path,
+        {
+            "RuntimeNode": {
+                "pack": "runtime-pack",
+                "input": {"required": {"image": ["IMAGE", {"default": None}]}},
+                "output": ["LATENT"],
+                "output_name": ["latent"],
             }
-        ),
-        encoding="utf-8",
+        },
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
     )
 
     schema = provider.get_schema("RuntimeNode")
@@ -612,6 +827,93 @@ def test_runtime_schema_provider_reads_cached_object_info(tmp_path) -> None:
     assert schema.inputs["image"].type == "IMAGE"
     assert schema.inputs["image"].required is True
     assert schema.outputs == [OutputSpec(type="LATENT", name="latent")]
+
+
+def test_runtime_schema_provider_rejects_stale_cache_refetches_and_clears_schemas(tmp_path, monkeypatch) -> None:
+    class FakeServer:
+        async def __aenter__(self):
+            return "http://runtime.test"
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        async def object_info(self):
+            return {
+                "FetchedNode": {
+                    "input": {"required": {"image": ["IMAGE", {}]}},
+                    "output": ["LATENT"],
+                    "output_name": ["latent"],
+                }
+            }
+
+    monkeypatch.setattr("vibecomfy.schema.provider.comfy_server", lambda **kwargs: FakeServer())
+    monkeypatch.setattr("vibecomfy.schema.provider.ComfyClient", FakeClient)
+
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
+    write_object_info_cache(
+        provider.cache_path,
+        {"StaleNode": {"input": {"required": {"prompt": ["STRING", {}]}}}},
+        runtime_fingerprint="stale-runtime",
+    )
+    provider._schemas = {"OldNode": NodeSchema(class_type="OldNode", pack=None, inputs={}, outputs=[])}
+
+    data = provider.object_info()
+
+    assert "FetchedNode" in data
+    assert provider._schemas is None
+    schema = provider.get_schema("FetchedNode")
+    assert schema is not None
+    assert schema.inputs["image"].type == "IMAGE"
+    cached = load_object_info_cache(provider.cache_path)
+    result = validate_object_info_cache(
+        cached,
+        expected={"runtime_fingerprint": runtime_fingerprint("http://runtime.test")},
+        cache_path=provider.cache_path,
+    )
+    assert result.ok
+    assert cached is not None and "FetchedNode" in cached
+
+
+def test_runtime_schema_provider_async_rejects_stale_cache_and_rewrites_fresh(tmp_path, monkeypatch) -> None:
+    class FakeServer:
+        async def __aenter__(self):
+            return "http://runtime.test"
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        async def object_info(self):
+            return {"AsyncFetchedNode": {"input": {"optional": {"strength": ["FLOAT", {"default": 1.0}]}}}}
+
+    monkeypatch.setattr("vibecomfy.schema.provider.comfy_server", lambda **kwargs: FakeServer())
+    monkeypatch.setattr("vibecomfy.schema.provider.ComfyClient", FakeClient)
+
+    provider = RuntimeSchemaProvider(server_url="http://runtime.test", cache_dir=tmp_path)
+    write_object_info_cache(
+        provider.cache_path,
+        {"StaleNode": {"input": {"required": {"prompt": ["STRING", {}]}}}},
+        runtime_fingerprint="stale-runtime",
+    )
+
+    data = asyncio.run(provider.object_info_async())
+
+    assert "AsyncFetchedNode" in data
+    cached = load_object_info_cache(provider.cache_path)
+    result = validate_object_info_cache(
+        cached,
+        expected={"runtime_fingerprint": runtime_fingerprint("http://runtime.test")},
+        cache_path=provider.cache_path,
+    )
+    assert result.ok
+    assert cached is not None and "AsyncFetchedNode" in cached
 
 
 def test_object_info_schema_provider_reads_normalized_cache_shape(tmp_path) -> None:
@@ -666,7 +968,9 @@ def test_runtime_schema_provider_fetches_and_writes_object_info_cache(tmp_path, 
     data = asyncio.run(provider.object_info_async())
 
     assert "FetchedNode" in data
-    assert json.loads(provider.cache_path.read_text(encoding="utf-8")) == data
+    cached = json.loads(provider.cache_path.read_text(encoding="utf-8"))
+    assert cached["FetchedNode"] == data["FetchedNode"]
+    assert cached[CACHE_METADATA_KEY]["format_version"] == OBJECT_INFO_CACHE_FORMAT_VERSION
     schema = provider.get_schema("FetchedNode")
     assert schema is not None
     assert schema.inputs["strength"].default == 1.0
@@ -707,6 +1011,160 @@ class ImageResizeKJv2:
     assert schema.inputs["upscale_method"].choices == ["nearest-exact", "lanczos"]
     assert schema.inputs["device"].required is False
     assert schema.outputs == [OutputSpec(type="IMAGE", name="image")]
+
+
+def test_source_schema_provider_default_roots_are_explicit() -> None:
+    provider = SourceSchemaProvider()
+
+    assert provider.roots == [Path("custom_nodes"), Path("vendor") / "ComfyUI"]
+    assert SourceSchemaProvider([]).roots == []
+
+
+def test_source_schema_provider_default_roots_do_not_scan_tmp_comfyui_checkout(tmp_path, monkeypatch) -> None:
+    tmp_checkout = Path("/tmp") / f"ComfyUI-vibecomfy-t9-{tmp_path.name}"
+    node_dir = tmp_checkout / "custom_nodes"
+    node_dir.mkdir(parents=True)
+    (node_dir / "tmp_only.py").write_text(
+        """
+class TmpOnlyNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"value": ("STRING", {})}}
+""",
+        encoding="utf-8",
+    )
+    try:
+        monkeypatch.chdir(tmp_path)
+
+        provider = SourceSchemaProvider()
+
+        assert provider.get_schema("TmpOnlyNode") is None
+        assert tmp_checkout not in provider.roots
+    finally:
+        (node_dir / "tmp_only.py").unlink(missing_ok=True)
+        node_dir.rmdir()
+        tmp_checkout.rmdir()
+
+
+def test_source_schema_provider_bounds_roots_with_warning(tmp_path) -> None:
+    skipped_root = tmp_path / "root_b"
+    skipped_root.mkdir()
+    (skipped_root / "SkippedRootNode.py").write_text(
+        """
+class SkippedRootNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"value": ("STRING", {})}}
+""",
+        encoding="utf-8",
+    )
+
+    provider = SourceSchemaProvider([tmp_path / "root_a", skipped_root], max_roots=1)
+
+    assert provider.get_schema("SkippedRootNode") is None
+    assert provider.roots == [tmp_path / "root_a"]
+    assert [
+        warning.code
+        for warning in provider.scan_warnings
+        if warning.path == str(skipped_root)
+    ] == ["source_scan_root_cap_skipped"]
+
+
+def test_source_schema_provider_bounds_recursive_scan_with_warning(tmp_path) -> None:
+    source_root = tmp_path / "custom_nodes"
+    source_root.mkdir()
+    for name in ("a.py", "b.py", "c.py"):
+        (source_root / name).write_text(
+            """
+class CappedNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"value": ("STRING", {})}}
+""",
+            encoding="utf-8",
+        )
+
+    provider = SourceSchemaProvider([source_root], max_files_per_root=2, max_total_files=10)
+
+    assert provider.get_schema("CappedNode") is not None
+    assert any(warning.code == "source_scan_file_cap_skipped" for warning in provider.scan_warnings)
+
+
+def test_source_schema_provider_bounds_total_files_deterministically(tmp_path) -> None:
+    first_root = tmp_path / "a_root"
+    second_root = tmp_path / "b_root"
+    first_root.mkdir()
+    second_root.mkdir()
+    (first_root / "aa.py").write_text("# no schema here\n", encoding="utf-8")
+    (first_root / "zz.py").write_text("# no schema here\n", encoding="utf-8")
+    (second_root / "later.py").write_text(
+        """
+class LaterNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"value": ("STRING", {})}}
+""",
+        encoding="utf-8",
+    )
+
+    provider = SourceSchemaProvider([first_root, second_root], max_files_per_root=10, max_total_files=2)
+
+    assert provider.get_schema("LaterNode") is None
+    assert [
+        warning.code
+        for warning in provider.scan_warnings
+        if warning.path == str(second_root / "later.py")
+    ] == ["source_scan_total_file_cap_skipped"]
+
+
+def test_source_schema_provider_excludes_common_large_directories(tmp_path) -> None:
+    source_root = tmp_path / "custom_nodes"
+    excluded_dir = source_root / "node_modules"
+    excluded_dir.mkdir(parents=True)
+    (excluded_dir / "excluded.py").write_text(
+        """
+class ExcludedDirectoryNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"value": ("STRING", {})}}
+""",
+        encoding="utf-8",
+    )
+
+    provider = SourceSchemaProvider([source_root])
+
+    assert provider.get_schema("ExcludedDirectoryNode") is None
+    assert provider.provenance_for("ExcludedDirectoryNode") is None
+
+
+def test_source_schema_provider_reports_dynamic_input_types_miss(tmp_path) -> None:
+    source_root = tmp_path / "custom_nodes"
+    source_root.mkdir()
+    (source_root / "dynamic.py").write_text(
+        """
+def make_inputs():
+    return {"required": {"value": ("STRING", {})}}
+
+class DynamicInputNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return make_inputs()
+""",
+        encoding="utf-8",
+    )
+
+    provider = SourceSchemaProvider([source_root])
+
+    assert provider.get_schema("DynamicInputNode") is None
+    assert provider.get_schema("AbsentNode") is None
+    assert provider.provenance_for("AbsentNode") is None
+    assert any(
+        warning.code == "dynamic_input_types_miss" and warning.class_type == "DynamicInputNode"
+        for warning in provider.scan_warnings
+    )
+    provenance = provider.provenance_for("DynamicInputNode")
+    assert provenance is not None
+    assert provenance.ignored_evidence == ["dynamic_input_types_miss"]
 
 
 # ---------------------------------------------------------------------------
@@ -1152,27 +1610,19 @@ def test_conversion_schema_provider_falls_back_to_object_info_cache(
     index = tmp_path / "node_index.json"
     index.write_text("[]", encoding="utf-8")
 
-    # Create an object_info cache with provenance metadata
-    import hashlib
-    fp = hashlib.sha256(b"test-cache").hexdigest()[:16]
-    cache = tmp_path / f"object_info.{fp}.json"
-    cache.write_text(
-        json.dumps(
-            {
-                "_cache_metadata": {
-                    "fingerprint": fp,
-                    "source": "test-cache",
-                    "timestamp": "2026-01-01T00:00:00Z",
-                },
-                "CacheOnlyNode": {
-                    "input": {"required": {"image": ["IMAGE", {}]}},
-                    "output": ["MASK"],
-                    "output_name": ["mask"],
-                    "category": "test/cache",
-                },
-            }
-        ),
-        encoding="utf-8",
+    cache = tmp_path / "object_info.json"
+    write_object_info_cache(
+        cache,
+        {
+            "CacheOnlyNode": {
+                "input": {"required": {"image": ["IMAGE", {}]}},
+                "output": ["MASK"],
+                "output_name": ["mask"],
+                "category": "test/cache",
+            },
+        },
+        runtime_fingerprint=runtime_fingerprint(),
+        metadata={"source": "test-cache", "timestamp": "2026-01-01T00:00:00Z"},
     )
 
     provider = ConversionSchemaProvider(
@@ -1187,8 +1637,8 @@ def test_conversion_schema_provider_falls_back_to_object_info_cache(
     assert schema is not None
     assert schema.source_provider == "object_info_cache"
     assert schema.inputs["image"].type == "IMAGE"
-    assert schema.confidence == 0.4
-    assert any(item.startswith("stale_cache_fingerprint:") for item in schema.conflicts)
+    assert schema.confidence == 0.8
+    assert schema.conflicts == ()
 
 
 def test_conversion_schema_provider_uses_object_info_index_root(
@@ -1202,17 +1652,17 @@ def test_conversion_schema_provider_uses_object_info_index_root(
         json.dumps({"IndexedNode": "pack.json"}),
         encoding="utf-8",
     )
-    (object_info_root / "pack.json").write_text(
-        json.dumps(
-            {
-                "IndexedNode": {
-                    "pack": "indexed-pack",
-                    "inputs": {"required": {"prompt": ["STRING", {}]}},
-                    "outputs": [{"type": "IMAGE", "name": "image"}],
-                }
+    write_object_info_cache(
+        object_info_root / "pack.json",
+        {
+            "IndexedNode": {
+                "pack": "indexed-pack",
+                "inputs": {"required": {"prompt": ["STRING", {}]}},
+                "outputs": [{"type": "IMAGE", "name": "image"}],
             }
-        ),
-        encoding="utf-8",
+        },
+        authored_pack_fingerprint="authored-pack-id",
+        metadata={"package": "indexed-pack", "version": "1.2.3"},
     )
 
     provider = ConversionSchemaProvider(
@@ -1230,6 +1680,9 @@ def test_conversion_schema_provider_uses_object_info_index_root(
     assert schema.pack == "indexed-pack"
     assert schema.inputs["prompt"].type == "STRING"
     assert schema.outputs == [OutputSpec(type="IMAGE", name="image")]
+    assert schema.source_hash == "authored-pack-id"
+    assert schema.source_package == "indexed-pack"
+    assert schema.source_version == "1.2.3"
 
 
 def test_conversion_schema_provider_falls_back_to_widget_schema(
@@ -1323,17 +1776,17 @@ def test_conversion_schema_provider_with_runtime_enabled(
     runtime_cache_path.parent.mkdir(parents=True, exist_ok=True)
     import json
 
-    runtime_cache_path.write_text(
-        json.dumps(
-            {
-                "RuntimeNode": {
-                    "input": {"required": {"seed": ["INT", {"default": 0}]}},
-                    "output": ["IMAGE"],
-                    "output_name": ["image"],
-                }
+    write_object_info_cache(
+        runtime_cache_path,
+        {
+            "RuntimeNode": {
+                "input": {"required": {"seed": ["INT", {"default": 0}]}},
+                "output": ["IMAGE"],
+                "output_name": ["image"],
             }
-        ),
-        encoding="utf-8",
+        },
+        runtime_fingerprint=runtime_fingerprint("http://runtime.test"),
+        server_url="http://runtime.test",
     )
 
     schema = provider.get_schema("RuntimeNode")
@@ -1492,8 +1945,9 @@ def test_conversion_schema_provider_stale_cache_does_not_block_other_providers(
     assert schema.confidence == 0.3
 
 
-def test_conversion_schema_provider_marks_metadata_less_object_info_cache(
+def test_conversion_schema_provider_rejects_metadata_less_object_info_cache(
     tmp_path,
+    caplog,
 ) -> None:
     import json
 
@@ -1519,54 +1973,54 @@ def test_conversion_schema_provider_marks_metadata_less_object_info_cache(
         node_index_path=str(index),
         source_roots=[],
         object_info_cache_path=str(cache),
-        widget_schema={},
+        widget_schema={"CachedNode": ["fallback_prompt"]},
         enable_runtime=False,
     )
 
     schema = provider.get_schema("CachedNode")
     assert schema is not None
-    assert schema.source_provider == "object_info_cache"
-    assert schema.source_cache_path == str(cache)
-    assert schema.confidence == 0.5
-    assert "metadata_less_cache" in schema.ignored_evidence
-    assert "missing_cache_fingerprint" in schema.ignored_evidence
+    assert schema.source_provider == "widget_schema"
+    assert schema.confidence == 0.3
+    assert "fallback_prompt" in schema.inputs
+    assert provider._object_info is None
+    assert any("rejected_metadata_less_object_info_cache" in item for item in provider._rejected_object_info_cache.conflicts)
+    assert "rejected object_info cache" in caplog.text
 
 
-def test_conversion_schema_provider_marks_stale_object_info_cache_fingerprint(
+def test_conversion_schema_provider_rejects_stale_object_info_cache_fingerprint(
     tmp_path,
+    caplog,
 ) -> None:
-    import json
-
     from vibecomfy.schema.provider import ConversionSchemaProvider
 
     index = tmp_path / "node_index.json"
     index.write_text("[]", encoding="utf-8")
     cache = tmp_path / "object_info.stale-fingerprint.json"
-    cache.write_text(
-        json.dumps(
-            {
-                "_cache_metadata": {"runtime_fingerprint": "stale-fingerprint"},
-                "CachedNode": {
-                    "input": {"required": {"prompt": ["STRING", {}]}},
-                    "output": ["IMAGE"],
-                    "output_name": ["image"],
-                },
-            }
-        ),
-        encoding="utf-8",
+    write_object_info_cache(
+        cache,
+        {
+            "CachedNode": {
+                "input": {"required": {"prompt": ["STRING", {}]}},
+                "output": ["IMAGE"],
+                "output_name": ["image"],
+            },
+        },
+        runtime_fingerprint="stale-fingerprint",
     )
 
     provider = ConversionSchemaProvider(
         node_index_path=str(index),
         source_roots=[],
         object_info_cache_path=str(cache),
-        widget_schema={},
+        widget_schema={"CachedNode": ["fallback_prompt"]},
         enable_runtime=False,
     )
 
     schema = provider.get_schema("CachedNode")
     assert schema is not None
-    assert schema.source_provider == "object_info_cache"
-    assert schema.source_hash == "stale-fingerprint"
-    assert schema.confidence == 0.4
-    assert any(item.startswith("stale_cache_fingerprint:") for item in schema.conflicts)
+    assert schema.source_provider == "widget_schema"
+    assert schema.confidence == 0.3
+    assert provider._object_info is None
+    assert provider._rejected_object_info_cache.hash == "stale-fingerprint"
+    assert any("rejected_stale_object_info_cache" in item for item in provider._rejected_object_info_cache.conflicts)
+    assert "cache_runtime_fingerprint_mismatch" in caplog.text

@@ -8,7 +8,7 @@ from typing import Any
 from vibecomfy.runtime.client import ComfyClient
 from vibecomfy.runtime.server import comfy_server
 
-from .cache import load_object_info_cache, object_info_cache_path, write_object_info_cache
+from .cache import load_object_info_cache, object_info_cache_path, runtime_fingerprint, write_object_info_cache
 from .object_info import schemas_from_object_info
 from .types import NodeSchema
 
@@ -55,7 +55,12 @@ class RuntimeSchemaProvider:
         client_cls = _provider_compat_attr("ComfyClient", ComfyClient)
         async with server_factory(server_url=self.server_url, log_path=self.log_path) as active_url:
             data = await client_cls(active_url).object_info()
-        write_object_info_cache(self.cache_path, data)
+        write_object_info_cache(
+            self.cache_path,
+            data,
+            runtime_fingerprint=runtime_fingerprint(self.server_url),
+            server_url=active_url,
+        )
         return data
 
 

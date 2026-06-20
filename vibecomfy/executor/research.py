@@ -27,6 +27,7 @@ from .contracts import (
     PrecedentAdaptationPlan,
     ResearchResult,
     WorkflowSlice,
+    warning_detail_from_exception,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -773,6 +774,9 @@ def research(
     local = run_local_research(query, task=task, limit=local_limit)
     sources: list[dict[str, Any]] = list(local.sources)
     warnings: list[str] = list(local.warnings)
+    warning_details: list[dict[str, Any]] = [
+        dict(detail) for detail in local.warning_details
+    ]
 
     # ── Phase 2: injectable Hivemind (non-fatal on any failure) ───────────
     resolved_hivemind_client: HivemindClient | None
@@ -795,8 +799,10 @@ def research(
             )
         except HivemindError as exc:
             warnings.append(f"hivemind: {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
         except Exception as exc:
             warnings.append(f"hivemind (unexpected): {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
         else:
             hivemind_had_sources = bool(hivemind_sources)
             # Merge Hivemind results after local, deduplicating by class_type.
@@ -821,8 +827,10 @@ def research(
             )
         except WebSearchError as exc:
             warnings.append(f"web search: {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
         except Exception as exc:
             warnings.append(f"web search (unexpected): {exc}")
+            warning_details.append(warning_detail_from_exception(exc))
         else:
             if not web_sources:
                 warnings.append("web search: no results")
@@ -864,6 +872,7 @@ def research(
         summary=summary,
         sources=tuple(sources),
         warnings=tuple(list(warnings) + precedent_warnings),
+        warning_details=tuple(warning_details),
         precedent_slices=precedent_slices,
         adaptation_plan=adaptation_plan,
     )

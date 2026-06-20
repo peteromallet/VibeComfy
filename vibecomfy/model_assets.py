@@ -118,7 +118,7 @@ def resolve_referenced_assets(
     workflow: VibeWorkflow,
     *,
     registry: Sequence[ModelEntry] | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Resolve model-picker inputs in a built workflow to downloadable assets.
 
     Authored ``model_assets`` is still the preferred place for bespoke URLs, but
@@ -130,12 +130,12 @@ def resolve_referenced_assets(
 
     entries = tuple(registry) if registry is not None else load_registry()
     resolved: list[dict[str, Any]] = []
-    unresolved: list[dict[str, str]] = []
+    unresolved: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for reference in _referenced_model_values(workflow):
         asset = _asset_for_reference(reference, registry=entries)
         if asset is None:
-            unresolved.append(reference)
+            unresolved.append(_unresolved_asset_for_reference(reference))
             continue
         key = (asset["name"], asset["subdir"])
         if key in seen:
@@ -185,7 +185,7 @@ def _referenced_model_values(workflow: VibeWorkflow) -> list[dict[str, str]]:
             subdir = _subdir_for_model_reference(node.class_type, field)
             if subdir is None or not isinstance(value, str) or not value:
                 continue
-            if _looks_like_runtime_input(value):
+            if _is_none_model_value(value):
                 continue
             key = (node.id, node.class_type, field, value)
             if key in seen:
@@ -239,6 +239,7 @@ def _asset_for_reference(
             revision = getattr(entry.source, "revision", None)
             if revision:
                 asset["hf_revision"] = revision
+            asset.update(_reference_metadata(reference, reference_type="registry-backed", downloadable=True))
             return asset
     return None
 
@@ -253,8 +254,51 @@ def _url_for_registry_entry(entry: ModelEntry) -> str | None:
     return None
 
 
+def _is_none_model_value(value: str) -> bool:
+    return value in {"none", "None"}
+
+
 def _looks_like_runtime_input(value: str) -> bool:
     return value.startswith(("http://", "https://", "/", "./", "../")) or value in {"none", "None"}
+
+
+def _unresolved_asset_for_reference(reference: Mapping[str, str]) -> dict[str, str | bool]:
+    value = reference["value"]
+    return {
+        "name": value,
+        "subdir": reference["subdir"],
+        **_reference_metadata(
+            reference,
+            reference_type=_model_reference_type(value),
+            downloadable=False,
+        ),
+        "unresolved": True,
+    }
+
+
+def _reference_metadata(
+    reference: Mapping[str, str],
+    *,
+    reference_type: str,
+    downloadable: bool,
+) -> dict[str, str | bool]:
+    return {
+        "node_id": reference["node_id"],
+        "class_type": reference["class_type"],
+        "field": reference["field"],
+        "value": reference["value"],
+        "reference_type": reference_type,
+        "downloadable": downloadable,
+    }
+
+
+def _model_reference_type(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return "external-url"
+    if value.startswith("/") or value.startswith("\\\\") or re.match(r"^[A-Za-z]:[\\/]", value):
+        return "absolute-path"
+    return "relative-path"
 
 
 def _normalise_requirement_entries(models: Iterable[Any]) -> list[dict[str, Any]]:

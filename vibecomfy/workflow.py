@@ -850,6 +850,7 @@ class VibeWorkflow:
             from vibecomfy.model_assets import (
                 _asset_for_reference,
                 _referenced_model_values,
+                _unresolved_asset_for_reference,
             )
             from vibecomfy.registry.models_loader import load_registry
 
@@ -861,6 +862,8 @@ class VibeWorkflow:
                 asset = _asset_for_reference(ref, registry=registry)
                 if asset is not None:
                     model_assets.append(asset)
+                else:
+                    model_assets.append(_unresolved_asset_for_reference(ref))
         except Exception:
             # resolve_referenced_assets may fail when registry is unavailable;
             # degrade gracefully and return whatever we can.
