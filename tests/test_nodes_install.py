@@ -966,7 +966,7 @@ def test_restore_keeps_sentinel_when_verification_head_mismatches(tmp_path: Path
     sentinel = install_root / ".vibecomfy-install-state" / "ExamplePack.json"
     payload = json.loads(sentinel.read_text(encoding="utf-8"))
     assert result.status == "failed"
-    assert "failed to verify git HEAD" in (result.error or "")
+    assert "expected git HEAD pinnedsha" in (result.error or "")
     assert payload["phase"] == "verification"
 
 
