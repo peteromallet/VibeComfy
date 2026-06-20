@@ -506,6 +506,31 @@ class TestBuildReplyMessages:
         assert "Do not dump the research summary" in system
         assert "quality scores only when that metadata is explicitly present" in system
 
+    def test_reply_prompt_allows_lightweight_markdown_inside_json(self) -> None:
+        msgs = build_reply_messages("explain this graph")
+        system = msgs[0]["content"]
+        assert '"reply": string' in system
+        assert "lightweight Markdown" in system
+        assert "short paragraphs, bullet lists, emphasis, and inline code" in system
+        assert "wire format remains JSON" in system
+        assert "Do NOT use fenced code blocks in the reply string" in system
+        assert "Return ONLY a JSON object" in system
+
+    def test_inspect_reply_prompt_encourages_readable_structure(self) -> None:
+        msgs = build_reply_messages(
+            "what does this graph do?",
+            graph_inspection="1: CheckpointLoaderSimple -> 2: KSampler",
+        )
+        system = msgs[0]["content"]
+        user = msgs[1]["content"]
+        assert "For inspect-only or explain-style replies" in system
+        assert "instead of compressing everything into one paragraph" in system
+        assert "Use short paragraphs and/or bullet lists" in system
+        assert "use inline code for node names, parameter names, and widget values" in system
+        assert "Do NOT suggest edits or changes" in system
+        assert "Graph inspection" in user
+        assert "CheckpointLoaderSimple -> 2: KSampler" in user
+
 
 # ── Response parsers ─────────────────────────────────────────────────────────
 
@@ -1650,4 +1675,3 @@ class TestResearchResultPrecedentFields:
         rr = ResearchResult(summary="test")
         with pytest.raises(Exception):
             rr.summary = "modified"  # type: ignore[misc]
-
