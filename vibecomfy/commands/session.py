@@ -143,8 +143,9 @@ def _cmd_session_start(args: argparse.Namespace) -> int:
             print(f"session {args.id} failed to start; see {log_path}", file=sys.stderr)
             return 1
         time.sleep(1)
-    _terminate_daemon_process(process)
     print(f"session {args.id} did not become ready within {ready_timeout_sec} seconds", file=sys.stderr)
+    sys.stderr.flush()
+    _terminate_daemon_process(process)
     return 1
 
 

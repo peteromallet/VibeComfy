@@ -77,6 +77,7 @@ def test_session_cli_start_list_flush_stop_flow(
     monkeypatch.setattr(session_cmd, "ComfyClient", FakeClient)
     monkeypatch.setattr(session_module, "current_source_revision", lambda: None)
     monkeypatch.setattr(session_module, "_session_url_healthy", lambda _url: True)
+    monkeypatch.setattr(session_cmd, "normalized_models_root", lambda: str(tmp_path / "ComfyUI/models"))
 
     start_args = argparse.Namespace(
         id="default",
