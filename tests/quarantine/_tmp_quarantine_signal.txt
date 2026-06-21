@@ -1,3 +1,0 @@
-# owner: diagnostics
-# reason: verifies scoped quarantine summary attribution
-tests/_tmp_quarantine_signal_test.py::test_quarantined_failure
