@@ -4444,7 +4444,7 @@
     {
       "id": "video/ltx2_3_i2v",
       "path": "ready_templates/video/ltx2_3_i2v.py",
-      "sha256": "f845394ae576b6ee4e143508551f5ece6815d7bdd0c658052296624a32be7712",
+      "sha256": "c2825a16b85358b58aea6fba42baa0ab26b8f4daf4255de0383a428e07841581",
       "canonical_form": {
         "nodes": [
           {
@@ -21188,7 +21188,7 @@
     {
       "id": "video/ltx2_3_t2v",
       "path": "ready_templates/video/ltx2_3_t2v.py",
-      "sha256": "f845394ae576b6ee4e143508551f5ece6815d7bdd0c658052296624a32be7712",
+      "sha256": "c2825a16b85358b58aea6fba42baa0ab26b8f4daf4255de0383a428e07841581",
       "canonical_form": {
         "nodes": [
           {
