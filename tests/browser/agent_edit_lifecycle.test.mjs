@@ -357,6 +357,78 @@ test("OK_CANDIDATE_RESPONSE extracts and stores deltaOps from V2 submit result",
   assert.equal(panel.state.deltaOps[1].value, 4);
 });
 
+test("OK_CANDIDATE_RESPONSE gates Apply on apply eligibility plus candidate presence", () => {
+  const blockedPanel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+
+  transition(blockedPanel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-blocked",
+      turn_id: "t-blocked",
+      message: "Candidate exists, but server blocked Apply.",
+      apply_eligible: false,
+      canvas_apply_allowed: true,
+      apply_allowed: true,
+    },
+    candidateGraph: { nodes: [{ id: 1 }] },
+    candidateGraphHash: "hash-blocked",
+    applyEligibility: {
+      applyable: false,
+      reason: "no_candidate",
+      message: "No candidate is available to apply.",
+      warnings: [],
+    },
+  });
+
+  assert.deepEqual(blockedPanel.state.candidateGraph, { nodes: [{ id: 1 }] });
+  assert.equal(blockedPanel.state.applyAllowed, false);
+  assert.equal(blockedPanel.state.canvasApplyAllowed, false);
+
+  const eligiblePanel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+  transition(eligiblePanel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      session_id: "sess-eligible",
+      turn_id: "t-eligible",
+      message: "Candidate can be applied.",
+      apply_eligible: true,
+    },
+    candidateGraph: { nodes: [{ id: 2 }] },
+    candidateGraphHash: "hash-eligible",
+    applyEligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready to apply.",
+      warnings: [],
+    },
+  });
+
+  assert.equal(eligiblePanel.state.applyAllowed, true);
+  assert.equal(eligiblePanel.state.canvasApplyAllowed, true);
+});
+
+test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE gates restored actions on eligibility plus candidate presence", () => {
+  const panel = makePanel({ phase: PANEL_STATE.IDLE });
+
+  transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
+    sessionId: "sess-restore",
+    turnId: "t-restore",
+    baseline: { raw: {} },
+    candidateGraph: { nodes: [{ id: 3 }] },
+    candidateGraphHash: "hash-restore",
+    applyEligibility: {
+      applyable: false,
+      reason: "no_candidate",
+      message: "No candidate is available to apply.",
+      warnings: [],
+    },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+  });
+
+  assert.deepEqual(panel.state.candidateGraph, { nodes: [{ id: 3 }] });
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+});
+
 test("OK_CANDIDATE_RESPONSE preserves deltaOps through review (survives non-clearing transitions)", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
   const deltaOps = [

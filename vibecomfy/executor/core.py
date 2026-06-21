@@ -65,62 +65,51 @@ def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class RouteBehavior:
+    route: str
     needs_research: bool
     needs_implement: bool
     plan_summary: str
     clears_result_graph: bool
     reply_uses_graph_inspection: bool
+    can_produce_candidate: bool
 
 
 _ROUTE_BEHAVIORS = MappingProxyType({
-    "direct_edit": RouteBehavior(
-        needs_research=False,
-        needs_implement=True,
-        plan_summary="Direct edit — apply changes without research.",
-        clears_result_graph=False,
-        reply_uses_graph_inspection=False,
-    ),
-    "inspect_only": RouteBehavior(
-        needs_research=False,
-        needs_implement=False,
-        plan_summary="Inspect the graph without editing.",
-        clears_result_graph=True,
-        reply_uses_graph_inspection=True,
-    ),
-    "asset_lookup": RouteBehavior(
-        needs_research=False,
-        needs_implement=True,
-        plan_summary="Look up model/asset configurations.",
-        clears_result_graph=False,
-        reply_uses_graph_inspection=False,
-    ),
-    "diagnose_repair": RouteBehavior(
-        needs_research=True,
-        needs_implement=True,
-        plan_summary="Diagnose and repair graph issues.",
-        clears_result_graph=False,
-        reply_uses_graph_inspection=False,
-    ),
-    "subgraph_preview": RouteBehavior(
-        needs_research=False,
-        needs_implement=False,
-        plan_summary="Preview intermediate subgraph output.",
-        clears_result_graph=False,
-        reply_uses_graph_inspection=False,
-    ),
-    "precedent_research": RouteBehavior(
-        needs_research=True,
-        needs_implement=True,
-        plan_summary="Research workflow precedents, then adapt to current graph.",
-        clears_result_graph=False,
-        reply_uses_graph_inspection=False,
-    ),
     "clarify": RouteBehavior(
+        route="clarify",
         needs_research=False,
         needs_implement=False,
         plan_summary="Ask a clarifying question before proceeding.",
         clears_result_graph=False,
         reply_uses_graph_inspection=False,
+        can_produce_candidate=False,
+    ),
+    "inspect": RouteBehavior(
+        route="inspect",
+        needs_research=False,
+        needs_implement=False,
+        plan_summary="Inspect the graph without editing.",
+        clears_result_graph=True,
+        reply_uses_graph_inspection=True,
+        can_produce_candidate=False,
+    ),
+    "revise": RouteBehavior(
+        route="revise",
+        needs_research=False,
+        needs_implement=True,
+        plan_summary="Revise the current graph without research.",
+        clears_result_graph=False,
+        reply_uses_graph_inspection=False,
+        can_produce_candidate=True,
+    ),
+    "adapt": RouteBehavior(
+        route="adapt",
+        needs_research=True,
+        needs_implement=True,
+        plan_summary="Research workflow precedents, then adapt them to the current graph.",
+        clears_result_graph=False,
+        reply_uses_graph_inspection=False,
+        can_produce_candidate=True,
     ),
 })
 
@@ -128,55 +117,23 @@ if set(_ROUTE_BEHAVIORS) != (_ALLOWED_ROUTES - {""}):
     raise ValueError("Route behaviors must cover every non-empty allowed route exactly once.")
 
 
-def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
-    """Resolve the route behavior for *plan*.
-
-    Explicit routes use the centralized behavior registry. When no explicit
-    route is present, the legacy booleans and intent determine the behavior so
-    older classifier outputs keep their historical semantics.
-    """
-    if plan.route:
-        return _ROUTE_BEHAVIORS[plan.effective_route]
-
+def _canonical_route_for_plan(plan: ClassifyDecision) -> str:
+    """Return the canonical runtime route for a classifier plan."""
+    route = plan.effective_route
+    if route in _ROUTE_BEHAVIORS:
+        return route
     if plan.implement and plan.research:
-        return RouteBehavior(
-            needs_research=True,
-            needs_implement=True,
-            plan_summary="Research relevant context, then edit the graph.",
-            clears_result_graph=False,
-            reply_uses_graph_inspection=False,
-        )
+        return "adapt"
     if plan.implement:
-        return RouteBehavior(
-            needs_research=False,
-            needs_implement=True,
-            plan_summary="Edit the graph.",
-            clears_result_graph=False,
-            reply_uses_graph_inspection=False,
-        )
-    if plan.intent == "explain_graph":
-        return RouteBehavior(
-            needs_research=True,
-            needs_implement=False,
-            plan_summary="Inspect the attached graph and explain it.",
-            clears_result_graph=False,
-            reply_uses_graph_inspection=False,
-        )
+        return "revise"
     if plan.research:
-        return RouteBehavior(
-            needs_research=True,
-            needs_implement=False,
-            plan_summary="Research relevant context before replying.",
-            clears_result_graph=False,
-            reply_uses_graph_inspection=False,
-        )
-    return RouteBehavior(
-        needs_research=False,
-        needs_implement=False,
-        plan_summary="Reply to the request.",
-        clears_result_graph=False,
-        reply_uses_graph_inspection=False,
-    )
+        return "inspect"
+    return "clarify"
+
+
+def _route_behavior(plan: ClassifyDecision) -> RouteBehavior:
+    """Resolve the canonical route behavior for *plan*."""
+    return _ROUTE_BEHAVIORS[_canonical_route_for_plan(plan)]
 
 
 def _should_research(plan: ClassifyDecision) -> bool:
@@ -414,13 +371,22 @@ def _run_implement(
             message="No graph attached; implementation skipped.",
         )
 
+    executor_route = _canonical_route_for_plan(plan)
+    classification = plan.to_dict()
+    classification["route"] = executor_route
+    effective_task = plan.effective_task
+    if effective_task:
+        classification["task"] = effective_task
+
     payload: dict[str, Any] = {
         "task": request.query,
         "query": request.query,
         "graph": request.graph,
-        "route": spec.agent,
+        "route": executor_route,
+        "executor_route": executor_route,
+        "provider_route": spec.agent,
         "model": spec.model,
-        "executor_classification": plan.to_dict(),
+        "executor_classification": classification,
     }
     if research_result is not None:
         research_payload = research_result.to_dict()
@@ -693,7 +659,7 @@ def run_executor(
     plan: ClassifyDecision = ClassifyDecision.respond_only()
     research_result: ResearchResult | None = None
     implementation_result: ImplementationResult | None = None
-    graph: dict[str, Any] | None = None
+    candidate_graph: dict[str, Any] | None = None
     executor_id = new_profile_id("executor")
     request_fields = {
         "executor_id": executor_id,
@@ -881,8 +847,12 @@ def run_executor(
                 report=report,
             )
 
-        if implementation_result.graph is not None:
-            graph = implementation_result.graph
+        route_behavior = _route_behavior(plan)
+        if (
+            route_behavior.can_produce_candidate
+            and implementation_result.graph is not None
+        ):
+            candidate_graph = implementation_result.graph
     else:
         _emit_executor_phase_event(
             request,
@@ -940,9 +910,9 @@ def run_executor(
             report=report,
         )
 
-    # ── Guard: inspect_only must never return an edited graph ────────────
+    # ── Guard: inspect must never return an edited graph ─────────────────
     if route_behavior.clears_result_graph:
-        graph = None
+        candidate_graph = None
 
     # ── Assemble success result ──────────────────────────────────────────
     report = Report(
@@ -956,12 +926,12 @@ def run_executor(
         **request_fields,
         has_research=research_result is not None,
         has_implementation=implementation_result is not None,
-        result_has_graph=graph is not None,
+        result_has_graph=candidate_graph is not None,
         reply_preview=short_text(reply_text),
     )
     return ExecutorResult.success(
         report=report,
-        graph=graph,
+        graph=candidate_graph,
         reply=reply_text,
     )
 

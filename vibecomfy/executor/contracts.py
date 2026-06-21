@@ -8,9 +8,12 @@ canonical ``to_dict()`` serializer so the executor can produce the standard
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _freeze_jsonish(value: Any) -> Any:
@@ -35,13 +38,10 @@ def _thaw_jsonish(value: Any) -> Any:
 # derive from legacy booleans".
 _ALLOWED_ROUTES = frozenset({
     "",
-    "direct_edit",
-    "inspect_only",
-    "asset_lookup",
-    "diagnose_repair",
-    "subgraph_preview",
-    "precedent_research",
     "clarify",
+    "inspect",
+    "revise",
+    "adapt",
 })
 
 # Normalized task vocabulary carried alongside route.
@@ -58,14 +58,29 @@ _ALLOWED_TASKS = frozenset({
 })
 
 _ROUTE_DESCRIPTIONS: dict[str, str] = {
-    "direct_edit": "simple graph edit, no research needed.",
-    "inspect_only": "inspect/explain a graph without editing.",
-    "asset_lookup": "find assets, models, or nodes.",
-    "diagnose_repair": "diagnose and fix a broken graph.",
-    "subgraph_preview": "preview a subgraph or node group.",
-    "precedent_research": "research precedent templates/techniques before editing.",
     "clarify": "ask a clarifying question or respond without editing.",
+    "inspect": "inspect or explain the current graph without editing.",
+    "revise": "revise the current graph using local context only.",
+    "adapt": "research or adapt a precedent before revising the graph.",
 }
+
+_PUBLIC_ROUTES = frozenset(_ROUTE_DESCRIPTIONS)
+_APPLY_ELIGIBLE_ROUTES = frozenset({"revise", "adapt"})
+_EVIDENCE_KEYS = frozenset({
+    "classification",
+    "graph_inspection",
+    "research",
+    "implementation",
+    "warnings",
+})
+_NO_CANDIDATE_REASONS = frozenset({
+    "route_not_applyable",
+    "no_graph",
+    "implementation_skipped",
+    "implementation_failed",
+    "no_changes",
+    "unknown_route",
+})
 
 _TASK_DESCRIPTIONS: dict[str, str] = {
     "edit_graph": "modify the current graph.",
@@ -83,6 +98,64 @@ if set(_ROUTE_DESCRIPTIONS) != (_ALLOWED_ROUTES - {""}):
 
 if set(_TASK_DESCRIPTIONS) != (_ALLOWED_TASKS - {""}):
     raise ValueError("Task descriptions must cover every non-empty allowed task exactly once.")
+
+
+def _normalize_explicit_route(
+    route: str,
+    *,
+    research: bool,
+    implement: bool,
+    intent: str,
+    task: str = "",
+) -> str:
+    """Normalize an explicit classifier route to the public route vocabulary.
+
+    Legacy route names are accepted as input aliases only during the migration
+    window. Unknown explicit routes fail closed to ``clarify`` so serialized
+    output never exposes blank or legacy route values.
+    """
+    if not route:
+        return ""
+    if route in _ALLOWED_ROUTES:
+        return route
+
+    static_aliases = {
+        "inspect_only": "inspect",
+        "direct_edit": "revise",
+        "diagnose_repair": "revise",
+        "precedent_research": "adapt",
+    }
+    if route in static_aliases:
+        normalized = static_aliases[route]
+        LOGGER.info(
+            "executor legacy route alias normalized",
+            extra={"legacy_route": route, "normalized_route": normalized},
+        )
+        return normalized
+
+    if route in {"asset_lookup", "subgraph_preview"}:
+        if research and implement:
+            normalized = "adapt"
+        elif implement:
+            normalized = "revise"
+        else:
+            normalized = "clarify"
+        LOGGER.info(
+            "executor legacy route alias normalized",
+            extra={
+                "legacy_route": route,
+                "normalized_route": normalized,
+                "intent": intent,
+                "task": task,
+            },
+        )
+        return normalized
+
+    LOGGER.warning(
+        "executor unknown explicit route failed closed",
+        extra={"requested_route": route, "normalized_route": "clarify"},
+    )
+    return "clarify"
 
 
 def format_route_options_for_prompt() -> str:
@@ -164,9 +237,14 @@ class ClassifyDecision:
         if self.intent not in allowed_intents:
             object.__setattr__(self, "intent", "respond")
 
-        # Clamp route to allowed values.
-        if self.route not in _ALLOWED_ROUTES:
-            object.__setattr__(self, "route", "")
+        normalized_route = _normalize_explicit_route(
+            str(self.route).strip() if isinstance(self.route, str) else "",
+            research=self.research,
+            implement=self.implement,
+            intent=self.intent,
+            task=self.task if isinstance(self.task, str) else "",
+        )
+        object.__setattr__(self, "route", normalized_route)
 
         # Clamp task to allowed values.
         if self.task not in _ALLOWED_TASKS:
@@ -290,18 +368,18 @@ def _derive_route(*, research: bool, implement: bool, intent: str) -> str:
     no explicit route was set.
 
     The mapping follows the hard gate rules in SD2:
-    * direct_edit → implement without research
-    * inspect_only → research/inspect without implementation
+    * revise → implement without research
+    * inspect → research/inspect without implementation
     * clarify → neither research nor implementation
-    * precedent_research is NOT derived — it requires an explicit ``route``
+    * adapt is NOT derived — it requires an explicit ``route``
       because legacy ``research=true, implement=true`` is ambiguous.
     """
     if implement and not research:
-        # Edit with no research requirement → direct_edit.
-        return "direct_edit"
+        # Edit with no research requirement → revise.
+        return "revise"
     if research and not implement:
-        # Research/inspect without implementation → inspect_only.
-        return "inspect_only"
+        # Research/inspect without implementation → inspect.
+        return "inspect"
     if not research and not implement:
         # Neither research nor implementation → clarify.
         return "clarify"
@@ -602,12 +680,200 @@ class Report:
     implementation: ImplementationResult | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        inner: dict[str, Any] = {"plan": self.plan.to_dict()}
+        plan_payload = self.plan.to_dict()
+        route = _public_route_for_plan(self.plan)
+        plan_payload["route"] = route
+        task = self.plan.effective_task
+        if task:
+            plan_payload["task"] = task
+        inner: dict[str, Any] = {"plan": plan_payload}
         if self.research is not None:
             inner["research"] = self.research.to_dict()
         if self.implementation is not None:
             inner["implementation"] = self.implementation.to_dict()
         return {"executor": inner}
+
+
+# ── canonical turn envelope ──────────────────────────────────────────────────
+
+
+def _public_route_for_plan(plan: ClassifyDecision) -> str:
+    route = plan.effective_route
+    if route in _PUBLIC_ROUTES:
+        return route
+    if plan.implement and plan.research:
+        return "adapt"
+    if plan.implement:
+        return "revise"
+    if plan.research:
+        return "inspect"
+    return "clarify"
+
+
+@dataclass(frozen=True)
+class AgentEvidence:
+    """Bounded evidence object for public executor turn responses."""
+
+    classification: dict[str, Any] = field(default_factory=dict)
+    graph_inspection: dict[str, Any] = field(default_factory=dict)
+    research: dict[str, Any] = field(default_factory=dict)
+    implementation: dict[str, Any] = field(default_factory=dict)
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "classification", MappingProxyType({
+            str(k): _freeze_jsonish(v) for k, v in self.classification.items()
+        }))
+        object.__setattr__(self, "graph_inspection", MappingProxyType({
+            str(k): _freeze_jsonish(v) for k, v in self.graph_inspection.items()
+        }))
+        object.__setattr__(self, "research", MappingProxyType({
+            str(k): _freeze_jsonish(v) for k, v in self.research.items()
+        }))
+        object.__setattr__(self, "implementation", MappingProxyType({
+            str(k): _freeze_jsonish(v) for k, v in self.implementation.items()
+        }))
+        object.__setattr__(self, "warnings", tuple(str(w) for w in self.warnings))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "classification": _thaw_jsonish(self.classification),
+            "graph_inspection": _thaw_jsonish(self.graph_inspection),
+            "research": _thaw_jsonish(self.research),
+            "implementation": _thaw_jsonish(self.implementation),
+            "warnings": list(self.warnings),
+        }
+        extra_keys = set(payload) - _EVIDENCE_KEYS
+        if extra_keys:
+            raise ValueError(f"Unexpected evidence keys: {sorted(extra_keys)}")
+        return payload
+
+
+@dataclass(frozen=True)
+class AgentTurnResult:
+    """Canonical public response envelope for one executor turn.
+
+    ``disposition`` is internal execution metadata. It is intentionally omitted
+    from serialization so public ``route`` remains the only route vocabulary
+    consumers see.
+    """
+
+    route: str
+    reply: str
+    evidence: AgentEvidence = field(default_factory=AgentEvidence)
+    candidate: dict[str, Any] | None = None
+    no_candidate_reason: str | None = None
+    disposition: str = ""
+
+    def __post_init__(self) -> None:
+        route = self.route if self.route in _PUBLIC_ROUTES else "clarify"
+        object.__setattr__(self, "route", route)
+
+        candidate = self.candidate
+        if candidate is not None:
+            object.__setattr__(self, "candidate", MappingProxyType({
+                str(k): _freeze_jsonish(v) for k, v in candidate.items()
+            }))
+            object.__setattr__(self, "no_candidate_reason", None)
+        else:
+            reason = self.no_candidate_reason or "no_changes"
+            if reason not in _NO_CANDIDATE_REASONS:
+                reason = "no_changes"
+            object.__setattr__(self, "no_candidate_reason", reason)
+
+        object.__setattr__(self, "disposition", str(self.disposition or ""))
+
+    @property
+    def apply_eligible(self) -> bool:
+        return self.route in _APPLY_ELIGIBLE_ROUTES and self.candidate is not None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "route": self.route,
+            "reply": self.reply,
+            "evidence": self.evidence.to_dict(),
+            "candidate": _thaw_jsonish(self.candidate) if self.candidate is not None else None,
+            "apply_eligible": self.apply_eligible,
+            "no_candidate_reason": self.no_candidate_reason,
+        }
+
+    @classmethod
+    def from_executor_result(cls, result: "ExecutorResult") -> "AgentTurnResult":
+        plan = result.report.plan
+        route = _public_route_for_plan(plan)
+        reply = result.reply or result.failure_message or ""
+        warnings: list[str] = []
+
+        classification = {
+            "route": route,
+            "task": plan.effective_task,
+            "intent": plan.intent,
+            "plan_summary": plan.plan_summary,
+        }
+        if plan.route and plan.route != route:
+            classification["disposition"] = plan.route
+
+        graph_inspection: dict[str, Any] = {}
+        if route == "inspect":
+            graph_inspection["used_for_reply"] = True
+
+        research: dict[str, Any] = {}
+        if result.report.research is not None:
+            research = result.report.research.to_dict()
+            warnings.extend(result.report.research.warnings)
+
+        implementation: dict[str, Any] = {}
+        if result.report.implementation is not None:
+            implementation = result.report.implementation.to_dict()
+
+        if result.failure_message:
+            warnings.append(result.failure_message)
+
+        candidate = (
+            {"graph": result.graph}
+            if route in _APPLY_ELIGIBLE_ROUTES and result.graph is not None
+            else None
+        )
+        reason = _derive_no_candidate_reason(
+            route=route,
+            result=result,
+            implementation=implementation,
+        )
+        return cls(
+            route=route,
+            reply=reply,
+            evidence=AgentEvidence(
+                classification=classification,
+                graph_inspection=graph_inspection,
+                research=research,
+                implementation=implementation,
+                warnings=tuple(warnings),
+            ),
+            candidate=candidate,
+            no_candidate_reason=reason,
+            disposition=plan.route or plan.effective_route,
+        )
+
+
+def _derive_no_candidate_reason(
+    *,
+    route: str,
+    result: "ExecutorResult",
+    implementation: Mapping[str, Any],
+) -> str | None:
+    if route not in _APPLY_ELIGIBLE_ROUTES:
+        return "route_not_applyable"
+    if result.graph is not None:
+        return None
+    if result.failure_stage == "implement":
+        return "implementation_failed"
+    if result.failure_kind is not None:
+        return "implementation_failed"
+    if result.report.implementation is None:
+        return "implementation_skipped"
+    if implementation and implementation.get("graph") is None:
+        return "no_changes"
+    return "no_graph"
 
 
 # ── executor result (final envelope leaf) ────────────────────────────────────
@@ -630,15 +896,18 @@ class ExecutorResult:
     failure_stage: str | None = None
     failure_message: str | None = None
 
+    @property
+    def turn(self) -> AgentTurnResult:
+        return AgentTurnResult.from_executor_result(self)
+
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "ok": self.ok,
             "report": self.report.to_dict(),
         }
+        payload.update(self.turn.to_dict())
         if self.graph is not None:
             payload["graph"] = self.graph
-        if self.reply is not None:
-            payload["reply"] = self.reply
         if self.failure_kind is not None:
             payload["failure_kind"] = self.failure_kind
         if self.failure_stage is not None:
@@ -676,6 +945,8 @@ class ExecutorResult:
 
 
 __all__ = [
+    "AgentEvidence",
+    "AgentTurnResult",
     "ClassifyDecision",
     "ExecutorRequest",
     "ExecutorResult",

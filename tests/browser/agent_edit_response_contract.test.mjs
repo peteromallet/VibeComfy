@@ -57,6 +57,112 @@ test("normalizeAgentEditResponse preserves public candidate payloads and exposes
   assert.equal(readLatestCandidate(raw, { endpoint: "submit" })?.outcome.kind, "candidate");
 });
 
+test("normalizeAgentEditResponse accepts canonical executor candidate envelope", () => {
+  const raw = {
+    ok: true,
+    route: "revise",
+    reply: "**Ready** to apply.",
+    evidence: { touched: ["ksampler"] },
+    candidate: {
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+    },
+    apply_eligible: true,
+    no_candidate_reason: null,
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/vibecomfy/agent-executor" });
+
+  assert.equal(normalized.route, "revise");
+  assert.equal(normalized.reply, "**Ready** to apply.");
+  assert.deepEqual(normalized.evidence, raw.evidence);
+  assert.equal(normalized.outcome.kind, "candidate");
+  assert.equal(normalized.applyEligible, true);
+  assert.equal(normalized.applyAllowed, true);
+  assert.equal(normalized.canvasApplyAllowed, true);
+  assert.deepEqual(normalized.eligibility, {
+    applyable: true,
+    reason: "applyable",
+    message: "Ready to apply.",
+    warnings: [],
+  });
+  assert.deepEqual(normalized.candidateGraph, raw.candidate.graph);
+});
+
+test("normalizeAgentEditResponse gates executor candidates on apply_eligible plus candidate presence", () => {
+  const blockedRaw = {
+    ok: true,
+    route: "revise",
+    reply: "A graph was returned, but the backend marked it non-applyable.",
+    candidate: {
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+    },
+    apply_eligible: false,
+    no_candidate_reason: "candidate failed validation",
+  };
+
+  const blocked = normalizeAgentEditResponse(blockedRaw, { endpoint: "/vibecomfy/agent-executor" });
+
+  assert.equal(blocked.outcome.kind, "noop");
+  assert.equal(blocked.applyEligible, false);
+  assert.equal(blocked.applyAllowed, false);
+  assert.equal(blocked.canvasApplyAllowed, false);
+  assert.equal(blocked.candidateGraph, null);
+  assert.equal(blocked.candidate, null);
+  assert.deepEqual(blocked.eligibility, {
+    applyable: false,
+    reason: "no_candidate",
+    message: "candidate failed validation",
+    warnings: [],
+  });
+
+  const eligibleRaw = {
+    ok: true,
+    route: "adapt",
+    reply: "Adapted the graph.",
+    candidate: {
+      graph: { nodes: [{ id: 2, type: "PreviewImage" }], links: [] },
+    },
+    apply_eligible: true,
+  };
+
+  const eligible = normalizeAgentEditResponse(eligibleRaw, { endpoint: "/vibecomfy/agent-executor" });
+
+  assert.equal(eligible.outcome.kind, "candidate");
+  assert.equal(eligible.applyEligible, true);
+  assert.equal(eligible.applyAllowed, true);
+  assert.equal(eligible.canvasApplyAllowed, true);
+  assert.deepEqual(eligible.candidateGraph, eligibleRaw.candidate.graph);
+});
+
+test("normalizeAgentEditResponse keeps canonical no-candidate envelopes non-applyable", () => {
+  const raw = {
+    ok: true,
+    route: "inspect",
+    reply: "This workflow uses one sampler.",
+    evidence: ["saw_sampler"],
+    candidate: null,
+    apply_eligible: false,
+    no_candidate_reason: "inspect turns do not produce candidates",
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/vibecomfy/agent-executor" });
+
+  assert.equal(normalized.route, "inspect");
+  assert.equal(normalized.outcome.kind, "noop");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.candidate, null);
+  assert.equal(normalized.applyEligible, false);
+  assert.equal(normalized.applyAllowed, false);
+  assert.equal(normalized.canvasApplyAllowed, false);
+  assert.equal(normalized.noCandidateReason, "inspect turns do not produce candidates");
+  assert.deepEqual(normalized.eligibility, {
+    applyable: false,
+    reason: "no_candidate",
+    message: "inspect turns do not produce candidates",
+    warnings: [],
+  });
+});
+
 test("normalizeAgentEditResponse infers legacy candidate outcome from direct graph payloads", () => {
   const raw = {
     ok: true,
@@ -579,11 +685,12 @@ test("normalizeAgentEditResponse is idempotent (double-normalize returns same re
   assert.equal(second.outcome.kind, "candidate");
 });
 
-// ── T18: inspect_only / pure clarify no-candidate / no-Apply normalization ──
+// ── inspect / pure clarify no-candidate / no-Apply normalization ──
 
-test("normalizeAgentEditResponse handles inspect_only-like noop with explicit no-candidate contract", () => {
+test("normalizeAgentEditResponse handles inspect noop with explicit no-candidate contract", () => {
   const raw = {
     ok: true,
+    route: "inspect",
     message: "Graph inspection complete.",
     outcome: {
       kind: "noop",
@@ -602,7 +709,7 @@ test("normalizeAgentEditResponse handles inspect_only-like noop with explicit no
     apply_eligibility: {
       applyable: false,
       reason: "no_candidate",
-      message: "No candidate is available to apply — inspect_only route never produces edits.",
+      message: "No candidate is available to apply.",
       warnings: [],
     },
   };
@@ -620,7 +727,7 @@ test("normalizeAgentEditResponse handles inspect_only-like noop with explicit no
   assert.deepEqual(normalized.eligibility, {
     applyable: false,
     reason: "no_candidate",
-    message: "No candidate is available to apply — inspect_only route never produces edits.",
+    message: "No candidate is available to apply.",
     warnings: [],
   });
 });
@@ -740,9 +847,10 @@ test("normalizeAgentEditResponse preserves apply eligibility for valid candidate
   assert.equal(normalized.queueAllowed, false);
 });
 
-test("normalizeAgentEditResponse handles direct_edit-like candidate with full apply eligibility", () => {
+test("normalizeAgentEditResponse handles revise candidate with full apply eligibility", () => {
   const raw = {
     ok: true,
+    route: "revise",
     message: "Applied the requested edit.",
     outcome: {
       kind: "candidate",
@@ -750,6 +858,7 @@ test("normalizeAgentEditResponse handles direct_edit-like candidate with full ap
     },
     graph: { nodes: [{ id: 12, type: "KSampler" }], links: [] },
     candidate_graph_hash: "hash-direct-edit",
+    apply_eligible: true,
     canvas_apply_allowed: true,
     apply_allowed: true,
     queue_allowed: true,

@@ -5,6 +5,13 @@ const PUBLIC_OUTCOME_KINDS = Object.freeze([
   "error",
 ]);
 
+const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
+  "clarify",
+  "inspect",
+  "revise",
+  "adapt",
+]);
+
 const INTERNAL_OUTCOME_KIND_MAP = Object.freeze({
   edit: "candidate",
   "edit+clarify": "candidate",
@@ -74,10 +81,24 @@ function responseHasCandidatePayload(response) {
     || isObject(response.graph);
 }
 
+function hasCanonicalExecutorEnvelope(response) {
+  return isObject(response)
+    && CANONICAL_EXECUTOR_ROUTES.includes(response.route)
+    && (
+      Object.prototype.hasOwnProperty.call(response, "reply")
+      || Object.prototype.hasOwnProperty.call(response, "evidence")
+      || Object.prototype.hasOwnProperty.call(response, "apply_eligible")
+      || Object.prototype.hasOwnProperty.call(response, "no_candidate_reason")
+    );
+}
+
 function resultHasNoCandidateEligibility(response) {
   const legacyEligibility = isObject(response.apply_eligibility) ? response.apply_eligibility : null;
   const normalizedEligibility = isObject(response.eligibility) ? response.eligibility : null;
   return response.candidate === null
+    || response.candidate_graph === null
+    || response.apply_eligible === false
+    || typeof response.no_candidate_reason === "string"
     || legacyEligibility?.reason === "no_candidate"
     || normalizedEligibility?.reason === "no_candidate";
 }
@@ -286,6 +307,26 @@ function inferLegacyOutcome(response, { endpoint }) {
   if (response.ok === false || hasFailureHints(response)) {
     return publicErrorOutcomeFromResponse(response, { defaultStage: asString(response.stage) });
   }
+  if (hasCanonicalExecutorEnvelope(response)) {
+    if (response.route === "clarify") {
+      return {
+        kind: "clarify",
+        ...clarificationPayload(response.reply || response.message),
+      };
+    }
+    if (response.apply_eligible === true && responseHasCandidatePayload(response)) {
+      return {
+        kind: "candidate",
+        changes: Array.isArray(response.changes) ? clonePlainData(response.changes) : [],
+      };
+    }
+    return compactObject({
+      kind: "noop",
+      reason: asTrimmedString(response.no_candidate_reason)
+        || asTrimmedString(response.reply)
+        || asTrimmedString(response.message),
+    });
+  }
   const clarificationQuestion =
     asTrimmedString(response.clarificationMessage) || asTrimmedString(response.clarification_message);
   if (response.clarification_required === true || response.clarificationRequired === true || clarificationQuestion) {
@@ -323,6 +364,16 @@ function normalizeEligibility(response, candidateGraph) {
   }
   if (isObject(response.apply_eligibility)) {
     return clonePlainData(response.apply_eligibility);
+  }
+  if (typeof response.apply_eligible === "boolean") {
+    return {
+      applyable: response.apply_eligible,
+      reason: response.apply_eligible ? "applyable" : "no_candidate",
+      message: response.apply_eligible
+        ? "Ready to apply."
+        : asTrimmedString(response.no_candidate_reason) || "No candidate is available to apply.",
+      warnings: [],
+    };
   }
   if (
     !isObject(response.candidate)
@@ -464,17 +515,30 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     endpoint,
     ok: asBooleanOrNull(raw.ok),
     exists: asBooleanOrNull(raw.exists),
-    message: asString(raw.message),
+    message: asString(raw.message) || asString(raw.reply),
+    route: CANONICAL_EXECUTOR_ROUTES.includes(raw.route) ? raw.route : null,
+    reply: asString(raw.reply) || asString(raw.message),
+    evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? clonePlainData(raw.evidence) : null,
     outcome,
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
     candidateGraphHash:
       asString(raw.candidateGraphHash) || asString(raw.candidate_graph_hash),
     eligibility,
+    applyEligible:
+      asBooleanOrNull(raw.applyEligible)
+      ?? asBooleanOrNull(raw.apply_eligible)
+      ?? (eligibility ? eligibility.applyable === true : null),
+    noCandidateReason:
+      asString(raw.noCandidateReason) || asString(raw.no_candidate_reason),
     applyAllowed:
-      asBooleanOrNull(raw.applyAllowed) ?? asBooleanOrNull(raw.apply_allowed),
+      asBooleanOrNull(raw.applyAllowed)
+      ?? asBooleanOrNull(raw.apply_allowed)
+      ?? asBooleanOrNull(raw.apply_eligible),
     canvasApplyAllowed:
-      asBooleanOrNull(raw.canvasApplyAllowed) ?? asBooleanOrNull(raw.canvas_apply_allowed),
+      asBooleanOrNull(raw.canvasApplyAllowed)
+      ?? asBooleanOrNull(raw.canvas_apply_allowed)
+      ?? asBooleanOrNull(raw.apply_eligible),
     queueAllowed:
       asBooleanOrNull(raw.queueAllowed) ?? asBooleanOrNull(raw.queue_allowed),
     graphUnchanged:

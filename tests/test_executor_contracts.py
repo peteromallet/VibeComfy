@@ -12,6 +12,8 @@ import json
 import pytest
 
 from vibecomfy.executor.contracts import (
+    AgentEvidence,
+    AgentTurnResult,
     ClassifyDecision,
     ExecutorRequest,
     ExecutorResult,
@@ -144,11 +146,11 @@ class TestClassifyDecision:
             reply=True,
             effort="medium",
             plan_summary="simple edit",
-            route="direct_edit",
+            route="revise",
             task="edit_graph",
         )
         out = d.to_dict()
-        assert out["route"] == "direct_edit"
+        assert out["route"] == "revise"
         assert out["task"] == "edit_graph"
         # Legacy fields still present
         assert out["research"] is False
@@ -168,10 +170,10 @@ class TestClassifyDecision:
 
     def test_effective_route_property(self) -> None:
         """effective_route derives correctly from legacy booleans when route is empty."""
-        # implement=True, research=False → direct_edit
-        assert ClassifyDecision(research=False, implement=True).effective_route == "direct_edit"
-        # research=True, implement=False → inspect_only
-        assert ClassifyDecision(research=True, implement=False).effective_route == "inspect_only"
+        # implement=True, research=False → revise
+        assert ClassifyDecision(research=False, implement=True).effective_route == "revise"
+        # research=True, implement=False → inspect
+        assert ClassifyDecision(research=True, implement=False).effective_route == "inspect"
         # research=False, implement=False → clarify
         assert ClassifyDecision(research=False, implement=False).effective_route == "clarify"
         # research=True, implement=True → ambiguous (empty)
@@ -182,9 +184,9 @@ class TestClassifyDecision:
         d = ClassifyDecision(
             research=True,
             implement=True,  # ambiguous legacy → derived ""
-            route="precedent_research",
+            route="adapt",
         )
-        assert d.effective_route == "precedent_research"
+        assert d.effective_route == "adapt"
 
     def test_effective_task_property(self) -> None:
         """effective_task derives correctly from legacy booleans when task is empty."""
@@ -208,20 +210,59 @@ class TestClassifyDecision:
         )
         assert d.effective_task == "edit_graph"
 
-    def test_route_clamped_to_empty(self) -> None:
-        """Invalid route is clamped to empty string in __post_init__."""
+    def test_unknown_explicit_route_fails_closed_to_clarify(self) -> None:
+        """Unknown explicit routes fail closed to canonical clarify."""
         d = ClassifyDecision(route="bogus_route")
-        assert d.route == ""
+        assert d.route == "clarify"
+        assert d.effective_route == "clarify"
+        assert d.to_dict()["route"] == "clarify"
 
     def test_route_allows_all_valid_values(self) -> None:
         """All canonical route values are accepted."""
-        valid_routes = [
-            "", "direct_edit", "inspect_only", "asset_lookup",
-            "diagnose_repair", "subgraph_preview", "precedent_research", "clarify",
-        ]
+        valid_routes = ["", "clarify", "inspect", "revise", "adapt"]
         for r in valid_routes:
             d = ClassifyDecision(route=r)
             assert d.route == r, f"route={r!r} was clamped"
+
+    @pytest.mark.parametrize(
+        ("legacy_route", "research", "implement", "expected_route"),
+        [
+            ("inspect_only", True, False, "inspect"),
+            ("direct_edit", False, True, "revise"),
+            ("diagnose_repair", True, True, "revise"),
+            ("precedent_research", True, True, "adapt"),
+            ("asset_lookup", True, True, "adapt"),
+            ("asset_lookup", False, True, "revise"),
+            ("asset_lookup", False, False, "clarify"),
+            ("subgraph_preview", True, True, "adapt"),
+            ("subgraph_preview", False, True, "revise"),
+            ("subgraph_preview", False, False, "clarify"),
+        ],
+    )
+    def test_legacy_explicit_routes_normalize_before_serialization(
+        self,
+        legacy_route: str,
+        research: bool,
+        implement: bool,
+        expected_route: str,
+    ) -> None:
+        decision = ClassifyDecision(
+            research=research,
+            implement=implement,
+            route=legacy_route,
+        )
+
+        assert decision.route == expected_route
+        assert decision.effective_route == expected_route
+        assert decision.to_dict()["route"] == expected_route
+        assert decision.to_dict()["route"] not in {
+            "inspect_only",
+            "direct_edit",
+            "diagnose_repair",
+            "precedent_research",
+            "asset_lookup",
+            "subgraph_preview",
+        }
 
     def test_task_clamped_to_empty(self) -> None:
         """Invalid task is clamped to empty string in __post_init__."""
@@ -266,11 +307,11 @@ class TestClassifyDecision:
         """edit convenience accepts explicit route and task."""
         d = ClassifyDecision.edit(
             research=False,
-            route="direct_edit",
+            route="revise",
             task="edit_graph",
             plan_summary="set seed",
         )
-        assert d.route == "direct_edit"
+        assert d.route == "revise"
         assert d.task == "edit_graph"
         assert d.research is False
         assert d.implement is True
@@ -392,6 +433,136 @@ class TestReport:
         assert "implementation" not in d["executor"]
 
 
+# ── AgentTurnResult ──────────────────────────────────────────────────────────
+
+
+class TestAgentTurnResult:
+    def test_canonical_envelope_shape(self) -> None:
+        result = AgentTurnResult(
+            route="revise",
+            reply="Updated the graph.",
+            evidence=AgentEvidence(
+                classification={"route": "revise", "task": "edit_graph"},
+                graph_inspection={},
+                research={},
+                implementation={"message": "done"},
+                warnings=(),
+            ),
+            candidate={"graph": {"nodes": [{"id": 1}]}},
+            disposition="edit_graph",
+        )
+
+        payload = result.to_dict()
+        assert set(payload) == {
+            "route",
+            "reply",
+            "evidence",
+            "candidate",
+            "apply_eligible",
+            "no_candidate_reason",
+        }
+        assert payload["route"] == "revise"
+        assert payload["reply"] == "Updated the graph."
+        assert payload["candidate"] == {"graph": {"nodes": [{"id": 1}]}}
+        assert payload["apply_eligible"] is True
+        assert payload["no_candidate_reason"] is None
+        assert set(payload["evidence"]) == {
+            "classification",
+            "graph_inspection",
+            "research",
+            "implementation",
+            "warnings",
+        }
+        assert "disposition" not in payload
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "route_not_applyable",
+            "no_graph",
+            "implementation_skipped",
+            "implementation_failed",
+            "no_changes",
+            "unknown_route",
+        ],
+    )
+    def test_closed_no_candidate_reason_set(self, reason: str) -> None:
+        result = AgentTurnResult(
+            route="inspect",
+            reply="Here is what the graph does.",
+            no_candidate_reason=reason,
+        )
+
+        assert result.to_dict()["no_candidate_reason"] == reason
+        assert result.to_dict()["apply_eligible"] is False
+
+    def test_unknown_no_candidate_reason_fails_closed(self) -> None:
+        result = AgentTurnResult(
+            route="revise",
+            reply="No edit was produced.",
+            no_candidate_reason="legacy_reason",
+        )
+
+        assert result.to_dict()["no_candidate_reason"] == "no_changes"
+
+    def test_candidate_clears_no_candidate_reason(self) -> None:
+        result = AgentTurnResult(
+            route="adapt",
+            reply="Adapted the precedent.",
+            candidate={"graph": {"nodes": []}},
+            no_candidate_reason="no_graph",
+        )
+
+        assert result.to_dict()["candidate"] == {"graph": {"nodes": []}}
+        assert result.to_dict()["apply_eligible"] is True
+        assert result.to_dict()["no_candidate_reason"] is None
+
+    def test_unknown_public_route_fails_closed_to_clarify(self) -> None:
+        result = AgentTurnResult(route="retired_route", reply="legacy")
+
+        assert result.to_dict()["route"] == "clarify"
+        assert result.to_dict()["candidate"] is None
+        assert result.to_dict()["apply_eligible"] is False
+
+    @pytest.mark.parametrize(
+        ("route", "candidate", "expected_apply_eligible", "expected_reason"),
+        [
+            ("clarify", None, False, "route_not_applyable"),
+            ("inspect", None, False, "route_not_applyable"),
+            ("revise", {"graph": {"nodes": [{"id": 1}]}}, True, None),
+            ("adapt", {"graph": {"nodes": [{"id": 1}]}}, True, None),
+        ],
+    )
+    def test_canonical_public_envelope_and_apply_eligibility_by_route(
+        self,
+        route: str,
+        candidate: dict[str, object] | None,
+        expected_apply_eligible: bool,
+        expected_reason: str | None,
+    ) -> None:
+        result = AgentTurnResult(
+            route=route,
+            reply="Turn complete.",
+            candidate=candidate,
+            no_candidate_reason=expected_reason,
+        )
+
+        payload = result.to_dict()
+        assert set(payload) == {
+            "route",
+            "reply",
+            "evidence",
+            "candidate",
+            "apply_eligible",
+            "no_candidate_reason",
+        }
+        assert payload["route"] == route
+        assert payload["route"] in {"clarify", "inspect", "revise", "adapt"}
+        assert payload["apply_eligible"] is expected_apply_eligible
+        assert payload["candidate"] == candidate
+        assert payload["no_candidate_reason"] == expected_reason
+
+
 # ── ExecutorResult ───────────────────────────────────────────────────────────
 
 
@@ -418,19 +589,138 @@ class TestExecutorResult:
         assert r.failure_message == "timeout"
 
     def test_to_dict_success(self) -> None:
-        plan = ClassifyDecision(plan_summary="chat turn")
+        plan = ClassifyDecision(plan_summary="chat turn", route="clarify")
         report = Report(plan=plan)
         r = ExecutorResult.success(report=report, reply="Hello!")
         d = r.to_dict()
         assert d["ok"] is True
+        assert d["route"] == "clarify"
         assert d["reply"] == "Hello!"
+        assert d["candidate"] is None
+        assert d["apply_eligible"] is False
+        assert d["no_candidate_reason"] == "route_not_applyable"
+        assert set(d["evidence"]) == {
+            "classification",
+            "graph_inspection",
+            "research",
+            "implementation",
+            "warnings",
+        }
         assert d["report"]["executor"]["plan"]["plan_summary"] == "chat turn"
         assert "failure_kind" not in d
+
+    def test_to_dict_success_with_apply_eligible_candidate(self) -> None:
+        plan = ClassifyDecision(route="revise", task="edit_graph")
+        report = Report(
+            plan=plan,
+            implementation=ImplementationResult(
+                graph={"nodes": [{"id": 1}]},
+                message="changed graph",
+            ),
+        )
+        r = ExecutorResult.success(
+            report=report,
+            graph={"nodes": [{"id": 1}]},
+            reply="Changed the graph.",
+        )
+
+        d = r.to_dict()
+        assert d["route"] == "revise"
+        assert d["candidate"] == {"graph": {"nodes": [{"id": 1}]}}
+        assert d["apply_eligible"] is True
+        assert d["no_candidate_reason"] is None
+
+    def test_to_dict_non_apply_route_does_not_promote_graph_to_candidate(self) -> None:
+        plan = ClassifyDecision(route="inspect", task="inspect_graph")
+        report = Report(plan=plan)
+        r = ExecutorResult.success(
+            report=report,
+            graph={"nodes": [{"id": 1}]},
+            reply="Inspected the graph.",
+        )
+
+        d = r.to_dict()
+        assert d["route"] == "inspect"
+        assert d["candidate"] is None
+        assert d["apply_eligible"] is False
+        assert d["no_candidate_reason"] == "route_not_applyable"
+
+    @pytest.mark.parametrize("route", ["clarify", "inspect"])
+    def test_to_dict_non_applyable_routes_never_carry_stale_candidate(
+        self,
+        route: str,
+    ) -> None:
+        plan = ClassifyDecision(route=route, task="inspect_graph" if route == "inspect" else "respond")
+        report = Report(
+            plan=plan,
+            implementation=ImplementationResult(
+                graph={"nodes": [{"id": 99, "type": "StaleCandidate"}]},
+                message="stale edit result",
+            ),
+        )
+        r = ExecutorResult.success(
+            report=report,
+            graph={"nodes": [{"id": 99, "type": "StaleCandidate"}]},
+            reply="No applyable edit.",
+        )
+
+        d = r.to_dict()
+        assert d["route"] == route
+        assert d["candidate"] is None
+        assert d["apply_eligible"] is False
+        assert d["no_candidate_reason"] == "route_not_applyable"
+
+    def test_to_dict_keeps_internal_disposition_out_of_public_envelope(self) -> None:
+        plan = ClassifyDecision(route="direct_edit", task="edit_graph")
+        report = Report(plan=plan)
+        d = ExecutorResult.success(report=report, reply="No changes.").to_dict()
+
+        assert d["route"] == "revise"
+        assert "disposition" not in d
+        assert "disposition" not in d["evidence"]
+
+    def test_report_plan_serialization_includes_canonical_derived_route(self) -> None:
+        plan = ClassifyDecision(
+            research=False,
+            implement=True,
+            reply=True,
+            intent="edit",
+            task="edit_graph",
+        )
+        report = Report(plan=plan, implementation=ImplementationResult(message="no change"))
+
+        d = ExecutorResult.success(report=report, reply="No changes.").to_dict()
+
+        assert d["route"] == "revise"
+        assert d["report"]["executor"]["plan"]["route"] == "revise"
+        assert d["report"]["executor"]["plan"]["task"] == "edit_graph"
+
+    def test_report_plan_serialization_never_emits_legacy_route_alias(self) -> None:
+        plan = ClassifyDecision(
+            research=True,
+            implement=True,
+            reply=True,
+            intent="edit",
+            route="precedent_research",
+            task="research_precedent",
+        )
+        report = Report(plan=plan)
+
+        d = ExecutorResult.success(report=report, reply="No changes.").to_dict()
+
+        assert d["route"] == "adapt"
+        assert d["report"]["executor"]["plan"]["route"] == "adapt"
+        assert d["report"]["executor"]["plan"]["route"] != "precedent_research"
 
     def test_to_dict_failure(self) -> None:
         r = ExecutorResult.failure(kind="TimeoutError", stage="classify", message="timed out")
         d = r.to_dict()
         assert d["ok"] is False
+        assert d["route"] == "clarify"
+        assert d["reply"] == "timed out"
+        assert d["candidate"] is None
+        assert d["apply_eligible"] is False
+        assert d["no_candidate_reason"] == "route_not_applyable"
         assert d["failure_kind"] == "TimeoutError"
         assert d["failure_stage"] == "classify"
         assert d["failure_message"] == "timed out"
@@ -585,14 +875,48 @@ class TestParseClassifyResponse:
             "effort": "low",
             "plan_summary": "simple edit",
             "intent": "edit",
+            "route": "revise",
+            "task": "edit_graph",
+        })
+        d = parse_classify_response(raw)
+        assert d.route == "revise"
+        assert d.task == "edit_graph"
+        assert d.effective_route == "revise"
+        assert d.effective_task == "edit_graph"
+
+    def test_parse_legacy_explicit_route_serializes_canonical(self) -> None:
+        raw = json.dumps({
+            "research": False,
+            "implement": True,
+            "reply": True,
+            "effort": "low",
+            "plan_summary": "legacy route",
+            "intent": "edit",
             "route": "direct_edit",
             "task": "edit_graph",
         })
         d = parse_classify_response(raw)
-        assert d.route == "direct_edit"
-        assert d.task == "edit_graph"
-        assert d.effective_route == "direct_edit"
-        assert d.effective_task == "edit_graph"
+
+        assert d.route == "revise"
+        assert d.effective_route == "revise"
+        assert d.to_dict()["route"] == "revise"
+
+    def test_parse_unknown_explicit_route_serializes_clarify(self) -> None:
+        raw = json.dumps({
+            "research": True,
+            "implement": True,
+            "reply": True,
+            "effort": "medium",
+            "plan_summary": "unknown route",
+            "intent": "edit",
+            "route": "retired_route",
+            "task": "edit_graph",
+        })
+        d = parse_classify_response(raw)
+
+        assert d.route == "clarify"
+        assert d.effective_route == "clarify"
+        assert d.to_dict()["route"] == "clarify"
 
     def test_parse_with_route_only(self) -> None:
         """Parser handles JSON with route but no task field."""
@@ -603,17 +927,17 @@ class TestParseClassifyResponse:
             "effort": "low",
             "plan_summary": "inspect graph",
             "intent": "explain_graph",
-            "route": "inspect_only",
+            "route": "inspect",
         })
         d = parse_classify_response(raw)
-        assert d.route == "inspect_only"
+        assert d.route == "inspect"
         assert d.task == ""
-        assert d.effective_route == "inspect_only"
+        assert d.effective_route == "inspect"
         # task derived from legacy
         assert d.effective_task == "inspect_graph"
 
-    def test_parse_with_precedent_research_route(self) -> None:
-        """Parser handles precedent_research route with both research and implement true."""
+    def test_parse_with_adapt_route(self) -> None:
+        """Parser handles adapt route with both research and implement true."""
         raw = json.dumps({
             "research": True,
             "implement": True,
@@ -621,16 +945,16 @@ class TestParseClassifyResponse:
             "effort": "high",
             "plan_summary": "research then edit",
             "intent": "edit",
-            "route": "precedent_research",
+            "route": "adapt",
             "task": "research_precedent",
         })
         d = parse_classify_response(raw)
-        assert d.route == "precedent_research"
+        assert d.route == "adapt"
         assert d.task == "research_precedent"
         assert d.research is True
         assert d.implement is True
         # effective_route uses explicit route
-        assert d.effective_route == "precedent_research"
+        assert d.effective_route == "adapt"
         assert d.effective_task == "research_precedent"
 
     def test_parse_clarify_route(self) -> None:
@@ -665,7 +989,7 @@ class TestParseClassifyResponse:
         assert d.route == ""
         assert d.task == ""
         # Derived from legacy
-        assert d.effective_route == "direct_edit"
+        assert d.effective_route == "revise"
         assert d.effective_task == "edit_graph"
 
     def test_parse_intent_derived_from_legacy_booleans(self) -> None:
@@ -712,11 +1036,11 @@ class TestParseClassifyResponse:
             "reply": True,
             "effort": "low",
             "plan_summary": "edit",
-            "route": "  direct_edit  ",
+            "route": "  revise  ",
             "task": "  edit_graph  ",
         })
         d = parse_classify_response(raw)
-        assert d.route == "direct_edit"
+        assert d.route == "revise"
         assert d.task == "edit_graph"
 
     def test_parse_route_non_string_coerced_to_empty(self) -> None:
@@ -812,17 +1136,17 @@ class TestClassifyRoundtrip:
             effort="low",
             plan_summary="simple edit",
             intent="edit",
-            route="direct_edit",
+            route="revise",
             task="edit_graph",
         )
         raw = json.dumps(decision.to_dict())
         parsed = parse_classify_response(raw)
         assert parsed == decision
-        assert parsed.route == "direct_edit"
+        assert parsed.route == "revise"
         assert parsed.task == "edit_graph"
 
-    def test_roundtrip_precedent_research(self) -> None:
-        """Roundtrip with precedent_research route and both research/implement true."""
+    def test_roundtrip_adapt(self) -> None:
+        """Roundtrip with adapt route and both research/implement true."""
         decision = ClassifyDecision(
             research=True,
             implement=True,
@@ -830,13 +1154,13 @@ class TestClassifyRoundtrip:
             effort="high",
             plan_summary="research precedent then edit",
             intent="edit",
-            route="precedent_research",
+            route="adapt",
             task="research_precedent",
         )
         raw = json.dumps(decision.to_dict())
         parsed = parse_classify_response(raw)
         assert parsed == decision
-        assert parsed.route == "precedent_research"
+        assert parsed.route == "adapt"
         assert parsed.task == "research_precedent"
 
     def test_roundtrip_clarify(self) -> None:
@@ -855,8 +1179,8 @@ class TestClassifyRoundtrip:
         parsed = parse_classify_response(raw)
         assert parsed == decision
 
-    def test_roundtrip_inspect_only(self) -> None:
-        """Roundtrip with inspect_only route."""
+    def test_roundtrip_inspect(self) -> None:
+        """Roundtrip with inspect route."""
         decision = ClassifyDecision(
             research=True,
             implement=False,
@@ -864,7 +1188,7 @@ class TestClassifyRoundtrip:
             effort="medium",
             plan_summary="inspect graph structure",
             intent="explain_graph",
-            route="inspect_only",
+            route="inspect",
             task="inspect_graph",
         )
         raw = json.dumps(decision.to_dict())
@@ -887,7 +1211,7 @@ class TestClassifyRoundtrip:
         parsed = parse_classify_response(raw)
         assert parsed == decision
         # effective properties still work
-        assert parsed.effective_route == "direct_edit"
+        assert parsed.effective_route == "revise"
         assert parsed.effective_task == "edit_graph"
 
 
@@ -906,9 +1230,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=False, implement=True, reply=True, effort="low",
             plan_summary="update seed/prefix widget parameter",
-            intent="edit", route="direct_edit", task="edit_graph",
+            intent="edit", route="revise", task="edit_graph",
         ),
-        "direct_edit",  # expected effective_route
+        "revise",  # expected effective_route
         False,          # expected research
         True,           # expected implement
         "edit",         # expected intent
@@ -922,9 +1246,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=False, implement=False, reply=True, effort="low",
             plan_summary="preview intermediate PreviewImage node output",
-            intent="explain_graph", route="subgraph_preview", task="preview_subgraph",
+            intent="explain_graph", route="clarify", task="preview_subgraph",
         ),
-        "subgraph_preview",
+        "clarify",
         False,
         False,
         "explain_graph",
@@ -938,9 +1262,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=True, implement=False, reply=True, effort="medium",
             plan_summary="explain current graph structure and connections",
-            intent="explain_graph", route="inspect_only", task="inspect_graph",
+            intent="explain_graph", route="inspect", task="inspect_graph",
         ),
-        "inspect_only",
+        "inspect",
         True,
         False,
         "explain_graph",
@@ -954,9 +1278,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=True, implement=True, reply=True, effort="high",
             plan_summary="add LTX audio pipeline from external workflow precedent",
-            intent="edit", route="precedent_research", task="research_precedent",
+            intent="edit", route="adapt", task="research_precedent",
         ),
-        "precedent_research",
+        "adapt",
         True,
         True,
         "edit",
@@ -986,9 +1310,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=False, implement=True, reply=True, effort="medium",
             plan_summary="swap model/asset configuration using registry",
-            intent="edit", route="asset_lookup", task="find_assets",
+            intent="edit", route="revise", task="find_assets",
         ),
-        "asset_lookup",
+        "revise",
         False,
         True,
         "edit",
@@ -1002,9 +1326,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=True, implement=True, reply=True, effort="high",
             plan_summary="diagnose and repair dangling audio connections",
-            intent="edit", route="diagnose_repair", task="diagnose",
+            intent="edit", route="revise", task="diagnose",
         ),
-        "diagnose_repair",
+        "revise",
         True,
         True,
         "edit",
@@ -1018,9 +1342,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=False, implement=False, reply=True, effort="low",
             plan_summary="evaluate subgraph at runtime without mutating canvas",
-            intent="explain_graph", route="subgraph_preview", task="preview_subgraph",
+            intent="explain_graph", route="clarify", task="preview_subgraph",
         ),
-        "subgraph_preview",
+        "clarify",
         False,
         False,
         "explain_graph",
@@ -1034,9 +1358,9 @@ _SCENARIO_FIXTURES = [
         dict(
             research=True, implement=True, reply=True, effort="high",
             plan_summary="decompose composite edit into per-subgoal precedent research",
-            intent="edit", route="precedent_research", task="research_precedent",
+            intent="edit", route="adapt", task="research_precedent",
         ),
-        "precedent_research",
+        "adapt",
         True,
         True,
         "edit",
@@ -1650,4 +1974,3 @@ class TestResearchResultPrecedentFields:
         rr = ResearchResult(summary="test")
         with pytest.raises(Exception):
             rr.summary = "modified"  # type: ignore[misc]
-

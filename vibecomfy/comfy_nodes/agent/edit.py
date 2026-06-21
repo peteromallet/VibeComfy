@@ -2800,20 +2800,36 @@ def _build_precedent_adaptation_prompt(
 def _route_blocks_apply(route: str | None) -> bool:
     """Return True when *route* forbids Apply eligibility.
 
-    inspect_only routes only observe the graph without modifying it.
+    inspect routes only observe the graph without modifying it.
     clarify routes ask the user a question and do not produce a candidate.
     Both are semantically inapplicable for Apply.
     """
-    return route in ("inspect_only", "clarify")
+    return _canonical_agent_edit_route(route) in {"inspect", "clarify"}
+
+
+def _canonical_agent_edit_route(route: str | None) -> str | None:
+    """Normalize executor-facing route labels to the canonical vocabulary."""
+    if not isinstance(route, str):
+        return None
+    normalized = route.strip()
+    if not normalized:
+        return None
+    aliases = {
+        "inspect_only": "inspect",
+        "direct_edit": "revise",
+        "diagnose_repair": "revise",
+        "precedent_research": "adapt",
+    }
+    return aliases.get(normalized, normalized)
 
 
 def _route_change_focus_label(route: str | None) -> str:
     """Return a short change-focus label for *route* when reporting edits.
 
-    direct_edit is a focused, targeted change — the label makes that
+    revise is a focused, targeted change — the label makes that
     explicit in user-facing summaries.
     """
-    if route == "direct_edit":
+    if _canonical_agent_edit_route(route) == "revise":
         return "Focused change"
     return ""
 
@@ -2947,9 +2963,9 @@ def _stage_agent_batch_repl(
     prefetch_graph_report = (
         _build_graph_report(state.graph) if prefetch_explain else ""
     )
-    # Build compact adaptation plan prompt for precedent_research route (T13)
+    # Build compact adaptation plan prompt for adapt route.
     precedent_adaptation_prompt = ""
-    if route == "precedent_research" and state.executor_adaptation_plan:
+    if _canonical_agent_edit_route(state.route or route) == "adapt" and state.executor_adaptation_plan:
         precedent_adaptation_prompt = _build_precedent_adaptation_prompt(
             state.executor_adaptation_plan,
             state.executor_precedent_slices,
@@ -4317,7 +4333,7 @@ def _build_batch_repl_response(
         has_candidate=has_candidate,
         candidate_state="candidate",
     )
-    # T15: inspect_only and clarify routes cannot be Apply-eligible
+    # inspect and clarify routes cannot be Apply-eligible.
     if _route_blocks_apply(state.route):
         response_apply_eligibility = ApplyEligibility(
             applyable=False,
@@ -4395,12 +4411,12 @@ def _build_batch_repl_response(
     elif state.batch_done_summary:
         response["done_summary"] = state.batch_done_summary
     response["batch_turns"] = _json_safe(state.batch_turns)
-    # T15: precedent_research carries semantic checks as advisory/not_evaluated
-    if state.route == "precedent_research":
+    # adapt carries semantic checks as advisory/not_evaluated.
+    if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)
         if semantic_entries:
             response.setdefault("task_satisfaction", []).extend(semantic_entries)
-    # T15: direct_edit reports change focus
+    # revise reports change focus.
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
         response["change_focus"] = change_focus
@@ -4419,7 +4435,7 @@ def _build_dev_success_response(
         has_candidate=True,
         candidate_state="candidate",
     )
-    # T15: inspect_only and clarify routes cannot be Apply-eligible
+    # inspect and clarify routes cannot be Apply-eligible.
     if _route_blocks_apply(state.route):
         eligibility = ApplyEligibility(
             applyable=False,
@@ -4438,11 +4454,11 @@ def _build_dev_success_response(
     )
     response.update(compatibility_fields)
     response.update(_session_artifact_response_fields(state))
-    # T17: no-candidate routes (inspect_only, clarify) must not produce a
+    # No-candidate routes (inspect, clarify) must not produce a
     # candidate outcome or candidate payload even in dev/delta paths.
     if _route_blocks_apply(state.route):
         has_candidate = False
-        if state.route == "clarify":
+        if _canonical_agent_edit_route(state.route) == "clarify":
             internal_outcome = TurnOutcome.clarify(question=state.user_message or None)
         else:
             internal_outcome = TurnOutcome.noop(reason=state.user_message or None)
@@ -4475,12 +4491,12 @@ def _build_dev_success_response(
         from vibecomfy.porting.edit.ops import op_to_dict
 
         response["delta_ops"] = [op_to_dict(op) for op in state.delta_ops]
-    # T15: precedent_research carries semantic checks as advisory/not_evaluated
-    if state.route == "precedent_research":
+    # adapt carries semantic checks as advisory/not_evaluated.
+    if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)
         if semantic_entries:
             response.setdefault("task_satisfaction", []).extend(semantic_entries)
-    # T15: direct_edit reports change focus
+    # revise reports change focus.
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
         response["change_focus"] = change_focus
@@ -4899,8 +4915,12 @@ def handle_agent_edit(
 
     contract = _agent_edit_contract()
 
-    route = payload.get("route") if isinstance(payload.get("route"), str) else None
+    raw_route = payload.get("route") if isinstance(payload.get("route"), str) else None
+    executor_route = payload.get("executor_route") if isinstance(payload.get("executor_route"), str) else raw_route
+    provider_route = payload.get("provider_route") if isinstance(payload.get("provider_route"), str) else raw_route
+    route = _canonical_agent_edit_route(executor_route)
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
+    state.route = route
 
     # Load session-local last-five conversation messages for prompt memory.
     # Only the batch_repl product path injects them (SD2); delta/full-dev
@@ -4921,7 +4941,7 @@ def handle_agent_edit(
                 state,
                 context,
                 deepseek_client=deepseek_client,
-                route=route,
+                route=provider_route,
                 model=model,
                 client_id=client_id,
                 conversation_messages=conversation_messages,
@@ -4931,7 +4951,7 @@ def handle_agent_edit(
                 state,
                 context,
                 deepseek_client=deepseek_client,
-                route=route,
+                route=provider_route,
                 model=model,
             )
         else:
@@ -4939,7 +4959,7 @@ def handle_agent_edit(
                 state,
                 context,
                 deepseek_client=deepseek_client,
-                route=route,
+                route=provider_route,
                 model=model,
             )
     except _StageBlocked as blocked:
@@ -4972,7 +4992,8 @@ def handle_agent_edit(
         )
         return response
 
-    # T15: carry route on state so response builders can apply route-aware gating
+    # Carry canonical executor route on state so response builders can apply
+    # route-aware gating independent of provider dispatch.
     state.route = route
 
     if contract == "delta":

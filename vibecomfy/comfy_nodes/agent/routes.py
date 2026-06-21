@@ -165,6 +165,97 @@ def _handle_agent_edit(
     ).to_dict()
 
 
+def _executor_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    request_payload = dict(payload)
+    if "query" not in request_payload and isinstance(request_payload.get("task"), str):
+        request_payload["query"] = request_payload["task"]
+    return request_payload
+
+
+def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
+    reply = payload.get("reply")
+    message = reply if isinstance(reply, str) else ""
+    route = payload.get("route") if isinstance(payload.get("route"), str) else "clarify"
+    candidate = payload.get("candidate") if isinstance(payload.get("candidate"), Mapping) else None
+    candidate_graph = (
+        candidate.get("graph")
+        if isinstance(candidate, Mapping) and isinstance(candidate.get("graph"), dict)
+        else None
+    )
+    apply_eligible = bool(payload.get("apply_eligible"))
+
+    if candidate_graph is not None and apply_eligible:
+        outcome = {"kind": "candidate", "changes": []}
+    elif route == "clarify":
+        outcome = {
+            "kind": "clarify",
+            "question": message,
+            "clarification": {"message": message},
+        }
+    else:
+        reason = payload.get("no_candidate_reason")
+        outcome = {
+            "kind": "noop",
+            "reason": str(reason) if isinstance(reason, str) and reason else message,
+        }
+
+    compatibility = {
+        "message": message,
+        "outcome": outcome,
+        "apply_eligibility": {
+            "applyable": apply_eligible,
+            "reason": "applyable" if apply_eligible else "no_candidate",
+            "message": "Ready to apply." if apply_eligible else "No candidate is available to apply.",
+            "warnings": [],
+        },
+        "apply_allowed": apply_eligible,
+        "canvas_apply_allowed": apply_eligible,
+        "queue_allowed": apply_eligible,
+        "graph_unchanged": candidate_graph is None,
+    }
+    if candidate_graph is not None:
+        compatibility["graph"] = candidate_graph
+        compatibility["candidate_graph"] = candidate_graph
+    if route == "clarify":
+        compatibility["clarification_required"] = True
+        compatibility["clarification_message"] = message
+    return compatibility
+
+
+def _serialize_executor_result(result: Any) -> dict[str, Any]:
+    serialized = _to_serializable(result)
+    if not isinstance(serialized, dict):
+        serialized = {"ok": False, "error": "Non-dict executor result."}
+    compatibility = _executor_compatibility_fields(serialized)
+    return {**compatibility, **serialized}
+
+
+def _handle_agent_executor_submit(
+    payload: Any,
+    *,
+    client_id: str | None = None,
+) -> tuple[dict[str, Any], int]:
+    from vibecomfy.executor.contracts import ExecutorRequest  # noqa: PLC0415
+    from vibecomfy.executor.core import run_executor  # noqa: PLC0415
+
+    if not isinstance(payload, dict):
+        failure = failure_envelope(
+            FailureKind.MISSING_REQUIRED_FIELD,
+            "agent_executor",
+            agent_failure_context={"explanation": "Request body must be a JSON object."},
+        ).to_dict()
+        return _validated_failure_response("agent_executor", failure), 400
+    try:
+        request = ExecutorRequest.from_payload(_executor_request_payload(payload))
+    except Exception as exc:
+        failure = classify_failure("agent_executor", exc).to_dict()
+        return _validated_failure_response("agent_executor", failure), 400
+    result = run_executor(request, client_id=client_id)
+    response = _serialize_executor_result(result)
+    status = 200 if response.get("ok") is not False else 500
+    return response, status
+
+
 def _session_root_path(session_root: Any) -> Path:
     return Path(session_root) if session_root is not None else _SESSION_ROOT
 
@@ -679,8 +770,8 @@ def register_agent_edit_routes(app) -> None:
         if not isinstance(payload, dict):
             return _json_error("Request body must be a JSON object.", stage="agent_edit")
         try:
-            result = await asyncio.to_thread(
-                handle_agent_edit,
+            result, status = await asyncio.to_thread(
+                _handle_agent_executor_submit,
                 payload,
                 client_id=_client_id_from_payload(payload),
             )
@@ -691,10 +782,32 @@ def register_agent_edit_routes(app) -> None:
                 status=500,
             )
         if not isinstance(result, dict):
-            return _json_error("handle_agent_edit returned a non-dict result.", stage="agent_edit", status=500)
+            return _json_error("run_executor returned a non-dict result.", stage="agent_edit", status=500)
         if result.get("status") == "error":
             return _web.json_response(result, status=400)
-        return _web.json_response(result)
+        return _web.json_response(result, status=status)
+
+    @app.routes.post("/vibecomfy/agent-executor")
+    async def _agent_executor_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _json_error(f"Request body must be valid JSON: {exc}", stage="agent_executor")
+        if not isinstance(payload, dict):
+            return _json_error("Request body must be a JSON object.", stage="agent_executor")
+        try:
+            result, status = await asyncio.to_thread(
+                _handle_agent_executor_submit,
+                payload,
+                client_id=_client_id_from_payload(payload),
+            )
+        except Exception as exc:
+            failure = _classify_failure("agent_executor", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="agent_executor"),
+                status=500,
+            )
+        return _web.json_response(result, status=status)
 
     @app.routes.post("/agent/edit")
     async def _legacy_agent_edit_route(request):  # type: ignore[no-untyped-def]

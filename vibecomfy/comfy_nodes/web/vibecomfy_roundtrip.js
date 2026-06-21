@@ -3462,7 +3462,7 @@ function candidateActionState(panel, message = null, snapshot = null) {
     eligibility,
     blockerMessage,
     applyDisabled: applying || !active || !eligibility.applyable,
-    rejectDisabled: submitting || applying || !active,
+    rejectDisabled: submitting || applying || !active || !eligibility.applyable,
   };
 }
 
@@ -4343,6 +4343,8 @@ function restoreLatestCandidateFromChat(panel, payload) {
     return;
   }
   const eligibility = latest.eligibility;
+  const normalizedEligibility = normalizeApplyEligibility(eligibility);
+  const restoredActionAllowed = Boolean(candidateGraph && normalizedEligibility?.applyable === true);
   const restoreObligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
     sessionId: latest.sessionId || null,
     turnId: latest.turnId || null,
@@ -4352,9 +4354,9 @@ function restoreLatestCandidateFromChat(panel, payload) {
     candidateReport: latest.report && typeof latest.report === "object" ? clonePlainData(latest.report) : null,
     serverSubmitGraphHash: latest.submitGraphHash || null,
     message: typeof latest.message === "string" ? latest.message : null,
-    applyEligibility: normalizeApplyEligibility(eligibility),
-    applyAllowed: latest.applyAllowed !== false && latest.canvasApplyAllowed !== false,
-    canvasApplyAllowed: Boolean(latest.canvasApplyAllowed),
+    applyEligibility: normalizedEligibility,
+    applyAllowed: restoredActionAllowed,
+    canvasApplyAllowed: restoredActionAllowed,
     queueAllowed: Boolean(latest.queueAllowed),
     auditRef: latest.auditRef || panel.state.auditRef || null,
     changeDetails: latest.raw?.change_details && typeof latest.raw.change_details === "object"
@@ -8580,7 +8582,7 @@ async function newAgentConversation(panel) {
 
 // ── Submit helpers (extracted from submitAgentEdit; pure data transformations) ──
 
-/** Build the POST body for /vibecomfy/agent-edit. */
+/** Build the POST body for /vibecomfy/agent-executor. */
 function buildSubmitBody(snapshot, task, panel) {
   return {
     graph: snapshot.graph,
@@ -8830,7 +8832,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       submitAbortController = new AbortController();
       transition(panel, "SUBMIT_ABORT_CONTROLLER", { controller: submitAbortController });
       const body = buildSubmitBody(snapshot, task, panel);
-      const res = await fetch("/vibecomfy/agent-edit", {
+      const res = await fetch("/vibecomfy/agent-executor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -8847,7 +8849,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       } catch (error) {
         if (res.ok) {
           throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
-            stage: rawResult?.stage || "agent-edit",
+            stage: rawResult?.stage || "agent-executor",
             retryable: true,
             graph_unchanged: true,
             next_action: "Retry the request or inspect the raw response in the debug panel.",
@@ -8875,7 +8877,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       const candidateGraph = prepareCandidateGraphForPanel(result.candidateGraph);
       if (!isSubmitResponseValid(outcome, candidateGraph)) {
         throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
-          stage: result.raw?.stage || "agent-edit",
+          stage: result.raw?.stage || "agent-executor",
           retryable: true,
           graph_unchanged: true,
           next_action: "Retry the request or inspect the raw response in the debug panel.",
@@ -9790,6 +9792,22 @@ async function applyAgentCandidate(panel) {
 
 async function rejectAgentCandidate(panel) {
   if (!panel?.state?.candidateGraph) {
+    return;
+  }
+  const eligibility = applyEligibility(panel);
+  if (!eligibility.applyable) {
+    const failure = agentPanelFailure("RejectBlocked", eligibility.message || "Reject is blocked for this candidate.", {
+      retryable: eligibility.reason !== APPLY_ELIGIBILITY_REASON.NO_CANDIDATE,
+      graph_unchanged: true,
+      next_action: "Submit a new edit or resolve the server-side blockers before retrying Reject.",
+      apply_eligibility: eligibility,
+    });
+    const obligations = transition(panel, "REJECT_FAILURE", {
+      failure,
+      debugPayload: failure,
+    });
+    fulfillLifecycleTransitionObligations(panel, obligations);
+    renderLifecycleTransition(panel, obligations);
     return;
   }
 

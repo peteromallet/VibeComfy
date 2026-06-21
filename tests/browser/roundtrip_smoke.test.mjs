@@ -657,7 +657,7 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": async () => {
+      "/vibecomfy/agent-executor": async () => {
         await pendingResponse;
         return {
           status: 200,
@@ -720,7 +720,7 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
     firstSubmit = submitButton.click();
     duplicateSubmit = submitButton.click();
 
-    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit").length === 1);
+    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length === 1);
     await waitFor(() => harness.textDump().includes("tighten the prompt"));
     const pendingText = harness.textDump();
     assert.ok(pendingText.includes("previous user request"), "prior user message should remain visible while pending");
@@ -783,7 +783,7 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
       "chat empty-state mount should be hidden after optimistic messages",
     );
 
-    const request = harness.requests.find((entry) => entry.url === "/vibecomfy/agent-edit");
+    const request = harness.requests.find((entry) => entry.url === "/vibecomfy/agent-executor");
     const payload = JSON.parse(request.body);
     assert.equal(request.method, "POST");
     assert.equal(payload.task, "tighten the prompt");
@@ -840,7 +840,7 @@ test("VibeComfy executor submit preserves prior chat history while pending", asy
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": async () => {
+      "/vibecomfy/agent-executor": async () => {
         await pendingResponse;
         return {
           status: 200,
@@ -894,7 +894,7 @@ test("VibeComfy executor submit preserves prior chat history while pending", asy
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "second user message";
     const submitPromise = harness.document.getElementById("vibecomfy-agent-panel-submit").click();
-    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit").length === 1);
+    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length === 1);
 
     const pendingText = harness.textDump();
     assert.match(pendingText, /first user message/);
@@ -994,7 +994,7 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": async () => {
+      "/vibecomfy/agent-executor": async () => {
         await pendingResponse;
         return {
           status: 200,
@@ -1040,7 +1040,7 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
 
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "tighten the graph";
     submitPromise = harness.clickButton("Submit");
-    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit"));
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-executor"));
 
     harness.setCurrentGraph(changedGraph);
     releaseResponse();
@@ -1073,7 +1073,7 @@ test("VibeComfy renders a clarify turn as a question, not a no-op candidate", as
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -1177,7 +1177,7 @@ test("VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         const body = JSON.parse(options.body);
         submitBodies.push(body);
         if (submitBodies.length === 1) {
@@ -1327,7 +1327,7 @@ test("VibeComfy renders no-op edit turns without entering review", async () => {
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -1397,7 +1397,7 @@ test("VibeComfy treats graph-unchanged all-gates-false candidate responses as no
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -1514,7 +1514,7 @@ test("VibeComfy live submit no-op response shape settles in Ready without review
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: liveNoopResponse,
       },
@@ -1533,7 +1533,7 @@ test("VibeComfy live submit no-op response shape settles in Ready without review
     await submitPromise;
 
     const panel = extensionModule.ensureAgentPanel();
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length, 1);
     assert.equal(panel.state.phase, "IDLE");
     assert.equal(panel.state.candidateGraph, null);
     assert.equal(panel.state.candidateGraphHash, null);
@@ -1578,7 +1578,7 @@ test("VibeComfy answer-only no-op response renders the assistant explanation", a
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -1669,7 +1669,7 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -1742,7 +1742,7 @@ test("VibeComfy failure bubble uses envelope user_facing_message for MalformedMo
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 400,
         body: {
           ok: false,
@@ -1809,7 +1809,7 @@ test("VibeComfy reads typed candidate and eligibility envelopes without compatib
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -1919,7 +1919,7 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
     graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }], links: [] },
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -2034,7 +2034,7 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         const body = JSON.parse(options.body);
         submitBodies.push(body);
         if (submitBodies.length === 1) {
@@ -2195,7 +2195,7 @@ test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retr
   }
 });
 
-test("VibeComfy ignores raw apply booleans when canonical eligibility authorizes Apply", async () => {
+test("VibeComfy ignores raw apply booleans when apply_eligible authorizes Apply", async () => {
   const SESSION_ID = "session-raw-bools-ignored";
   const initialGraph = {
     nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
@@ -2216,7 +2216,7 @@ test("VibeComfy ignores raw apply booleans when canonical eligibility authorizes
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -2226,17 +2226,12 @@ test("VibeComfy ignores raw apply booleans when canonical eligibility authorizes
           candidate: {
             graph: candidateGraph,
           },
-          eligibility: {
-            applyable: true,
-            reason: "applyable",
-            message: "Apply is allowed via canonical eligibility.",
-            warnings: [],
-          },
+          apply_eligible: true,
           // Raw booleans set to false — UI must ignore them.
           canvas_apply_allowed: false,
           apply_allowed: false,
           queue_allowed: true,
-          message: "Candidate with canonical eligibility but raw booleans false.",
+          message: "Candidate with apply_eligible true but raw booleans false.",
           report: {
             change: {
               content_edits: {
@@ -2294,7 +2289,7 @@ test("VibeComfy ignores raw apply booleans when canonical eligibility authorizes
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
     await harness.clickButton("Submit");
 
-    // Apply must be ENABLED because canonical eligibility says applyable:true,
+    // Apply must be ENABLED because apply_eligible is true and a candidate exists,
     // even though raw apply_allowed and canvas_apply_allowed are false.
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.match(harness.textDump(), /applyEligibility.*applyable/);
@@ -2308,7 +2303,7 @@ test("VibeComfy ignores raw apply booleans when canonical eligibility authorizes
   }
 });
 
-test("VibeComfy disables Apply and warns when a candidate arrives without canonical eligibility", async () => {
+test("VibeComfy disables Apply and warns when a candidate arrives without apply_eligible", async () => {
   const SESSION_ID = "session-missing-eligibility";
   const candidateGraph = {
     nodes: [
@@ -2328,7 +2323,7 @@ test("VibeComfy disables Apply and warns when a candidate arrives without canoni
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -2341,7 +2336,7 @@ test("VibeComfy disables Apply and warns when a candidate arrives without canoni
           canvas_apply_allowed: true,
           apply_allowed: true,
           queue_allowed: true,
-          message: "Candidate missing eligibility contract.",
+          message: "Candidate missing apply_eligible contract.",
           report: {
             change: {
               content_edits: {
@@ -2547,7 +2542,7 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
           },
         },
       },
-      "/vibecomfy/agent-edit": async () => responses.shift(),
+      "/vibecomfy/agent-executor": async () => responses.shift(),
     },
   });
 
@@ -2847,7 +2842,7 @@ test("VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, 
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         const body = JSON.parse(options.body);
         if (body.task === "post undo baseline submit") {
           assert.equal(body.session_id, "session-apply");
@@ -3079,7 +3074,7 @@ test("VibeComfy Apply allows nonstructural serialize drift when the live canvas 
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -3206,7 +3201,7 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -3317,7 +3312,7 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -3416,7 +3411,7 @@ test("VibeComfy v2 Apply blocks if the live canvas token changes after backend a
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -3546,7 +3541,7 @@ test("VibeComfy v2 Apply uses scoped delta mutation, tolerates unrelated post-ac
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -3686,7 +3681,7 @@ test("VibeComfy v2 Apply blocks when the touched region drifts after backend acc
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -3854,7 +3849,7 @@ test("VibeComfy v2 Apply refuses a touched-link race before mutation and reports
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -3982,7 +3977,7 @@ test("VibeComfy v2 Apply rolls back a post-apply verification miss and reports r
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -4112,7 +4107,7 @@ test("VibeComfy v2 Apply preserves undo diagnostics when post-apply verification
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -4278,7 +4273,7 @@ test("VibeComfy keeps the full candidate graph available for preview overlay in 
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -4359,7 +4354,7 @@ test("VibeComfy falls back to panel-only changed-node and queue warnings when li
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -4480,7 +4475,7 @@ test("VibeComfy in-place apply decorates intent nodes with persistent styling, t
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -5306,7 +5301,7 @@ test("VibeComfy surfaces network and malformed accept failures with retry guidan
           },
         },
       },
-      "/vibecomfy/agent-edit": async () => {
+      "/vibecomfy/agent-executor": async () => {
         submitCount += 1;
         if (submitCount === 1) {
           throw new Error("connect ECONNREFUSED 127.0.0.1:8188");
@@ -5474,7 +5469,7 @@ test("Lifecycle B2/B5 rebaseline sync blocks submit while pending or in flight",
           },
         };
       },
-      "/vibecomfy/agent-edit": async () => {
+      "/vibecomfy/agent-executor": async () => {
         throw new Error("submit must remain blocked while rebaseline is pending or in flight");
       },
     },
@@ -5541,7 +5536,7 @@ test("Lifecycle B2/B5 rebaseline sync blocks submit while pending or in flight",
     assert.equal(panel.state.rebaselinePending, null);
     assert.equal(panel.state.inFlightRebaseline, null);
     assert.equal(submitButton.disabled, false);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length, 0);
     assert.equal(undoButton.disabled, true);
     assert.equal(undoButton.textContent, "Undo Last Apply");
     assert.doesNotMatch(harness.textDump(), /rebaseline pending: undo/);
@@ -5582,7 +5577,7 @@ test("VibeComfy renders one stale-state recovery action, retries against updated
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         const body = JSON.parse(options.body);
         submitBodies.push(body);
         assert.equal(body.task, "finish the recovered edit");
@@ -5930,7 +5925,7 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
           },
         },
       },
-      "/vibecomfy/agent-edit": async () => turnResponses.shift(),
+      "/vibecomfy/agent-executor": async () => turnResponses.shift(),
       "/vibecomfy/agent-edit/accept": {
         status: 200,
         body: {
@@ -6038,7 +6033,7 @@ test("VibeComfy agent turn websocket listener ignores closed or foreign sessions
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         submitBodies.push(JSON.parse(options.body));
         return new Promise((resolve) => {
           resolveSubmit = resolve;
@@ -6203,7 +6198,7 @@ test("VibeComfy lowered recovery entries are informational and do not block queu
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -6319,7 +6314,7 @@ test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vib
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -6409,7 +6404,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         submitBodies.push(JSON.parse(options.body));
         return new Promise((resolve) => {
           resolveSubmit = resolve;
@@ -10248,7 +10243,7 @@ test("Lifecycle C2 new conversation clears state and ignores late submit respons
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         submitCount += 1;
         const body = JSON.parse(options.body);
         if (submitCount === 1) {
@@ -10395,7 +10390,7 @@ test("Lifecycle C2 new conversation clears state and ignores late submit respons
     await waitFor(() => /fresh candidate 3/.test(harness.textDump()));
 
     // Check the body of the third request — session_id must be absent.
-    const agentEditRequests = harness.requests.filter((r) => r.url === "/vibecomfy/agent-edit" && r.method === "POST");
+    const agentEditRequests = harness.requests.filter((r) => r.url === "/vibecomfy/agent-executor" && r.method === "POST");
     assert.ok(agentEditRequests.length >= 3, "must have at least three agent-edit POST requests");
     const thirdPayload = JSON.parse(agentEditRequests[2].body);
     assert.equal(
@@ -10457,7 +10452,7 @@ test("VibeComfy agent submit on failure path still persists session_id for recov
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 500,
         body: {
           ok: false,
@@ -10492,7 +10487,7 @@ test("VibeComfy agent submit on failure path still persists session_id for recov
 
     // Wait for the submit request to complete (failure path).
     await waitFor(() =>
-      harness.requests.filter((r) => r.url === "/vibecomfy/agent-edit").length >= 1,
+      harness.requests.filter((r) => r.url === "/vibecomfy/agent-executor").length >= 1,
     );
     // Yield for async handlers.
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -10534,7 +10529,7 @@ test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -12064,7 +12059,7 @@ test("VibeComfy submit normalizes field changes from outcome.changes and batch_t
         status: 200,
         body: { system: { comfyui_frontend_package: "1.39.19" } },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -12388,7 +12383,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -12520,7 +12515,7 @@ test("VibeComfy humanizes agent bubble text and keeps gate and op details behind
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -12646,7 +12641,7 @@ test("VibeComfy hides final batch row from the live log when ok response has a c
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -12731,7 +12726,7 @@ test("VibeComfy bubble candidate controls only enable the latest canonical candi
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -12905,7 +12900,7 @@ test("VibeComfy historical superseded candidates keep their superseded Apply rea
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: {
           ok: true,
@@ -13090,7 +13085,7 @@ test("VibeComfy clarify questions render inline and follow-up submit continues t
           },
         },
       },
-      "/vibecomfy/agent-edit": async ({ options }) => {
+      "/vibecomfy/agent-executor": async ({ options }) => {
         const body = JSON.parse(options.body);
         submitBodies.push(body);
         if (submitBodies.length === 1) {
@@ -13190,7 +13185,7 @@ test("VibeComfy blocks submit until status.ready is true and shows composer read
           },
         },
       },
-      "/vibecomfy/agent-edit": {
+      "/vibecomfy/agent-executor": {
         status: 200,
         body: { ok: true },
       },
@@ -13208,7 +13203,7 @@ test("VibeComfy blocks submit until status.ready is true and shows composer read
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "replace the preview node";
     submitButton.click();
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length, 0);
     assert.match(harness.textDump(), /Send unavailable/);
   } finally {
     await harness.dispose();
@@ -13253,7 +13248,7 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
           },
         },
       },
-      "/vibecomfy/agent-edit": async () => {
+      "/vibecomfy/agent-executor": async () => {
         if (submitMode === "abort") {
           releaseSubmit();
           return new Promise(() => {});

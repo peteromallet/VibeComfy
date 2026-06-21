@@ -796,8 +796,22 @@ function _handleArrivalSerializeFailure(panel, payload) {
   return { render: true };
 }
 
+function _candidateActionAllowed(payload, result) {
+  const candidateGraph = payload?.candidateGraph;
+  const hasCandidate = Boolean(candidateGraph && typeof candidateGraph === "object");
+  const eligibility = payload?.applyEligibility;
+  if (eligibility && typeof eligibility === "object") {
+    return hasCandidate && eligibility.applyable === true;
+  }
+  return hasCandidate
+    && result.apply_eligible === true
+    && result.apply_allowed !== false
+    && result.canvas_apply_allowed !== false;
+}
+
 function _handleCandidateResponse(panel, payload) {
   const result = payload?.result || {};
+  const candidateActionAllowed = _candidateActionAllowed(payload, result);
   panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
   panel.state.sessionId = _stringOrCurrent(result.session_id, panel.state.sessionId);
   panel.state.turnId = typeof result.turn_id === "string" ? result.turn_id : null;
@@ -811,8 +825,8 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.failure = null;
   panel.state.clarification = payload?.clarification || null;
   panel.state.applyEligibility = payload?.applyEligibility || null;
-  panel.state.applyAllowed = result.apply_allowed !== false && result.canvas_apply_allowed !== false;
-  panel.state.canvasApplyAllowed = Boolean(result.canvas_apply_allowed);
+  panel.state.applyAllowed = candidateActionAllowed;
+  panel.state.canvasApplyAllowed = candidateActionAllowed;
   panel.state.queueAllowed = Boolean(result.queue_allowed);
   panel.state.auditRef = result.audit_ref || null;
   panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
@@ -1002,8 +1016,12 @@ function _handleChatRehydrateRestoreLatestCandidate(panel, payload) {
   panel.state.failure = null;
   panel.state.clarification = null;
   panel.state.applyEligibility = payload?.applyEligibility || null;
-  panel.state.applyAllowed = payload?.applyAllowed !== false;
-  panel.state.canvasApplyAllowed = Boolean(payload?.canvasApplyAllowed);
+  panel.state.applyAllowed = _candidateActionAllowed(payload, {
+    apply_eligible: payload?.applyAllowed === true,
+    apply_allowed: payload?.applyAllowed,
+    canvas_apply_allowed: payload?.canvasApplyAllowed,
+  });
+  panel.state.canvasApplyAllowed = panel.state.applyAllowed;
   panel.state.queueAllowed = Boolean(payload?.queueAllowed);
   panel.state.auditRef = payload?.auditRef || panel.state.auditRef || null;
   panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
