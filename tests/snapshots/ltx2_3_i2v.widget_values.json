@@ -18,40 +18,16 @@
     1
   ],
   [
-    "ClownSampler_Beta",
-    "widget_0",
-    "0.25",
-    1
-  ],
-  [
-    "ClownSampler_Beta",
-    "widget_1",
-    "'exponential/res_2s'",
-    1
-  ],
-  [
-    "ClownSampler_Beta",
-    "widget_2",
-    "94",
-    1
-  ],
-  [
-    "ClownSampler_Beta",
-    "widget_3",
-    "'fixed'",
-    1
-  ],
-  [
-    "ClownSampler_Beta",
-    "widget_4",
-    "True",
-    1
-  ],
-  [
     "CreateVideo",
     "fps",
     "24.0",
     2
+  ],
+  [
+    "EmptyLTXVLatentVideo",
+    "batch_size",
+    "1",
+    1
   ],
   [
     "EmptyLTXVLatentVideo",
@@ -85,8 +61,20 @@
   ],
   [
     "GuiderParameters",
+    "cross_attn",
+    "True",
+    2
+  ],
+  [
+    "GuiderParameters",
     "modality",
     "'AUDIO'",
+    1
+  ],
+  [
+    "GuiderParameters",
+    "modality",
+    "'VIDEO'",
     1
   ],
   [
@@ -97,15 +85,39 @@
   ],
   [
     "GuiderParameters",
+    "perturb_attn",
+    "True",
+    2
+  ],
+  [
+    "GuiderParameters",
+    "rescale",
+    "0.7",
+    1
+  ],
+  [
+    "GuiderParameters",
     "rescale",
     "0.9",
     1
   ],
   [
+    "GuiderParameters",
+    "skip_step",
+    "0",
+    2
+  ],
+  [
+    "GuiderParameters",
+    "stg",
+    "1.0",
+    2
+  ],
+  [
     "KSamplerSelect",
     "sampler_name",
     "'euler_ancestral_cfg_pp'",
-    1
+    2
   ],
   [
     "LTXAVTextEncoderLoader",
@@ -138,6 +150,12 @@
     1
   ],
   [
+    "LTXVAudioVAELoader",
+    "ckpt_name",
+    "'ltx-2.3-22b-dev-fp8.safetensors'",
+    1
+  ],
+  [
     "LTXVConditioning",
     "frame_rate",
     "24.0",
@@ -145,8 +163,14 @@
   ],
   [
     "LTXVEmptyLatentAudio",
+    "batch_size",
+    "1",
+    1
+  ],
+  [
+    "LTXVEmptyLatentAudio",
     "frames_number",
-    "121",
+    "9",
     1
   ],
   [
@@ -169,14 +193,44 @@
   ],
   [
     "LTXVScheduler",
+    "base_shift",
+    "0.95",
+    1
+  ],
+  [
+    "LTXVScheduler",
+    "max_shift",
+    "2.05",
+    1
+  ],
+  [
+    "LTXVScheduler",
     "steps",
     "15",
+    1
+  ],
+  [
+    "LTXVScheduler",
+    "stretch",
+    "True",
+    1
+  ],
+  [
+    "LTXVScheduler",
+    "terminal",
+    "0.1",
     1
   ],
   [
     "LTXVTiledVAEDecode",
     "horizontal_tiles",
     "2",
+    2
+  ],
+  [
+    "LTXVTiledVAEDecode",
+    "last_frame_fix",
+    "False",
     2
   ],
   [
@@ -216,12 +270,6 @@
     1
   ],
   [
-    "LTXVAudioVAELoader",
-    "ckpt_name",
-    "'ltx-2.3-22b-dev-fp8.safetensors'",
-    1
-  ],
-  [
     "LowVRAMCheckpointLoader",
     "ckpt_name",
     "'ltx-2.3-22b-dev-fp8.safetensors'",
@@ -235,7 +283,7 @@
   ],
   [
     "MultimodalGuider",
-    "widget_0",
+    "skip_blocks",
     "'28'",
     1
   ],
@@ -253,8 +301,20 @@
   ],
   [
     "ResizeImageMaskNode",
+    "longer_size",
+    "384",
+    1
+  ],
+  [
+    "ResizeImageMaskNode",
     "resize_type",
     "'scale longer dimension'",
+    1
+  ],
+  [
+    "ResizeImageMaskNode",
+    "resize_type.longer_size",
+    "384",
     1
   ],
   [
@@ -262,6 +322,12 @@
     "scale_method",
     "'lanczos'",
     1
+  ],
+  [
+    "SaveVideo",
+    "codec",
+    "'auto'",
+    2
   ],
   [
     "SaveVideo",
@@ -274,5 +340,11 @@
     "filename_prefix",
     "'output_F'",
     1
+  ],
+  [
+    "SaveVideo",
+    "format",
+    "'auto'",
+    2
   ]
 ]
