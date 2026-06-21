@@ -1625,6 +1625,206 @@ test("executorPhaseToCanonicalProgress — phase-only legacy: skipped phases pro
   assert.equal(progress.execute, "pending");
 });
 
+// ── Canonical inspect route normalization & labeling ────────────────────────
+
+test("normalizeExecutorPhasePayload accepts canonical inspect route", () => {
+  const normalized = normalizeExecutorPhasePayload({
+    phase: "reply",
+    status: "done",
+    route: "inspect",
+    task: "inspect_graph",
+  });
+
+  assert.ok(normalized);
+  assert.equal(normalized.phase, "reply");
+  assert.equal(normalized.route, "inspect");
+  assert.equal(normalized.task, "inspect_graph");
+});
+
+test("executorRouteLabel returns Inspect graph for canonical inspect", () => {
+  // Import is already at top of file — executorRouteLabel is a local function
+  // but we can test through executorProgressLabel
+  const progress = createExecutorProgressSnapshot({
+    decide: "active",
+    route: "inspect",
+  });
+  assert.equal(executorProgressLabel(progress), "Inspect graph");
+});
+
+test("executorRouteLabel returns Inspect graph for legacy inspect_only", () => {
+  const progress = createExecutorProgressSnapshot({
+    decide: "active",
+    route: "inspect_only",
+  });
+  assert.equal(executorProgressLabel(progress), "Inspect graph");
+});
+
+test("progressFromExecutorPhase preserves canonical inspect route", () => {
+  const normalized = normalizeExecutorPhasePayload({
+    phase: "classify",
+    status: "start",
+    route: "inspect",
+    task: "inspect_graph",
+  });
+
+  assert.ok(normalized);
+  assert.equal(normalized.route, "inspect");
+
+  const progress = progressFromExecutorPhase(normalized);
+  assert.ok(progress);
+  assert.equal(progress.route, "inspect");
+  assert.equal(progress.task, "inspect_graph");
+  assert.equal(executorProgressLabel(progress), "Inspect graph");
+});
+
+test("progressFromExecutorPhase preserves legacy inspect_only route for backward compatibility", () => {
+  const normalized = normalizeExecutorPhasePayload({
+    phase: "classify",
+    status: "start",
+    route: "inspect_only",
+    task: "inspect_graph",
+  });
+
+  assert.ok(normalized);
+  assert.equal(normalized.route, "inspect_only");
+
+  const progress = progressFromExecutorPhase(normalized);
+  assert.ok(progress);
+  assert.equal(progress.route, "inspect_only");
+  assert.equal(progress.task, "inspect_graph");
+  assert.equal(executorProgressLabel(progress), "Inspect graph");
+});
+
+test("progressFromExecutorPhase with inspect route during reply phase yields complete progress", () => {
+  // When inspect completes, the reply phase emits done with route=inspect
+  const normalized = normalizeExecutorPhasePayload({
+    phase: "reply",
+    status: "done",
+    route: "inspect",
+    task: "inspect_graph",
+  });
+
+  assert.ok(normalized);
+  const progress = progressFromExecutorPhase(normalized);
+  assert.ok(progress);
+  assert.equal(progress.decide, "done");
+  assert.equal(progress.research, "done");
+  assert.equal(progress.execute, "done");
+  assert.equal(progress.review, "done");
+  assert.equal(progress.route, "inspect");
+  assert.equal(executorProgressLabel(progress), "Complete");
+  assert.equal(isExecutorProgressComplete(progress), true);
+});
+
+test("normalizeExecutorProgressSnapshot accepts canonical inspect route in snapshot", () => {
+  const snapshot = createExecutorProgressSnapshot({
+    decide: "done",
+    research: "done",
+    execute: "done",
+    review: "done",
+    route: "inspect",
+    task: "inspect_graph",
+  });
+
+  const validated = normalizeExecutorProgressSnapshot(snapshot);
+  assert.ok(validated);
+  assert.equal(validated.route, "inspect");
+  assert.equal(validated.task, "inspect_graph");
+});
+
+// ── Revise / Adapt canonical route acceptance ──────────────────────────────
+
+test("normalizeExecutorPhasePayload accepts canonical revise route", () => {
+  const normalized = normalizeExecutorPhasePayload({
+    phase: "classify",
+    status: "start",
+    route: "revise",
+    task: "revise_graph",
+  });
+
+  assert.ok(normalized);
+  assert.equal(normalized.route, "revise");
+  assert.equal(normalized.task, "revise_graph");
+});
+
+test("normalizeExecutorPhasePayload accepts canonical adapt route", () => {
+  const normalized = normalizeExecutorPhasePayload({
+    phase: "classify",
+    status: "start",
+    route: "adapt",
+    task: "adapt_graph",
+  });
+
+  assert.ok(normalized);
+  assert.equal(normalized.route, "adapt");
+  assert.equal(normalized.task, "adapt_graph");
+});
+
+test("executorRouteLabel returns Revise graph for revise route", () => {
+  const progress = createExecutorProgressSnapshot({
+    decide: "active",
+    route: "revise",
+  });
+  assert.equal(executorProgressLabel(progress), "Revise graph");
+});
+
+test("executorRouteLabel returns Adapt graph for adapt route", () => {
+  const progress = createExecutorProgressSnapshot({
+    decide: "active",
+    route: "adapt",
+  });
+  assert.equal(executorProgressLabel(progress), "Adapt graph");
+});
+
+test("normalizeExecutorProgressSnapshot accepts revise and adapt routes", () => {
+  for (const route of ["revise", "adapt"]) {
+    const snapshot = createExecutorProgressSnapshot({
+      decide: "done",
+      research: "done",
+      execute: "done",
+      review: "done",
+      route,
+    });
+    const validated = normalizeExecutorProgressSnapshot(snapshot);
+    assert.ok(validated, `route '${route}' must validate`);
+    assert.equal(validated.route, route);
+  }
+});
+
+test("normalizeExecutorPhasePayload rejects unrecognized canonical routes", () => {
+  // Route "bogus" is not in EXECUTOR_ROUTES
+  const normalized = normalizeExecutorPhasePayload({
+    phase: "classify",
+    status: "start",
+    route: "bogus",
+    task: "bogus_task",
+  });
+  assert.ok(normalized); // overall normalization succeeds
+  // compactObject strips null values, so invalid route/task keys are absent
+  assert.equal(normalized.route, undefined);
+  assert.equal(normalized.task, undefined);
+});
+
+// ── Inspect Apply gating (inspect never offers Apply) ─────────────────────
+
+test("createExecutorProgressSnapshot with inspect route does not imply apply eligibility", () => {
+  // Inspect route's progress snapshot has route=inspect but no candidate/apply fields
+  const snapshot = createExecutorProgressSnapshot({
+    decide: "done",
+    research: "done",
+    execute: "done",
+    review: "done",
+    route: "inspect",
+    task: "inspect_graph",
+  });
+
+  // The progress snapshot is route-aware but does not carry apply_eligible semantics
+  assert.equal(snapshot.route, "inspect");
+  // Complete progress with inspect route still shows Complete
+  assert.equal(isExecutorProgressComplete(snapshot), true);
+  assert.equal(executorProgressLabel(snapshot), "Complete");
+});
+
 // ── Single canonical progress path: agent-turn + executor phase convergence ─
 
 test("canonical path convergence — agent-turn in_progress with landed ops maps to execute=active via deriveAgentActivityState", () => {

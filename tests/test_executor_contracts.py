@@ -264,6 +264,59 @@ class TestClassifyDecision:
             "subgraph_preview",
         }
 
+    def test_inspect_route_overrides_stale_implement_true(self) -> None:
+        """Explicit route=inspect forces implement=false even when stale implement=true is set."""
+        d = ClassifyDecision(
+            research=False,
+            implement=True,  # stale legacy field
+            reply=True,
+            intent="explain_graph",
+            route="inspect",
+            task="inspect_graph",
+        )
+        # Implement must be overridden to False per inspect read-only contract (SD1).
+        assert d.implement is False
+        assert d.route == "inspect"
+        assert d.effective_route == "inspect"
+        # Serialized output must not leak the stale implement=true.
+        out = d.to_dict()
+        assert out["implement"] is False
+        assert out["route"] == "inspect"
+
+    def test_inspect_only_alias_serializes_canonical_inspect(self) -> None:
+        """inspect_only input alias normalizes to inspect in serialized output."""
+        d = ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            intent="explain_graph",
+            route="inspect_only",
+            task="inspect_graph",
+        )
+        # Normalized to canonical "inspect".
+        assert d.route == "inspect"
+        assert d.effective_route == "inspect"
+        out = d.to_dict()
+        assert out["route"] == "inspect"
+        # Legacy alias must never appear in serialization.
+        assert out["route"] != "inspect_only"
+
+    def test_inspect_only_alias_overrides_stale_implement_true(self) -> None:
+        """inspect_only alias with stale implement=true: normalizes to inspect and forces implement=false."""
+        d = ClassifyDecision(
+            research=False,
+            implement=True,  # stale
+            reply=True,
+            intent="explain_graph",
+            route="inspect_only",
+            task="inspect_graph",
+        )
+        assert d.route == "inspect"
+        assert d.implement is False
+        out = d.to_dict()
+        assert out["route"] == "inspect"
+        assert out["implement"] is False
+
     def test_task_clamped_to_empty(self) -> None:
         """Invalid task is clamped to empty string in __post_init__."""
         d = ClassifyDecision(task="bogus_task")
@@ -1260,12 +1313,12 @@ _SCENARIO_FIXTURES = [
     pytest.param(
         "explain current graph",
         dict(
-            research=True, implement=False, reply=True, effort="medium",
+            research=False, implement=False, reply=True, effort="medium",
             plan_summary="explain current graph structure and connections",
             intent="explain_graph", route="inspect", task="inspect_graph",
         ),
         "inspect",
-        True,
+        False,
         False,
         "explain_graph",
         "medium",

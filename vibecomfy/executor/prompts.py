@@ -45,7 +45,7 @@ _CLASSIFY_SYSTEM = (
     "  Set intent=research when the user asks to look up, research, find out about, or "
     "asks how something works.\n"
     "- A request to explain, describe, analyze, or inspect an attached graph "
-    "(e.g. \"what's happening in this graph?\") → intent=explain_graph, research=true, "
+    "(e.g. \"what's happening in this graph?\") → intent=explain_graph, research=false, "
     "implement=false, reply=true, effort=medium.  Set route=\"inspect\" when the "
     "user ONLY wants explanation with no edit.\n"
     "- A simple graph edit request with no research needed "

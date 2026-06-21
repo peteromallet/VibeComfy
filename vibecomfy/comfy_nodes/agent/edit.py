@@ -2600,6 +2600,15 @@ def _is_code_node_intent(task: str) -> bool:
 
 
 def _build_graph_report(graph: dict[str, Any] | None) -> str:
+    """Legacy: build a compact text report from a raw ComfyUI graph dict.
+
+    .. deprecated::
+        The executor now handles graph inspection for **inspect** routes via
+        :mod:`vibecomfy.executor.graph_inspection` (structured evidence +
+        Markdown renderer).  This function is kept for internal agent-edit
+        tests and for the batch-REPL prompt building when graph context is
+        injected into edit (revise / adapt) operations.
+    """
     if not graph:
         return "No graph attached."
     nodes = graph.get("nodes")
@@ -2944,9 +2953,11 @@ def _stage_agent_batch_repl(
     prefetch_research = intent == "research" or (
         not intent and _is_research_intent(state.task)
     )
-    prefetch_explain = intent == "explain_graph" or (
-        not intent and _is_graph_explain_intent(state.task)
-    )
+    # explain_graph intent now maps to the executor inspect route, which
+    # never reaches the agent-edit pipeline.  Keep the text-pattern fallback
+    # for revise / adapt operations where the task reads like a graph
+    # explanation (provides helpful context in the batch-REPL prompt).
+    prefetch_explain = not intent and _is_graph_explain_intent(state.task)
     prefetch_research_summary = state.executor_research_summary or (
         _prefetch_research_summary(state.task) if prefetch_research else ""
     )

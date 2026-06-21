@@ -46,6 +46,10 @@ from .contracts import (
     ResearchResult,
     _ALLOWED_ROUTES,
 )
+from .graph_inspection import (
+    graph_inspection_text,
+    _graph_inspection,
+)
 from .profiles import (
     AgentSpecShape,
     load_profile,
@@ -169,67 +173,6 @@ def _graph_summary(graph: dict[str, Any] | None) -> str | None:
         suffix = f", and {n - 5} more" if n > 5 else ""
         return f"{n} node(s): {type_list}{suffix}"
     return None
-
-
-def _graph_inspection(graph: dict[str, Any] | None) -> str | None:
-    """Build a detailed node-by-node graph description for analysis requests.
-
-    Includes node class types, widget values (truncated), and input slot
-    wiring. Returns ``None`` when no graph is attached.
-    """
-    if not graph:
-        return None
-    nodes = graph.get("nodes")
-    if not isinstance(nodes, list) or not nodes:
-        return "Empty graph (0 nodes)."
-
-    lines: list[str] = []
-    for i, node in enumerate(nodes):
-        if not isinstance(node, dict):
-            continue
-        ct = node.get("class_type") or node.get("type") or "Unknown"
-        node_id = node.get("id", i)
-        parts: list[str] = [f"[{node_id}] {ct}"]
-
-        widgets = node.get("widgets_values")
-        if isinstance(widgets, list) and widgets:
-            widget_parts = []
-            for j, w in enumerate(widgets[:5]):
-                if w is not None and str(w).strip():
-                    widget_parts.append(f"w{j}={str(w)[:80]}")
-            if widget_parts:
-                parts.append("values=(" + ", ".join(widget_parts) + ")")
-
-        inputs = node.get("inputs")
-        if isinstance(inputs, list):
-            slot_info = []
-            for inp in inputs:
-                if isinstance(inp, dict):
-                    name = inp.get("name", "?")
-                    link = inp.get("link")
-                    slot_info.append(
-                        f"{name}=linked({link})" if link is not None else f"{name}=open"
-                    )
-            if slot_info:
-                parts.append("inputs=(" + "; ".join(slot_info[:6]) + ")")
-
-        lines.append(" ".join(parts))
-
-    links = graph.get("links")
-    if isinstance(links, list) and links:
-        edge_lines: list[str] = []
-        for link in links[:20]:
-            if isinstance(link, dict):
-                src = link.get("origin_id", "?")
-                tgt = link.get("target_id", "?")
-                edge_lines.append(f"  {src} -> {tgt}")
-            elif isinstance(link, list) and len(link) >= 4:
-                edge_lines.append(f"  {link[1]} -> {link[3]}")
-        if edge_lines:
-            lines.append("Edges:")
-            lines.extend(edge_lines)
-
-    return f"{len(nodes)} node(s):\n" + "\n".join(lines)
 
 
 # ── profile resolution ───────────────────────────────────────────────────────

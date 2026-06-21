@@ -65,7 +65,10 @@ export const EXECUTOR_INTENTS = Object.freeze([
 
 const EXECUTOR_ROUTES = Object.freeze([
   "direct_edit",
+  "inspect",
   "inspect_only",
+  "revise",
+  "adapt",
   "asset_lookup",
   "diagnose_repair",
   "subgraph_preview",
@@ -76,6 +79,8 @@ const EXECUTOR_ROUTES = Object.freeze([
 const EXECUTOR_TASKS = Object.freeze([
   "edit_graph",
   "inspect_graph",
+  "revise_graph",
+  "adapt_graph",
   "find_assets",
   "diagnose",
   "preview_subgraph",
@@ -100,7 +105,10 @@ function normalizeAllowedString(value, allowedValues) {
 
 function executorRouteLabel(route) {
   if (route === "direct_edit") return "Direct edit";
+  if (route === "inspect") return "Inspect graph";
   if (route === "inspect_only") return "Inspect graph";
+  if (route === "revise") return "Revise graph";
+  if (route === "adapt") return "Adapt graph";
   if (route === "asset_lookup") return "Look up assets";
   if (route === "diagnose_repair") return "Diagnose and repair";
   if (route === "subgraph_preview") return "Preview subgraph";

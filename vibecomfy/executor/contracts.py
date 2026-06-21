@@ -246,6 +246,11 @@ class ClassifyDecision:
         )
         object.__setattr__(self, "route", normalized_route)
 
+        # Enforce read-only contract for inspect route (SD1).
+        # Stale implement=true is ignored when an explicit inspect route is present.
+        if self.route == "inspect":
+            object.__setattr__(self, "implement", False)
+
         # Clamp task to allowed values.
         if self.task not in _ALLOWED_TASKS:
             object.__setattr__(self, "task", "")

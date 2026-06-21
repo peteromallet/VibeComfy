@@ -1,30 +1,29 @@
 name: explain-simple-workflow
 tier: 6
-description: "Executor explain: the frontend/API executor path can produce a thorough explanation for a simple text-to-image workflow"
+description: "Executor inspect: the frontend/API executor path can produce a thorough explanation for a simple text-to-image workflow via the canonical inspect route"
 mode: structural
 agents:
   - id: builder
     dispatcher: fake
 tags:
   - m6
-  - explain
+  - inspect
   - structural
   - positive
   - graph_report
 assessment:
   enforced:
-    - "executor_result.json parses as valid JSON with ok=true, report.executor.plan.intent=explain_graph, and report.executor.plan.implement=true."
+    - "executor_result.json parses as valid JSON with ok=true, report.executor.plan.route=inspect, and report.executor.plan.implement=false."
     - "executor_result.json contains a reply mentioning CheckpointLoaderSimple, KSampler, VAEDecode, and SaveImage."
-    - "implementation_result.json exists and its message contains an 'Edges:' section listing at least one edge."
-    - "actions.jsonl contains at least one entry with op=executor.run and one entry with op=explain_graph."
+    - "executor_result.json has graph=null and candidate=null (inspect is read-only)."
+    - "actions.jsonl contains at least one entry with op=executor.run and one entry with op=inspect."
   graded:
-    - "The executor reply or implementation message describes the data flow from text encoding / latent creation through KSampler and VAEDecode to SaveImage."
+    - "The executor reply describes the data flow from text encoding / latent creation through KSampler and VAEDecode to SaveImage."
   observed:
-    - "The executor implementation/report artifact lists all 7 nodes from the fixture workflow."
+    - "The executor reply lists key nodes from the fixture workflow."
 extras:
   required_frozen_evidence:
     - evidence/executor_result.json
     - evidence/executor_report.json
-    - evidence/implementation_result.json
     - evidence/graph_report.txt
     - evidence/actions.jsonl

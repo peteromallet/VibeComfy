@@ -1349,8 +1349,12 @@ def _ui_graph_to_compiled_api(graph: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_explain_simple_workflow_evidence(report_dir: Path) -> dict[str, Any]:
-    """Write evidence that the executor reaches the graph-explain implement path."""
-    from vibecomfy.comfy_nodes.agent.edit import _build_graph_report
+    """Write evidence that the executor reaches the canonical inspect path.
+
+    The executor now handles graph explanations via the **inspect** route
+    (implement=False, route=inspect) — it builds structured Markdown from
+    graph-inspection evidence and never calls handle_agent_edit.
+    """
     from vibecomfy.executor.contracts import ClassifyDecision, ExecutorRequest
     from vibecomfy.executor.core import run_executor
 
@@ -1376,40 +1380,38 @@ def build_explain_simple_workflow_evidence(report_dir: Path) -> dict[str, Any]:
     def fake_classify(*_args: Any, **_kwargs: Any) -> ClassifyDecision:
         return ClassifyDecision(
             research=False,
-            implement=True,
+            implement=False,
             reply=True,
             effort="low",
             plan_summary="Inspect the attached graph and explain its flow.",
+            route="inspect",
             intent="explain_graph",
         )
-
-    def fake_handle_agent_edit(payload: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
-        graph_report = _build_graph_report(payload["graph"])
-        return {
-            "ok": True,
-            "graph": payload["graph"],
-            "message": graph_report,
-        }
 
     def fake_reply(
         _query: str,
         *,
-        implementation_message: str | None = None,
+        graph_inspection: str | None = None,
         **_kwargs: Any,
     ) -> str:
         return (
+            "## Overview\n\n"
             "This text-to-image workflow loads a checkpoint, encodes positive "
             "and negative prompts with CLIPTextEncode, creates an EmptyLatentImage, "
             "samples it with KSampler, decodes the latent with VAEDecode, and "
             "sends the image to SaveImage.\n\n"
-            f"{implementation_message or ''}"
+            f"{graph_inspection or ''}"
         ).strip()
 
     with _EXECUTOR_FAKE_LOCK:
         with (
             mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=fake_classify),
-            mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=fake_handle_agent_edit),
             mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=fake_reply),
+            # handle_agent_edit must NOT be called for inspect route (SD1).
+            mock.patch(
+                "vibecomfy.executor.core.handle_agent_edit",
+                side_effect=RuntimeError("handle_agent_edit must not be called for inspect"),
+            ),
         ):
             executor_result = run_executor(request)
 
@@ -1425,18 +1427,12 @@ def build_explain_simple_workflow_evidence(report_dir: Path) -> dict[str, Any]:
         json.dumps(report_payload, indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    implementation = executor_result.report.implementation
-    if implementation is None:
-        raise RuntimeError("Explain executor scenario did not produce implementation evidence.")
-    implementation_path = root / "implementation_result.json"
-    implementation_path.write_text(
-        json.dumps(implementation.to_dict(), indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    report = implementation.message
-
+    # Canonical inspect produces graph=None, candidate=None — implementation
+    # is skipped entirely.  Save the reply as the graph report for
+    # backward-compatible evidence.
+    reply = executor_result.reply or ""
     report_path = root / "graph_report.txt"
-    report_path.write_text(report, encoding="utf-8")
+    report_path.write_text(reply, encoding="utf-8")
 
     _write_actions(
         root / "actions.jsonl",
@@ -1448,7 +1444,7 @@ def build_explain_simple_workflow_evidence(report_dir: Path) -> dict[str, Any]:
                 "plan": executor_result.report.plan.to_dict(),
             },
             {
-                "op": "explain_graph",
+                "op": "inspect",
                 "via": "run_executor",
                 "task": task,
                 "fixture": "tests/fixtures/agent_edit/flat.json",
@@ -1459,14 +1455,13 @@ def build_explain_simple_workflow_evidence(report_dir: Path) -> dict[str, Any]:
     (root / "stdout.txt").write_text("", encoding="utf-8")
     (root / "stderr.txt").write_text("", encoding="utf-8")
     (root / "report.md").write_text(
-        "Ran the executor explain_graph path for a simple text-to-image workflow.\n",
+        "Ran the executor inspect path for a simple text-to-image workflow.\n",
         encoding="utf-8",
     )
     return {
         "scenario": "explain-simple-workflow",
         "executor_result_path": str(executor_path),
         "executor_report_path": str(executor_report_path),
-        "implementation_result_path": str(implementation_path),
         "graph_report_path": str(report_path),
         "actions_path": str(root / "actions.jsonl"),
         "report_path": str(root / "report.md"),

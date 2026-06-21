@@ -8678,9 +8678,15 @@ def test_build_batch_messages_direct_edit_scenario_no_precedent_leak() -> None:
 
 
 def test_route_blocks_apply_inspect_only() -> None:
-    """_route_blocks_apply returns True for inspect_only route."""
+    """_route_blocks_apply returns True for inspect_only route (legacy alias)."""
     from vibecomfy.comfy_nodes.agent.edit import _route_blocks_apply
     assert _route_blocks_apply("inspect_only") is True
+
+
+def test_route_blocks_apply_inspect_canonical() -> None:
+    """_route_blocks_apply returns True for canonical inspect route."""
+    from vibecomfy.comfy_nodes.agent.edit import _route_blocks_apply
+    assert _route_blocks_apply("inspect") is True
 
 
 def test_route_blocks_apply_clarify() -> None:
@@ -8747,9 +8753,15 @@ def test_route_change_focus_label_direct_edit() -> None:
 
 
 def test_route_change_focus_label_inspect_only() -> None:
-    """_route_change_focus_label returns '' for inspect_only."""
+    """_route_change_focus_label returns '' for inspect_only (legacy alias)."""
     from vibecomfy.comfy_nodes.agent.edit import _route_change_focus_label
     assert _route_change_focus_label("inspect_only") == ""
+
+
+def test_route_change_focus_label_inspect_canonical() -> None:
+    """_route_change_focus_label returns '' for canonical inspect."""
+    from vibecomfy.comfy_nodes.agent.edit import _route_change_focus_label
+    assert _route_change_focus_label("inspect") == ""
 
 
 def test_route_change_focus_label_clarify() -> None:
@@ -8945,7 +8957,7 @@ def test_batch_repl_response_direct_edit_apply_not_blocked() -> None:
 
 
 def test_batch_repl_response_inspect_only_apply_blocked() -> None:
-    """inspect_only route blocks Apply eligibility in batch repl response."""
+    """inspect_only route (legacy alias) blocks Apply eligibility in batch repl response."""
     from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
     from vibecomfy.comfy_nodes.agent.contracts import TurnContext
 
@@ -8962,6 +8974,28 @@ def test_batch_repl_response_inspect_only_apply_blocked() -> None:
     assert eligibility.get("reason") == "no_candidate"
     assert "inspect_only" in eligibility.get("message", "")
     # No change_focus for inspect_only
+    assert "change_focus" not in response
+
+
+def test_batch_repl_response_inspect_canonical_apply_blocked() -> None:
+    """Canonical inspect route blocks Apply eligibility in batch repl response."""
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+    from vibecomfy.comfy_nodes.agent.contracts import TurnContext
+
+    state = _make_state(
+        route="inspect",
+        ui_payload={"nodes": [{"id": 1}]},
+        batch_exit_mode="done",
+        batch_done_summary="inspection complete",
+    )
+    context = TurnContext(session_id="t16-i2", turn_id="0001")
+    response = _build_batch_repl_response(state, context)
+    eligibility = response.get("apply_eligibility", {})
+    assert eligibility.get("applyable") is False
+    assert eligibility.get("reason") == "no_candidate"
+    # Apply blocked — no candidate graph produced
+    assert response.get("apply_allowed") is False
+    # No change_focus for inspect
     assert "change_focus" not in response
 
 
