@@ -53,12 +53,18 @@ def run_classify_turn(
     model: str,
     has_graph: bool = False,
     graph_summary: str | None = None,
+    messages: list[dict[str, str]] | None = None,
 ) -> ClassifyDecision:
     """Run a single classify model turn through the provider seam.
 
     Builds classify-specific messages via :func:`build_classify_messages`,
     dispatches through :func:`run_model_turn` with ``response_contract="json"``,
     and parses the result with :func:`parse_classify_response`.
+
+    When *messages* is provided, it is used directly instead of building
+    messages from *query* / *has_graph* / *graph_summary*.  This allows
+    callers to pre-enrich messages with session context and graph reference
+    maps without changing the classify route signature.
 
     Parameters
     ----------
@@ -72,10 +78,14 @@ def run_classify_turn(
         Whether a ComfyUI canvas graph is attached to the request.
     graph_summary:
         Optional compact summary of the attached graph (≤ 200 chars).
+    messages:
+        Optional pre-built messages list.  When provided, skips the default
+        message building and uses this list directly.
     """
-    messages = build_classify_messages(
-        query, has_graph=has_graph, graph_summary=graph_summary
-    )
+    if messages is None:
+        messages = build_classify_messages(
+            query, has_graph=has_graph, graph_summary=graph_summary
+        )
     model_turn_id = new_profile_id("model")
     with profiler_span(
         LOGGER,

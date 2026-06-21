@@ -12,8 +12,10 @@ tags:
   - structural
 assessment:
   enforced:
+    - "actions.jsonl is the canonical evidence artifact for the unwired image edit verb refusal."
     - "actions.jsonl contains forbidden_call_absence with forbidden_call_absent=image.edit and status=confirmed."
     - "actions.jsonl contains escape_hatch_note referencing the ready edit template (edit/qwen_image_edit)."
+    - "evidence/compiled_api.json does NOT exist, evidence/candidate_graph.json does NOT exist, and evidence/candidate.json does NOT exist (the unwired verb must not produce an apply-eligible graph)."
   graded:
     - "No compiled_api.json exists (agent did not attempt to compile the unwired verb)."
   observed:

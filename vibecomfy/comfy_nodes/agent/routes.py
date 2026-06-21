@@ -157,7 +157,7 @@ def _handle_agent_edit(
     except Exception as exc:
         return classify_failure("route", exc).to_dict()
     if isinstance(result, dict):
-        return result
+        return _sanitize_clarify_payload(result)
     return failure_envelope(
         FailureKind.VALIDATION_ERROR,
         "route",
@@ -222,12 +222,90 @@ def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]
     return compatibility
 
 
+_CLARIFY_FORBIDDEN_KEYS = {
+    "candidate",
+    "graph",
+    "candidate_graph",
+    "apply_eligible",
+    "apply_eligibility",
+    "eligibility",
+    "apply_allowed",
+    "canvas_apply_allowed",
+    "queue_allowed",
+}
+
+
+def _format_clarify_markdown(message: Any) -> str:
+    text = message.strip() if isinstance(message, str) else ""
+    if not text:
+        text = "What detail should I use before continuing?"
+    if "Options:" in text:
+        return text
+    if not any(mark in text for mark in ("?", "Would you like to", "Could you")):
+        text = f"Could you clarify: {text.rstrip(':')}"
+    return (
+        text.rstrip()
+        + "\n\nOptions:\n"
+        + "- Provide the missing detail explicitly.\n"
+        + "- Ask me to inspect the current graph before editing."
+    )
+
+
+def _strip_clarify_forbidden_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        stripped: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _CLARIFY_FORBIDDEN_KEYS or key.startswith("candidate_"):
+                continue
+            stripped[key] = _strip_clarify_forbidden_fields(item)
+        return stripped
+    if isinstance(value, list):
+        return [_strip_clarify_forbidden_fields(item) for item in value]
+    return value
+
+
+def _sanitize_clarify_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    sanitized = dict(payload)
+    outcome = sanitized.get("outcome")
+    route = sanitized.get("route")
+    is_clarify = (
+        route == "clarify"
+        or (
+            isinstance(outcome, Mapping)
+            and outcome.get("kind") == "clarify"
+        )
+    )
+    if not is_clarify:
+        return sanitized
+
+    message = (
+        sanitized.get("reply")
+        or sanitized.get("message")
+        or (outcome.get("question") if isinstance(outcome, Mapping) else "")
+    )
+    markdown = _format_clarify_markdown(message)
+    if "reply" in sanitized:
+        sanitized["reply"] = markdown
+    sanitized["message"] = markdown
+    sanitized["clarification_required"] = True
+    sanitized["clarification_message"] = markdown
+    sanitized["outcome"] = {
+        "kind": "clarify",
+        "question": markdown,
+        "clarification": {"message": markdown},
+    }
+    internal_outcome = sanitized.get("internal_outcome")
+    if isinstance(internal_outcome, Mapping) and internal_outcome.get("kind") == "clarify":
+        sanitized["internal_outcome"] = {"kind": "clarify", "question": markdown}
+    return _strip_clarify_forbidden_fields(sanitized)
+
+
 def _serialize_executor_result(result: Any) -> dict[str, Any]:
     serialized = _to_serializable(result)
     if not isinstance(serialized, dict):
         serialized = {"ok": False, "error": "Non-dict executor result."}
     compatibility = _executor_compatibility_fields(serialized)
-    return {**compatibility, **serialized}
+    return _sanitize_clarify_payload({**compatibility, **serialized})
 
 
 def _handle_agent_executor_submit(

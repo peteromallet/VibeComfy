@@ -1,6 +1,6 @@
 name: diagnose-broken-graph
 tier: 4
-description: "Investigate: a graph won't compile — find what's broken and fix it"
+description: "Investigate: a graph won't compile; produce topology evidence before any repair candidate"
 mode: structural
 agents:
   - id: builder
@@ -12,14 +12,17 @@ tags:
   - positive
 assessment:
   enforced:
+    - "diagnose-broken-graph.yaml is the canonical broken-graph coverage; no separate revise-broken-graph.yaml scenario is required."
+    - "fault_report.json is the canonical topology evidence artifact for this broken graph."
     - "fault_report.json parses as valid JSON with keys broken_input_node_id and broken_input_field."
     - "Load and parse fault_report.json. Let N be the string value of broken_input_node_id and F be the string value of broken_input_field. Verify that in compiled_api.json, node N exists, its class_type is CreateVideo, and it has an input named F that is not connected to any upstream node output."
+    - "evidence/candidate_graph.json does NOT exist, and evidence/candidate.json does NOT exist; broken topology must be evidenced before any repair candidate is offered."
     - "command_log.jsonl is valid line-delimited JSON; every line parses as a JSON object with keys ts, command, argv, exit_code, summary."
     - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'analyze' and parsed argv containing the string 'unconnected' (exact list membership, not substring match)."
     - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'analyze' and parsed argv containing the string 'trace' (exact list membership, not substring match)."
     - "Load and parse command_log.jsonl. Verify at least two distinct parsed command values exist across all entries."
   graded:
-    - "The agent follows an inspect → fix → validate order: evidence shows the fault was first identified, then a concrete fix was described or applied, then correctness was verified."
+    - "The agent follows an evidence-first order: the broken topology is identified and frozen before any narrative repair suggestion is made."
   observed:
     - "The fault_report.json unambiguously identifies the single broken node and the specific disconnected input field."
 extras:

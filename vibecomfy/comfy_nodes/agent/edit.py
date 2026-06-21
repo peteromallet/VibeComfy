@@ -51,6 +51,7 @@ from .gates import (
 from .provider import (
     AgentTurnResult,
     BatchTurnResult,
+    _latest_clarification_context,
     build_batch_messages,
     build_delta_messages,
     build_messages,
@@ -68,6 +69,12 @@ from .session import (
     session_dir_for,
     structural_graph_hash,
     turn_dir_for,
+)
+from vibecomfy.executor.contracts import RevisionEvidence
+from vibecomfy.executor.revision_evidence import (
+    collect_readiness_evidence,
+    collect_topology_evidence,
+    compute_scoped_diff,
 )
 
 if TYPE_CHECKING:
@@ -106,6 +113,7 @@ class AgentEditState:
     model_response_path: Path
     candidate_ui_path: Path
     messages_path: Path
+    revision_evidence_path: Path = Path("revision_evidence.json")
     workflow: Any = None
     edited_workflow: Any = None
     original_intent_workflow: VibeWorkflow | None = None
@@ -117,6 +125,8 @@ class AgentEditState:
     lowering_evidence: list[dict[str, Any]] = field(default_factory=list)
     lowering_recovery_entries: list[dict[str, Any]] = field(default_factory=list)
     provider_metadata: dict[str, Any] | None = None
+    revision_evidence: RevisionEvidence | None = None
+    revision_evidence_payload: dict[str, Any] | None = None
     ui_payload: dict[str, Any] | None = None
     report: dict[str, Any] | None = None
     artifacts: dict[str, str] | None = None
@@ -1725,6 +1735,50 @@ def _compact_chat_change_details(change_details: Any) -> dict[str, Any] | None:
     return compact or None
 
 
+def _conversation_with_candidate_reference(
+    messages: list[dict[str, Any]] | None,
+    latest_candidate: Any,
+) -> list[dict[str, Any]] | None:
+    """Append compact latest-candidate context for follow-up references."""
+    if not isinstance(messages, list):
+        return messages
+    if not isinstance(latest_candidate, Mapping):
+        return messages
+    parts: list[str] = []
+    turn_id = latest_candidate.get("turn_id")
+    if isinstance(turn_id, str) and turn_id:
+        parts.append(f"turn={turn_id}")
+    outcome = latest_candidate.get("outcome")
+    if isinstance(outcome, Mapping) and isinstance(outcome.get("kind"), str):
+        parts.append(f"outcome={outcome['kind']}")
+    change_details = latest_candidate.get("change_details")
+    operations = (
+        change_details.get("operations")
+        if isinstance(change_details, Mapping)
+        else None
+    )
+    if isinstance(operations, list) and operations:
+        summaries = []
+        for op in operations[:4]:
+            if isinstance(op, Mapping):
+                summary = op.get("summary") or op.get("field_path")
+                if isinstance(summary, str) and summary.strip():
+                    summaries.append(summary.strip()[:120])
+        if summaries:
+            parts.append("changes=" + "; ".join(summaries))
+    if not parts:
+        return messages
+    augmented = list(messages)
+    augmented.append(
+        {
+            "role": "agent",
+            "text": "Latest candidate reference (for resolving follow-up terms like "
+            f"'that one'): {', '.join(parts)}",
+        }
+    )
+    return augmented[-PROMPT_MEMORY_MESSAGES:]
+
+
 def read_session_chat(
     session_root: Path,
     session_id: str,
@@ -2903,6 +2957,451 @@ def _semantic_validation_description(status: str) -> str:
         return "Semantic advisories present — review model compatibility and slot types."
     return "Semantic validation was not evaluated for the precedent adaptation."
 
+
+def _schema_provider_available(schema_provider: Any) -> bool:
+    if schema_provider is None:
+        return False
+    schemas = getattr(schema_provider, "schemas", None)
+    if callable(schemas):
+        try:
+            return bool(schemas())
+        except Exception:
+            return False
+    get_schema = getattr(schema_provider, "get_schema", None)
+    return callable(get_schema)
+
+
+def _revision_no_candidate_reason(evidence: RevisionEvidence) -> str | None:
+    if evidence.safe_candidate_possible:
+        return None
+    if evidence.topology.missing_graph:
+        return "no_graph"
+    return "no_changes"
+
+
+def _session_reference_map_for_evidence(
+    conversation_messages: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if not conversation_messages:
+        return {}
+    compact: dict[str, Any] = {"recent_message_count": len(conversation_messages)}
+    latest = conversation_messages[-1] if conversation_messages else None
+    if isinstance(latest, Mapping):
+        outcome = latest.get("outcome")
+        if isinstance(outcome, Mapping) and isinstance(outcome.get("kind"), str):
+            compact["latest_outcome_kind"] = outcome["kind"]
+        text = latest.get("text")
+        if isinstance(text, str) and text.strip():
+            compact["latest_text_preview"] = text.strip()[:160]
+    clarification = _latest_clarification_context(conversation_messages)
+    if clarification is not None:
+        compact["pending_clarification"] = {
+            "prior_request": clarification["prior_request"][:240],
+            "question": clarification["question"][:240],
+        }
+    latest_candidate = next(
+        (
+            msg
+            for msg in reversed(conversation_messages)
+            if isinstance(msg, Mapping)
+            and isinstance(msg.get("text"), str)
+            and "Latest candidate reference" in msg["text"]
+        ),
+        None,
+    )
+    if isinstance(latest_candidate, Mapping):
+        compact["latest_candidate_reference"] = str(latest_candidate.get("text", ""))[:400]
+    return compact
+
+
+def _runtime_execution_requested(task: str | None, payload: Mapping[str, Any]) -> bool:
+    text = (task or "").lower()
+    if any(word in text for word in ("run", "queue", "execute", "render", "generate")):
+        return True
+    requested = payload.get("execution_requested") or payload.get("run_requested")
+    if requested is True:
+        return True
+    runtime = payload.get("runtime")
+    return isinstance(runtime, Mapping) and runtime.get("execution_requested") is True
+
+
+def _extract_ready_metadata(payload: Mapping[str, Any], graph: Mapping[str, Any] | None) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for key in ("ready_metadata", "ready_template_metadata", "metadata", "requirements"):
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            metadata[key] = dict(value)
+    if isinstance(graph, Mapping):
+        extra = graph.get("extra")
+        if isinstance(extra, Mapping):
+            vibecomfy = extra.get("vibecomfy")
+            if isinstance(vibecomfy, Mapping):
+                metadata["vibecomfy"] = dict(vibecomfy)
+            for key in ("ready_metadata", "requirements", "diagnostics"):
+                value = extra.get(key)
+                if isinstance(value, Mapping):
+                    metadata[key] = dict(value)
+                elif isinstance(value, list):
+                    metadata[key] = list(value)
+    return metadata
+
+
+def _extract_readiness_diagnostics(payload: Mapping[str, Any], graph: Mapping[str, Any] | None) -> tuple[dict[str, Any], ...]:
+    diagnostics: list[dict[str, Any]] = []
+    for source in (payload, graph if isinstance(graph, Mapping) else {}):
+        raw = source.get("diagnostics") if isinstance(source, Mapping) else None
+        if isinstance(raw, list):
+            diagnostics.extend(dict(item) for item in raw if isinstance(item, Mapping))
+    if isinstance(graph, Mapping):
+        extra = graph.get("extra")
+        if isinstance(extra, Mapping) and isinstance(extra.get("diagnostics"), list):
+            diagnostics.extend(dict(item) for item in extra["diagnostics"] if isinstance(item, Mapping))
+    runtime = payload.get("runtime")
+    if isinstance(runtime, Mapping) and runtime.get("no_gpu_detected") is True:
+        diagnostics.append(
+            {
+                "code": "no_gpu_detected",
+                "severity": "error",
+                "message": "No GPU is available for runtime execution.",
+            }
+        )
+    return tuple(diagnostics)
+
+
+def _request_no_gpu_detected(payload: Mapping[str, Any]) -> bool:
+    if payload.get("no_gpu_detected") is True:
+        return True
+    runtime = payload.get("runtime")
+    return isinstance(runtime, Mapping) and runtime.get("no_gpu_detected") is True
+
+
+def _revision_target_node_ids(
+    state: AgentEditState,
+    *,
+    route: str | None,
+) -> tuple[str, ...]:
+    payload = state.request_payload if isinstance(state.request_payload, Mapping) else {}
+    values: list[Any] = []
+    for key in ("target_node_ids", "target_nodes", "node_ids"):
+        raw = payload.get(key)
+        if isinstance(raw, list):
+            values.extend(raw)
+        elif raw is not None:
+            values.append(raw)
+    classification = payload.get("executor_classification")
+    if isinstance(classification, Mapping):
+        raw = classification.get("target_node_ids") or classification.get("target_nodes")
+        if isinstance(raw, list):
+            values.extend(raw)
+        elif raw is not None:
+            values.append(raw)
+    task = state.task or ""
+    values.extend(re.findall(r"(?:node|#)\s*(\d+)", task, flags=re.IGNORECASE))
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = str(value).strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return tuple(result)
+
+
+def _revision_evidence_artifact_payload(
+    state: AgentEditState,
+    *,
+    route: str | None,
+    conversation_messages: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    classification = (
+        state.request_payload.get("executor_classification")
+        if isinstance(state.request_payload, Mapping)
+        else None
+    )
+    return {
+        "revision_evidence": (
+            state.revision_evidence.to_dict()
+            if state.revision_evidence is not None
+            else {}
+        ),
+        "classification": _json_safe(classification)
+        if isinstance(classification, Mapping)
+        else {"route": _canonical_agent_edit_route(state.route or route)},
+        "session_reference_map": _session_reference_map_for_evidence(conversation_messages),
+    }
+
+
+def _write_revision_evidence_artifact(
+    state: AgentEditState,
+    *,
+    route: str | None,
+    conversation_messages: list[dict[str, Any]] | None,
+) -> ArtifactRef:
+    payload = _revision_evidence_artifact_payload(
+        state,
+        route=route,
+        conversation_messages=conversation_messages,
+    )
+    state.revision_evidence_payload = payload
+    state.artifacts = {
+        **(state.artifacts or {}),
+        "revision_evidence": str(state.revision_evidence_path),
+    }
+    return write_json_artifact(state.revision_evidence_path, payload)
+
+
+def _revision_evidence_prompt_json(state: AgentEditState) -> str:
+    payload = state.revision_evidence_payload
+    if not isinstance(payload, Mapping):
+        return ""
+    try:
+        return json.dumps(payload, sort_keys=True, indent=2)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _stage_revision_evidence(
+    state: AgentEditState,
+    _context: TurnContext,
+    *,
+    route: str | None = None,
+    conversation_messages: list[dict[str, Any]] | None = None,
+) -> StageResult:
+    start = time.monotonic()
+    canonical_route = _canonical_agent_edit_route(state.route or route)
+    if canonical_route != "revise":
+        return StageResult(
+            stage="revision_evidence",
+            ok=True,
+            blocking=False,
+            duration_ms=_duration_ms(start),
+            value={"mode": "skipped", "route": canonical_route},
+        )
+
+    schema_available = _schema_provider_available(state.schema_provider)
+    topology = collect_topology_evidence(
+        state.graph,
+        schema_available=schema_available,
+        schema_provider=state.schema_provider,
+    )
+    ready_metadata = _extract_ready_metadata(state.request_payload, state.graph)
+    readiness_diagnostics = _extract_readiness_diagnostics(state.request_payload, state.graph)
+    no_gpu_runtime_request = (
+        _runtime_execution_requested(state.task, state.request_payload)
+        and _request_no_gpu_detected(state.request_payload)
+    )
+    explicit_readiness_blockers = (
+        ("Runtime execution was requested, but no GPU is available.",)
+        if no_gpu_runtime_request
+        else ()
+    )
+    readiness = collect_readiness_evidence(
+        state.graph,
+        object_info_available=schema_available,
+        schema_provider=state.schema_provider,
+        ready_metadata=ready_metadata,
+        diagnostics=readiness_diagnostics,
+        no_gpu_detected=no_gpu_runtime_request,
+        readiness_blockers=explicit_readiness_blockers,
+    )
+    draft = RevisionEvidence(
+        topology=topology,
+        readiness=readiness,
+        no_candidate_reason=None,
+        candidate_eligible=False,
+        summary=(
+            "Safe revise candidate can be attempted."
+            if not topology.has_blockers
+            and topology.schema_available is not False
+            and not readiness.has_blockers
+            else "Safe revise candidate blocked before model repair."
+        ),
+    )
+    state.revision_evidence = dataclasses.replace(
+        draft,
+        no_candidate_reason=_revision_no_candidate_reason(draft),
+    )
+    evidence_ref = _write_revision_evidence_artifact(
+        state,
+        route=canonical_route,
+        conversation_messages=conversation_messages,
+    )
+    return StageResult(
+        stage="revision_evidence",
+        ok=True,
+        blocking=False,
+        duration_ms=_duration_ms(start),
+        artifacts=(evidence_ref,),
+        value={
+            "mode": "collected",
+            "safe_candidate_possible": state.revision_evidence.safe_candidate_possible,
+            "no_candidate_reason": state.revision_evidence.no_candidate_reason,
+        },
+    )
+
+
+def _revision_readonly_message(state: AgentEditState) -> str:
+    evidence = state.revision_evidence
+    if evidence is None:
+        return "No safe revise candidate is available; the graph is unchanged."
+    blockers: list[str] = []
+    if evidence.topology.has_blockers:
+        blockers.append(evidence.topology.summary or "topology blockers")
+    if evidence.topology.schema_available is False:
+        blockers.append("schema unavailable")
+    if evidence.readiness.has_blockers:
+        blockers.append(evidence.readiness.summary or "readiness blockers")
+    detail = "; ".join(item for item in blockers if item) or "no safe candidate evidence"
+    return (
+        "No safe revise candidate is available, so I left the graph unchanged. "
+        f"Evidence: {detail}."
+    )
+
+
+def _stage_revision_readonly_report(
+    state: AgentEditState,
+    _context: TurnContext,
+    *,
+    route: str | None = None,
+    conversation_messages: list[dict[str, Any]] | None = None,
+) -> StageResult:
+    start = time.monotonic()
+    state.ui_payload = json.loads(json.dumps(state.graph))
+    state.python_before = ""
+    state.python_after = ""
+    state.batch_exit_mode = _BATCH_EXIT_NOOP
+    state.batch_turn_count = 0
+    state.user_message = _revision_readonly_message(state)
+    state.batch_final_summary = state.user_message
+    state.batch_done_summary = state.user_message
+    evidence_payload = (
+        state.revision_evidence.to_dict()
+        if state.revision_evidence is not None
+        else {}
+    )
+    state.report = {
+        "revision_evidence": evidence_payload,
+        "read_only": True,
+        "graph_unchanged": True,
+        "queue_blockers": [],
+    }
+    state.artifacts = {
+        **(state.artifacts or {}),
+        "request": str(state.request_path),
+        "original_ui": str(state.original_ui_path),
+        "revision_evidence": str(state.revision_evidence_path),
+    }
+    _write_revision_evidence_artifact(
+        state,
+        route=state.route or route,
+        conversation_messages=conversation_messages,
+    )
+    return StageResult(
+        stage="agent_batch",
+        ok=True,
+        blocking=False,
+        duration_ms=_duration_ms(start),
+        artifacts=tuple(
+            _artifact(Path(path))
+            for path in (state.artifacts or {}).values()
+            if Path(path).exists()
+        ),
+        value={
+            "mode": "read_only_revision_report",
+            "graph_unchanged": True,
+            "no_candidate_reason": (
+                state.revision_evidence.no_candidate_reason
+                if state.revision_evidence is not None
+                else "no_changes"
+            ),
+        },
+    )
+
+
+def _finalize_revision_evidence_with_candidate(
+    state: AgentEditState,
+    *,
+    route: str | None,
+    conversation_messages: list[dict[str, Any]] | None,
+) -> None:
+    if state.revision_evidence is None:
+        return
+    candidate_graph = state.ui_payload if isinstance(state.ui_payload, dict) else None
+    schema_available = _schema_provider_available(state.schema_provider)
+    candidate_topology = collect_topology_evidence(
+        candidate_graph,
+        schema_available=schema_available,
+        schema_provider=state.schema_provider,
+    )
+    ready_metadata = _extract_ready_metadata(state.request_payload, candidate_graph)
+    readiness_diagnostics = _extract_readiness_diagnostics(state.request_payload, candidate_graph)
+    no_gpu_runtime_request = (
+        _runtime_execution_requested(state.task, state.request_payload)
+        and _request_no_gpu_detected(state.request_payload)
+    )
+    candidate_readiness = collect_readiness_evidence(
+        candidate_graph,
+        object_info_available=schema_available,
+        schema_provider=state.schema_provider,
+        ready_metadata=ready_metadata,
+        diagnostics=readiness_diagnostics,
+        no_gpu_detected=no_gpu_runtime_request,
+        readiness_blockers=(
+            ("Runtime execution was requested, but no GPU is available.",)
+            if no_gpu_runtime_request
+            else ()
+        ),
+    )
+    scoped_diff = compute_scoped_diff(
+        state.graph,
+        candidate_graph,
+        topology=state.revision_evidence.topology,
+        readiness=state.revision_evidence.readiness,
+        candidate_topology=candidate_topology,
+        candidate_readiness=candidate_readiness,
+        target_node_ids=_revision_target_node_ids(state, route=route),
+    )
+    no_candidate_reason = None if scoped_diff.candidate_eligible else "no_changes"
+    state.revision_evidence = dataclasses.replace(
+        state.revision_evidence,
+        scoped_diff=scoped_diff,
+        candidate_eligible=scoped_diff.candidate_eligible,
+        no_candidate_reason=no_candidate_reason,
+        summary=(
+            scoped_diff.summary
+            if scoped_diff.summary
+            else state.revision_evidence.summary
+        ),
+    )
+    evidence_payload = state.revision_evidence.to_dict()
+    if state.report is None:
+        state.report = {}
+    state.report["revision_evidence"] = evidence_payload
+    _write_revision_evidence_artifact(
+        state,
+        route=state.route or route,
+        conversation_messages=conversation_messages,
+    )
+    if scoped_diff.candidate_eligible:
+        return
+    state.batch_exit_mode = _BATCH_EXIT_NOOP
+    state.ui_payload = json.loads(json.dumps(state.graph))
+    try:
+        write_json_artifact(state.candidate_ui_path, state.ui_payload)
+    except Exception:
+        pass
+    state.user_message = _revision_readonly_message(state)
+    state.batch_final_summary = state.user_message
+    state.batch_done_summary = state.user_message
+    state.report.update(
+        {
+            "read_only": True,
+            "graph_unchanged": True,
+            "no_candidate_reason": no_candidate_reason,
+        }
+    )
+
+
 def _prefetch_research_summary(task: str) -> str:
     try:
         from vibecomfy.executor.research import (
@@ -2998,6 +3497,7 @@ def _stage_agent_batch_repl(
         "model_request": str(state.model_request_path),
         "model_response": str(state.model_response_path),
         "candidate_ui": str(state.candidate_ui_path),
+        "revision_evidence": str(state.revision_evidence_path),
         "messages": str(state.messages_path),
     }
 
@@ -3036,6 +3536,9 @@ def _stage_agent_batch_repl(
             research_summary=prefetch_research_summary if turn_number == 0 else "",
             graph_report=prefetch_graph_report if turn_number == 0 else "",
             precedent_adaptation_plan=precedent_adaptation_prompt if turn_number == 0 else "",
+            revision_evidence_json=_revision_evidence_prompt_json(state)
+            if turn_number == 0
+            else "",
         )
         request_entry = {
             "turn_number": turn_number,
@@ -3159,6 +3662,7 @@ def _stage_agent_batch_repl(
                 "model_request": str(state.model_request_path),
                 "model_response": str(state.model_response_path),
                 "candidate_ui": str(state.candidate_ui_path),
+                "revision_evidence": str(state.revision_evidence_path),
                 "messages": str(state.messages_path),
             }
             _emit_agent_edit_turn_event(
@@ -3562,6 +4066,11 @@ def _stage_agent_batch_repl(
                 "done_summary": done_result.summary,
                 "queue_blockers": [],
             }
+            _finalize_revision_evidence_with_candidate(
+                state,
+                route=state.route,
+                conversation_messages=conversation_messages,
+            )
             state.artifacts = {
                 "request": str(state.request_path),
                 "original_ui": str(state.original_ui_path),
@@ -3571,6 +4080,7 @@ def _stage_agent_batch_repl(
                 "model_request": str(state.model_request_path),
                 "model_response": str(state.model_response_path),
                 "candidate_ui": str(state.candidate_ui_path),
+                "revision_evidence": str(state.revision_evidence_path),
                 "messages": str(state.messages_path),
             }
             _emit_agent_edit_turn_event(
@@ -4103,6 +4613,8 @@ def _stage_audit(
             "done_summary": state.batch_done_summary,
             "budget_state": _json_safe(state.batch_budget_state),
         }
+    if state.revision_evidence is not None:
+        metadata["revision_evidence"] = state.revision_evidence.to_dict()
     return write_audit(
         state.turn_dir / "audit",
         context=context,
@@ -4232,6 +4744,69 @@ def _build_candidate_payload(
     }
 
 
+_CLARIFY_FORBIDDEN_RESPONSE_KEYS = {
+    "candidate",
+    "graph",
+    "candidate_graph",
+    "apply_eligible",
+    "apply_eligibility",
+    "eligibility",
+    "apply_allowed",
+    "canvas_apply_allowed",
+    "queue_allowed",
+}
+
+
+def _format_clarify_markdown_message(message: Any) -> str:
+    text = message.strip() if isinstance(message, str) else ""
+    if not text:
+        text = "What detail should I use before continuing?"
+    if "Options:" in text:
+        return text
+    if not any(mark in text for mark in ("?", "Would you like to", "Could you")):
+        text = f"Could you clarify: {text.rstrip(':')}"
+    return (
+        text.rstrip()
+        + "\n\nOptions:\n"
+        + "- Provide the missing detail explicitly.\n"
+        + "- Ask me to inspect the current graph before editing."
+    )
+
+
+def _strip_clarify_forbidden_response_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        stripped: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _CLARIFY_FORBIDDEN_RESPONSE_KEYS or key.startswith("candidate_"):
+                continue
+            stripped[key] = _strip_clarify_forbidden_response_fields(item)
+        return stripped
+    if isinstance(value, list):
+        return [_strip_clarify_forbidden_response_fields(item) for item in value]
+    return value
+
+
+def _sanitize_pure_clarify_response(response: dict[str, Any]) -> dict[str, Any]:
+    outcome = response.get("outcome")
+    if not isinstance(outcome, Mapping) or outcome.get("kind") != "clarify":
+        return response
+    message = response.get("message") or outcome.get("question")
+    markdown = _format_clarify_markdown_message(message)
+    response = dict(response)
+    response["message"] = markdown
+    response["outcome"] = {
+        "kind": "clarify",
+        "question": markdown,
+        "clarification": {"message": markdown},
+    }
+    internal_outcome = response.get("internal_outcome")
+    if isinstance(internal_outcome, Mapping) and internal_outcome.get("kind") == "clarify":
+        response["internal_outcome"] = {"kind": "clarify", "question": markdown}
+    response["clarification_required"] = True
+    response["clarification_message"] = markdown
+    return _strip_clarify_forbidden_response_fields(response)
+
+
 def _legacy_failure_response(
     state: AgentEditState,
     context: TurnContext,
@@ -4338,6 +4913,15 @@ def _build_batch_repl_response(
         state.batch_exit_mode in {_BATCH_EXIT_EDIT_CLARIFY, _BATCH_EXIT_DONE}
         and _batch_candidate_graph_changed(state)
     )
+    if (
+        _canonical_agent_edit_route(state.route) == "revise"
+        and (
+            state.revision_evidence is None
+            or state.revision_evidence.scoped_diff is None
+            or state.revision_evidence.candidate_eligible is not True
+        )
+    ):
+        has_candidate = False
     compatibility_fields = _build_compatibility_response_fields(state)
     response_apply_eligibility = derive_apply_eligibility(
         context,
@@ -4431,7 +5015,7 @@ def _build_batch_repl_response(
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
         response["change_focus"] = change_focus
-    return response
+    return _sanitize_pure_clarify_response(response)
 
 
 def _build_dev_success_response(
@@ -4511,7 +5095,7 @@ def _build_dev_success_response(
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
         response["change_focus"] = change_focus
-    return response
+    return _sanitize_pure_clarify_response(response)
 
 
 def _run_stage(
@@ -4618,6 +5202,27 @@ def _run_batch_repl_product_path(
     conversation_messages: list[dict[str, Any]] | None = None,
 ) -> AgentEditState:
     _run_stage("ingest", state, context, _stage_ingest_v2)
+    _run_stage(
+        "revision_evidence",
+        state,
+        context,
+        _stage_revision_evidence,
+        route=state.route,
+        conversation_messages=conversation_messages,
+    )
+    if (
+        state.revision_evidence is not None
+        and not state.revision_evidence.safe_candidate_possible
+    ):
+        _run_stage(
+            "agent_batch",
+            state,
+            context,
+            _stage_revision_readonly_report,
+            route=state.route,
+            conversation_messages=conversation_messages,
+        )
+        return state
     _run_stage(
         "agent_batch",
         state,
@@ -4896,6 +5501,7 @@ def handle_agent_edit(
         model_request_path=turn_dir / "model_request.json",
         model_response_path=turn_dir / "model_response.json",
         candidate_ui_path=turn_dir / "candidate.ui.json",
+        revision_evidence_path=turn_dir / "revision_evidence.json",
         projection_path=turn_dir / "projection.txt",
         messages_path=turn_dir / "messages.jsonl",
     )
@@ -4943,6 +5549,10 @@ def handle_agent_edit(
             chat = read_session_chat(root, session_id, max_messages=PROMPT_MEMORY_MESSAGES)
             if chat.get("ok") and isinstance(chat.get("messages"), list):
                 conversation_messages = chat["messages"]
+                conversation_messages = _conversation_with_candidate_reference(
+                    conversation_messages,
+                    chat.get("latest_candidate"),
+                )
         except Exception:
             conversation_messages = None
 

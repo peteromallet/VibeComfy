@@ -12,11 +12,13 @@ tags:
   - positive
 assessment:
   enforced:
+    - "scoped_diff.json is the canonical scoped-diff evidence artifact for this scenario."
     - "scoped_diff.json parses as valid JSON with keys changed_paths, changed_count, hash_before, hash_after."
     - "Parsed scoped_diff.json has changed_count equal to 1."
     - "Load and parse scoped_diff.json. Verify parsed changed_paths is a list containing exactly one string: the KSampler node's seed input path in dot notation (e.g. '<node_id>.inputs.seed')."
     - "Load and parse scoped_diff.json. Verify that the single entry in changed_paths, when split on '.', yields a node id that corresponds to a KSampler node in compiled_api.json, followed by 'inputs', followed by 'seed'."
     - "Parsed scoped_diff.json has hash_before not equal to hash_after."
+    - "evidence/candidate_graph.json does NOT exist unless accompanied by scoped_diff.json showing exactly one KSampler seed change; in this fixture, scoped_diff.json is the proof artifact."
     - "command_log.jsonl is valid line-delimited JSON; every line parses as a JSON object."
     - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'analyze' and parsed argv containing the string 'diff'."
   graded:

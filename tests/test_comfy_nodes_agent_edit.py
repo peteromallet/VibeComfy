@@ -19,6 +19,7 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _agent_edit_contract,
     _agent_edit_turn_event_payload,
     _batch_warning_sentence,
+    _conversation_with_candidate_reference,
     _human_change_phrase,
     _humanized_edit_message,
     _landed_edit_lead,
@@ -47,6 +48,7 @@ from vibecomfy.comfy_nodes.agent.contracts import (
     classify_failure,
     failure_envelope,
 )
+from vibecomfy.executor.contracts import RevisionEvidence, ScopedDiff
 from vibecomfy.comfy_nodes.agent.provider import ProviderError
 from vibecomfy.comfy_nodes.agent.session import (
     payload_hash,
@@ -578,14 +580,16 @@ def test_agent_edit_route_extracts_only_non_empty_string_client_id(
     captured: list[tuple[dict, str | None]] = []
     to_thread_calls: list[str] = []
 
-    def _fake_handle_agent_edit(payload, *, client_id=None):
+    def _fake_handle_agent_executor_submit(payload, *, client_id=None):
         captured.append((payload, client_id))
-        return {"ok": True}
-
-    edit_module = importlib.import_module("vibecomfy.comfy_nodes.agent.edit")
-    monkeypatch.setattr(edit_module, "handle_agent_edit", _fake_handle_agent_edit)
+        return {"ok": True}, 200
 
     routes = importlib.reload(routes)
+    monkeypatch.setattr(
+        routes,
+        "_handle_agent_executor_submit",
+        _fake_handle_agent_executor_submit,
+    )
     agent_edit_route = registered.get("/vibecomfy/agent-edit")
     assert agent_edit_route is not None, "agent-edit route was not registered"
 
@@ -606,17 +610,17 @@ def test_agent_edit_route_extracts_only_non_empty_string_client_id(
         response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": "client-123"})))
         assert response["status"] == 200
         assert captured[-1][1] == "client-123"
-        assert to_thread_calls[-1] == "_fake_handle_agent_edit"
+        assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
 
         response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": 99})))
         assert response["status"] == 200
         assert captured[-1][1] is None
-        assert to_thread_calls[-1] == "_fake_handle_agent_edit"
+        assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
 
         response = asyncio.run(agent_edit_route(_Request({"graph": {}, "task": "x", "client_id": "   "})))
         assert response["status"] == 200
         assert captured[-1][1] is None
-        assert to_thread_calls[-1] == "_fake_handle_agent_edit"
+        assert to_thread_calls[-1] == "_fake_handle_agent_executor_submit"
     finally:
         if real_aiohttp is not None:
             sys.modules["aiohttp"] = real_aiohttp
@@ -757,6 +761,12 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
         if name == "ingest":
             assert fn is agent_edit_module._stage_ingest_v2
             assert kwargs == {}
+        elif name == "revision_evidence":
+            assert fn is agent_edit_module._stage_revision_evidence
+            assert kwargs == {
+                "route": None,
+                "conversation_messages": None,
+            }
         elif name == "agent_batch":
             assert fn is agent_edit_module._stage_agent_batch_repl
             assert kwargs == {
@@ -782,7 +792,7 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
     )
 
     assert returned is state
-    assert calls == ["ingest", "agent_batch"]
+    assert calls == ["ingest", "revision_evidence", "agent_batch"]
 
 
 def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner(
@@ -2244,25 +2254,30 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     assert result["ok"] is True
     assert result["contract_version"] == AGENT_EDIT_TURN_CONTRACT_VERSION
     assert result["outcome"]["kind"] == "clarify"
-    assert result["outcome"]["question"] == "before or after the face restoration?"
-    assert result["outcome"]["clarification"]["message"] == "before or after the face restoration?"
+    assert result["outcome"]["question"].startswith("before or after the face restoration?")
+    assert "Options:\n-" in result["outcome"]["question"]
+    assert result["outcome"]["clarification"]["message"] == result["outcome"]["question"]
     assert result["internal_outcome"] == {
         "kind": "clarify",
-        "question": "before or after the face restoration?",
+        "question": result["outcome"]["question"],
     }
-    assert result["candidate"] is None
-    assert result["eligibility"] == result["apply_eligibility"]
-    assert result["debug"]["gates"] == result["gates"]
-    assert result["debug"]["hashes"]["candidate_graph_hash"] == result["candidate_graph_hash"]
+    for forbidden in (
+        "candidate",
+        "graph",
+        "candidate_graph",
+        "candidate_graph_hash",
+        "candidate_structural_graph_hash",
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    ):
+        assert forbidden not in result
     assert result["debug"]["batch_repl"]["exit_mode"] == "pure_clarify"
     assert result["clarification_required"] is True
     assert result["graph_unchanged"] is True
-    assert result["message"] == "before or after the face restoration?"
-    assert result["apply_allowed"] is False
-    assert result["queue_allowed"] is False
-    assert result["apply_eligibility"]["reason"] == "no_candidate"
-    assert '"before"' in json.dumps(result["graph"], sort_keys=True)
-    assert '"after"' not in json.dumps(result["graph"], sort_keys=True)
+    assert result["message"] == result["outcome"]["question"]
     assert "done_summary" not in result
     assert len(result["batch_turns"]) == 1
     assert result["batch_turns"][0]["turn_number"] == 0
@@ -2356,7 +2371,8 @@ def test_handle_agent_edit_batch_repl_treats_followup_after_clarify_as_continuat
     assert "Conversation state (JSON; derived from the latest clarify outcome):" in user_msg
     assert '"active_request": "Can you switch this to img2img"' in user_msg
     assert '"current_user_request_is": "answer_to_pending_clarification"' in user_msg
-    assert '"pending_clarification": "Which image file should be used as the input?"' in user_msg
+    assert '"pending_clarification": "Which image file should be used as the input?' in user_msg
+    assert "Options:" in user_msg
     assert "User request:\nDefault for now" in user_msg
 
 
@@ -5018,6 +5034,94 @@ def test_agent_edit_route_preserves_classified_handler_failure_without_open_kind
     assert "ProviderError(" not in json.dumps(result, sort_keys=True)
 
 
+def test_agent_edit_route_sanitizes_pure_clarify_candidate_and_apply_leaks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit
+
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.routes.handle_agent_edit",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "message": "Which node should change?",
+            "outcome": {"kind": "clarify", "question": "Which node should change?"},
+            "candidate": {"graph": {"nodes": [{"id": 1}]}},
+            "graph": {"nodes": [{"id": 1}]},
+            "candidate_graph": {"nodes": [{"id": 1}]},
+            "candidate_graph_hash": "leaked",
+            "apply_eligibility": {"applyable": True},
+            "eligibility": {"applyable": True},
+            "apply_allowed": True,
+            "canvas_apply_allowed": True,
+            "queue_allowed": True,
+        },
+    )
+
+    result = _handle_agent_edit(
+        {"graph": _ui_graph(), "task": "maybe change a node"},
+        session_root=tmp_path,
+    )
+
+    assert result["outcome"]["kind"] == "clarify"
+    assert "Options:\n-" in result["message"]
+    assert result["outcome"]["question"] == result["message"]
+    for forbidden in (
+        "candidate",
+        "graph",
+        "candidate_graph",
+        "candidate_graph_hash",
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    ):
+        assert forbidden not in result
+
+
+def test_agent_executor_route_sanitizes_clarify_candidate_and_apply_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_executor_submit
+
+    class _ClarifyResult:
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "ok": True,
+                "route": "clarify",
+                "reply": "Which option should I use?",
+                "candidate": {"graph": {"nodes": [{"id": 1}]}},
+                "graph": {"nodes": [{"id": 1}]},
+                "candidate_graph": {"nodes": [{"id": 1}]},
+                "candidate_graph_hash": "leaked",
+                "apply_eligible": True,
+            }
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_executor", lambda *_args, **_kwargs: _ClarifyResult())
+
+    result, status = _handle_agent_executor_submit({"query": "maybe edit this", "graph": _ui_graph()})
+
+    assert status == 200
+    assert result["route"] == "clarify"
+    assert result["outcome"]["kind"] == "clarify"
+    assert "Options:\n-" in result["reply"]
+    assert result["message"] == result["reply"]
+    for forbidden in (
+        "candidate",
+        "graph",
+        "candidate_graph",
+        "candidate_graph_hash",
+        "apply_eligible",
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    ):
+        assert forbidden not in result
+
+
 def test_agent_edit_action_routes_accept_reject_idempotency_and_audit(
     tmp_path: Path,
 ) -> None:
@@ -7145,6 +7249,474 @@ def test_chat_json_written_for_allocated_stage_blocked_response(
     assert on_disk["turn_id"] == turn_id
 
 
+def test_handle_agent_edit_revise_writes_revision_evidence_before_first_model_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    captured_messages: list[list[dict[str, str]]] = []
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Adjusted the save prefix.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready to commit the candidate.",
+            },
+        ]
+    )
+
+    def _client(messages):
+        captured_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after",
+            "route": "revise",
+            "executor_route": "revise",
+            "provider_route": "codex",
+            "executor_classification": {"route": "revise", "task": "edit_graph"},
+            "session_id": "revise-evidence-prompt",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    user_prompt = captured_messages[0][1]["content"]
+    assert "Revision evidence (JSON; collected before this model call):" in user_prompt
+    assert '"safe_candidate_possible": true' in user_prompt
+    turn_dir = turn_dir_for(tmp_path, "revise-evidence-prompt", str(result["turn_id"]))
+    evidence_path = turn_dir / "revision_evidence.json"
+    assert evidence_path.is_file()
+    artifact = json.loads(evidence_path.read_text(encoding="utf-8"))
+    evidence = artifact["revision_evidence"]
+    assert artifact["classification"]["route"] == "revise"
+    assert evidence["safe_candidate_possible"] is True
+    assert evidence["candidate_eligible"] is True
+    assert evidence["scoped_diff"]["candidate_eligible"] is True
+    assert result["report"]["revision_evidence"]["candidate_eligible"] is True
+
+
+def test_handle_agent_edit_direct_edit_public_revise_emits_scoped_diff_and_rationale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Changed only the save prefix.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change node 2 filename prefix to after",
+            "target_node_ids": ["2"],
+            "route": "direct_edit",
+            "executor_route": "direct_edit",
+            "provider_route": "codex",
+            "executor_classification": {"route": "direct_edit", "task": "edit_graph"},
+            "session_id": "direct-edit-public-revise",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["candidate"] is not None
+    assert result["change_focus"] == "Focused change"
+    assert "direct_edit" not in json.dumps(
+        {
+            "outcome": result["outcome"],
+            "change_focus": result["change_focus"],
+            "report": result["report"],
+        }
+    )
+    operations = result["change_details"]["operations"]
+    assert operations
+    assert any(
+        op.get("field_path") == "filename_prefix" and op.get("new") == "after"
+        for op in operations
+    )
+    evidence = result["report"]["revision_evidence"]
+    assert evidence["candidate_eligible"] is True
+    scoped = evidence["scoped_diff"]
+    assert scoped["candidate_eligible"] is True
+    assert scoped["target_node_ids"] == ["2"]
+    assert scoped["target_matched"] is True
+    assert scoped["changed_nodes"] == ["2"]
+    assert scoped["eligibility_blockers"] == []
+    assert any(path.startswith("nodes.2.") for path in scoped["diff_paths"])
+    turn_dir = turn_dir_for(tmp_path, "direct-edit-public-revise", str(result["turn_id"]))
+    artifact = json.loads((turn_dir / "revision_evidence.json").read_text(encoding="utf-8"))
+    assert artifact["revision_evidence"]["scoped_diff"]["changed_nodes"] == ["2"]
+
+
+def test_handle_agent_edit_revise_blocks_broken_graph_before_provider_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    broken_graph = _json_clone(_ui_graph())
+    broken_graph["links"].append([999, 1, 0, 404, 0, "IMAGE"])
+
+    def _provider_must_not_run(_messages):
+        raise AssertionError("provider should not be called for blocked revise evidence")
+
+    result = handle_agent_edit(
+        {
+            "graph": broken_graph,
+            "task": "fix this broken graph",
+            "route": "revise",
+            "executor_route": "revise",
+            "provider_route": "codex",
+            "executor_classification": {"route": "revise", "task": "edit_graph"},
+            "session_id": "revise-evidence-blocked",
+            "max_batches": 1,
+        },
+        schema_provider=provider,
+        deepseek_client=_provider_must_not_run,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "noop"
+    assert result["candidate"] is None
+    assert result["apply_allowed"] is False
+    assert result["canvas_apply_allowed"] is False
+    assert result["report"]["read_only"] is True
+    evidence = result["report"]["revision_evidence"]
+    assert evidence["safe_candidate_possible"] is False
+    assert evidence["topology"]["has_blockers"] is True
+    assert "dangling" in evidence["topology"]["summary"]
+    turn_dir = turn_dir_for(tmp_path, "revise-evidence-blocked", str(result["turn_id"]))
+    assert not (turn_dir / "model_request.json").exists()
+    artifact = json.loads((turn_dir / "revision_evidence.json").read_text(encoding="utf-8"))
+    assert artifact["revision_evidence"]["no_candidate_reason"] == "no_changes"
+
+
+def test_handle_agent_edit_revise_strips_target_mismatched_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    responses = iter(
+        [
+            {
+                "batch": 'loadimage.image = "other.png"',
+                "message": "Changed the loader.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change node 2 filename prefix to after",
+            "target_node_ids": ["2"],
+            "route": "direct_edit",
+            "executor_route": "direct_edit",
+            "provider_route": "codex",
+            "executor_classification": {"route": "direct_edit", "task": "edit_graph"},
+            "session_id": "revise-target-mismatch",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "noop"
+    assert result["candidate"] is None
+    assert result["apply_allowed"] is False
+    evidence = result["report"]["revision_evidence"]
+    assert evidence["candidate_eligible"] is False
+    assert evidence["scoped_diff"]["target_node_ids"] == ["2"]
+    assert evidence["scoped_diff"]["target_matched"] is False
+    assert "target_mismatch" in evidence["scoped_diff"]["eligibility_blockers"]
+
+
+def test_handle_agent_edit_revise_strips_broad_unrelated_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    responses = iter(
+        [
+            {
+                "batch": 'loadimage.image = "other.png"\nsaveimage.filename_prefix = "after"',
+                "message": "Changed the loader and save prefix.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready.",
+            },
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change node 2 filename prefix to after",
+            "target_node_ids": ["2"],
+            "route": "revise",
+            "executor_route": "revise",
+            "provider_route": "codex",
+            "executor_classification": {"route": "revise", "task": "edit_graph"},
+            "session_id": "revise-broad-candidate",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "noop"
+    assert result["candidate"] is None
+    assert result["apply_allowed"] is False
+    assert result["report"]["read_only"] is True
+    evidence = result["report"]["revision_evidence"]
+    assert evidence["candidate_eligible"] is False
+    assert evidence["no_candidate_reason"] == "no_changes"
+    scoped = evidence["scoped_diff"]
+    assert set(scoped["changed_nodes"]) == {"1", "2"}
+    assert "broad_unrelated_diff" in scoped["eligibility_blockers"]
+
+
+def test_handle_agent_edit_revise_strips_confirmed_noop_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    responses = iter(
+        [
+            {"batch": "done()", "message": "Nothing to change."},
+            {"batch": "done()", "message": "Confirmed nothing to change."},
+        ]
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to before",
+            "route": "revise",
+            "executor_route": "revise",
+            "provider_route": "codex",
+            "executor_classification": {"route": "revise", "task": "edit_graph"},
+            "session_id": "revise-confirmed-noop",
+            "max_batches": 2,
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: next(responses),
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "noop"
+    assert result["candidate"] is None
+    assert result["apply_allowed"] is False
+    assert result["canvas_apply_allowed"] is False
+    assert result["report"]["read_only"] is True
+    evidence = result["report"]["revision_evidence"]
+    assert evidence["candidate_eligible"] is False
+    scoped = evidence["scoped_diff"]
+    assert scoped["candidate_eligible"] is False
+    assert scoped["has_diff"] is False
+    assert "no_diff" in scoped["eligibility_blockers"]
+
+
+def test_handle_agent_edit_revise_readiness_blockers_skip_provider_and_emit_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _Provider(
+        {
+            "CheckpointLoaderSimple": NodeSchema(
+                class_type="CheckpointLoaderSimple",
+                pack=None,
+                inputs={
+                    "ckpt_name": InputSpec(
+                        "CHOICE",
+                        required=False,
+                        choices=["present.safetensors"],
+                    )
+                },
+                outputs=[OutputSpec("MODEL", "MODEL")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+        }
+    )
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "widgets": [{"name": "ckpt_name"}],
+                "widgets_values": ["missing.safetensors"],
+            },
+            {"id": 2, "type": "MissingPackNode", "widgets_values": []},
+        ],
+        "links": [],
+    }
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _provider_must_not_run(_messages):
+        raise AssertionError("provider should not run for readiness-blocked revise")
+
+    result = handle_agent_edit(
+        {
+            "graph": graph,
+            "task": "make this workflow ready",
+            "route": "revise",
+            "executor_route": "revise",
+            "provider_route": "codex",
+            "executor_classification": {"route": "revise", "task": "edit_graph"},
+            "session_id": "revise-readiness-blocked",
+            "max_batches": 1,
+        },
+        schema_provider=provider,
+        deepseek_client=_provider_must_not_run,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "noop"
+    assert result["candidate"] is None
+    assert result["apply_allowed"] is False
+    assert result["report"]["read_only"] is True
+    readiness = result["report"]["revision_evidence"]["readiness"]
+    assert readiness["has_blockers"] is True
+    assert readiness["missing_models"] == ["missing.safetensors"]
+    assert readiness["missing_node_packs"] == ["MissingPackNode"]
+    turn_dir = turn_dir_for(tmp_path, "revise-readiness-blocked", str(result["turn_id"]))
+    assert not (turn_dir / "model_request.json").exists()
+    artifact = json.loads((turn_dir / "revision_evidence.json").read_text(encoding="utf-8"))
+    assert artifact["revision_evidence"]["readiness"]["missing_models"] == [
+        "missing.safetensors"
+    ]
+
+
+def test_handle_agent_edit_no_gpu_runtime_request_is_read_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    def _provider_must_not_run(_messages):
+        raise AssertionError("provider should not run for no-GPU runtime request")
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "run this workflow and show the output",
+            "route": "revise",
+            "executor_route": "revise",
+            "provider_route": "codex",
+            "executor_classification": {"route": "revise", "task": "edit_graph"},
+            "runtime": {"execution_requested": True, "no_gpu_detected": True},
+            "session_id": "revise-no-gpu-runtime",
+            "max_batches": 1,
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=_provider_must_not_run,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "noop"
+    assert result["candidate"] is None
+    assert result["apply_allowed"] is False
+    assert result["report"]["read_only"] is True
+    assert result["report"]["graph_unchanged"] is True
+    evidence = result["report"]["revision_evidence"]
+    assert evidence["readiness"]["no_gpu_detected"] is True
+    assert evidence["readiness"]["has_blockers"] is True
+    turn_dir = turn_dir_for(tmp_path, "revise-no-gpu-runtime", str(result["turn_id"]))
+    assert not (turn_dir / "model_request.json").exists()
+    for fabricated_key in (
+        "run_id",
+        "run_state",
+        "execution_result",
+        "output_images",
+        "generated_outputs",
+    ):
+        assert fabricated_key not in result
+
+
+def test_handle_agent_edit_direct_clarify_has_no_candidate_or_apply_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "make that one stronger",
+            "route": "clarify",
+            "executor_route": "clarify",
+            "provider_route": "codex",
+            "session_id": "direct-clarify-no-candidate",
+            "max_batches": 1,
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=lambda _messages: {
+            "batch": 'clarify("Which node should I change?")',
+            "message": "I need one detail.",
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["outcome"]["kind"] == "clarify"
+    assert "Options:" in result["message"]
+    for forbidden in (
+        "candidate",
+        "graph",
+        "candidate_graph",
+        "apply_eligible",
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    ):
+        assert forbidden not in result
+
+
 def test_no_chat_json_for_pre_allocation_validation_failure() -> None:
     """Early pre-allocation validation failures (e.g. missing ``task``) do
     not write ``chat.json``."""
@@ -7460,6 +8032,29 @@ def test_read_session_chat_returns_latest_open_candidate_state(tmp_path: Path) -
     assert latest["candidate_graph_hash"] == "candidate-hash"
     assert latest["apply_eligibility"]["reason"] == "queue_blocked_warning"
     assert latest["queue_allowed"] is False
+
+
+def test_conversation_with_candidate_reference_appends_compact_context() -> None:
+    messages = [{"role": "user", "text": "Make it stronger"}]
+    augmented = _conversation_with_candidate_reference(
+        messages,
+        {
+            "turn_id": "0003",
+            "outcome": {"kind": "candidate"},
+            "change_details": {
+                "operations": [
+                    {"summary": "changed KSampler steps"},
+                    {"field_path": "nodes.2.widgets_values.1"},
+                ]
+            },
+        },
+    )
+
+    assert augmented is not None
+    assert augmented[-1]["role"] == "agent"
+    assert "Latest candidate reference" in augmented[-1]["text"]
+    assert "turn=0003" in augmented[-1]["text"]
+    assert "changed KSampler steps" in augmented[-1]["text"]
 
 
 def test_read_session_json_turn_summaries_and_artifacts(tmp_path: Path) -> None:
@@ -8945,8 +9540,17 @@ def test_batch_repl_response_direct_edit_apply_not_blocked() -> None:
     state = _make_state(
         route="direct_edit",
         ui_payload={"nodes": [{"id": 1}]},
+        graph={"nodes": [{"id": 1, "widgets_values": ["before"]}]},
         batch_exit_mode="done",
         batch_done_summary="applied change",
+        revision_evidence=RevisionEvidence(
+            scoped_diff=ScopedDiff(
+                changed_nodes=("1",),
+                diff_paths=("nodes.1.widgets_values.0",),
+                candidate_eligible=True,
+            ),
+            candidate_eligible=True,
+        ),
     )
     context = TurnContext(session_id="t16-d2", turn_id="0001")
     response = _build_batch_repl_response(state, context)
@@ -9012,9 +9616,10 @@ def test_batch_repl_response_clarify_apply_blocked() -> None:
     )
     context = TurnContext(session_id="t16-c1", turn_id="0001")
     response = _build_batch_repl_response(state, context)
-    eligibility = response.get("apply_eligibility", {})
-    assert eligibility.get("applyable") is False
-    assert eligibility.get("reason") == "no_candidate"
+    assert response["outcome"]["kind"] == "clarify"
+    assert "Options:\n-" in response["message"]
+    for forbidden in ("apply_eligibility", "eligibility", "apply_allowed", "canvas_apply_allowed", "queue_allowed"):
+        assert forbidden not in response
     # No change_focus for clarify
     assert "change_focus" not in response
 
@@ -9143,9 +9748,10 @@ def test_dev_success_response_clarify_apply_blocked() -> None:
     )
     context = TurnContext(session_id="t16-dc1", turn_id="0001")
     response = _build_dev_success_response(state, context, contract="full")
-    eligibility = response.get("apply_eligibility", {})
-    assert eligibility.get("applyable") is False
-    assert eligibility.get("reason") == "no_candidate"
+    assert response["outcome"]["kind"] == "clarify"
+    assert "Options:\n-" in response["message"]
+    for forbidden in ("apply_eligibility", "eligibility", "apply_allowed", "canvas_apply_allowed", "queue_allowed"):
+        assert forbidden not in response
     assert "change_focus" not in response
 
 
@@ -9624,16 +10230,21 @@ def test_batch_repl_response_no_candidate_for_pure_clarify() -> None:
     context = TurnContext(session_id="t18-cc1", turn_id="0001")
     response = _build_batch_repl_response(state, context)
 
-    # No candidate
-    assert response.get("candidate") is None
-    assert response.get("candidate_graph") is None
-    # Apply blocked
-    eligibility = response.get("apply_eligibility", {})
-    assert eligibility.get("applyable") is False
-    assert eligibility.get("reason") == "no_candidate"
-    # No Apply affordance
-    assert response.get("canvas_apply_allowed") is False
-    assert response.get("apply_allowed") is False
+    assert response["outcome"]["kind"] == "clarify"
+    assert "Options:\n-" in response["message"]
+    for forbidden in (
+        "candidate",
+        "graph",
+        "candidate_graph",
+        "candidate_graph_hash",
+        "candidate_structural_graph_hash",
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    ):
+        assert forbidden not in response
     # Graph unchanged
     assert response.get("graph_unchanged") is True
 
@@ -9647,8 +10258,17 @@ def test_batch_repl_response_direct_edit_applyable_with_graph_changes_and_gates(
     state = _make_state(
         route="direct_edit",
         ui_payload={"nodes": [{"id": 3, "type": "KSampler"}], "links": []},
+        graph={"nodes": [{"id": 3, "type": "KSampler", "widgets_values": [1]}], "links": []},
         batch_exit_mode="done",
         batch_done_summary="applied seed change",
+        revision_evidence=RevisionEvidence(
+            scoped_diff=ScopedDiff(
+                changed_nodes=("3",),
+                diff_paths=("nodes.3.widgets_values.0",),
+                candidate_eligible=True,
+            ),
+            candidate_eligible=True,
+        ),
     )
     context = TurnContext(session_id="t18-de1", turn_id="0001")
     # Simulate passing gates

@@ -247,6 +247,7 @@ def build_batch_messages(
     research_summary: str = "",
     graph_report: str = "",
     precedent_adaptation_plan: str = "",
+    revision_evidence_json: str = "",
 ) -> list[dict[str, str]]:
     """Build messages for the batch-REPL wire protocol.
 
@@ -423,6 +424,12 @@ def build_batch_messages(
                 "\n\nPrecedent adaptation plan (structured):\n"
                 f"{precedent_adaptation_plan}"
             )
+        revision_evidence_block = ""
+        if revision_evidence_json:
+            revision_evidence_block = (
+                "\n\nRevision evidence (JSON; collected before this model call):\n"
+                f"{revision_evidence_json}"
+            )
         user = (
             f"{conversation_block}"
             f"{clarification_block}"
@@ -436,6 +443,7 @@ def build_batch_messages(
             f"{names_block}"
             f"{research_block}"
             f"{precedent_adaptation_block}"
+            f"{revision_evidence_block}"
             f"{graph_report_block}"
         )
     else:
@@ -483,6 +491,12 @@ def build_batch_messages(
                 "\n\nPrecedent adaptation plan (structured):\n"
                 f"{precedent_adaptation_plan}"
             )
+        revision_evidence_block = ""
+        if revision_evidence_json:
+            revision_evidence_block = (
+                "\n\nRevision evidence (JSON; collected before first model call):\n"
+                f"{revision_evidence_json}"
+            )
         user = (
             f"User request:\n{task}\n"
             f"{render_block}"
@@ -492,6 +506,7 @@ def build_batch_messages(
             f"{report_block}"
             f"{research_block}"
             f"{precedent_adaptation_block}"
+            f"{revision_evidence_block}"
             f"{graph_report_block}"
             f"\n\nBudget: {budget_remaining} turn(s) remaining out of {max_batches}."
         )

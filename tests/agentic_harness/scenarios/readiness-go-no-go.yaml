@@ -12,10 +12,12 @@ tags:
   - positive
 assessment:
   enforced:
+    - "readiness_verdict.json is the canonical readiness evidence artifact for this scenario; no candidate graph is needed to prove the go/no-go decision."
     - "readiness_verdict.json parses as valid JSON with keys ready, missing_models, missing_packs."
     - "Parsed readiness_verdict.json has ready equal to false."
     - "Load and parse readiness_verdict.json. Verify parsed missing_models is a sorted list exactly equal to ['umt5_xxl_fp8_e4m3fn_scaled.safetensors', 'wan2.1_t2v_1.3B_fp16.safetensors'] (string equality on each element, list equality)."
     - "Load and parse readiness_verdict.json. Verify parsed missing_packs is a sorted list exactly equal to ['ComfyUI-KJNodes', 'ComfyUI-VideoHelperSuite'] (string equality on each element, list equality)."
+    - "evidence/candidate_graph.json does NOT exist, and evidence/candidate.json does NOT exist; readiness failures must remain a read-only report."
     - "command_log.jsonl is valid line-delimited JSON; every line parses as a JSON object."
     - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'inspect'."
     - "Load and parse command_log.jsonl. Verify at least one entry has parsed command equal to 'doctor'."

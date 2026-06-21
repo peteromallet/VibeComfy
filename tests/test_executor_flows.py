@@ -12,6 +12,7 @@ no Arnold imports.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import textwrap
 from pathlib import Path
@@ -1964,6 +1965,7 @@ class TestRouteGateFlows:
         assert result.report.research is None
         assert result.report.implementation is None
         assert payload["route"] == "clarify"
+        assert "Options:\n-" in payload["reply"]
         assert payload["candidate"] is None
         assert payload["apply_eligible"] is False
         mock_corpus.assert_not_called()
@@ -2368,6 +2370,201 @@ class TestInspectOnlyFlow:
 # ── Precedent payload integrity tests (T14) ──────────────────────────────────
 # Verify adapt payloads carry both legacy and structured research
 # data, while revise payloads carry neither.
+
+
+class TestSessionReferenceContext:
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    def test_preclassify_forced_clarify_skips_classify_and_implement_provider_calls(
+        self,
+        mock_reply: mock.MagicMock,
+        mock_edit: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        request = ExecutorRequest(
+            query="change node 999 to 30 steps",
+            graph={"nodes": [{"id": 1, "type": "KSampler"}]},
+            profile="default",
+        )
+
+        result = run_executor(request)
+        payload = result.to_dict()
+
+        assert result.ok is True
+        assert payload["route"] == "clarify"
+        assert payload["candidate"] is None
+        assert payload["apply_eligible"] is False
+        mock_classify.assert_not_called()
+        mock_edit.assert_not_called()
+        mock_reply.assert_called_once()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_revise)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    def test_resolved_prior_option_followup_can_leave_clarify(
+        self,
+        mock_reply: mock.MagicMock,
+        mock_edit: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vibecomfy.comfy_nodes.agent import edit as agent_edit
+
+        session_id = "resolved-option-flow"
+        turn_dir = tmp_path / session_id / "turns" / "000001"
+        turn_dir.mkdir(parents=True)
+        (turn_dir / "chat.json").write_text(
+            json.dumps(
+                {
+                    "messages": [
+                        {"role": "user", "text": "Change one sampler field"},
+                        {
+                            "role": "agent",
+                            "text": "Which field?\n\nOptions:\n- seed\n- steps",
+                            "outcome": {
+                                "kind": "clarify",
+                                "question": "Which field?",
+                                "options": ["seed", "steps"],
+                            },
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(agent_edit, "_SESSION_ROOT", tmp_path)
+        executor_core._save_clarification_context(
+            ExecutorRequest(
+                query="Change one sampler field",
+                session_id=session_id,
+                graph={"nodes": [{"id": 1, "type": "KSampler"}]},
+            ),
+            ClassifyDecision(
+                route="clarify",
+                task="respond",
+                clarification_question="Which field?",
+                clarification_options=("seed", "steps"),
+            ),
+            blocked_route="revise",
+            blocked_task="edit_graph",
+        )
+
+        request = ExecutorRequest(
+            query="option 2",
+            session_id=session_id,
+            graph={"nodes": [{"id": 1, "type": "KSampler"}]},
+            profile="default",
+        )
+
+        result = run_executor(request)
+        payload = result.to_dict()
+
+        assert payload["route"] == "revise"
+        assert payload["candidate"] is not None
+        assert payload["apply_eligible"] is True
+        mock_classify.assert_called_once()
+        mock_edit.assert_called_once()
+        mock_reply.assert_called_once()
+
+    def test_build_session_context_reads_chat_artifacts(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vibecomfy.comfy_nodes.agent import edit as agent_edit
+
+        session_id = "ref-session"
+        turn_dir = tmp_path / session_id / "turns" / "000001"
+        turn_dir.mkdir(parents=True)
+        (turn_dir / "chat.json").write_text(
+            json.dumps(
+                {
+                    "messages": [
+                        {"role": "user", "text": "Change the sampler steps"},
+                        {
+                            "role": "agent",
+                            "text": "Which option?",
+                            "outcome": {
+                                "kind": "clarify",
+                                "question": "Which option?",
+                                "options": ["seed", "steps"],
+                            },
+                        },
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(agent_edit, "_SESSION_ROOT", tmp_path)
+
+        context = executor_core._build_session_context(
+            ExecutorRequest(query="option 2", session_id=session_id)
+        )
+
+        assert context is not None
+        assert context["recent_messages"][-1]["text"] == "Which option?"
+        assert context["prior_clarification"]["clarification_question"] == "Which option?"
+        assert context["prior_clarification"]["clarification_options"] == ["seed", "steps"]
+
+    def test_preclassify_allows_resolved_option_and_blocks_unresolved_option(self) -> None:
+        resolved = executor_core._preclassify_blockers(
+            ExecutorRequest(query="option 2", graph={"nodes": [{"id": 1, "type": "KSampler"}]}),
+            session_context={
+                "prior_clarification": {
+                    "clarification_options": ["seed", "steps"],
+                },
+            },
+        )
+        assert resolved is None
+
+        unresolved = executor_core._preclassify_blockers(
+            ExecutorRequest(query="option 3", graph={"nodes": [{"id": 1, "type": "KSampler"}]}),
+            session_context={
+                "prior_clarification": {
+                    "clarification_options": ["seed", "steps"],
+                },
+            },
+        )
+        assert unresolved is not None
+        assert unresolved.effective_route == "clarify"
+        assert "Unresolved prior option reference" in unresolved.plan_summary
+
+    def test_save_clarification_context_preserves_blocked_route(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from vibecomfy.comfy_nodes.agent import edit as agent_edit
+
+        monkeypatch.setattr(agent_edit, "_SESSION_ROOT", tmp_path)
+        plan = ClassifyDecision(
+            route="clarify",
+            task="respond",
+            clarification_question="Which node?",
+            clarification_options=("node #1", "node #2"),
+        )
+        request = ExecutorRequest(
+            query="change that one",
+            session_id="blocked-ref-session",
+            graph={"nodes": [{"id": 1, "type": "KSampler"}]},
+        )
+
+        executor_core._save_clarification_context(
+            request,
+            plan,
+            blocked_route="revise",
+            blocked_task="edit_graph",
+        )
+        context = executor_core._build_session_context(request)
+
+        assert context is not None
+        assert context["prior_route"] == "revise"
+        assert context["prior_task"] == "edit_graph"
+        assert context["prior_clarification"]["clarification_question"] == "Which node?"
 
 
 class TestPrecedentPayloadIntegrity:

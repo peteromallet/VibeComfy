@@ -604,6 +604,253 @@ class PrecedentAdaptationPlan:
             payload["candidate_graph"] = self.candidate_graph
         return payload
 
+# ── revision evidence contracts (M3) ──────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class TopologyFindings:
+    """Deterministic LiteGraph topology findings collected before repair.
+
+    Captures structural issues in the current graph, including disconnected
+    edges, missing endpoint nodes, and schema-backed missing required inputs.
+    When ``schema_available`` is False, schema-dependent checks degrade
+    gracefully rather than guessing.
+
+    All fields default to safe/empty values so evidence can always be emitted,
+    even when no graph is present or schema/object_info is unavailable.
+    """
+
+    missing_graph: bool = False
+    dangling_links: tuple[str, ...] = ()
+    absent_endpoint_nodes: tuple[str, ...] = ()
+    unknown_class_types: tuple[str, ...] = ()
+    missing_required_inputs: tuple[dict[str, Any], ...] = ()
+    schema_available: bool = True
+    summary: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "dangling_links", tuple(self.dangling_links))
+        object.__setattr__(self, "absent_endpoint_nodes", tuple(self.absent_endpoint_nodes))
+        object.__setattr__(self, "unknown_class_types", tuple(self.unknown_class_types))
+        object.__setattr__(self, "missing_required_inputs", tuple(
+            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in item.items()})
+            if isinstance(item, Mapping) else item
+            for item in self.missing_required_inputs
+        ))
+
+    @property
+    def has_blockers(self) -> bool:
+        """True when any topology problem was found."""
+        return bool(
+            self.missing_graph
+            or self.dangling_links
+            or self.absent_endpoint_nodes
+            or self.unknown_class_types
+            or self.missing_required_inputs
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "missing_graph": self.missing_graph,
+            "dangling_links": list(self.dangling_links),
+            "absent_endpoint_nodes": list(self.absent_endpoint_nodes),
+            "unknown_class_types": list(self.unknown_class_types),
+            "missing_required_inputs": _thaw_jsonish(self.missing_required_inputs),
+            "schema_available": self.schema_available,
+            "summary": self.summary,
+        }
+        payload["has_blockers"] = self.has_blockers
+        return payload
+
+
+@dataclass(frozen=True)
+class ReadinessReport:
+    """Deterministic readiness / execution-honesty findings.
+
+    Captures missing models, missing node packs, validation errors, and
+    no-GPU conditions.  All fields default to empty/safe values so a
+    report can be emitted regardless of schema/object_info availability.
+
+    ``object_info_available`` distinguishes schema-backed findings from
+    degraded best-effort checks.
+    """
+
+    missing_models: tuple[str, ...] = ()
+    missing_node_packs: tuple[str, ...] = ()
+    validation_errors: tuple[str, ...] = ()
+    no_gpu_detected: bool = False
+    readiness_blockers: tuple[str, ...] = ()
+    object_info_available: bool = True
+    summary: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "missing_models", tuple(self.missing_models))
+        object.__setattr__(self, "missing_node_packs", tuple(self.missing_node_packs))
+        object.__setattr__(self, "validation_errors", tuple(self.validation_errors))
+        object.__setattr__(self, "readiness_blockers", tuple(self.readiness_blockers))
+
+    @property
+    def has_blockers(self) -> bool:
+        """True when any readiness/runtime problem was found."""
+        return bool(
+            self.missing_models
+            or self.missing_node_packs
+            or self.validation_errors
+            or self.no_gpu_detected
+            or self.readiness_blockers
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "missing_models": list(self.missing_models),
+            "missing_node_packs": list(self.missing_node_packs),
+            "validation_errors": list(self.validation_errors),
+            "no_gpu_detected": self.no_gpu_detected,
+            "readiness_blockers": list(self.readiness_blockers),
+            "object_info_available": self.object_info_available,
+            "summary": self.summary,
+        }
+        payload["has_blockers"] = self.has_blockers
+        return payload
+
+
+@dataclass(frozen=True)
+class ScopedDiff:
+    """Stable scoped diff between an original graph and a candidate graph.
+
+    Computes changed/added/removed/untouched node ids, link summaries,
+    before/after hashes, and stable dot paths to changed fields.
+
+    ``candidate_eligible`` is False when the diff is empty, too broad,
+    evidence is missing, or unresolved blockers remain.
+    """
+
+    changed_nodes: tuple[str, ...] = ()
+    added_nodes: tuple[str, ...] = ()
+    removed_nodes: tuple[str, ...] = ()
+    untouched_nodes: tuple[str, ...] = ()
+    changed_links: tuple[str, ...] = ()
+    added_links: tuple[dict[str, Any], ...] = ()
+    removed_links: tuple[dict[str, Any], ...] = ()
+    diff_paths: tuple[str, ...] = ()
+    target_node_ids: tuple[str, ...] = ()
+    target_matched: bool = True
+    before_hash: str = ""
+    after_hash: str = ""
+    candidate_eligible: bool = False
+    eligibility_blockers: tuple[str, ...] = ()
+    summary: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "changed_nodes", tuple(self.changed_nodes))
+        object.__setattr__(self, "added_nodes", tuple(self.added_nodes))
+        object.__setattr__(self, "removed_nodes", tuple(self.removed_nodes))
+        object.__setattr__(self, "untouched_nodes", tuple(self.untouched_nodes))
+        object.__setattr__(self, "changed_links", tuple(self.changed_links))
+        object.__setattr__(self, "added_links", tuple(
+            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in link.items()})
+            if isinstance(link, Mapping) else link
+            for link in self.added_links
+        ))
+        object.__setattr__(self, "removed_links", tuple(
+            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in link.items()})
+            if isinstance(link, Mapping) else link
+            for link in self.removed_links
+        ))
+        object.__setattr__(self, "diff_paths", tuple(self.diff_paths))
+        object.__setattr__(self, "target_node_ids", tuple(str(node_id) for node_id in self.target_node_ids))
+        object.__setattr__(self, "eligibility_blockers", tuple(self.eligibility_blockers))
+
+    @property
+    def has_diff(self) -> bool:
+        """True when any concrete change was detected between graphs."""
+        return bool(
+            self.changed_nodes
+            or self.added_nodes
+            or self.removed_nodes
+            or self.changed_links
+            or self.added_links
+            or self.removed_links
+            or self.diff_paths
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "changed_nodes": list(self.changed_nodes),
+            "added_nodes": list(self.added_nodes),
+            "removed_nodes": list(self.removed_nodes),
+            "untouched_nodes": list(self.untouched_nodes),
+            "changed_links": list(self.changed_links),
+            "added_links": _thaw_jsonish(self.added_links),
+            "removed_links": _thaw_jsonish(self.removed_links),
+            "diff_paths": list(self.diff_paths),
+            "target_node_ids": list(self.target_node_ids),
+            "target_matched": self.target_matched,
+            "before_hash": self.before_hash,
+            "after_hash": self.after_hash,
+            "candidate_eligible": self.candidate_eligible,
+            "eligibility_blockers": list(self.eligibility_blockers),
+            "has_diff": self.has_diff,
+            "summary": self.summary,
+        }
+
+
+@dataclass(frozen=True)
+class RevisionEvidence:
+    """Canonical revision evidence artifact collected before LLM repair.
+
+    Aggregates topology findings, readiness findings, and (after repair)
+    a scoped diff.  When no safe candidate is possible, ``no_candidate_reason``
+    and ``candidate_eligible=False`` record the reason.
+
+    This is the primary evidence contract for the ``revise`` route — it is
+    always produced deterministically before the first model repair prompt.
+    """
+
+    topology: TopologyFindings = field(default_factory=TopologyFindings)
+    readiness: ReadinessReport = field(default_factory=ReadinessReport)
+    scoped_diff: ScopedDiff | None = None
+    no_candidate_reason: str | None = None
+    candidate_eligible: bool = False
+    warnings: tuple[str, ...] = ()
+    summary: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "warnings", tuple(str(w) for w in self.warnings))
+        # Clamp no_candidate_reason to allowed values.
+        reason = self.no_candidate_reason
+        if reason is not None and reason not in _NO_CANDIDATE_REASONS:
+            object.__setattr__(self, "no_candidate_reason", "no_changes")
+
+    @property
+    def safe_candidate_possible(self) -> bool:
+        """True when no deterministic blockers exist and a candidate could be attempted.
+
+        This is the pre-repair gate: topology and readiness are clean enough
+        that the LLM may attempt a scoped repair.
+        """
+        return (
+            not self.topology.has_blockers
+            and self.topology.schema_available is not False
+            and not self.readiness.has_blockers
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "topology": self.topology.to_dict(),
+            "readiness": self.readiness.to_dict(),
+            "candidate_eligible": self.candidate_eligible,
+            "warnings": list(self.warnings),
+            "summary": self.summary,
+            "safe_candidate_possible": self.safe_candidate_possible,
+        }
+        if self.scoped_diff is not None:
+            payload["scoped_diff"] = self.scoped_diff.to_dict()
+        if self.no_candidate_reason is not None:
+            payload["no_candidate_reason"] = self.no_candidate_reason
+        return payload
+
+
 # ── research result ──────────────────────────────────────────────────────────
 
 
@@ -958,7 +1205,11 @@ __all__ = [
     "ImplementationResult",
     "InspectionSummary",
     "PrecedentAdaptationPlan",
+    "ReadinessReport",
     "Report",
     "ResearchResult",
+    "RevisionEvidence",
+    "ScopedDiff",
+    "TopologyFindings",
     "WorkflowSlice",
 ]

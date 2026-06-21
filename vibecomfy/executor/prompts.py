@@ -41,6 +41,13 @@ _CLASSIFY_SYSTEM = (
     "\n"
     "Rules:\n"
     "- intent must be exactly one of: edit, research, explain_graph, respond.\n"
+    "- Be conservative: when the user request is ambiguous, underspecified, or "
+    "references nodes/options/attachments without enough detail to safely edit, "
+    "prefer route=\"clarify\" with a concise clarification_question and "
+    "clarification_options array.\n"
+    "- The executor runs deterministic safety checks before this model is called; "
+    "those block obviously unsafe edit requests automatically. You do NOT need to "
+    "second-guess those checks — focus on intent classification, not validation.\n"
     "- A chat / question with no graph edit intent → intent=respond, reply=true.\n"
     "  Set intent=research when the user asks to look up, research, find out about, or "
     "asks how something works.\n"
@@ -48,19 +55,24 @@ _CLASSIFY_SYSTEM = (
     "(e.g. \"what's happening in this graph?\") → intent=explain_graph, research=false, "
     "implement=false, reply=true, effort=medium.  Set route=\"inspect\" when the "
     "user ONLY wants explanation with no edit.\n"
-    "- A simple graph edit request with no research needed "
+    "- A simple, concrete graph edit request with no research needed "
     "→ intent=edit, implement=true, research=false, reply=true, route=\"revise\".\n"
     "- A complex graph edit that needs precedent/template research first "
     "→ intent=edit, implement=true, research=true, reply=true, "
     "route=\"adapt\".\n"
     "- Never set implement=true without a graph to edit (but you don't need to check — "
     "the executor handles that).\n"
-    "- Set route=\"clarify\" for clarification questions with no graph action.\n"
+    "- For any request where the edit target is unclear, multiple interpretations "
+    "exist, or the user references options from a prior turn without specifying "
+    "which one, default to route=\"clarify\" rather than guessing a mutation route.\n"
     "- Only use route=\"adapt\" when the user explicitly asks to follow "
     "a known precedent or template pattern, not for general edit requests.\n"
     "- Do NOT wrap the JSON in markdown fences or add commentary.\n"
     "- The response must be a single JSON object on one line or multiple lines; "
-    "no trailing text."
+    "no trailing text.\n"
+    "- When route=\"clarify\", include a clarification_question (string) and "
+    "clarification_options (array of 1-4 strings) to help the user resolve "
+    "the ambiguity."
 )
 
 
@@ -69,6 +81,8 @@ def build_classify_messages(
     *,
     has_graph: bool = False,
     graph_summary: str | None = None,
+    session_context: dict[str, Any] | None = None,
+    graph_reference_map: dict[str, str] | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the classify phase.
 
@@ -76,16 +90,121 @@ def build_classify_messages(
     so it can decide whether research / implementation is warranted.
     *graph_summary* is an optional compact summary (≤ 200 chars) of the
     attached graph for context.
+
+    *session_context* provides access to recent conversation history and prior
+    clarification artifacts so the classifier can resolve follow-up references
+    (e.g. \"option 2\", \"that node\") against prior turn context.
+
+    *graph_reference_map* is a compact ``{node_id: label}`` lookup built from
+    the current graph so the classifier can map user references like
+    \"the KSampler\" or \"node #3\" to concrete ids.
     """
     parts = [f"User request:\n{query}"]
     if has_graph:
         parts.append("\nA ComfyUI canvas graph is attached to this request.")
     if graph_summary:
         parts.append(f"\nGraph summary: {graph_summary}")
+
+    # ── session context: recent messages ─────────────────────────────────
+    if isinstance(session_context, dict):
+        recent_messages = session_context.get("recent_messages")
+        if isinstance(recent_messages, list) and recent_messages:
+            # Include last 3 exchanges for follow-up reference resolution.
+            recent = recent_messages[-6:]  # up to 3 user+assistant pairs
+            parts.append("\nRecent conversation (for reference resolution):")
+            for msg in recent:
+                if isinstance(msg, dict):
+                    role = msg.get("role", "unknown")
+                    content = msg.get("content") or msg.get("text") or ""
+                    if isinstance(content, str) and content.strip():
+                        parts.append(f"[{role}]: {content[:300]}")
+
+        # ── prior clarification artifacts ────────────────────────────────
+        prior_clarification = session_context.get("prior_clarification")
+        if isinstance(prior_clarification, dict):
+            cq = prior_clarification.get("clarification_question")
+            co = prior_clarification.get("clarification_options")
+            if isinstance(cq, str) and cq.strip():
+                parts.append(
+                    f"\nPrior clarification question: {cq.strip()[:200]}"
+                )
+            if isinstance(co, (list, tuple)) and co:
+                opts = "\n".join(
+                    f"  {i+1}. {str(o)[:200]}"
+                    for i, o in enumerate(co)
+                    if isinstance(o, str) and o.strip()
+                )
+                if opts:
+                    parts.append(f"Prior clarification options:\n{opts}")
+
+        # ── blocked route context ────────────────────────────────────────
+        prior_route = session_context.get("prior_route")
+        prior_task = session_context.get("prior_task")
+        if isinstance(prior_route, str) and prior_route.strip():
+            parts.append(
+                f"\nThe previous turn was blocked on route=\"{prior_route}\""
+                + (f", task=\"{prior_task}\"" if isinstance(prior_task, str) and prior_task.strip() else "")
+                + ". The user's follow-up should be classified with this "
+                + "original intent in mind."
+            )
+
+        # ── latest candidate reference ──────────────────────────────────
+        latest_candidate = session_context.get("latest_candidate")
+        if isinstance(latest_candidate, dict):
+            candidate_bits: list[str] = []
+            turn_id = latest_candidate.get("turn_id")
+            if isinstance(turn_id, str) and turn_id.strip():
+                candidate_bits.append(f"turn={turn_id.strip()[:80]}")
+            outcome = latest_candidate.get("outcome")
+            if isinstance(outcome, dict) and isinstance(outcome.get("kind"), str):
+                candidate_bits.append(f"outcome={outcome['kind'].strip()[:80]}")
+            change_details = latest_candidate.get("change_details")
+            operations = (
+                change_details.get("operations")
+                if isinstance(change_details, dict)
+                else None
+            )
+            if isinstance(operations, list) and operations:
+                summaries = []
+                for op in operations[:4]:
+                    if not isinstance(op, dict):
+                        continue
+                    summary = op.get("summary") or op.get("field_path")
+                    if isinstance(summary, str) and summary.strip():
+                        summaries.append(summary.strip()[:120])
+                if summaries:
+                    candidate_bits.append("changes=" + "; ".join(summaries))
+            if candidate_bits:
+                parts.append(
+                    "\nLatest candidate reference (use this only for unique "
+                    "follow-up references like \"that one\"):\n  "
+                    + ", ".join(candidate_bits)
+                )
+
+    # ── graph reference map ──────────────────────────────────────────────
+    if isinstance(graph_reference_map, dict) and graph_reference_map:
+        ref_lines = []
+        for node_id, label in sorted(graph_reference_map.items(), key=lambda kv: _ref_sort_key(kv[0])):
+            ref_lines.append(f"  id={node_id}: {label}")
+        if ref_lines:
+            parts.append(
+                "\nCurrent graph node reference map (use these ids to resolve "
+                "\"that node\", \"the KSampler\", etc.):\n"
+                + "\n".join(ref_lines[:30])
+            )
+
     return [
         {"role": "system", "content": _CLASSIFY_SYSTEM},
         {"role": "user", "content": "\n".join(parts)},
     ]
+
+
+def _ref_sort_key(node_id: str) -> tuple[int, str]:
+    """Sort node ids numerically when possible, for stable reference maps."""
+    try:
+        return (0, str(int(node_id)).zfill(8))
+    except (ValueError, TypeError):
+        return (1, node_id)
 
 
 # ── reply prompt ─────────────────────────────────────────────────────────────

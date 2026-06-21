@@ -12,9 +12,11 @@ tags:
   - structural
 assessment:
   enforced:
+    - "limits.json and actions.jsonl are the canonical deterministic evidence artifacts for this impossible request."
     - "limits.json exists and contains defaults.width=832, defaults.height=480, and defaults.frames=33 from the wan_t2v template."
     - "actions.jsonl records op=refusal with a reason referencing template defaults and free-tier bounds."
     - "actions.jsonl includes a downscaled_plan field with a concrete, lower-resolution alternative."
+    - "evidence/compiled_api.json does NOT exist, evidence/candidate_graph.json does NOT exist, and evidence/candidate.json does NOT exist (the impossible request must not produce an apply-eligible graph)."
   graded:
     - "No compiled_api.json exists (agent refused to build the impossible request)."
   observed:

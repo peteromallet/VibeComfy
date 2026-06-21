@@ -803,6 +803,57 @@ class TestBuildClassifyMessages:
         msgs = build_classify_messages("chat question", has_graph=False)
         assert "canvas graph is attached" not in msgs[1]["content"]
 
+    def test_system_prompt_biases_ambiguous_edits_to_clarify(self) -> None:
+        msgs = build_classify_messages("change that one", has_graph=True)
+        system = msgs[0]["content"]
+        assert "deterministic safety checks" in system
+        assert "prefer route=\"clarify\"" in system
+        assert "rather than guessing a mutation route" in system
+
+    def test_session_context_renders_text_messages_options_and_reference_map(self) -> None:
+        msgs = build_classify_messages(
+            "option 2",
+            has_graph=True,
+            session_context={
+                "recent_messages": [
+                    {"role": "user", "text": "Change the sampler"},
+                    {
+                        "role": "agent",
+                        "text": "Which sampler setting?",
+                        "outcome": {"kind": "clarify"},
+                    },
+                ],
+                "prior_clarification": {
+                    "clarification_question": "Which sampler setting?",
+                    "clarification_options": ["seed", "steps"],
+                },
+                "prior_route": "revise",
+                "prior_task": "edit_graph",
+                "latest_candidate": {
+                    "turn_id": "0003",
+                    "outcome": {"kind": "candidate"},
+                    "change_details": {
+                        "operations": [
+                            {"summary": "changed KSampler steps"},
+                            {"field_path": "nodes.2.widgets_values.1"},
+                        ],
+                    },
+                },
+            },
+            graph_reference_map={"2": "KSampler", "1": "CheckpointLoaderSimple"},
+        )
+        content = msgs[1]["content"]
+        assert "Recent conversation (for reference resolution):" in content
+        assert "[user]: Change the sampler" in content
+        assert "Prior clarification question: Which sampler setting?" in content
+        assert "2. steps" in content
+        assert 'previous turn was blocked on route="revise", task="edit_graph"' in content
+        assert "Latest candidate reference" in content
+        assert "turn=0003" in content
+        assert "changed KSampler steps" in content
+        assert "id=1: CheckpointLoaderSimple" in content
+        assert "id=2: KSampler" in content
+
 
 class TestBuildReplyMessages:
     def test_basic(self) -> None:
