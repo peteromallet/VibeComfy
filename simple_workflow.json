@@ -1,9 +1,0 @@
-{
-  "nodes": [
-    {"id": 1, "type": "CheckpointLoaderSimple", "widgets_values": ["model.safetensors"]},
-    {"id": 2, "type": "CLIPTextEncode", "widgets_values": ["a beautiful sunset"]},
-    {"id": 3, "type": "KSampler", "widgets_values": [20, 1]},
-    {"id": 4, "type": "SaveImage", "widgets_values": ["output_00001.png"]}
-  ],
-  "links": []
-}
