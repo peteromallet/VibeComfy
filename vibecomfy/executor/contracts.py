@@ -521,24 +521,39 @@ class WorkflowSlice:
 
     source_class_type: str = ""
     node_ids: tuple[str, ...] = ()
+    node_types: tuple[str, ...] = ()
     entry_anchor: str | None = None
     exit_anchor: str | None = None
+    source_workflow_path: str | None = None
     python_path: str | None = None
+    warnings: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "node_ids", tuple(self.node_ids))
+        object.__setattr__(self, "node_types", tuple(self.node_types))
+        object.__setattr__(self, "warnings", tuple(
+            MappingProxyType({str(k): _freeze_jsonish(v) for k, v in warning.items()})
+            if isinstance(warning, Mapping) else warning
+            for warning in self.warnings
+        ))
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "source_class_type": self.source_class_type,
             "node_ids": list(self.node_ids),
         }
+        if self.node_types:
+            payload["node_types"] = list(self.node_types)
         if self.entry_anchor is not None:
             payload["entry_anchor"] = self.entry_anchor
         if self.exit_anchor is not None:
             payload["exit_anchor"] = self.exit_anchor
+        if self.source_workflow_path is not None:
+            payload["source_workflow_path"] = self.source_workflow_path
         if self.python_path is not None:
             payload["python_path"] = self.python_path
+        if self.warnings:
+            payload["warnings"] = _thaw_jsonish(self.warnings)
         return payload
 
 

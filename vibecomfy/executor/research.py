@@ -21,6 +21,7 @@ from typing import Any, Callable
 
 from vibecomfy.search.index import build_search_corpus
 from vibecomfy.search.scorer import search_entries, SearchResult
+from vibecomfy.ingest.workflow_source import WorkflowLoadResult, load_workflow_source
 
 from .contracts import (
     InspectionSummary,
@@ -81,6 +82,22 @@ _SEARCH_STOPWORDS = {
     "what",
     "whats",
     "with",
+}
+
+_PATTERN_NODE_TERMS: dict[str, tuple[str, ...]] = {
+    "vace": ("vace",),
+    "lora_chain": ("lora", "iclora"),
+    "low_vram": ("blockswap", "block swap", "low_vram", "low vram", "low_ram", "low ram", "chunkfeed", "decode_to_disk"),
+    "two_pass_refinement": ("two_stage", "two stage", "two-pass", "two pass", "upscale", "upsampler", "refine", "samplercustomadvanced", "ksampler"),
+    "depth_pose_guidance": ("controlnet", "control net", "depth", "pose", "dwpose", "preprocessor", "guide"),
+}
+
+_PATTERN_REQUIRED_TERMS: dict[str, tuple[str, ...]] = {
+    "vace": ("vace",),
+    "lora_chain": ("lora", "iclora"),
+    "low_vram": ("blockswap", "low_vram", "low vram", "chunkfeed"),
+    "two_pass_refinement": ("upsampler", "upscale", "sampler"),
+    "depth_pose_guidance": ("controlnet", "depth", "pose", "dwpose"),
 }
 
 
@@ -649,14 +666,7 @@ def _build_inspection_summary(graph: dict | None) -> InspectionSummary | None:
 def _build_precedent_slices(
     sources: tuple[dict, ...],
 ) -> tuple[WorkflowSlice, ...]:
-    """Build :class:`WorkflowSlice` placeholders from research sources.
-
-    Only sources that reference workflow-level paths (``.py`` files from
-    ready templates, source workflows, or Hivemind workflow resources)
-    produce a slice.  Each slice is a minimal placeholder — the
-    *node_ids*, *entry_anchor*, and *exit_anchor* are empty/absent
-    because full slice extraction is deferred to a later sprint (SD3).
-    """
+    """Build source-backed :class:`WorkflowSlice` records from research sources."""
     workflow_source_kinds = {
         "ready_template",
         "source_workflow",
@@ -671,28 +681,135 @@ def _build_precedent_slices(
             continue
         source_kind = str(source.get("source", ""))
         path = source.get("path")
+        source_workflow_path = source.get("source_workflow_path")
         class_type = str(source.get("class_type", ""))
 
-        # Only create a slice for workflow sources with a .py path
         is_workflow = source_kind in workflow_source_kinds
         has_py_path = isinstance(path, str) and path.endswith(".py")
-        if not is_workflow and not has_py_path:
+        has_source_workflow = isinstance(source_workflow_path, str) and source_workflow_path.endswith(".json")
+        if not is_workflow and not has_py_path and not has_source_workflow:
             continue
         if not class_type or class_type in seen:
             continue
+
+        load_result: WorkflowLoadResult | None = None
+        if has_source_workflow:
+            load_result = load_workflow_source(source_workflow_path)
+        elif isinstance(path, str) and path.endswith(".json"):
+            load_result = load_workflow_source(path)
+
+        source_warnings: list[dict[str, Any]] = []
+        if load_result is not None and load_result.ok:
+            pattern_key = _source_pattern_key(source)
+            extracted_nodes, source_warnings = _extract_pattern_nodes(
+                load_result=load_result,
+                pattern_key=pattern_key,
+            )
+            node_ids = tuple(record.node_id for record in extracted_nodes)
+            node_types = tuple(record.class_type for record in extracted_nodes)
+            entry_anchor = node_ids[0] if node_ids else None
+            exit_anchor = node_ids[-1] if node_ids else None
+        else:
+            node_ids = ()
+            node_types = ()
+            entry_anchor = None
+            exit_anchor = None
+
+        if load_result is not None and load_result.blocks_candidate_output:
+            continue
+
         seen.add(class_type)
 
         slices.append(
             WorkflowSlice(
                 source_class_type=class_type,
-                node_ids=(),  # placeholder — slice extraction deferred
-                entry_anchor=None,
-                exit_anchor=None,
+                node_ids=node_ids,
+                node_types=node_types,
+                entry_anchor=entry_anchor,
+                exit_anchor=exit_anchor,
+                source_workflow_path=load_result.source_path if load_result is not None else None,
                 python_path=path if isinstance(path, str) else None,
+                warnings=tuple(source_warnings),
             )
         )
 
     return tuple(slices)
+
+
+def _source_pattern_key(source: dict[str, Any]) -> str | None:
+    keys = source.get("adapt_pattern_keys")
+    if isinstance(keys, list | tuple):
+        for key in keys:
+            if isinstance(key, str) and key in _PATTERN_NODE_TERMS:
+                return key
+
+    text = " ".join(
+        str(source.get(key, ""))
+        for key in ("class_type", "path", "template_id", "source_workflow_path", "description")
+    ).lower()
+    for key, terms in _PATTERN_NODE_TERMS.items():
+        if any(term in text for term in terms):
+            return key
+    return None
+
+
+def _extract_pattern_nodes(
+    *,
+    load_result: WorkflowLoadResult,
+    pattern_key: str | None,
+) -> tuple[tuple[Any, ...], list[dict[str, Any]]]:
+    """Return the minimal deterministic precedent node slice for a pattern."""
+    if pattern_key is None:
+        return load_result.nodes, []
+
+    terms = _PATTERN_NODE_TERMS[pattern_key]
+    required_terms = _PATTERN_REQUIRED_TERMS.get(pattern_key, ())
+    matched = tuple(
+        record for record in load_result.nodes
+        if _node_record_matches_any(record, terms)
+    )
+
+    warnings: list[dict[str, Any]] = []
+    if not matched:
+        warnings.append({
+            "code": "pattern_nodes_not_found",
+            "severity": "warning",
+            "pattern_key": pattern_key,
+            "source_path": load_result.source_path,
+            "message": f"No nodes matched deterministic extraction terms for {pattern_key}.",
+            "required_terms": list(required_terms),
+        })
+        return (), warnings
+
+    missing_terms = [
+        term for term in required_terms
+        if not any(_node_record_matches_any(record, (term,)) for record in matched)
+    ]
+    if missing_terms:
+        warnings.append({
+            "code": "missing_required_pattern_nodes",
+            "severity": "warning",
+            "pattern_key": pattern_key,
+            "source_path": load_result.source_path,
+            "message": f"Pattern slice is missing expected node evidence for {pattern_key}.",
+            "missing_terms": missing_terms,
+        })
+
+    return matched, warnings
+
+
+def _node_record_matches_any(record: Any, terms: tuple[str, ...]) -> bool:
+    haystack = _node_record_search_text(record)
+    return any(term in haystack for term in terms)
+
+
+def _node_record_search_text(record: Any) -> str:
+    return " ".join((
+        str(getattr(record, "node_id", "")),
+        str(getattr(record, "class_type", "")),
+        str(getattr(record, "inputs", "")),
+        str(getattr(record, "raw_node", "")),
+    )).lower().replace("-", "_")
 
 
 def _build_adaptation_plan(

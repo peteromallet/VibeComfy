@@ -9,6 +9,7 @@ from vibecomfy.nodes.index import index_custom_node_examples
 from vibecomfy.schema import NodeSchema, RuntimeSchemaProvider, SchemaProvider, get_schema_provider, schemas_for
 from vibecomfy.search.aliases import ADAPT_PATTERN_ALIASES, normalize_text, tokenize
 from vibecomfy.search.bootstrap import ensure_indexes
+from vibecomfy.ingest.workflow_source import load_workflow_source
 
 SearchSource = Literal[
     "object_info",
@@ -460,15 +461,7 @@ def _path_exists(path: str | None) -> bool:
 def _workflow_source_parseable(path: str | None) -> bool:
     if not _is_json_path(path):
         return False
-    data = _read_json(Path(path), default=None)
-    if not isinstance(data, dict):
-        return False
-    nodes = data.get("nodes")
-    if isinstance(nodes, list) and nodes:
-        return True
-    if isinstance(nodes, dict) and nodes:
-        return True
-    return any(isinstance(value, dict) and "class_type" in value for value in data.values())
+    return load_workflow_source(path).ok
 
 
 def _is_json_path(path: str | None) -> bool:

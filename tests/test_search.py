@@ -188,7 +188,7 @@ def test_local_adapt_alias_discovery_finds_vace_template_with_parseable_source()
 def test_local_adapt_alias_discovery_prefers_graph_backed_lora_template() -> None:
     entries = build_search_corpus()
 
-    results = search_entries(entries, "LoRA chaining with control guidance", task="i2v", limit=6)
+    results = search_entries(entries, "LoRA chaining with IC-LoRA control guide", task="i2v", limit=6)
 
     assert results
     top = results[0]
