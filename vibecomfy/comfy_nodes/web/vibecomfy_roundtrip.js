@@ -393,10 +393,13 @@ const VIBECOMFY_LOGO_URL = resolveModuleAssetUrl("./vibecomfy_agent_icon_cream.p
 
 function _lsGet(key) {
   try {
-    if (typeof localStorage === "undefined" || localStorage === null) {
+    const storage = typeof localStorage !== "undefined" && localStorage !== null
+      ? localStorage
+      : globalThis?.localStorage;
+    if (!storage) {
       return null;
     }
-    return localStorage.getItem(key);
+    return storage.getItem(key);
   } catch (_e) {
     return null;
   }
@@ -404,10 +407,13 @@ function _lsGet(key) {
 
 function _lsSet(key, value) {
   try {
-    if (typeof localStorage === "undefined" || localStorage === null) {
+    const storage = typeof localStorage !== "undefined" && localStorage !== null
+      ? localStorage
+      : globalThis?.localStorage;
+    if (!storage) {
       return;
     }
-    localStorage.setItem(key, value);
+    storage.setItem(key, value);
   } catch (_e) {
     // Best-effort: silently swallow set errors (private browsing, quota, etc.)
   }
@@ -415,21 +421,23 @@ function _lsSet(key, value) {
 
 function _lsRemove(key) {
   try {
-    if (typeof localStorage === "undefined" || localStorage === null) {
+    const storage = typeof localStorage !== "undefined" && localStorage !== null
+      ? localStorage
+      : globalThis?.localStorage;
+    if (!storage) {
       return;
     }
-    localStorage.removeItem(key);
+    storage.removeItem(key);
   } catch (_e) {
     // Best-effort.
   }
 }
 
-const CANONICAL_AGENT_PROVIDERS = new Set(["anthropic", "openai-codex", "openrouter"]);
+const CANONICAL_AGENT_PROVIDERS = new Set(["anthropic", "deepseek", "openai-codex", "openrouter"]);
 
 function getPersistedAgentProvider() {
   const raw = _lsGet(LS_AGENT_PROVIDER_KEY);
   if (raw == null) return null;
-  if (raw === "deepseek") return "openrouter";
   if (CANONICAL_AGENT_PROVIDERS.has(raw)) return raw;
   return null;
 }
@@ -2968,6 +2976,8 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
     requestedRoute: route,
     model,
   };
+  panel.fields.route.disabled = true;
+  panel.fields.model.disabled = true;
   if (typeof document !== "undefined") {
     renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
   }
@@ -3868,6 +3878,7 @@ function createAgentPanelShell() {
   const modelInput = document.createElement("input");
   modelInput.id = PANEL_IDS.model;
   modelInput.placeholder = "Model override (optional)";
+  modelInput.disabled = true;
   Object.assign(modelInput.style, {
     width: "100%",
     display: "none",
@@ -9814,23 +9825,7 @@ async function applyAgentCandidate(panel) {
 }
 
 async function rejectAgentCandidate(panel) {
-  if (!panel?.state?.candidateGraph) {
-    return;
-  }
-  const eligibility = applyEligibility(panel);
-  if (!eligibility.applyable) {
-    const failure = agentPanelFailure("RejectBlocked", eligibility.message || "Reject is blocked for this candidate.", {
-      retryable: eligibility.reason !== APPLY_ELIGIBILITY_REASON.NO_CANDIDATE,
-      graph_unchanged: true,
-      next_action: "Submit a new edit or resolve the server-side blockers before retrying Reject.",
-      apply_eligibility: eligibility,
-    });
-    const obligations = transition(panel, "REJECT_FAILURE", {
-      failure,
-      debugPayload: failure,
-    });
-    fulfillLifecycleTransitionObligations(panel, obligations);
-    renderLifecycleTransition(panel, obligations);
+  if (!panel?.state?.candidateGraph || !panel.state.sessionId || !panel.state.turnId) {
     return;
   }
 
