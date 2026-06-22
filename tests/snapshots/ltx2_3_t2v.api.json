@@ -10,7 +10,8 @@
     "inputs": {
       "width": 384,
       "height": 256,
-      "length": 9
+      "length": 9,
+      "batch_size": 1
     }
   },
   "3940": {
@@ -60,17 +61,18 @@
     "inputs": {
       "modality": "AUDIO",
       "cfg": 7,
-      "modality_scale": 3
+      "modality_scale": 3,
+      "stg": 1.0,
+      "perturb_attn": true,
+      "rescale": 0.7,
+      "skip_step": 0,
+      "cross_attn": true
     }
   },
   "4967": {
-    "class_type": "ClownSampler_Beta",
+    "class_type": "KSamplerSelect",
     "inputs": {
-      "widget_0": 0.25,
-      "widget_1": "exponential/res_2s",
-      "widget_2": 94,
-      "widget_3": "fixed",
-      "widget_4": true
+      "sampler_name": "euler_ancestral_cfg_pp"
     }
   },
   "4971": {
@@ -109,11 +111,12 @@
   "3980": {
     "class_type": "LTXVEmptyLatentAudio",
     "inputs": {
-      "frames_number": 121,
+      "frames_number": 9,
       "frame_rate": [
         "4985",
         0
       ],
+      "batch_size": 1,
       "audio_vae": [
         "4010",
         0
@@ -137,6 +140,11 @@
       "cfg": 3,
       "rescale": 0.9,
       "modality_scale": 3,
+      "modality": "VIDEO",
+      "stg": 1.0,
+      "perturb_attn": true,
+      "skip_step": 0,
+      "cross_attn": true,
       "parameters": [
         "4963",
         0
@@ -159,6 +167,8 @@
     "inputs": {
       "resize_type": "scale longer dimension",
       "scale_method": "lanczos",
+      "longer_size": 384,
+      "resize_type.longer_size": 384,
       "input": [
         "2004",
         0
@@ -211,7 +221,7 @@
   "4808": {
     "class_type": "MultimodalGuider",
     "inputs": {
-      "widget_0": "28",
+      "skip_blocks": "28",
       "model": [
         "4968",
         0
@@ -290,6 +300,10 @@
     "class_type": "LTXVScheduler",
     "inputs": {
       "steps": 15,
+      "max_shift": 2.05,
+      "base_shift": 0.95,
+      "stretch": true,
+      "terminal": 0.1,
       "latent": [
         "4528",
         0
@@ -358,6 +372,7 @@
       "horizontal_tiles": 2,
       "vertical_tiles": 2,
       "overlap": 6,
+      "last_frame_fix": false,
       "vae": [
         "3940",
         2
@@ -388,10 +403,6 @@
       "images": [
         "4982",
         0
-      ],
-      "audio": [
-        "4848",
-        0
       ]
     }
   },
@@ -401,6 +412,7 @@
       "horizontal_tiles": 2,
       "vertical_tiles": 2,
       "overlap": 6,
+      "last_frame_fix": false,
       "vae": [
         "3940",
         2
@@ -418,10 +430,6 @@
       "images": [
         "4983",
         0
-      ],
-      "audio": [
-        "4818",
-        0
       ]
     }
   },
@@ -429,6 +437,8 @@
     "class_type": "SaveVideo",
     "inputs": {
       "filename_prefix": "output_D",
+      "format": "auto",
+      "codec": "auto",
       "video": [
         "4849",
         0
@@ -439,6 +449,8 @@
     "class_type": "SaveVideo",
     "inputs": {
       "filename_prefix": "output_F",
+      "format": "auto",
+      "codec": "auto",
       "video": [
         "4819",
         0
