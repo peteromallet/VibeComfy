@@ -47,10 +47,7 @@ from .contracts import (
     ResearchResult,
     _ALLOWED_ROUTES,
 )
-from .graph_inspection import (
-    graph_inspection_text,
-    _graph_inspection,
-)
+from .graph_inspection import _graph_inspection
 from .profiles import (
     AgentSpecShape,
     load_profile,
@@ -1043,6 +1040,10 @@ def _run_reply(
     if graph_inspection:
         effective_graph_context = graph_inspection
 
+    adaptation_plan: dict[str, Any] | None = None
+    if research_result is not None and research_result.adaptation_plan is not None:
+        adaptation_plan = research_result.adaptation_plan.to_dict()
+
     try:
         reply_kwargs: dict[str, Any] = {
             "route": spec.agent,
@@ -1051,13 +1052,19 @@ def _run_reply(
             "research_summary": research_summary,
             "implementation_message": implementation_message,
             "graph_summary": effective_graph_context,
+            "adaptation_plan": adaptation_plan,
         }
-        try:
-            result = run_reply_turn(request.query, **reply_kwargs)
-        except TypeError as exc:
-            if "graph_summary" not in str(exc):
-                raise
-            reply_kwargs.pop("graph_summary", None)
+        # Gracefully degrade if the configured reply provider does not accept
+        # newer keyword arguments.
+        for key in ("graph_summary", "adaptation_plan"):
+            try:
+                result = run_reply_turn(request.query, **reply_kwargs)
+                break
+            except TypeError as exc:
+                if key not in str(exc):
+                    raise
+                reply_kwargs.pop(key, None)
+        else:
             result = run_reply_turn(request.query, **reply_kwargs)
         if isinstance(result, str):
             return result

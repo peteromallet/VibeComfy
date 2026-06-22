@@ -13,14 +13,21 @@ from unittest.mock import patch
 
 import pytest
 
-from vibecomfy.executor.contracts import ResearchResult
+from vibecomfy.executor.contracts import (
+    InspectionSummary,
+    PrecedentAdaptationPlan,
+    ResearchResult,
+    WorkflowSlice,
+)
 from vibecomfy.executor.research import (
-    HivemindClient,
     HivemindError,
     _default_hivemind_client,
+    _build_adaptation_plan,
+    _build_inspection_summary,
+    _build_precedent_slices,
     _build_summary,
-    _normalize_source,
     _normalize_hivemind_source,
+    _normalize_source,
     _run_hivemind_research,
     research,
     run_local_research,
@@ -725,7 +732,9 @@ class TestHivemindClientProtocol:
     """The HivemindClient type accepts any callable matching the signature."""
 
     def test_lambda_is_valid_client(self) -> None:
-        client: HivemindClient = lambda q, t: {"results": []}
+        def client(q: str, t: float) -> dict[str, Any]:
+            return {"results": []}
+
         result = _run_hivemind_research("test", client=client, timeout=1.0)
         assert result == ()
 
@@ -843,17 +852,6 @@ class TestWorkflowSourceNormalization:
 # Verify _build_inspection_summary, _build_precedent_slices,
 # _build_adaptation_plan, and the research() function's precedent output
 # when usable candidates exist vs. when no precedent is found.
-
-from vibecomfy.executor.contracts import (
-    InspectionSummary,
-    PrecedentAdaptationPlan,
-    WorkflowSlice,
-)
-from vibecomfy.executor.research import (
-    _build_adaptation_plan,
-    _build_inspection_summary,
-    _build_precedent_slices,
-)
 
 
 class TestBuildInspectionSummary:
@@ -1369,7 +1367,7 @@ class TestBuildAdaptationPlan:
 
         assert plan is not None
         assert plan.structural_validation == "pass"
-        assert plan.candidate_graph is None
+        assert plan.candidate_graph is not None
         assert plan.anchor_bindings
         roles = {binding["anchor_role"] for binding in plan.anchor_bindings}
         assert {"lora", "model"} <= roles
@@ -1380,6 +1378,25 @@ class TestBuildAdaptationPlan:
         assert {
             binding["target_class_type"] for binding in plan.anchor_bindings
         } <= {"WanVideoModelLoader"}
+        # Candidate graph preserves the original target IDs and links and
+        # includes the non-anchor source nodes under deterministic new IDs.
+        assert {"1", "2", "3"} <= set(plan.candidate_graph.keys())
+        assert plan.candidate_graph["1"]["inputs"]["lora"] == ["2", 0]
+        added_ids = set(plan.candidate_graph.keys()) - {"1", "2", "3"}
+        assert added_ids
+        for node_id in added_ids:
+            assert node_id.startswith("adapt_")
+
+    def test_candidate_graph_only_emitted_on_pass(self) -> None:
+        plan = _build_adaptation_plan(
+            query="add Wan LoRA chain",
+            graph=self._wan_target_graph(),
+            inspection=None,
+            slices=(self._wan_lora_slice(),),
+        )
+        assert plan is not None
+        assert plan.structural_validation == "pass"
+        assert plan.to_dict().get("candidate_graph") is plan.candidate_graph
 
     def test_incompatible_target_family_produces_no_anchor_bindings(self) -> None:
         plan = _build_adaptation_plan(

@@ -10,6 +10,7 @@ with local-only results rather than blocking on network unavailability.
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 from html import unescape
@@ -988,6 +989,88 @@ def _build_anchor_bindings(
     return tuple(bindings)
 
 
+_SOURCE_ID_PREFIX = "adapt_"
+
+
+def _build_candidate_graph(
+    target_graph: dict[str, Any],
+    source_records: tuple[WorkflowNodeRecord, ...],
+    anchor_bindings: tuple[dict[str, str], ...],
+) -> dict[str, Any] | None:
+    """Merge a validated source slice into the target graph.
+
+    Preserves every target node, ID, and link.  Source nodes that participate
+    in an anchor binding are *not* duplicated; their role is filled by the
+    already-bound target anchor.  Remaining source nodes are copied in with
+    deterministic non-colliding IDs and their input references are remapped to
+    point at the corresponding target anchor or copied source node.
+
+    Returns ``None`` if the inputs look malformed.
+    """
+    if not isinstance(target_graph, dict) or not anchor_bindings:
+        return None
+
+    candidate = copy.deepcopy(target_graph)
+    existing_ids = {str(k) for k in candidate.keys() if isinstance(k, (str, int))}
+
+    source_to_target: dict[str, str] = {}
+    source_anchors: set[str] = set()
+    for binding in anchor_bindings:
+        if not isinstance(binding, dict):
+            continue
+        source_id = str(binding.get("source_anchor", ""))
+        target_id = str(binding.get("target_anchor", ""))
+        if source_id and target_id:
+            source_anchors.add(source_id)
+            if source_id not in source_to_target:
+                source_to_target[source_id] = target_id
+
+    def _allocate_id(source_id: str) -> str:
+        preferred = f"{_SOURCE_ID_PREFIX}{source_id}"
+        if preferred not in existing_ids:
+            existing_ids.add(preferred)
+            return preferred
+        counter = 1
+        while True:
+            candidate_id = f"{preferred}_{counter}"
+            if candidate_id not in existing_ids:
+                existing_ids.add(candidate_id)
+                return candidate_id
+            counter += 1
+
+    new_id_for_source: dict[str, str] = {
+        record.node_id: _allocate_id(record.node_id)
+        for record in source_records
+        if record.node_id not in source_anchors
+    }
+
+    id_map = {**source_to_target, **new_id_for_source}
+
+    def _remap_value(value: Any) -> Any:
+        if isinstance(value, list | tuple) and len(value) == 2:
+            ref_id, slot = value
+            if isinstance(ref_id, (str, int)) and str(ref_id) in id_map:
+                return [id_map[str(ref_id)], slot]
+        return value
+
+    for record in source_records:
+        if record.node_id in source_anchors:
+            continue
+        new_id = new_id_for_source.get(record.node_id)
+        if new_id is None:
+            continue
+        remapped_inputs = {
+            key: _remap_value(val)
+            for key, val in (record.inputs or {}).items()
+        }
+        candidate[new_id] = {
+            "class_type": record.class_type,
+            "inputs": remapped_inputs,
+        }
+
+    return candidate
+
+
 def _build_adaptation_plan(
     query: str,
     graph: dict | None,
@@ -1009,6 +1092,8 @@ def _build_adaptation_plan(
     target_load = _normalize_target_graph(graph)
     anchor_bindings: tuple[dict[str, str], ...] = ()
     structural_validation = "not_evaluated"
+    source_records: tuple[WorkflowNodeRecord, ...] = ()
+    family_check_passed = False
 
     if target_load is not None:
         structural_validation = "fail"
@@ -1028,14 +1113,20 @@ def _build_adaptation_plan(
             and bool(target_families)
             and bool(source_families & target_families)
         )
-        if target_load.ok and source_records and family_check_passed:
-            anchor_bindings = _build_anchor_bindings(
-                selected_slice=selected_slice,
+    candidate_graph: dict[str, Any] | None = None
+    if target_load is not None and target_load.ok and source_records and family_check_passed:
+        anchor_bindings = _build_anchor_bindings(
+            selected_slice=selected_slice,
+            source_records=source_records,
+            target_records=target_load.nodes,
+        )
+        if anchor_bindings:
+            structural_validation = "pass"
+            candidate_graph = _build_candidate_graph(
+                target_graph=graph,
                 source_records=source_records,
-                target_records=target_load.nodes,
+                anchor_bindings=anchor_bindings,
             )
-            if anchor_bindings:
-                structural_validation = "pass"
 
     return PrecedentAdaptationPlan(
         selected_slice=selected_slice,
@@ -1043,7 +1134,7 @@ def _build_adaptation_plan(
         required_new_nodes=(),
         required_rewires=(),
         edit_ops=(),
-        candidate_graph=None,
+        candidate_graph=candidate_graph,
         structural_validation=structural_validation,
         semantic_validation="not_evaluated",
     )

@@ -232,6 +232,9 @@ _REPLY_SYSTEM = (
     "summary.\n"
     "- Mention prioritization, ratings, trust, or quality scores only when that "
     "metadata is explicitly present in the research findings.\n"
+    "- For route=\"adapt\" replies, mention the source template/workflow, the "
+    "anchor roles bound, the structural validation result, and any portability "
+    "warnings; keep the detailed candidate graph in the structured artifact.\n"
     "- If nothing was changed, explain why clearly.\n"
     "- When a graph inspection is provided (inspect route): describe the "
     "graph structure, node types, and how they connect. Explain what the workflow "
@@ -250,6 +253,7 @@ def build_reply_messages(
     implementation_message: str | None = None,
     graph_summary: str | None = None,
     graph_inspection: str | None = None,
+    adaptation_plan: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the reply phase.
 
@@ -260,6 +264,10 @@ def build_reply_messages(
     When *graph_inspection* is provided (inspect-only route), it supplies
     detailed node-by-node structure that the model should describe without
     suggesting edits.
+
+    *adaptation_plan* is the serialized :class:`PrecedentAdaptationPlan` for
+    route="adapt" requests; the reply should reference it at a high level while
+    leaving the detailed candidate graph in the structured artifact.
     """
     parts = [f"User request:\n{query}"]
     if graph_inspection:
@@ -274,6 +282,16 @@ def build_reply_messages(
         parts.append(f"\nResearch findings: {research_summary}")
     if implementation_message:
         parts.append(f"\nImplementation: {implementation_message}")
+    if adaptation_plan:
+        selected = adaptation_plan.get("selected_slice") or {}
+        bindings = adaptation_plan.get("anchor_bindings") or []
+        roles = ", ".join(sorted({b.get("anchor_role", "") for b in bindings if b.get("anchor_role")}))
+        parts.append(
+            f"\nAdaptation plan: selected source '{selected.get('source_class_type', 'unknown')}', "
+            f"bound anchor roles: {roles or 'none'}, "
+            f"structural_validation={adaptation_plan.get('structural_validation', 'not_evaluated')}, "
+            f"semantic_validation={adaptation_plan.get('semantic_validation', 'not_evaluated')}."
+        )
     return [
         {"role": "system", "content": _REPLY_SYSTEM},
         {"role": "user", "content": "\n".join(parts)},
