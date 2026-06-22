@@ -7,7 +7,6 @@ merge ordering.
 
 from __future__ import annotations
 
-import time
 from typing import Any
 from urllib.parse import unquote_plus
 from unittest.mock import patch
@@ -28,7 +27,7 @@ from vibecomfy.executor.research import (
 )
 from vibecomfy.search.index import SearchEntry
 from vibecomfy.search.scorer import SearchResult
-from vibecomfy.ingest.workflow_source import normalize_workflow_source
+from vibecomfy.ingest.workflow_source import load_workflow_source, normalize_workflow_source
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1023,6 +1022,50 @@ class TestBuildPrecedentSlices:
         assert "WanVideoVACEEncode" in slice_.node_types
         assert slice_.entry_anchor is not None
         assert slice_.exit_anchor is not None
+
+    def test_real_vace_ready_template_fixture_extracts_repository_nodes(self) -> None:
+        source_workflow_path = "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json"
+        load_result = load_workflow_source(source_workflow_path)
+        assert load_result.ok is True
+        assert len(load_result.nodes) > 100
+        assert {"22", "56", "111", "209", "224"}.issubset(
+            {record.node_id for record in load_result.nodes}
+        )
+
+        sources = (
+            {
+                "class_type": "video/wanvideo_wrapper_13b_vace",
+                "source": "ready_template",
+                "path": "ready_templates/video/wanvideo_wrapper_13b_vace.py",
+                "source_workflow_path": source_workflow_path,
+                "adapt_pattern_keys": ["vace"],
+            },
+        )
+        result = _build_precedent_slices(sources)
+        assert len(result) == 1
+        slice_ = result[0]
+        assert slice_.source_workflow_path == source_workflow_path
+        assert slice_.python_path == "ready_templates/video/wanvideo_wrapper_13b_vace.py"
+        assert {"56", "111", "148", "209", "224", "231"}.issubset(set(slice_.node_ids))
+        assert "WanVideoVACEEncode" in slice_.node_types
+        assert "WanVideoVACEModelSelect" in slice_.node_types
+        assert "WanVideoVACEStartToEndFrame" in slice_.node_types
+        assert slice_.warnings == ()
+
+    def test_missing_real_vace_source_does_not_mock_passing_extraction(self, tmp_path) -> None:
+        missing_source = tmp_path / "wan13b_vace_absent.json"
+        sources = (
+            {
+                "class_type": "video/wanvideo_wrapper_13b_vace_missing",
+                "source": "ready_template",
+                "path": "ready_templates/video/wanvideo_wrapper_13b_vace.py",
+                "source_workflow_path": str(missing_source),
+                "adapt_pattern_keys": ["vace"],
+            },
+        )
+
+        assert load_workflow_source(str(missing_source)).blocks_candidate_output is True
+        assert _build_precedent_slices(sources) == ()
 
     def test_lora_chain_source_extracts_loader_and_selector_nodes(self) -> None:
         sources = (
