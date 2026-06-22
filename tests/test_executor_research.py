@@ -1249,6 +1249,60 @@ class TestBuildPrecedentSlices:
 class TestBuildAdaptationPlan:
     """PrecedentAdaptationPlan construction from slices."""
 
+    def _wan_lora_slice(self) -> WorkflowSlice:
+        slices = _build_precedent_slices((
+            {
+                "class_type": "video/wan_control_lora",
+                "source": "ready_template",
+                "path": "ready_templates/video/wan_control_lora.py",
+                "source_workflow_path": "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_control_lora.json",
+                "adapt_pattern_keys": ["lora_chain"],
+            },
+        ))
+        assert slices
+        return slices[0]
+
+    def _wan_target_graph(self) -> dict[str, dict[str, object]]:
+        return {
+            "1": {
+                "class_type": "WanVideoModelLoader",
+                "inputs": {
+                    "model": "WanVideo\\wan2.1_t2v_1.3B_fp16.safetensors",
+                    "lora": ["2", 0],
+                },
+            },
+            "2": {
+                "class_type": "WanVideoLoraSelect",
+                "inputs": {
+                    "lora": "WanVid\\wan2.1-control-lora.safetensors",
+                    "strength": 1,
+                },
+            },
+            "3": {
+                "class_type": "WanVideoSampler",
+                "inputs": {"model": ["1", 0], "latent_image": ["4", 0]},
+            },
+        }
+
+    def _ltx_target_graph_with_matching_anchor_shapes(self) -> dict[str, dict[str, object]]:
+        return {
+            "1": {
+                "class_type": "LTXVModelLoader",
+                "inputs": {
+                    "model": "ltx-video-2b.safetensors",
+                    "lora": ["2", 0],
+                },
+            },
+            "2": {
+                "class_type": "LTXVLoraSelect",
+                "inputs": {"lora": "ltx-detail-lora.safetensors", "strength": 1},
+            },
+            "3": {
+                "class_type": "LTXVSampler",
+                "inputs": {"model": ["1", 0], "latent_image": ["4", 0]},
+            },
+        }
+
     def test_no_slices_returns_none(self) -> None:
         result = _build_adaptation_plan(
             query="test",
@@ -1304,6 +1358,67 @@ class TestBuildAdaptationPlan:
         assert "selected_slice" in d
         assert d["selected_slice"]["source_class_type"] == "test"
         assert d["structural_validation"] == "not_evaluated"
+
+    def test_compatible_wan_target_binds_structural_anchors(self) -> None:
+        plan = _build_adaptation_plan(
+            query="add Wan LoRA chain",
+            graph=self._wan_target_graph(),
+            inspection=None,
+            slices=(self._wan_lora_slice(),),
+        )
+
+        assert plan is not None
+        assert plan.structural_validation == "pass"
+        assert plan.candidate_graph is None
+        assert plan.anchor_bindings
+        roles = {binding["anchor_role"] for binding in plan.anchor_bindings}
+        assert {"lora", "model"} <= roles
+        assert {
+            (binding["anchor_role"], binding["source_socket"], binding["target_socket"])
+            for binding in plan.anchor_bindings
+        } >= {("lora", "lora", "lora"), ("model", "model", "model")}
+        assert {
+            binding["target_class_type"] for binding in plan.anchor_bindings
+        } <= {"WanVideoModelLoader"}
+
+    def test_incompatible_target_family_produces_no_anchor_bindings(self) -> None:
+        plan = _build_adaptation_plan(
+            query="add Wan LoRA chain",
+            graph=self._ltx_target_graph_with_matching_anchor_shapes(),
+            inspection=None,
+            slices=(self._wan_lora_slice(),),
+        )
+
+        assert plan is not None
+        assert plan.structural_validation == "fail"
+        assert plan.anchor_bindings == ()
+        assert plan.candidate_graph is None
+
+    def test_missing_target_graph_does_not_bind_or_build_candidate(self) -> None:
+        plan = _build_adaptation_plan(
+            query="add Wan LoRA chain",
+            graph=None,
+            inspection=None,
+            slices=(self._wan_lora_slice(),),
+        )
+
+        assert plan is not None
+        assert plan.structural_validation == "not_evaluated"
+        assert plan.anchor_bindings == ()
+        assert plan.candidate_graph is None
+
+    def test_unsupported_target_graph_blocks_anchor_bindings(self) -> None:
+        plan = _build_adaptation_plan(
+            query="add Wan LoRA chain",
+            graph={"metadata": {"format": "not-comfyui"}},
+            inspection=None,
+            slices=(self._wan_lora_slice(),),
+        )
+
+        assert plan is not None
+        assert plan.structural_validation == "fail"
+        assert plan.anchor_bindings == ()
+        assert plan.candidate_graph is None
 
 
 def _normalize_sources_for_test(entries):

@@ -21,7 +21,12 @@ from typing import Any, Callable
 
 from vibecomfy.search.index import build_search_corpus
 from vibecomfy.search.scorer import search_entries, SearchResult
-from vibecomfy.ingest.workflow_source import WorkflowLoadResult, load_workflow_source
+from vibecomfy.ingest.workflow_source import (
+    WorkflowLoadResult,
+    WorkflowNodeRecord,
+    load_workflow_source,
+    normalize_workflow_source,
+)
 
 from .contracts import (
     InspectionSummary,
@@ -99,6 +104,17 @@ _PATTERN_REQUIRED_TERMS: dict[str, tuple[str, ...]] = {
     "two_pass_refinement": ("upsampler", "upscale", "sampler"),
     "depth_pose_guidance": ("controlnet", "depth", "pose", "dwpose"),
 }
+
+_FAMILY_EVIDENCE_TERMS: dict[str, tuple[str, ...]] = {
+    "wan": ("wanvideo", "wan2", "wan_2", "wan 2", "wan2_1", "wan2.1", "wan2_2", "wan2.2"),
+    "ltx": ("ltx", "ltxv", "lightricks"),
+    "flux": ("flux", "flux1", "flux2"),
+    "qwen": ("qwen",),
+    "hunyuan": ("hunyuan", "hyvideo"),
+    "sd": ("sdxl", "sd3", "stable diffusion", "stable_diffusion"),
+}
+
+_ANCHOR_ROLE_PRIORITY = ("lora", "model", "sampler", "latent", "conditioning", "exit")
 
 
 # ── Hivemind error (non-fatal) ───────────────────────────────────────────────
@@ -812,6 +828,166 @@ def _node_record_search_text(record: Any) -> str:
     )).lower().replace("-", "_")
 
 
+def _normalize_target_graph(graph: dict | None) -> WorkflowLoadResult | None:
+    if graph is None:
+        return None
+    return normalize_workflow_source(graph, source_path="<target_graph>")
+
+
+def _selected_source_records(selected_slice: WorkflowSlice) -> tuple[WorkflowNodeRecord, ...]:
+    if not selected_slice.source_workflow_path:
+        return ()
+    load_result = load_workflow_source(selected_slice.source_workflow_path)
+    if not load_result.ok:
+        return ()
+    selected_ids = set(selected_slice.node_ids)
+    if not selected_ids:
+        return load_result.nodes
+    return tuple(record for record in load_result.nodes if record.node_id in selected_ids)
+
+
+def _family_evidence_from_text(text: str) -> set[str]:
+    haystack = text.lower().replace("-", "_").replace("\\", "/")
+    families: set[str] = set()
+    for family, terms in _FAMILY_EVIDENCE_TERMS.items():
+        if any(term in haystack for term in terms):
+            families.add(family)
+    return families
+
+
+def _detect_record_families(records: tuple[WorkflowNodeRecord, ...], *extra_text: str | None) -> set[str]:
+    families: set[str] = set()
+    for text in extra_text:
+        if text:
+            families.update(_family_evidence_from_text(text))
+    for record in records:
+        families.update(_family_evidence_from_text(_node_record_search_text(record)))
+    return families
+
+
+def _anchor_roles(record: WorkflowNodeRecord) -> tuple[str, ...]:
+    text = _node_record_search_text(record)
+    class_text = record.class_type.lower().replace("-", "_")
+    input_names = {str(name).lower().replace("-", "_") for name in record.inputs}
+    roles: list[str] = []
+
+    if "lora" in text or "lora" in input_names:
+        roles.append("lora")
+    if (
+        "model" in class_text
+        or "loader" in class_text
+        or "unet" in class_text
+        or "checkpoint" in class_text
+        or "model" in input_names
+    ):
+        roles.append("model")
+    if "sampler" in class_text or "ksampler" in class_text or "sampler" in input_names:
+        roles.append("sampler")
+    if "latent" in class_text or "latent_image" in input_names or "samples" in input_names:
+        roles.append("latent")
+    if (
+        "conditioning" in class_text
+        or "cliptextencode" in class_text
+        or "controlnet" in class_text
+        or "positive" in input_names
+        or "negative" in input_names
+        or "conditioning" in input_names
+    ):
+        roles.append("conditioning")
+    if (
+        "save" in class_text
+        or "decode" in class_text
+        or "combine" in class_text
+        or "images" in input_names
+    ):
+        roles.append("exit")
+
+    deduped: list[str] = []
+    for role in _ANCHOR_ROLE_PRIORITY:
+        if role in roles and role not in deduped:
+            deduped.append(role)
+    return tuple(deduped)
+
+
+def _anchor_socket_for_role(record: WorkflowNodeRecord, role: str) -> str:
+    input_names = {str(name).lower().replace("-", "_") for name in record.inputs}
+    if role == "lora" and "lora" in input_names:
+        return "lora"
+    if role == "model" and "model" in input_names:
+        return "model"
+    if role == "sampler" and "sampler" in input_names:
+        return "sampler"
+    if role == "latent" and "latent_image" in input_names:
+        return "latent_image"
+    if role == "latent" and "samples" in input_names:
+        return "samples"
+    if role == "conditioning" and "positive" in input_names:
+        return "positive"
+    if role == "conditioning" and "conditioning" in input_names:
+        return "conditioning"
+    if role == "exit" and "images" in input_names:
+        return "images"
+    return role
+
+
+def _target_anchor_candidates(
+    target_records: tuple[WorkflowNodeRecord, ...],
+) -> dict[str, list[WorkflowNodeRecord]]:
+    candidates: dict[str, list[WorkflowNodeRecord]] = {role: [] for role in _ANCHOR_ROLE_PRIORITY}
+    for record in target_records:
+        for role in _anchor_roles(record):
+            candidates.setdefault(role, []).append(record)
+    return candidates
+
+
+def _source_anchor_records(
+    selected_slice: WorkflowSlice,
+    source_records: tuple[WorkflowNodeRecord, ...],
+) -> tuple[WorkflowNodeRecord, ...]:
+    records_by_id = {record.node_id: record for record in source_records}
+    anchor_ids = tuple(
+        anchor_id
+        for anchor_id in (selected_slice.entry_anchor, selected_slice.exit_anchor)
+        if anchor_id is not None
+    )
+    anchors = tuple(records_by_id[anchor_id] for anchor_id in anchor_ids if anchor_id in records_by_id)
+    if anchors:
+        return anchors
+    return tuple(record for record in source_records if _anchor_roles(record))
+
+
+def _build_anchor_bindings(
+    *,
+    selected_slice: WorkflowSlice,
+    source_records: tuple[WorkflowNodeRecord, ...],
+    target_records: tuple[WorkflowNodeRecord, ...],
+) -> tuple[dict[str, str], ...]:
+    target_candidates = _target_anchor_candidates(target_records)
+    bindings: list[dict[str, str]] = []
+    used: set[tuple[str, str, str]] = set()
+
+    for source_record in _source_anchor_records(selected_slice, source_records):
+        for role in _anchor_roles(source_record):
+            target_record = next(iter(target_candidates.get(role, ())), None)
+            if target_record is None:
+                continue
+            key = (source_record.node_id, role, target_record.node_id)
+            if key in used:
+                continue
+            used.add(key)
+            bindings.append({
+                "source_anchor": source_record.node_id,
+                "target_anchor": target_record.node_id,
+                "anchor_role": role,
+                "source_class_type": source_record.class_type,
+                "target_class_type": target_record.class_type,
+                "source_socket": _anchor_socket_for_role(source_record, role),
+                "target_socket": _anchor_socket_for_role(target_record, role),
+            })
+
+    return tuple(bindings)
+
+
 def _build_adaptation_plan(
     query: str,
     graph: dict | None,
@@ -829,14 +1005,46 @@ def _build_adaptation_plan(
     if not slices:
         return None
 
+    selected_slice = slices[0]
+    target_load = _normalize_target_graph(graph)
+    anchor_bindings: tuple[dict[str, str], ...] = ()
+    structural_validation = "not_evaluated"
+
+    if target_load is not None:
+        structural_validation = "fail"
+        source_records = _selected_source_records(selected_slice)
+        source_families = _detect_record_families(
+            source_records,
+            selected_slice.source_class_type,
+            selected_slice.source_workflow_path,
+            selected_slice.python_path,
+        )
+        target_families = (
+            _detect_record_families(target_load.nodes, str(target_load.raw or ""))
+            if target_load.ok else set()
+        )
+        family_check_passed = (
+            bool(source_families)
+            and bool(target_families)
+            and bool(source_families & target_families)
+        )
+        if target_load.ok and source_records and family_check_passed:
+            anchor_bindings = _build_anchor_bindings(
+                selected_slice=selected_slice,
+                source_records=source_records,
+                target_records=target_load.nodes,
+            )
+            if anchor_bindings:
+                structural_validation = "pass"
+
     return PrecedentAdaptationPlan(
-        selected_slice=slices[0],
-        anchor_bindings=(),
+        selected_slice=selected_slice,
+        anchor_bindings=anchor_bindings,
         required_new_nodes=(),
         required_rewires=(),
         edit_ops=(),
         candidate_graph=None,
-        structural_validation="not_evaluated",
+        structural_validation=structural_validation,
         semantic_validation="not_evaluated",
     )
 
@@ -848,6 +1056,7 @@ def research(
     query: str,
     *,
     task: str | None = None,
+    graph: dict[str, Any] | None = None,
     hivemind_client: HivemindClient | None | object = _USE_DEFAULT,
     hivemind_timeout: float = _DEFAULT_HIVEMIND_TIMEOUT,
     web_search_client: WebSearchClient | None | object = _USE_DEFAULT,
@@ -967,11 +1176,11 @@ def research(
     # ── Build structured precedent output (SD2) ──────────────────────────
     # Graph is not directly available in research(), so inspection and
     # adaptation plan are left empty.  The executor wires graph inspection
-    # into the research phase externally (see core._run_research).
+    # Thread the attached target graph into adaptation planning (T14).
     precedent_slices = _build_precedent_slices(tuple(sources))
     adaptation_plan = _build_adaptation_plan(
         query=query,
-        graph=None,
+        graph=graph,
         inspection=None,
         slices=precedent_slices,
     )

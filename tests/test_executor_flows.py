@@ -109,6 +109,7 @@ def _fake_classify_respond_only(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return a respond-only classification (no research, no edit)."""
     return ClassifyDecision.respond_only(
@@ -123,6 +124,7 @@ def _fake_classify_research_only(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return a research-only classification (research, no edit)."""
     return ClassifyDecision(
@@ -141,6 +143,7 @@ def _fake_classify_simple_edit(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return a simple edit classification (implement, no research)."""
     return ClassifyDecision.edit(
@@ -157,6 +160,7 @@ def _fake_classify_graph_describe(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return a graph-describe classification (research + implement)."""
     return ClassifyDecision.edit(
@@ -174,6 +178,7 @@ def _fake_reply_respond_only(
     plan: ClassifyDecision | None = None,
     research_summary: str | None = None,
     implementation_message: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Return a respond-only fake reply."""
     return "I'm here to help with your ComfyUI workflow. What would you like to do?"
@@ -187,6 +192,7 @@ def _fake_reply_research_only(
     plan: ClassifyDecision | None = None,
     research_summary: str | None = None,
     implementation_message: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Return a research-only fake reply."""
     return "Based on my research, here are the relevant node types: KSampler, VAEDecode, CLIPTextEncode."
@@ -200,6 +206,7 @@ def _fake_reply_hotshot(
     plan: ClassifyDecision | None = None,
     research_summary: str | None = None,
     implementation_message: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Return a fake reply referencing Hotshot XL research."""
     return "Hotshot XL is an SDXL-based text-to-video model. You can insert it before SVD-XT as a frame generator."
@@ -213,6 +220,7 @@ def _fake_reply_edit(
     plan: ClassifyDecision | None = None,
     research_summary: str | None = None,
     implementation_message: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Return an edit fake reply."""
     return "The graph has been updated with the requested changes."
@@ -226,6 +234,7 @@ def _fake_reply_graph_describe(
     plan: ClassifyDecision | None = None,
     research_summary: str | None = None,
     implementation_message: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Return a graph-describe fake reply."""
     return "I've analyzed your graph and applied the node template. The graph now has a KSampler connected to VAEDecode."
@@ -249,6 +258,7 @@ def _fake_classify_explain_graph(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return an explain-graph classification (implement only, no research)."""
     return ClassifyDecision(
@@ -269,6 +279,7 @@ def _fake_reply_explain_graph(
     plan: ClassifyDecision | None = None,
     research_summary: str | None = None,
     implementation_message: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Return a fake reply for an explain-graph request."""
     return "This workflow loads a checkpoint, encodes prompts, samples a latent, decodes it, and saves the image."
@@ -1170,6 +1181,7 @@ def _fake_classify_revise(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return a revise classification (implement only, no research)."""
     return ClassifyDecision(
@@ -1191,6 +1203,7 @@ def _fake_classify_inspect(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return an inspect classification (research only, no implement)."""
     return ClassifyDecision(
@@ -1212,6 +1225,7 @@ def _fake_classify_clarify(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return a clarify classification (no research, no implement)."""
     return ClassifyDecision(
@@ -1233,6 +1247,7 @@ def _fake_classify_adapt(
     model: str = "",
     has_graph: bool = False,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> ClassifyDecision:
     """Return a adapt classification (research + implement)."""
     return ClassifyDecision(
@@ -1256,6 +1271,7 @@ def _fake_reply_route_gate(
     research_summary: str | None = None,
     implementation_message: str | None = None,
     graph_summary: str | None = None,
+    **kwargs: Any,
 ) -> str:
     """Fake reply for route gate tests."""
     return "Task completed."

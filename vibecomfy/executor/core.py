@@ -866,7 +866,9 @@ def _run_research(
     """
     try:
         result = run_research_phase(
-            request.query, hivemind_client=_default_hivemind_client
+            request.query,
+            graph=request.graph,
+            hivemind_client=_default_hivemind_client,
         )
         inspection = _graph_inspection(request.graph)
         if inspection:
