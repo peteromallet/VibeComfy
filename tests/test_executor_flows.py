@@ -256,14 +256,16 @@ def _fake_classify_explain_graph(
     graph_summary: str | None = None,
     **kwargs: Any,
 ) -> ClassifyDecision:
-    """Return an explain-graph classification (implement only, no research)."""
+    """Return an inspect classification for graph explanation (no edit)."""
     return ClassifyDecision(
         research=False,
-        implement=True,
+        implement=False,
         reply=True,
         effort="medium",
         plan_summary="explain what the graph does",
         intent="explain_graph",
+        route="inspect",
+        task="inspect_graph",
     )
 
 
@@ -861,15 +863,15 @@ class TestGraphDescribeFlow:
 
 
 class TestExplainGraphFlow:
-    """Smoke tests for the explain-graph executor flow (implement → reply, no research)."""
+    """Graph explanation uses the inspect route (reply only, no edit)."""
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_explain_graph)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_explain_graph)
     @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit_explain)
-    def test_explain_workflow_query(
+    def test_explain_workflow_query_uses_inspect_route(
         self, mock_edit, mock_reply, mock_classify, profile_dir: Path
     ) -> None:
-        """Asking 'what does this workflow do?' routes through classify → implement → reply."""
+        """Asking 'what does this workflow do?' routes through classify → inspect → reply."""
         input_graph = {
             "nodes": [
                 {"id": 1, "class_type": "CheckpointLoaderSimple"},
@@ -889,13 +891,15 @@ class TestExplainGraphFlow:
 
         assert result.ok is True
         assert result.reply is not None
+        assert result.report.plan.route == "inspect"
+        assert result.report.plan.effective_route == "inspect"
         assert result.report.plan.research is False
-        assert result.report.plan.implement is True
+        assert result.report.plan.implement is False
         assert result.report.plan.intent == "explain_graph"
         assert result.report.research is None
-        assert result.report.implementation is not None
-        assert "explain" in result.report.implementation.message.lower()
-        assert result.graph is not None
+        assert result.report.implementation is None
+        assert result.graph is None
+        mock_edit.assert_not_called()
 
 
 # ── Profile-only smoke coverage ──────────────────────────────────────────────
@@ -3307,3 +3311,187 @@ class TestAdaptGraphIntegration:
         plan = payload["adaptation_plan"]
         assert plan["structural_validation"] == "fail"
         assert "candidate_graph" not in plan
+
+
+# ── Route-intent boundary tests (M5) ─────────────────────────────────────────
+# Verify the canonical four-route taxonomy and that non-canonical/legacy
+# inputs resolve to the expected canonical route.
+
+
+class TestRouteIntentBoundaries:
+    """Canonical route resolution from classifier intent + legacy booleans."""
+
+    @pytest.mark.parametrize(
+        "classify_side_effect, expected_route, expect_edit_called",
+        [
+            (_fake_classify_clarify, "clarify", False),
+            (_fake_classify_inspect, "inspect", False),
+            (_fake_classify_revise, "revise", True),
+            (_fake_classify_adapt, "adapt", True),
+        ],
+        ids=["clarify", "inspect", "revise", "adapt"],
+    )
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_canonical_route_only_runs_allowed_phases(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        classify_side_effect: Any,
+        expected_route: str,
+        expect_edit_called: bool,
+        profile_dir: Path,
+    ) -> None:
+        """Each canonical route invokes only its allowed phases."""
+        with mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify_side_effect):
+            request = ExecutorRequest(
+                query=f"{expected_route} request",
+                graph={"nodes": [{"id": 1}]},
+                profile="default",
+            )
+            result = run_executor(request)
+
+        assert result.ok is True
+        assert result.report.plan.route == expected_route
+        assert result.report.plan.effective_route == expected_route
+        if expect_edit_called:
+            mock_edit.assert_called_once()
+        else:
+            mock_edit.assert_not_called()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_vague_aesthetic_request_routes_to_clarify(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        """A vague aesthetic request with no concrete graph target -> clarify."""
+        mock_classify.return_value = ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            effort="low",
+            plan_summary="ask the user to clarify",
+            intent="respond",
+            route="clarify",
+            task="respond",
+        )
+
+        request = ExecutorRequest(
+            query="make it more cinematic",
+            graph={"nodes": [{"id": 1}]},
+            profile="default",
+        )
+        result = run_executor(request)
+
+        assert result.ok is True
+        assert result.report.plan.route == "clarify"
+        assert result.report.plan.implement is False
+        mock_edit.assert_not_called()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_current_graph_prompt_change_routes_to_revise(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        """A concrete local edit to the attached graph -> revise."""
+        mock_classify.return_value = ClassifyDecision(
+            research=False,
+            implement=True,
+            reply=True,
+            effort="low",
+            plan_summary="edit the current graph",
+            intent="edit",
+            route="revise",
+            task="edit_graph",
+        )
+
+        request = ExecutorRequest(
+            query="change the positive prompt to 'a red rose'",
+            graph={"nodes": [{"id": 1}]},
+            profile="default",
+        )
+        result = run_executor(request)
+
+        assert result.ok is True
+        assert result.report.plan.route == "revise"
+        assert result.report.plan.implement is True
+        mock_edit.assert_called_once()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_outside_workflow_pattern_routes_to_adapt(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        """A request to borrow/port an outside workflow/template pattern -> adapt."""
+        mock_classify.return_value = ClassifyDecision(
+            research=True,
+            implement=True,
+            reply=True,
+            effort="high",
+            plan_summary="research precedent workflow then edit",
+            intent="edit",
+            route="adapt",
+            task="research_precedent",
+        )
+
+        request = ExecutorRequest(
+            query="add the Wan control LoRA chain from the Kijai template",
+            graph={"nodes": [{"id": 1}]},
+            profile="default",
+        )
+        result = run_executor(request)
+
+        assert result.ok is True
+        assert result.report.plan.route == "adapt"
+        assert result.report.plan.research is True
+        assert result.report.plan.implement is True
+        mock_edit.assert_called_once()
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_legacy_research_only_intent_resolves_to_inspect(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        """A classifier that only sets research=True with explain_graph intent resolves to inspect."""
+        mock_classify.return_value = ClassifyDecision(
+            research=True,
+            implement=False,
+            reply=True,
+            effort="medium",
+            plan_summary="explain the graph",
+            intent="explain_graph",
+        )
+
+        request = ExecutorRequest(
+            query="explain this graph",
+            graph={"nodes": [{"id": 1}]},
+            profile="default",
+        )
+        result = run_executor(request)
+
+        assert result.ok is True
+        assert result.turn.route == "inspect"
+        assert result.report.plan.effective_route == "inspect"
+        assert result.report.plan.implement is False
+        mock_edit.assert_not_called()
+        assert result.graph is None

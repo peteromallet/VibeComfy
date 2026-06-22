@@ -8,10 +8,11 @@ Run the canonical VibeComfy executor entrypoint,
 the fixture graph at `tests/fixtures/agent_edit/flat.json`.
 
 Freeze the returned `ExecutorResult` as `evidence/executor_result.json`, freeze
-`evidence/executor_report.json`, and freeze the inner implementation artifact as
-`evidence/implementation_result.json`. The implementation message may also be
-surfaced as `evidence/graph_report.txt` for readability. Record `actions.jsonl`
-entries showing the executor ran and reached the `explain_graph` implement path.
+`evidence/executor_report.json`, and freeze the graph inspection artifact as
+`evidence/graph_report.txt` for readability. Record `actions.jsonl`
+entries showing the executor ran and reached the canonical `inspect` route
+(implement=False, route=inspect) — graph explanations must not invoke the edit
+implementation path.
 
 The executor reply/report should be thorough enough that a reader can identify
 the key nodes (CheckpointLoaderSimple, CLIPTextEncode, EmptyLatentImage,
