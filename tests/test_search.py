@@ -167,6 +167,42 @@ def test_search_cli_json_is_agent_readable_after_sources_sync() -> None:
     assert {"id", "score", "reasons", "entry"} <= set(payload["results"][0])
 
 
+def test_local_adapt_alias_discovery_finds_vace_template_with_parseable_source() -> None:
+    entries = build_search_corpus()
+
+    results = search_entries(entries, "VACE identity travel from a reference image", task="i2v", limit=5)
+
+    assert results
+    top = results[0]
+    assert top.entry.class_type == "video/wanvideo_wrapper_13b_vace"
+    assert top.entry.template_id == "video/wanvideo_wrapper_13b_vace"
+    assert top.entry.path == "ready_templates/video/wanvideo_wrapper_13b_vace.py"
+    assert top.entry.source_workflow_path == "ready_templates/sources/custom_nodes/wanvideo_wrapper/kijai/wan13b_vace.json"
+    assert top.entry.source_workflow_available is True
+    assert top.entry.source_workflow_parseable is True
+    assert "vace" in top.entry.adapt_pattern_keys
+    assert "adapt_pattern" in top.reasons
+    assert "graph_backed" in top.reasons
+
+
+def test_local_adapt_alias_discovery_prefers_graph_backed_lora_template() -> None:
+    entries = build_search_corpus()
+
+    results = search_entries(entries, "LoRA chaining with control guidance", task="i2v", limit=6)
+
+    assert results
+    top = results[0]
+    assert "lora_chain" in top.entry.adapt_pattern_keys
+    assert top.entry.source_workflow_path
+    assert top.entry.source_workflow_path.endswith(".json")
+    assert top.entry.source_workflow_available is True
+    assert top.entry.source_workflow_parseable is True
+    assert top.entry.path
+    assert top.entry.path.startswith("ready_templates/video/")
+    assert top.entry.path.endswith(".py")
+    assert "graph_backed" in top.reasons
+
+
 def test_search_cli_reads_object_info_cache(tmp_path: Path) -> None:
     cache = tmp_path / "object_info.json"
     cache.write_text(

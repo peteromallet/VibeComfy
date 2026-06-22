@@ -144,6 +144,11 @@ def _normalize_source(result: SearchResult) -> dict[str, Any]:
         "description": entry.description,
         "tasks": list(entry.tasks),
         "path": entry.path,
+        "template_id": entry.template_id,
+        "source_workflow_path": entry.source_workflow_path,
+        "source_workflow_available": entry.source_workflow_available,
+        "source_workflow_parseable": entry.source_workflow_parseable,
+        "adapt_pattern_keys": list(entry.adapt_pattern_keys),
     }
 
 

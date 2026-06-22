@@ -748,22 +748,41 @@ class TestExecutorResult:
         assert d["report"]["executor"]["plan"]["route"] == "revise"
         assert d["report"]["executor"]["plan"]["task"] == "edit_graph"
 
-    def test_report_plan_serialization_never_emits_legacy_route_alias(self) -> None:
+    @pytest.mark.parametrize(
+        ("legacy_route", "research", "implement", "expected_route"),
+        [
+            ("precedent_research", True, True, "adapt"),
+            ("asset_lookup", True, True, "adapt"),
+            ("asset_lookup", False, True, "revise"),
+            ("asset_lookup", False, False, "clarify"),
+            ("subgraph_preview", True, True, "adapt"),
+            ("subgraph_preview", False, True, "revise"),
+            ("subgraph_preview", False, False, "clarify"),
+        ],
+    )
+    def test_report_plan_serialization_never_emits_legacy_route_alias(
+        self,
+        legacy_route: str,
+        research: bool,
+        implement: bool,
+        expected_route: str,
+    ) -> None:
         plan = ClassifyDecision(
-            research=True,
-            implement=True,
+            research=research,
+            implement=implement,
             reply=True,
             intent="edit",
-            route="precedent_research",
+            route=legacy_route,
             task="research_precedent",
         )
         report = Report(plan=plan)
 
         d = ExecutorResult.success(report=report, reply="No changes.").to_dict()
+        serialized = json.dumps(d)
 
-        assert d["route"] == "adapt"
-        assert d["report"]["executor"]["plan"]["route"] == "adapt"
-        assert d["report"]["executor"]["plan"]["route"] != "precedent_research"
+        assert d["route"] == expected_route
+        assert d["report"]["executor"]["plan"]["route"] == expected_route
+        assert legacy_route not in serialized
 
     def test_to_dict_failure(self) -> None:
         r = ExecutorResult.failure(kind="TimeoutError", stage="classify", message="timed out")
@@ -809,6 +828,24 @@ class TestBuildClassifyMessages:
         assert "deterministic safety checks" in system
         assert "prefer route=\"clarify\"" in system
         assert "rather than guessing a mutation route" in system
+
+    def test_system_prompt_pins_outside_patterns_to_adapt_and_local_edits_elsewhere(self) -> None:
+        msgs = build_classify_messages("borrow the VACE identity travel pattern", has_graph=True)
+        system = msgs[0]["content"]
+        assert "borrow, port, adapt, follow, or recreate" in system
+        for phrase in (
+            "VACE identity travel",
+            "BlockSwap low-VRAM",
+            "two-pass refinement",
+            "LoRA chaining",
+            "audio latent/lipsync",
+            "ControlNet/depth/pose",
+        ):
+            assert phrase in system
+        assert "route=\"adapt\"" in system
+        assert "Generic edits to the current graph" in system
+        assert "stay route=\"revise\" when concrete" in system
+        assert "route=\"clarify\" when ambiguous" in system
 
     def test_session_context_renders_text_messages_options_and_reference_map(self) -> None:
         msgs = build_classify_messages(
@@ -1060,6 +1097,74 @@ class TestParseClassifyResponse:
         # effective_route uses explicit route
         assert d.effective_route == "adapt"
         assert d.effective_task == "research_precedent"
+
+    @pytest.mark.parametrize(
+        "request_text",
+        [
+            "borrow the VACE identity travel workflow for this character video",
+            "adapt a BlockSwap low-VRAM pattern into this graph",
+            "recreate a two-pass refinement workflow from a known template",
+            "follow the LoRA chaining pattern from the reference workflow",
+            "port an audio latent lipsync setup into my current graph",
+            "adapt ControlNet depth and pose guidance from an outside template",
+        ],
+    )
+    def test_parse_representative_outside_pattern_requests_as_adapt(
+        self,
+        request_text: str,
+    ) -> None:
+        """Representative classifier outputs for outside-pattern borrowing stay adapt."""
+        raw = json.dumps({
+            "research": True,
+            "implement": True,
+            "reply": True,
+            "effort": "high",
+            "plan_summary": request_text,
+            "intent": "edit",
+            "route": "adapt",
+            "task": "research_precedent",
+        })
+
+        decision = parse_classify_response(raw)
+
+        assert decision.effective_route == "adapt"
+        assert decision.research is True
+        assert decision.implement is True
+        assert decision.effective_task == "research_precedent"
+
+    @pytest.mark.parametrize(
+        ("request_text", "route", "research", "implement", "task", "expected_route"),
+        [
+            ("change the sampler seed to 1234", "revise", False, True, "edit_graph", "revise"),
+            ("set the prompt to a neon city", "revise", False, True, "edit_graph", "revise"),
+            ("move the preview node next to the sampler", "revise", False, True, "edit_graph", "revise"),
+            ("make it better using that thing", "clarify", False, False, "respond", "clarify"),
+        ],
+    )
+    def test_parse_generic_local_edits_do_not_become_adapt(
+        self,
+        request_text: str,
+        route: str,
+        research: bool,
+        implement: bool,
+        task: str,
+        expected_route: str,
+    ) -> None:
+        raw = json.dumps({
+            "research": research,
+            "implement": implement,
+            "reply": True,
+            "effort": "low",
+            "plan_summary": request_text,
+            "intent": "edit" if implement else "respond",
+            "route": route,
+            "task": task,
+        })
+
+        decision = parse_classify_response(raw)
+
+        assert decision.effective_route == expected_route
+        assert decision.effective_route != "adapt"
 
     def test_parse_clarify_route(self) -> None:
         """Parser handles clarify route with no research or implement."""

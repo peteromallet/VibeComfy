@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from vibecomfy.nodes.index import index_custom_node_examples
 from vibecomfy.schema import NodeSchema, RuntimeSchemaProvider, SchemaProvider, get_schema_provider, schemas_for
-from vibecomfy.search.aliases import tokenize
+from vibecomfy.search.aliases import ADAPT_PATTERN_ALIASES, normalize_text, tokenize
 from vibecomfy.search.bootstrap import ensure_indexes
 
 SearchSource = Literal[
@@ -30,6 +30,11 @@ class SearchEntry:
     tasks: tuple[str, ...] = field(default_factory=tuple)
     source: SearchSource = "curated"
     path: str | None = None
+    template_id: str | None = None
+    source_workflow_path: str | None = None
+    source_workflow_available: bool = False
+    source_workflow_parseable: bool = False
+    adapt_pattern_keys: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -208,6 +213,7 @@ def _ready_template_entries(path: Path) -> list[SearchEntry]:
     rows = _row_list(data, "templates")
     if not isinstance(rows, list):
         return []
+    coverage_rows = _coverage_rows(path.parent / "ready_templates/sources/manifests/coverage.json")
     entries: list[SearchEntry] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -218,7 +224,7 @@ def _ready_template_entries(path: Path) -> list[SearchEntry]:
         path_value = _first_string(row, "path", "ready_template_path", "template_path")
         if not _is_python_path(path_value):
             continue
-        source_workflow = _first_string(row, "source_workflow", "source_workflow_path", "source_json")
+        source_workflow = _source_workflow_for_template(row, template_id, coverage_rows)
         capability = _first_string(row, "capability", "media_type", "media", "task")
         coverage_tier = _first_string(row, "coverage_tier")
         readiness = _first_string(row, "readiness_class", "readiness")
@@ -226,16 +232,35 @@ def _ready_template_entries(path: Path) -> list[SearchEntry]:
         public_outputs = _named_items(row.get("public_outputs"))
         custom_nodes = _flatten(row.get("custom_nodes"))
         model_count = row.get("model_count", row.get("models_count"))
+        source_available = _path_exists(source_workflow)
+        source_parseable = _workflow_source_parseable(source_workflow) if source_available else False
+        adapt_pattern_keys = _infer_adapt_patterns(
+            template_id,
+            [
+                path_value,
+                source_workflow,
+                capability,
+                coverage_tier,
+                readiness,
+                *public_inputs,
+                *public_outputs,
+                *custom_nodes,
+            ],
+            "",
+        )
         tags = _clean_items([
             "workflow",
             "ready_template",
             "template",
+            "graph_backed" if source_parseable else None,
+            "parseable_source" if source_parseable else None,
             template_id,
             Path(path_value).stem if path_value else None,
             Path(source_workflow).stem if source_workflow else None,
             capability,
             coverage_tier,
             readiness,
+            *adapt_pattern_keys,
             *public_inputs,
             *public_outputs,
             *custom_nodes,
@@ -251,6 +276,9 @@ def _ready_template_entries(path: Path) -> list[SearchEntry]:
                 f"{model_count} model{'s' if model_count != 1 else ''}" if isinstance(model_count, int) else "",
                 f"template path {path_value}" if path_value else "",
                 f"converted source workflow {Path(source_workflow).stem}" if source_workflow else "",
+                f"source workflow path {source_workflow}" if source_workflow else "",
+                "parseable source workflow available" if source_parseable else "",
+                f"adapt patterns {', '.join(adapt_pattern_keys)}" if adapt_pattern_keys else "",
                 readiness,
                 coverage_tier,
             ]
@@ -265,6 +293,11 @@ def _ready_template_entries(path: Path) -> list[SearchEntry]:
                 tasks=tuple(_infer_tasks(template_id, tags, description)),
                 source="ready_template",
                 path=path_value,
+                template_id=template_id,
+                source_workflow_path=source_workflow,
+                source_workflow_available=source_available,
+                source_workflow_parseable=source_parseable,
+                adapt_pattern_keys=tuple(adapt_pattern_keys),
             )
         )
     return entries
@@ -352,6 +385,23 @@ def _infer_tasks(class_type: str, tags: list[str] | tuple[str, ...], description
     return tasks
 
 
+def _infer_adapt_patterns(
+    class_type: str,
+    tags: list[Any] | tuple[Any, ...],
+    description: str,
+) -> list[str]:
+    haystack = " ".join(str(part) for part in [class_type, description, *tags] if part)
+    normalized = normalize_text(haystack)
+    tokens = tokenize(haystack)
+    patterns: list[str] = []
+    for key, aliases in ADAPT_PATTERN_ALIASES.items():
+        canonical_phrase = key.replace("_", " ")
+        exact_terms = {canonical_phrase, *(normalize_text(alias) for alias in aliases)}
+        if key in tokens or any(term and term in normalized for term in exact_terms):
+            patterns.append(key)
+    return patterns
+
+
 def _dedupe(entries: list[SearchEntry]) -> list[SearchEntry]:
     seen: set[tuple[str, SearchSource, str | None]] = set()
     unique: list[SearchEntry] = []
@@ -370,6 +420,55 @@ def _read_json(path: Path, *, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return default
+
+
+def _coverage_rows(path: Path) -> list[dict[str, Any]]:
+    data = _read_json(path, default={})
+    rows = data.get("workflows", []) if isinstance(data, dict) else data
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _source_workflow_for_template(
+    row: dict[str, Any],
+    template_id: str,
+    coverage_rows: list[dict[str, Any]],
+) -> str | None:
+    source_workflow = _first_string(row, "source_workflow", "source_workflow_path", "source_json")
+    if _is_json_path(source_workflow):
+        return source_workflow
+    short_id = template_id.rsplit("/", 1)[-1]
+    for coverage in coverage_rows:
+        candidates = {
+            str(coverage.get("id") or ""),
+            str(coverage.get("ready_template") or ""),
+            str(coverage.get("template_id") or ""),
+        }
+        media = coverage.get("media")
+        workflow_id = coverage.get("id")
+        if isinstance(media, str) and isinstance(workflow_id, str):
+            candidates.add(f"{media}/{workflow_id}")
+        if template_id in candidates or short_id in candidates:
+            path = _first_string(coverage, "path", "source_workflow", "workflow_path")
+            return path if _is_json_path(path) else None
+    return None
+
+
+def _path_exists(path: str | None) -> bool:
+    return bool(path) and Path(path).exists()
+
+
+def _workflow_source_parseable(path: str | None) -> bool:
+    if not _is_json_path(path):
+        return False
+    data = _read_json(Path(path), default=None)
+    if not isinstance(data, dict):
+        return False
+    nodes = data.get("nodes")
+    if isinstance(nodes, list) and nodes:
+        return True
+    if isinstance(nodes, dict) and nodes:
+        return True
+    return any(isinstance(value, dict) and "class_type" in value for value in data.values())
 
 
 def _is_json_path(path: str | None) -> bool:

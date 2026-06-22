@@ -48,6 +48,15 @@ def score_entry(entry: SearchEntry, query: str, *, task: str | None = None) -> S
         score += 2 * alias_hits
         reasons.append("alias")
 
+    pattern_hits = len(set(entry.adapt_pattern_keys) & terms)
+    if pattern_hits:
+        score += 15 * pattern_hits
+        reasons.append("adapt_pattern")
+
+    if entry.source_workflow_parseable:
+        score += 15
+        reasons.append("graph_backed")
+
     return SearchResult(entry=entry, score=score, reasons=tuple(reasons))
 
 
@@ -63,6 +72,7 @@ def search_entries(
     ranked.sort(
         key=lambda result: (
             result.score,
+            result.entry.source_workflow_parseable,
             result.entry.source == "object_info",
             result.entry.source == "node_index",
             result.entry.class_type.lower(),
@@ -93,5 +103,14 @@ def _alias_hits(entry: SearchEntry, query: str, task: str | None) -> int:
     hits = 0
     for alias in matched_aliases(query, task):
         terms = alias_terms(alias)
-        hits += sum(1 for term in terms if term and term in haystack)
+        haystack_tokens = tokenize(haystack)
+        hits += sum(1 for term in terms if _term_matches(term, haystack, haystack_tokens))
     return hits
+
+
+def _term_matches(term: str, haystack: str, tokens: set[str]) -> bool:
+    if not term:
+        return False
+    if " " in term:
+        return term in haystack
+    return term in tokens
