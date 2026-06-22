@@ -133,8 +133,8 @@ function bubbleRenderSignature(panel, msg, deps = {}) {
     actionState.active ? "1" : "0",
     actionState.applyDisabled ? "1" : "0",
     actionState.rejectDisabled ? "1" : "0",
-    String(messageKey || "") === String(latestAgentMessageKey || "") ? "rating-latest" : "",
     deps.ratingHasLaterUserOrPending ? "rating-blocked-by-next-turn" : "",
+    !deps.ratingHasLaterUserOrPending && String(messageKey || "") === String(latestAgentMessageKey || "") ? "rating-latest" : "",
     responseId || "",
     isRatingResponseSubmitted(panel, responseId) ? "rating-submitted" : "",
     Number.isFinite(ratingState?.rating) ? `rating-${ratingState.rating}` : "",
@@ -974,6 +974,8 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
   });
 
   const detailToggle = el("span", "\u25b6 details");
+  detailToggle.dataset.vibecomfyBubbleDetailToggle = "1";
+  detailToggle.dataset.vibecomfyBubbleDetailTurnKey = detailTurnKey;
   Object.assign(detailToggle.style, {
     // Match the relative-time line: same font size and muted color.
     fontSize: "9px",

@@ -1156,10 +1156,77 @@ export function showIssueModal(panel) {
  *
  * Returns { ok: boolean, ... } or { ok: false, error: string } on failure.
  */
-export async function submitRating(panel, payload) {
+function _bytesToBase64(bytes) {
+  // Browser-safe base64 encoding; degrades to an empty string when btoa is missing.
+  if (typeof btoa !== "function") {
+    return "";
+  }
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+async function _zipBlobToBase64(blob) {
+  const buffer = await blob.arrayBuffer();
+  return _bytesToBase64(new Uint8Array(buffer));
+}
+
+export async function submitRating(panel, options = {}) {
   if (typeof fetch !== "function") {
     return { ok: false, error: "fetch unavailable — rating requires a browser or Node 18+ environment" };
   }
+
+  const sessionId = panel?.state?.sessionId ?? options?.session_id ?? null;
+  const turnId = panel?.state?.turnId ?? options?.turn_id ?? null;
+
+  if (!sessionId || typeof sessionId !== "string") {
+    return { ok: false, error: "validation", detail: "Missing session_id" };
+  }
+  if (!turnId || typeof turnId !== "string") {
+    return { ok: false, error: "validation", detail: "Missing turn_id" };
+  }
+
+  const rating = Number(options?.rating ?? options?.rating_value);
+  if (!Number.isFinite(rating) || rating < 1 || rating > 10) {
+    return { ok: false, error: "validation", detail: "Rating must be an integer between 1 and 10" };
+  }
+
+  const comment = options?.comment ?? options?.rating_comment ?? null;
+  const packShared = Boolean(options?.pack_shared ?? options?.packShared);
+  const packComment = options?.pack_comment ?? options?.packComment ?? null;
+  const maxZipBytes = Number.isFinite(options?.maxZipBytes) ? options.maxZipBytes : 2 * 1024 * 1024;
+
+  const payload = {
+    response_id: `${sessionId}/${turnId}`,
+    session_id: sessionId,
+    turn_id: turnId,
+    rating: Math.round(rating),
+    comment: comment == null ? null : String(comment),
+    pack_shared: packShared,
+    pack_comment: packComment == null ? null : String(packComment),
+  };
+
+  if (packShared) {
+    try {
+      const bundleFiles = [];
+      await appendSessionBundleFiles(panel, bundleFiles);
+      const zipBlob = buildZipBlob(bundleFiles);
+      const zipBuffer = await zipBlob.arrayBuffer();
+      if (zipBuffer.byteLength > maxZipBytes) {
+        return {
+          ok: false,
+          error: "pack_too_large",
+          detail: `Debug pack is ${_formatBundleBytes(zipBuffer.byteLength)}; limit is ${_formatBundleBytes(maxZipBytes)}`,
+        };
+      }
+      payload.pack_zip_base64 = _bytesToBase64(new Uint8Array(zipBuffer));
+    } catch (error) {
+      return { ok: false, error: "pack_build_failed", detail: String(error?.message || error) };
+    }
+  }
+
   try {
     const res = await fetch("/vibecomfy/agent-edit/rating", {
       method: "POST",

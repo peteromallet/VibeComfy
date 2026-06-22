@@ -88,7 +88,7 @@ async function waitFor(predicate, { attempts = 50 } = {}) {
 
 function expandAgentBubbleDetails(root) {
   const toggles = root.querySelectorAll(
-    (node) => node.textContent === "\u25b6 details" || node.textContent === "\u25bc details",
+    (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1",
   );
   for (const toggle of toggles) {
     if (toggle.textContent === "\u25b6 details") {
@@ -238,6 +238,7 @@ test("submitRating posts metadata-only rating without ZIP fields", async () => {
       turn_id: "0001",
       rating: 7,
       pack_shared: false,
+      pack_comment: null,
       comment: "useful",
     });
     assert.equal("pack_zip_base64" in seen[0], false);
@@ -516,13 +517,13 @@ test("VibeComfy browser harness loads the extension, captures commands, loadGrap
     await harness.setup();
     const canvasMenu = harness.getCanvasMenuOptions().map((entry) => entry.content);
     assert(canvasMenu.includes("Round-trip (VibeComfy)"));
-    assert(canvasMenu.includes("Edit with DeepSeek (VibeComfy)"));
+    assert(canvasMenu.includes("Edit with Agent (VibeComfy)"));
 
     await harness.invokeCommand("VibeComfy.Roundtrip");
     assert.equal(harness.serializeCalls.length, 1);
     assert.deepEqual(
       harness.requests.map((entry) => entry.url),
-      ["/system_stats", "/vibecomfy/roundtrip"],
+      ["/vibecomfy/ping", "/system_stats", "/vibecomfy/roundtrip"],
     );
 
     harness.clickButton("Apply");
@@ -2391,7 +2392,7 @@ test("VibeComfy disables Apply and warns when a candidate arrives without apply_
     );
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
     const detailToggle = chatRegion?.querySelectorAll(
-      (node) => node.textContent === "\u25b6 details" || node.textContent === "\u25bc details",
+      (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1",
     )[0];
     assert(detailToggle, "candidate bubble should expose a detail toggle");
     detailToggle.click();
@@ -6641,7 +6642,7 @@ test("VibeComfy preview diff computes named-port link deltas and drawPreviewOver
         outputs: [],
       },
     ],
-    links: [[1, 0, 2, 0, "IMAGE"]],
+    links: [[101, 1, 0, 2, 0, "IMAGE"]],
   };
 
   const candidateGraph = {
@@ -6666,7 +6667,7 @@ test("VibeComfy preview diff computes named-port link deltas and drawPreviewOver
         widgets_values: ["preview_val"],
       },
     ],
-    links: [[1, 0, 3, 0, "IMAGE"]],
+    links: [[102, 1, 0, 3, 0, "IMAGE"]],
   };
 
   const candidateReport = {
@@ -6875,7 +6876,7 @@ test("VibeComfy preview diff does not mark unchanged links as added when live no
         outputs: [],
       },
     ],
-    links: [[1, 0, 2, 0, "IMAGE"]],
+    links: [[101, 1, 0, 2, 0, "IMAGE"]],
   };
 
   const candidateGraph = {
@@ -6909,8 +6910,8 @@ test("VibeComfy preview diff does not mark unchanged links as added when live no
       },
     ],
     links: [
-      [1, 0, 2, 0, "IMAGE"],
-      [1, 0, 3, 0, "IMAGE"],
+      [101, 1, 0, 2, 0, "IMAGE"],
+      [102, 1, 0, 3, 0, "IMAGE"],
     ],
   };
 
@@ -7267,11 +7268,11 @@ test("VibeComfy link-rewired target nodes get the full edited-node overlay box",
         outputs: [],
       },
     ],
-    links: [[18, 0, 19, 0, "IMAGE"]],
+    links: [[201, 18, 0, 19, 0, "IMAGE"]],
   };
   const candidateGraph = {
     nodes: liveGraph.nodes.map((node) => ({ ...node })),
-    links: [[8, 0, 19, 0, "IMAGE"]],
+    links: [[202, 8, 0, 19, 0, "IMAGE"]],
   };
   const candidateReport = {
     change: { content_edits: { preserved: ["vae_decode", "upscale_image"], edited: ["final_save"], removed_named: [] } },
@@ -10073,7 +10074,7 @@ test("VibeComfy thread append preserves existing visible bubble DOM nodes and in
 
     const panel = extensionModule.ensureAgentPanel();
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
-    const detailsToggle = chatRegion.querySelectorAll((node) => node.textContent === "\u25b6 details")[0];
+    const detailsToggle = chatRegion.querySelectorAll((node) => node.dataset?.vibecomfyBubbleDetailToggle === "1" && node.textContent === "\u25b6 details")[0];
     assert(detailsToggle, "candidate bubble should expose a details toggle");
     detailsToggle.click();
 
@@ -12450,7 +12451,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
     assert.ok(chatRegion, "chat region must exist");
 
-    let toggles = chatRegion.querySelectorAll((node) => node.textContent === "\u25b6 details" || node.textContent === "\u25bc details");
+    let toggles = chatRegion.querySelectorAll((node) => node.dataset?.vibecomfyBubbleDetailToggle === "1");
     assert.ok(toggles.length >= 1, "agent bubble must expose a details toggle");
     assert.equal(toggles[0].textContent, "\u25b6 details", "details start collapsed");
 
@@ -12474,7 +12475,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     await waitFor(() => harness.requests.some((entry) => entry.url === CHAT_URL));
     await waitFor(() => /make the save node cleaner/.test(harness.textDump()));
 
-    toggles = chatRegion.querySelectorAll((node) => node.textContent === "\u25b6 details" || node.textContent === "\u25bc details");
+    toggles = chatRegion.querySelectorAll((node) => node.dataset?.vibecomfyBubbleDetailToggle === "1");
     assert.ok(toggles.some((node) => node.textContent === "\u25bc details"), "expanded state must survive chat rehydrate");
     assert.match(harness.textDump(), /view response/);
     assert.match(harness.textDump(), /inputs\.filename_prefix/);
@@ -12569,7 +12570,7 @@ test("VibeComfy humanizes agent bubble text and keeps gate and op details behind
 
     const toggles = harness.document
       .getElementById("vibecomfy-agent-panel-region-chat")
-      .querySelectorAll((node) => node.textContent === "\u25b6 details");
+      .querySelectorAll((node) => node.dataset?.vibecomfyBubbleDetailToggle === "1" && node.textContent === "\u25b6 details");
     assert.ok(toggles.length >= 1, "agent bubble must expose collapsed details");
     toggles[0].click();
     assert.match(harness.textDump(), /Gate A passed/);
@@ -12816,7 +12817,7 @@ test("VibeComfy bubble candidate controls only enable the latest canonical candi
     await waitFor(() => /Latest candidate ready for review\./.test(harness.textDump()));
 
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
-    let toggles = chatRegion.querySelectorAll((node) => node.textContent === "\u25b6 details" || node.textContent === "\u25bc details");
+    let toggles = chatRegion.querySelectorAll((node) => node.dataset?.vibecomfyBubbleDetailToggle === "1");
     assert.ok(toggles.length >= 2, "historical and latest agent bubbles should both expose detail toggles");
     for (const toggle of toggles) {
       if (toggle.textContent === "\u25b6 details") {
@@ -12988,7 +12989,7 @@ test("VibeComfy historical superseded candidates keep their superseded Apply rea
     await waitFor(() => /Latest candidate ready for review\./.test(harness.textDump()));
 
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
-    const toggles = chatRegion.querySelectorAll((node) => node.textContent === "\u25b6 details" || node.textContent === "\u25bc details");
+    const toggles = chatRegion.querySelectorAll((node) => node.dataset?.vibecomfyBubbleDetailToggle === "1");
     for (const toggle of toggles) {
       if (toggle.textContent === "\u25b6 details") {
         toggle.click();
@@ -13633,7 +13634,7 @@ test("VibeComfy collapsed agent bubble does not prebuild detail pane (T13 lazy d
 
     // Find the detail toggle — should be collapsed (▶ details)
     const toggles = chatRegion.querySelectorAll(
-      (node) => node.textContent === "\u25b6 details",
+      (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1" && node.textContent === "\u25b6 details",
     );
     assert.ok(toggles.length >= 1, "collapsed agent bubble must expose a detail toggle");
 
@@ -13697,7 +13698,7 @@ test("VibeComfy shared activity section renders turn-progress rows once, not per
     // Expand both agent bubbles
     const chatRegion = harness.document.getElementById("vibecomfy-agent-panel-region-chat");
     const toggles = chatRegion.querySelectorAll(
-      (node) => node.textContent === "\u25b6 details",
+      (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1" && node.textContent === "\u25b6 details",
     );
     assert.ok(toggles.length >= 2, "at least 2 agent bubbles should exist");
 
@@ -13924,7 +13925,7 @@ test("VibeComfy detail pane body uses auto overflow and maxHeight instead of hid
 
     // Find the collapsed detail toggle and expand it
     const toggles = chatRegion.querySelectorAll(
-      (node) => node.textContent === "\u25b6 details",
+      (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1" && node.textContent === "\u25b6 details",
     );
     assert.ok(toggles.length >= 1, "at least one collapsed detail toggle must exist");
     toggles[0].click();
@@ -14067,7 +14068,7 @@ test("VibeComfy detail row has overflowWrap containment (T18)", async () => {
 
     // Find agent bubbles — they should have ▸ details toggles
     const toggles = chatRegion.querySelectorAll(
-      (node) => node.textContent === "\u25b6 details",
+      (node) => node.dataset?.vibecomfyBubbleDetailToggle === "1" && node.textContent === "\u25b6 details",
     );
     assert.ok(toggles.length >= 1, "at least one collapsed detail toggle must exist");
 
