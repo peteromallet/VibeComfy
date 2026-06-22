@@ -236,6 +236,25 @@ def _fake_reply_graph_describe(
     return "I've analyzed your graph and applied the node template. The graph now has a KSampler connected to VAEDecode."
 
 
+def _fake_reply_reject_adaptation_plan(
+    query: str,
+    *,
+    route: str = "",
+    model: str = "",
+    plan: ClassifyDecision | None = None,
+    research_summary: str | None = None,
+    implementation_message: str | None = None,
+    graph_summary: str | None = None,
+    **kwargs: Any,
+) -> str:
+    """Simulate an older reply wrapper that rejects adaptation_plan only."""
+    if "adaptation_plan" in kwargs:
+        raise TypeError("run_reply_turn() got an unexpected keyword argument 'adaptation_plan'")
+    if not graph_summary:
+        raise AssertionError("graph_summary should survive adaptation_plan fallback")
+    return "This workflow loads a checkpoint and runs sampling."
+
+
 def _fake_handle_agent_edit(payload: dict, **kwargs: Any) -> dict:
     """Fake handle_agent_edit that returns a successful edit result."""
     input_graph = payload.get("graph", {})
@@ -2109,6 +2128,45 @@ class TestRouteGateFlows:
 
 class TestInspectOnlyFlow:
     """Inspect-only route tests: graph inspection in reply, no edits, no graph."""
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_reject_adaptation_plan)
+    @mock.patch("vibecomfy.executor.research.build_search_corpus")
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit")
+    def test_inspect_reply_fallback_preserves_graph_summary_when_adaptation_plan_unsupported(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_corpus: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        """inspect: unsupported adaptation_plan kwarg does not fail the reply phase."""
+        input_graph = {
+            "nodes": [
+                {"id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple"},
+                {"id": 2, "type": "KSampler", "class_type": "KSampler"},
+            ],
+            "links": [[1, 1, 0, 2, 0, "MODEL"]],
+        }
+        request = ExecutorRequest(
+            query="explain what's in my graph",
+            graph=input_graph,
+            profile="default",
+        )
+
+        result = run_executor(request)
+
+        assert result.ok is True
+        assert result.reply == "This workflow loads a checkpoint and runs sampling."
+        assert mock_reply.call_count == 2
+        first_kwargs = mock_reply.call_args_list[0].kwargs
+        second_kwargs = mock_reply.call_args_list[1].kwargs
+        assert "adaptation_plan" in first_kwargs
+        assert "adaptation_plan" not in second_kwargs
+        assert "CheckpointLoaderSimple" in str(second_kwargs.get("graph_summary"))
+        mock_edit.assert_not_called()
+        mock_corpus.assert_not_called()
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_inspect)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)

@@ -1056,16 +1056,24 @@ def _run_reply(
         }
         # Gracefully degrade if the configured reply provider does not accept
         # newer keyword arguments.
-        for key in ("graph_summary", "adaptation_plan"):
+        optional_reply_kwargs = ("graph_summary", "adaptation_plan")
+        while True:
             try:
                 result = run_reply_turn(request.query, **reply_kwargs)
                 break
             except TypeError as exc:
-                if key not in str(exc):
+                message = str(exc)
+                rejected_key = next(
+                    (
+                        key
+                        for key in optional_reply_kwargs
+                        if key in reply_kwargs and key in message
+                    ),
+                    None,
+                )
+                if rejected_key is None:
                     raise
-                reply_kwargs.pop(key, None)
-        else:
-            result = run_reply_turn(request.query, **reply_kwargs)
+                reply_kwargs.pop(rejected_key, None)
         if isinstance(result, str):
             return result
         if isinstance(result, dict):
