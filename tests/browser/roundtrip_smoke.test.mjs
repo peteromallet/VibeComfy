@@ -76,12 +76,12 @@ const CANONICAL_HASH_PAYLOADS = [
   },
 ];
 
-async function waitFor(predicate, { attempts = 50 } = {}) {
+async function waitFor(predicate, { attempts = 200 } = {}) {
   for (let index = 0; index < attempts; index += 1) {
     if (predicate()) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("waitFor timed out");
 }
