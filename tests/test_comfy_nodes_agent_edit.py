@@ -10340,3 +10340,87 @@ def test_batch_repl_response_noop_has_no_candidate_no_apply() -> None:
     assert eligibility.get("reason") == "no_candidate"
     assert response.get("canvas_apply_allowed") is False
     assert response.get("graph_unchanged") is True
+
+
+
+# ── Integration: legacy handle_agent_edit wrapper preserves canonical envelope ─
+
+
+def test_handle_agent_edit_inspect_route_returns_non_applyable_canonical_envelope(
+    tmp_path: Path,
+) -> None:
+    """The legacy handle_agent_edit wrapper cannot be coerced into emitting an
+    applyable edit response for an explanation/planning turn.  A canonical
+    inspect route produces a non-applyable envelope even when the underlying
+    model returns a batch-looking answer.
+    """
+
+    def _inspect_client(_messages):
+        return {
+            "message": "This workflow loads an image and saves it.",
+            "batch": "done()",
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "what does this workflow do?",
+            "session_id": "legacy-inspect-envelope",
+            "route": "inspect",
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=_inspect_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "noop"
+    assert result.get("apply_allowed") is False
+    assert result.get("canvas_apply_allowed") is False
+    eligibility = result.get("apply_eligibility", {})
+    assert eligibility.get("applyable") is False
+    assert eligibility.get("reason") == "no_candidate"
+    assert result.get("candidate") is None
+    assert result.get("candidate_graph") is None
+    assert result.get("graph_unchanged") is True
+
+
+def test_handle_agent_edit_clarify_route_returns_non_applyable_canonical_envelope(
+    tmp_path: Path,
+) -> None:
+    """The legacy handle_agent_edit wrapper returns a canonical clarify envelope
+    with Apply blocked when the route is clarify.
+    """
+
+    def _clarify_client(_messages):
+        return {
+            "message": "Which style would you like?",
+            "batch": 'clarify("Which style would you like?")',
+        }
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "make it more cinematic",
+            "session_id": "legacy-clarify-envelope",
+            "route": "clarify",
+        },
+        schema_provider=_batch_repl_provider(),
+        deepseek_client=_clarify_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "clarify"
+    assert "Options:\n-" in result["message"]
+    for forbidden in (
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+        "candidate",
+        "candidate_graph",
+    ):
+        assert forbidden not in result, f"{forbidden} should not leak into clarify envelope"
+    assert result.get("graph_unchanged") is True

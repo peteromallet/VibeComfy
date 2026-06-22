@@ -3495,3 +3495,89 @@ class TestRouteIntentBoundaries:
         assert result.report.plan.implement is False
         mock_edit.assert_not_called()
         assert result.graph is None
+
+
+# ── Apply-eligibility matrix (M5) ────────────────────────────────────────────
+# Only revise/adapt with a candidate graph are applyable; clarify and inspect
+# are never applyable, even if a graph-like payload leaks in.
+
+
+class TestApplyEligibilityMatrix:
+    """Canonical Apply eligibility per route and candidate presence."""
+
+    @pytest.mark.parametrize(
+        "classify_side_effect, expected_eligible, expected_reason",
+        [
+            (_fake_classify_clarify, False, "route_not_applyable"),
+            (_fake_classify_inspect, False, "route_not_applyable"),
+            (_fake_classify_revise, True, None),
+            (_fake_classify_adapt, True, None),
+        ],
+        ids=["clarify", "inspect", "revise", "adapt"],
+    )
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_route_apply_eligibility(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        classify_side_effect: Any,
+        expected_eligible: bool,
+        expected_reason: str | None,
+        profile_dir: Path,
+    ) -> None:
+        """Apply eligibility follows the canonical route matrix."""
+        with mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=classify_side_effect):
+            request = ExecutorRequest(
+                query="route eligibility check",
+                graph={"nodes": [{"id": 1}]},
+                profile="default",
+            )
+            result = run_executor(request)
+
+        assert result.ok is True
+        assert result.turn.apply_eligible is expected_eligible
+        if expected_reason is None:
+            assert result.turn.no_candidate_reason is None
+        else:
+            assert result.turn.no_candidate_reason == expected_reason
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_route_gate)
+    def test_inspect_never_applyable_even_if_graph_payload_leaks(
+        self,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        """A misbehelling inspect turn that returns a graph is still not applyable."""
+        def bad_edit(payload: dict, **kwargs: Any) -> dict:
+            # A buggy edit engine returns a graph even though the route is inspect.
+            return {
+                "graph": {"nodes": [{"id": 99}]},
+                "message": "I explained it",
+            }
+
+        mock_classify.return_value = ClassifyDecision(
+            research=False,
+            implement=False,
+            reply=True,
+            effort="medium",
+            plan_summary="explain the graph",
+            intent="explain_graph",
+            route="inspect",
+            task="inspect_graph",
+        )
+
+        with mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=bad_edit):
+            request = ExecutorRequest(
+                query="what does this do?",
+                graph={"nodes": [{"id": 1}]},
+                profile="default",
+            )
+            result = run_executor(request)
+
+        assert result.ok is True
+        assert result.turn.route == "inspect"
+        assert result.turn.apply_eligible is False
+        assert result.graph is None

@@ -383,6 +383,70 @@ test("OK_CANDIDATE_RESPONSE gates Apply on apply eligibility plus candidate pres
   assert.equal(blockedPanel.state.applyAllowed, false);
   assert.equal(blockedPanel.state.canvasApplyAllowed, false);
 
+  const staleClarifyPanel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    candidateGraph: { nodes: [{ id: 9 }] },
+    candidateGraphHash: "stale-clarify",
+    candidateReport: { change: true },
+    applyEligibility: { applyable: true, reason: "applyable" },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: true,
+    deltaOps: [
+      { op: "set_node_field", target: ["nodes", 9, "widgets_values", 0], value: "stale" },
+    ],
+  });
+
+  const clarifyObligations = transition(staleClarifyPanel, "CLARIFY_ONLY_RESPONSE", {
+    result: {
+      session_id: "sess-clarify",
+      turn_id: "t-clarify",
+      message: "What do you mean?",
+    },
+    clarification: {
+      message: "What do you mean?",
+      turn_id: "t-clarify",
+      session_id: "sess-clarify",
+    },
+    message: "What do you mean?",
+  });
+
+  assert.equal(clarifyObligations.render, true);
+  assert.equal(clarifyObligations.invalidateCandidate, true);
+  assert.equal(staleClarifyPanel.state.phase, PANEL_STATE.CLARIFY);
+  assertCandidateDefaults(staleClarifyPanel.state);
+  assert.equal(staleClarifyPanel.state.applyAllowed, false);
+  assert.equal(staleClarifyPanel.state.canvasApplyAllowed, false);
+  assert.equal(staleClarifyPanel.state.queueAllowed, false);
+  assert.equal(staleClarifyPanel.state.deltaOps, null);
+
+  const staleNoopPanel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    candidateGraph: { nodes: [{ id: 8 }] },
+    candidateGraphHash: "stale-inspect",
+    applyEligibility: { applyable: true, reason: "applyable" },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: true,
+  });
+
+  const noopObligations = transition(staleNoopPanel, "NOOP_RESPONSE", {
+    result: {
+      session_id: "sess-inspect",
+      turn_id: "t-inspect",
+      message: "This workflow uses a KSampler.",
+    },
+    message: "This workflow uses a KSampler.",
+  });
+
+  assert.equal(noopObligations.render, true);
+  assert.equal(noopObligations.invalidateCandidate, true);
+  assert.equal(staleNoopPanel.state.phase, PANEL_STATE.IDLE);
+  assertCandidateDefaults(staleNoopPanel.state);
+  assert.equal(staleNoopPanel.state.applyAllowed, false);
+  assert.equal(staleNoopPanel.state.canvasApplyAllowed, false);
+  assert.equal(staleNoopPanel.state.queueAllowed, false);
+
   const eligiblePanel = makePanel({ phase: PANEL_STATE.SUBMITTING });
   transition(eligiblePanel, "OK_CANDIDATE_RESPONSE", {
     result: {

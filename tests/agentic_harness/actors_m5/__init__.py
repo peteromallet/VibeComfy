@@ -36,6 +36,9 @@ from tests.agentic_harness.actors_m5.runpod_list_before_terminate import (
 from tests.agentic_harness.actors_m5.two_stage_chain_both_ran import (
     build_m5_two_stage_chain_both_ran_evidence,
 )
+from tests.agentic_harness.actors_m5.route_intent_map import (
+    build_m5_route_intent_map_evidence,
+)
 
 _M5_BUILDERS: dict[str, Callable] = {
     "diagnose-broken-graph": build_m5_diagnose_broken_graph_evidence,
@@ -46,6 +49,7 @@ _M5_BUILDERS: dict[str, Callable] = {
     "embedded-run-no-gpu": build_m5_embedded_run_no_gpu_evidence,
     "runpod-list-before-terminate": build_m5_runpod_list_before_terminate_evidence,
     "two-stage-chain-both-ran": build_m5_two_stage_chain_both_ran_evidence,
+    "route-intent-map": build_m5_route_intent_map_evidence,
 }
 
 __all__ = ["_M5_BUILDERS"]

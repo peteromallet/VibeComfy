@@ -23,6 +23,8 @@ from vibecomfy.executor.contracts import (
     Report,
     ResearchResult,
     WorkflowSlice,
+    _ALLOWED_ROUTES,
+    format_route_options_for_prompt,
 )
 from vibecomfy.executor.prompts import (
     build_classify_messages,
@@ -2183,3 +2185,20 @@ class TestResearchResultPrecedentFields:
         rr = ResearchResult(summary="test")
         with pytest.raises(Exception):
             rr.summary = "modified"  # type: ignore[misc]
+
+
+# ── Canonical route vocabulary ───────────────────────────────────────────────
+
+
+class TestCanonicalRouteVocabulary:
+    """Public route taxonomy is exactly the four canonical labels plus the
+    internal empty-string sentinel."""
+
+    def test_allowed_routes_are_four_public_plus_empty_sentinel(self) -> None:
+        assert _ALLOWED_ROUTES == {"", "clarify", "inspect", "revise", "adapt"}
+
+    def test_route_options_prompt_lists_all_public_routes(self) -> None:
+        options = format_route_options_for_prompt()
+        for route in ("clarify", "inspect", "revise", "adapt"):
+            assert f'"{route}"' in options, f"route {route!r} missing from prompt"
+        assert '""' in options or "empty string" in options.lower()

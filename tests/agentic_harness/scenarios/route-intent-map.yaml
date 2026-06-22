@@ -1,0 +1,24 @@
+name: route-intent-map
+tier: 3
+description: "Verify the canonical four-route taxonomy: clarify, inspect, revise, and adapt each produce the expected phase gates and Apply eligibility."
+mode: structural
+agents:
+  - id: builder
+    dispatcher: fake
+tags: [m5, route, intent, structural, positive]
+assessment:
+  enforced:
+    - "evidence/route_intent_map.json exists and contains four records, one per canonical route (clarify, inspect, revise, adapt)."
+    - "For route='clarify': research=false, implement=false, apply_eligible=false, no_candidate_reason='route_not_applyable'."
+    - "For route='inspect': research=false, implement=false, apply_eligible=false, no_candidate_reason='route_not_applyable'."
+    - "For route='revise': research=false, implement=true, apply_eligible=true, no_candidate_reason is null."
+    - "For route='adapt': research=true, implement=true, apply_eligible=true, no_candidate_reason is null."
+    - "actions.jsonl records finalize_metadata with status=completed and one entry per route."
+  graded:
+    - "Each result_route equals the expected canonical route; legacy aliases do not leak into the executor envelope."
+  observed:
+    - "Evidence includes evidence/route_intent_map.json and evidence/actions.jsonl."
+extras:
+  required_frozen_evidence:
+    - evidence/route_intent_map.json
+    - evidence/actions.jsonl

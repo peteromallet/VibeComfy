@@ -100,6 +100,31 @@ stable and are not part of the submit-path replacement:
 These endpoints keep their action/session roles while query submit converges on
 the executor endpoint.
 
+## Route-Intent Map Evidence
+
+The M5 agentic suite freezes a deterministic route-intent map
+(`tests/agentic_harness/scenarios/route-intent-map.yaml`) that exercises all
+four canonical routes through the executor.  The frozen evidence asserts:
+
+| Route | research | implement | apply_eligible | no_candidate_reason |
+| --- | --- | --- | --- | --- |
+| clarify | false | false | false | route_not_applyable |
+| inspect | false | false | false | route_not_applyable |
+| revise | false | true | true | (none) |
+| adapt | true | true | true | (none) |
+
+This evidence is produced by the fake dispatcher structural harness and is
+enforced by the scenario rubric.
+
+## Browser Stale-Candidate Apply Blocking
+
+The frontend lifecycle state machine invalidates any previous candidate and
+blocks Apply when a clarify-only or inspect/noop response arrives.  Browser
+unit tests verify that `CLARIFY_ONLY_RESPONSE` and `NOOP_RESPONSE` clear stale
+`candidateGraph`, `applyEligibility`, `canvasApplyAllowed`, and `deltaOps` so
+that a prior revise/adapt candidate can never be applied after the route
+switches to a non-applyable route.
+
 ## Deprecation Policy
 
 Current implemented policy:
