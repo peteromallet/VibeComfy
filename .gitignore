@@ -36,6 +36,7 @@ temp/
 !.megaplan/briefs/pristine-agent-architecture/
 .megaplan/briefs/pristine-agent-architecture/*
 !.megaplan/briefs/pristine-agent-architecture/**
+!.megaplan/briefs/messaging-boundary-cleanup.md
 *.patch
 
 # Agent task briefs and prompts — historical scratchpads, not project docs
