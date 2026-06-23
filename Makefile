@@ -39,6 +39,7 @@ ROOT_ALLOWLIST := \
 	.env.example \
 	.github \
 	.gitignore \
+	.megaplan \
 	.importlinter \
 	.pre-commit-config.yaml \
 	LICENSE \
