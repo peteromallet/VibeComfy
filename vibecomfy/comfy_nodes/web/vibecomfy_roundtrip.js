@@ -7701,6 +7701,7 @@ function turnEntriesForBubbleDetail(panel, message = null, snapshot = null) {
     .map((entry, index) => ({ entry, index }))
     .filter(({ entry }) => (
       entry
+      && entry.entry_type !== "batch"
       && (
         entry.turn_id === turnId
         || entry.parent_turn_id === turnId

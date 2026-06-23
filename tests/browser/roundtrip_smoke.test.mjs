@@ -6025,7 +6025,7 @@ test("VibeComfy agent turn websocket listener ignores closed or foreign sessions
   });
 
   try {
-    await harness.loadExtension();
+    const mod = await harness.loadExtension();
     await harness.setup();
     assert.equal(harness.apiEventListeners["vibecomfy.agent_edit.turn"]?.length || 0, 1);
 
@@ -6106,8 +6106,8 @@ test("VibeComfy agent turn websocket listener ignores closed or foreign sessions
     const text = harness.textDump();
     assert.equal(submitBodies[0].client_id, harness.api.clientId);
     assert.match(text, /Candidate after batch replay\./);
-    assert.match(text, /authoritative response step/);
-    assert.match(text, /authoritative done step/);
+    assert.doesNotMatch(text, /authoritative response step/);
+    assert.doesNotMatch(text, /authoritative done step/);
     assert.doesNotMatch(text, /ignored before session bind/);
 
     harness.dispatchApiEvent("vibecomfy.agent_edit.turn", {
@@ -6117,7 +6117,11 @@ test("VibeComfy agent turn websocket listener ignores closed or foreign sessions
       message: "post-response websocket step",
       statement_count: 1,
     });
-    await waitFor(() => /post-response websocket step/.test(harness.textDump()));
+    await waitFor(() => {
+      const panel = mod.ensureAgentPanel();
+      return panel.state.turns.some((entry) => entry?.entry_type === "batch" && entry.message === "post-response websocket step");
+    });
+    assert.doesNotMatch(harness.textDump(), /post-response websocket step/);
 
     const liveListener = harness.apiEventListeners["vibecomfy.agent_edit.turn"][0];
     liveListener({
@@ -6349,7 +6353,7 @@ test("VibeComfy graph-scan fallback still blocks unlowered intent nodes like vib
   }
 });
 
-test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fallback rendering, out-of-order live upsert with session filtering, expand/collapse diagnostics with landed count, no raw diff/source/audit paths in details, and Apply/Reject controls remain rendered and clickable after batch turns", async () => {
+test("VibeComfy agent-edit turn progress: client_id submit body, hidden batch_turns, out-of-order live upsert with session filtering, and Apply/Reject controls remain rendered and clickable", async () => {
   const candidateGraph = {
     nodes: [
       { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
@@ -6396,7 +6400,7 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
   });
 
   try {
-    await harness.loadExtension();
+    const mod = await harness.loadExtension();
     await harness.setup();
 
     // ── Part 1: client_id is sent in submit body ──────────────────────
@@ -6466,19 +6470,25 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
     });
     await submitPromise;
 
-    // Verify terminal batch_turns are retained in the bubble details, not in the live log.
+    // Verify terminal batch_turns are retained in state but not rendered in the user-facing UI.
     let text = harness.textDump();
     assert.match(text, /Candidate with authoritative batch_turns fallback\./);
     const historyRegion = harness.document.getElementById("vibecomfy-agent-panel-region-history");
     assert.doesNotMatch(historyRegion.textContent || "", /analyzing the graph/);
     assert.doesNotMatch(historyRegion.textContent || "", /finalizing edits/);
+    const panel = mod.ensureAgentPanel();
+    assert.equal(
+      panel.state.turns.filter((entry) => entry?.entry_type === "batch").length,
+      2,
+      "batch turns should remain available to state/audit consumers",
+    );
 
     expandAgentBubbleDetails(harness.document.body);
     text = harness.textDump();
-    assert.match(text, /analyzing the graph/);
-    assert.match(text, /finalizing edits/);
-    assert.match(text, /batch turn 1/);
-    assert.match(text, /batch turn 2/);
+    assert.doesNotMatch(text, /analyzing the graph/);
+    assert.doesNotMatch(text, /finalizing edits/);
+    assert.doesNotMatch(text, /batch turn 1/);
+    assert.doesNotMatch(text, /batch turn 2/);
 
     // The transient live mount has no rows after the response terminalizes.
     assert.equal(historyRegion.querySelectorAll((node) => node.className === "vibecomfy-batch-row").length, 0);
@@ -6518,22 +6528,17 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
     assert.equal(progressDots.length, 0, "legacy in-progress dots should not render below the thread");
     assert.equal(historyRegion.querySelectorAll((node) => node.className === "vibecomfy-batch-row").length, 0);
 
-    // Terminal batch details stay in the expanded agent bubble.
+    // Terminal batch details stay out of the expanded agent bubble.
     text = harness.textDump();
-    assert.match(text, /assign/);
-    assert.match(text, /saveimage\.filename_prefix/);
-    assert.match(text, /\u2713/);
-    assert.match(text, /\u2717/);
-    assert.match(text, /STMT_DELETE_OK/);
-    assert.match(text, /node removed cleanly/);
-    assert.match(text, /WIRE_FAIL/);
-    assert.match(text, /target slot occupied/);
-    assert.match(text, /exit: step_continue/);
-    assert.match(text, /budget: 4 left/);
-    assert.match(text, /Final reasoning summary/);
-    assert.match(text, /exit: done/);
-    assert.match(text, /BATCH_OK/);
-    assert.match(text, /all turns succeeded/);
+    assert.doesNotMatch(text, /Final reasoning summary/);
+    assert.doesNotMatch(text, /assign/);
+    assert.doesNotMatch(text, /saveimage\.filename_prefix/);
+    assert.doesNotMatch(text, /STMT_DELETE_OK/);
+    assert.doesNotMatch(text, /node removed cleanly/);
+    assert.doesNotMatch(text, /WIRE_FAIL/);
+    assert.doesNotMatch(text, /target slot occupied/);
+    assert.doesNotMatch(text, /exit: step_continue/);
+    assert.doesNotMatch(text, /BATCH_OK/);
 
     // These sensitive/internal fields should NOT appear in the batch row rendering
     const expandedText = harness.textDump();
@@ -6555,8 +6560,8 @@ test("VibeComfy agent-edit turn progress: client_id submit body, batch_turns fal
     assert.match(applyButton.textContent, /Apply/);
     assert.match(rejectButton.textContent, /Reject/);
 
-    // Terminal batch turns are still available via the bubble, but not the live mount.
-    assert.match(harness.textDump(), /analyzing the graph/);
+    // Terminal batch turns are still retained for audit/state, but not rendered.
+    assert.doesNotMatch(harness.textDump(), /analyzing the graph/);
     assert.equal(
       historyRegion.querySelectorAll((node) => node.className === "vibecomfy-batch-row").length,
       0,
@@ -12411,7 +12416,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
 
     toggles[0].click();
     assert.ok(String(toggles[0].textContent).startsWith("\u25bc"), "details expand on click");
-    assert.match(harness.textDump(), /planning edits/);
+    assert.doesNotMatch(harness.textDump(), /planning edits/);
     assert.match(harness.textDump(), /queue_allowed=true/);
     assert.match(harness.textDump(), /\/tmp\/audit-turn-0007\.json/);
     assert.match(harness.textDump(), /Audit ↓/);
@@ -12636,7 +12641,7 @@ test("VibeComfy hides final batch row from the live log when ok response has a c
     assert.equal(batchRows.length, 0, "terminal candidate batch row should leave the live log");
 
     expandAgentBubbleDetails(harness.document.body);
-    await waitFor(() => /final turn/.test(harness.textDump()), { attempts: 1000 });
+    assert.doesNotMatch(harness.textDump(), /final turn/);
   } finally {
     await harness.dispose();
   }
