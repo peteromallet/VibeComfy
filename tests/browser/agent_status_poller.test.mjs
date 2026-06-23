@@ -1352,3 +1352,176 @@ test("refreshAgentStatus — route_options is an array (not an object)", async (
 
   assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.MISSING_OPTIONS);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pre-migration parity: route/provider normalization (T2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("getPersistedAgentProvider — normalizes known aliases to canonical providers", () => {
+  globalThis.localStorage._clear();
+
+  // Canonical providers stay as-is
+  setPersistedAgentProvider("openrouter");
+  assert.equal(getPersistedAgentProvider(), "openrouter");
+  setPersistedAgentProvider("anthropic");
+  assert.equal(getPersistedAgentProvider(), "anthropic");
+  setPersistedAgentProvider("openai-codex");
+  assert.equal(getPersistedAgentProvider(), "openai-codex");
+
+  // deepseek alias normalizes to openrouter (the only alias remapped by the persistence getter)
+  setPersistedAgentProvider("deepseek");
+  assert.equal(getPersistedAgentProvider(), "openrouter", "deepseek → openrouter");
+
+  // claude and codex are NOT remapped by the persistence getter — they are not
+  // in CANONICAL_AGENT_PROVIDERS and getPersistedAgentProvider only handles
+  // deepseek→openrouter. These aliases are handled by normalizeRoutePreference()
+  // during polling, not during persistence read-back.
+  setPersistedAgentProvider("claude");
+  assert.equal(getPersistedAgentProvider(), null, "claude is not a canonical provider");
+  setPersistedAgentProvider("codex");
+  assert.equal(getPersistedAgentProvider(), null, "codex is not a canonical provider");
+
+  // Unknown providers return null
+  setPersistedAgentProvider("unknown");
+  assert.equal(getPersistedAgentProvider(), null);
+  setPersistedAgentProvider("");
+  assert.equal(getPersistedAgentProvider(), null);
+});
+
+test("refreshAgentStatus — single fetch path: exactly one /vibecomfy/agent/status request per invocation", async () => {
+  let fetchCalls = 0;
+  mockFetch((url) => {
+    if (url.startsWith("/vibecomfy/agent/status")) {
+      fetchCalls += 1;
+      return makeFetchResponse({
+        ok: true,
+        ready: true,
+        provider_available: true,
+        route: "openrouter",
+        requested_route: "openrouter",
+        model: "gpt-4o",
+        route_options: {
+          openrouter: { normalized_route: "openrouter", available: true, browser_api_key_allowed: true },
+          deepseek: { normalized_route: "openrouter", available: true },
+        },
+      });
+    }
+    return makeFetchResponse({ error: "unexpected" }, { status: 404 });
+  });
+
+  const panel = makePanel({ fields: { route: makeSelectElement("openrouter"), model: { value: "gpt-4o" } } });
+  const deps = makeDeps();
+
+  await refreshAgentStatus(panel, { quiet: true }, deps);
+
+  assert.equal(fetchCalls, 1, "refreshAgentStatus must issue exactly one status fetch");
+  assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.READY);
+  assert.equal(panel.state.routeStatus.requestedRoute, "openrouter");
+  assert.ok(panel.state.statusSnapshot, "should have statusSnapshot after single fetch");
+});
+
+test("refreshAgentStatus — status readiness coupled to panel UI state (routeStatus, settingsMessage, statusSnapshot)", async () => {
+  mockFetch((url) => {
+    if (url.startsWith("/vibecomfy/agent/status")) {
+      return makeFetchResponse({
+        ok: true,
+        ready: true,
+        provider_available: true,
+        route: "arnold",
+        requested_route: "anthropic",
+        model: "claude-3",
+        route_options: {
+          anthropic: { normalized_route: "arnold", available: true, browser_api_key_allowed: false },
+          openrouter: { normalized_route: "openrouter", available: true, browser_api_key_allowed: true },
+        },
+      });
+    }
+    return makeFetchResponse({ error: "unexpected" }, { status: 404 });
+  });
+
+  const panel = makePanel({ fields: { route: makeSelectElement("anthropic"), model: { value: "claude-3" } } });
+  const deps = makeDeps();
+
+  await refreshAgentStatus(panel, { quiet: false }, deps);
+
+  // Status readiness is reflected in panel.state
+  assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.READY);
+  assert.equal(panel.state.routeStatus.requestedRoute, "anthropic");
+  assert.equal(panel.state.routeStatus.model, "claude-3");
+
+  // settingsMessage carries the resolved route
+  assert.ok(
+    panel.state.settingsMessage.includes("anthropic → arnold"),
+    `settingsMessage should reflect route resolution, got: ${panel.state.settingsMessage}`,
+  );
+  assert.ok(
+    panel.state.settingsMessage.includes("provider ready"),
+    `settingsMessage should include readiness, got: ${panel.state.settingsMessage}`,
+  );
+
+  // statusSnapshot holds the raw payload
+  assert.ok(panel.state.statusSnapshot, "statusSnapshot should be populated");
+  assert.equal(panel.state.statusSnapshot.route, "arnold");
+  assert.equal(panel.state.statusSnapshot.requested_route, "anthropic");
+
+  // Route select should be populated with available routes
+  assert.ok(panel.fields.route.children.length >= 2, "route select should have multiple options");
+  assert.equal(panel.fields.route.value, "anthropic");
+});
+
+test("refreshAgentStatus — malformed status text propagated to settingsMessage and routeStatus", async () => {
+  mockFetch((url) => {
+    if (url.startsWith("/vibecomfy/agent/status")) {
+      return makeFetchResponse({
+        ok: true,
+        ready: true,
+        provider_available: true,
+        route: "arnold",
+        requested_route: "auto",
+        // Missing route_options — will trigger MISSING_OPTIONS
+      });
+    }
+    return makeFetchResponse({ error: "unexpected" }, { status: 404 });
+  });
+
+  const panel = makePanel();
+  const deps = makeDeps();
+
+  await refreshAgentStatus(panel, { quiet: false }, deps);
+
+  assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.MISSING_OPTIONS);
+  assert.ok(
+    panel.state.settingsMessage.includes("missing route options"),
+    `settingsMessage should mention missing route options, got: ${panel.state.settingsMessage}`,
+  );
+});
+
+test("refreshAgentStatus — unavailable status text propagated to settingsMessage", async () => {
+  mockFetch((url) => {
+    if (url.startsWith("/vibecomfy/agent/status")) {
+      return makeFetchResponse({
+        ok: true,
+        ready: false,
+        reason: "All providers exhausted. Check your API keys.",
+        provider_available: false,
+        route: "openrouter",
+        requested_route: "openrouter",
+        route_options: {
+          openrouter: { normalized_route: "openrouter", available: false },
+        },
+      });
+    }
+    return makeFetchResponse({ error: "unexpected" }, { status: 404 });
+  });
+
+  const panel = makePanel({ fields: { route: makeSelectElement("openrouter") } });
+  const deps = makeDeps();
+
+  await refreshAgentStatus(panel, { quiet: false }, deps);
+
+  assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.UNAVAILABLE);
+  assert.ok(
+    panel.state.settingsMessage.includes("All providers exhausted"),
+    `settingsMessage should carry the reason, got: ${panel.state.settingsMessage}`,
+  );
+});

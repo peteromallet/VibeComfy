@@ -15074,3 +15074,314 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
     await harness.dispose();
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pre-migration parity: status readiness / provider normalization (T2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("VibeComfy developer disclosure persists expanded state across settings popover close and reopen", async () => {
+  globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+  let statusCalls = 0;
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": async () => {
+        statusCalls += 1;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            provider_available: true,
+            route: "deepseek",
+            requested_route: "auto",
+            route_options: {
+              auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+              deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+              anthropic: { requested_route: "anthropic", normalized_route: "arnold", browser_api_key_allowed: false },
+              "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
+            },
+          },
+        };
+      },
+    },
+    withQueuePrompt: false,
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => statusCalls === 1);
+
+    const settingsGear = harness.document.body.querySelectorAll(
+      (node) => node.title === "Settings",
+    )[0];
+    const settingsPopover = harness.document.body.querySelectorAll(
+      (node) => node.className === "vibecomfy-agent-panel-settings-popover",
+    )[0];
+    const developerRegion = harness.document.getElementById("vibecomfy-agent-panel-region-developer");
+    const developerToggle = harness.document.getElementById("vibecomfy-agent-panel-developer-toggle");
+    const developerBody = developerRegion.querySelectorAll(
+      (node) => node.className === "vibecomfy-agent-panel-region-body",
+    )[0];
+
+    // Open settings popover
+    settingsGear.click();
+    assert.equal(settingsPopover.style.display, "block");
+
+    // Developer disclosure starts collapsed
+    assert.equal(developerToggle.attributes?.["aria-expanded"], "false");
+    assert.equal(developerBody?.style.display, "none");
+
+    // Developer region contains diagnostic content even while collapsed
+    assert.match(developerRegion.textContent, /Adapter Capabilities/);
+    assert.match(developerRegion.textContent, /Queue Guard State/);
+
+    // Expand developer disclosure
+    developerToggle.click();
+    assert.equal(developerToggle.attributes?.["aria-expanded"], "true");
+    assert.equal(developerBody?.style.display, "grid");
+
+    // Close settings popover
+    settingsGear.click();
+    assert.equal(settingsPopover.style.display, "none");
+
+    // Reopen settings popover — developer disclosure state persists (current behavior)
+    settingsGear.click();
+    assert.equal(settingsPopover.style.display, "block");
+    // Note: developer disclosure state PERSISTS across popover close/reopen in
+    // the current implementation. This is pre-migration parity: we encode the
+    // actual behavior as-is.
+    assert.equal(
+      developerToggle.attributes?.["aria-expanded"],
+      "true",
+      "developer disclosure expanded state persists across settings reopen",
+    );
+    assert.equal(
+      developerBody?.style.display,
+      "grid",
+      "developer body remains visible across settings reopen",
+    );
+  } finally {
+    globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy settings route switching covers all four canonical providers (deepseek, openrouter, openai-codex, anthropic)", async () => {
+  globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          ready: true,
+          provider_available: true,
+          route: "arnold",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "arnold", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+            openrouter: { requested_route: "openrouter", normalized_route: "openrouter", browser_api_key_allowed: true },
+            anthropic: { requested_route: "anthropic", normalized_route: "arnold", browser_api_key_allowed: false },
+            "openai-codex": { requested_route: "openai-codex", normalized_route: "arnold", browser_api_key_allowed: false },
+          },
+        },
+      },
+    },
+    withQueuePrompt: false,
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const settingsGear = harness.document.body.querySelectorAll(
+      (node) => node.title === "Settings",
+    )[0];
+    const routeSelect = harness.document.getElementById("vibecomfy-agent-panel-route");
+
+    settingsGear.click();
+
+    // Route select must contain all four canonical providers
+    const routeValues = routeSelect.children.map((entry) => entry.value);
+    assert.ok(routeValues.includes("deepseek"), "route select should include deepseek");
+    assert.ok(routeValues.includes("openrouter"), "route select should include openrouter");
+    assert.ok(routeValues.includes("openai-codex"), "route select should include openai-codex");
+    assert.ok(routeValues.includes("anthropic"), "route select should include anthropic");
+
+    // deepseek is a direct provider (route stays as deepseek)
+    routeSelect.value = "deepseek";
+    routeSelect.onchange();
+    await waitFor(() => routeSelect.value === "deepseek");
+    assert.equal(routeSelect.value, "deepseek");
+
+    // openrouter is a direct provider (route stays as openrouter)
+    routeSelect.value = "openrouter";
+    routeSelect.onchange();
+    await waitFor(() => routeSelect.value === "openrouter");
+    assert.equal(routeSelect.value, "openrouter");
+
+    // openai-codex stays as openai-codex in the select (resolved to arnold server-side)
+    routeSelect.value = "openai-codex";
+    routeSelect.onchange();
+    await waitFor(() => routeSelect.value === "openai-codex");
+    assert.equal(routeSelect.value, "openai-codex");
+
+    // anthropic stays as anthropic in the select (resolved to arnold server-side)
+    routeSelect.value = "anthropic";
+    routeSelect.onchange();
+    await waitFor(() => routeSelect.value === "anthropic");
+    assert.equal(routeSelect.value, "anthropic");
+
+    // Settings status text reflects the currently selected route
+    const settingsStatus = harness.document.getElementById("vibecomfy-agent-panel-settings-status");
+    assert.ok(settingsStatus, "settings status element should exist");
+    assert.ok(settingsStatus.textContent.length > 0, "settings status should have content");
+  } finally {
+    globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy status readiness and settings message are coupled across loading → ready → unavailable transitions", async () => {
+  globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+  let statusCalls = 0;
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": async () => {
+        statusCalls += 1;
+        if (statusCalls === 1) {
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              ready: true,
+              provider_available: true,
+              route: "deepseek",
+              requested_route: "auto",
+              route_options: {
+                auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+                deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+                openrouter: { requested_route: "openrouter", normalized_route: "openrouter", browser_api_key_allowed: true },
+              },
+            },
+          };
+        }
+        if (statusCalls === 2) {
+          return {
+            status: 200,
+            body: {
+              ok: true,
+              ready: false,
+              reason: "Provider quota exhausted for openrouter.",
+              provider_available: false,
+              route: "openrouter",
+              requested_route: "openrouter",
+              route_options: {
+                openrouter: { requested_route: "openrouter", normalized_route: "openrouter", available: false },
+              },
+            },
+          };
+        }
+        // Fallback: unavailable with generic reason
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            ready: false,
+            reason: "All providers exhausted.",
+            provider_available: false,
+            route: "deepseek",
+            requested_route: "auto",
+            route_options: {
+              auto: { requested_route: "auto", normalized_route: "deepseek", available: false },
+            },
+          },
+        };
+      },
+      "/vibecomfy/agent/status?route=openrouter": async () => {
+        statusCalls += 1;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            ready: false,
+            reason: "Provider quota exhausted for openrouter.",
+            provider_available: false,
+            route: "openrouter",
+            requested_route: "openrouter",
+            route_options: {
+              openrouter: { requested_route: "openrouter", normalized_route: "openrouter", available: false },
+            },
+          },
+        };
+      },
+    },
+    withQueuePrompt: false,
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => statusCalls === 1);
+
+    const settingsGear = harness.document.body.querySelectorAll(
+      (node) => node.title === "Settings",
+    )[0];
+    const routeSelect = harness.document.getElementById("vibecomfy-agent-panel-route");
+    const modelInput = harness.document.getElementById("vibecomfy-agent-panel-model");
+
+    settingsGear.click();
+
+    // Initial ready state: controls enabled, settings contain status text
+    await waitFor(() => !routeSelect.disabled && !modelInput.disabled);
+    assert.equal(routeSelect.disabled, false);
+    assert.equal(modelInput.disabled, false);
+
+    // Settings text reflects the ready state
+    const readyText = harness.textDump();
+    assert.ok(
+      readyText.includes("deepseek") || readyText.includes("provider ready"),
+      `settings should reflect ready state`,
+    );
+
+    // Switch to openrouter → unavailable route (ready === false)
+    routeSelect.value = "openrouter";
+    routeSelect.onchange();
+    await waitFor(() => statusCalls === 2);
+    await waitFor(() => routeSelect.disabled === true);
+    assert.equal(routeSelect.disabled, true);
+    assert.equal(modelInput.disabled, true);
+
+    // Settings text reflects the unavailable reason
+    const unavailableText = harness.textDump();
+    assert.ok(
+      unavailableText.includes("Provider quota exhausted"),
+      `settings should show unavailable reason, got: ${unavailableText.substring(0, 200)}`,
+    );
+    // Should no longer show "provider ready"
+    assert.ok(
+      !unavailableText.includes("provider ready"),
+      "settings should not show provider ready when unavailable",
+    );
+  } finally {
+    globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+    await harness.dispose();
+  }
+});

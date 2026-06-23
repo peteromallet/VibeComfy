@@ -40,34 +40,43 @@ const CANONICAL_AGENT_PROVIDERS = new Set(["anthropic", "openai-codex", "openrou
 
 const LS_AGENT_PROVIDER_KEY = "vibecomfy_agent_provider";
 
-function _lsGet(key) {
+export function _lsGet(key) {
   try {
-    if (typeof localStorage === "undefined" || localStorage === null) {
+    const storage = typeof localStorage !== "undefined" && localStorage !== null
+      ? localStorage
+      : globalThis?.localStorage;
+    if (!storage) {
       return null;
     }
-    return localStorage.getItem(key);
+    return storage.getItem(key);
   } catch (_e) {
     return null;
   }
 }
 
-function _lsSet(key, value) {
+export function _lsSet(key, value) {
   try {
-    if (typeof localStorage === "undefined" || localStorage === null) {
+    const storage = typeof localStorage !== "undefined" && localStorage !== null
+      ? localStorage
+      : globalThis?.localStorage;
+    if (!storage) {
       return;
     }
-    localStorage.setItem(key, value);
+    storage.setItem(key, value);
   } catch (_e) {
     // Best-effort: silently swallow set errors (private browsing, quota, etc.)
   }
 }
 
-function _lsRemove(key) {
+export function _lsRemove(key) {
   try {
-    if (typeof localStorage === "undefined" || localStorage === null) {
+    const storage = typeof localStorage !== "undefined" && localStorage !== null
+      ? localStorage
+      : globalThis?.localStorage;
+    if (!storage) {
       return;
     }
-    localStorage.removeItem(key);
+    storage.removeItem(key);
   } catch (_e) {
     // Best-effort.
   }
@@ -202,7 +211,7 @@ export function projectRouteStatus(status, request = {}) {
   };
 }
 
-function normalizeRoutePreference(value) {
+export function normalizeRoutePreference(value) {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
@@ -219,7 +228,7 @@ function normalizeRoutePreferenceForStatus(value, routeOptions) {
   return normalizeRoutePreference(normalized);
 }
 
-function normalizeModelPreference(value) {
+export function normalizeModelPreference(value) {
   const normalized = String(value || "").trim();
   return normalized ? normalized : null;
 }
