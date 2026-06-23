@@ -12596,7 +12596,7 @@ test("VibeComfy agent bubble details stay collapsed by default and preserve expa
     );
     assert.ok(toggles.some((node) => String(node.textContent || "").startsWith("\u25bc")), "expanded state must survive chat rehydrate");
     assert.match(harness.textDump(), /view response/);
-    assert.match(harness.textDump(), /inputs\.filename_prefix/);
+    assert.match(harness.textDump(), /edited: uid-2/);
   } finally {
     await harness.dispose();
   }
