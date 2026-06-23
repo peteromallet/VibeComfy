@@ -1,0 +1,78 @@
+base_branch: main
+
+milestones:
+  - label: m1-contracts-view-models
+    idea: .megaplan/briefs/pristine-agent-architecture/m1-contracts-view-models.md
+    branch: epic/pristine-agent-architecture/m1-contracts-view-models
+    profile: partnered-5
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: "Inventory duplicate contract/view-model representations for progress, candidate/apply eligibility, field changes, identity keys, failure messages, provider readiness, route status, and compatibility aliases before choosing canonical shapes. Produce explicit handoff artifacts for downstream milestones."
+
+  - label: m2-messaging-boundary
+    idea: .megaplan/briefs/messaging-boundary-cleanup.md
+    branch: epic/pristine-agent-architecture/m2-messaging-boundary
+    profile: partnered-5
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: "Trace every normal chat/detail render input from websocket, batch_turns, rehydrate, session store, and audit paths. Consume the canonical contracts from m1. Preserve stage display, preview/apply, and explicit debug downloads while making raw execution data structurally unreachable from default UI."
+    notes: "Existing prepared plan/worktree, now sequenced after contract/view-model canonicalization."
+
+  - label: m3-session-audit-observability
+    idea: .megaplan/briefs/pristine-agent-architecture/m3-session-audit-observability.md
+    branch: epic/pristine-agent-architecture/m3-session-audit-observability
+    profile: partnered-5
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: "Trace raw diagnostics, artifact paths, issue reports, session JSON, audit downloads, and CLI debug outputs. Separate explicit evidence surfaces from normal chat/session payloads."
+
+  - label: m4-frontend-selector-render-boundary
+    idea: .megaplan/briefs/pristine-agent-architecture/m4-frontend-selector-render-boundary.md
+    branch: epic/pristine-agent-architecture/m4-frontend-selector-render-boundary
+    profile: partnered-5
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: "Map frontend selector/render boundaries in panel_thread.js, candidate controls, detail panes, and tests. Make render paths consume safe selectors only without broad module churn."
+
+  - label: m5-frontend-module-poller-decomposition
+    idea: .megaplan/briefs/pristine-agent-architecture/m5-frontend-module-poller-decomposition.md
+    branch: epic/pristine-agent-architecture/m5-frontend-module-poller-decomposition
+    profile: partnered-5
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: "Make vibecomfy_roundtrip.js an orchestration shell. Remove duplicated renderers/pollers and dead frontend state mirrors only after selector/render boundaries are stable."
+
+  - label: m6-backend-module-boundaries
+    idea: .megaplan/briefs/pristine-agent-architecture/m6-backend-module-boundaries.md
+    branch: epic/pristine-agent-architecture/m6-backend-module-boundaries
+    profile: partnered-5
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: "Target exact backend ownership points: response envelope builder, chat artifact writer, session artifact iterator, action route helper, field-change normalizer, and diagnostics contracts. Keep behavior stable while extracting only boundaries that reduce actual coupling."
+
+  - label: m7-guardrails-artifact-hygiene
+    idea: .megaplan/briefs/pristine-agent-architecture/m7-guardrails-artifact-hygiene.md
+    branch: epic/pristine-agent-architecture/m7-guardrails-artifact-hygiene
+    profile: partnered-5
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: "Convert the cleanup findings into tests, static checks, artifact policy, architecture notes, and deletion of confirmed stale compatibility paths. Focus on preventing regression rather than cosmetic churn."
+
+on_failure:
+  abort: stop_chain
+on_escalate:
+  abort: stop_chain
+merge_policy: review
+
+driver:
+  robustness: full
+  auto_approve: true
+  max_iterations: 80
+  poll_sleep: 8.0

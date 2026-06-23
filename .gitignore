@@ -30,7 +30,12 @@ temp/
 .agents/
 .claude/
 .desloppify/
-.megaplan/
+.megaplan/*
+!.megaplan/briefs/
+.megaplan/briefs/*
+!.megaplan/briefs/pristine-agent-architecture/
+.megaplan/briefs/pristine-agent-architecture/*
+!.megaplan/briefs/pristine-agent-architecture/**
 *.patch
 
 # Agent task briefs and prompts — historical scratchpads, not project docs
