@@ -28,6 +28,7 @@ from vibecomfy.comfy_nodes.agent.contracts import (
     FailureKind,
     StageResult,
     TurnContext,
+    build_legacy_agent_edit_v1,
     derive_apply_eligibility,
     failure_envelope,
 )
@@ -142,6 +143,16 @@ def _response_writer(base: Path):
         return path
 
     return _write
+
+
+def _assert_legacy_action_aliases_absent(payload: dict) -> None:
+    for legacy_key in (
+        "apply_eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    ):
+        assert legacy_key not in payload
 
 
 def _intent_metadata(*, kind: str, uid: str, intent: dict[str, object]) -> dict[str, object]:
@@ -572,6 +583,123 @@ def test_accept_reject_mutations_are_atomic_and_conflict_aware(tmp_path: Path) -
     assert rejected.kind is FailureKind.EDITOR_AHEAD_CONFLICT
 
 
+def test_accept_reject_persist_canonical_action_json_before_legacy_route_adapter(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    accept_request = _request_graph("canonical-accept")
+    accept_allocation = allocate_turn(
+        session_root=root,
+        session_id="s-canonical-actions",
+        request_payload=accept_request,
+    )
+    accept_turn_id = str(accept_allocation.context.turn_id)
+    accept_candidate = _record_candidate_response(
+        root=root,
+        session_id="s-canonical-actions",
+        allocation=accept_allocation,
+    )
+
+    accepted = accept_turn(
+        session_root=root,
+        session_id="s-canonical-actions",
+        turn_id=accept_turn_id,
+        client_graph_hash=payload_hash(accept_request["graph"]),
+        request_payload={"turn_id": accept_turn_id, "action": "accept"},
+        idempotency_key="accept-canonical",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+
+    assert isinstance(accepted, dict)
+    _assert_legacy_action_aliases_absent(accepted)
+    assert accepted["action"] == "accept"
+    assert accepted["turn_id"] == accept_turn_id
+    assert accepted["submit_graph_hash"] == payload_hash(accept_request["graph"])
+    assert accepted["submit_structural_graph_hash"] == structural_graph_hash(
+        accept_request["graph"]
+    )
+    assert accepted["candidate_graph_hash"] == payload_hash(accept_candidate)
+    assert accepted["candidate_structural_graph_hash"] == structural_graph_hash(
+        accept_candidate
+    )
+    assert accepted["baseline_turn_id"] == accept_turn_id
+    assert accepted["baseline_graph_hash"] == structural_graph_hash(accept_candidate)
+    assert accepted["expected_baseline_graph_hash"] is None
+    assert "audit_ref" not in accepted
+    assert "debug" not in accepted
+
+    persisted_accept = json.loads(
+        (tmp_path / "responses" / f"accept-{accept_turn_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert persisted_accept == accepted
+    _assert_legacy_action_aliases_absent(persisted_accept)
+
+    adapted_accept = build_legacy_agent_edit_v1(
+        {
+            **persisted_accept,
+            "eligibility": {
+                "applyable": False,
+                "reason": "superseded",
+                "message": "This candidate has been superseded.",
+                "warnings": [],
+            },
+            "canvas_apply_allowed": False,
+            "queue_allowed": False,
+        }
+    )
+    assert adapted_accept["apply_eligibility"] == adapted_accept["eligibility"]
+    assert adapted_accept["apply_allowed"] is False
+    assert adapted_accept["canvas_apply_allowed"] is False
+    assert adapted_accept["queue_allowed"] is False
+
+    reject_request = _request_graph("canonical-reject")
+    reject_allocation = allocate_turn(
+        session_root=root,
+        session_id="s-canonical-actions",
+        request_payload=reject_request,
+    )
+    reject_turn_id = str(reject_allocation.context.turn_id)
+    reject_candidate = _record_candidate_response(
+        root=root,
+        session_id="s-canonical-actions",
+        allocation=reject_allocation,
+    )
+
+    rejected = reject_turn(
+        session_root=root,
+        session_id="s-canonical-actions",
+        turn_id=reject_turn_id,
+        client_graph_hash=payload_hash(reject_request["graph"]),
+        request_payload={"turn_id": reject_turn_id, "action": "reject"},
+        idempotency_key="reject-canonical",
+        response_writer=_response_writer(tmp_path / "responses"),
+    )
+
+    assert isinstance(rejected, dict)
+    _assert_legacy_action_aliases_absent(rejected)
+    assert rejected["action"] == "reject"
+    assert rejected["turn_id"] == reject_turn_id
+    assert rejected["submit_graph_hash"] == payload_hash(reject_request["graph"])
+    assert rejected["candidate_graph_hash"] == payload_hash(reject_candidate)
+    assert rejected["candidate_structural_graph_hash"] == structural_graph_hash(
+        reject_candidate
+    )
+    assert rejected["baseline_turn_id"] == accept_turn_id
+    assert rejected["baseline_graph_hash"] == structural_graph_hash(accept_candidate)
+    assert "audit_ref" not in rejected
+    assert "debug" not in rejected
+
+    persisted_reject = json.loads(
+        (tmp_path / "responses" / f"reject-{reject_turn_id}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert persisted_reject == rejected
+    _assert_legacy_action_aliases_absent(persisted_reject)
+
+
 def test_accept_updates_baseline_and_reject_replays_idempotently(tmp_path: Path) -> None:
     root = tmp_path / "sessions"
     first_request = _request_graph("first")
@@ -741,17 +869,27 @@ def test_rebaseline_session_updates_structural_baseline_and_persists_source_grap
     assert response["baseline_turn_id"] is None
     assert response["baseline_graph_hash"] == structural_graph_hash(graph)
     assert response["baseline_graph_hash_kind"] == "structural"
+    assert response["baseline_graph_hash_version"] == STRUCTURAL_PROJECTION_VERSION
     assert response["baseline_source"] == "rebaseline"
+    assert response["baseline_graph_source_path"] == "_rebaseline/0001/graph.ui.json"
     assert response["rebaseline_id"] == "0001"
+    assert response["computed_structural_graph_hash"] == structural_graph_hash(graph)
+    _assert_legacy_action_aliases_absent(response)
+    assert "audit_ref" not in response
+    assert "debug" not in response
 
     session_dir = root / "s1"
     graph_path = session_dir / "_rebaseline" / "0001" / "graph.ui.json"
     metadata_path = session_dir / "_rebaseline" / "0001" / "metadata.json"
+    response_path = session_dir / "_rebaseline" / "0001" / "response.json"
     assert json.loads(graph_path.read_text(encoding="utf-8")) == graph
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["action"] == "rebaseline"
     assert metadata["reason"] == "continue_from_canvas"
     assert metadata["next_baseline_graph_hash"] == structural_graph_hash(graph)
+    persisted_response = json.loads(response_path.read_text(encoding="utf-8"))
+    assert persisted_response == response
+    _assert_legacy_action_aliases_absent(persisted_response)
 
     state = read_state(session_dir)
     assert state["baseline_graph_hash"] == structural_graph_hash(graph)

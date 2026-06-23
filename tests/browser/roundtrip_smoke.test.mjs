@@ -3,6 +3,49 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
 import { createBrowserHarness } from "./harness.mjs";
+import {
+  adaptLegacyAgentEditResponse,
+  normalizeCanonicalAgentEditResponse,
+  readApplyCandidate,
+  readFieldChanges,
+  readLatestCandidate,
+  readTurnIdentity,
+} from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract.js";
+
+const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
+  "executor_pending",
+  "apply_allowed",
+  "canvas_apply_allowed",
+  "applyAllowed",
+  "canvasApplyAllowed",
+]);
+
+function assertCanonicalNormalPathHasNoLegacyAliases(value, path = "$") {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      assertCanonicalNormalPathHasNoLegacyAliases(entry, `${path}[${index}]`);
+    });
+    return;
+  }
+
+  for (const [key, entry] of Object.entries(value)) {
+    const keyPath = `${path}.${key}`;
+    assert.equal(
+      FORBIDDEN_NORMAL_PATH_KEYS.has(key),
+      false,
+      `canonical normal-path payload must not carry legacy alias ${keyPath}`,
+    );
+    assert.equal(
+      key === "field_changes" && !/\.change_details\.batch_turns\[\d+\]\.field_changes$/.test(keyPath),
+      false,
+      `canonical normal-path payload must not carry old field-change dictionary ${keyPath}`,
+    );
+    assertCanonicalNormalPathHasNoLegacyAliases(entry, keyPath);
+  }
+}
 
 function canonicalizeJsonValue(value) {
   if (Array.isArray(value)) {
@@ -11992,6 +12035,119 @@ test("VibeComfy harness profiles are immutable and contain expected capability s
   } finally {
     await harness.dispose();
   }
+});
+
+// ── Canonical and legacy response fixture boundaries ─────────────────────
+test("VibeComfy roundtrip canonical submit fixture is valid with allowLegacy=false", () => {
+  const raw = {
+    ok: true,
+    message: "Canonical roundtrip candidate.",
+    outcome: {
+      kind: "candidate",
+      changes: [{ uid: "save", field_path: "inputs.filename_prefix", old: "old", new: "new" }],
+    },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 2, type: "SaveImage" }], links: [] },
+      graph_hash: "roundtrip-candidate-hash",
+      structural_graph_hash: "roundtrip-structural-hash",
+      turn_identity: {
+        session_id: "sess-roundtrip-canonical",
+        turn_id: "0030",
+        baseline_turn_id: "0029",
+        idempotency_key: "roundtrip-idem",
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready to apply.",
+      warnings: [],
+    },
+    change_details: {
+      batch_turns: [
+        {
+          turn_number: 0,
+          field_changes: [
+            { uid: "save", field_path: "inputs.filename_prefix", old: "old", new: "new" },
+          ],
+        },
+      ],
+    },
+  };
+
+  assertCanonicalNormalPathHasNoLegacyAliases(raw);
+
+  const normalized = normalizeCanonicalAgentEditResponse(raw, {
+    endpoint: "/vibecomfy/agent-executor",
+  });
+  const candidate = readApplyCandidate(normalized, { allowLegacy: false });
+
+  assert.equal(candidate.graphHash, "roundtrip-candidate-hash");
+  assert.equal(candidate.structuralGraphHash, "roundtrip-structural-hash");
+  assert.deepEqual(readTurnIdentity(normalized, { allowLegacy: false }), {
+    sessionId: "sess-roundtrip-canonical",
+    turnId: "0030",
+    baselineTurnId: "0029",
+    idempotencyKey: "roundtrip-idem",
+  });
+  assert.deepEqual(readFieldChanges(normalized, { allowLegacy: false }).legacyChanges, []);
+});
+
+test("VibeComfy roundtrip old persisted/session fixtures normalize only through legacy adapter", () => {
+  const oldPersistedResponse = {
+    ok: true,
+    session_id: "sess-roundtrip-old",
+    turn_id: "0018",
+    message: "Old response candidate.",
+    graph: { nodes: [{ id: 4, type: "PreviewImage" }], links: [] },
+    candidate_graph_hash: "old-roundtrip-hash",
+    apply_allowed: true,
+    canvas_apply_allowed: true,
+    queue_allowed: true,
+    field_changes: [
+      { uid: "preview", field_path: "inputs.images", old: null, new: "linked" },
+    ],
+  };
+
+  assert.throws(
+    () => normalizeCanonicalAgentEditResponse(oldPersistedResponse, {
+      endpoint: "/vibecomfy/agent-edit/chat:old-response",
+    }),
+    /missing outcome/i,
+  );
+
+  const adaptedPersisted = adaptLegacyAgentEditResponse(oldPersistedResponse, {
+    endpoint: "/vibecomfy/agent-edit/chat:old-response",
+  });
+  assert.equal(adaptedPersisted.outcome.kind, "candidate");
+  assert.equal(readApplyCandidate(adaptedPersisted, { allowLegacy: false }).graphHash, "old-roundtrip-hash");
+  assert.deepEqual(readFieldChanges(adaptedPersisted, { allowLegacy: false }).legacyChanges, [
+    { uid: "preview", fieldPath: "inputs.images", new: "linked" },
+  ]);
+
+  const oldSession = {
+    ok: true,
+    exists: true,
+    session_id: "sess-roundtrip-old",
+    latest_candidate: oldPersistedResponse,
+  };
+  assert.throws(
+    () => normalizeCanonicalAgentEditResponse(oldSession, {
+      endpoint: "/vibecomfy/agent-edit/chat:old-session",
+    }),
+    /missing outcome/i,
+  );
+
+  const adaptedSession = adaptLegacyAgentEditResponse({
+    ok: true,
+    outcome: { kind: "noop", reason: "session wrapper" },
+    latest_candidate: oldPersistedResponse,
+  }, {
+    endpoint: "/vibecomfy/agent-edit/chat:old-session",
+  });
+  const latest = readLatestCandidate(adaptedSession, { allowLegacy: false });
+  assert.equal(readApplyCandidate(latest, { allowLegacy: false }).turnIdentity.turnId, "0018");
 });
 
 // ── FieldChange normalization smoke ──────────────────────────────────────

@@ -14,13 +14,16 @@ _LOGGER = logging.getLogger(__name__)
 from .audit import artifact_ref_for_path, write_audit, write_json_artifact
 from .edit import DEFAULT_CHAT_DISPLAY_MESSAGES, _SESSION_ROOT, _write_turn_chat_artifact as _edit_write_turn_chat_artifact
 from .contracts import (
+    AgentError,
     ApplyEligibility,
     FailureKind,
+    ProviderStatus,
     TurnContext,
-    apply_eligibility_payload,
+    build_legacy_agent_edit_v1,
     classify_failure,
     ensure_agent_edit_response_contract,
     failure_envelope,
+    product_failure_envelope_fields,
 )
 from .provider import readiness, handle_credential_submission
 from .hivemind_feedback import submit_hivemind_feedback
@@ -125,13 +128,44 @@ def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]
         _LOGGER.exception("/vibecomfy/agent/status readiness() raised an exception")
         raise
     ok = bool(ready_payload.get("ready"))
+    raw_provider_error = _provider_status_raw_error(ready_payload)
+    user_message = _provider_status_message(
+        ready=ok,
+        provider_available=bool(ready_payload.get("provider_available")),
+        raw_error=raw_provider_error,
+        reason=ready_payload.get("reason"),
+    )
+    provider_status = ProviderStatus(
+        provider=str(ready_payload.get("provider") or "arnold"),
+        provider_available=bool(ready_payload.get("provider_available")),
+        ready=ok,
+        model=ready_payload.get("model") if isinstance(ready_payload.get("model"), str) else None,
+        route=ready_payload.get("route") if isinstance(ready_payload.get("route"), str) else None,
+        message=user_message,
+        error=(
+            {
+                "message": user_message,
+                "type": "provider_unavailable",
+            }
+            if not ok and not ready_payload.get("provider_available")
+            else None
+        ),
+    )
     status: dict[str, Any] = {
         **ready_payload,
+        **provider_status.to_dict(),
         "ok": ok,
         "readiness": "ready" if ok else "unavailable",
     }
-    if not ok and not status.get("provider_available") and "error" not in status:
-        status["error"] = str(status.get("reason") or "Provider is unavailable.")
+    if not ok:
+        status["reason"] = user_message
+        status["message"] = user_message
+    if raw_provider_error is not None:
+        debug = dict(status.get("debug")) if isinstance(status.get("debug"), Mapping) else {}
+        provider_debug = dict(debug.get("provider_status")) if isinstance(debug.get("provider_status"), Mapping) else {}
+        provider_debug["raw_error"] = raw_provider_error
+        debug["provider_status"] = provider_debug
+        status["debug"] = debug
     _LOGGER.info(
         "/vibecomfy/agent/status response ready=%s route=%s requested_route=%s route_options=%s",
         status.get("ready"),
@@ -140,6 +174,38 @@ def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]
         list(status.get("route_options", {}).keys()),
     )
     return status
+
+
+def _provider_status_raw_error(payload: Mapping[str, Any]) -> str | None:
+    for key in ("error", "reason", "detail", "message"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _provider_status_message(
+    *,
+    ready: bool,
+    provider_available: bool,
+    raw_error: str | None,
+    reason: Any,
+) -> str:
+    if ready:
+        return "Provider ready."
+    if not provider_available:
+        return "The model provider is unavailable. Check local provider configuration."
+    if isinstance(reason, str) and reason.strip():
+        return reason.strip()
+    if raw_error:
+        return "The model provider is not ready."
+    return "The model provider is not ready."
+
+
+def _agent_error_response(failure: AgentError) -> dict[str, Any]:
+    response = failure.to_dict()
+    response.update(product_failure_envelope_fields(failure))
+    return response
 
 
 def _handle_agent_edit(
@@ -159,14 +225,15 @@ def _handle_agent_edit(
             client_id=client_id,
         )
     except Exception as exc:
-        return classify_failure("route", exc).to_dict()
+        return _agent_error_response(classify_failure("route", exc))
     if isinstance(result, dict):
         return _sanitize_clarify_payload(result)
-    return failure_envelope(
+    failure = failure_envelope(
         FailureKind.VALIDATION_ERROR,
         "route",
         agent_failure_context={"explanation": "handle_agent_edit returned a non-dict result."},
-    ).to_dict()
+    )
+    return _agent_error_response(failure)
 
 
 def _executor_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -177,7 +244,7 @@ def _executor_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Build legacy compatibility fields, preferring durable envelope fields.
+    """Build legacy compatibility fields from a canonical executor envelope.
 
     Durable ``outcome`` and ``apply_eligibility`` from the edit engine are
     preserved as-is when present; compatibility synthesis runs only as a
@@ -235,18 +302,29 @@ def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]
             "warnings": [],
         }
 
-    # Legacy boolean aliases (no durable conflict — UI convenience fields).
-    compatibility["apply_allowed"] = apply_eligible
-    compatibility["canvas_apply_allowed"] = apply_eligible
-    compatibility["queue_allowed"] = apply_eligible
-    compatibility["graph_unchanged"] = candidate_graph is None
+    compatibility["eligibility"] = compatibility.get("apply_eligibility") or payload.get("eligibility")
+    if not isinstance(compatibility.get("eligibility"), Mapping):
+        compatibility["eligibility"] = {
+            "applyable": apply_eligible,
+            "reason": "applyable" if apply_eligible else "no_candidate",
+            "message": (
+                "Ready to apply." if apply_eligible
+                else "No candidate is available to apply."
+            ),
+            "warnings": [],
+        }
 
-    # Only add graph when durable graph isn't already present.
+    # Only add graph when durable graph is not already present.
     if candidate_graph is not None and not has_durable_graph:
         compatibility["graph"] = candidate_graph
-    # candidate_graph is a legacy alias; always emit when available.
-    if candidate_graph is not None:
-        compatibility["candidate_graph"] = candidate_graph
+    compatibility = build_legacy_agent_edit_v1(
+        {
+            **compatibility,
+            "candidate": candidate,
+            "canvas_apply_allowed": apply_eligible,
+            "queue_allowed": apply_eligible,
+        }
+    )
 
     if route == "clarify":
         compatibility["clarification_required"] = True
@@ -373,16 +451,18 @@ def _handle_agent_executor_submit(
     from vibecomfy.executor.core import run_executor  # noqa: PLC0415
 
     if not isinstance(payload, dict):
-        failure = failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "agent_executor",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        failure = _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "agent_executor",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
         return _validated_failure_response("agent_executor", failure), 400
     try:
         request = ExecutorRequest.from_payload(_executor_request_payload(payload))
     except Exception as exc:
-        failure = classify_failure("agent_executor", exc).to_dict()
+        failure = _agent_error_response(classify_failure("agent_executor", exc))
         return _validated_failure_response("agent_executor", failure), 400
     result = run_executor(request, client_id=client_id)
     response = _serialize_executor_result(result)
@@ -502,24 +582,13 @@ def _maybe_write_executor_only_durable_turn(
             stamped["baseline_graph_hash"] = baseline_graph_hash
 
         # ── Non-applyable: no candidate, graph unchanged, clear reason ──
-        stamped["apply_eligibility"] = apply_eligibility_payload(
-            ApplyEligibility(
-                applyable=False,
-                reason="no_candidate",
-                message="No candidate is available to apply.",
-            ),
-            canvas_apply_allowed=False,
-            queue_allowed=False,
-        ).get("apply_eligibility", {
+        stamped["eligibility"] = {
             "applyable": False,
             "reason": "no_candidate",
             "message": "No candidate is available to apply.",
             "warnings": [],
-        })
+        }
         stamped["apply_eligible"] = False
-        stamped["apply_allowed"] = False
-        stamped["canvas_apply_allowed"] = False
-        stamped["queue_allowed"] = False
         stamped["graph_unchanged"] = True
         stamped["no_candidate_reason"] = "route_not_applyable"
 
@@ -541,6 +610,14 @@ def _maybe_write_executor_only_durable_turn(
 
         if route == "clarify":
             stamped = _sanitize_clarify_payload(stamped)
+        else:
+            stamped = build_legacy_agent_edit_v1(
+                {
+                    **stamped,
+                    "canvas_apply_allowed": False,
+                    "queue_allowed": False,
+                }
+            )
 
         # ── Write response.json ──
         write_json_artifact(response_path, stamped)
@@ -700,11 +777,13 @@ def _handle_agent_edit_chat(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "chat",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "chat",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
     session_id = payload.get("session_id")
     max_messages = _coerce_chat_max_messages(payload.get("max_messages"))
     try:
@@ -714,13 +793,15 @@ def _handle_agent_edit_chat(
             max_messages=max_messages,
         )
     except Exception as exc:
-        return classify_failure("chat", exc).to_dict()
+        return _agent_error_response(classify_failure("chat", exc))
     if not isinstance(result, dict):
-        return failure_envelope(
-            FailureKind.VALIDATION_ERROR,
-            "chat",
-            agent_failure_context={"explanation": "read_session_chat returned a non-dict result."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.VALIDATION_ERROR,
+                "chat",
+                agent_failure_context={"explanation": "read_session_chat returned a non-dict result."},
+            )
+        )
     latest_candidate = result.get("latest_candidate")
     outcome = (
         latest_candidate.get("outcome")
@@ -753,16 +834,17 @@ def _stamp_action_success(
 ) -> dict[str, Any]:
     stamped = dict(response)
     stamped["outcome"] = {"kind": "noop"}
-    stamped.update(
-        apply_eligibility_payload(
-            ApplyEligibility(
+    stamped = build_legacy_agent_edit_v1(
+        {
+            **stamped,
+            "eligibility": ApplyEligibility(
                 applyable=False,
                 reason=eligibility_reason,
                 message=eligibility_message,
-            ),
-            canvas_apply_allowed=False,
-            queue_allowed=False,
-        )
+            ).to_dict(),
+            "canvas_apply_allowed": False,
+            "queue_allowed": False,
+        }
     )
     return ensure_agent_edit_response_contract(stamped, stage=str(stamped.get("action") or "route"))
 
@@ -888,18 +970,22 @@ def _handle_agent_edit_accept(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "accept",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "accept",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
     turn_id = payload.get("turn_id")
     if not isinstance(turn_id, str) or not turn_id.strip():
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "accept",
-            agent_failure_context={"explanation": "turn_id is required."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "accept",
+                agent_failure_context={"explanation": "turn_id is required."},
+            )
+        )
     root = _session_root_path(session_root)
     session_id = payload.get("session_id")
     try:
@@ -919,7 +1005,7 @@ def _handle_agent_edit_accept(
             else None,
         )
     except Exception as exc:
-        return classify_failure("accept", exc).to_dict()
+        return _agent_error_response(classify_failure("accept", exc))
     serialized = _normalize_action_response(
         result,
         stage="accept",
@@ -935,7 +1021,7 @@ def _handle_agent_edit_accept(
                 action="accept",
             )
         except Exception as exc:
-            return classify_failure("audit", exc).to_dict()
+            return _agent_error_response(classify_failure("audit", exc))
     return serialized
 
 
@@ -945,18 +1031,22 @@ def _handle_agent_edit_reject(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "reject",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "reject",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
     turn_id = payload.get("turn_id")
     if not isinstance(turn_id, str) or not turn_id.strip():
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "reject",
-            agent_failure_context={"explanation": "turn_id is required."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "reject",
+                agent_failure_context={"explanation": "turn_id is required."},
+            )
+        )
     root = _session_root_path(session_root)
     session_id = payload.get("session_id")
     try:
@@ -976,7 +1066,7 @@ def _handle_agent_edit_reject(
             else None,
         )
     except Exception as exc:
-        return classify_failure("reject", exc).to_dict()
+        return _agent_error_response(classify_failure("reject", exc))
     serialized = _normalize_action_response(
         result,
         stage="reject",
@@ -992,7 +1082,7 @@ def _handle_agent_edit_reject(
                 action="reject",
             )
         except Exception as exc:
-            return classify_failure("audit", exc).to_dict()
+            return _agent_error_response(classify_failure("audit", exc))
     return serialized
 
 
@@ -1002,11 +1092,13 @@ def _handle_agent_edit_rebaseline(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "rebaseline",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "rebaseline",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
     try:
         result = rebaseline_session(
             session_root=_session_root_path(session_root),
@@ -1017,7 +1109,7 @@ def _handle_agent_edit_rebaseline(
             else None,
         )
     except Exception as exc:
-        return classify_failure("rebaseline", exc).to_dict()
+        return _agent_error_response(classify_failure("rebaseline", exc))
     return _normalize_action_response(
         result,
         stage="rebaseline",
@@ -1032,37 +1124,45 @@ def _handle_agent_edit_audit(
     session_root: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "audit",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "audit",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
     session_id = payload.get("session_id")
     turn_id = payload.get("turn_id")
     action = payload.get("action")
     if not isinstance(session_id, str) or not session_id.strip():
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "audit",
-            agent_failure_context={"explanation": "session_id is required."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "audit",
+                agent_failure_context={"explanation": "session_id is required."},
+            )
+        )
     if not isinstance(turn_id, str) or not turn_id.strip():
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "audit",
-            agent_failure_context={"explanation": "turn_id is required."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "audit",
+                agent_failure_context={"explanation": "turn_id is required."},
+            )
+        )
     if action not in {"accept", "reject", "rebaseline"}:
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "audit",
-            agent_failure_context={"explanation": "action must be one of accept, reject, or rebaseline."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "audit",
+                agent_failure_context={"explanation": "action must be one of accept, reject, or rebaseline."},
+            )
+        )
     audit_path = _audit_path_for_action(_session_root_path(session_root), session_id, turn_id, action)
     try:
         body = audit_path.read_bytes()
     except OSError as exc:
-        return classify_failure("audit", exc).to_dict()
+        return _agent_error_response(classify_failure("audit", exc))
     return {
         "ok": True,
         "headers": {
@@ -1083,18 +1183,20 @@ def _handle_agent_credentials(
     env_path: Any = None,
 ) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        return failure_envelope(
-            FailureKind.MISSING_REQUIRED_FIELD,
-            "credentials",
-            agent_failure_context={"explanation": "Request body must be a JSON object."},
-        ).to_dict()
+        return _agent_error_response(
+            failure_envelope(
+                FailureKind.MISSING_REQUIRED_FIELD,
+                "credentials",
+                agent_failure_context={"explanation": "Request body must be a JSON object."},
+            )
+        )
     try:
         return handle_credential_submission(
             payload,
             env_path=Path(env_path) if env_path is not None else None,
         )
     except Exception as exc:
-        return classify_failure("ingest", exc).to_dict()
+        return _agent_error_response(classify_failure("ingest", exc))
 
 
 

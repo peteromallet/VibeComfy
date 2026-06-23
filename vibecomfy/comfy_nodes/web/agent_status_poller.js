@@ -118,11 +118,105 @@ export function routeOptionsFromStatus(status) {
   return options;
 }
 
+export function projectRouteStatus(status, request = {}) {
+  const route = normalizeRoutePreference(request.route);
+  const model = normalizeModelPreference(request.model);
+  const quiet = Boolean(request.quiet);
+  const isStatusObject = Boolean(status && typeof status === "object" && !Array.isArray(status));
+  const routeOptions = routeOptionsFromStatus(status);
+  const requestedRoute = normalizeRoutePreferenceForStatus(
+    isStatusObject ? (status.requested_route || route) : route,
+    routeOptions,
+  );
+  const routeStatusBase = { requestedRoute, model };
+
+  if (!isStatusObject) {
+    return {
+      issue: "malformed_status",
+      routeStatus: {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        ...routeStatusBase,
+      },
+      routeOptions: null,
+      selectedRoute: requestedRoute,
+      placeholderLabel: "Malformed status payload",
+      settingsMessage: "Malformed status payload; route/model controls disabled.",
+    };
+  }
+
+  if (!routeOptions) {
+    return {
+      issue: "missing_route_options",
+      routeStatus: {
+        kind: ROUTE_STATUS_KIND.MISSING_OPTIONS,
+        ...routeStatusBase,
+      },
+      routeOptions: null,
+      selectedRoute: requestedRoute,
+      placeholderLabel: "Route options unavailable",
+      settingsMessage: "Status missing route options; route/model controls disabled.",
+    };
+  }
+
+  if (!routeOptions[requestedRoute]) {
+    return {
+      issue: "missing_route_descriptor",
+      routeStatus: {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        ...routeStatusBase,
+      },
+      routeOptions,
+      selectedRoute: requestedRoute,
+      placeholderLabel: null,
+      settingsMessage: "Malformed status payload; route/model controls disabled.",
+    };
+  }
+
+  if (status.ready === false) {
+    return {
+      issue: null,
+      routeStatus: {
+        kind: ROUTE_STATUS_KIND.UNAVAILABLE,
+        ...routeStatusBase,
+      },
+      routeOptions,
+      selectedRoute: requestedRoute,
+      placeholderLabel: null,
+      settingsMessage: status.reason || "Provider unavailable.",
+    };
+  }
+
+  const availability = status.provider_available === false ? "provider unavailable" : "provider ready";
+  return {
+    issue: null,
+    routeStatus: {
+      kind: ROUTE_STATUS_KIND.READY,
+      ...routeStatusBase,
+    },
+    routeOptions,
+    selectedRoute: requestedRoute,
+    placeholderLabel: null,
+    settingsMessage: quiet
+      ? null
+      : `${status.requested_route || route} → ${status.route || route} (${availability})`,
+  };
+}
+
 function normalizeRoutePreference(value) {
   const normalized = String(value || "")
     .trim()
     .toLowerCase();
   return ROUTE_ALIASES[normalized] || "openrouter";
+}
+
+function normalizeRoutePreferenceForStatus(value, routeOptions) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized && routeOptions && Object.prototype.hasOwnProperty.call(routeOptions, normalized)) {
+    return normalized;
+  }
+  return normalizeRoutePreference(normalized);
 }
 
 function normalizeModelPreference(value) {
@@ -403,67 +497,33 @@ export async function refreshAgentStatus(panel, { quiet = false } = {}, deps = {
     }
     clearAgentStatusRetry(panel);
     panel.state.statusSnapshot = status;
-    const requestedRoute = normalizeRoutePreference(status?.requested_route || route);
-    const routeOptions = routeOptionsFromStatus(status);
-    if (!status || typeof status !== "object" || Array.isArray(status)) {
+    const projected = projectRouteStatus(status, { route, model, quiet });
+    const requestedRoute = projected.routeStatus.requestedRoute;
+    if (projected.issue === "malformed_status") {
       console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", status);
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.MALFORMED,
-        requestedRoute,
-        model,
-      };
-      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
-      populateRouteSelect(panel.fields.route, null, {
-        placeholderLabel: "Malformed status payload",
-        selectedRoute: requestedRoute,
-      }, deps);
-      panel.fields.route.value = requestedRoute;
-    } else if (!routeOptions) {
+    } else if (projected.issue === "missing_route_options") {
       console.warn("[vibecomfy] status payload missing route_options", status);
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.MISSING_OPTIONS,
+    } else if (projected.issue === "missing_route_descriptor") {
+      console.warn("[vibecomfy] status payload missing descriptor for requested route", {
         requestedRoute,
-        model,
-      };
-      panel.state.settingsMessage = "Status missing route options; route/model controls disabled.";
-      populateRouteSelect(panel.fields.route, null, {
-        placeholderLabel: "Route options unavailable",
+        routeOptions: projected.routeOptions,
+      });
+    }
+    panel.state.routeStatus = projected.routeStatus;
+    if (projected.settingsMessage != null) {
+      panel.state.settingsMessage = projected.settingsMessage;
+    }
+    if (projected.routeOptions) {
+      populateRouteSelect(panel.fields.route, projected.routeOptions, {
         selectedRoute: requestedRoute,
       }, deps);
-      panel.fields.route.value = requestedRoute;
     } else {
-      populateRouteSelect(panel.fields.route, routeOptions, { selectedRoute: requestedRoute }, deps);
-      panel.fields.route.value = requestedRoute;
-      if (!routeOptions[requestedRoute]) {
-        console.warn("[vibecomfy] status payload missing descriptor for requested route", {
-          requestedRoute,
-          routeOptions,
-        });
-        panel.state.routeStatus = {
-          kind: ROUTE_STATUS_KIND.MALFORMED,
-          requestedRoute,
-          model,
-        };
-        panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
-      } else if (status?.ready === false) {
-        panel.state.routeStatus = {
-          kind: ROUTE_STATUS_KIND.UNAVAILABLE,
-          requestedRoute,
-          model,
-        };
-        panel.state.settingsMessage = status?.reason || "Provider unavailable.";
-      } else {
-        panel.state.routeStatus = {
-          kind: ROUTE_STATUS_KIND.READY,
-          requestedRoute,
-          model,
-        };
-        if (!quiet) {
-          const availability = status?.provider_available === false ? "provider unavailable" : "provider ready";
-          panel.state.settingsMessage = `${status?.requested_route || route} → ${status?.route || route} (${availability})`;
-        }
-      }
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: projected.placeholderLabel || "Status unavailable",
+        selectedRoute: requestedRoute,
+      }, deps);
     }
+    panel.fields.route.value = requestedRoute;
     if (typeof status?.model === "string" && !panel.fields.model.value.trim()) {
       panel.fields.model.value = status.model;
     }

@@ -85,6 +85,16 @@ function compactObject(value) {
   return compact;
 }
 
+function asStringOrNumber(value) {
+  if (typeof value === "string" && value) {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return null;
+}
+
 function hasFailureHints(response) {
   return FAILURE_HINT_KEYS.some((key) => Object.prototype.hasOwnProperty.call(response, key));
 }
@@ -505,6 +515,146 @@ function normalizeCandidateEnvelope(response, candidateGraph) {
   };
 }
 
+function normalizeTurnIdentityPayload(identity) {
+  if (!isObject(identity)) {
+    return null;
+  }
+  const sessionId = asString(identity.sessionId) || asString(identity.session_id);
+  const turnId = asStringOrNumber(identity.turnId) || asStringOrNumber(identity.turn_id);
+  const baselineTurnId =
+    asStringOrNumber(identity.baselineTurnId) || asStringOrNumber(identity.baseline_turn_id);
+  const idempotencyKey =
+    asString(identity.idempotencyKey) || asString(identity.idempotency_key);
+  const role = asString(identity.role);
+  const entryType = asString(identity.entryType) || asString(identity.entry_type);
+  if (!sessionId && !turnId && !baselineTurnId && !idempotencyKey && !role && !entryType) {
+    return null;
+  }
+  return compactObject({
+    sessionId,
+    turnId,
+    baselineTurnId,
+    idempotencyKey,
+    role,
+    entryType,
+  });
+}
+
+function turnIdentitySources(response) {
+  return [
+    response?.turnIdentity,
+    response?.turn_identity,
+    response?.candidate?.turnIdentity,
+    response?.candidate?.turn_identity,
+    response?.debug?.turnIdentity,
+    response?.debug?.turn_identity,
+    isObject(response)
+      ? {
+        session_id: response.session_id,
+        sessionId: response.sessionId,
+        turn_id: response.turn_id,
+        turnId: response.turnId,
+        baseline_turn_id: response.baseline_turn_id,
+        baselineTurnId: response.baselineTurnId,
+        idempotency_key: response.idempotency_key,
+        idempotencyKey: response.idempotencyKey,
+        role: response.role,
+        entry_type: response.entry_type,
+        entryType: response.entryType,
+      }
+      : null,
+  ];
+}
+
+function normalizeStageSnapshotPayload(snapshot) {
+  if (!isObject(snapshot)) {
+    return null;
+  }
+  const stage = asString(snapshot.stage);
+  if (!stage) {
+    return null;
+  }
+  return compactObject({
+    stage,
+    ok: asBooleanOrNull(snapshot.ok),
+    blocking: asBooleanOrNull(snapshot.blocking),
+    durationMs: typeof snapshot.durationMs === "number"
+      ? snapshot.durationMs
+      : typeof snapshot.duration_ms === "number" ? snapshot.duration_ms : null,
+    gates: isObject(snapshot.gates) ? clonePlainData(snapshot.gates) : null,
+    artifacts: Array.isArray(snapshot.artifacts) ? clonePlainData(snapshot.artifacts) : null,
+    issues: Array.isArray(snapshot.issues) ? clonePlainData(snapshot.issues) : null,
+    value: Object.prototype.hasOwnProperty.call(snapshot, "value")
+      ? clonePlainData(snapshot.value)
+      : null,
+  });
+}
+
+function normalizeFieldChangePayload(change) {
+  if (!isObject(change)) {
+    return null;
+  }
+  const uid = asStringOrNumber(change.uid);
+  const fieldPath = asString(change.fieldPath) || asString(change.field_path);
+  if (!uid || !fieldPath) {
+    return null;
+  }
+  return compactObject({
+    uid,
+    fieldPath,
+    old: Object.prototype.hasOwnProperty.call(change, "old") ? clonePlainData(change.old) : undefined,
+    new: Object.prototype.hasOwnProperty.call(change, "new") ? clonePlainData(change.new) : undefined,
+  });
+}
+
+function normalizeFieldChangeList(changes) {
+  if (!Array.isArray(changes)) {
+    return [];
+  }
+  const normalized = [];
+  for (const change of changes) {
+    const fieldChange = normalizeFieldChangePayload(change);
+    if (fieldChange) {
+      normalized.push(fieldChange);
+    }
+  }
+  return normalized;
+}
+
+function readRawFieldChanges(raw) {
+  const outcomeChanges = normalizeFieldChangeList(raw?.outcome?.changes);
+  const directChanges = normalizeFieldChangeList(raw?.changes);
+  const legacyChanges = normalizeFieldChangeList(raw?.field_changes);
+  const batchTurnChanges = [];
+  const batchTurns = raw?.change_details?.batch_turns || raw?.changeDetails?.batchTurns || raw?.batch_turns;
+  if (Array.isArray(batchTurns)) {
+    for (const turn of batchTurns) {
+      if (!isObject(turn)) {
+        continue;
+      }
+      const changes = normalizeFieldChangeList(turn.field_changes || turn.fieldChanges);
+      batchTurnChanges.push({
+        turnNumber: typeof turn.turn_number === "number"
+          ? turn.turn_number
+          : typeof turn.turnNumber === "number" ? turn.turnNumber : null,
+        changes,
+      });
+    }
+  }
+  return {
+    directChanges,
+    outcomeChanges,
+    legacyChanges,
+    batchTurnChanges,
+    all: [
+      ...directChanges,
+      ...outcomeChanges,
+      ...legacyChanges,
+      ...batchTurnChanges.flatMap((turn) => turn.changes),
+    ],
+  };
+}
+
 function normalizePublicRoute(rawRoute, outcome) {
   if (CANONICAL_EXECUTOR_ROUTES.includes(rawRoute)) {
     return rawRoute;
@@ -602,6 +752,17 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     candidateGraphHash:
       asString(raw.candidateGraphHash) || asString(raw.candidate_graph_hash),
     eligibility,
+    turnIdentity: null,
+    stageSnapshots: Array.isArray(raw.stageSnapshots)
+      ? raw.stageSnapshots.map(normalizeStageSnapshotPayload).filter(Boolean)
+      : Array.isArray(raw.stage_snapshots)
+        ? raw.stage_snapshots.map(normalizeStageSnapshotPayload).filter(Boolean)
+        : Array.isArray(raw.debug?.stageSnapshots)
+          ? raw.debug.stageSnapshots.map(normalizeStageSnapshotPayload).filter(Boolean)
+          : Array.isArray(raw.debug?.stage_snapshots)
+            ? raw.debug.stage_snapshots.map(normalizeStageSnapshotPayload).filter(Boolean)
+            : null,
+    fieldChanges: readRawFieldChanges(raw),
     applyEligible:
       asBooleanOrNull(raw.applyEligible)
       ?? asBooleanOrNull(raw.apply_eligible)
@@ -662,6 +823,12 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     detailJsonPathResolved:
       asString(raw.detailJsonPathResolved) || asString(raw.detail_json_path_resolved),
   };
+  for (const identity of turnIdentitySources(raw)) {
+    normalized.turnIdentity = normalizeTurnIdentityPayload(identity);
+    if (normalized.turnIdentity) {
+      break;
+    }
+  }
 
   return normalized;
 }
@@ -694,6 +861,126 @@ export function readRebaselineRecovery(value, options) {
 
 export function readLatestCandidate(value, options) {
   return normalizeIfNeeded(value, options).latestCandidate;
+}
+
+/**
+ * Normalize a canonical StageSnapshot from a response or raw snapshot.
+ *
+ * When passed a response with multiple snapshots, the latest snapshot is used
+ * by default; pass { stage } or { index } to select a specific entry.
+ */
+export function readStageSnapshot(value, options = {}) {
+  if (isObject(value) && asString(value.stage)) {
+    return normalizeStageSnapshotPayload(value);
+  }
+  const normalized = normalizeIfNeeded(value, options);
+  const snapshots = Array.isArray(normalized.stageSnapshots) ? normalized.stageSnapshots : [];
+  if (options.stage) {
+    return snapshots.find((snapshot) => snapshot.stage === options.stage) || null;
+  }
+  const index = typeof options.index === "number" ? options.index : snapshots.length - 1;
+  return index >= 0 && index < snapshots.length ? snapshots[index] : null;
+}
+
+export function readTurnIdentity(value, options) {
+  if (isObject(value) && (
+    Object.prototype.hasOwnProperty.call(value, "session_id")
+    || Object.prototype.hasOwnProperty.call(value, "sessionId")
+    || Object.prototype.hasOwnProperty.call(value, "turn_id")
+    || Object.prototype.hasOwnProperty.call(value, "turnId")
+  )) {
+    const direct = normalizeTurnIdentityPayload(value);
+    if (direct) {
+      return direct;
+    }
+  }
+  return normalizeIfNeeded(value, options).turnIdentity;
+}
+
+export function readApplyCandidate(value, options) {
+  const normalized = normalizeIfNeeded(value, options);
+  const candidate = normalized.candidate;
+  if (!isObject(candidate) || !isObject(normalized.candidateGraph)) {
+    return null;
+  }
+  const identity = readTurnIdentity(normalized);
+  return compactObject({
+    state: asString(candidate.state) || "candidate",
+    graph: normalized.candidateGraph,
+    graphHash:
+      asString(candidate.graphHash)
+      || asString(candidate.graph_hash)
+      || normalized.candidateGraphHash,
+    structuralGraphHash:
+      asString(candidate.structuralGraphHash) || asString(candidate.structural_graph_hash),
+    baselineGraphHash:
+      asString(candidate.baselineGraphHash)
+      || asString(candidate.baseline_graph_hash)
+      || normalized.baselineGraphHash,
+    submitGraphHash:
+      asString(candidate.submitGraphHash)
+      || asString(candidate.submit_graph_hash)
+      || normalized.submitGraphHash,
+    submitStructuralGraphHash:
+      asString(candidate.submitStructuralGraphHash) || asString(candidate.submit_structural_graph_hash),
+    candidateGraphHash: normalized.candidateGraphHash,
+    eligibility: isObject(normalized.eligibility) ? clonePlainData(normalized.eligibility) : null,
+    applyable: normalized.eligibility
+      ? normalized.eligibility.applyable === true
+      : normalized.applyEligible === true,
+    turnIdentity: identity,
+  });
+}
+
+export function readFieldChanges(value, options) {
+  if (isObject(value) && value?.[NORMALIZED_RESPONSE_MARKER] !== true) {
+    const rawChanges = readRawFieldChanges(value);
+    if (rawChanges.all.length > 0) {
+      return rawChanges;
+    }
+  }
+  return normalizeIfNeeded(value, options).fieldChanges;
+}
+
+export function readUserFailure(value, options) {
+  const normalized = normalizeIfNeeded(value, options);
+  if (normalized.outcome?.kind !== "error") {
+    return null;
+  }
+  return compactObject({
+    kind: "error",
+    failureKind:
+      asString(normalized.outcome.failureKind)
+      || asString(normalized.outcome.failure_kind)
+      || normalized.failureKind,
+    stage: asString(normalized.outcome.stage),
+    message: normalized.message,
+    nextAction:
+      asString(normalized.outcome.nextAction)
+      || asString(normalized.outcome.next_action)
+      || normalized.nextAction,
+    retryable:
+      asBooleanOrNull(normalized.outcome.retryable) ?? normalized.retryable,
+    graphUnchanged:
+      asBooleanOrNull(normalized.outcome.graphUnchanged)
+      ?? asBooleanOrNull(normalized.outcome.graph_unchanged)
+      ?? normalized.graphUnchanged,
+    agentFailureContext:
+      isObject(normalized.outcome.agentFailureContext)
+        ? clonePlainData(normalized.outcome.agentFailureContext)
+        : isObject(normalized.outcome.agent_failure_context)
+          ? clonePlainData(normalized.outcome.agent_failure_context)
+          : null,
+    rebaselineRecovery: normalized.rebaselineRecovery,
+  });
+}
+
+export function adaptLegacyAgentEditResponse(raw, options = {}) {
+  return normalizeAgentEditResponse(raw, { ...options, allowLegacy: true });
+}
+
+export function normalizeCanonicalAgentEditResponse(raw, options = {}) {
+  return normalizeAgentEditResponse(raw, { ...options, allowLegacy: false });
 }
 
 export {

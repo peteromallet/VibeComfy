@@ -3,14 +3,56 @@ import assert from "node:assert/strict";
 
 import {
   PUBLIC_OUTCOME_KINDS,
+  adaptLegacyAgentEditResponse,
   normalizeAgentEditResponse,
+  normalizeCanonicalAgentEditResponse,
+  readApplyCandidate,
   readCandidate,
   readCandidateGraph,
   readEligibility,
+  readFieldChanges,
   readLatestCandidate,
   readOutcome,
   readRebaselineRecovery,
+  readStageSnapshot,
+  readTurnIdentity,
+  readUserFailure,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract.js";
+
+const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
+  "executor_pending",
+  "apply_allowed",
+  "canvas_apply_allowed",
+  "applyAllowed",
+  "canvasApplyAllowed",
+]);
+
+function assertCanonicalNormalPathHasNoLegacyAliases(value, path = "$") {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      assertCanonicalNormalPathHasNoLegacyAliases(entry, `${path}[${index}]`);
+    });
+    return;
+  }
+
+  for (const [key, entry] of Object.entries(value)) {
+    const keyPath = `${path}.${key}`;
+    assert.equal(
+      FORBIDDEN_NORMAL_PATH_KEYS.has(key),
+      false,
+      `canonical normal-path payload must not carry legacy alias ${keyPath}`,
+    );
+    assert.equal(
+      key === "field_changes" && !/\.change_details\.batch_turns\[\d+\]\.field_changes$/.test(keyPath),
+      false,
+      `canonical normal-path payload must not carry old field-change dictionary ${keyPath}`,
+    );
+    assertCanonicalNormalPathHasNoLegacyAliases(entry, keyPath);
+  }
+}
 
 test("PUBLIC_OUTCOME_KINDS stays the closed public contract", () => {
   assert.deepEqual(PUBLIC_OUTCOME_KINDS, [
@@ -55,6 +97,349 @@ test("normalizeAgentEditResponse preserves public candidate payloads and exposes
   assert.deepEqual(readCandidateGraph(raw, { endpoint: "submit" }), raw.candidate.graph);
   assert.deepEqual(readEligibility(raw, { endpoint: "submit" }), raw.apply_eligibility);
   assert.equal(readLatestCandidate(raw, { endpoint: "submit" })?.outcome.kind, "candidate");
+});
+
+test("frontend canonical selectors project stable candidate, identity, stage, and field-change views", () => {
+  const raw = {
+    ok: true,
+    message: "Candidate ready.",
+    outcome: {
+      kind: "candidate",
+      changes: [{ uid: "ksampler", field_path: "widgets.steps", old: 20, new: 28 }],
+    },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      graph_hash: "graph-hash",
+      structural_graph_hash: "struct-hash",
+      baseline_graph_hash: "baseline-hash",
+      submit_graph_hash: "submit-hash",
+      submit_structural_graph_hash: "submit-struct-hash",
+      turn_identity: {
+        session_id: "sess-1",
+        turn_id: "turn-1",
+        baseline_turn_id: "turn-0",
+        idempotency_key: "idem-1",
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready to apply.",
+      warnings: [],
+    },
+    change_details: {
+      batch_turns: [
+        {
+          turn_number: 2,
+          field_changes: [{ uid: "save", field_path: "filename_prefix", old: "old", new: "new" }],
+        },
+      ],
+    },
+    debug: {
+      stage_snapshots: [
+        { stage: "lower", ok: true, blocking: false, duration_ms: 12, gates: { lower_ok: true } },
+        { stage: "queue_validate", ok: true, blocking: false, duration_ms: 8 },
+      ],
+    },
+  };
+
+  const candidate = readApplyCandidate(raw, { allowLegacy: false, endpoint: "/submit" });
+  assert.deepEqual(candidate, {
+    state: "candidate",
+    graph: raw.candidate.graph,
+    graphHash: "graph-hash",
+    structuralGraphHash: "struct-hash",
+    baselineGraphHash: "baseline-hash",
+    submitGraphHash: "submit-hash",
+    submitStructuralGraphHash: "submit-struct-hash",
+    eligibility: raw.apply_eligibility,
+    applyable: true,
+    turnIdentity: {
+      sessionId: "sess-1",
+      turnId: "turn-1",
+      baselineTurnId: "turn-0",
+      idempotencyKey: "idem-1",
+    },
+  });
+  assert.deepEqual(readTurnIdentity(raw, { allowLegacy: false }), candidate.turnIdentity);
+  assert.deepEqual(readStageSnapshot(raw, { allowLegacy: false }), {
+    stage: "queue_validate",
+    ok: true,
+    blocking: false,
+    durationMs: 8,
+  });
+  assert.deepEqual(readStageSnapshot(raw, { allowLegacy: false, stage: "lower" }), {
+    stage: "lower",
+    ok: true,
+    blocking: false,
+    durationMs: 12,
+    gates: { lower_ok: true },
+  });
+  assert.deepEqual(readFieldChanges(raw, { allowLegacy: false }), {
+    directChanges: [],
+    outcomeChanges: [{ uid: "ksampler", fieldPath: "widgets.steps", old: 20, new: 28 }],
+    legacyChanges: [],
+    batchTurnChanges: [
+      {
+        turnNumber: 2,
+        changes: [{ uid: "save", fieldPath: "filename_prefix", old: "old", new: "new" }],
+      },
+    ],
+    all: [
+      { uid: "ksampler", fieldPath: "widgets.steps", old: 20, new: 28 },
+      { uid: "save", fieldPath: "filename_prefix", old: "old", new: "new" },
+    ],
+  });
+});
+
+test("allowLegacy=false accepts canonical-only persisted candidate fixtures", () => {
+  const canonicalPersisted = {
+    ok: true,
+    message: "Canonical candidate restored.",
+    outcome: {
+      kind: "candidate",
+      changes: [{ uid: "save", field_path: "inputs.filename_prefix", old: "old", new: "new" }],
+    },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 7, type: "SaveImage" }], links: [] },
+      graph_hash: "canonical-candidate-hash",
+      turn_identity: {
+        session_id: "sess-canonical-persisted",
+        turn_id: "0012",
+        baseline_turn_id: "0011",
+        idempotency_key: "idem-0012",
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready to apply.",
+      warnings: [],
+    },
+    change_details: {
+      batch_turns: [
+        {
+          turn_number: 0,
+          field_changes: [
+            { uid: "save", field_path: "inputs.filename_prefix", old: "old", new: "new" },
+          ],
+        },
+      ],
+    },
+    debug: {
+      stage_snapshots: [
+        { stage: "queue_validate", ok: true, blocking: false, duration_ms: 3 },
+      ],
+    },
+  };
+
+  assertCanonicalNormalPathHasNoLegacyAliases(canonicalPersisted);
+
+  const normalized = normalizeCanonicalAgentEditResponse(canonicalPersisted, {
+    endpoint: "/fixture/canonical-persisted",
+  });
+  const candidate = readApplyCandidate(normalized, { allowLegacy: false });
+
+  assert.equal(normalized.outcome.kind, "candidate");
+  assert.equal(candidate.graphHash, "canonical-candidate-hash");
+  assert.deepEqual(candidate.turnIdentity, {
+    sessionId: "sess-canonical-persisted",
+    turnId: "0012",
+    baselineTurnId: "0011",
+    idempotencyKey: "idem-0012",
+  });
+  assert.deepEqual(readStageSnapshot(normalized, { allowLegacy: false }), {
+    stage: "queue_validate",
+    ok: true,
+    blocking: false,
+    durationMs: 3,
+  });
+  assert.deepEqual(readFieldChanges(normalized, { allowLegacy: false }).legacyChanges, []);
+  assert.deepEqual(readFieldChanges(normalized, { allowLegacy: false }).all, [
+    { uid: "save", fieldPath: "inputs.filename_prefix", old: "old", new: "new" },
+    { uid: "save", fieldPath: "inputs.filename_prefix", old: "old", new: "new" },
+  ]);
+});
+
+test("old persisted candidate fixtures require the explicit legacy adapter", () => {
+  const oldPersisted = {
+    ok: true,
+    message: "Old persisted candidate restored.",
+    session_id: "sess-old-persisted",
+    turn_id: "0009",
+    graph: { nodes: [{ id: 9, type: "PreviewImage" }], links: [] },
+    candidate_graph_hash: "old-candidate-hash",
+    apply_allowed: true,
+    canvas_apply_allowed: true,
+    queue_allowed: true,
+    field_changes: [
+      { uid: "preview", field_path: "inputs.images", old: null, new: "linked" },
+    ],
+  };
+
+  assert.throws(
+    () => normalizeCanonicalAgentEditResponse(oldPersisted, { endpoint: "/fixture/old-persisted" }),
+    /missing outcome/i,
+  );
+
+  const adapted = adaptLegacyAgentEditResponse(oldPersisted, { endpoint: "/fixture/old-persisted" });
+  const candidate = readApplyCandidate(adapted, { allowLegacy: false });
+
+  assert.equal(adapted.outcome.kind, "candidate");
+  assert.equal(candidate.graphHash, "old-candidate-hash");
+  assert.deepEqual(readTurnIdentity(adapted, { allowLegacy: false }), {
+    sessionId: "sess-old-persisted",
+    turnId: "0009",
+  });
+  assert.deepEqual(readFieldChanges(adapted, { allowLegacy: false }).legacyChanges, [
+    { uid: "preview", fieldPath: "inputs.images", new: "linked" },
+  ]);
+});
+
+test("frontend contract selectors cover strict canonical, legacy adapter, and absent sections", () => {
+  const canonicalOnly = {
+    ok: true,
+    message: "Candidate ready.",
+    outcome: {
+      kind: "candidate",
+      changes: [
+        { uid: "ksampler", field_path: "widgets.cfg", old: 7, new: 8 },
+        { uid: "", field_path: "widgets.seed", old: 1, new: 2 },
+      ],
+    },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      graph_hash: "candidate-hash",
+      turn_identity: {
+        session_id: "sess-canonical",
+        turn_id: 17,
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready to apply.",
+      warnings: [],
+    },
+    debug: {
+      stage_snapshots: [
+        { stage: "plan", ok: true, blocking: false, duration_ms: 4 },
+      ],
+    },
+  };
+
+  const canonicalCandidate = readApplyCandidate(canonicalOnly, { allowLegacy: false });
+  assert.equal(canonicalCandidate.graphHash, "candidate-hash");
+  assert.deepEqual(canonicalCandidate.turnIdentity, {
+    sessionId: "sess-canonical",
+    turnId: "17",
+  });
+  assert.deepEqual(readStageSnapshot(canonicalOnly, { allowLegacy: false }), {
+    stage: "plan",
+    ok: true,
+    blocking: false,
+    durationMs: 4,
+  });
+  assert.deepEqual(readFieldChanges(canonicalOnly, { allowLegacy: false }).all, [
+    { uid: "ksampler", fieldPath: "widgets.cfg", old: 7, new: 8 },
+  ]);
+  assert.equal(readUserFailure(canonicalOnly, { allowLegacy: false }), null);
+
+  const legacyAdapterInput = {
+    ok: true,
+    message: "Legacy candidate ready.",
+    graph: { nodes: [{ id: 2, type: "SaveImage" }], links: [] },
+    apply_allowed: true,
+    canvas_apply_allowed: true,
+    queue_allowed: true,
+    field_changes: [
+      { uid: "save", field_path: "filename_prefix", old: "old", new: "new" },
+    ],
+    session_id: "sess-legacy",
+    turn_id: "turn-legacy",
+  };
+
+  assert.throws(
+    () => readApplyCandidate(legacyAdapterInput, { allowLegacy: false, endpoint: "/strict" }),
+    /missing outcome/i,
+  );
+  const adaptedLegacy = adaptLegacyAgentEditResponse(legacyAdapterInput, { endpoint: "/compat" });
+  assert.deepEqual(readApplyCandidate(adaptedLegacy)?.graph, legacyAdapterInput.graph);
+  assert.deepEqual(readTurnIdentity(adaptedLegacy), {
+    sessionId: "sess-legacy",
+    turnId: "turn-legacy",
+  });
+  assert.deepEqual(readFieldChanges(adaptedLegacy).legacyChanges, [
+    { uid: "save", fieldPath: "filename_prefix", old: "old", new: "new" },
+  ]);
+  assert.equal(readStageSnapshot(adaptedLegacy), null);
+
+  const canonicalWithoutOptionalSections = {
+    ok: true,
+    message: "No candidate.",
+    outcome: { kind: "noop", reason: "nothing changed" },
+  };
+  assert.equal(readApplyCandidate(canonicalWithoutOptionalSections, { allowLegacy: false }), null);
+  assert.equal(readTurnIdentity(canonicalWithoutOptionalSections, { allowLegacy: false }), null);
+  assert.equal(readStageSnapshot(canonicalWithoutOptionalSections, { allowLegacy: false }), null);
+  assert.deepEqual(readFieldChanges(canonicalWithoutOptionalSections, { allowLegacy: false }).all, []);
+});
+
+test("user failure selector exposes sanitized public failure without debug raw detail", () => {
+  const raw = {
+    ok: false,
+    message: "The provider is unavailable.",
+    outcome: {
+      kind: "error",
+      failure_kind: "ProviderError",
+      stage: "provider",
+      next_action: "Try again after provider recovery.",
+      retryable: true,
+      agent_failure_context: {
+        issues: [{ code: "provider_error", message: "Provider unavailable." }],
+      },
+    },
+    debug: {
+      failure: {
+        raw_error: "provider token secret should stay debug-only",
+      },
+    },
+  };
+
+  const failure = readUserFailure(raw, { allowLegacy: false, endpoint: "/submit" });
+
+  assert.deepEqual(failure, {
+    kind: "error",
+    failureKind: "ProviderError",
+    stage: "provider",
+    message: "The provider is unavailable.",
+    nextAction: "Try again after provider recovery.",
+    retryable: true,
+    agentFailureContext: {
+      issues: [{ code: "provider_error", message: "Provider unavailable." }],
+    },
+  });
+  assert.equal(JSON.stringify(failure).includes("token secret"), false);
+});
+
+test("legacy response adaptation is explicit and canonical strict mode rejects legacy inference", () => {
+  const legacy = {
+    ok: true,
+    graph: { nodes: [{ id: 1, type: "PreviewImage" }], links: [] },
+    apply_allowed: true,
+    canvas_apply_allowed: true,
+  };
+
+  assert.throws(
+    () => normalizeCanonicalAgentEditResponse(legacy, { endpoint: "/strict" }),
+    /missing outcome/i,
+  );
+  const adapted = adaptLegacyAgentEditResponse(legacy, { endpoint: "/compat" });
+  assert.equal(adapted.outcome.kind, "candidate");
+  assert.deepEqual(readApplyCandidate(adapted)?.graph, legacy.graph);
 });
 
 test("normalizeAgentEditResponse accepts canonical executor candidate envelope", () => {

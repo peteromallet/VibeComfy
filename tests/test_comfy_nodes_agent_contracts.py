@@ -11,13 +11,24 @@ from vibecomfy.comfy_nodes.agent.contracts import (
     FAILURE_SPECS,
     PUBLIC_OUTCOME_KINDS,
     SCAN_CODE_FAILURE_KIND,
+    AgentError,
+    ApplyCandidate,
+    ApplyEligibility,
+    ArtifactRef,
     FailureEnvelope,
     FailureKind,
+    FieldChange as ContractFieldChange,
+    ProviderStatus,
+    StageResult,
+    StageSnapshot,
     TURN_OUTCOME_KINDS,
     TurnContext,
+    TurnIdentity,
     TurnOutcome,
     classify_failure,
+    derive_apply_candidate_key,
     ensure_agent_edit_response_contract,
+    derive_pending_response_key,
     failure_envelope,
     product_failure_envelope_fields,
     public_outcome_from_turn_outcome,
@@ -30,6 +41,261 @@ from vibecomfy.security.agent_generated_loader import (
     ScanFailure,
     ScanReport,
 )
+
+
+def _json_paths_containing(value: object, needle: str, path: str = "$") -> list[str]:
+    if isinstance(value, dict):
+        paths: list[str] = []
+        for key, item in value.items():
+            paths.extend(_json_paths_containing(item, needle, f"{path}.{key}"))
+        return paths
+    if isinstance(value, list):
+        paths = []
+        for index, item in enumerate(value):
+            paths.extend(_json_paths_containing(item, needle, f"{path}[{index}]"))
+        return paths
+    if isinstance(value, str) and needle in value:
+        return [path]
+    return []
+
+
+def test_canonical_backend_contract_objects_serialize_snake_case() -> None:
+    identity = TurnIdentity(
+        session_id="sess-1",
+        turn_id="0007",
+        baseline_turn_id="0006",
+        idempotency_key="submit:key",
+    )
+    candidate = ApplyCandidate(
+        state="candidate",
+        graph={"nodes": [{"id": 1}], "links": []},
+        graph_hash="candidate-hash",
+        structural_graph_hash="candidate-structural-hash",
+        baseline_graph_hash="baseline-hash",
+        submit_graph_hash="submit-hash",
+        submit_structural_graph_hash="submit-structural-hash",
+        turn_identity=identity,
+    )
+    snapshot = StageSnapshot(
+        stage="ui_emit",
+        ok=True,
+        blocking=False,
+        duration_ms=12,
+        gates={"ui_emit_ok": True},
+        artifacts=(ArtifactRef(path="turns/0007/candidate.ui.json", sha256="abc"),),
+        issues=({"code": "warning"},),
+        value={"summary": ["ok"]},
+    )
+    provider = ProviderStatus(
+        provider="arnold",
+        provider_available=True,
+        ready=True,
+        model="gpt-5.1",
+        route="openai-codex",
+        message="ready",
+        error={"detail": {"code": "none"}},
+    )
+
+    assert identity.to_dict() == {
+        "session_id": "sess-1",
+        "turn_id": "0007",
+        "baseline_turn_id": "0006",
+        "idempotency_key": "submit:key",
+    }
+    assert candidate.to_dict() == {
+        "state": "candidate",
+        "graph": {"nodes": [{"id": 1}], "links": []},
+        "graph_hash": "candidate-hash",
+        "structural_graph_hash": "candidate-structural-hash",
+        "baseline_graph_hash": "baseline-hash",
+        "submit_graph_hash": "submit-hash",
+        "submit_structural_graph_hash": "submit-structural-hash",
+        "turn_identity": identity.to_dict(),
+    }
+    assert snapshot.to_dict() == {
+        "stage": "ui_emit",
+        "ok": True,
+        "blocking": False,
+        "duration_ms": 12,
+        "gates": {"ui_emit_ok": True},
+        "artifacts": [
+            {
+                "path": "turns/0007/candidate.ui.json",
+                "sha256": "abc",
+                "byte_count": None,
+                "preview": None,
+            }
+        ],
+        "issues": [{"code": "warning"}],
+        "value": {"summary": ["ok"]},
+    }
+    assert provider.to_dict() == {
+        "provider": "arnold",
+        "provider_available": True,
+        "ready": True,
+        "contract_version": AGENT_EDIT_TURN_CONTRACT_VERSION,
+        "model": "gpt-5.1",
+        "route": "openai-codex",
+        "message": "ready",
+        "error": {"detail": {"code": "none"}},
+    }
+
+
+def test_contract_boundary_reexports_field_change_and_reuses_failure_envelope() -> None:
+    assert ContractFieldChange is FieldChange
+    assert AgentError is FailureEnvelope
+
+    change = ContractFieldChange(uid="n1", field_path="widgets.seed", old=1, new=2)
+    assert change.to_dict() == {
+        "uid": "n1",
+        "field_path": "widgets.seed",
+        "old": 1,
+        "new": 2,
+    }
+
+
+def test_backend_contract_dataclasses_validate_and_freeze_boundaries() -> None:
+    with pytest.raises(ValueError, match="Unknown Apply eligibility reason"):
+        ApplyEligibility(applyable=False, reason="not_a_reason", message="blocked")
+    with pytest.raises(ValueError, match="Unknown TurnOutcome kind"):
+        TurnOutcome(kind="not_a_kind")
+    with pytest.raises(ValueError, match="Only failure TurnOutcome"):
+        TurnOutcome(kind="noop", failure_kind=FailureKind.TIMEOUT_ERROR)
+    with pytest.raises(ValueError, match="Failure TurnOutcome requires"):
+        TurnOutcome(kind="failure", failure_kind=FailureKind.TIMEOUT_ERROR)
+
+    identity = TurnIdentity(session_id="sess-1", turn_id="0007")
+    with pytest.raises((TypeError, AttributeError)):
+        identity.turn_id = "0008"  # type: ignore[misc]
+
+    candidate = ApplyCandidate(
+        state="candidate",
+        graph={"nodes": [{"id": "1"}]},
+        graph_hash="candidate-hash",
+        structural_graph_hash="structural-hash",
+    )
+    with pytest.raises(TypeError):
+        candidate.graph["nodes"] = []  # type: ignore[index]
+    with pytest.raises(TypeError):
+        candidate.graph["nodes"][0]["id"] = "2"  # type: ignore[index]
+
+    snapshot = StageSnapshot(
+        stage="ui_emit",
+        ok=True,
+        blocking=False,
+        gates={"ui_emit_ok": True},
+        issues=({"detail": {"raw": "issue"}},),
+        value={"nested": {"ok": True}},
+    )
+    with pytest.raises(TypeError):
+        snapshot.gates["ui_emit_ok"] = False  # type: ignore[index]
+    with pytest.raises(TypeError):
+        snapshot.issues[0]["detail"]["raw"] = "mutated"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        snapshot.value["nested"]["ok"] = False  # type: ignore[index]
+
+
+def test_failure_contract_sanitizes_user_facing_payload_but_keeps_debug_details() -> None:
+    raw_detail = "Provider stack trace: api_key=sk-secret token=leaked"
+    failure = classify_failure(
+        "agent_response",
+        RuntimeError(raw_detail),
+        TurnContext(session_id="s1", turn_id="0009"),
+    )
+
+    payload = failure.to_dict()
+    product_payload = dict(payload)
+    product_payload.update(product_failure_envelope_fields(failure))
+
+    assert failure.kind is FailureKind.PROVIDER_ERROR
+    assert raw_detail not in payload["message"]
+    assert raw_detail not in payload["user_facing_message"]
+    assert raw_detail not in product_payload["message"]
+    assert raw_detail not in product_payload["user_facing_message"]
+    assert raw_detail not in product_payload["outcome"]["next_action"]
+    assert raw_detail not in product_payload["outcome"].get("agent_failure_context", {})
+    assert raw_detail not in product_payload["agent_failure_context"].get("explanation", "")
+    assert payload["agent_failure_context"]["explanation"] == raw_detail
+    assert (
+        product_payload["debug"]["failure"]["agent_failure_context"]["explanation"]
+        == raw_detail
+    )
+    assert _json_paths_containing(product_payload, raw_detail) == [
+        "$.debug.failure.agent_failure_context.explanation"
+    ]
+
+
+def test_boundary_only_key_derivation_helpers_are_stable() -> None:
+    identity = TurnIdentity(session_id="sess-1", turn_id="0007", idempotency_key="submit:key")
+    candidate = ApplyCandidate(
+        state="candidate",
+        graph={"nodes": []},
+        graph_hash="candidate-hash",
+        structural_graph_hash="candidate-structural-hash",
+        turn_identity=identity,
+    )
+
+    assert derive_pending_response_key(identity) == "pending:sess-1:0007"
+    assert derive_pending_response_key(
+        {"session_id": "sess-1", "idempotency_key": "submit:key"}
+    ) == "pending:sess-1:submit:key"
+    assert derive_pending_response_key({}) == "pending:no-session:no-turn"
+    assert derive_apply_candidate_key(candidate) == "candidate:sess-1:0007:candidate-hash"
+    assert derive_apply_candidate_key({"graph_hash": "candidate-hash"}) == (
+        "candidate:candidate-hash"
+    )
+
+
+def test_turn_identity_key_derivation_rejects_invalid_boundary_values() -> None:
+    assert derive_pending_response_key(
+        {"session_id": 123, "turn_id": 456, "idempotency_key": object()}
+    ) == "pending:no-session:no-turn"
+
+    assert derive_apply_candidate_key(
+        {"graph_hash": 123, "turn_identity": {"session_id": "sess-1", "turn_id": 7}}
+    ) == "candidate:no-graph-hash"
+    assert derive_apply_candidate_key(
+        {"graph_hash": "candidate-hash"},
+        identity={"session_id": "sess-2", "turn_id": "0008"},
+    ) == "candidate:sess-2:0008:candidate-hash"
+    assert derive_apply_candidate_key(
+        {
+            "graph_hash": "candidate-hash",
+            "turn_identity": {"session_id": "sess-1", "turn_id": "0007"},
+        },
+        identity={"session_id": "sess-2"},
+    ) == "candidate:candidate-hash"
+
+
+def test_stage_snapshot_can_be_built_from_stage_result_without_aliases() -> None:
+    result = StageResult(
+        stage="validate",
+        ok=True,
+        blocking=False,
+        duration_ms=4,
+        value={"count": 1},
+        artifacts=(ArtifactRef(path="audit.json"),),
+        issues=({"code": "info"},),
+        gate_updates={"ir_validate_ok": True},
+    )
+
+    assert StageSnapshot.from_stage_result(result).to_dict() == {
+        "stage": "validate",
+        "ok": True,
+        "blocking": False,
+        "duration_ms": 4,
+        "gates": {"ir_validate_ok": True},
+        "artifacts": [
+            {
+                "path": "audit.json",
+                "sha256": None,
+                "byte_count": None,
+                "preview": None,
+            }
+        ],
+        "issues": [{"code": "info"}],
+        "value": {"count": 1},
+    }
 
 
 def test_failure_kind_enum_matches_closed_contract_exactly() -> None:
@@ -477,7 +743,7 @@ def test_ensure_agent_edit_response_contract_maps_internal_outcomes_and_flat_fai
     assert failure_payload["outcome"]["failure_kind"] == FailureKind.TIMEOUT_ERROR.value
 
 
-def test_success_envelope_keeps_canonical_and_compatibility_eligibility_fields() -> None:
+def test_success_envelope_keeps_canonical_eligibility_field() -> None:
     context = TurnContext(session_id="s1", turn_id="0001")
     context.set_gate("python_load_ok", True)
 
@@ -488,7 +754,47 @@ def test_success_envelope_keeps_canonical_and_compatibility_eligibility_fields()
     )
 
     assert payload["eligibility"] == context.apply_eligibility.to_dict()
-    assert payload["apply_eligibility"] == payload["eligibility"]
+    assert "apply_eligibility" not in payload
+    assert "apply_allowed" not in payload
+    assert "canvas_apply_allowed" not in payload
+    assert "queue_allowed" not in payload
+
+
+def test_build_legacy_agent_edit_v1_adds_aliases_after_canonical_payload() -> None:
+    from vibecomfy.comfy_nodes.agent.contracts import build_legacy_agent_edit_v1
+
+    canonical = {
+        "message": "Updated the workflow.",
+        "outcome": {"kind": "candidate", "changes": []},
+        "candidate": {
+            "state": "candidate",
+            "graph": {"nodes": [{"id": 1}], "links": []},
+            "graph_hash": "candidate-hash",
+            "structural_graph_hash": "candidate-structural-hash",
+        },
+        "eligibility": {
+            "applyable": True,
+            "reason": "applyable",
+            "message": "Ready to apply.",
+            "warnings": [],
+        },
+    }
+
+    payload = build_legacy_agent_edit_v1(
+        {
+            **canonical,
+            "canvas_apply_allowed": True,
+            "queue_allowed": False,
+        }
+    )
+
+    assert canonical.keys() <= payload.keys()
+    assert payload["apply_eligibility"] == canonical["eligibility"]
+    assert payload["apply_allowed"] is True
+    assert payload["canvas_apply_allowed"] is True
+    assert payload["queue_allowed"] is False
+    assert payload["candidate_graph"] == canonical["candidate"]["graph"]
+    assert payload["graph"] == canonical["candidate"]["graph"]
 
 
 # ---------------------------------------------------------------------------

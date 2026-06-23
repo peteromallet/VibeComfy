@@ -23,14 +23,18 @@ from .audit import (
     write_json_artifact,
 )
 from .contracts import (
+    AgentError,
+    ApplyCandidate,
     ApplyEligibility,
     ArtifactRef,
     FailureEnvelope,
     FailureKind,
+    StageSnapshot,
     StageResult,
+    TurnIdentity,
     TurnContext,
     TurnOutcome,
-    apply_eligibility_payload,
+    build_legacy_agent_edit_v1,
     classify_failure,
     derive_apply_eligibility,
     ensure_agent_edit_response_contract,
@@ -4983,7 +4987,7 @@ def _validated_agent_edit_response(
         return ensure_agent_edit_response_contract(fallback, stage=stage)
 
 
-def _product_failure_response(failure: FailureEnvelope) -> dict[str, Any]:
+def _product_failure_response(failure: AgentError) -> dict[str, Any]:
     response = failure.to_dict()
     response.update(product_failure_envelope_fields(failure))
     return response
@@ -5009,18 +5013,29 @@ def _build_candidate_payload(
     *,
     compatibility_fields: Mapping[str, Any],
     has_candidate: bool,
+    turn_identity: TurnIdentity,
 ) -> dict[str, Any] | None:
     if not has_candidate:
         return None
-    return {
-        "state": "candidate",
-        "graph": state.ui_payload,
-        "graph_hash": compatibility_fields["candidate_graph_hash"],
-        "structural_graph_hash": compatibility_fields["candidate_structural_graph_hash"],
-        "baseline_graph_hash": compatibility_fields["baseline_graph_hash"],
-        "submit_graph_hash": compatibility_fields["submit_graph_hash"],
-        "submit_structural_graph_hash": compatibility_fields["submit_structural_graph_hash"],
-    }
+    candidate = ApplyCandidate(
+        state="candidate",
+        graph=state.ui_payload or {},
+        graph_hash=compatibility_fields["candidate_graph_hash"],
+        structural_graph_hash=compatibility_fields["candidate_structural_graph_hash"],
+        baseline_graph_hash=compatibility_fields["baseline_graph_hash"],
+        submit_graph_hash=compatibility_fields["submit_graph_hash"],
+        submit_structural_graph_hash=compatibility_fields["submit_structural_graph_hash"],
+        turn_identity=turn_identity,
+    )
+    return candidate.to_dict()
+
+
+def _stage_snapshot_payloads(context: TurnContext) -> list[dict[str, Any]]:
+    snapshots = tuple(
+        StageSnapshot.from_stage_result(result)
+        for result in context.stage_results.values()
+    )
+    return [snapshot.to_dict() for snapshot in snapshots]
 
 
 _CLARIFY_FORBIDDEN_RESPONSE_KEYS = {
@@ -5081,7 +5096,7 @@ def _legacy_failure_response(
     state: AgentEditState,
     context: TurnContext,
     *,
-    failure: FailureEnvelope,
+    failure: AgentError,
 ) -> dict[str, Any]:
     derive_gates(
         context,
@@ -5108,12 +5123,13 @@ def _legacy_failure_response(
     else:
         eligibility = derive_apply_eligibility(context, has_candidate=False)
     response.update(
-        apply_eligibility_payload(
-            eligibility,
-            canvas_apply_allowed=context.canvas_apply_allowed,
-            queue_allowed=context.queue_allowed,
-        )
+        {
+            "eligibility": eligibility.to_dict(),
+            "canvas_apply_allowed": context.canvas_apply_allowed,
+            "queue_allowed": context.queue_allowed,
+        }
     )
+    response = build_legacy_agent_edit_v1(response)
     response.update(product_failure_envelope_fields(failure))
     failure_context = response.get("agent_failure_context")
     issues = failure_context.get("issues") if isinstance(failure_context, Mapping) else None
@@ -5133,16 +5149,12 @@ def _build_batch_repl_failure_response(
     state: AgentEditState,
     context: TurnContext,
     *,
-    failure: FailureEnvelope,
+    failure: AgentError,
 ) -> dict[str, Any]:
     response = _legacy_failure_response(state, context, failure=failure)
-    legacy_audit_ref = response.get("audit_ref")
     compatibility_fields = _build_compatibility_response_fields(state)
     response.update(compatibility_fields)
     response.update(_session_artifact_response_fields(state))
-    response.update(product_failure_envelope_fields(failure))
-    if legacy_audit_ref is not None:
-        response["audit_ref"] = legacy_audit_ref
     response["eligibility"] = response["apply_eligibility"]
     response["message"] = _synthesize_batch_repl_message(state, failure=failure)
     response["debug"] = {
@@ -5157,7 +5169,7 @@ def _build_dev_failure_response(
     state: AgentEditState,
     context: TurnContext,
     *,
-    failure: FailureEnvelope,
+    failure: AgentError,
 ) -> dict[str, Any]:
     response = _legacy_failure_response(state, context, failure=failure)
     response.update(_build_compatibility_response_fields(state))
@@ -5179,6 +5191,8 @@ def _build_batch_repl_response(
     state: AgentEditState,
     context: TurnContext,
 ) -> dict[str, Any]:
+    turn_identity = TurnIdentity.from_context(context)
+    stage_snapshots = _stage_snapshot_payloads(context)
     has_candidate = (
         state.batch_exit_mode in {_BATCH_EXIT_EDIT_CLARIFY, _BATCH_EXIT_DONE}
         and _batch_candidate_graph_changed(state)
@@ -5219,6 +5233,7 @@ def _build_batch_repl_response(
         state,
         compatibility_fields=compatibility_fields,
         has_candidate=has_candidate,
+        turn_identity=turn_identity,
     )
     if state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY:
         internal_outcome = TurnOutcome.clarify(question=state.user_message or None)
@@ -5258,6 +5273,8 @@ def _build_batch_repl_response(
             debug={
                 "gates": context.gate_snapshot(),
                 "hashes": dict(compatibility_fields),
+                "turn_identity": turn_identity.to_dict(),
+                "stage_snapshots": stage_snapshots,
                 "batch_repl": {
                     "turn_count": state.batch_turn_count,
                     "exit_mode": state.batch_exit_mode,
@@ -5291,7 +5308,15 @@ def _build_batch_repl_response(
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
         response["change_focus"] = change_focus
-    return _sanitize_pure_clarify_response(response)
+    return _sanitize_pure_clarify_response(
+        build_legacy_agent_edit_v1(
+            {
+                **response,
+                "canvas_apply_allowed": context.canvas_apply_allowed if has_candidate else False,
+                "queue_allowed": context.queue_allowed if has_candidate else False,
+            }
+        )
+    )
 
 
 def _build_dev_success_response(
@@ -5300,6 +5325,8 @@ def _build_dev_success_response(
     *,
     contract: str,
 ) -> dict[str, Any]:
+    turn_identity = TurnIdentity.from_context(context)
+    stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
     eligibility = derive_apply_eligibility(
         context,
@@ -5336,23 +5363,27 @@ def _build_dev_success_response(
     else:
         has_candidate = True
         internal_outcome = TurnOutcome.edit()
+    candidate_payload = _build_candidate_payload(
+        state,
+        compatibility_fields=compatibility_fields,
+        has_candidate=has_candidate,
+        turn_identity=turn_identity,
+    )
     response.update(
         turn_envelope(
             message=state.user_message,
             outcome=public_outcome_from_turn_outcome(
                 internal_outcome,
-                response={"candidate": {"graph_hash": compatibility_fields["candidate_graph_hash"]}} if has_candidate else None,
+                response={"candidate": candidate_payload} if has_candidate else None,
             ),
-            candidate=_build_candidate_payload(
-                state,
-                compatibility_fields=compatibility_fields,
-                has_candidate=has_candidate,
-            ),
+            candidate=candidate_payload,
             eligibility=eligibility,
             audit_ref=None,
             debug={
                 "gates": context.gate_snapshot(),
                 "hashes": dict(compatibility_fields),
+                "turn_identity": turn_identity.to_dict(),
+                "stage_snapshots": stage_snapshots,
                 "contract": contract,
             },
         )
@@ -5371,7 +5402,15 @@ def _build_dev_success_response(
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
         response["change_focus"] = change_focus
-    return _sanitize_pure_clarify_response(response)
+    return _sanitize_pure_clarify_response(
+        build_legacy_agent_edit_v1(
+            {
+                **response,
+                "canvas_apply_allowed": context.canvas_apply_allowed if has_candidate else False,
+                "queue_allowed": context.queue_allowed if has_candidate else False,
+            }
+        )
+    )
 
 
 def _run_stage(

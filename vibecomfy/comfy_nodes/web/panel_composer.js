@@ -1,5 +1,9 @@
 import { getAgentPanelRuntime } from "./panel_runtime.js";
-import { routeAllowsApplyAffordances } from "./agent_edit_response_contract.js";
+import {
+  readApplyCandidate,
+  readStageSnapshot,
+  routeAllowsApplyAffordances,
+} from "./agent_edit_response_contract.js";
 
 // Idempotent injector for the animated "Working…" ellipsis used on the Submit
 // button while a turn is in flight. The keyframes are also defined by
@@ -56,6 +60,107 @@ function toggleClass(node, className, enabled) {
       delete node.attributes.class;
     }
   }
+}
+
+function canonicalTurnIdentityFromState(state) {
+  if (!state || typeof state !== "object") {
+    return null;
+  }
+  const identity = {
+    sessionId: typeof state.sessionId === "string" && state.sessionId ? state.sessionId : null,
+    turnId: typeof state.turnId === "string" && state.turnId ? state.turnId : null,
+    baselineTurnId:
+      typeof state.baselineTurnId === "string" && state.baselineTurnId
+        ? state.baselineTurnId
+        : null,
+    idempotencyKey:
+      typeof state.idempotencyKey === "string" && state.idempotencyKey
+        ? state.idempotencyKey
+        : null,
+  };
+  return Object.values(identity).some(Boolean) ? identity : null;
+}
+
+function canonicalStageSnapshotFromState(state) {
+  const candidates = [
+    state?.stageSnapshot,
+    state?.debugPayload?.stageSnapshot,
+    state?.debugPayload?.stage_snapshot,
+  ];
+  for (const candidate of candidates) {
+    try {
+      const snapshot = readStageSnapshot(candidate, { allowLegacy: false });
+      if (snapshot) {
+        return snapshot;
+      }
+    } catch {
+      // Ignore malformed debug-only stage data in the composer summary.
+    }
+  }
+  return null;
+}
+
+function canonicalApplyCandidateFromState(state, stageSnapshot = null) {
+  const candidateGraph = state?.candidateGraph;
+  if (!candidateGraph || typeof candidateGraph !== "object" || Array.isArray(candidateGraph)) {
+    return null;
+  }
+  const source = {
+    ok: true,
+    route: "revise",
+    outcome: { kind: "candidate" },
+    candidate: {
+      state: "candidate",
+      graph: candidateGraph,
+      graphHash:
+        typeof state.candidateGraphHash === "string" && state.candidateGraphHash
+          ? state.candidateGraphHash
+          : null,
+      submitGraphHash:
+        typeof state.serverSubmitGraphHash === "string" && state.serverSubmitGraphHash
+          ? state.serverSubmitGraphHash
+          : null,
+      baselineGraphHash:
+        typeof state.baselineGraphHash === "string" && state.baselineGraphHash
+          ? state.baselineGraphHash
+          : null,
+      turnIdentity: canonicalTurnIdentityFromState(state),
+    },
+    candidateGraphHash:
+      typeof state.candidateGraphHash === "string" && state.candidateGraphHash
+        ? state.candidateGraphHash
+        : null,
+    eligibility:
+      state.applyEligibility && typeof state.applyEligibility === "object"
+        ? state.applyEligibility
+        : null,
+    turnIdentity: canonicalTurnIdentityFromState(state),
+    stageSnapshots: stageSnapshot ? [stageSnapshot] : [],
+  };
+  try {
+    return readApplyCandidate(source, { allowLegacy: false, endpoint: "panel-composer-state" });
+  } catch {
+    return null;
+  }
+}
+
+export function composerApplyDisplayState(panel, deps = {}) {
+  const { routeStatusState } = deps;
+  const stageSnapshot = canonicalStageSnapshotFromState(panel?.state || null);
+  const candidate = canonicalApplyCandidateFromState(panel?.state || null, stageSnapshot);
+  const routeStatus = typeof routeStatusState === "function"
+    ? routeStatusState(panel)
+    : panel?.state?.routeStatus || null;
+  const applyable = candidate?.applyable === true;
+  return {
+    candidate,
+    stageSnapshot,
+    routeStatus,
+    candidatePresent: Boolean(candidate),
+    applyAllowed: applyable,
+    canvasApplyAllowed: applyable,
+    eligibility: candidate?.eligibility || null,
+  };
 }
 
 export function submitReadinessState(panel, deps = {}) {
@@ -252,7 +357,16 @@ export function renderComposerActions(panel, deps = {}) {
     || phase === PANEL_STATE.ERROR
     || phase === PANEL_STATE.CLARIFY
     || phase === PANEL_STATE.AWAITING_REVIEW;
-  const actionState = candidateActionState(panel);
+  const applyDisplayState = composerApplyDisplayState(panel, { routeStatusState });
+  const actionState = typeof candidateActionState === "function"
+    ? candidateActionState(panel)
+    : {
+      visible: applyDisplayState.candidatePresent,
+      active: applyDisplayState.candidatePresent,
+      eligibility: applyDisplayState.eligibility,
+      applyDisabled: !applyDisplayState.applyAllowed,
+      rejectDisabled: !applyDisplayState.candidatePresent,
+    };
   const rebaselineReason = panel.state.rebaselinePending?.reason || null;
   const rebaselinePending = Boolean(panel.state.rebaselinePending || panel.state.inFlightRebaseline);
   const undoPending = rebaselineReason === "undo";
@@ -296,7 +410,7 @@ export function renderComposerActions(panel, deps = {}) {
   const providerTestInFlight = Boolean(panel.state.providerTestInFlight);
   panel.buttons.settingsTest.disabled = submitting || applying || providerTestInFlight;
   panel.buttons.settingsTest.textContent = providerTestInFlight ? "Testing..." : "Test Provider";
-  panel.state.previewEnabled = !!(reviewing && panel.state.candidateGraph);
+  panel.state.previewEnabled = Boolean(reviewing && actionState.visible);
 
   syncComposerButtonsImpl(panel, {
     submitting,
@@ -367,6 +481,7 @@ export function renderDeveloper(panel, deps = {}) {
     el,
     getAgentPanelRuntime,
     getQueueGuardStateForPanel,
+    routeStatusState,
     scrubDebugPayload,
   } = deps;
   const body = panel?.sections?.developer;
@@ -432,12 +547,16 @@ export function renderDeveloper(panel, deps = {}) {
   }
   devData.appendChild(hashSection);
 
-  const boolSection = renderDeveloperSubsection("Raw Booleans", deps);
+  const applyDisplayState = composerApplyDisplayState(panel, { routeStatusState });
+  const boolSection = renderDeveloperSubsection("Apply Candidate State", deps);
   const boolLines = [
-    `canvasApplyAllowed: ${panel.state.canvasApplyAllowed}`,
+    `routeStatus: ${applyDisplayState.routeStatus?.kind || "unknown"}`,
+    `stage: ${applyDisplayState.stageSnapshot?.stage || "none"}`,
+    `candidatePresent: ${applyDisplayState.candidatePresent}`,
+    `canvasApplyAllowed: ${applyDisplayState.canvasApplyAllowed}`,
     `queueAllowed: ${panel.state.queueAllowed}`,
-    `applyAllowed: ${panel.state.applyAllowed}`,
-    `applyEligibility: ${JSON.stringify(panel.state.applyEligibility)}`,
+    `applyAllowed: ${applyDisplayState.applyAllowed}`,
+    `applyEligibility: ${JSON.stringify(applyDisplayState.eligibility)}`,
     panel.state.applyEligibilityWarning ? `applyEligibilityWarning: ${JSON.stringify(panel.state.applyEligibilityWarning)}` : null,
   ].filter(Boolean);
   for (const line of boolLines) {
@@ -476,7 +595,7 @@ export function renderDeveloper(panel, deps = {}) {
       ...capLines,
       "Queue Guard State",
       ...qgLines,
-      "Raw Booleans",
+      "Apply Candidate State",
       ...boolLines,
     ].join("\n");
     body.textContent = summaryText;

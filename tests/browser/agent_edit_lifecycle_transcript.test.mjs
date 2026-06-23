@@ -186,6 +186,82 @@ test("Optimistic user+agent pair is atomically replaced by canonical pair withou
   assert.equal(panel.state.chatMessages[3].pending_response, undefined, "canonical agent message must not be pending");
 });
 
+test("Canonical rehydrate reconciles snake_case messages against camelCase optimistic durable TurnIdentity", () => {
+  const panel = makePanel({
+    sessionId: "sess-canonical-reconcile",
+    chatRehydrateEpoch: 7,
+    phase: PANEL_STATE.SUBMITTING,
+    submitEpoch: 12,
+    chatMessages: [
+      {
+        role: "user",
+        text: "make the prompt brighter",
+        optimistic: true,
+        submit_epoch: 12,
+        turnIdentity: {
+          sessionId: "sess-canonical-reconcile",
+          turnId: "turn-canonical-reconcile",
+          role: "user",
+        },
+        local_id: "local-user-reconcile",
+      },
+      {
+        role: "agent",
+        pending_response: true,
+        executor_pending: true,
+        optimistic: true,
+        submit_epoch: 12,
+        turnIdentity: {
+          sessionId: "sess-canonical-reconcile",
+          turnId: "turn-canonical-reconcile",
+          role: "agent",
+        },
+        local_id: "local-agent-reconcile",
+      },
+    ],
+  });
+
+  const canonicalMessages = [
+    {
+      role: "user",
+      text: "make the prompt brighter",
+      turn_identity: {
+        session_id: "sess-canonical-reconcile",
+        turn_id: "turn-canonical-reconcile",
+        role: "user",
+      },
+    },
+    {
+      role: "agent",
+      text: "Candidate ready for review.",
+      turn_identity: {
+        session_id: "sess-canonical-reconcile",
+        turn_id: "turn-canonical-reconcile",
+        role: "agent",
+      },
+    },
+  ];
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+    requestEpoch: 7,
+    messages: canonicalMessages,
+    sessionId: "sess-canonical-reconcile",
+  });
+
+  assert.deepEqual(obligations, {
+    render: false,
+    dirtySections: ["META", "THREAD"],
+    persistSession: "sess-canonical-reconcile",
+  });
+  assert.equal(panel.state.chatMessages.length, 2);
+  assert.deepEqual(panel.state.chatMessages, canonicalMessages);
+  assert.equal(
+    panel.state.chatMessages.some((message) => message.optimistic || message.pending_response),
+    false,
+    "canonical durable messages must replace optimistic entries with matching TurnIdentity",
+  );
+});
+
 test("CHAT_REHYDRATE_NO_SESSION clears all chat state including optimistic entries", () => {
   const panel = makePanel({
     sessionId: "sess-clear",

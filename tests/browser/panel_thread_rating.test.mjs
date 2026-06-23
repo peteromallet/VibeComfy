@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createBrowserHarness } from "./harness.mjs";
-import { renderRatingWidget } from "../../vibecomfy/comfy_nodes/web/panel_thread.js";
+import {
+  populateAgentBubbleDetail,
+  renderRatingWidget,
+} from "../../vibecomfy/comfy_nodes/web/panel_thread.js";
 
 async function waitFor(predicate, { attempts = 200 } = {}) {
   for (let index = 0; index < attempts; index += 1) {
@@ -52,6 +55,107 @@ function makeWidgetDeps(document, submitRating, overrides = {}) {
     ...overrides,
   };
 }
+
+function makeBubbleDetailDeps(document, overrides = {}) {
+  const el = (tagName, text) => {
+    const node = document.createElement(tagName);
+    if (text != null) {
+      node.textContent = String(text);
+    }
+    return node;
+  };
+  const appendTextLine = (target, text) => {
+    const node = el("div", text);
+    target.appendChild(node);
+    return node;
+  };
+  return {
+    appendAuditDetail: () => {},
+    appendCandidateDetail: (target) => appendTextLine(target, "candidate detail"),
+    appendDebugDetail: () => {},
+    appendFailureDetail: () => {},
+    appendQueueDetail: () => {},
+    appendTextLine,
+    changeDetailsForMessage: () => null,
+    clearNode: (node) => {
+      node.textContent = "";
+    },
+    createBubbleDetailSection: (label) => {
+      const section = el("section");
+      const heading = el("h3", label);
+      const body = el("div");
+      section.appendChild(heading);
+      section.appendChild(body);
+      return { section, body };
+    },
+    createDetails: (label, detail) => el("pre", `${label}: ${JSON.stringify(detail)}`),
+    el,
+    ...overrides,
+  };
+}
+
+test("bubble detail renders canonical selector field changes without message field_changes aliases", async () => {
+  const harness = await createBrowserHarness();
+  try {
+    const target = harness.document.createElement("div");
+    const panel = {
+      state: {
+        sessionId: "sess-canonical",
+        routeStatus: { kind: "ready", requestedRoute: "revise" },
+      },
+    };
+    const message = {
+      role: "agent",
+      text: "Candidate ready.",
+      turn_id: "turn-canonical",
+      response: {
+        ok: true,
+        message: "Candidate ready.",
+        outcome: {
+          kind: "candidate",
+          changes: [{ uid: "seed", field_path: "widgets.seed", new: 42 }],
+        },
+        candidate: { graph: { nodes: [] }, graph_hash: "graph-hash" },
+        eligibility: { applyable: true, reason: "ready", message: "" },
+        turn_identity: { session_id: "sess-canonical", turn_id: "turn-canonical" },
+        stage_snapshots: [{ stage: "candidate_review", ok: true, blocking: false }],
+      },
+    };
+
+    populateAgentBubbleDetail(target, panel, message, null, makeBubbleDetailDeps(harness.document));
+
+    assert.match(target.textContent, /widgets\.seed -> 42/);
+    assert.match(target.textContent, /candidate detail/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("bubble detail candidate section can be gated by reducer RouteStatus", async () => {
+  const harness = await createBrowserHarness();
+  try {
+    const target = harness.document.createElement("div");
+    const panel = {
+      state: {
+        sessionId: "sess-route-status",
+        routeStatus: { kind: "ready", requestedRoute: "revise" },
+      },
+    };
+
+    populateAgentBubbleDetail(
+      target,
+      panel,
+      { role: "agent", text: "Route-ready response.", turn_id: "turn-route-status" },
+      null,
+      makeBubbleDetailDeps(harness.document),
+    );
+
+    assert.match(target.textContent, /Candidate/);
+    assert.match(target.textContent, /candidate detail/);
+  } finally {
+    await harness.dispose();
+  }
+});
 
 test("rating widget renders only below the latest assistant response and submits through the rating endpoint", async () => {
   const seen = [];

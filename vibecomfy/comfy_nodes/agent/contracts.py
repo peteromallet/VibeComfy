@@ -146,6 +146,174 @@ class ApplyEligibility:
         }
 
 
+@dataclass(frozen=True)
+class TurnIdentity:
+    """Canonical backend identity tuple for one agent-edit turn.
+
+    Frontend and compatibility adapters may derive local display keys from this
+    object, but durable payloads should keep the underlying snake_case fields.
+    """
+
+    session_id: str
+    turn_id: str | None = None
+    baseline_turn_id: str | None = None
+    idempotency_key: str | None = None
+
+    @classmethod
+    def from_context(cls, context: "TurnContext") -> "TurnIdentity":
+        return cls(
+            session_id=context.session_id,
+            turn_id=context.turn_id,
+            baseline_turn_id=context.baseline_turn_id,
+            idempotency_key=context.idempotency_key,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "baseline_turn_id": self.baseline_turn_id,
+            "idempotency_key": self.idempotency_key,
+        }
+
+
+@dataclass(frozen=True)
+class StageSnapshot:
+    stage: str
+    ok: bool
+    blocking: bool
+    duration_ms: int | None = None
+    gates: Mapping[str, bool] = field(default_factory=dict)
+    artifacts: tuple[ArtifactRef, ...] = ()
+    issues: tuple[Any, ...] = ()
+    value: Any = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "gates", MappingProxyType(dict(self.gates)))
+        object.__setattr__(self, "artifacts", tuple(self.artifacts))
+        object.__setattr__(self, "issues", _freeze_jsonish(tuple(self.issues)))
+        object.__setattr__(self, "value", _freeze_jsonish(self.value))
+
+    @classmethod
+    def from_stage_result(cls, result: "StageResult") -> "StageSnapshot":
+        return cls(
+            stage=result.stage,
+            ok=result.ok,
+            blocking=result.blocking,
+            duration_ms=result.duration_ms,
+            gates=result.gate_updates,
+            artifacts=result.artifacts,
+            issues=result.issues,
+            value=result.value,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stage": self.stage,
+            "ok": self.ok,
+            "blocking": self.blocking,
+            "duration_ms": self.duration_ms,
+            "gates": dict(self.gates),
+            "artifacts": [artifact.to_dict() for artifact in self.artifacts],
+            "issues": _thaw_jsonish(self.issues),
+            "value": _thaw_jsonish(self.value),
+        }
+
+
+@dataclass(frozen=True)
+class ApplyCandidate:
+    state: str
+    graph: Mapping[str, Any]
+    graph_hash: str
+    structural_graph_hash: str
+    baseline_graph_hash: str | None = None
+    submit_graph_hash: str | None = None
+    submit_structural_graph_hash: str | None = None
+    turn_identity: TurnIdentity | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "graph", _freeze_jsonish(self.graph))
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "state": self.state,
+            "graph": _thaw_jsonish(self.graph),
+            "graph_hash": self.graph_hash,
+            "structural_graph_hash": self.structural_graph_hash,
+            "baseline_graph_hash": self.baseline_graph_hash,
+            "submit_graph_hash": self.submit_graph_hash,
+            "submit_structural_graph_hash": self.submit_structural_graph_hash,
+        }
+        if self.turn_identity is not None:
+            payload["turn_identity"] = self.turn_identity.to_dict()
+        return payload
+
+
+@dataclass(frozen=True)
+class ProviderStatus:
+    provider: str
+    provider_available: bool
+    ready: bool
+    contract_version: str = AGENT_EDIT_TURN_CONTRACT_VERSION
+    model: str | None = None
+    route: str | None = None
+    message: str | None = None
+    error: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.error is not None:
+            object.__setattr__(self, "error", _freeze_jsonish(self.error))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "provider_available": self.provider_available,
+            "ready": self.ready,
+            "contract_version": self.contract_version,
+            "model": self.model,
+            "route": self.route,
+            "message": self.message,
+            "error": _thaw_jsonish(self.error) if self.error is not None else None,
+        }
+
+
+def derive_pending_response_key(identity: TurnIdentity | Mapping[str, Any]) -> str:
+    payload = identity.to_dict() if isinstance(identity, TurnIdentity) else identity
+    session_id = payload.get("session_id") if isinstance(payload.get("session_id"), str) else "no-session"
+    turn_id = payload.get("turn_id") if isinstance(payload.get("turn_id"), str) else None
+    idempotency_key = (
+        payload.get("idempotency_key")
+        if isinstance(payload.get("idempotency_key"), str)
+        else None
+    )
+    return f"pending:{session_id}:{turn_id or idempotency_key or 'no-turn'}"
+
+
+def derive_apply_candidate_key(
+    candidate: ApplyCandidate | Mapping[str, Any],
+    *,
+    identity: TurnIdentity | Mapping[str, Any] | None = None,
+) -> str:
+    payload = candidate.to_dict() if isinstance(candidate, ApplyCandidate) else candidate
+    candidate_identity = identity
+    if candidate_identity is None:
+        raw_identity = payload.get("turn_identity")
+        candidate_identity = raw_identity if isinstance(raw_identity, Mapping) else None
+    prefix = "candidate"
+    if candidate_identity is not None:
+        identity_payload = (
+            candidate_identity.to_dict()
+            if isinstance(candidate_identity, TurnIdentity)
+            else candidate_identity
+        )
+        session_id = identity_payload.get("session_id")
+        turn_id = identity_payload.get("turn_id")
+        if isinstance(session_id, str) and isinstance(turn_id, str):
+            prefix = f"candidate:{session_id}:{turn_id}"
+    graph_hash = payload.get("graph_hash")
+    return f"{prefix}:{graph_hash if isinstance(graph_hash, str) else 'no-graph-hash'}"
+
+
 def apply_eligibility_payload(
     eligibility: ApplyEligibility,
     *,
@@ -160,6 +328,57 @@ def apply_eligibility_payload(
         "eligibility": eligibility_payload,
         "apply_eligibility": eligibility_payload,
     }
+
+
+def build_legacy_agent_edit_v1(canonical: Mapping[str, Any]) -> dict[str, Any]:
+    """Add v1 compatibility aliases to a canonical agent-edit response.
+
+    Canonical response builders should populate durable fields such as
+    ``eligibility`` and ``candidate`` first, then call this adapter at the
+    public compatibility boundary.
+    """
+    payload = dict(canonical)
+    raw_eligibility = payload.get("eligibility")
+    if isinstance(raw_eligibility, ApplyEligibility):
+        eligibility_payload = raw_eligibility.to_dict()
+    elif isinstance(raw_eligibility, Mapping):
+        eligibility_payload = dict(raw_eligibility)
+    elif isinstance(payload.get("apply_eligibility"), Mapping):
+        eligibility_payload = dict(payload["apply_eligibility"])
+        payload["eligibility"] = eligibility_payload
+    else:
+        applyable = bool(payload.get("apply_eligible"))
+        eligibility_payload = {
+            "applyable": applyable,
+            "reason": "applyable" if applyable else "no_candidate",
+            "message": (
+                "Ready to apply."
+                if applyable
+                else "No candidate is available to apply."
+            ),
+            "warnings": [],
+        }
+        payload["eligibility"] = eligibility_payload
+
+    applyable = bool(eligibility_payload.get("applyable"))
+    canvas_apply_allowed = bool(payload.get("canvas_apply_allowed", applyable))
+    queue_allowed = bool(payload.get("queue_allowed", applyable))
+    payload["apply_eligibility"] = eligibility_payload
+    payload["apply_allowed"] = applyable
+    payload["canvas_apply_allowed"] = canvas_apply_allowed
+    payload["queue_allowed"] = queue_allowed
+
+    candidate = payload.get("candidate") if isinstance(payload.get("candidate"), Mapping) else None
+    candidate_graph = (
+        candidate.get("graph")
+        if isinstance(candidate, Mapping) and isinstance(candidate.get("graph"), dict)
+        else None
+    )
+    if candidate_graph is not None:
+        payload.setdefault("graph", candidate_graph)
+        payload["candidate_graph"] = candidate_graph
+    payload.setdefault("graph_unchanged", candidate_graph is None)
+    return payload
 
 
 SCAN_CODE_FAILURE_KIND: Mapping[str, FailureKind] = MappingProxyType(
@@ -692,13 +911,14 @@ class FailureEnvelope:
             "agent_failure_context": _thaw_jsonish(self.agent_failure_context),
             "audit_ref": self.audit_ref.to_dict() if self.audit_ref is not None else None,
             "audit_error": self.audit_error,
+            "eligibility": eligibility.to_dict(),
         }
-        payload.update(
-            apply_eligibility_payload(
-                eligibility,
-                canvas_apply_allowed=self.canvas_apply_allowed,
-                queue_allowed=self.queue_allowed,
-            )
+        payload = build_legacy_agent_edit_v1(
+            {
+                **payload,
+                "canvas_apply_allowed": self.canvas_apply_allowed,
+                "queue_allowed": self.queue_allowed,
+            }
         )
         payload["outcome"] = failure_outcome_payload(self)
         recovery = _extract_rebaseline_recovery(payload)
@@ -707,6 +927,13 @@ class FailureEnvelope:
         if self.turn_id is None:
             payload.pop("turn_id")
         return payload
+
+
+# FieldChange remains canonical in vibecomfy.porting.edit.types.  contracts.py
+# imports and re-exports it as the agent-edit builder boundary so callers do not
+# mint a second canonical field-change type.  AgentError is an alias for the
+# existing failure envelope rather than a duplicate error payload type.
+AgentError = FailureEnvelope
 
 
 @dataclass(frozen=True)
@@ -892,14 +1119,22 @@ def _public_error_outcome_from_response(
     return {key: value for key, value in payload.items() if value is not None}
 
 
-def _failure_response_contract_fields(failure: FailureEnvelope) -> dict[str, Any]:
+def _failure_response_contract_fields(
+    failure: FailureEnvelope,
+    *,
+    public: bool = False,
+) -> dict[str, Any]:
     payload = {
         "kind": failure.kind.value,
         "stage": failure.stage,
         "retryable": failure.retryable,
         "next_action": failure.next_action,
         "graph_unchanged": failure.graph_unchanged,
-        "agent_failure_context": _thaw_jsonish(failure.agent_failure_context),
+        "agent_failure_context": (
+            _public_agent_failure_context(failure)
+            if public
+            else _thaw_jsonish(failure.agent_failure_context)
+        ),
     }
     recovery = _extract_rebaseline_recovery(payload)
     if recovery is not None:
@@ -967,10 +1202,25 @@ def public_outcome_from_turn_outcome(
     raise ValueError(f"Unknown TurnOutcome kind {kind!r}")
 
 
-def failure_outcome_payload(failure: FailureEnvelope) -> dict[str, Any]:
+def _public_agent_failure_context(failure: FailureEnvelope) -> dict[str, Any]:
+    context = _thaw_jsonish(failure.agent_failure_context)
+    if failure.kind in {
+        FailureKind.PROVIDER_ERROR,
+        FailureKind.PROVIDER_CREDIT_ERROR,
+        FailureKind.AUTH_ERROR,
+    }:
+        context["explanation"] = failure.user_facing_message
+    return context
+
+
+def failure_outcome_payload(
+    failure: FailureEnvelope,
+    *,
+    public: bool = False,
+) -> dict[str, Any]:
     return public_outcome_from_turn_outcome(
         TurnOutcome.from_failure(failure),
-        response=_failure_response_contract_fields(failure),
+        response=_failure_response_contract_fields(failure, public=public),
     )
 
 
@@ -978,9 +1228,10 @@ def product_failure_envelope_fields(failure: FailureEnvelope) -> dict[str, Any]:
     message = failure.message.strip() if failure.message.strip() else failure.user_facing_message
     eligibility = failure.apply_eligibility
     internal_outcome = TurnOutcome.from_failure(failure).to_dict()
+    public_failure_context = _public_agent_failure_context(failure)
     envelope = turn_envelope(
         message=message,
-        outcome=failure_outcome_payload(failure),
+        outcome=failure_outcome_payload(failure, public=True),
         candidate=None,
         eligibility=eligibility,
         audit_ref=failure.audit_ref,
@@ -993,6 +1244,7 @@ def product_failure_envelope_fields(failure: FailureEnvelope) -> dict[str, Any]:
             }
         },
     )
+    envelope["agent_failure_context"] = public_failure_context
     envelope["internal_outcome"] = internal_outcome
     return envelope
 
@@ -1425,12 +1677,6 @@ def success_envelope(
     version: int = 1,
 ) -> dict[str, Any]:
     eligibility = apply_eligibility or context.apply_eligibility
-    canvas_allowed = (
-        context.canvas_apply_allowed
-        if canvas_apply_allowed is None
-        else bool(canvas_apply_allowed)
-    )
-    queue_ok = context.queue_allowed if queue_allowed is None else bool(queue_allowed)
     payload = {
         "ok": True,
         "session_id": context.session_id,
@@ -1443,40 +1689,43 @@ def success_envelope(
         "artifacts": dict(artifacts or {}),
         "audit_ref": audit_ref.to_dict() if audit_ref is not None else None,
         "version": version,
+        "eligibility": eligibility.to_dict(),
     }
-    payload.update(
-        apply_eligibility_payload(
-            eligibility,
-            canvas_apply_allowed=canvas_allowed,
-            queue_allowed=queue_ok,
-        )
-    )
     return payload
 
 
 __all__ = [
     "AGENT_EDIT_TURN_CONTRACT_VERSION",
+    "AgentError",
     "ArtifactRef",
     "APPLY_ELIGIBILITY_REASONS",
+    "ApplyCandidate",
     "ApplyEligibility",
     "CANVAS_APPLY_GATE_NAMES",
+    "build_legacy_agent_edit_v1",
     "DEFAULT_GATE_NAMES",
     "FAILURE_HINT_KEYS",
     "FAILURE_SPECS",
+    "FieldChange",
     "FailureEnvelope",
     "FailureKind",
     "GateResult",
     "INTERNAL_TO_PUBLIC_OUTCOME",
+    "ProviderStatus",
     "PUBLIC_OUTCOME_KINDS",
     "REBASELINE_RECOVERY_FIELDS",
     "SCAN_CODE_FAILURE_KIND",
     "StageResult",
+    "StageSnapshot",
     "TURN_OUTCOME_KINDS",
     "TurnContext",
+    "TurnIdentity",
     "TurnOutcome",
     "apply_eligibility_payload",
     "classify_failure",
+    "derive_apply_candidate_key",
     "derive_apply_eligibility",
+    "derive_pending_response_key",
     "ensure_agent_edit_response_contract",
     "failure_envelope",
     "public_outcome_from_turn_outcome",

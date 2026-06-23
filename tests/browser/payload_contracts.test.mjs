@@ -5,13 +5,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  adaptLegacyAgentEditResponse,
   normalizeAgentEditResponse,
+  normalizeCanonicalAgentEditResponse,
+  readApplyCandidate,
   readCandidate,
   readCandidateGraph,
   readEligibility,
+  readFieldChanges,
   readLatestCandidate,
   readOutcome,
   readRebaselineRecovery,
+  readTurnIdentity,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract.js";
 
 import {
@@ -48,6 +53,41 @@ import {
   routeOptionsFromStatus,
   ROUTE_STATUS_KIND,
 } from "../../vibecomfy/comfy_nodes/web/agent_status_poller.js";
+
+const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
+  "executor_pending",
+  "apply_allowed",
+  "canvas_apply_allowed",
+  "applyAllowed",
+  "canvasApplyAllowed",
+]);
+
+function assertCanonicalNormalPathHasNoLegacyAliases(value, path = "$") {
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      assertCanonicalNormalPathHasNoLegacyAliases(entry, `${path}[${index}]`);
+    });
+    return;
+  }
+
+  for (const [key, entry] of Object.entries(value)) {
+    const keyPath = `${path}.${key}`;
+    assert.equal(
+      FORBIDDEN_NORMAL_PATH_KEYS.has(key),
+      false,
+      `canonical normal-path payload must not carry legacy alias ${keyPath}`,
+    );
+    assert.equal(
+      key === "field_changes" && !/\.change_details\.batch_turns\[\d+\]\.field_changes$/.test(keyPath),
+      false,
+      `canonical normal-path payload must not carry old field-change dictionary ${keyPath}`,
+    );
+    assertCanonicalNormalPathHasNoLegacyAliases(entry, keyPath);
+  }
+}
 
 // ── Fixture loader ────────────────────────────────────────────────────────
 
@@ -140,6 +180,82 @@ test("normalizeAgentEditResponse — agent_executor_failure_response.json", () =
   assert.ok(normalized.outcome.agentFailureContext);
 });
 
+test("canonical agent-edit fixture normalizes with allowLegacy=false", () => {
+  const raw = {
+    ok: true,
+    message: "Canonical fixture candidate.",
+    outcome: {
+      kind: "candidate",
+      changes: [{ uid: "ksampler", field_path: "widgets.steps", old: 20, new: 24 }],
+    },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      graph_hash: "fixture-candidate-hash",
+      baseline_graph_hash: "fixture-baseline-hash",
+      turn_identity: {
+        session_id: "sess-canonical-fixture",
+        turn_id: "0015",
+        baseline_turn_id: "0014",
+        idempotency_key: "fixture-idem",
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready to apply.",
+      warnings: [],
+    },
+    change_details: {
+      batch_turns: [
+        {
+          turn_number: 0,
+          field_changes: [
+            { uid: "ksampler", field_path: "widgets.steps", old: 20, new: 24 },
+          ],
+        },
+      ],
+    },
+  };
+
+  assertCanonicalNormalPathHasNoLegacyAliases(raw);
+
+  const normalized = normalizeCanonicalAgentEditResponse(raw, {
+    endpoint: "/fixture/canonical-agent-edit",
+  });
+  const candidate = readApplyCandidate(normalized, { allowLegacy: false });
+
+  assert.equal(normalized.outcome.kind, "candidate");
+  assert.equal(candidate.graphHash, "fixture-candidate-hash");
+  assert.equal(candidate.baselineGraphHash, "fixture-baseline-hash");
+  assert.deepEqual(readTurnIdentity(normalized, { allowLegacy: false }), {
+    sessionId: "sess-canonical-fixture",
+    turnId: "0015",
+    baselineTurnId: "0014",
+    idempotencyKey: "fixture-idem",
+  });
+  assert.deepEqual(readFieldChanges(normalized, { allowLegacy: false }).legacyChanges, []);
+  assert.equal(readFieldChanges(normalized, { allowLegacy: false }).all.length, 2);
+});
+
+test("old persisted agent-edit fixture is accepted only through the legacy adapter", () => {
+  const raw = loadFixture("agent_edit_accept_response.json");
+
+  assert.throws(
+    () => normalizeCanonicalAgentEditResponse(raw, { endpoint: "/fixture/accept-strict" }),
+    /missing outcome/i,
+  );
+
+  const adapted = adaptLegacyAgentEditResponse(raw, { endpoint: "/fixture/accept-legacy" });
+  assert.equal(adapted.outcome.kind, "candidate");
+  assert.equal(readApplyCandidate(adapted, { allowLegacy: false }).applyable, true);
+  assert.deepEqual(readTurnIdentity(adapted, { allowLegacy: false }), {
+    sessionId: "session-stale-arrival",
+    turnId: "0001",
+    baselineTurnId: "0001",
+  });
+});
+
 // ── Executor response fixtures (not agent-edit responses; validated structurally) ─
 
 test("agent_executor_success_response.json — structural contract", () => {
@@ -196,6 +312,91 @@ test("chat_rehydrate_response.json — structural contract", () => {
   // Baseline fields
   assert.equal(raw.baseline.baseline_turn_id, "0000");
   assert.equal(typeof raw.baseline.baseline_graph_hash, "string");
+});
+
+test("canonical session rehydrate fixture normalizes latest candidate with allowLegacy=false", () => {
+  const raw = {
+    ok: true,
+    exists: true,
+    outcome: { kind: "noop", reason: "session rehydrate wrapper" },
+    session_id: "sess-canonical-session",
+    session_path: "out/editor_sessions/sess-canonical-session/",
+    messages: [
+      {
+        role: "user",
+        text: "set steps",
+        turn_id: "0020",
+        session_id: "sess-canonical-session",
+      },
+      {
+        role: "agent",
+        text: "Updated steps.",
+        turn_id: "0020",
+        session_id: "sess-canonical-session",
+        outcome: {
+          kind: "candidate",
+          changes: [{ uid: "ksampler", field_path: "widgets.steps", old: 20, new: 28 }],
+        },
+      },
+    ],
+    latest_candidate: {
+      ok: true,
+      message: "Latest canonical candidate.",
+      outcome: {
+        kind: "candidate",
+        changes: [{ uid: "ksampler", field_path: "widgets.steps", old: 20, new: 28 }],
+      },
+      candidate: {
+        state: "candidate",
+        graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+        graph_hash: "session-latest-candidate-hash",
+        turn_identity: {
+          session_id: "sess-canonical-session",
+          turn_id: "0020",
+        },
+      },
+      apply_eligibility: {
+        applyable: true,
+        reason: "applyable",
+        message: "Ready to apply.",
+        warnings: [],
+      },
+    },
+  };
+
+  assertCanonicalNormalPathHasNoLegacyAliases(raw);
+
+  const normalized = normalizeCanonicalAgentEditResponse(raw, {
+    endpoint: "/fixture/canonical-session",
+  });
+  const latest = readLatestCandidate(normalized, { allowLegacy: false });
+
+  assert.equal(latest.outcome.kind, "candidate");
+  assert.equal(readApplyCandidate(latest, { allowLegacy: false }).graphHash, "session-latest-candidate-hash");
+  assert.equal(normalized.messages[1].outcome.kind, "candidate");
+});
+
+test("old session latest_candidate fixture requires the legacy adapter boundary", () => {
+  const raw = loadFixture("chat_rehydrate_response.json");
+  const oldLatestCandidate = {
+    ...raw.latest_candidate,
+    outcome: undefined,
+    candidate: undefined,
+    graph: raw.latest_candidate.candidate.graph,
+  };
+
+  assert.throws(
+    () => normalizeCanonicalAgentEditResponse(oldLatestCandidate, {
+      endpoint: "/fixture/chat-rehydrate:latest_candidate",
+    }),
+    /missing outcome/i,
+  );
+
+  const adapted = adaptLegacyAgentEditResponse(oldLatestCandidate, {
+    endpoint: "/fixture/chat-rehydrate:latest_candidate",
+  });
+  assert.equal(adapted.outcome.kind, "candidate");
+  assert.equal(readApplyCandidate(adapted, { allowLegacy: false }).graphHash, "candidate-hash-new");
 });
 
 test("session_bundle_response.json — structural contract", () => {

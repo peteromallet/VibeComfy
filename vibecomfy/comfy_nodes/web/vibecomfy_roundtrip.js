@@ -55,8 +55,11 @@ import {
 } from "./agent_edit_lifecycle.js";
 import {
   normalizeAgentEditResponse,
+  readApplyCandidate,
+  readFieldChanges,
   readLatestCandidate,
   readRebaselineRecovery,
+  readTurnIdentity,
   extractRebaselineRecovery,
 } from "./agent_edit_response_contract.js";
 
@@ -91,6 +94,9 @@ import {
   FEED_SOURCE_PRIORITY,
   isTerminalAgentTurnStatus,
 } from "./agent_turn_feed.js";
+import {
+  projectRouteStatus,
+} from "./agent_status_poller.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
@@ -3029,60 +3035,34 @@ async function refreshAgentStatus(panel, { quiet = false } = {}) {
     }
     clearAgentStatusRetry(panel);
     panel.state.statusSnapshot = status;
-    const requestedRoute = normalizeRoutePreference(status?.requested_route || route);
-    const routeOptions = routeOptionsFromStatus(status);
-    console.log("[vibecomfy] refreshAgentStatus requestedRoute=", requestedRoute, "routeOptions keys=", Object.keys(routeOptions || {}), "res.ok=", res.ok);
-    if (!status || typeof status !== "object" || Array.isArray(status)) {
+    const projected = projectRouteStatus(status, { route, model, quiet });
+    const requestedRoute = projected.routeStatus.requestedRoute;
+    console.log("[vibecomfy] refreshAgentStatus requestedRoute=", requestedRoute, "routeOptions keys=", Object.keys(projected.routeOptions || {}), "res.ok=", res.ok);
+    if (projected.issue === "malformed_status") {
       console.warn("[vibecomfy] malformed /vibecomfy/agent/status payload", status);
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.MALFORMED,
-        requestedRoute,
-        model,
-      };
-      panel.state.settingsMessage = "Malformed status payload; route/model controls disabled.";
-      populateRouteSelect(panel.fields.route, null, {
-        placeholderLabel: "Malformed status payload",
-        selectedRoute: requestedRoute,
-      });
-      panel.fields.route.value = requestedRoute;
-    } else if (!routeOptions) {
+    } else if (projected.issue === "missing_route_options") {
       console.warn("[vibecomfy] status payload missing route_options", status);
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.MISSING_OPTIONS,
+    } else if (projected.issue === "missing_route_descriptor") {
+      console.warn("[vibecomfy] status payload missing descriptor for requested route", {
         requestedRoute,
-        model,
-      };
-      panel.state.settingsMessage = "Status missing route options; route/model controls disabled.";
-      populateRouteSelect(panel.fields.route, null, {
-        placeholderLabel: "Route options unavailable",
+        routeOptions: projected.routeOptions,
+      });
+    }
+    panel.state.routeStatus = projected.routeStatus;
+    if (projected.settingsMessage != null) {
+      panel.state.settingsMessage = projected.settingsMessage;
+    }
+    if (projected.routeOptions) {
+      populateRouteSelect(panel.fields.route, projected.routeOptions, {
         selectedRoute: requestedRoute,
       });
-      panel.fields.route.value = requestedRoute;
     } else {
-      const availableRoute = routeOptions[requestedRoute]
-        ? requestedRoute
-        : (routeOptions.deepseek ? "deepseek" : (routeOptions.openrouter ? "openrouter" : Object.keys(routeOptions)[0] || requestedRoute));
-      console.log("[vibecomfy] refreshAgentStatus using availableRoute=", availableRoute, "(requestedRoute=", requestedRoute, ")");
-      populateRouteSelect(panel.fields.route, routeOptions, { selectedRoute: availableRoute });
-      panel.fields.route.value = availableRoute;
-      if (availableRoute !== requestedRoute) {
-        console.warn("[vibecomfy] status payload missing descriptor for requested route; falling back", {
-          requestedRoute,
-          availableRoute,
-          routeOptions,
-        });
-        panel.state.settingsMessage = `Route ${requestedRoute} is unavailable; using ${availableRoute}.`;
-      }
-      panel.state.routeStatus = {
-        kind: ROUTE_STATUS_KIND.READY,
-        requestedRoute: availableRoute,
-        model,
-      };
-      if (!quiet) {
-        const availability = status?.provider_available === false ? "provider unavailable" : "provider ready";
-        panel.state.settingsMessage = `${status?.requested_route || route} → ${status?.route || route} (${availability})`;
-      }
+      populateRouteSelect(panel.fields.route, null, {
+        placeholderLabel: projected.placeholderLabel || "Status unavailable",
+        selectedRoute: requestedRoute,
+      });
     }
+    panel.fields.route.value = requestedRoute;
     if (typeof status?.model === "string" && !panel.fields.model.value.trim()) {
       panel.fields.model.value = status.model;
     }
@@ -4371,21 +4351,30 @@ function restoreLatestCandidateFromChat(panel, payload) {
     default:
       return;
   }
-  const candidateGraph = prepareCandidateGraphForPanel(latest.candidateGraph);
+  const latestApplyCandidate = readRoundtripApplyCandidate(latest, { endpoint: "chat:latest-candidate" });
+  const latestIdentity = readRoundtripTurnIdentity(latest, { endpoint: "chat:latest-candidate" });
+  const candidateGraph = prepareCandidateGraphForPanel(latestApplyCandidate?.graph || null);
   if (!candidateGraph || typeof candidateGraph !== "object") {
     return;
   }
-  const eligibility = latest.eligibility;
+  const eligibility = latestApplyCandidate?.eligibility;
   const normalizedEligibility = normalizeApplyEligibility(eligibility);
-  const restoredActionAllowed = Boolean(candidateGraph && normalizedEligibility?.applyable === true);
+  const restoredActionAllowed = Boolean(
+    candidateGraph
+    && (latestApplyCandidate?.applyable === true || normalizedEligibility?.applyable === true),
+  );
   const restoreObligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
-    sessionId: latest.sessionId || null,
-    turnId: latest.turnId || null,
+    sessionId: latestIdentity?.sessionId || null,
+    turnId: latestIdentity?.turnId || null,
+    baselineTurnId: latestIdentity?.baselineTurnId || null,
     baseline: latest,
     candidateGraph,
-    candidateGraphHash: latest.candidateGraphHash || null,
+    candidateGraphHash:
+      latestApplyCandidate?.candidateGraphHash
+      || latestApplyCandidate?.graphHash
+      || null,
     candidateReport: latest.report && typeof latest.report === "object" ? clonePlainData(latest.report) : null,
-    serverSubmitGraphHash: latest.submitGraphHash || null,
+    serverSubmitGraphHash: latestApplyCandidate?.submitGraphHash || null,
     message: typeof latest.message === "string" ? latest.message : null,
     applyEligibility: normalizedEligibility,
     applyAllowed: restoredActionAllowed,
@@ -4650,6 +4639,39 @@ function outcomeHasClarificationPrompt(outcome) {
   return typeof clarificationMessageFromOutcome(outcome) === "string";
 }
 
+function readRoundtripTurnIdentity(source, options = {}) {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  try {
+    return readTurnIdentity(source, { allowLegacy: false, ...options });
+  } catch (_e) {
+    return null;
+  }
+}
+
+function readRoundtripApplyCandidate(source, options = {}) {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  try {
+    return readApplyCandidate(source, { allowLegacy: false, ...options });
+  } catch (_e) {
+    return null;
+  }
+}
+
+function readRoundtripFieldChanges(source, options = {}) {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  try {
+    return readFieldChanges(source, { allowLegacy: false, ...options });
+  } catch (_e) {
+    return null;
+  }
+}
+
 function normalizeChatMessagePayload(message) {
   if (!message || typeof message !== "object") {
     return message;
@@ -4672,23 +4694,39 @@ function normalizeChatMessagePayload(message) {
       },
     ).outcome
     : response?.outcome || null;
-  const candidateGraph = prepareCandidateGraphForPanel(message.candidateGraph
-    || message.candidate?.graph
-    || message.candidate_graph
-    || message.graph
-    || response?.candidateGraph
-    || null);
-  const eligibility = message.eligibility
-    || message.apply_eligibility
-    || response?.eligibility
-    || null;
+  const applyCandidate =
+    readRoundtripApplyCandidate(response)
+    || (() => {
+      try {
+        return readApplyCandidate(message, {
+          endpoint: "chat:message-candidate",
+          allowLegacy: true,
+        });
+      } catch (_e) {
+        return null;
+      }
+    })();
+  const identity =
+    readRoundtripTurnIdentity(response)
+    || (() => {
+      try {
+        return readTurnIdentity(message, {
+          endpoint: "chat:message-identity",
+          allowLegacy: true,
+        });
+      } catch (_e) {
+        return null;
+      }
+    })();
+  const candidateGraph = prepareCandidateGraphForPanel(applyCandidate?.graph || null);
+  const eligibility = applyCandidate?.eligibility || response?.eligibility || null;
   return {
     ...message,
     raw: message,
     role: typeof message.role === "string" ? message.role : null,
     text: typeof message.text === "string" ? message.text : null,
-    turnId: typeof message.turnId === "string" ? message.turnId : (typeof message.turn_id === "string" ? message.turn_id : null),
-    sessionId: typeof message.sessionId === "string" ? message.sessionId : (typeof message.session_id === "string" ? message.session_id : null),
+    turnId: identity?.turnId || null,
+    sessionId: identity?.sessionId || null,
     entryType: typeof message.entryType === "string" ? message.entryType : (typeof message.entry_type === "string" ? message.entry_type : null),
     timestamp: typeof message.timestamp === "string" ? message.timestamp : null,
     response,
@@ -4803,15 +4841,21 @@ function normalizeAuxiliaryAgentPayload(rawPayload, endpoint) {
 function _isFieldChangeLike(item) {
   return item && typeof item === "object"
     && typeof item.uid === "string" && item.uid
-    && typeof item.field_path === "string" && item.field_path;
+    && (
+      (typeof item.fieldPath === "string" && item.fieldPath)
+      || (typeof item.field_path === "string" && item.field_path)
+    );
 }
 
 function _normalizeFieldChange(raw) {
   if (!raw || typeof raw !== "object") return null;
   if (!_isFieldChangeLike(raw)) return null;
+  const fieldPath = typeof raw.fieldPath === "string" && raw.fieldPath
+    ? raw.fieldPath
+    : raw.field_path;
   return {
     uid: raw.uid,
-    field_path: raw.field_path,
+    field_path: fieldPath,
     old: "old" in raw ? raw.old : undefined,
     new: "new" in raw ? raw.new : undefined,
   };
@@ -4832,41 +4876,82 @@ function _normalizeFieldChangeList(rawList) {
 // positional widget inference.
 function normalizeFieldChangesFromSubmit(result) {
   if (!result || typeof result !== "object") {
-    return { outcomeChanges: [], batchTurnChanges: [] };
+    return { directChanges: [], outcomeChanges: [], legacyChanges: [], batchTurnChanges: [], all: [] };
   }
 
-  const outcomeChanges = _normalizeFieldChangeList(
-    result.outcome && typeof result.outcome === "object" ? result.outcome.changes : null,
-  );
-
-  const batchTurnChanges = [];
-  if (Array.isArray(result.batch_turns)) {
-    for (const turn of result.batch_turns) {
-      if (turn && typeof turn === "object") {
-        const turnNumber = typeof turn.turn_number === "number" ? turn.turn_number : null;
-        const changes = _normalizeFieldChangeList(turn.field_changes);
-        batchTurnChanges.push({ turn_number: turnNumber, changes });
-      }
-    }
+  const selectorChanges = readRoundtripFieldChanges(result, { endpoint: "submit:field-changes" });
+  if (!selectorChanges) {
+    return { directChanges: [], outcomeChanges: [], legacyChanges: [], batchTurnChanges: [], all: [] };
   }
 
-  return { outcomeChanges, batchTurnChanges };
+  const directChanges = _normalizeFieldChangeList(selectorChanges.directChanges);
+  const outcomeChanges = _normalizeFieldChangeList(selectorChanges.outcomeChanges);
+  const legacyChanges = _normalizeFieldChangeList(selectorChanges.legacyChanges);
+  const batchTurnChanges = Array.isArray(selectorChanges.batchTurnChanges)
+    ? selectorChanges.batchTurnChanges.map((turn) => ({
+        turn_number: typeof turn?.turnNumber === "number" ? turn.turnNumber : null,
+        changes: _normalizeFieldChangeList(turn?.changes),
+      }))
+    : [];
+
+  return {
+    directChanges,
+    outcomeChanges,
+    legacyChanges,
+    batchTurnChanges,
+    all: [
+      ...directChanges,
+      ...outcomeChanges,
+      ...legacyChanges,
+      ...batchTurnChanges.flatMap((turn) => turn.changes),
+    ],
+  };
 }
 
 // Read field changes from a rehydrate chat message and its nested
 // canonical detail (message.changes, message.outcome?.changes).
 function normalizeFieldChangesFromMessage(message) {
   if (!message || typeof message !== "object") {
-    return { directChanges: [], outcomeChanges: [] };
+    return { directChanges: [], outcomeChanges: [], legacyChanges: [], batchTurnChanges: [], all: [] };
   }
 
-  const directChanges = _normalizeFieldChangeList(message.changes);
+  const selectorChanges =
+    readRoundtripFieldChanges(message, { endpoint: "chat:message-field-changes" })
+    || (() => {
+      try {
+        return readFieldChanges(message, {
+          endpoint: "chat:message-field-changes",
+          allowLegacy: true,
+        });
+      } catch (_e) {
+        return null;
+      }
+    })();
+  if (!selectorChanges) {
+    return { directChanges: [], outcomeChanges: [], legacyChanges: [], batchTurnChanges: [], all: [] };
+  }
 
-  const outcomeChanges = _normalizeFieldChangeList(
-    message.outcome && typeof message.outcome === "object" ? message.outcome.changes : null,
-  );
-
-  return { directChanges, outcomeChanges };
+  const directChanges = _normalizeFieldChangeList(selectorChanges.directChanges);
+  const outcomeChanges = _normalizeFieldChangeList(selectorChanges.outcomeChanges);
+  const legacyChanges = _normalizeFieldChangeList(selectorChanges.legacyChanges);
+  const batchTurnChanges = Array.isArray(selectorChanges.batchTurnChanges)
+    ? selectorChanges.batchTurnChanges.map((turn) => ({
+        turn_number: typeof turn?.turnNumber === "number" ? turn.turnNumber : null,
+        changes: _normalizeFieldChangeList(turn?.changes),
+      }))
+    : [];
+  return {
+    directChanges,
+    outcomeChanges,
+    legacyChanges,
+    batchTurnChanges,
+    all: [
+      ...directChanges,
+      ...outcomeChanges,
+      ...legacyChanges,
+      ...batchTurnChanges.flatMap((turn) => turn.changes),
+    ],
+  };
 }
 
 function changeDetailsForMessage(panel, message, snapshot = null) {
@@ -5248,14 +5333,15 @@ function promotePendingResponseMessage(panel, result, options = {}) {
   // replaces it with durable canonical messages. This lets rehydrate failures
   // preserve locally-built terminal bubbles instead of wiping the thread.
   pending.local_id = undefined;
-  if (typeof result?.turnId === "string" && result.turnId) {
-    pending.turn_id = result.turnId;
+  const identity = readRoundtripTurnIdentity(result, { endpoint: "promote-pending-response" });
+  if (typeof identity?.turnId === "string" && identity.turnId) {
+    pending.turn_id = identity.turnId;
   }
-  if (typeof result?.sessionId === "string" && result.sessionId) {
-    pending.session_id = result.sessionId;
+  if (typeof identity?.sessionId === "string" && identity.sessionId) {
+    pending.session_id = identity.sessionId;
   }
-  if (typeof result?.baselineTurnId === "string") {
-    pending.baseline_turn_id = result.baselineTurnId;
+  if (typeof identity?.baselineTurnId === "string") {
+    pending.baseline_turn_id = identity.baselineTurnId;
   }
   if (typeof result?.route === "string") {
     pending.route = result.route;
@@ -5266,8 +5352,9 @@ function promotePendingResponseMessage(panel, result, options = {}) {
   if (result?.report && typeof result.report === "object") {
     pending.report = clonePlainData(result.report);
   }
-  if (result?.candidateGraph && typeof result.candidateGraph === "object") {
-    pending.candidateGraph = clonePlainData(result.candidateGraph);
+  const applyCandidate = readRoundtripApplyCandidate(result, { endpoint: "promote-pending-response" });
+  if (applyCandidate?.graph && typeof applyCandidate.graph === "object") {
+    pending.candidateGraph = clonePlainData(applyCandidate.graph);
   }
   if (result?.auditRef && typeof result.auditRef === "object") {
     pending.audit_ref = clonePlainData(result.auditRef);
@@ -5393,7 +5480,14 @@ function reconcileResponseBatchTurns(panel, result) {
   }
   panel.state.turns = nextTurns;
   const finalIndex = result.batch_turns.length - 1;
-  const resultHasCandidate = Boolean(result?.candidateGraph && typeof result.candidateGraph === "object");
+  const resultApplyCandidate = (() => {
+    try {
+      return readApplyCandidate(result, { endpoint: "batch-turn-reconcile", allowLegacy: true });
+    } catch (_e) {
+      return null;
+    }
+  })();
+  const resultHasCandidate = Boolean(resultApplyCandidate?.graph && typeof resultApplyCandidate.graph === "object");
   // Track processed keys to prevent duplicate detail rows.
   const processedKeys = new Set();
   for (let index = 0; index < result.batch_turns.length; index += 1) {
@@ -6117,10 +6211,13 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
       }
 
       for (const fc of allFieldChanges) {
-        if (!fc || !fc.uid || !fc.field_path) continue;
+        const fieldPath = typeof fc?.fieldPath === "string" && fc.fieldPath
+          ? fc.fieldPath
+          : fc?.field_path;
+        if (!fc || !fc.uid || !fieldPath) continue;
         // Resolve uid through liveByUid or candidateByUid (getUid/LiteGraph id fallback)
         if (!liveByUid.has(fc.uid) && !candidateByUid.has(fc.uid)) continue;
-        const fieldKey = `${fc.uid}::${fc.field_path}`;
+        const fieldKey = `${fc.uid}::${fieldPath}`;
         if (seenFieldKeys.has(fieldKey)) continue;
         seenFieldKeys.add(fieldKey);
 
@@ -6146,7 +6243,7 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
 
         editedFields.push({
           uid: fc.uid,
-          field_path: fc.field_path,
+          field_path: fieldPath,
           new_value: newValueDisplay,
         });
       }
@@ -8969,17 +9066,19 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
-      if (typeof result.sessionId === "string" && result.sessionId) {
+      const submitIdentity = readRoundtripTurnIdentity(result, { endpoint: "submit:identity" });
+      if (typeof submitIdentity?.sessionId === "string" && submitIdentity.sessionId) {
         // Persisting the value remains a side effect, but sessionId itself is
         // committed through the terminal submit transition below.
-        _persistActiveSession(result.sessionId);
+        _persistActiveSession(submitIdentity.sessionId);
       }
       commitSessionArtifactPathsFromResponse(panel, result);
       if (!res.ok || result?.ok === false || result.raw?.error) {
         throw result.raw || { kind: "RequestError", message: res.statusText };
       }
       const outcome = result.outcome;
-      const candidateGraph = prepareCandidateGraphForPanel(result.candidateGraph);
+      const submitCandidate = readRoundtripApplyCandidate(result, { endpoint: "submit:candidate" });
+      const candidateGraph = prepareCandidateGraphForPanel(submitCandidate?.graph || null);
       if (!isSubmitResponseValid(outcome, candidateGraph)) {
         throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
           stage: result.raw?.stage || "agent-executor",
@@ -9076,8 +9175,13 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     // no-op/unchanged graph. Instead surface the question and leave the prompt open
     // so the user can answer in the same session.
     const outcome = result.outcome;
-    const candidateGraph = prepareCandidateGraphForPanel(result.candidateGraph);
-    const eligibility = result.eligibility;
+    const turnIdentity = readRoundtripTurnIdentity(result, { endpoint: "submit:identity" });
+    const applyCandidate = readRoundtripApplyCandidate(result, { endpoint: "submit:candidate" });
+    const candidateGraph = prepareCandidateGraphForPanel(applyCandidate?.graph || null);
+    const eligibility = applyCandidate?.eligibility || null;
+    const resultSessionId = turnIdentity?.sessionId || null;
+    const resultTurnId = turnIdentity?.turnId || null;
+    const resultBaselineTurnId = turnIdentity?.baselineTurnId || null;
     if (outcomeRequiresClarification(outcome) && !candidateGraph) {
       const fallbackMessage =
         (typeof result.message === "string" && result.message.trim())
@@ -9089,11 +9193,15 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
           || "The agent needs clarification before it can edit the graph.";
       const clarification = {
         message: clarifyMessage,
-        turn_id: result.turnId || null,
-        session_id: result.sessionId || null,
+        turn_id: resultTurnId,
+        session_id: resultSessionId,
       };
       const obligations = transition(panel, "CLARIFY_ONLY_RESPONSE", {
         result: result.raw || result,
+        sessionId: resultSessionId,
+        turnId: resultTurnId,
+        baselineTurnId: resultBaselineTurnId,
+        auditRef: result.auditRef || null,
         clarification,
         message: clarifyMessage,
         lastSubmitFieldChanges: normalizeFieldChangesFromSubmit(result.raw || result),
@@ -9108,9 +9216,9 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       reconcileResponseBatchTurns(panel, result.raw || result);
       pushHistory(panel, "clarify", clarifyMessage);
       pushTurnStatus(panel, "clarify", {
-        session_id: result.sessionId,
-        turn_id: result.turnId,
-        baseline_turn_id: result.baselineTurnId,
+        session_id: resultSessionId,
+        turn_id: resultTurnId,
+        baseline_turn_id: resultBaselineTurnId,
         task,
         message: clarifyMessage,
         clarification_required: true,
@@ -9119,8 +9227,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         raw_payload: result.raw || result,
       });
       rememberTurnDetailSnapshot(panel, {
-        turn_id: result.turnId,
-        session_id: result.sessionId,
+        turn_id: resultTurnId,
+        session_id: resultSessionId,
         clarification: panel.state.clarification,
         message: clarifyMessage,
       });
@@ -9141,6 +9249,10 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         : null;
       const obligations = transition(panel, "NOOP_RESPONSE", {
         result: result.raw || result,
+        sessionId: resultSessionId,
+        turnId: resultTurnId,
+        baselineTurnId: resultBaselineTurnId,
+        auditRef: result.auditRef || null,
         message: noopMessage,
         lastSubmitFieldChanges,
         changeDetails,
@@ -9155,9 +9267,9 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       reconcileResponseBatchTurns(panel, result.raw || result);
       pushHistory(panel, "noop", noopMessage);
       pushTurnStatus(panel, "noop", {
-        session_id: result.sessionId,
-        turn_id: result.turnId,
-        baseline_turn_id: result.baselineTurnId,
+        session_id: resultSessionId,
+        turn_id: resultTurnId,
+        baseline_turn_id: resultBaselineTurnId,
         task,
         message: noopMessage,
         graph_unchanged: true,
@@ -9165,8 +9277,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         raw_payload: result.raw || result,
       });
       rememberTurnDetailSnapshot(panel, {
-        turn_id: result.turnId,
-        session_id: result.sessionId,
+        turn_id: resultTurnId,
+        session_id: resultSessionId,
         outcome,
         message: noopMessage,
         changeDetails,
@@ -9216,10 +9328,9 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       && expectedArrivalStructuralHash
       && arrivalSnapshot.structuralHash !== expectedArrivalStructuralHash;
 
-    const candidateGraphHash = result.candidateGraphHash
-      || (result.raw?.candidate_graph_hash && typeof result.raw.candidate_graph_hash === "string"
-        ? result.raw.candidate_graph_hash
-        : null)
+    const candidateGraphHash =
+      applyCandidate?.candidateGraphHash
+      || applyCandidate?.graphHash
       || await sha256HexUtf8(canonicalJsonString(candidateGraph));
     if (!isCurrentSubmit()) {
       clearPendingResponseMessages(panel);
@@ -9242,13 +9353,19 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       outcomeHasClarificationPrompt(outcome) ? "EDIT_CLARIFY_RESPONSE" : "OK_CANDIDATE_RESPONSE",
       {
         result: result.raw || result,
+        sessionId: resultSessionId,
+        turnId: resultTurnId,
+        baselineTurnId: resultBaselineTurnId,
         candidateGraph,
         candidateGraphHash,
+        serverSubmitGraphHash: applyCandidate?.submitGraphHash || null,
+        queueAllowed: Boolean(result.queueAllowed),
+        auditRef: result.auditRef || null,
         clarification: outcomeHasClarificationPrompt(outcome)
           ? {
               message: clarificationMessageFromOutcome(outcome, result.message || null),
-              turn_id: result.turnId || null,
-              session_id: result.sessionId || null,
+              turn_id: resultTurnId,
+              session_id: resultSessionId,
             }
           : null,
         applyEligibility: normalizedEligibility,
@@ -9261,24 +9378,24 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     promotePendingResponseMessage(panel, result);
     clearPendingResponseMessages(panel);
     reconcileResponseBatchTurns(panel, result.raw || result);
-    pushHistory(panel, "candidate", result.turnId ? `turn ${result.turnId}` : "candidate");
+    pushHistory(panel, "candidate", resultTurnId ? `turn ${resultTurnId}` : "candidate");
     pushTurnStatus(panel, "candidate", {
-      session_id: result.sessionId,
-      turn_id: result.turnId,
-      baseline_turn_id: result.baselineTurnId,
+      session_id: resultSessionId,
+      turn_id: resultTurnId,
+      baseline_turn_id: resultBaselineTurnId,
       task,
-      message: result.message || (result.turnId ? `turn ${result.turnId}` : "candidate"),
+      message: result.message || (resultTurnId ? `turn ${resultTurnId}` : "candidate"),
       audit_ref: result.auditRef,
       raw_payload: result.raw || result,
     });
     rememberTurnDetailSnapshot(panel, {
-      turn_id: result.turnId,
-      session_id: result.sessionId,
+      turn_id: resultTurnId,
+      session_id: resultSessionId,
       candidateGraphPresent: Boolean(candidateGraph),
       candidateReport: result.report || null,
       applyEligibility: normalizedEligibility,
       queueAllowed: Boolean(result.queueAllowed),
-      canvasApplyAllowed: Boolean(result.canvasApplyAllowed),
+      canvasApplyAllowed: Boolean(applyCandidate?.applyable === true || normalizedEligibility?.applyable === true),
       auditRef: result.auditRef || null,
       debugPayload: {
         ...scrubDebugPayload(result.raw || result),

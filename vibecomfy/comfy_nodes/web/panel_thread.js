@@ -6,7 +6,13 @@ import {
   formatStatementAction,
   isSubstantiveStatement,
 } from "./agent_turn_feed.js";
-import { routeAllowsApplyAffordances } from "./agent_edit_response_contract.js";
+import {
+  readApplyCandidate,
+  readFieldChanges,
+  readStageSnapshot,
+  routeAllowsApplyAffordances,
+} from "./agent_edit_response_contract.js";
+import { routeStatusState } from "./agent_status_poller.js";
 
 const THREAD_WINDOW_SIZE = 30;
 const THREAD_NEAR_BOTTOM_TOLERANCE_PX = 120;
@@ -87,6 +93,143 @@ export function recordThreadRender(runtimePayload) {
   return runtime.lastThreadRender;
 }
 
+function _readSelectorOrNull(selector, value, options = {}) {
+  try {
+    return selector(value, options);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isPendingAgentMessage(message) {
+  return Boolean(message?.pending_response === true || message?.executor_pending === true);
+}
+
+function stageSnapshotForRender(message, detailSnapshot = null) {
+  const candidates = [
+    detailSnapshot?.stageSnapshot,
+    detailSnapshot?.debugPayload?.stageSnapshot,
+    message?.stageSnapshot,
+    message?.stage_snapshot,
+    message?.response,
+    message,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+    const snapshot = _readSelectorOrNull(readStageSnapshot, candidate, { allowLegacy: false });
+    if (snapshot) {
+      return snapshot;
+    }
+  }
+  return null;
+}
+
+function applyCandidateSourceFromPanel(panel) {
+  const graph = panel?.state?.candidateGraph;
+  if (!graph || typeof graph !== "object") {
+    return null;
+  }
+  return {
+    outcome: { kind: "candidate" },
+    candidate: {
+      state: "candidate",
+      graph,
+      graphHash: panel.state.candidateGraphHash,
+      structuralGraphHash: panel.state.structuralGraphHash,
+      baselineGraphHash: panel.state.baselineGraphHash,
+      submitGraphHash: panel.state.submitGraphHash,
+      submitStructuralGraphHash: panel.state.submitStructuralGraphHash,
+    },
+    eligibility: panel.state.applyEligibility,
+    turnIdentity: {
+      sessionId: panel.state.sessionId,
+      turnId: panel.state.turnId,
+    },
+  };
+}
+
+function applyCandidateForRender(panel, message = null, detailSnapshot = null) {
+  const sources = [
+    message?.response,
+    message,
+    detailSnapshot?.response,
+    detailSnapshot?.debugPayload?.response,
+    applyCandidateSourceFromPanel(panel),
+  ];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+    const candidate = _readSelectorOrNull(readApplyCandidate, source, { allowLegacy: false });
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function fieldChangesForRender(message, detailSnapshot = null) {
+  const snapshotChanges = detailSnapshot?.fieldChanges;
+  if (snapshotChanges && (typeof snapshotChanges === "object" || Array.isArray(snapshotChanges))) {
+    return snapshotChanges;
+  }
+  const sources = [
+    message?.response,
+    message,
+    detailSnapshot?.response,
+    detailSnapshot?.debugPayload?.response,
+  ];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+    const changes = _readSelectorOrNull(readFieldChanges, source, { allowLegacy: false });
+    if (changes?.all?.length) {
+      return changes;
+    }
+  }
+  return null;
+}
+
+function allFieldChangesForRender(message, detailSnapshot = null) {
+  const fieldChanges = fieldChangesForRender(message, detailSnapshot);
+  if (Array.isArray(fieldChanges)) {
+    return fieldChanges;
+  }
+  if (!fieldChanges || typeof fieldChanges !== "object") {
+    return [];
+  }
+  if (Array.isArray(fieldChanges.all)) {
+    return fieldChanges.all;
+  }
+  const directChanges = Array.isArray(fieldChanges.directChanges) ? fieldChanges.directChanges : [];
+  const outcomeChanges = Array.isArray(fieldChanges.outcomeChanges) ? fieldChanges.outcomeChanges : [];
+  const batchTurnChanges = Array.isArray(fieldChanges.batchTurnChanges)
+    ? fieldChanges.batchTurnChanges.flatMap((turn) => {
+      if (Array.isArray(turn?.changes)) {
+        return turn.changes;
+      }
+      return turn && typeof turn === "object" ? [turn] : [];
+    })
+    : [];
+  return directChanges.concat(outcomeChanges, batchTurnChanges);
+}
+
+function routeStatusForRender(panel) {
+  return routeStatusState(panel);
+}
+
+function routeAllowsCandidateDetail(panel, message, detailSnapshot, actionState) {
+  if (applyCandidateForRender(panel, message, detailSnapshot)) {
+    return true;
+  }
+  const routeStatus = routeStatusForRender(panel);
+  const route = routeStatus?.selectedRoute || routeStatus?.requestedRoute || null;
+  return routeAllowsApplyAffordances(route) || actionState?.visible === true;
+}
+
 function _bubbleDetailTurnEntries(panel, msg, snapshot) {
   const turnId =
     (typeof msg?.turn_id === "string" && msg.turn_id)
@@ -115,12 +258,11 @@ function bubbleDetailSignature(panel, msg, detailSnapshot) {
     : "";
   const turnEntryCount = panel ? String(_bubbleDetailTurnEntries(panel, msg, detailSnapshot).length) : "";
   const detailSigParts = [
-    detailSnapshot?.phase || "",
+    stageSnapshotForRender(msg, detailSnapshot)?.stage || detailSnapshot?.phase || "",
     detailSnapshot?.message || "",
     detailSnapshot?.auditRef?.path || "",
     detailSnapshot?.changeDetails?.done_summary || msg?.change_details?.done_summary || "",
-    Array.isArray(detailSnapshot?.fieldChanges) ? String(detailSnapshot.fieldChanges.length) : "",
-    Array.isArray(msg?.field_changes) ? String(msg.field_changes.length) : "",
+    String(allFieldChangesForRender(msg, detailSnapshot).length),
     canonicalDetails,
     canonicalDiagnostics,
     msg?.turn_id || "",
@@ -139,19 +281,20 @@ function bubbleRenderSignature(panel, msg, deps = {}) {
   const actionState = typeof candidateActionState === "function"
     ? candidateActionState(panel, msg, snapshot)
     : {};
+  const stageSnapshot = stageSnapshotForRender(msg, snapshot);
+  const applyCandidate = applyCandidateForRender(panel, msg, snapshot);
   const responseId = ratingResponseIdForMessage(panel, msg);
   const ratingState = responseId ? getRatingResponseState(panel, responseId) : null;
   const signatureParts = [
     typeof messageSignature === "function" ? messageSignature(msg) : "",
-    snapshot?.phase || "",
+    stageSnapshot?.stage || snapshot?.phase || "",
     snapshot?.message || "",
     snapshot?.auditRef?.path || "",
     snapshot?.changeDetails?.done_summary || msg?.change_details?.done_summary || "",
-    Array.isArray(snapshot?.fieldChanges) ? String(snapshot.fieldChanges.length) : "",
-    Array.isArray(msg?.field_changes) ? String(msg.field_changes.length) : "",
-    actionState.turnId || "",
-    actionState.eligibility?.reason || "",
-    actionState.eligibility?.message || "",
+    String(allFieldChangesForRender(msg, snapshot).length),
+    applyCandidate?.turnIdentity?.turnId || actionState.turnId || "",
+    applyCandidate?.eligibility?.reason || actionState.eligibility?.reason || "",
+    applyCandidate?.eligibility?.message || actionState.eligibility?.message || "",
     actionState.active ? "1" : "0",
     actionState.applyDisabled ? "1" : "0",
     actionState.rejectDisabled ? "1" : "0",
@@ -162,7 +305,7 @@ function bubbleRenderSignature(panel, msg, deps = {}) {
     Number.isFinite(ratingState?.rating) ? `rating-${ratingState.rating}` : "",
     ratingWidgetDisabled(panel, deps) ? "rating-disabled" : "",
     panel?.state?.turnId || "",
-    (msg?.pending_response || msg?.executor_pending) ? "pending-response" : "",
+    isPendingAgentMessage(msg) ? "pending-response" : "",
     msg?.progress ? JSON.stringify(msg.progress) : "",
     msg?.progress_label || "",
     Array.isArray(msg?.canonical_activity?.details) ? String(msg.canonical_activity.details.length) : "",
@@ -294,7 +437,7 @@ function markRatingResponseSubmitted(panel, responseId) {
 
 function renderExecutorProgressRow(msg, panel, deps = {}) {
   const { el } = deps;
-  if (!(msg?.pending_response || msg?.executor_pending) || typeof el !== "function") {
+  if (!isPendingAgentMessage(msg) || typeof el !== "function") {
     return null;
   }
   // Prefer canonical activity phase_progress from the message (set by
@@ -472,11 +615,7 @@ function hasLaterUserOrPendingMessage(displayEntries, messageKey) {
       continue;
     }
     const msg = entry?.msg;
-    if (
-      msg?.role === "user"
-      || msg?.pending_response === true
-      || msg?.executor_pending === true
-    ) {
+    if (msg?.role === "user" || isPendingAgentMessage(msg)) {
       return true;
     }
   }
@@ -487,7 +626,7 @@ function shouldRenderRatingWidget(panel, msg, messageKey, deps = {}) {
   if (msg?.role !== "agent") {
     return false;
   }
-  if (msg?.pending_response || msg?.executor_pending) {
+  if (isPendingAgentMessage(msg)) {
     return false;
   }
   if (String(messageKey || "") !== String(deps.latestAgentMessageKey || "")) {
@@ -768,24 +907,23 @@ function appendTurnMeta(target, panel, message, snapshot = null, deps = {}) {
     appendTextLine(target, `turn: ${turnId}`, "#8d93a1");
   }
 
-  const fieldChanges = message?.field_changes || snapshot?.fieldChanges;
-  if (fieldChanges && typeof fieldChanges === "object") {
-    const directChanges = Array.isArray(fieldChanges.directChanges) ? fieldChanges.directChanges : [];
-    const outcomeChanges = Array.isArray(fieldChanges.outcomeChanges) ? fieldChanges.outcomeChanges : [];
-    const batchTurnChanges = Array.isArray(fieldChanges.batchTurnChanges) ? fieldChanges.batchTurnChanges : [];
-    const allChanges = directChanges.concat(outcomeChanges, batchTurnChanges);
-    if (allChanges.length > 0) {
-      appendTextLine(target, allChanges.map(function (change) {
-        if (!change || typeof change.field_path !== "string") {
-          return "";
-        }
-        const nextValue =
-          typeof change.new_value !== "undefined"
+  const allChanges = allFieldChangesForRender(message, snapshot);
+  if (allChanges.length > 0) {
+    appendTextLine(target, allChanges.map(function (change) {
+      const fieldPath = typeof change?.fieldPath === "string"
+        ? change.fieldPath
+        : (typeof change?.field_path === "string" ? change.field_path : "");
+      if (!fieldPath) {
+        return "";
+      }
+      const nextValue =
+        typeof change.newValue !== "undefined"
+          ? change.newValue
+          : typeof change.new_value !== "undefined"
             ? change.new_value
             : change.new;
-        return `${change.field_path}${typeof nextValue !== "undefined" ? ` -> ${String(nextValue).slice(0, 40)}` : ""}`;
-      }).filter(Boolean).join("; "), "#c4ccd6");
-    }
+      return `${fieldPath}${typeof nextValue !== "undefined" ? ` -> ${String(nextValue).slice(0, 40)}` : ""}`;
+    }).filter(Boolean).join("; "), "#c4ccd6");
   }
 
   if (panel.state.chatDetailJsonPath && turnId) {
@@ -817,23 +955,12 @@ export function populateAgentBubbleDetail(target, panel, message, snapshot = nul
   } = deps;
   clearNode(target);
 
-  // Extract route from message or panel state for applyability gating
-  const msgRoute = (message?.response && typeof message.response === "object")
-    ? (message.response.route || (message.response.raw && message.response.raw.route))
-    : (typeof message?.route === "string" ? message.route : null);
-  const canonicalRoute = typeof message?.canonical_activity?.route === "string"
-    ? message.canonical_activity.route
-    : null;
-  const latestRoute = panel?.state?.latestResponse?.route
-    || panel?.state?.route
-    || panel?.route;
-  const effectiveRoute = msgRoute || canonicalRoute || latestRoute || null;
   const actionState = typeof deps.candidateActionState === "function"
     ? deps.candidateActionState(panel, message, snapshot)
     : null;
-  const allowsApply = routeAllowsApplyAffordances(effectiveRoute) || actionState?.visible === true;
+  const allowsApply = routeAllowsCandidateDetail(panel, message, snapshot, actionState);
 
-  const isExecutorMessage = message?.pending_response === true || message?.executor_pending === true || message?.source === "agent-edit";
+  const isExecutorMessage = isPendingAgentMessage(message) || message?.source === "agent-edit";
   if (!isExecutorMessage) {
     const metaSection = createBubbleDetailSection("Turn");
     appendTurnMeta(metaSection.body, panel, message, snapshot, { appendTextLine, el });
@@ -959,7 +1086,7 @@ export function renderChatBubbleNode(bubble, panel, msg, messageKey, messageInde
   });
   bubble.appendChild(label);
 
-  const isPendingResponse = msg?.pending_response === true || msg?.executor_pending === true;
+  const isPendingResponse = isPendingAgentMessage(msg);
   const bubbleText = isPendingResponse ? "" : String(msg.text || "");
   const text = renderMarkdown(panel.document || document, bubbleText);
   Object.assign(text.style, {
@@ -1949,7 +2076,7 @@ function renderActivityRows(panel, deps = {}) {
   const hasPendingResponse = Array.isArray(panel?.state?.chatMessages)
     && panel.state.chatMessages.some((message) => (
       message?.role === "agent"
-      && (message.pending_response === true || message.executor_pending === true)
+      && isPendingAgentMessage(message)
     ));
   if (hasPendingResponse) {
     deps.clearNode?.(mount);

@@ -8,6 +8,7 @@ import {
   buildStatusUrl,
   routeStatusState,
   routeOptionsFromStatus,
+  projectRouteStatus,
   clearAgentStatusRetry,
   scheduleAgentStatusRetry,
   populateRouteSelect,
@@ -267,6 +268,307 @@ test("routeOptionsFromStatus — extracts route_options safely", () => {
 
   const opts = { auto: { normalized_route: "arnold" } };
   assert.deepEqual(routeOptionsFromStatus({ ok: true, route_options: opts }), opts);
+});
+
+test("projectRouteStatus — projects ProviderStatus payloads to frontend RouteStatus", () => {
+  const ready = projectRouteStatus({
+    ok: true,
+    ready: true,
+    provider_available: true,
+    route: "arnold",
+    requested_route: "auto",
+    route_options: {
+      auto: { normalized_route: "arnold", available: true },
+    },
+  }, { route: "auto", model: "default" });
+  assert.deepEqual(ready.routeStatus, {
+    kind: ROUTE_STATUS_KIND.READY,
+    requestedRoute: "auto",
+    model: "default",
+  });
+  assert.equal(ready.settingsMessage, "auto → arnold (provider ready)");
+  assert.equal(ready.routeOptions.auto.normalized_route, "arnold");
+
+  const unavailable = projectRouteStatus({
+    ok: true,
+    ready: false,
+    reason: "Provider quota exceeded",
+    route_options: {
+      openrouter: { normalized_route: "openrouter", available: false },
+    },
+  }, { route: "openrouter" });
+  assert.equal(unavailable.routeStatus.kind, ROUTE_STATUS_KIND.UNAVAILABLE);
+  assert.equal(unavailable.settingsMessage, "Provider quota exceeded");
+
+  const malformed = projectRouteStatus(["not", "provider", "status"], { route: "anthropic" });
+  assert.equal(malformed.routeStatus.kind, ROUTE_STATUS_KIND.MALFORMED);
+  assert.equal(malformed.routeOptions, null);
+  assert.equal(malformed.placeholderLabel, "Malformed status payload");
+
+  const missingOptions = projectRouteStatus({ ok: true, ready: true }, { route: "auto" });
+  assert.equal(missingOptions.routeStatus.kind, ROUTE_STATUS_KIND.MISSING_OPTIONS);
+  assert.equal(missingOptions.issue, "missing_route_options");
+});
+
+test("projectRouteStatus — covers loading, malformed, missing, mismatch, unavailable, ready, and provider unavailable states", () => {
+  assert.deepEqual(routeStatusState({ state: {} }), { kind: ROUTE_STATUS_KIND.LOADING });
+
+  const malformed = projectRouteStatus(null, { route: "openrouter", model: "gpt-4o" });
+  assert.equal(malformed.issue, "malformed_status");
+  assert.deepEqual(malformed.routeStatus, {
+    kind: ROUTE_STATUS_KIND.MALFORMED,
+    requestedRoute: "openrouter",
+    model: "gpt-4o",
+  });
+  assert.equal(malformed.routeOptions, null);
+  assert.equal(malformed.selectedRoute, "openrouter");
+  assert.equal(malformed.placeholderLabel, "Malformed status payload");
+
+  const missingOptions = projectRouteStatus(
+    { ok: true, ready: true, route: "openrouter", requested_route: "openrouter" },
+    { route: "openrouter" },
+  );
+  assert.equal(missingOptions.issue, "missing_route_options");
+  assert.equal(missingOptions.routeStatus.kind, ROUTE_STATUS_KIND.MISSING_OPTIONS);
+  assert.equal(missingOptions.placeholderLabel, "Route options unavailable");
+
+  const routeMismatch = projectRouteStatus({
+    ok: true,
+    ready: true,
+    route: "arnold",
+    requested_route: "anthropic",
+    route_options: {
+      openrouter: { normalized_route: "openrouter", available: true },
+    },
+  }, { route: "anthropic" });
+  assert.equal(routeMismatch.issue, "missing_route_descriptor");
+  assert.deepEqual(routeMismatch.routeStatus, {
+    kind: ROUTE_STATUS_KIND.MALFORMED,
+    requestedRoute: "anthropic",
+    model: null,
+  });
+  assert.equal(routeMismatch.selectedRoute, "anthropic");
+  assert.equal(routeMismatch.placeholderLabel, null);
+
+  const unavailable = projectRouteStatus({
+    ok: true,
+    ready: false,
+    reason: "Route disabled by policy",
+    route: "anthropic",
+    requested_route: "anthropic",
+    provider_available: false,
+    route_options: {
+      anthropic: { normalized_route: "anthropic", available: false },
+    },
+  }, { route: "anthropic" });
+  assert.equal(unavailable.issue, null);
+  assert.deepEqual(unavailable.routeStatus, {
+    kind: ROUTE_STATUS_KIND.UNAVAILABLE,
+    requestedRoute: "anthropic",
+    model: null,
+  });
+  assert.equal(unavailable.settingsMessage, "Route disabled by policy");
+
+  const ready = projectRouteStatus({
+    ok: true,
+    ready: true,
+    route: "openrouter",
+    requested_route: "openrouter",
+    provider_available: true,
+    route_options: {
+      openrouter: { normalized_route: "openrouter", available: true },
+    },
+  }, { route: "openrouter", model: "gpt-4o" });
+  assert.equal(ready.issue, null);
+  assert.deepEqual(ready.routeStatus, {
+    kind: ROUTE_STATUS_KIND.READY,
+    requestedRoute: "openrouter",
+    model: "gpt-4o",
+  });
+  assert.equal(ready.settingsMessage, "openrouter → openrouter (provider ready)");
+
+  const providerUnavailable = projectRouteStatus({
+    ok: true,
+    ready: true,
+    route: "openrouter",
+    requested_route: "openrouter",
+    provider_available: false,
+    route_options: {
+      openrouter: { normalized_route: "openrouter", available: true },
+    },
+  }, { route: "openrouter", model: "gpt-4o" });
+  assert.deepEqual(providerUnavailable.routeStatus, {
+    kind: ROUTE_STATUS_KIND.READY,
+    requestedRoute: "openrouter",
+    model: "gpt-4o",
+  });
+  assert.equal(providerUnavailable.settingsMessage, "openrouter → openrouter (provider unavailable)");
+
+  const quiet = projectRouteStatus({
+    ok: true,
+    ready: true,
+    route: "arnold",
+    requested_route: "auto",
+    provider_available: true,
+    route_options: {
+      auto: { normalized_route: "arnold", available: true },
+    },
+  }, { route: "auto", quiet: true });
+  assert.equal(quiet.routeStatus.kind, ROUTE_STATUS_KIND.READY);
+  assert.equal(quiet.settingsMessage, null);
+
+  const legacyDeepseek = projectRouteStatus({
+    ok: true,
+    ready: true,
+    route: "deepseek",
+    requested_route: "deepseek",
+    provider_available: true,
+    route_options: {
+      deepseek: { normalized_route: "deepseek", available: true },
+      openrouter: { normalized_route: "openrouter", available: true },
+    },
+  }, { route: "deepseek" });
+  assert.equal(legacyDeepseek.issue, null);
+  assert.deepEqual(legacyDeepseek.routeStatus, {
+    kind: ROUTE_STATUS_KIND.READY,
+    requestedRoute: "deepseek",
+    model: null,
+  });
+  assert.equal(legacyDeepseek.selectedRoute, "deepseek");
+});
+
+test("transition table: route/provider projection states stay canonical", () => {
+  const cases = [
+    {
+      name: "loading reducer state before provider payload",
+      stateInput: { state: {} },
+      expectedRouteStatus: { kind: ROUTE_STATUS_KIND.LOADING },
+    },
+    {
+      name: "malformed provider payload",
+      status: null,
+      request: { route: "openrouter", model: "gpt-4o" },
+      expectedIssue: "malformed_status",
+      expectedRouteStatus: {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        requestedRoute: "openrouter",
+        model: "gpt-4o",
+      },
+      expectedPlaceholder: "Malformed status payload",
+    },
+    {
+      name: "missing route options",
+      status: { ok: true, ready: true, route: "openrouter", requested_route: "openrouter" },
+      request: { route: "openrouter" },
+      expectedIssue: "missing_route_options",
+      expectedRouteStatus: {
+        kind: ROUTE_STATUS_KIND.MISSING_OPTIONS,
+        requestedRoute: "openrouter",
+        model: null,
+      },
+      expectedPlaceholder: "Route options unavailable",
+    },
+    {
+      name: "requested route descriptor mismatch",
+      status: {
+        ok: true,
+        ready: true,
+        route: "arnold",
+        requested_route: "anthropic",
+        route_options: {
+          openrouter: { normalized_route: "openrouter", available: true },
+        },
+      },
+      request: { route: "anthropic" },
+      expectedIssue: "missing_route_descriptor",
+      expectedRouteStatus: {
+        kind: ROUTE_STATUS_KIND.MALFORMED,
+        requestedRoute: "anthropic",
+        model: null,
+      },
+    },
+    {
+      name: "provider route unavailable",
+      status: {
+        ok: true,
+        ready: false,
+        reason: "Route disabled by policy",
+        route: "anthropic",
+        requested_route: "anthropic",
+        provider_available: false,
+        route_options: {
+          anthropic: { normalized_route: "anthropic", available: false },
+        },
+      },
+      request: { route: "anthropic" },
+      expectedIssue: null,
+      expectedRouteStatus: {
+        kind: ROUTE_STATUS_KIND.UNAVAILABLE,
+        requestedRoute: "anthropic",
+        model: null,
+      },
+      expectedSettingsMessage: "Route disabled by policy",
+    },
+    {
+      name: "ready route with provider available",
+      status: {
+        ok: true,
+        ready: true,
+        route: "openrouter",
+        requested_route: "openrouter",
+        provider_available: true,
+        route_options: {
+          openrouter: { normalized_route: "openrouter", available: true },
+        },
+      },
+      request: { route: "openrouter", model: "gpt-4o" },
+      expectedIssue: null,
+      expectedRouteStatus: {
+        kind: ROUTE_STATUS_KIND.READY,
+        requestedRoute: "openrouter",
+        model: "gpt-4o",
+      },
+      expectedSettingsMessage: "openrouter → openrouter (provider ready)",
+    },
+    {
+      name: "ready route with provider unavailable projects route ready but provider message unavailable",
+      status: {
+        ok: true,
+        ready: true,
+        route: "openrouter",
+        requested_route: "openrouter",
+        provider_available: false,
+        route_options: {
+          openrouter: { normalized_route: "openrouter", available: true },
+        },
+      },
+      request: { route: "openrouter", model: "gpt-4o" },
+      expectedIssue: null,
+      expectedRouteStatus: {
+        kind: ROUTE_STATUS_KIND.READY,
+        requestedRoute: "openrouter",
+        model: "gpt-4o",
+      },
+      expectedSettingsMessage: "openrouter → openrouter (provider unavailable)",
+    },
+  ];
+
+  for (const testCase of cases) {
+    const projection = testCase.stateInput
+      ? { routeStatus: routeStatusState(testCase.stateInput) }
+      : projectRouteStatus(testCase.status, testCase.request);
+
+    assert.deepEqual(projection.routeStatus, testCase.expectedRouteStatus, testCase.name);
+    if ("expectedIssue" in testCase) {
+      assert.equal(projection.issue, testCase.expectedIssue, testCase.name);
+    }
+    if ("expectedPlaceholder" in testCase) {
+      assert.equal(projection.placeholderLabel, testCase.expectedPlaceholder, testCase.name);
+    }
+    if ("expectedSettingsMessage" in testCase) {
+      assert.equal(projection.settingsMessage, testCase.expectedSettingsMessage, testCase.name);
+    }
+  }
 });
 
 test("getPersistedAgentProvider / setPersistedAgentProvider — localStorage roundtrip", () => {

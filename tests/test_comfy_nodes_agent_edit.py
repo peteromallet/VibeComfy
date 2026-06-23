@@ -2735,9 +2735,23 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     assert result["candidate"]["graph"] == result["graph"]
     assert result["candidate"]["graph_hash"] == result["candidate_graph_hash"]
     assert result["candidate"]["structural_graph_hash"] == result["candidate_structural_graph_hash"]
+    assert result["candidate"]["baseline_graph_hash"] == result["baseline_graph_hash"]
+    assert result["candidate"]["submit_graph_hash"] == result["submit_graph_hash"]
+    assert (
+        result["candidate"]["submit_structural_graph_hash"]
+        == result["submit_structural_graph_hash"]
+    )
+    assert result["candidate"]["turn_identity"] == {
+        "session_id": "batch-done",
+        "turn_id": result["turn_id"],
+        "baseline_turn_id": None,
+        "idempotency_key": None,
+    }
     assert result["eligibility"] == result["apply_eligibility"]
     assert result["debug"]["gates"] == result["gates"]
     assert result["debug"]["hashes"]["candidate_graph_hash"] == result["candidate_graph_hash"]
+    assert result["debug"]["turn_identity"] == result["candidate"]["turn_identity"]
+    assert "audit_ref" not in result["debug"]
     assert result["debug"]["batch_repl"]["exit_mode"] == "done"
     assert result["message"] == "Ready to commit the candidate."
     assert result["done_summary"] not in result["message"]
@@ -2796,6 +2810,36 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
     assert audit["metadata"]["batch_repl"]["exit_mode"] == "done"
     assert audit["metadata"]["batch_repl"]["done_summary"] == result["done_summary"]
+    turn_dir = tmp_path / "batch-done" / "turns" / result["turn_id"]
+    persisted_response = json.loads(
+        (turn_dir / "response.json").read_text(encoding="utf-8")
+    )
+    assert persisted_response["candidate"] == result["candidate"]
+    assert persisted_response["candidate"]["graph_hash"] == result["candidate_graph_hash"]
+    assert (
+        persisted_response["candidate"]["structural_graph_hash"]
+        == result["candidate_structural_graph_hash"]
+    )
+    assert persisted_response["outcome"]["changes"] == result["outcome"]["changes"]
+    assert (
+        persisted_response["change_details"]["operations"]
+        == result["change_details"]["operations"]
+    )
+    assert "audit_ref" not in persisted_response["debug"]
+    assert persisted_response["audit_ref"] == result["audit_ref"]
+    chat = json.loads((turn_dir / "chat.json").read_text(encoding="utf-8"))
+    agent_message = next(message for message in chat["messages"] if message["role"] == "agent")
+    assert agent_message["outcome"] == result["outcome"]
+    assert agent_message["change_details"]["operations"] == result["change_details"]["operations"]
+    rehydrated = read_session_chat(tmp_path, "batch-done", max_messages=10)
+    latest_agent = [msg for msg in rehydrated["messages"] if msg["role"] == "agent"][-1]
+    assert latest_agent["outcome"] == result["outcome"]
+    assert latest_agent["change_details"]["operations"] == [
+        {
+            "summary": result["change_details"]["operations"][0]["summary"],
+            "field_path": "filename_prefix",
+        }
+    ]
     assert [payload["status"] for _, payload, _ in events] == ["in_progress", "done"]
     assert all(event == "vibecomfy.agent_edit.turn" for event, _, _ in events)
     assert all(client_id == "client-done" for _, _, client_id in events)
@@ -4899,6 +4943,18 @@ def test_agent_edit_idempotency_conflict_returns_stale_state_mismatch(
         audit_ref_expected=True,
     )
     assert "_allocation_failures" in conflict["audit_ref"]["path"]
+    assert conflict["agent_failure_context"]["idempotency_key"] == "same-key"
+    assert conflict["debug"]["failure"]["agent_failure_context"] == conflict[
+        "agent_failure_context"
+    ]
+    assert "audit_ref" not in conflict["debug"]["failure"]
+    assert "audit_ref" not in conflict["debug"]
+    audit = json.loads(Path(conflict["audit_ref"]["path"]).read_text(encoding="utf-8"))
+    assert audit["failure"]["kind"] == FailureKind.STALE_STATE_MISMATCH.value
+    assert (
+        audit["failure"]["agent_failure_context"]["idempotency_key"]
+        == "same-key"
+    )
 
 
 def test_agent_edit_stale_submit_auto_rebaselines_at_ingest(
@@ -5827,6 +5883,29 @@ def test_agent_edit_rebaseline_route_returns_no_candidate_apply_eligibility(
     assert result["apply_allowed"] is False
     assert result["queue_allowed"] is False
     assert result["apply_eligibility"]["reason"] == "no_candidate"
+    persisted = json.loads(
+        (
+            tmp_path
+            / "reb-eligibility"
+            / "_rebaseline"
+            / result["rebaseline_id"]
+            / "response.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert persisted["action"] == "rebaseline"
+    assert persisted["baseline_graph_hash"] == result["baseline_graph_hash"]
+    assert persisted["baseline_graph_hash_kind"] == "structural"
+    assert persisted["baseline_graph_source_path"] == result["baseline_graph_source_path"]
+    assert persisted["computed_structural_graph_hash"] == result["baseline_graph_hash"]
+    for legacy_key in (
+        "apply_eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+        "audit_ref",
+        "debug",
+    ):
+        assert legacy_key not in persisted
 
 
 def test_agent_edit_action_routes_reject_candidates_without_baseline_update(
@@ -6240,6 +6319,13 @@ def test_agent_status_and_credentials_route_helpers_do_not_leak_secrets(
 
     assert status["ok"] is False
     assert status["provider_available"] is False
+    assert status["error"] == {
+        "message": "The model provider is unavailable. Check local provider configuration.",
+        "type": "provider_unavailable",
+    }
+    assert status["reason"] == "The model provider is unavailable. Check local provider configuration."
+    assert status["message"] == "The model provider is unavailable. Check local provider configuration."
+    assert status["debug"]["provider_status"]["raw_error"] == "not installed"
     assert status["route"] == "arnold"
     assert status["requested_route"] == "anthropic"
     assert status["route_metadata"]["tos_acknowledgement_required"] is True
@@ -6327,67 +6413,39 @@ def test_agent_status_and_credentials_cover_provider_unavailable_redaction_and_s
     )
     unavailable = _handle_agent_status({"route": "openai-codex", "model": "agent-edit"})
 
-    assert unavailable == {
-        "ok": False,
-        "ready": False,
-        "reason": "not installed",
-        "readiness": "unavailable",
-        "route": "arnold",
-        "requested_route": "openai-codex",
-        "model": "agent-edit",
-        "provider": "arnold",
-        "provider_available": False,
-        "contract_version": "agent_edit_turn_v2",
-        "error": "not installed",
-        "route_metadata": {
-            "requested_route": "openai-codex",
-            "normalized_route": "arnold",
-            "browser_api_key_allowed": False,
-            "guidance": "OpenAI Codex runs through local Arnold/Hermes. Configure local "
-            "ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted.",
-            "tos_acknowledgement_required": False,
-        },
-        "route_options": {
-            "auto": {
-                "requested_route": "auto",
-                "normalized_route": "openrouter",
-                "browser_api_key_allowed": True,
-                "guidance": "OpenRouter browser key submission is supported and stored locally.",
-                "tos_acknowledgement_required": False,
-            },
-            "openrouter": {
-                "requested_route": "openrouter",
-                "normalized_route": "openrouter",
-                "browser_api_key_allowed": True,
-                "guidance": "OpenRouter browser key submission is supported and stored locally.",
-                "tos_acknowledgement_required": False,
-            },
-            "anthropic": {
-                "requested_route": "anthropic",
-                "normalized_route": "arnold",
-                "browser_api_key_allowed": False,
-                "guidance": "Anthropic/Claude runs through local Arnold/Hermes. "
-                "Acknowledge the ToS in the UI and configure local ARNOLD_API_KEY or "
-                "HERMES_API_KEY; browser keys are not accepted.",
-                "tos_acknowledgement_required": True,
-            },
-            "openai-codex": {
-                "requested_route": "openai-codex",
-                "normalized_route": "arnold",
-                "browser_api_key_allowed": False,
-                "guidance": "OpenAI Codex runs through local Arnold/Hermes. Configure "
-                "local ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted.",
-                "tos_acknowledgement_required": False,
-            },
-        },
-        "credential_presence": {
-            "arnold_api_key": True,
-            "hermes_api_key": True,
-            "openrouter_api_key": True,
-            "deepseek_api_key": False,
-        },
-        "legacy_deepseek_fallback_enabled": False,
+    assert unavailable["ok"] is False
+    assert unavailable["ready"] is False
+    assert unavailable["reason"] == "The model provider is unavailable. Check local provider configuration."
+    assert unavailable["message"] == "The model provider is unavailable. Check local provider configuration."
+    assert unavailable["readiness"] == "unavailable"
+    assert unavailable["route"] == "arnold"
+    assert unavailable["requested_route"] == "openai-codex"
+    assert unavailable["model"] == "agent-edit"
+    assert unavailable["provider"] == "arnold"
+    assert unavailable["provider_available"] is False
+    assert unavailable["contract_version"] == "agent_edit_turn_v2"
+    assert unavailable["error"] == {
+        "message": "The model provider is unavailable. Check local provider configuration.",
+        "type": "provider_unavailable",
     }
+    assert unavailable["debug"]["provider_status"]["raw_error"] == "not installed"
+    assert unavailable["route_metadata"] == {
+        "requested_route": "openai-codex",
+        "normalized_route": "arnold",
+        "browser_api_key_allowed": False,
+        "guidance": "OpenAI Codex runs through local Arnold/Hermes. Configure local "
+        "ARNOLD_API_KEY or HERMES_API_KEY; browser keys are not accepted.",
+        "tos_acknowledgement_required": False,
+    }
+    assert unavailable["route_options"]["openrouter"]["browser_api_key_allowed"] is True
+    assert unavailable["route_options"]["anthropic"]["tos_acknowledgement_required"] is True
+    assert unavailable["credential_presence"] == {
+        "arnold_api_key": True,
+        "hermes_api_key": True,
+        "openrouter_api_key": True,
+        "deepseek_api_key": False,
+    }
+    assert unavailable["legacy_deepseek_fallback_enabled"] is False
 
     env_path = tmp_path / ".hermes" / ".env"
     openrouter = _handle_agent_credentials(
@@ -10307,6 +10365,57 @@ def test_batch_repl_response_none_route_no_route_effects() -> None:
     assert "task_satisfaction" not in response  # not added for non-precedent routes
 
 
+def test_batch_repl_success_uses_canonical_candidate_identity_and_stage_snapshots() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+    from vibecomfy.comfy_nodes.agent.contracts import StageResult, TurnContext
+
+    state = _make_state(
+        graph={"nodes": []},
+        ui_payload={"nodes": [{"id": 1}]},
+        batch_exit_mode="done",
+        batch_done_summary="applied change",
+    )
+    context = TurnContext(
+        session_id="canonical-batch",
+        turn_id="0003",
+        baseline_turn_id="0002",
+        idempotency_key="submit:canonical",
+    )
+    context.record_stage(
+        StageResult(
+            stage="agent_batch",
+            ok=True,
+            blocking=False,
+            duration_ms=12,
+            gate_updates={"python_load_ok": True},
+            issues=({"code": "advisory"},),
+            value={"summary": "ok"},
+        )
+    )
+
+    response = _build_batch_repl_response(state, context)
+
+    assert response["candidate"]["turn_identity"] == {
+        "session_id": "canonical-batch",
+        "turn_id": "0003",
+        "baseline_turn_id": "0002",
+        "idempotency_key": "submit:canonical",
+    }
+    assert response["debug"]["turn_identity"] == response["candidate"]["turn_identity"]
+    assert response["debug"]["stage_snapshots"] == [
+        {
+            "stage": "agent_batch",
+            "ok": True,
+            "blocking": False,
+            "duration_ms": 12,
+            "gates": {"python_load_ok": True},
+            "artifacts": [],
+            "issues": [{"code": "advisory"}],
+            "value": {"summary": "ok"},
+        }
+    ]
+
+
 # ── Integration: _build_dev_success_response route-specific behavior ────────
 
 
@@ -10408,6 +10517,54 @@ def test_dev_success_response_none_route_no_route_effects() -> None:
     response = _build_dev_success_response(state, context, contract="full")
     assert "change_focus" not in response
     assert "task_satisfaction" not in response
+
+
+def test_dev_success_uses_canonical_candidate_identity_and_stage_snapshots() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+    from vibecomfy.comfy_nodes.agent.contracts import StageResult, TurnContext
+
+    state = _make_state(
+        graph={"nodes": []},
+        ui_payload={"nodes": [{"id": 1}]},
+    )
+    context = TurnContext(
+        session_id="canonical-dev",
+        turn_id="0004",
+        baseline_turn_id="0003",
+        idempotency_key="submit:dev",
+    )
+    context.record_stage(
+        StageResult(
+            stage="validate",
+            ok=True,
+            blocking=False,
+            duration_ms=7,
+            gate_updates={"ir_validate_ok": True},
+            value={"validated": True},
+        )
+    )
+
+    response = _build_dev_success_response(state, context, contract="full")
+
+    assert response["candidate"]["turn_identity"] == {
+        "session_id": "canonical-dev",
+        "turn_id": "0004",
+        "baseline_turn_id": "0003",
+        "idempotency_key": "submit:dev",
+    }
+    assert response["debug"]["turn_identity"] == response["candidate"]["turn_identity"]
+    assert response["debug"]["stage_snapshots"] == [
+        {
+            "stage": "validate",
+            "ok": True,
+            "blocking": False,
+            "duration_ms": 7,
+            "gates": {"ir_validate_ok": True},
+            "artifacts": [],
+            "issues": [],
+            "value": {"validated": True},
+        }
+    ]
 
 
 # ── Integration: no research leak in direct_edit reports ────────────────────

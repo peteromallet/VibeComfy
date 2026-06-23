@@ -7,10 +7,14 @@ import {
   RENDER_SECTIONS,
   createAgentEditState,
   transition,
+  reconcileChatMessages,
   normalizeObligationDirtySections,
   normalizeDeltaOpsFromSubmit,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
-import { syncComposerButtons } from "../../vibecomfy/comfy_nodes/web/panel_composer.js";
+import {
+  composerApplyDisplayState,
+  syncComposerButtons,
+} from "../../vibecomfy/comfy_nodes/web/panel_composer.js";
 
 import {
   reduceAgentActivityFeed,
@@ -143,6 +147,64 @@ test("composer buttons hide undo while processing and hide reset controls while 
   assert.equal(panel.buttons.stop.style.display, "none");
   assert.equal(panel.buttons.undo.style.display, "inline-flex");
   assert.equal(panel.buttons.newConversation.style.display, "inline-flex");
+});
+
+test("composer apply display state ignores flattened apply aliases without a canonical candidate", () => {
+  const panel = makePanel({
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    applyEligibility: { applyable: true, reason: "applyable", message: "legacy stale alias" },
+    routeStatus: { kind: "ready", requestedRoute: "revise" },
+  });
+
+  const display = composerApplyDisplayState(panel, {
+    routeStatusState: (nextPanel) => nextPanel.state.routeStatus,
+  });
+
+  assert.equal(display.routeStatus.kind, "ready");
+  assert.equal(display.candidatePresent, false);
+  assert.equal(display.applyAllowed, false);
+  assert.equal(display.canvasApplyAllowed, false);
+  assert.equal(display.eligibility, null);
+});
+
+test("composer apply display state projects canonical candidate, stage, and route state", () => {
+  const panel = makePanel({
+    sessionId: "session-composer",
+    turnId: "0009",
+    baselineTurnId: "0008",
+    candidateGraph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+    candidateGraphHash: "candidate-hash",
+    serverSubmitGraphHash: "submit-hash",
+    baselineGraphHash: "baseline-hash",
+    applyEligibility: { applyable: true, reason: "applyable", message: "Ready." },
+    routeStatus: { kind: "ready", requestedRoute: "revise", model: "gpt-5" },
+    debugPayload: {
+      stageSnapshot: {
+        stage: "review",
+        ok: true,
+        blocking: false,
+        duration_ms: 12,
+      },
+    },
+  });
+
+  const display = composerApplyDisplayState(panel, {
+    routeStatusState: (nextPanel) => nextPanel.state.routeStatus,
+  });
+
+  assert.equal(display.routeStatus.kind, "ready");
+  assert.equal(display.stageSnapshot.stage, "review");
+  assert.equal(display.stageSnapshot.durationMs, 12);
+  assert.equal(display.candidatePresent, true);
+  assert.equal(display.applyAllowed, true);
+  assert.equal(display.canvasApplyAllowed, true);
+  assert.equal(display.candidate.graphHash, "candidate-hash");
+  assert.deepEqual(display.candidate.turnIdentity, {
+    sessionId: "session-composer",
+    turnId: "0009",
+    baselineTurnId: "0008",
+  });
 });
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
@@ -481,6 +543,67 @@ test("OK_CANDIDATE_RESPONSE gates Apply on apply eligibility plus candidate pres
   assert.equal(eligiblePanel.state.canvasApplyAllowed, true);
 });
 
+test("OK_CANDIDATE_RESPONSE reduces canonical candidate, identity, stage, and field selectors", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+  const canonicalResult = {
+    ok: true,
+    message: "Canonical candidate ready.",
+    outcome: {
+      kind: "candidate",
+      changes: [
+        { uid: "ksampler", field_path: "widgets.steps", old: 20, new: 30 },
+      ],
+    },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 12, type: "KSampler" }], links: [] },
+      graph_hash: "candidate-hash-canonical",
+      submit_graph_hash: "submit-hash-canonical",
+      turn_identity: {
+        session_id: "sess-canonical",
+        turn_id: "turn-canonical",
+        baseline_turn_id: "turn-baseline",
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      warnings: [],
+    },
+    debug: {
+      stage_snapshots: [
+        { stage: "plan", ok: true, blocking: false, duration_ms: 6 },
+      ],
+    },
+  };
+
+  const obligations = transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: canonicalResult,
+    queueAllowed: true,
+    auditRef: { audit_path: "out/audits/canonical.json" },
+    debugPayload: { response: "canonical" },
+  });
+
+  assert.equal(obligations.persistSession, "sess-canonical");
+  assert.equal(panel.state.sessionId, "sess-canonical");
+  assert.equal(panel.state.turnId, "turn-canonical");
+  assert.deepEqual(panel.state.candidateGraph, canonicalResult.candidate.graph);
+  assert.equal(panel.state.candidateGraphHash, "candidate-hash-canonical");
+  assert.equal(panel.state.serverSubmitGraphHash, "submit-hash-canonical");
+  assert.equal(panel.state.applyAllowed, true);
+  assert.equal(panel.state.canvasApplyAllowed, true);
+  assert.equal(panel.state.queueAllowed, true);
+  assert.deepEqual(panel.state.lastSubmitFieldChanges.all, [
+    { uid: "ksampler", fieldPath: "widgets.steps", old: 20, new: 30 },
+  ]);
+  assert.deepEqual(panel.state.debugPayload.stageSnapshot, {
+    stage: "plan",
+    ok: true,
+    blocking: false,
+    durationMs: 6,
+  });
+});
+
 test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE gates restored actions on eligibility plus candidate presence", () => {
   const panel = makePanel({ phase: PANEL_STATE.IDLE });
 
@@ -503,6 +626,681 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE gates restored actions on eligibil
   assert.deepEqual(panel.state.candidateGraph, { nodes: [{ id: 3 }] });
   assert.equal(panel.state.applyAllowed, false);
   assert.equal(panel.state.canvasApplyAllowed, false);
+});
+
+test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE can restore from canonical latest-candidate payload", () => {
+  const panel = makePanel({ phase: PANEL_STATE.IDLE });
+  const latestCandidate = {
+    ok: true,
+    message: "Restored canonical candidate.",
+    outcome: {
+      kind: "candidate",
+      changes: [
+        { uid: "save", field_path: "filename_prefix", old: "old", new: "new" },
+      ],
+    },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 21, type: "SaveImage" }], links: [] },
+      graph_hash: "rehydrate-candidate-hash",
+      submit_graph_hash: "rehydrate-submit-hash",
+      turn_identity: {
+        session_id: "sess-rehydrate-canonical",
+        turn_id: "turn-rehydrate-canonical",
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      warnings: [],
+    },
+    debug: {
+      stage_snapshots: [
+        { stage: "apply_candidate", ok: true, blocking: false, duration_ms: 9 },
+      ],
+    },
+  };
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
+    baseline: latestCandidate,
+    queueAllowed: false,
+    auditRef: { audit_path: "out/audits/rehydrate.json" },
+  });
+
+  assert.equal(obligations.restored, true);
+  assert.equal(obligations.persistSession, "sess-rehydrate-canonical");
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.sessionId, "sess-rehydrate-canonical");
+  assert.equal(panel.state.turnId, "turn-rehydrate-canonical");
+  assert.deepEqual(panel.state.candidateGraph, latestCandidate.candidate.graph);
+  assert.equal(panel.state.candidateGraphHash, "rehydrate-candidate-hash");
+  assert.equal(panel.state.serverSubmitGraphHash, "rehydrate-submit-hash");
+  assert.equal(panel.state.applyAllowed, true);
+  assert.deepEqual(panel.state.lastSubmitFieldChanges.all, [
+    { uid: "save", fieldPath: "filename_prefix", old: "old", new: "new" },
+  ]);
+  assert.deepEqual(panel.state.debugPayload.stageSnapshot, {
+    stage: "apply_candidate",
+    ok: true,
+    blocking: false,
+    durationMs: 9,
+  });
+});
+
+test("canonical candidate review apply path preserves stage through review then clears candidate state", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    debugPayload: { prior: true },
+  });
+  const canonicalResult = {
+    ok: true,
+    message: "Review the candidate before applying.",
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 31, type: "KSampler" }], links: [] },
+      graph_hash: "candidate-hash-31",
+      submit_graph_hash: "submit-hash-31",
+      turn_identity: {
+        session_id: "sess-review-apply",
+        turn_id: "turn-review-apply",
+        baseline_turn_id: "turn-baseline-apply",
+        idempotency_key: "idem-review-apply",
+      },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      warnings: [],
+    },
+    outcome: {
+      kind: "candidate",
+      changes: [
+        { uid: "31", field_path: "widgets.prompt", old: "old", new: "new" },
+      ],
+    },
+    debug: {
+      stage_snapshots: [
+        { stage: "candidate_review", ok: true, blocking: false, duration_ms: 17 },
+      ],
+    },
+  };
+
+  const reviewObligations = transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: canonicalResult,
+    queueAllowed: true,
+    auditRef: { audit_path: "out/audits/review-apply.json" },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.sessionId, "sess-review-apply");
+  assert.equal(panel.state.turnId, "turn-review-apply");
+  assert.deepEqual(panel.state.candidateGraph, canonicalResult.candidate.graph);
+  assert.equal(panel.state.candidateGraphHash, "candidate-hash-31");
+  assert.equal(panel.state.serverSubmitGraphHash, "submit-hash-31");
+  assert.equal(panel.state.applyAllowed, true);
+  assert.equal(panel.state.canvasApplyAllowed, true);
+  assert.equal(panel.state.queueAllowed, true);
+  assert.deepEqual(panel.state.lastSubmitFieldChanges.all, [
+    { uid: "31", fieldPath: "widgets.prompt", old: "old", new: "new" },
+  ]);
+  assert.deepEqual(panel.state.debugPayload.stageSnapshot, {
+    stage: "candidate_review",
+    ok: true,
+    blocking: false,
+    durationMs: 17,
+  });
+  assert.deepEqual(reviewObligations.setQueueGuardContext, {
+    sessionId: "sess-review-apply",
+    turnId: "turn-review-apply",
+    queueAllowed: true,
+  });
+
+  transition(panel, "APPLY_STARTED", {
+    acceptBody: {
+      session_id: "sess-review-apply",
+      turn_id: "turn-review-apply",
+      client_graph_hash: "client-hash-31",
+    },
+  });
+  assert.equal(panel.state.phase, PANEL_STATE.APPLYING);
+  assert.deepEqual(panel.state.debugPayload.accept_request, {
+    session_id: "sess-review-apply",
+    turn_id: "turn-review-apply",
+    client_graph_hash: "client-hash-31",
+  });
+  assert.deepEqual(panel.state.candidateGraph, canonicalResult.candidate.graph);
+  assert.deepEqual(panel.state.lastSubmitFieldChanges.all, [
+    { uid: "31", fieldPath: "widgets.prompt", old: "old", new: "new" },
+  ]);
+
+  const applyObligations = transition(panel, "APPLY_SUCCESS", {
+    accepted: {
+      ok: true,
+      action: "accept",
+      session_id: "sess-review-apply",
+      turn_id: "turn-review-apply",
+      baseline_turn_id: "turn-review-apply",
+      baseline_graph_hash: "baseline-after-apply-31",
+      baseline_graph_hash_kind: "structural",
+      baseline_graph_hash_version: 2,
+      audit_ref: { audit_path: "out/audits/apply-31.json" },
+    },
+    lastAppliedChanges: {
+      items: [{ uid: "31", kind: "edited", fieldPath: "widgets.prompt" }],
+    },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.sessionId, "sess-review-apply");
+  assert.equal(panel.state.turnId, "turn-review-apply");
+  assert.equal(panel.state.baselineTurnId, "turn-review-apply");
+  assert.equal(panel.state.baselineGraphHash, "baseline-after-apply-31");
+  assertCandidateDefaults(panel.state);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.deepEqual(panel.state.lastSubmitFieldChanges.all, [
+    { uid: "31", fieldPath: "widgets.prompt", old: "old", new: "new" },
+  ]);
+  assert.deepEqual(applyObligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    invalidateCandidate: true,
+    queueGuardClear: true,
+    refreshQueueGuard: true,
+    toast: null,
+  });
+});
+
+test("canonical candidate reject and new-conversation clear remove review state without losing durable baseline sync", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+
+  transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      ok: true,
+      message: "Rejectable candidate ready.",
+      outcome: { kind: "candidate", changes: [] },
+      candidate: {
+        state: "candidate",
+        graph: { nodes: [{ id: 41, type: "SaveImage" }], links: [] },
+        graph_hash: "candidate-hash-41",
+        submit_graph_hash: "submit-hash-41",
+        turn_identity: {
+          session_id: "sess-review-reject",
+          turn_id: "turn-review-reject",
+        },
+      },
+      apply_eligibility: {
+        applyable: true,
+        reason: "applyable",
+        warnings: [],
+      },
+      debug: {
+        stage_snapshots: [
+          { stage: "candidate_review", ok: true, blocking: false, duration_ms: 4 },
+        ],
+      },
+    },
+    queueAllowed: true,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.sessionId, "sess-review-reject");
+  assert.equal(panel.state.turnId, "turn-review-reject");
+  assert.deepEqual(panel.state.debugPayload.stageSnapshot, {
+    stage: "candidate_review",
+    ok: true,
+    blocking: false,
+    durationMs: 4,
+  });
+
+  transition(panel, "REJECT_STARTED", {
+    rejectBody: {
+      session_id: "sess-review-reject",
+      turn_id: "turn-review-reject",
+    },
+  });
+  assert.equal(panel.state.phase, PANEL_STATE.APPLYING);
+  assert.equal(panel.state.candidateGraphHash, "candidate-hash-41");
+
+  const rejectObligations = transition(panel, "REJECT_SUCCESS", {
+    rejected: {
+      ok: true,
+      action: "reject",
+      session_id: "sess-review-reject",
+      turn_id: "turn-review-reject",
+      baseline_turn_id: "turn-baseline-after-reject",
+      baseline_graph_hash: "baseline-after-reject-41",
+      baseline_graph_hash_kind: "structural",
+      baseline_graph_hash_version: 2,
+    },
+    message: "Rejected and cleared.",
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.sessionId, "sess-review-reject");
+  assert.equal(panel.state.turnId, "turn-review-reject");
+  assert.equal(panel.state.baselineTurnId, "turn-baseline-after-reject");
+  assert.equal(panel.state.baselineGraphHash, "baseline-after-reject-41");
+  assertCandidateDefaults(panel.state);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.deepEqual(rejectObligations, {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    invalidateCandidate: true,
+    queueGuardClear: true,
+    refreshQueueGuard: true,
+    toast: null,
+  });
+
+  panel.state.chatMessages = [
+    { role: "user", text: "previous", turn_id: "turn-review-reject" },
+  ];
+  const clearObligations = transition(panel, "NEW_CONVERSATION");
+
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.sessionId, null);
+  assert.equal(panel.state.turnId, null);
+  assertBaselineDefaults(panel.state);
+  assertCandidateDefaults(panel.state);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.deepEqual(clearObligations, {
+    render: true,
+    dirtySections: [
+      RENDER_SECTIONS.THREAD,
+      RENDER_SECTIONS.META,
+      RENDER_SECTIONS.COMPOSER,
+      RENDER_SECTIONS.NOTICE,
+    ],
+    invalidateCandidate: true,
+    queueGuardClear: true,
+    refreshQueueGuard: true,
+    forgetSession: true,
+    focusPrompt: true,
+  });
+});
+
+test("transition table: canonical stage snapshots project into reducer debug state", () => {
+  const cases = [
+    {
+      name: "candidate response stores the latest StageSnapshot",
+      event: "OK_CANDIDATE_RESPONSE",
+      initial: { phase: PANEL_STATE.SUBMITTING },
+      payload: {
+        result: {
+          ok: true,
+          message: "Candidate ready.",
+          outcome: { kind: "candidate", changes: [] },
+          candidate: {
+            state: "candidate",
+            graph: { nodes: [{ id: 51 }], links: [] },
+            graph_hash: "candidate-stage-51",
+            submit_graph_hash: "submit-stage-51",
+            turn_identity: { session_id: "sess-stage-51", turn_id: "turn-stage-51" },
+          },
+          apply_eligibility: { applyable: true, reason: "applyable", warnings: [] },
+          debug: {
+            stage_snapshots: [
+              { stage: "candidate_review", ok: true, blocking: false, duration_ms: 12 },
+            ],
+          },
+        },
+        queueAllowed: true,
+      },
+      expectedPhase: PANEL_STATE.AWAITING_REVIEW,
+      expectedStageSnapshot: {
+        stage: "candidate_review",
+        ok: true,
+        blocking: false,
+        durationMs: 12,
+      },
+    },
+    {
+      name: "latest-candidate rehydrate stores the restored StageSnapshot",
+      event: "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE",
+      initial: { phase: PANEL_STATE.IDLE },
+      payload: {
+        baseline: {
+          ok: true,
+          outcome: { kind: "candidate", changes: [] },
+          candidate: {
+            state: "candidate",
+            graph: { nodes: [{ id: 52 }], links: [] },
+            graph_hash: "candidate-stage-52",
+            submit_graph_hash: "submit-stage-52",
+            turn_identity: { session_id: "sess-stage-52", turn_id: "turn-stage-52" },
+          },
+          apply_eligibility: { applyable: true, reason: "applyable", warnings: [] },
+          debug: {
+            stage_snapshots: [
+              { stage: "apply_candidate", ok: true, blocking: false, duration_ms: 8 },
+            ],
+          },
+        },
+        queueAllowed: false,
+      },
+      expectedPhase: PANEL_STATE.AWAITING_REVIEW,
+      expectedStageSnapshot: {
+        stage: "apply_candidate",
+        ok: true,
+        blocking: false,
+        durationMs: 8,
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const panel = makePanel(testCase.initial);
+    transition(panel, testCase.event, testCase.payload);
+
+    assert.equal(panel.state.phase, testCase.expectedPhase, testCase.name);
+    assert.deepEqual(panel.state.debugPayload?.stageSnapshot, testCase.expectedStageSnapshot, testCase.name);
+  }
+});
+
+test("transition table: candidate review moves through apply, reject, and clear states", () => {
+  function seedCandidate(panel, suffix) {
+    transition(panel, "OK_CANDIDATE_RESPONSE", {
+      result: {
+        ok: true,
+        message: `Candidate ${suffix} ready.`,
+        outcome: { kind: "candidate", changes: [] },
+        candidate: {
+          state: "candidate",
+          graph: { nodes: [{ id: suffix }], links: [] },
+          graph_hash: `candidate-table-${suffix}`,
+          submit_graph_hash: `submit-table-${suffix}`,
+          turn_identity: {
+            session_id: `sess-table-${suffix}`,
+            turn_id: `turn-table-${suffix}`,
+          },
+        },
+        apply_eligibility: { applyable: true, reason: "applyable", warnings: [] },
+      },
+      queueAllowed: true,
+    });
+  }
+
+  const cases = [
+    {
+      name: "apply success clears candidate and advances baseline",
+      run(panel) {
+        seedCandidate(panel, "apply");
+        transition(panel, "APPLY_STARTED", {
+          acceptBody: { session_id: "sess-table-apply", turn_id: "turn-table-apply" },
+        });
+        transition(panel, "APPLY_SUCCESS", {
+          accepted: {
+            ok: true,
+            action: "accept",
+            session_id: "sess-table-apply",
+            turn_id: "turn-table-apply",
+            baseline_turn_id: "turn-table-apply",
+            baseline_graph_hash: "baseline-table-apply",
+            baseline_graph_hash_kind: "structural",
+            baseline_graph_hash_version: 2,
+          },
+        });
+      },
+      expected: {
+        phase: PANEL_STATE.IDLE,
+        sessionId: "sess-table-apply",
+        turnId: "turn-table-apply",
+        baselineTurnId: "turn-table-apply",
+        baselineGraphHash: "baseline-table-apply",
+        applyAllowed: false,
+        queueAllowed: false,
+      },
+    },
+    {
+      name: "reject success clears candidate and preserves authoritative session",
+      run(panel) {
+        seedCandidate(panel, "reject");
+        transition(panel, "REJECT_STARTED", {
+          rejectBody: { session_id: "sess-table-reject", turn_id: "turn-table-reject" },
+        });
+        transition(panel, "REJECT_SUCCESS", {
+          rejected: {
+            ok: true,
+            action: "reject",
+            session_id: "sess-table-reject",
+            turn_id: "turn-table-reject",
+            baseline_turn_id: "turn-baseline-reject",
+            baseline_graph_hash: "baseline-table-reject",
+          },
+        });
+      },
+      expected: {
+        phase: PANEL_STATE.IDLE,
+        sessionId: "sess-table-reject",
+        turnId: "turn-table-reject",
+        baselineTurnId: "turn-baseline-reject",
+        baselineGraphHash: "baseline-table-reject",
+        applyAllowed: false,
+        queueAllowed: false,
+      },
+    },
+    {
+      name: "new conversation clears candidate and durable review identity",
+      run(panel) {
+        seedCandidate(panel, "clear");
+        transition(panel, "NEW_CONVERSATION");
+      },
+      expected: {
+        phase: PANEL_STATE.IDLE,
+        sessionId: null,
+        turnId: null,
+        baselineTurnId: null,
+        baselineGraphHash: null,
+        applyAllowed: false,
+        queueAllowed: false,
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+    testCase.run(panel);
+
+    assert.equal(panel.state.phase, testCase.expected.phase, testCase.name);
+    assert.equal(panel.state.sessionId, testCase.expected.sessionId, testCase.name);
+    assert.equal(panel.state.turnId, testCase.expected.turnId, testCase.name);
+    assert.equal(panel.state.baselineTurnId, testCase.expected.baselineTurnId, testCase.name);
+    assert.equal(panel.state.baselineGraphHash, testCase.expected.baselineGraphHash, testCase.name);
+    assert.equal(panel.state.applyAllowed, testCase.expected.applyAllowed, testCase.name);
+    assert.equal(panel.state.canvasApplyAllowed, false, testCase.name);
+    assert.equal(panel.state.queueAllowed, testCase.expected.queueAllowed, testCase.name);
+    assertCandidateDefaults(panel.state);
+  }
+});
+
+test("transition table: durable turn identity avoids missing-id and collision duplicates", () => {
+  const cases = [
+    {
+      name: "matching canonical agent identity replaces optimistic duplicate",
+      existing: [
+        {
+          role: "agent",
+          text: "pending",
+          optimistic: true,
+          pending_response: true,
+          submit_epoch: 7,
+          turnIdentity: { turnId: "turn-collision", role: "agent" },
+        },
+      ],
+      canonical: [
+        {
+          role: "agent",
+          text: "confirmed",
+          turn_identity: { turn_id: "turn-collision", role: "agent" },
+        },
+      ],
+      expectedTexts: ["confirmed"],
+    },
+    {
+      name: "same durable turn with different roles does not collide",
+      existing: [
+        {
+          role: "agent",
+          text: "pending agent",
+          optimistic: true,
+          pending_response: true,
+          submit_epoch: 7,
+          turnIdentity: { turnId: "turn-shared", role: "agent" },
+        },
+      ],
+      canonical: [
+        {
+          role: "user",
+          text: "confirmed user",
+          turn_identity: { turn_id: "turn-shared", role: "user" },
+        },
+      ],
+      expectedTexts: ["confirmed user", "pending agent"],
+    },
+    {
+      name: "missing durable identity is dropped during submit reconciliation",
+      existing: [
+        {
+          role: "agent",
+          text: "identity-free pending",
+          optimistic: true,
+          pending_response: true,
+          submit_epoch: 7,
+        },
+      ],
+      canonical: [],
+      expectedTexts: [],
+    },
+    {
+      name: "stale optimistic epoch is dropped even with a valid identity",
+      existing: [
+        {
+          role: "agent",
+          text: "stale pending",
+          optimistic: true,
+          pending_response: true,
+          submit_epoch: 6,
+          turnIdentity: { turnId: "turn-stale", role: "agent" },
+        },
+      ],
+      canonical: [],
+      expectedTexts: [],
+    },
+  ];
+
+  for (const testCase of cases) {
+    const reconciled = reconcileChatMessages(testCase.existing, testCase.canonical, {
+      phase: PANEL_STATE.SUBMITTING,
+      submitEpoch: 7,
+    });
+
+    assert.deepEqual(reconciled.map((message) => message.text), testCase.expectedTexts, testCase.name);
+  }
+});
+
+test("transition table: chat rehydrate reconciles fresh, stale, missing-session, and no-session states", () => {
+  const cases = [
+    {
+      name: "fresh success commits canonical messages and session metadata",
+      initial: { chatRehydrateEpoch: 3, chatRehydrateCommittedEpoch: 0 },
+      event: "CHAT_REHYDRATE_SUCCESS",
+      payload: {
+        requestEpoch: 3,
+        sessionId: "sess-rehydrate-table",
+        messages: [{ role: "agent", text: "fresh durable" }],
+        chatSessionPath: "out/editor_sessions/sess-rehydrate-table/",
+      },
+      expected: {
+        sessionId: "sess-rehydrate-table",
+        chatLoaded: true,
+        chatError: null,
+        messages: ["fresh durable"],
+        stale: false,
+        forgetSession: false,
+      },
+    },
+    {
+      name: "stale success older than committed epoch leaves state untouched",
+      initial: {
+        sessionId: "sess-current",
+        chatRehydrateEpoch: 5,
+        chatRehydrateCommittedEpoch: 5,
+        chatLoaded: true,
+        chatError: null,
+        chatMessages: [{ role: "agent", text: "current durable" }],
+      },
+      event: "CHAT_REHYDRATE_SUCCESS",
+      payload: {
+        requestEpoch: 4,
+        sessionId: "sess-old",
+        messages: [{ role: "agent", text: "old durable" }],
+      },
+      expected: {
+        sessionId: "sess-current",
+        chatLoaded: true,
+        chatError: null,
+        messages: ["current durable"],
+        stale: true,
+        forgetSession: false,
+      },
+    },
+    {
+      name: "missing session clears matching stored session and forgets persistence",
+      initial: {
+        sessionId: "sess-missing",
+        chatRehydrateEpoch: 2,
+        chatMessages: [{ role: "agent", text: "old durable" }],
+      },
+      event: "CHAT_REHYDRATE_MISSING_SESSION",
+      payload: { requestEpoch: 2, sessionId: "sess-missing" },
+      expected: {
+        sessionId: null,
+        chatLoaded: true,
+        chatError: null,
+        messages: [],
+        stale: false,
+        forgetSession: true,
+      },
+    },
+    {
+      name: "no-session request clears transient chat without marking loaded",
+      initial: {
+        sessionId: null,
+        chatRehydrateEpoch: 1,
+        chatLoaded: true,
+        chatMessages: [{ role: "agent", text: "transient" }],
+      },
+      event: "CHAT_REHYDRATE_NO_SESSION",
+      payload: { requestEpoch: 1 },
+      expected: {
+        sessionId: null,
+        chatLoaded: false,
+        chatError: null,
+        messages: [],
+        stale: false,
+        forgetSession: false,
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const panel = makePanel(testCase.initial);
+    const obligations = transition(panel, testCase.event, testCase.payload);
+
+    assert.equal(Boolean(obligations.stale), testCase.expected.stale, testCase.name);
+    assert.equal(Boolean(obligations.forgetSession), testCase.expected.forgetSession, testCase.name);
+    assert.equal(panel.state.sessionId, testCase.expected.sessionId, testCase.name);
+    assert.equal(panel.state.chatLoaded, testCase.expected.chatLoaded, testCase.name);
+    assert.equal(panel.state.chatError, testCase.expected.chatError, testCase.name);
+    assert.deepEqual(
+      (panel.state.chatMessages || []).map((message) => message.text),
+      testCase.expected.messages,
+      testCase.name,
+    );
+  }
 });
 
 test("OK_CANDIDATE_RESPONSE preserves deltaOps through review (survives non-clearing transitions)", () => {
@@ -1521,6 +2319,46 @@ test("CHAT_REHYDRATE_SUCCESS stores normalized chat payload and persists confirm
   assert.equal(panel.state.chatDetailJsonPath, "out/editor_sessions/sess-123/session.json");
   assert.equal(panel.state.sessionId, "sess-123");
   assert.deepEqual(panel.state.failure, { code: "KeepFailure" });
+});
+
+test("reconcileChatMessages derives durable keys from normalized TurnIdentity", () => {
+  const existing = [
+    {
+      role: "agent",
+      text: "pending duplicate",
+      optimistic: true,
+      pending_response: true,
+      executor_pending: true,
+      submit_epoch: 3,
+      turnIdentity: { turnId: "0007", role: "agent" },
+      local_id: "pending-agent",
+    },
+    {
+      role: "agent",
+      text: "still pending",
+      optimistic: true,
+      pending_response: true,
+      executor_pending: true,
+      submit_epoch: 3,
+      turnIdentity: { turnId: "0008", role: "agent" },
+      local_id: "pending-agent-2",
+    },
+  ];
+  const canonical = [
+    {
+      role: "agent",
+      text: "confirmed",
+      turn_identity: { turn_id: "0007", role: "agent" },
+    },
+  ];
+
+  assert.deepEqual(
+    reconcileChatMessages(existing, canonical, {
+      phase: PANEL_STATE.SUBMITTING,
+      submitEpoch: 3,
+    }),
+    [canonical[0], existing[1]],
+  );
 });
 
 test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE atomically restores candidate, baseline, eligibility, and queue context", () => {

@@ -1,13 +1,20 @@
 // agent_edit_lifecycle.js — Client lifecycle contract + state authority
 //
 // This module owns every panel-state mutation for defined transitions.
-// It has ZERO imports and performs ZERO HTTP/canvas/DOM side effects.
+// It performs ZERO HTTP/canvas/DOM side effects.
 // All external data arrives via `payload`; all side effects are returned
 // as plain obligations objects that `vibecomfy_roundtrip.js` fulfills.
 //
 // Backend CAS is the single Apply authority. The client sends
 // `client_structural_graph_hash` only as a backend-parity diagnostic
 // snapshot in submit/rebaseline payloads; it never blocks Apply locally.
+
+import {
+  readApplyCandidate,
+  readFieldChanges,
+  readStageSnapshot,
+  readTurnIdentity,
+} from "./agent_edit_response_contract.js";
 
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
@@ -533,6 +540,195 @@ export function normalizeDeltaOpsFromSubmit(result) {
   return normalized.length > 0 ? normalized : null;
 }
 
+// ── Canonical reducer projections ──────────────────────────────────────────
+
+function _strictSelectorRead(selector, source, options = {}) {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+  try {
+    return selector(source, { allowLegacy: false, ...options });
+  } catch (_error) {
+    return null;
+  }
+}
+
+function _canonicalSourceFromPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  return payload.result || payload.response || payload.baseline || payload.raw || null;
+}
+
+function _readStageSnapshotForTransition(payload) {
+  return _strictSelectorRead(readStageSnapshot, _canonicalSourceFromPayload(payload));
+}
+
+function _readDurableTurnIdentityForTransition(payload) {
+  const source = _canonicalSourceFromPayload(payload);
+  const identity = _strictSelectorRead(readTurnIdentity, source);
+  if (identity) {
+    return {
+      sessionId:
+        identity.sessionId
+        || (typeof payload?.sessionId === "string" && payload.sessionId ? payload.sessionId : null),
+      turnId:
+        identity.turnId
+        || (typeof payload?.turnId === "string" && payload.turnId ? payload.turnId : null),
+      baselineTurnId:
+        identity.baselineTurnId
+        || (typeof payload?.baselineTurnId === "string" && payload.baselineTurnId
+          ? payload.baselineTurnId
+          : null),
+      idempotencyKey:
+        identity.idempotencyKey
+        || (typeof payload?.idempotencyKey === "string" && payload.idempotencyKey
+          ? payload.idempotencyKey
+          : null),
+    };
+  }
+  return {
+    sessionId: typeof payload?.sessionId === "string" && payload.sessionId ? payload.sessionId : null,
+    turnId: typeof payload?.turnId === "string" && payload.turnId ? payload.turnId : null,
+    baselineTurnId:
+      typeof payload?.baselineTurnId === "string" && payload.baselineTurnId
+        ? payload.baselineTurnId
+        : null,
+    idempotencyKey:
+      typeof payload?.idempotencyKey === "string" && payload.idempotencyKey
+        ? payload.idempotencyKey
+        : null,
+  };
+}
+
+function _writeDurableTurnIdentity(panel, payload, { clearMissingTurn = true } = {}) {
+  const identity = _readDurableTurnIdentityForTransition(payload);
+  panel.state.sessionId = _stringOrCurrent(identity?.sessionId, panel.state.sessionId);
+  if (identity?.turnId) {
+    panel.state.turnId = identity.turnId;
+  } else if (clearMissingTurn) {
+    panel.state.turnId = null;
+  }
+  return identity;
+}
+
+function _readApplyCandidateForTransition(payload) {
+  const source = _canonicalSourceFromPayload(payload);
+  const candidate = _strictSelectorRead(readApplyCandidate, source);
+  if (candidate) {
+    return candidate;
+  }
+  const candidateGraph = payload?.candidateGraph;
+  if (!candidateGraph || typeof candidateGraph !== "object") {
+    return null;
+  }
+  const eligibility = payload?.applyEligibility && typeof payload.applyEligibility === "object"
+    ? payload.applyEligibility
+    : null;
+  return {
+    state: "candidate",
+    graph: candidateGraph,
+    graphHash:
+      typeof payload?.candidateGraphHash === "string" && payload.candidateGraphHash
+        ? payload.candidateGraphHash
+        : null,
+    candidateGraphHash:
+      typeof payload?.candidateGraphHash === "string" && payload.candidateGraphHash
+        ? payload.candidateGraphHash
+        : null,
+    submitGraphHash:
+      typeof payload?.serverSubmitGraphHash === "string" && payload.serverSubmitGraphHash
+        ? payload.serverSubmitGraphHash
+        : null,
+    eligibility,
+    applyable: eligibility ? eligibility.applyable === true : payload?.applyAllowed === true,
+    turnIdentity: _readDurableTurnIdentityForTransition(payload),
+  };
+}
+
+function _readFieldChangesForTransition(payload) {
+  const source = _canonicalSourceFromPayload(payload);
+  const changes = _strictSelectorRead(readFieldChanges, source);
+  if (changes && Array.isArray(changes.all) && changes.all.length > 0) {
+    return changes;
+  }
+  if (payload?.lastSubmitFieldChanges) {
+    return {
+      directChanges: [],
+      outcomeChanges: [],
+      legacyChanges: [],
+      batchTurnChanges: [],
+      all: payload.lastSubmitFieldChanges,
+    };
+  }
+  return changes || {
+    directChanges: [],
+    outcomeChanges: [],
+    legacyChanges: [],
+    batchTurnChanges: [],
+    all: [],
+  };
+}
+
+function _lastSubmitFieldChangesForTransition(payload) {
+  if (payload?.lastSubmitFieldChanges) {
+    return payload.lastSubmitFieldChanges;
+  }
+  const changes = _readFieldChangesForTransition(payload);
+  return changes.all.length > 0 ? changes : null;
+}
+
+function _writeLatestCandidateTransition(panel, payload) {
+  const candidate = _readApplyCandidateForTransition(payload);
+  const candidateGraph = candidate?.graph || null;
+  if (!candidateGraph || typeof candidateGraph !== "object") {
+    return null;
+  }
+
+  const stageSnapshot = _readStageSnapshotForTransition(payload);
+  const identity = _writeDurableTurnIdentity(panel, {
+    ...payload,
+    turnId: candidate?.turnIdentity?.turnId || payload?.turnId || null,
+    sessionId: candidate?.turnIdentity?.sessionId || payload?.sessionId || null,
+    baselineTurnId: candidate?.turnIdentity?.baselineTurnId || payload?.baselineTurnId || null,
+  });
+  const fieldChanges = _lastSubmitFieldChangesForTransition(payload);
+  const applyEligibility = candidate?.eligibility || payload?.applyEligibility || null;
+  const applyAllowed = Boolean(candidateGraph && applyEligibility?.applyable === true);
+
+  panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
+  _handleSyncBaseline(panel, payload?.baseline || payload?.result || {});
+  _handleInvalidateCandidate(panel, { repaint: false });
+  panel.state.candidateGraph = candidateGraph;
+  panel.state.candidateGraphHash =
+    candidate?.graphHash
+    || candidate?.candidateGraphHash
+    || (typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null);
+  panel.state.candidateReport = payload?.candidateReport || payload?.result?.report || null;
+  panel.state.serverSubmitGraphHash =
+    candidate?.submitGraphHash
+    || (typeof payload?.serverSubmitGraphHash === "string" ? payload.serverSubmitGraphHash : null);
+  panel.state.message = payload?.message || payload?.result?.message || null;
+  panel.state.failure = null;
+  panel.state.clarification = payload?.clarification || null;
+  panel.state.applyEligibility = applyEligibility;
+  panel.state.applyAllowed = applyAllowed;
+  panel.state.canvasApplyAllowed = applyAllowed;
+  panel.state.queueAllowed = Boolean(payload?.queueAllowed);
+  panel.state.auditRef = payload?.auditRef || payload?.result?.audit_ref || panel.state.auditRef || null;
+  panel.state.lastSubmitFieldChanges = fieldChanges;
+  panel.state.changeDetails = payload?.changeDetails || null;
+  panel.state.deltaOps = normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
+  panel.state.debugPayload = payload?.debugPayload || null;
+  if (stageSnapshot) {
+    panel.state.debugPayload = {
+      ...(panel.state.debugPayload || {}),
+      stageSnapshot,
+    };
+  }
+  return { candidate, identity, stageSnapshot };
+}
+
 // ── Internal handlers ──────────────────────────────────────────────────────
 
 function _handleSyncBaseline(panel, payload) {
@@ -727,8 +923,7 @@ function _handleSubmitNetworkFailure(panel, payload) {
 function _handleClarifyOnlyResponse(panel, payload) {
   const result = payload?.result || {};
   panel.state.phase = PANEL_STATE.CLARIFY;
-  panel.state.sessionId = _stringOrCurrent(result.session_id, panel.state.sessionId);
-  panel.state.turnId = typeof result.turn_id === "string" ? result.turn_id : null;
+  _writeDurableTurnIdentity(panel, payload);
   _handleSyncBaseline(panel, result);
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.clarification = payload?.clarification || null;
@@ -738,8 +933,8 @@ function _handleClarifyOnlyResponse(panel, payload) {
   panel.state.applyAllowed = false;
   panel.state.applyEligibility = null;
   panel.state.queueAllowed = false;
-  panel.state.auditRef = result.audit_ref || null;
-  panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
+  panel.state.auditRef = payload?.auditRef || null;
+  panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.debugPayload = payload?.debugPayload || {
     ...result,
     last_submit: panel.state.lastSubmit,
@@ -757,8 +952,7 @@ function _handleClarifyOnlyResponse(panel, payload) {
 function _handleNoopResponse(panel, payload) {
   const result = payload?.result || {};
   panel.state.phase = PANEL_STATE.IDLE;
-  panel.state.sessionId = _stringOrCurrent(result.session_id, panel.state.sessionId);
-  panel.state.turnId = typeof result.turn_id === "string" ? result.turn_id : null;
+  _writeDurableTurnIdentity(panel, payload);
   _handleSyncBaseline(panel, result);
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.clarification = null;
@@ -768,8 +962,8 @@ function _handleNoopResponse(panel, payload) {
   panel.state.applyAllowed = false;
   panel.state.applyEligibility = null;
   panel.state.queueAllowed = false;
-  panel.state.auditRef = result.audit_ref || null;
-  panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
+  panel.state.auditRef = payload?.auditRef || null;
+  panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.debugPayload = payload?.debugPayload || {
     ...result,
@@ -798,25 +992,11 @@ function _handleArrivalSerializeFailure(panel, payload) {
   return { render: true };
 }
 
-function _candidateActionAllowed(payload, result) {
-  const candidateGraph = payload?.candidateGraph;
-  const hasCandidate = Boolean(candidateGraph && typeof candidateGraph === "object");
-  const eligibility = payload?.applyEligibility;
-  if (eligibility && typeof eligibility === "object") {
-    return hasCandidate && eligibility.applyable === true;
-  }
-  return hasCandidate
-    && result.apply_eligible === true
-    && result.apply_allowed !== false
-    && result.canvas_apply_allowed !== false;
-}
-
 function _handleCandidateResponse(panel, payload) {
   const result = payload?.result || {};
-  const candidateActionAllowed = _candidateActionAllowed(payload, result);
   panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
-  panel.state.sessionId = _stringOrCurrent(result.session_id, panel.state.sessionId);
-  panel.state.turnId = typeof result.turn_id === "string" ? result.turn_id : null;
+  const projectedCandidate = _readApplyCandidateForTransition(payload);
+  const projectedIdentity = projectedCandidate?.turnIdentity || _readDurableTurnIdentityForTransition(payload);
 
   // SD2: Applyable means durable. When a candidate response arrives but both
   // session_id and turn_id are absent in the raw response, the response is
@@ -826,10 +1006,8 @@ function _handleCandidateResponse(panel, payload) {
   // Check the raw response directly — panel.state may carry stale identity
   // from a previous turn via _stringOrCurrent.
   // Having at least one (session_id or turn_id) provides partial durable identity.
-  const candidateGraph = payload?.candidateGraph || null;
-  const rawSessionId = typeof result.session_id === "string" ? result.session_id : null;
-  const rawTurnId = typeof result.turn_id === "string" ? result.turn_id : null;
-  const hasDurableIdentity = Boolean(rawSessionId || rawTurnId);
+  const candidateGraph = projectedCandidate?.graph || payload?.candidateGraph || null;
+  const hasDurableIdentity = Boolean(projectedIdentity?.sessionId || projectedIdentity?.turnId);
   const missingDurableEligibility =
     !hasDurableIdentity && candidateGraph && typeof candidateGraph === "object"
       ? {
@@ -842,22 +1020,35 @@ function _handleCandidateResponse(panel, payload) {
         }
       : null;
 
+  _writeDurableTurnIdentity(panel, {
+    ...payload,
+    sessionId: projectedIdentity?.sessionId || null,
+    turnId: projectedIdentity?.turnId || null,
+  });
   _handleSyncBaseline(panel, result);
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.candidateGraph = candidateGraph;
-  panel.state.candidateGraphHash = typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null;
+  panel.state.candidateGraphHash =
+    projectedCandidate?.graphHash
+    || projectedCandidate?.candidateGraphHash
+    || (typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null);
   panel.state.candidateReport = result.report || null;
-  panel.state.serverSubmitGraphHash = typeof result.submit_graph_hash === "string" ? result.submit_graph_hash : null;
+  panel.state.serverSubmitGraphHash =
+    projectedCandidate?.submitGraphHash
+    || (typeof payload?.serverSubmitGraphHash === "string" ? payload.serverSubmitGraphHash : null);
   panel.state.message = result.message || null;
   panel.state.failure = null;
   panel.state.clarification = payload?.clarification || null;
   panel.state.applyEligibility =
-    missingDurableEligibility || payload?.applyEligibility || null;
+    missingDurableEligibility || projectedCandidate?.eligibility || payload?.applyEligibility || null;
+  const candidateActionAllowed = Boolean(
+    candidateGraph && panel.state.applyEligibility?.applyable === true,
+  );
   panel.state.applyAllowed = missingDurableEligibility ? false : candidateActionAllowed;
   panel.state.canvasApplyAllowed = missingDurableEligibility ? false : candidateActionAllowed;
-  panel.state.queueAllowed = Boolean(result.queue_allowed);
-  panel.state.auditRef = result.audit_ref || null;
-  panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
+  panel.state.queueAllowed = Boolean(payload?.queueAllowed);
+  panel.state.auditRef = payload?.auditRef || null;
+  panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = normalizeDeltaOpsFromSubmit(result);
   panel.state.debugPayload = payload?.debugPayload || {
@@ -865,6 +1056,13 @@ function _handleCandidateResponse(panel, payload) {
     last_submit: panel.state.lastSubmit,
     ...(missingDurableEligibility ? { debug_branch: "malformed_metadata" } : {}),
   };
+  const stageSnapshot = _readStageSnapshotForTransition(payload);
+  if (stageSnapshot) {
+    panel.state.debugPayload = {
+      ...(panel.state.debugPayload || {}),
+      stageSnapshot,
+    };
+  }
   return _obligations({
     render: true,
     dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
@@ -1033,38 +1231,11 @@ function _handleChatRehydrateRestoreLatestCandidate(panel, payload) {
     return { render: false, skipped: true };
   }
 
-  const candidateGraph = payload?.candidateGraph;
-  if (!candidateGraph || typeof candidateGraph !== "object") {
+  const restored = _writeLatestCandidateTransition(panel, payload);
+  if (!restored) {
     return { render: false, skipped: true };
   }
 
-  panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
-  panel.state.sessionId = _stringOrCurrent(payload?.sessionId, panel.state.sessionId);
-  panel.state.turnId = typeof payload?.turnId === "string" ? payload.turnId : panel.state.turnId;
-  _handleSyncBaseline(panel, payload?.baseline || {});
-  _handleInvalidateCandidate(panel, { repaint: false });
-  panel.state.candidateGraph = candidateGraph;
-  panel.state.candidateGraphHash =
-    typeof payload?.candidateGraphHash === "string" ? payload.candidateGraphHash : null;
-  panel.state.candidateReport = payload?.candidateReport || null;
-  panel.state.serverSubmitGraphHash =
-    typeof payload?.serverSubmitGraphHash === "string" ? payload.serverSubmitGraphHash : null;
-  panel.state.message = payload?.message || null;
-  panel.state.failure = null;
-  panel.state.clarification = null;
-  panel.state.applyEligibility = payload?.applyEligibility || null;
-  panel.state.applyAllowed = _candidateActionAllowed(payload, {
-    apply_eligible: payload?.applyAllowed === true,
-    apply_allowed: payload?.applyAllowed,
-    canvas_apply_allowed: payload?.canvasApplyAllowed,
-  });
-  panel.state.canvasApplyAllowed = panel.state.applyAllowed;
-  panel.state.queueAllowed = Boolean(payload?.queueAllowed);
-  panel.state.auditRef = payload?.auditRef || panel.state.auditRef || null;
-  panel.state.lastSubmitFieldChanges = payload?.lastSubmitFieldChanges || null;
-  panel.state.changeDetails = payload?.changeDetails || null;
-  panel.state.deltaOps = normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || {});
-  panel.state.debugPayload = payload?.debugPayload || null;
   return _obligations({
     render: false,
     dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
@@ -1503,26 +1674,43 @@ function _isStaleChatRehydrate(panel, requestEpoch) {
 // Outside of SUBMITTING, canonical replaces wholesale (current behaviour).
 
 /**
- * Build a stable identity key for a chat message.
- * Mirrors the priority in vibecomfy_roundtrip.js messageStableKey:
- *   1. turn_id + role       → `turn:<turn_id>:<role>`
- *   2. local_id             → `local:<local_id>`
- * Returns null when no durable identity is present.
+ * Derive a stable key for a normalized TurnIdentity at the chat reconciliation
+ * boundary. Internal lifecycle state should keep the structured identity.
  */
-function _chatMessageIdentity(msg) {
+function _deriveTurnIdentityReconciliationKey(identity) {
+  if (!identity || typeof identity !== "object") {
+    return null;
+  }
+  const turnId = typeof identity.turnId === "string" && identity.turnId ? identity.turnId : null;
+  const role = typeof identity.role === "string" && identity.role ? identity.role : null;
+  return turnId && role ? `turn:${turnId}:${role}` : null;
+}
+
+/**
+ * Derive a stable key for local optimistic entries at the chat reconciliation
+ * boundary. Durable messages should use TurnIdentity-derived keys.
+ */
+function _deriveLocalChatMessageReconciliationKey(msg) {
   if (!msg || typeof msg !== "object") {
     return null;
   }
-  const turnId = typeof msg.turn_id === "string" && msg.turn_id ? msg.turn_id : null;
-  const role = typeof msg.role === "string" && msg.role ? msg.role : null;
-  if (turnId && role) {
-    return `turn:${turnId}:${role}`;
-  }
   const localId = typeof msg.local_id === "string" && msg.local_id ? msg.local_id : null;
-  if (localId) {
-    return `local:${localId}`;
+  return localId ? `local:${localId}` : null;
+}
+
+function _readChatMessageTurnIdentity(msg) {
+  if (!msg || typeof msg !== "object") {
+    return null;
   }
-  return null;
+  return _strictSelectorRead(readTurnIdentity, msg.turnIdentity)
+    || _strictSelectorRead(readTurnIdentity, msg.turn_identity)
+    || _strictSelectorRead(readTurnIdentity, msg);
+}
+
+function _chatMessageReconciliationKey(msg) {
+  const identity = _readChatMessageTurnIdentity(msg);
+  return _deriveTurnIdentityReconciliationKey(identity)
+    || _deriveLocalChatMessageReconciliationKey(msg);
 }
 
 /**
@@ -1564,7 +1752,7 @@ export function reconcileChatMessages(existing, canonical, panelState) {
   // Build a set of identity keys present in the canonical batch.
   const canonicalKeys = new Set();
   for (const msg of safeCanonical) {
-    const key = _chatMessageIdentity(msg);
+    const key = _chatMessageReconciliationKey(msg);
     if (key) {
       canonicalKeys.add(key);
     }
@@ -1584,7 +1772,7 @@ export function reconcileChatMessages(existing, canonical, panelState) {
     if (currentEpoch !== null && msg.submit_epoch !== currentEpoch) {
       continue;
     }
-    const key = _chatMessageIdentity(msg);
+    const key = _chatMessageReconciliationKey(msg);
     // If this optimistic entry has no durable identity we cannot safely
     // preserve it — skip to avoid ghost duplicates.
     if (!key) {
