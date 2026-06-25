@@ -59,7 +59,9 @@ import {
 } from "./agent_edit_lifecycle.js";
 import {
   normalizeAgentEditResponse,
+  outcomeRequiresCustomNodes,
   readApplyCandidate,
+  readCustomNodeResolution,
   readFieldChanges,
   readLatestCandidate,
   readRebaselineRecovery,
@@ -133,6 +135,9 @@ import {
   disabledApplyEligibility,
   candidateActionState,
 } from "./agent_candidate_actions.js";
+import {
+  fulfillNodePackInstallRequest,
+} from "./agent_edit_node_pack_installer.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
@@ -8475,6 +8480,7 @@ function isSubmitResponseValid(outcome, candidateGraph) {
   switch (outcome.kind) {
     case "clarify":
     case "noop":
+    case "requires_custom_nodes":
       return true;
     case "candidate":
       return Boolean(candidateGraph && typeof candidateGraph === "object");
@@ -8516,6 +8522,14 @@ export function fulfillLifecycleTransitionObligations(panel, obligations = {}) {
   if (obligations.toast) {
     toast(obligations.toast);
   }
+  if (obligations.nodePackInstallRequest) {
+    fulfillNodePackInstallRequest(panel, obligations, {
+      fetch,
+      transition,
+      fulfillLifecycleTransitionObligations,
+      renderLifecycleTransition,
+    });
+  }
 }
 
 function renderLifecycleTransition(panel, obligations = {}) {
@@ -8534,6 +8548,61 @@ function renderLifecycleTransition(panel, obligations = {}) {
       .then(() => { scheduleRenderAgentPanel("rehydrate", panel); })
       .catch((err) => { console.warn("[vibecomfy] chat rehydration render failed", err); });
   }
+}
+
+function handleRequiresCustomNodesSubmitResponse(panel, context = {}) {
+  const {
+    result,
+    outcome,
+    task,
+    resultSessionId,
+    resultTurnId,
+    resultBaselineTurnId,
+  } = context;
+  const customNodeMessage =
+    (typeof result.message === "string" && result.message.trim())
+      ? result.message.trim()
+      : (typeof result.reply === "string" && result.reply.trim())
+        ? result.reply.trim()
+        : "Custom nodes are required before this edit can be applied.";
+  const customNodeResolution = readCustomNodeResolution(result, { endpoint: "submit:custom-nodes" });
+  const obligations = transition(panel, "REQUIRES_CUSTOM_NODES_RESPONSE", {
+    result: result.raw || result,
+    sessionId: resultSessionId,
+    turnId: resultTurnId,
+    baselineTurnId: resultBaselineTurnId,
+    auditRef: result.auditRef || null,
+    message: customNodeMessage,
+    customNodeResolution,
+    debugPayload: {
+      ...(result.raw || result),
+      customNodeResolution,
+      last_submit: panel.state.lastSubmit,
+    },
+  });
+  fulfillLifecycleTransitionObligations(panel, obligations);
+  promotePendingResponseMessage(panel, result, { message: customNodeMessage });
+  clearPendingResponseMessages(panel);
+  reconcileResponseBatchTurns(panel, result.raw || result);
+  pushHistory(panel, "requires_custom_nodes", customNodeMessage);
+  pushTurnStatus(panel, "requires_custom_nodes", {
+    session_id: resultSessionId,
+    turn_id: resultTurnId,
+    baseline_turn_id: resultBaselineTurnId,
+    task,
+    message: customNodeMessage,
+    graph_unchanged: true,
+    audit_ref: result.auditRef,
+    raw_payload: result.raw || result,
+  });
+  rememberTurnDetailSnapshot(panel, {
+    turn_id: resultTurnId,
+    session_id: resultSessionId,
+    outcome,
+    customNodeResolution,
+    message: customNodeMessage,
+  });
+  renderLifecycleTransition(panel, obligations);
 }
 
 async function submitAgentEdit(panel, { taskOverride } = {}) {
@@ -8901,6 +8970,18 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         message: clarifyMessage,
       });
       renderLifecycleTransition(panel, obligations);
+      return;
+    }
+
+    if (outcomeRequiresCustomNodes(outcome)) {
+      handleRequiresCustomNodesSubmitResponse(panel, {
+        result,
+        outcome,
+        task,
+        resultSessionId,
+        resultTurnId,
+        resultBaselineTurnId,
+      });
       return;
     }
 

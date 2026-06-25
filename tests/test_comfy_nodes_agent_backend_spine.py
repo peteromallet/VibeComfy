@@ -22,6 +22,7 @@ from vibecomfy.comfy_nodes.agent.audit import (
     write_text_artifact,
 )
 from vibecomfy.comfy_nodes.agent import provider as agent_provider
+from vibecomfy.comfy_nodes.agent import routes as agent_routes
 from vibecomfy.comfy_nodes.agent import runtime
 from vibecomfy.comfy_nodes.agent.contracts import (
     APPLY_ELIGIBILITY_REASONS,
@@ -101,6 +102,8 @@ from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, Low
 from vibecomfy.porting.emit.ui import emit_ui_json
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
 from vibecomfy.workflow import ValidationIssue, VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
+import vibecomfy.node_packs as node_packs
+import vibecomfy.node_packs._install as node_packs_install
 
 
 class _Provider:
@@ -10200,3 +10203,256 @@ def test_write_audit_attaches_diagnostic_record(tmp_path: Path) -> None:
     audit_payload = json.loads((audit_dir / "audit.json").read_text(encoding="utf-8"))
     assert "diagnostic_record" not in audit_payload
     assert audit_payload["session_id"] == "sess-a"
+
+
+def test_requires_custom_nodes_contract_registries_are_complete() -> None:
+    from vibecomfy.comfy_nodes.agent import contracts as agent_contracts
+    from vibecomfy.executor import contracts as executor_contracts
+
+    assert "requires_custom_nodes" in agent_contracts.PUBLIC_OUTCOME_KINDS
+    assert "requires_custom_nodes" not in agent_contracts.TURN_OUTCOME_KINDS
+    assert set(executor_contracts._ROUTE_DESCRIPTIONS) == (executor_contracts._ALLOWED_ROUTES - {""})
+    assert executor_contracts._PUBLIC_ROUTES == frozenset(executor_contracts._ROUTE_DESCRIPTIONS)
+    assert "requires_custom_nodes" in executor_contracts._PUBLIC_ROUTES
+
+
+def test_requires_custom_nodes_public_outcome_serializes_resolver_payload() -> None:
+    from vibecomfy.comfy_nodes.agent.contracts import ensure_agent_edit_response_contract
+    from vibecomfy.executor.contracts import AgentTurnResult
+
+    outcome = {
+        "kind": "requires_custom_nodes",
+        "candidates": [
+            {
+                "pack": {"slug": "ComfyUI-VideoHelperSuite", "source": "comfyui-manager"},
+                "expected_classes": ["VHS_VideoCombine"],
+                "validation_mode": "class_validatable",
+                "warnings": [],
+                "stable_install_hash": "abc123",
+            }
+        ],
+        "warnings": ["Install requires explicit confirmation."],
+    }
+    response = ensure_agent_edit_response_contract(
+        {
+            "message": "Custom nodes are required.",
+            "outcome": outcome,
+            "candidate": None,
+            "eligibility": {"applyable": False, "reason": "no_candidate", "message": "Custom nodes required."},
+        },
+        stage="resolver",
+    )
+    turn = AgentTurnResult(route="requires_custom_nodes", reply="Custom nodes are required.")
+
+    assert response["outcome"] == outcome
+    assert turn.to_dict()["route"] == "requires_custom_nodes"
+    assert turn.apply_eligible is False
+
+
+def test_requires_custom_nodes_executor_result_strips_applyable_fields_and_preserves_outcome() -> None:
+    from vibecomfy.comfy_nodes.agent import routes
+
+    payload = {
+        "ok": True,
+        "route": "requires_custom_nodes",
+        "reply": "Install custom nodes before applying edits.",
+        "outcome": {
+            "kind": "requires_custom_nodes",
+            "candidates": [
+                {
+                    "pack": {"slug": "ComfyUI-VideoHelperSuite"},
+                    "expected_classes": ["VHS_VideoCombine"],
+                    "validation_mode": "class_validatable",
+                    "warnings": [],
+                }
+            ],
+            "warnings": ["Install requires explicit confirmation."],
+        },
+        "candidate": {"graph": {"nodes": [{"id": 1}], "links": []}},
+        "candidate_graph": {"nodes": [{"id": 1}], "links": []},
+        "graph": {"nodes": [{"id": 1}], "links": []},
+        "apply_eligible": True,
+        "apply_eligibility": {"applyable": True, "reason": "applyable"},
+        "eligibility": {"applyable": True, "reason": "applyable"},
+        "apply_allowed": True,
+        "canvas_apply_allowed": True,
+        "queue_allowed": True,
+    }
+
+    serialized = routes._serialize_executor_result(payload)
+
+    assert serialized["route"] == "requires_custom_nodes"
+    assert serialized["outcome"]["kind"] == "requires_custom_nodes"
+    assert serialized["outcome"]["candidates"][0]["expected_classes"] == ["VHS_VideoCombine"]
+    for forbidden_key in (
+        "candidate",
+        "candidate_graph",
+        "graph",
+        "apply_eligible",
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    ):
+        assert forbidden_key not in serialized
+
+
+def test_requires_custom_nodes_executor_turn_durability_artifacts_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import routes
+
+    root = tmp_path / "sessions"
+    monkeypatch.setattr(routes, "_SESSION_ROOT", root)
+
+    request = SimpleNamespace(query="I am missing VHS_VideoCombine", graph=None)
+    response = {
+        "ok": True,
+        "route": "requires_custom_nodes",
+        "reply": "Install ComfyUI-VideoHelperSuite.",
+        "message": "Install ComfyUI-VideoHelperSuite.",
+        "outcome": {
+            "kind": "requires_custom_nodes",
+            "candidates": [
+                {
+                    "pack": {"slug": "ComfyUI-VideoHelperSuite"},
+                    "expected_classes": ["VHS_VideoCombine"],
+                    "validation_mode": "class_validatable",
+                    "warnings": [],
+                }
+            ],
+            "warnings": [],
+        },
+        "candidate": {"graph": {"nodes": [{"id": 1}], "links": []}},
+        "apply_eligible": True,
+    }
+
+    stamped = routes._maybe_write_executor_only_durable_turn(
+        response=routes._serialize_executor_result(response),
+        result=None,
+        payload={"query": request.query},
+        request=request,
+    )
+
+    session_id = stamped.get("session_id")
+    turn_id = stamped.get("turn_id")
+    assert isinstance(session_id, str) and session_id
+    assert isinstance(turn_id, str) and turn_id
+    assert stamped["route"] == "requires_custom_nodes"
+    assert stamped["outcome"]["kind"] == "requires_custom_nodes"
+    assert stamped["apply_eligible"] is False
+    assert stamped["graph_unchanged"] is True
+    assert "candidate" not in stamped
+    assert "candidate_graph" not in stamped
+
+    turn_dir = root / session_id / "turns" / turn_id
+    response_payload = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))
+    chat_payload = json.loads((turn_dir / "chat.json").read_text(encoding="utf-8"))
+    assert response_payload["outcome"]["kind"] == "requires_custom_nodes"
+    assert response_payload["outcome"]["candidates"][0]["validation_mode"] == "class_validatable"
+    assert "candidate" not in response_payload
+    assert chat_payload["route"] == "requires_custom_nodes"
+    assert chat_payload["messages"][1]["outcome"]["kind"] == "requires_custom_nodes"
+
+
+def _install_route_proposal(
+    *,
+    expected_classes: list[str] | None = None,
+    validation_mode: str = "class_validatable",
+    confirmed: bool = True,
+) -> dict:
+    pack = {
+        "slug": "ComfyUI-VideoHelperSuite",
+        "source": "comfyui-manager",
+        "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+        "name": "ComfyUI-VideoHelperSuite",
+    }
+    classes = expected_classes if expected_classes is not None else ["VHS_VideoCombine"]
+    return {
+        "candidate": {
+            "pack": pack,
+            "expected_classes": classes,
+            "validation_mode": validation_mode,
+            "stable_install_hash": agent_routes._install_intent_hash(pack, classes, validation_mode),
+        },
+        "user_confirmed": confirmed,
+    }
+
+
+def test_node_pack_install_route_installs_and_validates_expected_classes(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def _fake_install_pack(**kwargs):
+        calls.append(kwargs)
+        return node_packs_install.InstallResult(
+            name="ComfyUI-VideoHelperSuite",
+            status="installed",
+            git_commit_sha="abc123",
+            error=None,
+        )
+
+    monkeypatch.setattr(node_packs, "install_pack", _fake_install_pack)
+    monkeypatch.setattr(
+        agent_routes,
+        "_fetch_object_info_for_install_validation",
+        lambda: {"VHS_VideoCombine": {}, "KSampler": {}},
+    )
+
+    response = agent_routes._handle_node_pack_install(_install_route_proposal())
+
+    assert response["ok"] is True
+    assert response["status"] == "installed"
+    assert response["validation_status"] == "installed"
+    assert response["validated"] is True
+    assert response["present_classes"] == ["VHS_VideoCombine"]
+    assert response["missing_classes"] == []
+    assert len(calls) == 1
+    assert calls[0]["name"] == "ComfyUI-VideoHelperSuite"
+    assert calls[0]["repo"] == "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+
+
+def test_node_pack_install_validation_reports_restart_required_when_object_info_lacks_expected_class(monkeypatch) -> None:
+    def _fake_install_pack(**_kwargs):
+        return node_packs_install.InstallResult(
+            name="ComfyUI-VideoHelperSuite",
+            status="installed",
+            git_commit_sha="abc123",
+            error=None,
+        )
+
+    monkeypatch.setattr(node_packs, "install_pack", _fake_install_pack)
+    monkeypatch.setattr(agent_routes, "_fetch_object_info_for_install_validation", lambda: {"KSampler": {}})
+
+    response = agent_routes._handle_node_pack_install(_install_route_proposal())
+
+    assert response["ok"] is True
+    assert response["install_status"] == "installed"
+    assert response["validation_status"] == "restart_required"
+    assert response["validated"] is False
+    assert response["missing_classes"] == ["VHS_VideoCombine"]
+
+
+def test_node_pack_install_validation_rejects_empty_expected_classes_without_vacuous_success(monkeypatch) -> None:
+    calls: list[dict] = []
+    monkeypatch.setattr(node_packs, "install_pack", lambda **kwargs: calls.append(kwargs))
+
+    response = agent_routes._handle_node_pack_install(_install_route_proposal(expected_classes=[]))
+
+    assert response["ok"] is False
+    assert response["status"] == "rejected"
+    assert response["error"] == "evidence_only_rejected"
+    assert calls == []
+
+
+def test_node_pack_install_route_rejects_missing_confirmation_before_install(monkeypatch) -> None:
+    calls: list[dict] = []
+    monkeypatch.setattr(node_packs, "install_pack", lambda **kwargs: calls.append(kwargs))
+
+    response = agent_routes._handle_node_pack_install(_install_route_proposal(confirmed=False))
+
+    assert response["ok"] is False
+    assert response["status"] == "rejected"
+    assert response["error"] == "confirmation_required"
+    assert calls == []

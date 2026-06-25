@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from typing import TYPE_CHECKING, Any, Mapping
 
 from vibecomfy.porting.edit._session_types import (
@@ -192,8 +194,65 @@ class _DescribeMixin:
             compatible_output_type=compatible_output_type,
         )
         if formatted:
-            return fmt_rows(rows)
+            formatted_rows = fmt_rows(rows)
+            if formatted_rows.strip() or not focus_types:
+                return formatted_rows
+            return self._format_empty_search_result(
+                focus_types=focus_types,
+                compatible_input_type=compatible_input_type,
+                compatible_output_type=compatible_output_type,
+            )
         return rows
+
+    def _format_empty_search_result(
+        self,
+        *,
+        focus_types: list[str],
+        compatible_input_type: str | None = None,
+        compatible_output_type: str | None = None,
+    ) -> str:
+        """Explain an exact schema lookup miss in agent-facing text."""
+        from vibecomfy.schema import schemas_for
+
+        requested = ", ".join(repr(item) for item in focus_types if isinstance(item, str))
+        if not requested:
+            requested = "<non-string focus type>"
+        try:
+            raw_schemas = schemas_for(self.schema_provider) or {}
+        except Exception:
+            raw_schemas = {}
+        available = sorted(str(key) for key in raw_schemas if isinstance(key, str))
+        requested_terms = [
+            term.casefold()
+            for item in focus_types
+            if isinstance(item, str)
+            for term in re.findall(r"[A-Za-z0-9]+", item)
+            if len(term) >= 3
+        ]
+        close = [
+            name
+            for name in available
+            if any(term in name.casefold() for term in requested_terms)
+        ][:12]
+        filter_bits: list[str] = []
+        if compatible_input_type:
+            filter_bits.append(f"compatible_input_type={compatible_input_type!r}")
+        if compatible_output_type:
+            filter_bits.append(f"compatible_output_type={compatible_output_type!r}")
+        filter_note = f" with {' and '.join(filter_bits)}" if filter_bits else ""
+        lines = [
+            f"No node signature found for exact class type(s): {requested}{filter_note}.",
+            "This search is a local ComfyUI schema lookup, not an internet or precedent search.",
+        ]
+        if close:
+            lines.append("Available class names with similar terms: " + ", ".join(close) + ".")
+        else:
+            lines.append("No available local class names contain the requested terms.")
+        lines.append(
+            "Use one of the available node type names from the initial catalog, "
+            "or stop with clarify(...) if the required custom node is absent."
+        )
+        return "\n".join(lines) + "\n"
 
     def python(self) -> str:
         """Return the current workflow as agent-edit Python.

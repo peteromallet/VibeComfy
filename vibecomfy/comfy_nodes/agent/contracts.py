@@ -56,6 +56,7 @@ PUBLIC_OUTCOME_KINDS: tuple[str, ...] = (
     "noop",
     "clarify",
     "error",
+    "requires_custom_nodes",
 )
 
 # Canonical snake_case field list for rebaseline-recovery objects.

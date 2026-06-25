@@ -371,7 +371,7 @@ class TestHivemindErrors:
     @patch("vibecomfy.executor.research.build_search_corpus")
     def test_hivemind_none_client_skips_silently(self, mock_corpus) -> None:
         mock_corpus.return_value = [_make_entry("KSampler")]
-        result = research("KSampler", hivemind_client=None)
+        result = research("KSampler", hivemind_client=None, web_search_client=None)
         assert none_found_warning in result.warnings
         assert len(result.warnings) == 1
 
@@ -382,6 +382,7 @@ class TestHivemindErrors:
             "KSampler",
             hivemind_client=self._timeout_client,
             hivemind_timeout=0,
+            web_search_client=None,
         )
         # Zero timeout → Hivemind tier never invoked.
         assert none_found_warning in result.warnings
@@ -394,6 +395,7 @@ class TestHivemindErrors:
             "KSampler",
             hivemind_client=self._timeout_client,
             hivemind_timeout=-1.0,
+            web_search_client=None,
         )
         assert none_found_warning in result.warnings
         assert len(result.warnings) == 1
@@ -450,6 +452,7 @@ class TestHivemindMerge:
         result = research(
             "video sampler",
             hivemind_client=self._merge_client,
+            web_search_client=None,
         )
         sources = list(result.sources)
         # Local sources should come before hivemind sources.
@@ -459,18 +462,19 @@ class TestHivemindMerge:
             assert max(local_indices) < min(hm_indices)
 
     @patch("vibecomfy.executor.research.build_search_corpus")
-    def test_duplicate_class_type_skips_hivemind(self, mock_corpus) -> None:
+    def test_duplicate_class_type_keeps_both_tiers(self, mock_corpus) -> None:
         mock_corpus.return_value = [_make_entry("KSampler", source="object_info")]
         result = research(
             "KSampler",
             hivemind_client=self._duplicate_client,
         )
-        # KSampler should appear once (local version), NewHivemindNode once.
-        ksampler_count = sum(1 for s in result.sources if s["class_type"] == "KSampler")
-        assert ksampler_count == 1
-        # The KSampler entry should be the local one (source != hivemind).
-        ksampler = next(s for s in result.sources if s["class_type"] == "KSampler")
-        assert ksampler["source"] != "hivemind"
+        # Cross-tier duplicates are intentionally preserved so the agent can see
+        # what each source tier produced. KSampler therefore appears from both
+        # local corpus and Hivemind; NewHivemindNode appears once from Hivemind.
+        ksampler_sources = [s for s in result.sources if s["class_type"] == "KSampler"]
+        assert len(ksampler_sources) == 2
+        assert any(s["source"] != "hivemind" for s in ksampler_sources)
+        assert any(s["source"] == "hivemind" for s in ksampler_sources)
 
     @patch("vibecomfy.executor.research.build_search_corpus")
     def test_hivemind_with_no_results_is_handled(self, mock_corpus) -> None:
@@ -638,7 +642,7 @@ class TestResearchIntegration:
     @patch("vibecomfy.executor.research.build_search_corpus")
     def test_local_only_no_warnings(self, mock_corpus) -> None:
         mock_corpus.return_value = [_make_entry("KSampler")]
-        result = research("KSampler", hivemind_client=None)
+        result = research("KSampler", hivemind_client=None, web_search_client=None)
         assert none_found_warning in result.warnings
         assert len(result.warnings) == 1
         assert len(result.sources) >= 1
@@ -709,6 +713,170 @@ class TestResearchIntegration:
         )
         assert any(s["source"] == "web" for s in result.sources)
         assert any("Hotshot XL" in s["class_type"] for s in result.sources)
+
+    def test_default_web_client_combines_duckduckgo_and_github(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import importlib
+
+        research_module = importlib.import_module("vibecomfy.executor.research")
+
+        monkeypatch.setattr(
+            research_module,
+            "_duckduckgo_search",
+            lambda query, timeout: [
+                {
+                    "title": "Duck result",
+                    "url": "https://example.com/duck",
+                    "snippet": "duck snippet",
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            research_module,
+            "_github_repository_search",
+            lambda query, timeout: [
+                {
+                    "title": "owner/repo",
+                    "url": "https://github.com/owner/repo",
+                    "snippet": "repo snippet",
+                }
+            ],
+        )
+
+        result = research_module._default_web_search_client("HotshotXL", 1)
+
+        assert [item["title"] for item in result["results"]] == ["Duck result", "owner/repo"]
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_local_limit_zero_skips_local_workflow_search(self, mock_corpus) -> None:
+        result = research(
+            "Hotshot XL SDXL video",
+            local_limit=0,
+            hivemind_client=None,
+            web_search_client=None,
+        )
+
+        assert result.sources == ()
+        mock_corpus.assert_not_called()
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_web_client_backend_warnings_are_forwarded_to_agent(self, mock_corpus) -> None:
+        mock_corpus.return_value = []
+
+        def web_client(q: str, t: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "title": "Hotshot XL ComfyUI workflow",
+                        "url": "https://example.com/hotshot-xl",
+                        "snippet": "Hotshot XL SDXL video notes",
+                    }
+                ],
+                "warnings": ["DuckDuckGo returned no usable result markup"],
+            }
+
+        result = research(
+            "Hotshot XL SDXL video",
+            hivemind_client=None,
+            web_search_client=web_client,
+        )
+
+        assert any(s["source"] == "web" for s in result.sources)
+        assert "web search: DuckDuckGo returned no usable result markup" in result.warnings
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_web_search_runs_even_when_hivemind_has_sources(self, mock_corpus) -> None:
+        mock_corpus.return_value = []
+
+        def hivemind_client(q: str, t: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "title": "Hivemind Hotshot note",
+                        "body": "Community discussion about Hotshot.",
+                    }
+                ]
+            }
+
+        def web_client(q: str, t: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "title": "Hotshot XL ComfyUI workflow",
+                        "url": "https://example.com/hotshot-xl",
+                        "snippet": "Hotshot XL SDXL video notes",
+                    }
+                ]
+            }
+
+        result = research(
+            "Hotshot XL SDXL video",
+            hivemind_client=hivemind_client,
+            web_search_client=web_client,
+        )
+
+        assert any(s["source"] == "hivemind" for s in result.sources)
+        assert any(s["source"] == "web" for s in result.sources)
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_cross_tier_duplicate_titles_are_preserved_for_agent_judgement(self, mock_corpus) -> None:
+        mock_corpus.return_value = []
+
+        def hivemind_client(q: str, t: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "title": "Hotshot XL ComfyUI workflow",
+                        "body": "Community discussion about Hotshot.",
+                    }
+                ]
+            }
+
+        def web_client(q: str, t: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "title": "Hotshot XL ComfyUI workflow",
+                        "url": "https://example.com/hotshot-xl",
+                        "snippet": "Hotshot XL SDXL video notes",
+                    }
+                ]
+            }
+
+        result = research(
+            "Hotshot XL SDXL video",
+            hivemind_client=hivemind_client,
+            web_search_client=web_client,
+        )
+
+        matching_sources = [
+            s for s in result.sources
+            if s.get("class_type") == "Hotshot XL ComfyUI workflow"
+        ]
+        assert {s["source"] for s in matching_sources} == {"hivemind", "web"}
+
+    @patch("vibecomfy.executor.research.build_search_corpus")
+    def test_local_corpus_failure_does_not_block_external_research(self, mock_corpus) -> None:
+        mock_corpus.side_effect = RuntimeError("indexes missing")
+
+        def hivemind_client(q: str, t: float) -> dict[str, Any]:
+            return {
+                "results": [
+                    {
+                        "title": "Hotshot XL workflow",
+                        "body": "ComfyUI SDXL video generation notes",
+                    }
+                ]
+            }
+
+        result = research(
+            "Hotshot XL SDXL video",
+            hivemind_client=hivemind_client,
+            web_search_client=None,
+        )
+
+        assert any("Hotshot XL" in s["class_type"] for s in result.sources)
+        assert any("local corpus: RuntimeError: indexes missing" in w for w in result.warnings)
+        assert {"type": "RuntimeError", "message": "indexes missing"} in result.warning_details
 
     @patch("vibecomfy.executor.research.build_search_corpus")
     def test_web_fallback_failure_is_warning(self, mock_corpus) -> None:

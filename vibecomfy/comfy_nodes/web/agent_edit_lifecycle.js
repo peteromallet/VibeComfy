@@ -11,6 +11,7 @@
 
 import {
   readApplyCandidate,
+  readCustomNodeResolution,
   readFieldChanges,
   readStageSnapshot,
   readTurnIdentity,
@@ -105,6 +106,8 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   "candidateGraphHash",
   "candidateReport",
   "serverSubmitGraphHash",
+  "customNodeResolution",
+  "nodePackInstallStates",
 
   // Status / messaging
   "message",
@@ -202,6 +205,8 @@ export function createAgentEditState() {
     candidateGraphHash: null,
     candidateReport: null,
     serverSubmitGraphHash: null,
+    customNodeResolution: null,
+    nodePackInstallStates: {},
 
     // Status / messaging
     message: null,
@@ -346,6 +351,18 @@ export function transition(panel, event, payload = {}) {
 
     case "NOOP_RESPONSE":
       return _handleNoopResponse(panel, payload);
+
+    case "REQUIRES_CUSTOM_NODES_RESPONSE":
+      return _handleRequiresCustomNodesResponse(panel, payload);
+
+    case "NODE_PACK_INSTALL_STARTED":
+      return _handleNodePackInstallStarted(panel, payload);
+
+    case "NODE_PACK_INSTALL_SUCCEEDED":
+      return _handleNodePackInstallFinished(panel, payload, { failed: false });
+
+    case "NODE_PACK_INSTALL_FAILED":
+      return _handleNodePackInstallFinished(panel, payload, { failed: true });
 
     case "ARRIVAL_SERIALIZE_FAILURE":
       return _handleArrivalSerializeFailure(panel, payload);
@@ -861,6 +878,7 @@ function _handleInvalidateCandidate(panel, payload) {
   panel.state.applyEligibilityWarning = null;
   panel.state.applyEligibilityWarningKey = null;
   panel.state.changeDetails = null;
+  panel.state.customNodeResolution = null;
 
   // Clear V2 delta ops — mutation intent is invalidated with the candidate.
   panel.state.deltaOps = null;
@@ -1021,6 +1039,197 @@ function _handleNoopResponse(panel, payload) {
     rehydrateChat: Boolean(panel.state.sessionId),
     invalidateCandidate: true,
   });
+}
+
+function _readCustomNodeResolutionForTransition(payload) {
+  const sources = [
+    payload?.result,
+    payload?.response,
+    payload?.debugPayload?.response,
+    payload,
+  ];
+  for (const source of sources) {
+    if (!source || typeof source !== "object") {
+      continue;
+    }
+    try {
+      const resolution = readCustomNodeResolution(source, { allowLegacy: true });
+      if (resolution) {
+        return resolution;
+      }
+    } catch (_err) {
+      // Optional evidence only; raw payload remains available in debugPayload.
+    }
+  }
+  return null;
+}
+
+function _installKeyForCandidate(candidate) {
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+  if (typeof candidate.stableInstallHash === "string" && candidate.stableInstallHash) {
+    return candidate.stableInstallHash;
+  }
+  if (typeof candidate.stable_install_hash === "string" && candidate.stable_install_hash) {
+    return candidate.stable_install_hash;
+  }
+  const pack = candidate.pack && typeof candidate.pack === "object" ? candidate.pack : null;
+  const slug = typeof pack?.slug === "string" && pack.slug
+    ? pack.slug
+    : (typeof pack?.name === "string" && pack.name ? pack.name : null);
+  return slug ? `pack:${slug}` : null;
+}
+
+function _snakeCaseInstallCandidate(candidate) {
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+  const expectedClasses = Array.isArray(candidate.expectedClasses)
+    ? candidate.expectedClasses
+    : (Array.isArray(candidate.expected_classes) ? candidate.expected_classes : []);
+  return {
+    pack: candidate.pack && typeof candidate.pack === "object" ? candidate.pack : {},
+    expected_classes: expectedClasses.map((item) => String(item)).filter(Boolean),
+    validation_mode: candidate.validationMode || candidate.validation_mode || "evidence_only",
+    stable_install_hash: candidate.stableInstallHash || candidate.stable_install_hash || null,
+  };
+}
+
+export function buildNodePackInstallRequest(candidate, { confirmed = true } = {}) {
+  const installCandidate = _snakeCaseInstallCandidate(candidate);
+  if (!installCandidate) {
+    return null;
+  }
+  return {
+    endpoint: "/vibecomfy/node-packs/install",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: {
+      candidate: installCandidate,
+      stable_install_hash: installCandidate.stable_install_hash,
+      user_confirmed: confirmed === true,
+    },
+  };
+}
+
+function _handleRequiresCustomNodesResponse(panel, payload) {
+  const result = payload?.result || {};
+  panel.state.phase = PANEL_STATE.IDLE;
+  _writeDurableTurnIdentity(panel, payload);
+  _handleSyncBaseline(panel, result);
+  _handleInvalidateCandidate(panel, { repaint: false });
+  panel.state.customNodeResolution =
+    payload?.customNodeResolution || _readCustomNodeResolutionForTransition(payload);
+  panel.state.clarification = null;
+  panel.state.message = payload?.message || result.message || result.reply || null;
+  panel.state.failure = null;
+  panel.state.canvasApplyAllowed = false;
+  panel.state.applyAllowed = false;
+  panel.state.applyEligibility = null;
+  panel.state.queueAllowed = false;
+  panel.state.auditRef = payload?.auditRef || null;
+  panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
+  panel.state.changeDetails = payload?.changeDetails || null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    ...result,
+    customNodeResolution: panel.state.customNodeResolution,
+    last_submit: panel.state.lastSubmit,
+  };
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    persistSession: panel.state.sessionId || null,
+    refreshQueueGuard: true,
+    rehydrateChat: Boolean(panel.state.sessionId),
+    invalidateCandidate: true,
+  });
+}
+
+function _ensureNodePackInstallStates(panel) {
+  if (!panel.state.nodePackInstallStates || typeof panel.state.nodePackInstallStates !== "object") {
+    panel.state.nodePackInstallStates = {};
+  }
+  return panel.state.nodePackInstallStates;
+}
+
+function _handleNodePackInstallStarted(panel, payload) {
+  const candidate = payload?.candidate || null;
+  const key = _installKeyForCandidate(candidate);
+  const request = buildNodePackInstallRequest(candidate, { confirmed: payload?.confirmed !== false });
+  if (!key || !request) {
+    return _obligations({
+      render: true,
+      dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    });
+  }
+  const states = _ensureNodePackInstallStates(panel);
+  states[key] = {
+    status: "installing",
+    installing: true,
+    candidate,
+    result: null,
+    message: "Installing node pack...",
+  };
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    nodePackInstallRequest: request,
+    nodePackInstallKey: key,
+  });
+}
+
+function _handleNodePackInstallFinished(panel, payload, { failed = false } = {}) {
+  const candidate = payload?.candidate || null;
+  const result = payload?.result && typeof payload.result === "object" ? payload.result : {};
+  const key =
+    payload?.installKey
+    || _installKeyForCandidate(candidate)
+    || _installKeyForCandidate(result?.candidate)
+    || null;
+  if (!key) {
+    return _obligations({
+      render: true,
+      dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+    });
+  }
+  const validationStatus =
+    typeof result.validation_status === "string" && result.validation_status
+      ? result.validation_status
+      : null;
+  const status = failed || result.ok === false
+    ? "validation_failed"
+    : (validationStatus || result.status || "installed");
+  const validationSucceeded = status === "installed" && result.validated === true;
+  if (validationSucceeded) {
+    panel.state.customNodeResolution = null;
+  }
+  const states = _ensureNodePackInstallStates(panel);
+  states[key] = {
+    ...(states[key] || {}),
+    status,
+    installing: false,
+    candidate: candidate || states[key]?.candidate || null,
+    result,
+    message:
+      result.message
+      || result.error
+      || (status === "installed"
+        ? "Node pack installed. Submit again to retry with local schemas."
+        : "Node pack install finished."),
+  };
+  const obligations = {
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+  };
+  if (validationSucceeded) {
+    obligations.focusPrompt = true;
+    obligations.retryCustomNodeResolution = {
+      reason: "node_pack_installed",
+      expectedClasses: Array.isArray(result.expected_classes) ? [...result.expected_classes] : [],
+    };
+  }
+  return _obligations(obligations);
 }
 
 function _handleArrivalSerializeFailure(panel, payload) {

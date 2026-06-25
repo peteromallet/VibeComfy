@@ -284,10 +284,10 @@ def _validate_call(
             _unsafe(
                 node,
                 "unsupported_query_call",
-                "Only search(...), python(), and done() are supported as top-level query calls.",
+                "Only search(...), research(...), python(), and done() are supported as top-level query calls.",
             )
         ]
-    if name == "python":
+    if name in {"python", "research", "search"}:
         if not top_level:
             return [_unsafe(node, "nested_call_not_allowed", "Nested calls are not allowed.")]
         return []

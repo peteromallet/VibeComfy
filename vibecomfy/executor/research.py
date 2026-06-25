@@ -11,6 +11,7 @@ with local-only results rather than blocking on network unavailability.
 from __future__ import annotations
 
 import copy
+import json
 import logging
 import re
 from html import unescape
@@ -45,6 +46,7 @@ _DEFAULT_HIVEMIND_URL = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1/unifie
 _DEFAULT_HIVEMIND_KEY = "sb_publishable_O38oPBafrBoFrpi_rlWJvA_UJrulFsx"
 _DEFAULT_HIVEMIND_TIMEOUT = 5.0  # seconds
 _DEFAULT_WEB_SEARCH_URL = "https://duckduckgo.com/html/"
+_DEFAULT_GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
 _DEFAULT_WEB_SEARCH_TIMEOUT = 5.0  # seconds
 _DEFAULT_EXTERNAL_LIMIT = 10
 WORKFLOW_RESEARCH_GUIDANCE = (
@@ -117,7 +119,6 @@ _FAMILY_EVIDENCE_TERMS: dict[str, tuple[str, ...]] = {
 }
 
 _ANCHOR_ROLE_PRIORITY = ("lora", "model", "sampler", "latent", "conditioning", "exit")
-
 
 # ── Hivemind error (non-fatal) ───────────────────────────────────────────────
 
@@ -536,8 +537,7 @@ def _clean_duckduckgo_url(url: str) -> str:
     return url
 
 
-def _default_web_search_client(query: str, timeout: float) -> dict[str, Any]:
-    """Best-effort public web-search fallback using DuckDuckGo HTML."""
+def _duckduckgo_search(query: str, timeout: float) -> list[dict[str, str]]:
     url = f"{_DEFAULT_WEB_SEARCH_URL}?q={quote(query)}"
     req = urllib.request.Request(
         url,
@@ -561,7 +561,59 @@ def _default_web_search_client(query: str, timeout: float) -> dict[str, Any]:
     parser = _DuckDuckGoHTMLParser()
     parser.feed(html)
     parser.finish_result()
-    return {"results": parser.results[:_DEFAULT_EXTERNAL_LIMIT]}
+    return parser.results[:_DEFAULT_EXTERNAL_LIMIT]
+
+
+def _github_repository_search(query: str, timeout: float) -> list[dict[str, str]]:
+    url = f"{_DEFAULT_GITHUB_SEARCH_URL}?q={quote(query)}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": (
+                "vibecomfy-research/1.0 "
+                "(https://github.com/peteromallet/vibecomfy)"
+            ),
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+    except TimeoutError as exc:
+        raise WebSearchError(f"github search timed out after {timeout}s") from exc
+    except (urllib.error.URLError, json.JSONDecodeError) as exc:
+        raise WebSearchError(f"github search error: {exc}") from exc
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        return []
+    results: list[dict[str, str]] = []
+    for item in items[:_DEFAULT_EXTERNAL_LIMIT]:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("full_name") or item.get("name") or "").strip()
+        url = str(item.get("html_url") or "").strip()
+        snippet = str(item.get("description") or "").strip()
+        if title or url:
+            results.append({"title": title, "url": url, "snippet": snippet})
+    return results
+
+
+def _default_web_search_client(query: str, timeout: float) -> dict[str, Any]:
+    """Best-effort public web-search evidence using DuckDuckGo HTML + GitHub."""
+    results: list[dict[str, str]] = []
+    warnings: list[str] = []
+    try:
+        results.extend(_duckduckgo_search(query, timeout))
+    except WebSearchError as exc:
+        warnings.append(str(exc))
+    try:
+        results.extend(_github_repository_search(query, timeout))
+    except WebSearchError as exc:
+        warnings.append(str(exc))
+    if not results and warnings:
+        raise WebSearchError("; ".join(warnings))
+    return {"results": results[:_DEFAULT_EXTERNAL_LIMIT], "warnings": warnings}
 
 
 def _normalize_web_source(item: dict[str, Any], *, index: int = 0) -> dict[str, Any]:
@@ -585,16 +637,20 @@ def _run_web_search(
     *,
     client: WebSearchClient,
     timeout: float,
-) -> tuple[dict[str, Any], ...]:
+) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     response = client(query, timeout)
     items = response.get("results", response.get("sources", []))
     if not isinstance(items, list):
         items = []
+    source_warnings = response.get("warnings", ())
+    if not isinstance(source_warnings, (list, tuple)):
+        source_warnings = ()
+    warnings = tuple(str(w).strip() for w in source_warnings if str(w).strip())
     return tuple(
         _normalize_web_source(item, index=i)
         for i, item in enumerate(items)
         if isinstance(item, dict)
-    )
+    ), warnings
 
 
 # ── Structured precedent helpers (SD2) ────────────────────────────────────────
@@ -1159,10 +1215,10 @@ def research(
 
     Local-corpus search always runs first and is deterministic (no model calls).
     Hivemind is injectable: by default the built-in Supabase/PostgREST client
-    runs; when *hivemind_client* is explicitly ``None``, the external tier is
-    skipped.  If Hivemind returns no results, a best-effort no-key web search
-    fallback runs.  External timeouts and errors become warnings — the executor
-    never fails because research endpoints are unreachable.
+    runs; when *hivemind_client* is explicitly ``None``, that tier is skipped.
+    Web search is a separate best-effort evidence tier when enabled. External
+    timeouts and errors become warnings — the executor never fails because
+    research endpoints are unreachable.
 
     Parameters
     ----------
@@ -1178,9 +1234,8 @@ def research(
         Timeout in seconds for the Hivemind HTTP request.  Non-positive values
         disable Hivemind.
     web_search_client:
-        Injectable no-key web-search client used only when Hivemind returns no
-        normalized sources.  By default, uses DuckDuckGo HTML.  Pass ``None`` to
-        disable the fallback.
+        Injectable no-key web-search client. By default, uses DuckDuckGo HTML.
+        Pass ``None`` to disable this tier.
     web_search_timeout:
         Timeout in seconds for the web-search fallback.
     local_limit:
@@ -1192,13 +1247,28 @@ def research(
         Deterministic, local-corpus-first results with compactly normalized
         sources and non-fatal Hivemind warnings.
     """
-    # ── Phase 1: deterministic local corpus (always runs) ─────────────────
-    local = run_local_research(query, task=task, limit=local_limit)
-    sources: list[dict[str, Any]] = list(local.sources)
-    warnings: list[str] = list(local.warnings)
-    warning_details: list[dict[str, Any]] = [
-        dict(detail) for detail in local.warning_details
-    ]
+    # ── Phase 1: deterministic local corpus (best-effort) ─────────────────
+    #
+    # The external tiers below are intentionally independent of the local
+    # index. A missing or stale search corpus should degrade local precedent
+    # recall, not prevent Hivemind/web lookup entirely.
+    if local_limit <= 0:
+        sources = []
+        warnings = []
+        warning_details = []
+    else:
+        try:
+            local = run_local_research(query, task=task, limit=local_limit)
+        except Exception as exc:  # noqa: BLE001 - research is best-effort
+            sources = []
+            warnings = [f"local corpus: {type(exc).__name__}: {exc}"]
+            warning_details = [warning_detail_from_exception(exc)]
+        else:
+            sources = list(local.sources)
+            warnings = list(local.warnings)
+            warning_details = [
+                dict(detail) for detail in local.warning_details
+            ]
 
     # ── Phase 2: injectable Hivemind (non-fatal on any failure) ───────────
     resolved_hivemind_client: HivemindClient | None
@@ -1213,7 +1283,6 @@ def research(
     else:
         resolved_web_client = web_search_client  # type: ignore[assignment]
 
-    hivemind_had_sources = False
     if resolved_hivemind_client is not None and hivemind_timeout > 0:
         try:
             hivemind_sources = _run_hivemind_research(
@@ -1226,25 +1295,19 @@ def research(
             warnings.append(f"hivemind (unexpected): {exc}")
             warning_details.append(warning_detail_from_exception(exc))
         else:
-            hivemind_had_sources = bool(hivemind_sources)
-            # Merge Hivemind results after local, deduplicating by class_type.
-            existing = {s.get("class_type", "") for s in sources}
+            # Merge Hivemind results after local. Do not suppress cross-tier
+            # duplicates here; the edit agent should see what each source tier
+            # produced and decide how much weight to give it.
             for hs in hivemind_sources:
-                ct = hs.get("class_type", "")
-                if ct and ct not in existing:
-                    sources.append(hs)
-                    existing.add(ct)
+                sources.append(hs)
 
-    # ── Phase 3: no-key web fallback if Hivemind produced no sources ──────
+    # ── Phase 3: no-key web research (best-effort, independent tier) ─────
     if (
-        not hivemind_had_sources
-        and resolved_hivemind_client is not None
-        and resolved_web_client is not None
-        and hivemind_timeout > 0
+        resolved_web_client is not None
         and web_search_timeout > 0
     ):
         try:
-            web_sources = _run_web_search(
+            web_sources, web_warnings = _run_web_search(
                 query, client=resolved_web_client, timeout=web_search_timeout
             )
         except WebSearchError as exc:
@@ -1254,14 +1317,11 @@ def research(
             warnings.append(f"web search (unexpected): {exc}")
             warning_details.append(warning_detail_from_exception(exc))
         else:
+            warnings.extend(f"web search: {warning}" for warning in web_warnings)
             if not web_sources:
                 warnings.append("web search: no results")
-            existing = {s.get("class_type", "") for s in sources}
             for ws in web_sources:
-                ct = ws.get("class_type", "")
-                if ct and ct not in existing:
-                    sources.append(ws)
-                    existing.add(ct)
+                sources.append(ws)
 
     # Re-sort: local results first, then Hivemind, then web, each by score.
     source_order = {"hivemind_workflow": 1, "hivemind": 2, "web": 3}

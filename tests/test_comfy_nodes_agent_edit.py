@@ -50,7 +50,13 @@ from vibecomfy.comfy_nodes.agent.contracts import (
     classify_failure,
     failure_envelope,
 )
-from vibecomfy.executor.contracts import ReadinessReport, RevisionEvidence, ScopedDiff, TopologyFindings
+from vibecomfy.executor.contracts import (
+    ReadinessReport,
+    ResearchResult,
+    RevisionEvidence,
+    ScopedDiff,
+    TopologyFindings,
+)
 from vibecomfy.comfy_nodes.agent.provider import ProviderError
 from vibecomfy.comfy_nodes.agent.session import (
     payload_hash,
@@ -138,6 +144,18 @@ def test_split_terminal_clarify_detects_terminal_line_and_inline_calls() -> None
     )
     assert inline.batch == 'saveimage.filename_prefix = "after"'
     assert inline.message == "Use the same stem?"
+
+    with_done = split_terminal_clarify(
+        'clarify("Install Hotshot first?")\ndone()'
+    )
+    assert with_done.batch == ""
+    assert with_done.message == "Install Hotshot first?"
+
+    edit_with_clarify_done = split_terminal_clarify(
+        'saveimage.filename_prefix = "after"\nclarify("Also rename the node?")\ndone()'
+    )
+    assert edit_with_clarify_done.batch == 'saveimage.filename_prefix = "after"'
+    assert edit_with_clarify_done.message == "Also rename the node?"
 
 
 def test_split_terminal_clarify_rejects_strings_comments_nested_and_non_terminal_calls() -> None:
@@ -2162,6 +2180,11 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     assert "ImageScaleBy" in names
     assert "do NOT search for them" in system
     assert "Search first" in system
+    assert 'research("query words", sources=["workflows", "messages", "web"])' in system
+    assert "local installed-node schema lookup" in system
+    assert "Reference EXISTING nodes by EXACT names" in system
+    assert "Bare ambiguous refs are rejected." in system
+    assert 'sources=["web"]' in system
     assert "for a NEW node TYPE you want to ADD" in system
 
 
@@ -2190,6 +2213,134 @@ def test_batch_repl_search_query_output_is_in_next_turn_report() -> None:
     assert result.statements[0].op_kind == "query"
     assert "def ImageScaleBy" in result.statements[0].detail["query_output"]
     assert "def ImageScaleBy" in report
+
+
+def test_batch_repl_search_exact_miss_explains_local_schema_lookup() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import EditSession
+
+    provider = _Provider(
+        {
+            "SaveAnimatedWEBP": NodeSchema(
+                class_type="SaveAnimatedWEBP",
+                pack=None,
+                inputs={"images": InputSpec("IMAGE", required=True)},
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            )
+        }
+    )
+    session = EditSession(_ui_graph(), schema_provider=provider)
+
+    result = session.apply_batch('search(focus_types=["HotshotXL"])')
+    report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
+
+    assert result.ok is True
+    assert result.statements[0].op_kind == "query"
+    query_output = result.statements[0].detail["query_output"]
+    assert "No node signature found for exact class type(s): 'HotshotXL'." in query_output
+    assert "not an internet or precedent search" in query_output
+    assert "No available local class names contain the requested terms." in report
+
+
+def test_batch_repl_research_query_output_is_in_next_turn_report(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import EditSession
+
+    calls: list[dict[str, object]] = []
+
+    def fake_research(query: str, **kwargs: object) -> ResearchResult:
+        calls.append({"query": query, **kwargs})
+        return ResearchResult(
+            summary="Found Hotshot XL custom-node installation and workflow precedent.",
+            sources=(
+                {
+                    "title": "ComfyUI-HotshotXL",
+                    "url": "https://example.test/hotshot",
+                    "description": "HotshotXL provides video generation custom nodes for ComfyUI.",
+                },
+            ),
+            warnings=("local corpus unavailable",),
+        )
+
+    research_module = importlib.import_module("vibecomfy.executor.research")
+    monkeypatch.setattr(research_module, "research", fake_research)
+    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+
+    result = session.apply_batch('research("Hotshot XL ComfyUI 16 frames")')
+    report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
+
+    assert result.ok is True
+    assert result.statements[0].op_kind == "query"
+    assert calls[0]["query"] == "Hotshot XL ComfyUI 16 frames"
+    assert calls[0]["local_limit"] == 5
+    assert calls[0]["hivemind_client"] is not None
+    assert calls[0]["web_search_client"] is not None
+    assert "Found Hotshot XL custom-node installation" in result.statements[0].detail["query_output"]
+    assert "ComfyUI-HotshotXL" in report
+    assert "local corpus unavailable" in report
+
+
+def test_batch_repl_research_can_choose_web_only_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.porting.edit.session import EditSession
+
+    calls: list[dict[str, object]] = []
+
+    def fake_research(query: str, **kwargs: object) -> ResearchResult:
+        calls.append({"query": query, **kwargs})
+        return ResearchResult(summary="Web-only result.", sources=())
+
+    research_module = importlib.import_module("vibecomfy.executor.research")
+    monkeypatch.setattr(research_module, "research", fake_research)
+    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+
+    result = session.apply_batch('research("HotshotXL ComfyUI", sources=["web"])')
+
+    assert result.ok is True
+    assert calls[0]["query"] == "HotshotXL ComfyUI"
+    assert calls[0]["local_limit"] == 0
+    assert calls[0]["hivemind_client"] is None
+    assert calls[0]["web_search_client"] is not None
+    assert result.statements[0].detail["research_sources"] == ("web",)
+
+
+def test_batch_repl_research_output_includes_later_web_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import EditSession
+
+    def fake_research(query: str, **kwargs: object) -> ResearchResult:
+        local_sources = tuple(
+            {
+                "class_type": f"local/template/{index}",
+                "source": "ready_template",
+                "description": "Local template result.",
+            }
+            for index in range(7)
+        )
+        return ResearchResult(
+            summary="Found mixed local and web evidence.",
+            sources=(
+                *local_sources,
+                {
+                    "class_type": "KintCark/Hotshot-XL-Gradio-Cpu-Termux",
+                    "source": "web",
+                    "url": "https://github.com/KintCark/Hotshot-XL-Gradio-Cpu-Termux",
+                    "description": "GitHub result mentioning HotshotXL and ComfyUI.",
+                },
+            ),
+        )
+
+    research_module = importlib.import_module("vibecomfy.executor.research")
+    monkeypatch.setattr(research_module, "research", fake_research)
+    session = EditSession(_ui_graph(), schema_provider=_Provider({}))
+
+    result = session.apply_batch('research("ComfyUI HotshotXL")')
+    report = _format_batch_report(result, consecutive_errors=0, budget_remaining=1)
+
+    assert result.ok is True
+    assert "local/template/0" in report
+    assert "KintCark/Hotshot-XL-Gradio-Cpu-Termux" in report
 
 
 def test_batch_budget_failure_kind_prefers_schema_gap_then_unrepresentable_then_model_mistake() -> None:
@@ -2551,7 +2702,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
 
     def _fake_batch_client(_messages):
         return {
-            "batch": 'clarify("before or after the face restoration?")',
+            "batch": 'clarify("before or after the face restoration?")\ndone()',
             "message": "I need one detail before continuing.",
         }
 
@@ -2597,7 +2748,7 @@ def test_handle_agent_edit_batch_repl_returns_successful_non_commit_clarificatio
     assert "done_summary" not in result
     assert len(result["batch_turns"]) == 1
     assert result["batch_turns"][0]["turn_number"] == 0
-    assert result["batch_turns"][0]["batch"] == 'clarify("before or after the face restoration?")'
+    assert result["batch_turns"][0]["batch"] == 'clarify("before or after the face restoration?")\ndone()'
     assert result["batch_turns"][0]["message"] == "I need one detail before continuing."
     assert result["batch_turns"][0]["clarification_required"] is True
     assert result["batch_turns"][0]["clarification_message"] == "before or after the face restoration?"

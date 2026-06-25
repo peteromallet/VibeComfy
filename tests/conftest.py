@@ -172,6 +172,12 @@ def _load_known_failures() -> frozenset[str]:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_external_network_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent accidental real network calls from developer environment tokens."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_workflow_context_var() -> None:
     """Reset ``_CURRENT_WORKFLOW`` between tests.
 

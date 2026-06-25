@@ -114,6 +114,15 @@ _ROUTE_BEHAVIORS = MappingProxyType({
         reply_uses_graph_inspection=False,
         can_produce_candidate=False,
     ),
+    "requires_custom_nodes": RouteBehavior(
+        route="requires_custom_nodes",
+        needs_research=False,
+        needs_implement=False,
+        plan_summary="Report the custom node packs required before editing can continue.",
+        clears_result_graph=True,
+        reply_uses_graph_inspection=False,
+        can_produce_candidate=False,
+    ),
     "revise": RouteBehavior(
         route="revise",
         needs_research=False,

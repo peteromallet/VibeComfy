@@ -8165,7 +8165,7 @@ test("VibeComfy launcher panel flushes delayed dirty commits without synthetic i
 
     const debug = harness.window.__vibecomfyPanelDebug();
     assert.equal(debug.panelsCreated, 1);
-    assert.equal(debug.panelId, root.dataset.vibecomfyPanelId);
+    assert.equal(debug.panelId, panel.root.dataset.vibecomfyPanelId);
     assert.equal(debug.lastThreadRender?.panelId, debug.panelId);
     assert.equal(debug.lastThreadRender?.messagesSeen, 2);
     assert.equal(debug.lastThreadRender?.branch, "messages");

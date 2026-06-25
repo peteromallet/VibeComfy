@@ -6,9 +6,11 @@ import {
   adaptLegacyAgentEditResponse,
   normalizeAgentEditResponse,
   normalizeCanonicalAgentEditResponse,
+  outcomeRequiresCustomNodes,
   readApplyCandidate,
   readCandidate,
   readCandidateGraph,
+  readCustomNodeResolution,
   readEligibility,
   readFieldChanges,
   readLatestCandidate,
@@ -61,8 +63,67 @@ test("PUBLIC_OUTCOME_KINDS stays the closed public contract", () => {
     "candidate",
     "noop",
     "clarify",
+    "requires_custom_nodes",
     "error",
   ]);
+});
+
+test("normalizeAgentEditResponse preserves requires_custom_nodes resolver evidence", () => {
+  const raw = {
+    ok: true,
+    route: "requires_custom_nodes",
+    message: "Custom nodes are required.",
+    outcome: {
+      kind: "requires_custom_nodes",
+      candidates: [
+        {
+          pack: { slug: "ComfyUI-VideoHelperSuite", source: "comfyui-manager" },
+          expected_classes: ["VHS_VideoCombine"],
+          validation_mode: "class_validatable",
+          evidence: [
+            {
+              source: "custom-node-map",
+              matched_classes: ["VHS_VideoCombine"],
+            },
+          ],
+          warnings: [],
+          stable_install_hash: "hash-vhs",
+        },
+        {
+          pack: { slug: "ComfyUI-AnimateDiff-Evolved", source: "comfyui-manager" },
+          expected_classes: [],
+          validation_mode: "evidence_only",
+          evidence: [{ source: "custom-node-list", matched_classes: [] }],
+          warnings: ["No concrete class evidence."],
+          stable_install_hash: "hash-ade",
+        },
+      ],
+      warnings: ["Install requires explicit confirmation."],
+    },
+    candidate: { graph: { nodes: [{ id: 1 }], links: [] } },
+    apply_eligible: true,
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "submit" });
+  const evidence = readCustomNodeResolution(normalized, { allowLegacy: false });
+
+  assert.equal(normalized.route, "requires_custom_nodes");
+  assert.equal(normalized.outcome.kind, "requires_custom_nodes");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.candidate, null);
+  assert.equal(evidence.candidates.length, 2);
+  assert.deepEqual(evidence.candidates[0].expectedClasses, ["VHS_VideoCombine"]);
+  assert.equal(evidence.candidates[0].validationMode, "class_validatable");
+  assert.equal(evidence.candidates[0].stableInstallHash, "hash-vhs");
+  assert.equal(evidence.candidates[1].validationMode, "evidence_only");
+  assert.deepEqual(evidence.candidates[1].warnings, ["No concrete class evidence."]);
+  assert.deepEqual(evidence.warnings, ["Install requires explicit confirmation."]);
+});
+
+test("outcomeRequiresCustomNodes recognizes only the public custom-node outcome", () => {
+  assert.equal(outcomeRequiresCustomNodes({ kind: "requires_custom_nodes" }), true);
+  assert.equal(outcomeRequiresCustomNodes({ kind: "candidate" }), false);
+  assert.equal(outcomeRequiresCustomNodes(null), false);
 });
 
 test("normalizeAgentEditResponse preserves public candidate payloads and exposes camelCase readers", () => {

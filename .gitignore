@@ -23,6 +23,7 @@ temp/
 /vendor/ComfyUI/
 /vendor/workflow_templates/
 /vendor/external_workflows/
+/external_workflows/
 /custom_nodes/
 /user/
 

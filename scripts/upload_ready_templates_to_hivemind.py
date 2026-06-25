@@ -10,6 +10,7 @@ representation in both searchable text and structured payload metadata.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -24,10 +25,17 @@ from typing import Any
 DEFAULT_CONTRIBUTE_URL = "https://ujlwuvkrxlvoswwkerdf.supabase.co/functions/v1/contribute"
 DEFAULT_HIVEMIND_API_URL = "https://ujlwuvkrxlvoswwkerdf.supabase.co/rest/v1"
 DEFAULT_HIVEMIND_ANON_KEY = "sb_publishable_O38oPBafrBoFrpi_rlWJvA_UJrulFsx"
+GRAPH_IDENTITY_VERSION = 1
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
+
+
+def _ensure_repo_importable() -> None:
+    root = str(_repo_root())
+    if root not in sys.path:
+        sys.path.insert(0, root)
 
 
 def _load_coverage(coverage_path: Path) -> dict[str, dict[str, Any]]:
@@ -107,6 +115,70 @@ def _description(row: dict[str, Any]) -> str:
     return _clean_description(row.get("description") or row.get("workflow_description"))
 
 
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _node_class_multiset(api_workflow: dict[str, Any]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for node in api_workflow.values():
+        if not isinstance(node, dict):
+            continue
+        class_type = node.get("class_type")
+        if not isinstance(class_type, str) or not class_type:
+            continue
+        counts[class_type] = counts.get(class_type, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _load_workflow_identity(template_id: str) -> dict[str, Any]:
+    _ensure_repo_importable()
+    from vibecomfy.cli_loader import load_workflow_any
+
+    workflow = load_workflow_any(template_id)
+    api_workflow = workflow.compile("api")
+    return {
+        "graph_identity_version": GRAPH_IDENTITY_VERSION,
+        "canonical_workflow_hash": _sha256_text(_canonical_json(api_workflow)),
+        "node_class_multiset": _node_class_multiset(api_workflow),
+        "canonical_workflow_representation": "vibecomfy.compile.api.v1",
+        "canonical_workflow_node_count": len(api_workflow),
+    }
+
+
+def _workflow_identity(
+    row: dict[str, Any],
+    python_source: str,
+    *,
+    root: Path | None = None,
+) -> dict[str, Any]:
+    template_id = str(row["id"])
+    path = str(row["path"])
+    identity: dict[str, Any] = {
+        "graph_identity_version": GRAPH_IDENTITY_VERSION,
+        "representation": "python",
+        "source_file_sha256": _sha256_text(python_source),
+    }
+    try:
+        identity.update(_load_workflow_identity(template_id))
+        identity["graph_identity_status"] = "ok"
+    except Exception as exc:  # pragma: no cover - exercised via tests with monkeypatch.
+        identity["graph_identity_status"] = "error"
+        identity["graph_identity_error"] = f"{type(exc).__name__}: {exc}"
+
+    source_workflow = row.get("source_workflow") or row.get("source_json") or row.get("converted_from_json")
+    if isinstance(source_workflow, str) and source_workflow:
+        source_path = ((root or _repo_root()) / source_workflow).resolve()
+        if source_path.exists():
+            identity["source_workflow_sha256"] = _sha256_text(source_path.read_text(encoding="utf-8"))
+    identity["ready_template_path"] = path
+    return identity
+
+
 def _body(row: dict[str, Any], python_source: str) -> str:
     template_id = str(row["id"])
     path = str(row["path"])
@@ -150,10 +222,16 @@ def _body(row: dict[str, Any], python_source: str) -> str:
     return "\n".join(lines)
 
 
-def _envelope(row: dict[str, Any], python_source: str) -> dict[str, Any]:
+def _envelope(
+    row: dict[str, Any],
+    python_source: str,
+    *,
+    graph_identity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     template_id = str(row["id"])
     path = str(row["path"])
     description = _description(row)
+    identity = graph_identity if graph_identity is not None else _workflow_identity(row, python_source)
     metadata = {
         "asset_kind": "vibecomfy_ready_template",
         "ready_template_id": template_id,
@@ -173,6 +251,7 @@ def _envelope(row: dict[str, Any], python_source: str) -> dict[str, Any]:
         "models": _models(row),
         "model_count": row.get("model_count", row.get("models_count")),
         "representation": "python",
+        **identity,
     }
     return {
         "action": "add_resource",
@@ -190,6 +269,7 @@ def _envelope(row: dict[str, Any], python_source: str) -> dict[str, Any]:
                 "python_source": python_source,
                 "converted_from_json": row.get("converted_from_json"),
                 "description": description or None,
+                "graph_identity": identity,
             },
         },
     }
@@ -278,6 +358,45 @@ def _postgrest_get(
         return json.loads(response.read().decode("utf-8"))
 
 
+def _idempotency_key(envelope: dict[str, Any]) -> dict[str, str]:
+    data = envelope["data"]
+    return {
+        "source": str(data["source"]),
+        "external_id": str(data["external_id"]),
+    }
+
+
+def _find_existing_resource(
+    envelope: dict[str, Any],
+    *,
+    api_url: str,
+    anon_key: str,
+) -> dict[str, Any]:
+    key = _idempotency_key(envelope)
+    rows = _postgrest_get(
+        "external_resources",
+        {
+            "select": "id,source,external_id,title,updated_at",
+            "source": f"eq.{key['source']}",
+            "external_id": f"eq.{key['external_id']}",
+            "limit": "2",
+        },
+        api_url=api_url,
+        anon_key=anon_key,
+    )
+    if not isinstance(rows, list) or not rows:
+        return {"exists": False, **key}
+    first = rows[0] if isinstance(rows[0], dict) else {}
+    return {
+        "exists": True,
+        **key,
+        "resource_id": first.get("id"),
+        "title": first.get("title"),
+        "updated_at": first.get("updated_at"),
+        "duplicate_count": len(rows),
+    }
+
+
 def _verify_recorded(
     envelope: dict[str, Any],
     *,
@@ -361,6 +480,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="After real uploads, read external_resources back and verify body/metadata/payload fields",
     )
     parser.add_argument(
+        "--skip-existing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Preflight external_resources by source+external_id and skip rows that already exist",
+    )
+    parser.add_argument(
+        "--dry-run-preflight",
+        action="store_true",
+        help="In --dry-run mode, also query Hivemind and report whether each row would be skipped",
+    )
+    parser.add_argument(
         "--hivemind-api-url",
         default=os.environ.get("HIVEMIND_API_URL", DEFAULT_HIVEMIND_API_URL),
         help="PostgREST API URL used by --verify",
@@ -410,21 +540,51 @@ def main(argv: list[str] | None = None) -> int:
         if not py_path.exists():
             raise FileNotFoundError(f"{template_id}: missing Python template {py_path}")
         python_source = py_path.read_text(encoding="utf-8")
-        envelope = _envelope(row, python_source)
+        graph_identity = _workflow_identity(row, python_source, root=root)
+        envelope = _envelope(row, python_source, graph_identity=graph_identity)
         safe_name = template_id.replace("/", "__")
+        existing: dict[str, Any] | None = None
 
         if args.dry_run:
-            result = {"template_id": template_id, "status": "dry_run", "envelope": envelope}
+            if args.skip_existing and args.dry_run_preflight:
+                existing = _find_existing_resource(
+                    envelope,
+                    api_url=args.hivemind_api_url,
+                    anon_key=args.hivemind_anon_key,
+                )
+            dry_status = "would_skip_existing" if existing and existing.get("exists") else "dry_run"
+            result = {
+                "template_id": template_id,
+                "status": dry_status,
+                "idempotency_key": _idempotency_key(envelope),
+                "envelope": envelope,
+            }
+            if existing is not None:
+                result["preflight"] = existing
             if out_dir:
                 (out_dir / f"{safe_name}.json").write_text(json.dumps(envelope, indent=2, sort_keys=True), encoding="utf-8")
         else:
             try:
-                response = _post(
-                    envelope,
-                    contribute_url=args.contribute_url,
-                    contributor_key=contributor_key or "",
-                )
-                result = {"template_id": template_id, "status": "uploaded", "response": response}
+                if args.skip_existing:
+                    existing = _find_existing_resource(
+                        envelope,
+                        api_url=args.hivemind_api_url,
+                        anon_key=args.hivemind_anon_key,
+                    )
+                if existing and existing.get("exists"):
+                    result = {
+                        "template_id": template_id,
+                        "status": "skipped_existing",
+                        "idempotency_key": _idempotency_key(envelope),
+                        "preflight": existing,
+                    }
+                else:
+                    response = _post(
+                        envelope,
+                        contribute_url=args.contribute_url,
+                        contributor_key=contributor_key or "",
+                    )
+                    result = {"template_id": template_id, "status": "uploaded", "response": response}
                 if args.verify:
                     verify = _verify_recorded(
                         envelope,

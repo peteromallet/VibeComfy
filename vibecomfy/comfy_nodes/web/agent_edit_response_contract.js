@@ -2,6 +2,7 @@ const PUBLIC_OUTCOME_KINDS = Object.freeze([
   "candidate",
   "noop",
   "clarify",
+  "requires_custom_nodes",
   "error",
 ]);
 
@@ -10,6 +11,7 @@ const CANONICAL_EXECUTOR_ROUTES = Object.freeze([
   "inspect",
   "respond",
   "research",
+  "requires_custom_nodes",
   "revise",
   "adapt",
 ]);
@@ -167,6 +169,10 @@ function resultLooksLikeNoopResponse(response) {
     && response.queue_allowed === false;
 }
 
+export function outcomeRequiresCustomNodes(outcome) {
+  return Boolean(isObject(outcome) && outcome.kind === "requires_custom_nodes");
+}
+
 function clarificationPayload(question) {
   const text = asTrimmedString(question);
   if (!text) {
@@ -197,6 +203,50 @@ function normalizeRebaselineRecovery(recovery) {
     clientStructuralGraphHash:
       asString(recovery.clientStructuralGraphHash)
       || asString(recovery.client_structural_graph_hash),
+  });
+}
+
+function normalizeCustomNodeCandidate(candidate) {
+  if (!isObject(candidate)) {
+    return null;
+  }
+  const packSource = isObject(candidate.pack) ? candidate.pack : candidate.ref;
+  const evidence = Array.isArray(candidate.evidence) ? clonePlainData(candidate.evidence) : [];
+  const warnings = Array.isArray(candidate.warnings)
+    ? candidate.warnings.map((warning) => String(warning)).filter(Boolean)
+    : [];
+  return compactObject({
+    pack: isObject(packSource) ? clonePlainData(packSource) : null,
+    expectedClasses: Array.isArray(candidate.expected_classes)
+      ? candidate.expected_classes.map((item) => String(item)).filter(Boolean)
+      : Array.isArray(candidate.expectedClasses)
+        ? candidate.expectedClasses.map((item) => String(item)).filter(Boolean)
+        : [],
+    validationMode:
+      asString(candidate.validation_mode)
+      || asString(candidate.validationMode)
+      || "evidence_only",
+    evidence,
+    warnings,
+    stableInstallHash:
+      asString(candidate.stable_install_hash) || asString(candidate.stableInstallHash),
+  });
+}
+
+function normalizeCustomNodeResolutionPayload(outcome) {
+  if (!isObject(outcome) || outcome.kind !== "requires_custom_nodes") {
+    return null;
+  }
+  const candidates = Array.isArray(outcome.candidates)
+    ? outcome.candidates.map(normalizeCustomNodeCandidate).filter(Boolean)
+    : [];
+  return compactObject({
+    kind: "requires_custom_nodes",
+    candidates,
+    warnings: Array.isArray(outcome.warnings)
+      ? outcome.warnings.map((warning) => String(warning)).filter(Boolean)
+      : [],
+    query: asString(outcome.query),
   });
 }
 
@@ -365,10 +415,17 @@ function inferLegacyOutcome(response, { endpoint }) {
         ...clarificationPayload(response.reply || response.message),
       };
     }
-    // respond / research / inspect are answer-only routes — never candidate
-    if (response.route === "respond" || response.route === "research" || response.route === "inspect") {
+    // respond / research / inspect / requires_custom_nodes are non-applyable routes.
+    if (
+      response.route === "respond"
+      || response.route === "research"
+      || response.route === "inspect"
+      || response.route === "requires_custom_nodes"
+    ) {
       return compactObject({
-        kind: "noop",
+        kind: response.route === "requires_custom_nodes" ? "requires_custom_nodes" : "noop",
+        candidates: Array.isArray(response.candidates) ? clonePlainData(response.candidates) : undefined,
+        warnings: Array.isArray(response.warnings) ? clonePlainData(response.warnings) : undefined,
         reason: asTrimmedString(response.reply)
           || asTrimmedString(response.message)
           || "Answer-only route",
@@ -771,6 +828,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     reply: asString(raw.reply) || asString(raw.message),
     evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? clonePlainData(raw.evidence) : null,
     outcome,
+    customNodeResolution: normalizeCustomNodeResolutionPayload(outcome),
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
     candidateGraphHash:
@@ -1695,6 +1753,10 @@ export function readUserFailure(value, options) {
           : null,
     rebaselineRecovery: normalized.rebaselineRecovery,
   });
+}
+
+export function readCustomNodeResolution(value, options) {
+  return normalizeIfNeeded(value, options).customNodeResolution;
 }
 
 export function adaptLegacyAgentEditResponse(raw, options = {}) {

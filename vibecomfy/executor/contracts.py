@@ -100,6 +100,7 @@ _ALLOWED_ROUTES = frozenset({
     "respond",
     "inspect",
     "research",
+    "requires_custom_nodes",
     "revise",
     "adapt",
 })
@@ -122,6 +123,7 @@ _ROUTE_DESCRIPTIONS: dict[str, str] = {
     "respond": "answer directly from existing context without research or editing.",
     "inspect": "explain or analyze the current graph without outside research or editing.",
     "research": "research workflows, nodes, or techniques, then answer without editing.",
+    "requires_custom_nodes": "return missing custom-node resolver evidence and install intent without applying graph changes.",
     "revise": "edit the current graph using local context only.",
     "adapt": "research precedent or workflow patterns, then edit the graph.",
 }
@@ -957,7 +959,7 @@ class RevisionEvidence:
 class ResearchResult:
     """Aggregated research output from local corpus + optional Hivemind.
 
-    ``sources`` is a deduplicated, score-ordered list of source references.
+    ``sources`` is a bounded, score-ordered list of source references.
     ``warnings`` captures non-fatal problems (e.g. Hivemind timeout) so the
     executor can still proceed with local-only results.
     """

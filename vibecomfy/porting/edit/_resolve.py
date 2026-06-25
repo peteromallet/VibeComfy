@@ -48,6 +48,125 @@ from vibecomfy.porting.edit._ir_utils import (
 from vibecomfy.porting.resolution import _find_named_slot
 
 
+def _shorten_query_text(value: Any, *, max_chars: int = 260) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
+
+
+def _format_research_query_output(result: Any) -> str:
+    lines: list[str] = []
+    summary = _shorten_query_text(getattr(result, "summary", ""), max_chars=1200)
+    if summary:
+        lines.append(summary)
+    sources = getattr(result, "sources", ()) or ()
+    if sources:
+        lines.append("Sources:")
+        selected_sources: list[Any] = []
+        seen_source_kinds: set[str] = set()
+        for source in sources:
+            if not isinstance(source, Mapping):
+                continue
+            selected_sources.append(source)
+            seen_source_kinds.add(str(source.get("source") or ""))
+            if len(selected_sources) >= 5:
+                break
+        for source in sources:
+            if len(selected_sources) >= 8:
+                break
+            if not isinstance(source, Mapping):
+                continue
+            source_kind = str(source.get("source") or "")
+            if source_kind and source_kind not in seen_source_kinds:
+                selected_sources.append(source)
+                seen_source_kinds.add(source_kind)
+        for index, source in enumerate(selected_sources, start=1):
+            if not isinstance(source, Mapping):
+                continue
+            title = _shorten_query_text(
+                source.get("title")
+                or source.get("class_type")
+                or source.get("path")
+                or source.get("url")
+                or source.get("source")
+                or f"source {index}",
+                max_chars=140,
+            )
+            descriptor_parts = [
+                _shorten_query_text(source.get(key), max_chars=180)
+                for key in ("kind", "source_type", "pack", "url", "path")
+                if source.get(key)
+            ]
+            descriptor = f" ({'; '.join(descriptor_parts[:3])})" if descriptor_parts else ""
+            description = _shorten_query_text(
+                source.get("description") or source.get("snippet") or source.get("summary"),
+                max_chars=260,
+            )
+            line = f"- {title}{descriptor}"
+            if description:
+                line += f": {description}"
+            lines.append(line)
+    warnings = getattr(result, "warnings", ()) or ()
+    if warnings:
+        lines.append("Warnings:")
+        for warning in warnings[:5]:
+            lines.append(f"- {_shorten_query_text(warning, max_chars=260)}")
+    return "\n".join(lines).strip() or "No research findings returned."
+
+
+_RESEARCH_SOURCE_ALIASES: dict[str, str] = {
+    "local": "workflows",
+    "workflow": "workflows",
+    "workflows": "workflows",
+    "template": "workflows",
+    "templates": "workflows",
+    "hivemind": "messages",
+    "message": "messages",
+    "messages": "messages",
+    "discord": "messages",
+    "web": "web",
+    "github": "web",
+    "internet": "web",
+}
+
+
+def _normalize_research_sources(value: Any) -> tuple[tuple[str, ...] | None, CompactDiagnostic | None]:
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        return None, _diag(
+            "research_sources_not_strings",
+            "research(...) sources must be a string or list of strings.",
+            severity="error",
+        )
+    normalized: list[str] = []
+    invalid: list[str] = []
+    for item in raw_items:
+        if not isinstance(item, str):
+            invalid.append(repr(item))
+            continue
+        key = item.strip().casefold()
+        source = _RESEARCH_SOURCE_ALIASES.get(key)
+        if source is None:
+            invalid.append(item)
+            continue
+        if source not in normalized:
+            normalized.append(source)
+    if invalid:
+        return None, _diag(
+            "unsupported_research_source",
+            "research(...) sources must be chosen from workflows, messages, or web.",
+            severity="error",
+            detail={"invalid": invalid, "allowed": ["workflows", "messages", "web"]},
+        )
+    return tuple(normalized), None
+
+
 class _ResolveMixin:
     """Symbolic-name resolution methods — the named M4 seam."""
 
@@ -178,7 +297,7 @@ class _ResolveMixin:
         env: Mapping[str, Any],
     ) -> StatementResult:
         call_name = _call_name(call)
-        if call_name not in {"search", "python"}:
+        if call_name not in {"search", "research", "python"}:
             return StatementResult(
                 statement_index=statement_index,
                 source=source,
@@ -188,7 +307,7 @@ class _ResolveMixin:
                 diagnostics=(
                     _diag(
                         "unsupported_query_call",
-                        "Only search(...), python(), and done() are supported as top-level query calls.",
+                        "Only search(...), research(...), python(), and done() are supported as top-level query calls.",
                         severity="error",
                         detail={"call": call_name},
                     ),
@@ -250,6 +369,139 @@ class _ResolveMixin:
                 landed=False,
                 op_kind="query",
                 detail={"query": "python", "query_output": str(output)},
+            )
+
+        if call_name == "research":
+            diagnostics: list[CompactDiagnostic] = []
+            query: str | None = None
+            requested_sources: tuple[str, ...] | None = None
+            if len(call.args) > 1:
+                diagnostics.append(
+                    _diag(
+                        "research_arguments_not_allowed",
+                        "research(...) accepts exactly one string query.",
+                        severity="error",
+                    )
+                )
+            elif call.args:
+                value, diagnostic = _fold_constant(call.args[0], env=env)
+                if diagnostic is not None:
+                    diagnostics.append(diagnostic)
+                elif not isinstance(value, str) or not value.strip():
+                    diagnostics.append(
+                        _diag(
+                            "research_query_not_string",
+                            "research(...) query must be a non-empty string.",
+                            severity="error",
+                        )
+                    )
+                else:
+                    query = value.strip()
+            for keyword in call.keywords:
+                if keyword.arg is None:
+                    diagnostics.append(
+                        _diag("kwargs_unpack_not_allowed", "**kwargs unpacking is not allowed.", severity="error")
+                    )
+                    continue
+                if keyword.arg not in {"query", "sources"}:
+                    diagnostics.append(
+                        _diag(
+                            "unsupported_research_keyword",
+                            f"research(...) does not accept keyword {keyword.arg!r}.",
+                            severity="error",
+                            detail={"keyword": keyword.arg, "allowed": ["query", "sources"]},
+                        )
+                    )
+                    continue
+                if keyword.arg == "sources":
+                    value, diagnostic = _fold_constant(keyword.value, env=env)
+                    if diagnostic is not None:
+                        diagnostics.append(diagnostic)
+                        continue
+                    requested_sources, source_diagnostic = _normalize_research_sources(value)
+                    if source_diagnostic is not None:
+                        diagnostics.append(source_diagnostic)
+                    continue
+                if query is not None:
+                    diagnostics.append(
+                        _diag(
+                            "research_query_duplicated",
+                            "research(...) accepts the query either positionally or as query=, not both.",
+                            severity="error",
+                        )
+                    )
+                    continue
+                value, diagnostic = _fold_constant(keyword.value, env=env)
+                if diagnostic is not None:
+                    diagnostics.append(diagnostic)
+                elif not isinstance(value, str) or not value.strip():
+                    diagnostics.append(
+                        _diag(
+                            "research_query_not_string",
+                            "research(...) query must be a non-empty string.",
+                            severity="error",
+                        )
+                    )
+                else:
+                    query = value.strip()
+            if query is None and not diagnostics:
+                diagnostics.append(
+                    _diag(
+                        "research_query_required",
+                        "research(...) requires a non-empty string query.",
+                        severity="error",
+                    )
+                )
+            if diagnostics:
+                return StatementResult(
+                    statement_index=statement_index,
+                    source=source,
+                    ok=False,
+                    landed=False,
+                    op_kind="query",
+                    diagnostics=tuple(diagnostics),
+                    detail={"query": "research"},
+                )
+            assert query is not None
+            try:
+                import importlib
+
+                research_module = importlib.import_module("vibecomfy.executor.research")
+                source_set = set(requested_sources or ("workflows", "messages", "web"))
+                output = research_module.research(
+                    query,
+                    local_limit=5 if "workflows" in source_set else 0,
+                    hivemind_client=None if "messages" not in source_set else research_module._default_hivemind_client,
+                    web_search_client=None if "web" not in source_set else research_module._default_web_search_client,
+                )
+            except Exception as exc:  # noqa: BLE001 - report query failures in-band
+                return StatementResult(
+                    statement_index=statement_index,
+                    source=source,
+                    ok=False,
+                    landed=False,
+                    op_kind="query",
+                    diagnostics=(
+                        _diag(
+                            "research_query_failed",
+                            f"research(...) failed: {exc}",
+                            severity="error",
+                        ),
+                    ),
+                    detail={"query": "research", "research_query": query},
+                )
+            return StatementResult(
+                statement_index=statement_index,
+                source=source,
+                ok=True,
+                landed=False,
+                op_kind="query",
+                detail={
+                    "query": "research",
+                    "research_query": query,
+                    "research_sources": requested_sources or ("workflows", "messages", "web"),
+                    "query_output": _format_research_query_output(output),
+                },
             )
 
         allowed = {"focus_types", "compatible_input_type", "compatible_output_type", "formatted"}

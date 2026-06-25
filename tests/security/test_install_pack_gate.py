@@ -20,6 +20,8 @@ from typing import Any, Sequence
 
 import pytest
 
+import vibecomfy.comfy_nodes.agent.routes as agent_routes
+import vibecomfy.node_packs as node_packs
 import vibecomfy.node_packs._install as node_packs_install
 from vibecomfy.node_packs import install_pack
 from vibecomfy.security.gate import (
@@ -52,6 +54,30 @@ class _RecordingRunner:
 
 def _no_cm_cli(install_root: Path, runner: Any) -> list[str] | None:
     return None
+
+
+def _install_proposal(
+    *,
+    expected_classes: list[str] | None = None,
+    validation_mode: str = "class_validatable",
+    stable_install_hash: str | None = None,
+    confirmed: bool = True,
+) -> dict[str, Any]:
+    pack = {
+        "slug": "ComfyUI-VideoHelperSuite",
+        "source": "comfyui-manager",
+        "url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+        "name": "ComfyUI-VideoHelperSuite",
+    }
+    classes = expected_classes if expected_classes is not None else ["VHS_VideoCombine"]
+    candidate = {
+        "pack": pack,
+        "expected_classes": classes,
+        "validation_mode": validation_mode,
+        "stable_install_hash": stable_install_hash
+        or agent_routes._install_intent_hash(pack, classes, validation_mode),
+    }
+    return {"candidate": candidate, "user_confirmed": confirmed}
 
 
 @pytest.fixture(autouse=True)
@@ -207,3 +233,93 @@ def test_agent_authored_default_allows_without_prompt(tmp_path, monkeypatch, _is
     assert allow_entries[0]["provenance"] == "agent_authored"
     # And the install path actually ran (so the gate did not silently raise).
     assert runner.calls, "runner should have been invoked under agent_authored"
+
+
+def test_node_pack_install_route_rejects_evidence_only_normal_cta_before_install(monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(node_packs, "install_pack", lambda **kwargs: calls.append(kwargs))
+
+    response = agent_routes._handle_node_pack_install(
+        _install_proposal(expected_classes=[], validation_mode="evidence_only")
+    )
+
+    assert response["ok"] is False
+    assert response["status"] == "rejected"
+    assert response["error"] == "evidence_only_rejected"
+    assert "evidence_only" in response["message"]
+    assert calls == []
+
+
+def test_node_pack_install_route_requires_explicit_user_confirmation(monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(node_packs, "install_pack", lambda **kwargs: calls.append(kwargs))
+
+    response = agent_routes._handle_node_pack_install(_install_proposal(confirmed=False))
+
+    assert response["ok"] is False
+    assert response["status"] == "rejected"
+    assert response["error"] == "confirmation_required"
+    assert calls == []
+
+
+def test_node_pack_install_route_surfaces_capability_gate_rejection(monkeypatch):
+    calls: list[dict[str, Any]] = []
+
+    def _blocked_install(**kwargs):
+        calls.append(kwargs)
+        raise CapabilityFenceError(
+            {
+                "operation": "install_pack",
+                "provenance": "untrusted_source",
+                "capabilities": ["code_exec", "network", "filesystem_write"],
+                "reason": "non_interactive_confirmation_required",
+            }
+        )
+
+    monkeypatch.setattr(node_packs, "install_pack", _blocked_install)
+    monkeypatch.setattr(
+        agent_routes,
+        "_fetch_object_info_for_install_validation",
+        lambda: pytest.fail("post-install validation must not run after a gate rejection"),
+    )
+
+    response = agent_routes._handle_node_pack_install(_install_proposal())
+
+    assert response["ok"] is False
+    assert response["status"] == "rejected"
+    assert response["error"] == "capability_gate_rejected"
+    assert response["gate_detail"]["operation"] == "install_pack"
+    assert len(calls) == 1
+
+
+def test_node_pack_install_route_calls_existing_installer_for_confirmed_class_validatable(monkeypatch):
+    calls: list[dict[str, Any]] = []
+
+    def _fake_install_pack(**kwargs):
+        calls.append(kwargs)
+        return node_packs_install.InstallResult(
+            name="ComfyUI-VideoHelperSuite",
+            status="installed",
+            git_commit_sha="abc123",
+            error=None,
+        )
+
+    monkeypatch.setattr(node_packs, "install_pack", _fake_install_pack)
+    monkeypatch.setattr(
+        agent_routes,
+        "_fetch_object_info_for_install_validation",
+        lambda: {"VHS_VideoCombine": {}},
+    )
+
+    response = agent_routes._handle_node_pack_install(_install_proposal())
+
+    assert response["ok"] is True
+    assert response["status"] == "installed"
+    assert response["validation_status"] == "installed"
+    assert response["validated"] is True
+    assert response["expected_classes"] == ["VHS_VideoCombine"]
+    assert response["validation_mode"] == "class_validatable"
+    assert len(calls) == 1
+    assert calls[0]["name"] == "ComfyUI-VideoHelperSuite"
+    assert calls[0]["repo"] == "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+    assert calls[0]["pack_ref"].slug == "ComfyUI-VideoHelperSuite"

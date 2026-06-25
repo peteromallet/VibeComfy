@@ -11,6 +11,7 @@ from vibecomfy.registry.pack_resolver import (
     PackNotFoundError,
     PackRef,
     lookup_class_candidates,
+    resolve_missing_nodes,
     resolve_pack,
 )
 
@@ -27,6 +28,8 @@ class FakeRegistryClient:
         self.calls.append(key)
         payload = self.routes.get(key)
         request = httpx.Request("GET", url)
+        if isinstance(payload, httpx.Response):
+            return payload
         if payload is None:
             return httpx.Response(404, request=request, json={"error": "not found"})
         return httpx.Response(200, request=request, json=payload)
@@ -649,3 +652,260 @@ def test_resolve_pack_uses_exact_slug_match_over_fuzzy(tmp_path: Path) -> None:
 
     assert resolution.ref.slug == "comfyui-kjnodes"
     assert resolution.query_type == "slug"
+
+
+def test_resolve_missing_nodes_uses_manager_node_map_for_vhs_class(tmp_path: Path) -> None:
+    manager = FakeRegistryClient(
+        {
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json",
+                (),
+            ): {
+                "VHS_VideoCombine": "ComfyUI-VideoHelperSuite",
+                "OtherNode": "OtherPack",
+            },
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json",
+                (),
+            ): [
+                {
+                    "title": "ComfyUI-VideoHelperSuite",
+                    "reference": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+                    "description": "Video tools",
+                }
+            ],
+        }
+    )
+    registry = FakeRegistryClient({})
+
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=manager,
+        registry_client=registry,
+    )
+
+    assert result.query_intent == "class_name"
+    assert result.candidates
+    candidate = result.candidates[0]
+    assert candidate.ref.slug == "ComfyUI-VideoHelperSuite"
+    assert candidate.expected_classes == ("VHS_VideoCombine",)
+    assert candidate.validation_mode == "class_validatable"
+    assert [evidence.source for evidence in candidate.evidence] == ["custom-node-map"]
+
+
+def test_resolve_missing_nodes_hotshotxl_capability_returns_animatediff_classes(tmp_path: Path) -> None:
+    manager = FakeRegistryClient(
+        {
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json",
+                (),
+            ): {
+                "ADE_AnimateDiffLoaderWithContext": "ComfyUI-AnimateDiff-Evolved",
+                "ADE_UseEvolvedSampling": "ComfyUI-AnimateDiff-Evolved",
+                "OtherNode": "OtherPack",
+            },
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json",
+                (),
+            ): [
+                {
+                    "title": "ComfyUI-AnimateDiff-Evolved",
+                    "reference": "https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved",
+                    "description": "AnimateDiff workflows including HotshotXL support",
+                }
+            ],
+        }
+    )
+
+    result = resolve_missing_nodes(
+        "HotshotXL",
+        query_intent="capability",
+        cache_root=tmp_path,
+        manager_client=manager,
+        registry_client=FakeRegistryClient({}),
+    )
+
+    assert result.query_intent == "capability"
+    assert result.candidates
+    candidate = result.candidates[0]
+    assert candidate.ref.slug == "ComfyUI-AnimateDiff-Evolved"
+    assert candidate.expected_classes == ("ADE_AnimateDiffLoaderWithContext", "ADE_UseEvolvedSampling")
+    assert candidate.validation_mode == "class_validatable"
+    assert candidate.evidence[0].source == "custom-node-map"
+    assert candidate.evidence[0].matched_classes == candidate.expected_classes
+
+
+def test_resolve_missing_nodes_fetches_registry_schema_with_concrete_version(tmp_path: Path) -> None:
+    registry = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/comfy-nodes/VHS_VideoCombine/node", ()): {
+                "node": {
+                    "id": "comfyui-videohelpersuite",
+                    "name": "ComfyUI-VideoHelperSuite",
+                    "latestVersion": "latest",
+                    "repository": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+                }
+            },
+            ("https://api.comfy.org/nodes/comfyui-videohelpersuite/versions", ()): {
+                "versions": [{"version": "1.2.3"}, {"version": "latest"}]
+            },
+            ("https://api.comfy.org/nodes/comfyui-videohelpersuite/versions/1.2.3/schema", ()): {
+                "nodes": {"VHS_VideoCombine": {"input": {}}}
+            },
+        }
+    )
+    manager = FakeRegistryClient(
+        {
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json",
+                (),
+            ): {},
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json",
+                (),
+            ): [],
+        }
+    )
+
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=manager,
+        registry_client=registry,
+    )
+
+    called_urls = [url for url, _params in registry.calls]
+    assert "https://api.comfy.org/nodes/comfyui-videohelpersuite/versions/latest/schema" not in called_urls
+    assert "https://api.comfy.org/nodes/comfyui-videohelpersuite/versions/1.2.3/schema" in called_urls
+    assert result.candidates[0].expected_classes == ("VHS_VideoCombine",)
+    assert result.candidates[0].provisional_schema["runnable"] is False
+
+
+def test_resolve_missing_nodes_preserves_evidence_only_manager_match(tmp_path: Path) -> None:
+    manager = FakeRegistryClient(
+        {
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json",
+                (),
+            ): {},
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json",
+                (),
+            ): [
+                {
+                    "title": "ComfyUI-AnimateDiff-Evolved",
+                    "reference": "https://github.com/Kosinkadink/ComfyUI-AnimateDiff-Evolved",
+                    "description": "AnimateDiff workflows including HotshotXL support",
+                }
+            ],
+        }
+    )
+
+    result = resolve_missing_nodes(
+        "HotshotXL",
+        cache_root=tmp_path,
+        manager_client=manager,
+        registry_client=FakeRegistryClient({}),
+    )
+
+    assert result.candidates[0].ref.slug == "ComfyUI-AnimateDiff-Evolved"
+    assert result.candidates[0].expected_classes == ()
+    assert result.candidates[0].validation_mode == "evidence_only"
+    assert "did not provide concrete node classes" in result.candidates[0].warnings[0]
+
+
+def test_resolve_missing_nodes_github_401_warns_and_falls_back_to_repo_search(tmp_path: Path) -> None:
+    github = FakeRegistryClient(
+        {
+            (
+                "https://api.github.com/search/code",
+                (("q", "VHS_VideoCombine ComfyUI"),),
+            ): httpx.Response(401, request=httpx.Request("GET", "https://api.github.com/search/code"), json={"message": "bad credentials"}),
+            (
+                "https://api.github.com/search/repositories",
+                (("q", "VHS_VideoCombine ComfyUI"),),
+            ): {
+                "items": [
+                    {
+                        "name": "ComfyUI-VideoHelperSuite",
+                        "full_name": "Kosinkadink/ComfyUI-VideoHelperSuite",
+                        "html_url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+                        "description": "Contains VHS_VideoCombine nodes",
+                    }
+                ]
+            },
+        }
+    )
+    manager = FakeRegistryClient(
+        {
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json",
+                (),
+            ): {},
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json",
+                (),
+            ): [],
+        }
+    )
+
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=manager,
+        registry_client=FakeRegistryClient({}),
+        github_client=github,
+    )
+
+    assert any("GitHub code search unavailable (401)" in warning for warning in result.warnings)
+    assert result.candidates
+    assert result.candidates[0].ref.slug == "ComfyUI-VideoHelperSuite"
+    assert result.candidates[0].evidence[0].source == "repository-search"
+
+
+def test_resolve_missing_nodes_is_read_only_for_external_evidence(tmp_path: Path) -> None:
+    manager = FakeRegistryClient(
+        {
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-map.json",
+                (),
+            ): {"VHS_VideoCombine": "ComfyUI-VideoHelperSuite"},
+            (
+                "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json",
+                (),
+            ): [
+                {
+                    "title": "ComfyUI-VideoHelperSuite",
+                    "reference": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+                    "description": "Video tools",
+                }
+            ],
+        }
+    )
+    registry = FakeRegistryClient(
+        {
+            ("https://api.comfy.org/comfy-nodes/VHS_VideoCombine/node", ()): {
+                "node": {
+                    "id": "comfyui-videohelpersuite",
+                    "name": "ComfyUI-VideoHelperSuite",
+                    "latestVersion": "1.2.3",
+                }
+            },
+            ("https://api.comfy.org/nodes/comfyui-videohelpersuite/versions/1.2.3/schema", ()): {
+                "nodes": {"VHS_VideoCombine": {"input": {}}}
+            },
+        }
+    )
+
+    result = resolve_missing_nodes(
+        "VHS_VideoCombine",
+        cache_root=tmp_path,
+        manager_client=manager,
+        registry_client=registry,
+    )
+
+    called_urls = [url for url, _params in manager.calls + registry.calls]
+    assert result.candidates[0].ref.slug == "ComfyUI-VideoHelperSuite"
+    assert all(url.startswith(("https://api.comfy.org/", "https://raw.githubusercontent.com/")) for url in called_urls)
+    assert not any(part.name in {"custom_nodes", "ComfyUI-VideoHelperSuite"} for part in tmp_path.rglob("*"))

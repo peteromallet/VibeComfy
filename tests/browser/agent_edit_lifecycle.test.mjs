@@ -5,6 +5,7 @@ import {
   PANEL_STATE,
   LIFECYCLE_STATE_FIELDS,
   RENDER_SECTIONS,
+  buildNodePackInstallRequest,
   createAgentEditState,
   transition,
   reconcileChatMessages,
@@ -45,6 +46,7 @@ function assertCandidateDefaults(state) {
   assert.equal(state.candidateGraphHash, null);
   assert.equal(state.candidateReport, null);
   assert.equal(state.serverSubmitGraphHash, null);
+  assert.equal(state.customNodeResolution, null);
   assert.equal(state.applyEligibility, null);
   assert.equal(state.applyEligibilityWarning, null);
   assert.equal(state.applyEligibilityWarningKey, null);
@@ -209,9 +211,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 46 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 48 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 46);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 48);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -222,6 +224,8 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 46 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("candidateGraph"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("candidateGraphHash"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("candidateReport"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("customNodeResolution"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("nodePackInstallStates"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("message"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("failure"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("clarification"));
@@ -248,12 +252,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 46 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 46);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 48);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 46 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 48 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -264,9 +268,9 @@ test("createAgentEditState initializes all 46 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 46 fields
+  // No extra own keys beyond the 48 fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 46);
+  assert.equal(ownKeys.length, 48);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -280,6 +284,8 @@ test("createAgentEditState initializes all 46 lifecycle fields to defaults", () 
 
   // Candidate review defaults
   assertCandidateDefaults(state);
+  assert.equal(state.customNodeResolution, null);
+  assert.deepEqual(state.nodePackInstallStates, {});
 
   // Status / messaging
   assert.equal(state.message, null);
@@ -348,6 +354,7 @@ test("createAgentEditState returns independent objects on each call", () => {
   a.auditArtifacts.push({ path: "/tmp/audit.json" });
   a.debugDiagnostics.raw = { hidden: true };
   a.compartmentIndexes.responseDetailsByTurnId.turn1 = "turn1";
+  a.nodePackInstallStates.example = { status: "installing" };
 
   assert.equal(b.phase, PANEL_STATE.IDLE);
   assert.equal(b.baselineTurnId, null);
@@ -357,6 +364,7 @@ test("createAgentEditState returns independent objects on each call", () => {
   assert.deepEqual(b.auditArtifacts, []);
   assert.deepEqual(b.debugDiagnostics, {});
   assert.deepEqual(b.compartmentIndexes.responseDetailsByTurnId, {});
+  assert.deepEqual(b.nodePackInstallStates, {});
 });
 
 // ── normalizeDeltaOpsFromSubmit ─────────────────────────────────────────────
@@ -459,6 +467,163 @@ test("OK_CANDIDATE_RESPONSE extracts and stores deltaOps from V2 submit result",
   assert.equal(panel.state.deltaOps[0].value, "a cat");
   assert.equal(panel.state.deltaOps[1].op, "set_mode");
   assert.equal(panel.state.deltaOps[1].value, 4);
+});
+
+test("REQUIRES_CUSTOM_NODES_RESPONSE stores evidence and keeps apply controls disabled", () => {
+  const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
+  const result = {
+    ok: true,
+    route: "requires_custom_nodes",
+    message: "Custom nodes are required.",
+    session_id: "sess-custom",
+    turn_id: "turn-custom",
+    outcome: {
+      kind: "requires_custom_nodes",
+      candidates: [
+        {
+          pack: { slug: "ComfyUI-VideoHelperSuite", source: "comfyui-manager" },
+          expected_classes: ["VHS_VideoCombine"],
+          validation_mode: "class_validatable",
+          evidence: [{ source: "custom-node-map", matched_classes: ["VHS_VideoCombine"] }],
+          warnings: [],
+        },
+        {
+          pack: { slug: "ComfyUI-AnimateDiff-Evolved", source: "comfyui-manager" },
+          expected_classes: [],
+          validation_mode: "evidence_only",
+          evidence: [{ source: "custom-node-list", matched_classes: [] }],
+          warnings: ["No concrete class evidence."],
+        },
+      ],
+      warnings: ["Install requires explicit confirmation."],
+    },
+  };
+
+  const obligations = transition(panel, "REQUIRES_CUSTOM_NODES_RESPONSE", { result });
+
+  assert.equal(obligations.render, true);
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.sessionId, "sess-custom");
+  assert.equal(panel.state.turnId, "turn-custom");
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.equal(panel.state.candidateGraph, null);
+  assert.equal(panel.state.customNodeResolution.candidates.length, 2);
+  assert.deepEqual(panel.state.customNodeResolution.candidates[0].expectedClasses, ["VHS_VideoCombine"]);
+  assert.equal(panel.state.customNodeResolution.candidates[0].validationMode, "class_validatable");
+  assert.equal(panel.state.customNodeResolution.candidates[1].validationMode, "evidence_only");
+  assert.deepEqual(panel.state.customNodeResolution.candidates[1].warnings, ["No concrete class evidence."]);
+});
+
+test("NODE_PACK_INSTALL_STARTED builds POST obligation and tracks install progress states", () => {
+  const panel = makePanel();
+  const candidate = {
+    pack: {
+      slug: "ComfyUI-VideoHelperSuite",
+      source: "comfyui-manager",
+      url: "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git",
+    },
+    expectedClasses: ["VHS_VideoCombine"],
+    validationMode: "class_validatable",
+    stableInstallHash: "hash-vhs",
+  };
+  panel.state.customNodeResolution = {
+    kind: "requires_custom_nodes",
+    candidates: [candidate],
+    warnings: ["External evidence is provisional."],
+  };
+
+  const request = buildNodePackInstallRequest(candidate);
+  assert.equal(request.endpoint, "/vibecomfy/node-packs/install");
+  assert.equal(request.method, "POST");
+  assert.deepEqual(request.body, {
+    candidate: {
+      pack: candidate.pack,
+      expected_classes: ["VHS_VideoCombine"],
+      validation_mode: "class_validatable",
+      stable_install_hash: "hash-vhs",
+    },
+    stable_install_hash: "hash-vhs",
+    user_confirmed: true,
+  });
+
+  const start = transition(panel, "NODE_PACK_INSTALL_STARTED", { candidate });
+
+  assert.equal(start.render, true);
+  assert.equal(start.nodePackInstallRequest.endpoint, "/vibecomfy/node-packs/install");
+  assert.equal(panel.state.nodePackInstallStates["hash-vhs"].status, "installing");
+  assert.equal(panel.state.nodePackInstallStates["hash-vhs"].installing, true);
+
+  const installed = transition(panel, "NODE_PACK_INSTALL_SUCCEEDED", {
+    installKey: "hash-vhs",
+    candidate,
+    result: {
+      ok: true,
+      status: "installed",
+      validation_status: "installed",
+      validated: true,
+      expected_classes: ["VHS_VideoCombine"],
+      message: "Installed pack classes are present in /object_info.",
+    },
+  });
+
+  assert.equal(installed.render, true);
+  assert.equal(installed.focusPrompt, true);
+  assert.deepEqual(installed.retryCustomNodeResolution, {
+    reason: "node_pack_installed",
+    expectedClasses: ["VHS_VideoCombine"],
+  });
+  assert.equal(panel.state.nodePackInstallStates["hash-vhs"].status, "installed");
+  assert.equal(panel.state.nodePackInstallStates["hash-vhs"].installing, false);
+  assert.equal(panel.state.customNodeResolution, null);
+
+  transition(panel, "NODE_PACK_INSTALL_FAILED", {
+    installKey: "hash-vhs",
+    candidate,
+    result: {
+      ok: false,
+      status: "validation_failed",
+      validation_status: "validation_failed",
+      message: "Post-install validation failed.",
+    },
+  });
+
+  assert.equal(panel.state.nodePackInstallStates["hash-vhs"].status, "validation_failed");
+});
+
+test("NODE_PACK_INSTALL_SUCCEEDED restart_required keeps resolver evidence for restart guidance", () => {
+  const candidate = {
+    pack: { slug: "ComfyUI-VideoHelperSuite" },
+    expectedClasses: ["VHS_VideoCombine"],
+    validationMode: "class_validatable",
+    stableInstallHash: "hash-vhs",
+  };
+  const panel = makePanel({
+    customNodeResolution: {
+      kind: "requires_custom_nodes",
+      candidates: [candidate],
+      warnings: ["Registry schema is provisional."],
+    },
+  });
+
+  const obligations = transition(panel, "NODE_PACK_INSTALL_SUCCEEDED", {
+    installKey: "hash-vhs",
+    candidate,
+    result: {
+      ok: true,
+      status: "installed",
+      validation_status: "restart_required",
+      validated: false,
+      missing_classes: ["VHS_VideoCombine"],
+      message: "Restart ComfyUI, then retry the edit.",
+    },
+  });
+
+  assert.equal(obligations.focusPrompt, undefined);
+  assert.equal(obligations.retryCustomNodeResolution, undefined);
+  assert.equal(panel.state.nodePackInstallStates["hash-vhs"].status, "restart_required");
+  assert.equal(panel.state.customNodeResolution.candidates[0], candidate);
 });
 
 test("OK_CANDIDATE_RESPONSE gates Apply on apply eligibility plus candidate presence", () => {

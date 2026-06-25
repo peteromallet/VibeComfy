@@ -535,8 +535,9 @@ test("PUBLIC_OUTCOME_KINDS does not include stale or malformed as outcome kinds"
   assert.ok(PUBLIC_OUTCOME_KINDS.includes("candidate"));
   assert.ok(PUBLIC_OUTCOME_KINDS.includes("noop"));
   assert.ok(PUBLIC_OUTCOME_KINDS.includes("clarify"));
+  assert.ok(PUBLIC_OUTCOME_KINDS.includes("requires_custom_nodes"));
   assert.ok(PUBLIC_OUTCOME_KINDS.includes("error"));
-  assert.equal(PUBLIC_OUTCOME_KINDS.length, 4);
+  assert.equal(PUBLIC_OUTCOME_KINDS.length, 5);
   // No "stale" or "malformed" kind — those are failure kinds within "error"
   assert.ok(!PUBLIC_OUTCOME_KINDS.includes("stale"));
   assert.ok(!PUBLIC_OUTCOME_KINDS.includes("malformed"));

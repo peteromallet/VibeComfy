@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import json
 import logging
 import os
+import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
 _LOGGER = logging.getLogger(__name__)
+
+from vibecomfy.security.gate import CapabilityFenceError
 
 from .audit import artifact_ref_for_path, write_audit, write_json_artifact
 from .edit import DEFAULT_CHAT_DISPLAY_MESSAGES, _SESSION_ROOT, _write_turn_chat_artifact as _edit_write_turn_chat_artifact
@@ -176,6 +180,264 @@ def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]
         list(status.get("route_options", {}).keys()),
     )
     return status
+
+
+def _json_hash(payload: Mapping[str, Any]) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _install_intent_identity(pack: Mapping[str, Any], expected_classes: list[str], validation_mode: str) -> dict[str, Any]:
+    return {
+        "slug": pack.get("slug"),
+        "source": pack.get("source"),
+        "version": pack.get("version"),
+        "commit": pack.get("commit"),
+        "url": pack.get("url"),
+        "registry_id": pack.get("registry_id"),
+        "expected_classes": expected_classes,
+        "validation_mode": validation_mode,
+    }
+
+
+def _install_intent_hash(pack: Mapping[str, Any], expected_classes: list[str], validation_mode: str) -> str:
+    return _json_hash(_install_intent_identity(pack, expected_classes, validation_mode))
+
+
+def _install_route_error(message: str, *, code: str = "validation_error", warnings: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "rejected",
+        "error": code,
+        "message": message,
+        "warnings": list(warnings or ()),
+    }
+
+
+def _request_bool(payload: Mapping[str, Any], *keys: str) -> bool:
+    return any(payload.get(key) is True for key in keys)
+
+
+def _as_nonempty_string(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _coerce_expected_classes(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = _as_nonempty_string(item)
+        if text is None or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _pack_ref_from_install_payload(pack: Mapping[str, Any], repo_url: str):
+    from vibecomfy.registry.pack_resolver import PackRef  # noqa: PLC0415
+
+    slug = _as_nonempty_string(pack.get("slug")) or _as_nonempty_string(pack.get("name"))
+    if slug is None:
+        raise ValueError("package slug or name is required.")
+    return PackRef(
+        slug=slug,
+        source=_as_nonempty_string(pack.get("source")) or "install_request",
+        version=_as_nonempty_string(pack.get("version")),
+        commit=_as_nonempty_string(pack.get("commit")),
+        url=repo_url,
+        path=_as_nonempty_string(pack.get("path")),
+        name=_as_nonempty_string(pack.get("name")),
+        registry_id=_as_nonempty_string(pack.get("registry_id")),
+    )
+
+
+def _fetch_object_info_for_install_validation() -> Mapping[str, Any]:
+    """Refresh local ComfyUI object_info after a node-pack install."""
+    base_url = os.environ.get("VIBECOMFY_COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/")
+    request = urllib.request.Request(f"{base_url}/object_info", headers={"Accept": "application/json"})
+    with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310 - local ComfyUI endpoint.
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("/object_info returned a non-object payload.")
+    return payload
+
+
+def _validate_installed_pack_classes(expected_classes: list[str], validation_mode: str) -> dict[str, Any]:
+    if validation_mode != "class_validatable" or not expected_classes:
+        return {
+            "validation_status": "validation_skipped",
+            "validated": False,
+            "missing_classes": expected_classes,
+            "present_classes": [],
+            "message": "Post-install validation skipped because the proposal is not class-validatable.",
+        }
+    try:
+        object_info = _fetch_object_info_for_install_validation()
+    except Exception as exc:
+        return {
+            "validation_status": "validation_skipped",
+            "validated": False,
+            "missing_classes": expected_classes,
+            "present_classes": [],
+            "message": f"Post-install /object_info refresh failed: {type(exc).__name__}: {exc}",
+        }
+    present = [class_name for class_name in expected_classes if class_name in object_info]
+    missing = [class_name for class_name in expected_classes if class_name not in object_info]
+    if missing:
+        return {
+            "validation_status": "restart_required",
+            "validated": False,
+            "missing_classes": missing,
+            "present_classes": present,
+            "message": "Installed pack did not appear in /object_info yet; restart ComfyUI, then retry the edit.",
+        }
+    return {
+        "validation_status": "installed",
+        "validated": True,
+        "missing_classes": [],
+        "present_classes": present,
+        "message": "Installed pack classes are present in /object_info.",
+    }
+
+
+def _find_reresolved_install_candidate(
+    *,
+    pack: Mapping[str, Any],
+    expected_classes: list[str],
+    submitted_hash: str,
+) -> Mapping[str, Any] | None:
+    from vibecomfy.registry.pack_resolver import resolve_missing_nodes  # noqa: PLC0415
+
+    query = expected_classes[0] if expected_classes else (
+        _as_nonempty_string(pack.get("slug")) or _as_nonempty_string(pack.get("name"))
+    )
+    if query is None:
+        return None
+    resolution = resolve_missing_nodes(query, query_intent="class_name" if expected_classes else None)
+    for candidate in resolution.candidates:
+        candidate_payload = candidate.to_dict()
+        if candidate_payload.get("stable_install_hash") == submitted_hash:
+            return candidate_payload
+    return None
+
+
+def _handle_node_pack_install(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        return _install_route_error("Request body must be a JSON object.")
+    candidate = payload.get("candidate") if isinstance(payload.get("candidate"), Mapping) else payload
+    pack = candidate.get("pack") if isinstance(candidate.get("pack"), Mapping) else None
+    if pack is None:
+        return _install_route_error("package pack metadata is required.")
+    package_name = _as_nonempty_string(pack.get("slug")) or _as_nonempty_string(pack.get("name"))
+    repo_url = (
+        _as_nonempty_string(payload.get("repo_url"))
+        or _as_nonempty_string(candidate.get("repo_url"))
+        or _as_nonempty_string(pack.get("url"))
+    )
+    if package_name is None:
+        return _install_route_error("package slug or name is required.")
+    if repo_url is None:
+        return _install_route_error("repo URL is required.")
+
+    expected_classes = _coerce_expected_classes(candidate.get("expected_classes"))
+    validation_mode = _as_nonempty_string(candidate.get("validation_mode")) or "evidence_only"
+    if validation_mode != "class_validatable":
+        return _install_route_error(
+            "Install proposals from the normal action must be class_validatable; evidence_only proposals cannot be installed from this path.",
+            code="evidence_only_rejected",
+        )
+    if not expected_classes:
+        return _install_route_error(
+            "Install proposals from the normal action require non-empty expected_classes.",
+            code="evidence_only_rejected",
+        )
+    submitted_hash = _as_nonempty_string(payload.get("stable_install_hash")) or _as_nonempty_string(
+        candidate.get("stable_install_hash")
+    )
+    if submitted_hash is None:
+        return _install_route_error("stable_install_hash is required.")
+    if not _request_bool(payload, "user_confirmed", "confirmed", "confirmed_install_intent"):
+        return _install_route_error("explicit user-confirmed install intent is required.", code="confirmation_required")
+
+    warnings: list[str] = []
+    local_hash = _install_intent_hash(pack, expected_classes, validation_mode)
+    if submitted_hash != local_hash:
+        try:
+            reresolved = _find_reresolved_install_candidate(
+                pack=pack,
+                expected_classes=expected_classes,
+                submitted_hash=submitted_hash,
+            )
+        except Exception as exc:
+            reresolved = None
+            warnings.append(f"Install proposal re-resolution failed: {type(exc).__name__}: {exc}")
+        if reresolved is not None:
+            reresolved_pack = reresolved.get("pack") if isinstance(reresolved.get("pack"), Mapping) else {}
+            reresolved_classes = _coerce_expected_classes(reresolved.get("expected_classes"))
+            reresolved_mode = _as_nonempty_string(reresolved.get("validation_mode")) or "evidence_only"
+            if _install_intent_identity(reresolved_pack, reresolved_classes, reresolved_mode) != _install_intent_identity(
+                pack, expected_classes, validation_mode
+            ):
+                return _install_route_error(
+                    "install proposal hash resolves to a different package identity; re-run node resolution before installing.",
+                    code="stable_identity_mismatch",
+                    warnings=warnings,
+                )
+        warnings.append("stable_install_hash did not match the submitted identity; using the current stable package identity.")
+
+    try:
+        pack_ref = _pack_ref_from_install_payload(pack, repo_url)
+    except ValueError as exc:
+        return _install_route_error(str(exc))
+
+    from vibecomfy.node_packs import install_pack  # noqa: PLC0415
+
+    try:
+        result = install_pack(
+            name=package_name,
+            repo=repo_url,
+            pack_ref=pack_ref,
+            checkout_ref=_as_nonempty_string(pack.get("version")) or _as_nonempty_string(pack.get("commit")),
+            expected_commit=_as_nonempty_string(pack.get("commit")),
+        )
+    except CapabilityFenceError as exc:
+        response = _install_route_error(
+            "Install blocked by capability gate.",
+            code="capability_gate_rejected",
+            warnings=warnings,
+        )
+        response["gate_detail"] = exc.detail
+        return response
+    install_ok = result.status in {"installed", "refreshed"}
+    validation = (
+        _validate_installed_pack_classes(expected_classes, validation_mode)
+        if install_ok
+        else {
+            "validation_status": "validation_skipped",
+            "validated": False,
+            "missing_classes": expected_classes,
+            "present_classes": [],
+            "message": "Post-install validation skipped because installation did not complete.",
+        }
+    )
+    return {
+        "ok": install_ok,
+        "status": result.status,
+        "install_status": result.status,
+        **validation,
+        "name": result.name,
+        "git_commit_sha": result.git_commit_sha,
+        "error": result.error,
+        "expected_classes": expected_classes,
+        "validation_mode": validation_mode,
+        "stable_install_hash": local_hash,
+        "warnings": warnings,
+    }
 
 
 def _provider_status_raw_error(payload: Mapping[str, Any]) -> str | None:
@@ -407,7 +669,7 @@ def _sanitize_clarify_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return _strip_non_applyable_forbidden_fields(sanitized)
 
 
-_NON_APPLYABLE_ROUTES = frozenset({"clarify", "respond", "inspect", "research"})
+_NON_APPLYABLE_ROUTES = frozenset({"clarify", "respond", "inspect", "research", "requires_custom_nodes"})
 
 
 def _serialize_executor_result(result: Any) -> dict[str, Any]:
@@ -416,8 +678,9 @@ def _serialize_executor_result(result: Any) -> dict[str, Any]:
     Compatibility fields are layered under durable fields so the canonical
     edit-envelope shape (``session_id``, ``turn_id``, ``outcome``,
     ``apply_eligibility``, etc.) always wins.  Non-applyable routes
-    (clarify/respond/inspect/research) have candidate/apply fields stripped;
-    clarify routes additionally receive clarification-specific formatting.
+    (clarify/respond/inspect/research/requires_custom_nodes) have
+    candidate/apply fields stripped; clarify routes additionally receive
+    clarification-specific formatting.
     """
     serialized = _to_serializable(result)
     if not isinstance(serialized, dict):
@@ -484,7 +747,7 @@ def _handle_agent_executor_submit(
 # Routes for which the executor skips the implement phase entirely.  These
 # turns still need durable session/turn/artifact bookkeeping so the UI can
 # rehydrate from canonical storage (SD1: backend is the source of truth).
-_EXECUTOR_ONLY_NON_APPLYABLE_ROUTES = frozenset({"clarify", "inspect", "respond", "research"})
+_EXECUTOR_ONLY_NON_APPLYABLE_ROUTES = frozenset({"clarify", "inspect", "respond", "research", "requires_custom_nodes"})
 
 
 def _maybe_write_executor_only_durable_turn(
@@ -1491,6 +1754,19 @@ def register_agent_edit_routes(app) -> None:
                 status=500,
             )
         return _web.json_response(_to_serializable(public_session_json_payload(result)))
+
+    @app.routes.post("/vibecomfy/node-packs/install")
+    async def _node_pack_install_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _web.json_response(
+                _install_route_error(f"Request body must be valid JSON: {exc}"),
+                status=400,
+            )
+        result = await asyncio.to_thread(_handle_node_pack_install, payload)
+        status = 200 if result.get("ok") is True else 400
+        return _web.json_response(_to_serializable(result), status=status)
 
 
 # ── Route registration (guarded: no-op when VIBECOMFY_HEADLESS=1) ──────────

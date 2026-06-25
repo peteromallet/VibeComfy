@@ -153,6 +153,7 @@ class AgentEditState:
     batch_session: EditSession | None = None
     batch_signature_catalog: str = ""
     executor_research_summary: str = ""
+    executor_research_warnings: tuple[str, ...] = ()
     executor_research_sources: tuple[dict[str, Any], ...] = ()
     executor_precedent_slices: tuple[dict[str, Any], ...] = ()
     executor_adaptation_plan: dict[str, Any] | None = None
@@ -1201,6 +1202,18 @@ def _is_terminal_clarify_expr(node: ast.stmt) -> bool:
     )
 
 
+def _is_done_expr(node: ast.stmt) -> bool:
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return False
+    call = node.value
+    return (
+        isinstance(call.func, ast.Name)
+        and call.func.id == "done"
+        and not call.args
+        and not call.keywords
+    )
+
+
 def _contains_clarify_call(node: ast.AST) -> bool:
     return any(
         isinstance(child, ast.Call)
@@ -1236,8 +1249,16 @@ def _split_terminal_clarify_line_regex(batch: str) -> TerminalClarifySplit:
     terminal_match = matches[-1]
     if any(match.start() != terminal_match.start() for match in matches[:-1]):
         return TerminalClarifySplit(batch=batch, message=None)
-    trailing_lines = batch[terminal_match.end() :].splitlines()
-    if any(line.strip() and not line.lstrip().startswith("#") for line in trailing_lines):
+    trailing = batch[terminal_match.end() :]
+    trailing_lines = trailing.splitlines()
+    allowed_done_seen = False
+    for line in trailing_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not allowed_done_seen and stripped == "done()":
+            allowed_done_seen = True
+            continue
         return TerminalClarifySplit(batch=batch, message=None)
     return TerminalClarifySplit(
         batch=batch[: terminal_match.start()].rstrip(),
@@ -1254,10 +1275,17 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
     if not module.body:
         return TerminalClarifySplit(batch=batch, message=None)
 
-    terminal = module.body[-1]
+    body = list(module.body)
+    trailing_done: ast.stmt | None = None
+    if body and _is_done_expr(body[-1]):
+        trailing_done = body.pop()
+    if not body:
+        return TerminalClarifySplit(batch=batch, message=None)
+
+    terminal = body[-1]
     if not _is_terminal_clarify_expr(terminal):
         return TerminalClarifySplit(batch=batch, message=None)
-    if any(_contains_clarify_call(stmt) for stmt in module.body[:-1]):
+    if any(_contains_clarify_call(stmt) for stmt in body[:-1]):
         return TerminalClarifySplit(batch=batch, message=None)
 
     call = terminal.value
@@ -1268,6 +1296,15 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
     editable_batch = batch[:start].rstrip()
     if editable_batch.endswith(";"):
         editable_batch = editable_batch[:-1].rstrip()
+    if trailing_done is not None:
+        trailing_start = _offset_from_ast_position(batch, trailing_done.lineno, trailing_done.col_offset)
+        if terminal.end_lineno is None or terminal.end_col_offset is None:
+            terminal_end = start
+        else:
+            terminal_end = _offset_from_ast_position(batch, terminal.end_lineno, terminal.end_col_offset)
+        between = batch[terminal_end:trailing_start]
+        if any(line.strip() and not line.lstrip().startswith("#") for line in between.splitlines()):
+            return TerminalClarifySplit(batch=batch, message=None)
     return TerminalClarifySplit(batch=editable_batch, message=message_node.value)
 
 
@@ -3609,6 +3646,15 @@ def _stage_agent_batch_repl(
     prefetch_research_summary = state.executor_research_summary or (
         _prefetch_research_summary(effective_task) if prefetch_research else ""
     )
+    if prefetch_research_summary and state.executor_research_warnings:
+        warning_lines = [
+            f"- {warning}" for warning in state.executor_research_warnings[:6]
+        ]
+        prefetch_research_summary = (
+            f"{prefetch_research_summary}\n\n"
+            "Research warnings:\n"
+            + "\n".join(warning_lines)
+        )
     if prefetch_research_summary and state.executor_research_sources:
         source_lines = [
             json.dumps(source, sort_keys=True)
@@ -5711,6 +5757,25 @@ def handle_agent_edit(
     research_summary = payload.get("research_summary")
     if isinstance(research_summary, str) and research_summary.strip():
         state.executor_research_summary = research_summary.strip()
+    research_warnings: list[str] = []
+    raw_research_warnings = payload.get("research_warnings")
+    if isinstance(raw_research_warnings, list):
+        research_warnings.extend(
+            warning.strip()
+            for warning in raw_research_warnings
+            if isinstance(warning, str) and warning.strip()
+        )
+    executor_research = payload.get("executor_research")
+    if isinstance(executor_research, dict):
+        raw_executor_warnings = executor_research.get("warnings")
+        if isinstance(raw_executor_warnings, list):
+            research_warnings.extend(
+                warning.strip()
+                for warning in raw_executor_warnings
+                if isinstance(warning, str) and warning.strip()
+            )
+    if research_warnings:
+        state.executor_research_warnings = tuple(dict.fromkeys(research_warnings))
     research_sources = payload.get("research_sources")
     if isinstance(research_sources, list):
         state.executor_research_sources = tuple(
