@@ -5,32 +5,7 @@ UI (litegraph) emitter, and supporting helpers for formatting, naming,
 and node-kwarg extraction.
 """
 
-from vibecomfy.porting.emitter import (  # noqa: F401
-    EmissionDiagnostic,
-    EmissionSeverity,
-    READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT,
-    READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY,
-    READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED,
-    READABILITY_WARNING_HIDDEN_MODEL_FILENAME,
-    READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE,
-    READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL,
-    READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED,
-    READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG,
-    READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID,
-    READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION,
-    READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING,
-    READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION,
-    READABILITY_WARNING_CODES,
-    NodeSignatureRow,
-    InputSignatureField,
-    OutputSignatureField,
-    emit_available_node_signatures,
-    format_signature_rows,
-    format_as_python,
-    emit_ready_template_python,
-    emit_agent_edit_python,
-    emit_scratchpad_python,
-)
+from importlib import import_module
 
 from .node_kwargs import (  # noqa: F401
     apply_overrides,
@@ -63,6 +38,52 @@ from .ui import (  # noqa: F401
     structural_validate,
     default_output_path,
 )
+
+_EMITTER_REEXPORTS: frozenset[str] = frozenset(
+    {
+        "EmissionDiagnostic",
+        "EmissionSeverity",
+        "READABILITY_WARNING_AVOIDABLE_POSITIONAL_OUTPUT",
+        "READABILITY_WARNING_OUTPUT_NAME_AMBIGUITY",
+        "READABILITY_WARNING_SCHEMA_BACKED_WIDGET_ALIAS_NOT_RESOLVED",
+        "READABILITY_WARNING_HIDDEN_MODEL_FILENAME",
+        "READABILITY_WARNING_LOCAL_HELPER_COPY_IN_STRICT_TEMPLATE",
+        "READABILITY_WARNING_LONG_ONE_LINE_NODE_CALL",
+        "READABILITY_WARNING_GENERATED_TEMPLATE_NOT_FORMATTED",
+        "READABILITY_WARNING_GENERATED_VARIABLE_NAME_TOO_LONG",
+        "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_INVALID",
+        "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_COLLISION",
+        "READABILITY_WARNING_LOCKED_VARIABLE_ALIAS_MISSING",
+        "READABILITY_WARNING_LOCKED_VARIABLE_UID_COLLISION",
+        "READABILITY_WARNING_CODES",
+        "NodeSignatureRow",
+        "InputSignatureField",
+        "OutputSignatureField",
+        "emit_available_node_signatures",
+        "format_signature_rows",
+        "format_as_python",
+        "emit_ready_template_python",
+        "emit_agent_edit_python",
+        "emit_scratchpad_python",
+    }
+)
+
+
+def __getattr__(name: str):
+    if name == "emitter":
+        module = import_module("vibecomfy.porting.emitter")
+        globals()[name] = module
+        return module
+    if name in _EMITTER_REEXPORTS:
+        value = getattr(import_module("vibecomfy.porting.emitter"), name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_EMITTER_REEXPORTS, "emitter"})
+
 
 __all__ = [
     # emitter.py (24 names)
