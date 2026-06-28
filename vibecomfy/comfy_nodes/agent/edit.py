@@ -54,7 +54,13 @@ from .agent_edit.clarify import (
     _BATCH_EXIT_EDIT_CLARIFY,
     _BATCH_EXIT_NOOP,
     _BATCH_EXIT_PURE_CLARIFY,
+    _CLARIFY_FORBIDDEN_RESPONSE_KEYS,
+    _build_premature_clarify_turn_record,
+    _compute_premature_clarify_feedback,
     _extract_clarify_message,
+    _format_clarify_markdown_message,
+    _sanitize_pure_clarify_response,
+    _strip_clarify_forbidden_response_fields,
     split_terminal_clarify,
 )
 from .agent_edit.client import DeepSeekClient
@@ -114,6 +120,7 @@ from .agent_edit.messages import (
     _humanized_edit_message,
     _humanized_noop_message,
     _landed_edit_lead,
+    _lint_issue_to_dict,
     _normalize_test_client_batch_response,
     _normalize_test_client_response,
     _operation_detail_payload,
@@ -2186,39 +2193,21 @@ def _stage_agent_batch_repl(
         )
         write_json_artifact(state.model_response_path, {"turns": response_log})
         if clarify_message is not None and not editable_batch.strip():
-            clarify_feedback = (
-                _premature_workflow_schema_clarify_feedback(
-                    state,
-                    clarify_message,
-                )
-                or _premature_missing_custom_node_clarify_feedback(
-                    state,
-                    clarify_message,
-                )
+            clarify_feedback = _compute_premature_clarify_feedback(
+                state,
+                clarify_message,
             )
             if clarify_feedback:
                 consecutive_errors += 1
-                turn_record = {
-                    "turn_number": turn_number,
-                    "batch": turn_result.batch,
-                    "message": turn_result.message,
-                    "route": turn_result.route,
-                    "model": turn_result.model,
-                    "provider_metadata": _json_safe(dict(turn_result.audit_metadata or {})),
-                    "batch_ok": False,
-                    "landed_op_count": 0,
-                    "raw_landed_op_count": 0,
-                    "statement_count": 1,
-                    "diagnostics": [
-                        {
-                            "code": "premature_missing_custom_node_clarify",
-                            "message": clarify_feedback,
-                            "severity": "error",
-                        }
-                    ],
-                    "report": clarify_feedback,
-                    "field_changes": [],
-                }
+                turn_record = _build_premature_clarify_turn_record(
+                    turn_number=turn_number,
+                    batch=turn_result.batch,
+                    message=turn_result.message,
+                    route=turn_result.route,
+                    model=turn_result.model,
+                    provider_metadata=_json_safe(dict(turn_result.audit_metadata or {})),
+                    clarify_feedback=clarify_feedback,
+                )
                 state.batch_turns.append(turn_record)
                 state.batch_feedback = clarify_feedback
                 state.batch_turn_count = turn_number + 1
@@ -2490,16 +2479,6 @@ def _stage_agent_batch_repl(
                 if norm.disposition == "dropped_noop" and norm.issue is not None:
                     _turn_noop_msgs.append(norm.issue.message)
             state.lint_noop_messages = state.lint_noop_messages + tuple(_turn_noop_msgs)
-
-            def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
-                return {
-                    "code": issue.code,
-                    "message": issue.message,
-                    "severity": issue.severity,
-                    "op_index": getattr(issue, "op_index", None),
-                    "op_kind": getattr(issue, "op_kind", None),
-                    "source": "lint",
-                }
 
             lint_issues = tuple(
                 issue
@@ -3161,15 +3140,6 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
             schema_provider=state.schema_provider,
         )
 
-        def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
-            return {
-                "code": issue.code,
-                "message": issue.message,
-                "severity": issue.severity,
-                "op_index": getattr(issue, "op_index", None),
-                "op_kind": getattr(issue, "op_kind", None),
-            }
-
         lint_issue_dicts = tuple(
             _lint_issue_to_dict(issue) for issue in lint_result.issues
         )
@@ -3624,60 +3594,6 @@ def _stage_snapshot_payloads(context: TurnContext) -> list[dict[str, Any]]:
         for result in context.stage_results.values()
     )
     return [snapshot.to_dict() for snapshot in snapshots]
-
-
-_CLARIFY_FORBIDDEN_RESPONSE_KEYS = {
-    "candidate",
-    "graph",
-    "candidate_graph",
-    "apply_eligible",
-    "apply_eligibility",
-    "eligibility",
-    "apply_allowed",
-    "canvas_apply_allowed",
-    "queue_allowed",
-}
-
-
-def _format_clarify_markdown_message(message: Any) -> str:
-    text = message.strip() if isinstance(message, str) else ""
-    if not text:
-        text = "What detail should I use before continuing?"
-    return text
-
-
-def _strip_clarify_forbidden_response_fields(value: Any) -> Any:
-    if isinstance(value, dict):
-        stripped: dict[str, Any] = {}
-        for key, item in value.items():
-            if key in _CLARIFY_FORBIDDEN_RESPONSE_KEYS or key.startswith("candidate_"):
-                continue
-            stripped[key] = _strip_clarify_forbidden_response_fields(item)
-        return stripped
-    if isinstance(value, list):
-        return [_strip_clarify_forbidden_response_fields(item) for item in value]
-    return value
-
-
-def _sanitize_pure_clarify_response(response: dict[str, Any]) -> dict[str, Any]:
-    outcome = response.get("outcome")
-    if not isinstance(outcome, Mapping) or outcome.get("kind") != "clarify":
-        return response
-    message = response.get("message") or outcome.get("question")
-    markdown = _format_clarify_markdown_message(message)
-    response = dict(response)
-    response["message"] = markdown
-    response["outcome"] = {
-        "kind": "clarify",
-        "question": markdown,
-        "clarification": {"message": markdown},
-    }
-    internal_outcome = response.get("internal_outcome")
-    if isinstance(internal_outcome, Mapping) and internal_outcome.get("kind") == "clarify":
-        response["internal_outcome"] = {"kind": "clarify", "question": markdown}
-    response["clarification_required"] = True
-    response["clarification_message"] = markdown
-    return _strip_clarify_forbidden_response_fields(response)
 
 
 def _resolver_candidates_from_batch_turns(state: AgentEditState) -> list[dict[str, Any]]:

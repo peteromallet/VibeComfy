@@ -4,6 +4,7 @@ import ast
 import json
 import re
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 _CLARIFY_CALL_RE = re.compile(
     r'(?m)^\s*clarify\("((?:[^"\\]|\\.)*)"\)\s*$'
@@ -148,3 +149,114 @@ def split_terminal_clarify(batch: str) -> TerminalClarifySplit:
         if any(line.strip() and not line.lstrip().startswith("#") for line in between.splitlines()):
             return TerminalClarifySplit(batch=batch, message=None)
     return TerminalClarifySplit(batch=editable_batch, message=message_node.value)
+
+
+# ── clarify response formatting helpers ─────────────────────────────────────
+
+_CLARIFY_FORBIDDEN_RESPONSE_KEYS = {
+    "candidate",
+    "graph",
+    "candidate_graph",
+    "apply_eligible",
+    "apply_eligibility",
+    "eligibility",
+    "apply_allowed",
+    "canvas_apply_allowed",
+    "queue_allowed",
+}
+
+
+def _format_clarify_markdown_message(message: Any) -> str:
+    text = message.strip() if isinstance(message, str) else ""
+    if not text:
+        text = "What detail should I use before continuing?"
+    return text
+
+
+def _strip_clarify_forbidden_response_fields(value: Any) -> Any:
+    if isinstance(value, dict):
+        stripped: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in _CLARIFY_FORBIDDEN_RESPONSE_KEYS or key.startswith("candidate_"):
+                continue
+            stripped[key] = _strip_clarify_forbidden_response_fields(item)
+        return stripped
+    if isinstance(value, list):
+        return [_strip_clarify_forbidden_response_fields(item) for item in value]
+    return value
+
+
+def _sanitize_pure_clarify_response(response: dict[str, Any]) -> dict[str, Any]:
+    outcome = response.get("outcome")
+    if not isinstance(outcome, Mapping) or outcome.get("kind") != "clarify":
+        return response
+    message = response.get("message") or outcome.get("question")
+    markdown = _format_clarify_markdown_message(message)
+    response = dict(response)
+    response["message"] = markdown
+    response["outcome"] = {
+        "kind": "clarify",
+        "question": markdown,
+        "clarification": {"message": markdown},
+    }
+    internal_outcome = response.get("internal_outcome")
+    if isinstance(internal_outcome, Mapping) and internal_outcome.get("kind") == "clarify":
+        response["internal_outcome"] = {"kind": "clarify", "question": markdown}
+    response["clarification_required"] = True
+    response["clarification_message"] = markdown
+    return _strip_clarify_forbidden_response_fields(response)
+
+
+# ── premature clarify helpers (extracted from _stage_agent_batch_repl) ──────
+
+def _compute_premature_clarify_feedback(
+    state: Any,
+    clarify_message: str,
+) -> str:
+    """Compute premature clarify feedback from workflow schema or missing custom node checks.
+
+    Returns empty string when no premature-clarify condition is detected.
+    """
+    # Late imports to avoid circular dependency with messages.py
+    from .messages import (
+        _premature_missing_custom_node_clarify_feedback,
+        _premature_workflow_schema_clarify_feedback,
+    )
+    return (
+        _premature_workflow_schema_clarify_feedback(state, clarify_message)
+        or _premature_missing_custom_node_clarify_feedback(state, clarify_message)
+    )
+
+
+def _build_premature_clarify_turn_record(
+    *,
+    turn_number: int,
+    batch: str,
+    message: str,
+    route: str,
+    model: str,
+    provider_metadata: dict[str, Any],
+    clarify_feedback: str,
+) -> dict[str, Any]:
+    """Build a batch-turn record for a rejected premature clarify stop."""
+    return {
+        "turn_number": turn_number,
+        "batch": batch,
+        "message": message,
+        "route": route,
+        "model": model,
+        "provider_metadata": provider_metadata,
+        "batch_ok": False,
+        "landed_op_count": 0,
+        "raw_landed_op_count": 0,
+        "statement_count": 1,
+        "diagnostics": [
+            {
+                "code": "premature_missing_custom_node_clarify",
+                "message": clarify_feedback,
+                "severity": "error",
+            }
+        ],
+        "report": clarify_feedback,
+        "field_changes": [],
+    }

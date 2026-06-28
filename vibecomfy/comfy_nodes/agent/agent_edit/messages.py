@@ -853,3 +853,15 @@ def _format_batch_report_json(
             dict(d) for d in lint_diagnostics
         ]
     return result
+
+
+def _lint_issue_to_dict(issue: Any) -> dict[str, Any]:
+    """Convert a lint issue to a dict, used by both _stage_apply_delta and _stage_agent_batch_repl."""
+    return {
+        "code": issue.code,
+        "message": issue.message,
+        "severity": issue.severity,
+        "op_index": getattr(issue, "op_index", None),
+        "op_kind": getattr(issue, "op_kind", None),
+        "source": "lint",
+    }
