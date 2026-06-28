@@ -810,6 +810,9 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
                 "client_id": "client-7",
                 "conversation_messages": None,
             }
+        elif name == "summarize":
+            assert fn is agent_edit_module._stage_summarize_v2
+            assert kwargs == {}
         else:
             pytest.fail(f"unexpected stage {name}")
         return StageResult(stage=name, ok=True, blocking=False)
@@ -826,7 +829,7 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
     )
 
     assert returned is state
-    assert calls == ["ingest", "revision_evidence", "agent_batch"]
+    assert calls == ["ingest", "revision_evidence", "agent_batch", "summarize"]
 
 
 def test_handle_agent_edit_preserves_stage_blocked_from_extracted_product_runner(
@@ -2234,22 +2237,21 @@ def test_handle_agent_edit_batch_repl_turn0_catalog_is_scoped_and_search_first(
     assert "def ImageScaleBy" not in catalog
     assert "ImageScaleBy" in names
     assert "do NOT search for them" in system
-    assert "Search first" in system
-    assert "local installed-node schema lookup" in system
-    assert "Reference EXISTING nodes by EXACT names" in system
-    assert "Bare ambiguous refs are rejected." in system
-    assert "for a NEW node TYPE you want to ADD" in system
+    assert "Local schema lookup (only when needed)" in system
+    assert "exact local ComfyUI schema lookup only" in system
+    assert "factual local ComfyUI schema lookup" in system
+    assert "existing nodes are shown above" in system
+    assert 'for a NEW exact node TYPE you intend to add' in system
     assert "Local schema lookup" in system
     assert 'research("query words", sources=["workflows", "registry", "messages", "web"])' in system
     assert "if sources are omitted it searches internal workflows/templates only" in system
-    assert "factual local ComfyUI schema lookup" in system
     assert 'sources=["web"]' in system
-    assert "workflow context is mandatory" in system
+    assert "Workflow context is mandatory" in system
     assert "smallest named artifact" in system
     assert "Use separate evidence-tier calls" in system
-    assert "First look internally for a workflow/template precedent" in system
-    assert "Do not combine internal workflow search with web or registry" in system
-    assert "URL/title is a lead, not yet workflow context" in system
+    assert "First look for a workflow/template precedent" in system
+    assert "Do not combine internal workflow search with web or registry in the first pass" in system
+    assert "A web URL/title is a lead, not yet workflow context" in system
     assert "Only after workflow/example context identifies a pack" in system
     assert 'sources=["workflows"]' in system
     assert 'sources=["registry"]' in system
