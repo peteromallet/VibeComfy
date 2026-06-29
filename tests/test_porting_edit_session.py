@@ -3036,7 +3036,7 @@ sampler = KSampler(
         assert node is not None
 
         scope_graph = session.ledger.scopes[""].graph
-        from vibecomfy.porting.edit.apply import _group_index_for_node
+        from vibecomfy.porting.edit._apply_layout import _group_index_for_node
         dst_group = _group_index_for_node(scope_graph, session.ledger.resolve_node("", "dst"))
         mid_group = _group_index_for_node(scope_graph, node)
         assert dst_group is not None, "dst should be in MyGroup"
@@ -3095,7 +3095,7 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit.apply import _group_index_for_node
+        from vibecomfy.porting.edit._apply_layout import _group_index_for_node
         scope_graph = session.ledger.scopes[""].graph
         groups = set()
         for name in ("a", "b", "c", "d", "e"):
@@ -3152,7 +3152,7 @@ sampler = KSampler(
         )
         assert result.ok is True
 
-        from vibecomfy.porting.edit.apply import _group_index_for_node
+        from vibecomfy.porting.edit._apply_layout import _group_index_for_node
         scope_graph = session.ledger.scopes[""].graph
         minted_uid = result.statements[0].detail["minted_uid"]
         mid_node = session.ledger.resolve_node("", minted_uid)

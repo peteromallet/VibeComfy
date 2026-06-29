@@ -1,0 +1,439 @@
+from __future__ import annotations
+
+from typing import Any
+
+from ._apply_common import _issue
+from ._apply_types import (
+    AppliedAddNodeSpec,
+    ResolvedAddNodeSpec,
+    ResolvedFieldRef,
+    ResolvedLinkEndpoint,
+    ResolvedNodeRef,
+    ResolvedOp,
+    ResolvedRemoveLinkRef,
+    ResolvedRemoveNodePlan,
+)
+from ._apply_graph import (
+    _ensure_input_slot,
+    _ensure_output_link_reference,
+    _link_endpoints,
+    _link_ids_targeting_input,
+    _new_link_for_scope,
+    _remove_link_from_scope,
+    _remove_node_from_scope,
+    _rewire_link_origin,
+    _set_input_link_reference,
+)
+from ._apply_layout import _next_node_order, _node_size, _place_add_node
+from ._apply_widgets import (
+    _clear_linked_input_surface,
+    _reorder_names,
+    _write_widget_value,
+)
+from .ledger import EditLedger
+from .ops import (
+    AddNodeOp,
+    EditOp,
+    LinkSourceRef,
+    LinkTargetRef,
+    RemoveLinkOp,
+    RemoveNodeOp,
+    ReorderOp,
+    SetModeOp,
+    SetNodeFieldOp,
+    UpsertLinkOp,
+)
+from vibecomfy.porting.report import PortIssue
+from vibecomfy.porting.resolution import _find_named_slot, _normalize_type
+from vibecomfy.porting.emit.ui import materialize_litegraph_node
+
+
+def _apply_resolved_op(
+    ledger: EditLedger,
+    op: EditOp,
+    resolved_op: ResolvedOp,
+) -> tuple[ResolvedOp, list[PortIssue]]:
+    if isinstance(op, SetNodeFieldOp):
+        assert isinstance(resolved_op, ResolvedFieldRef)
+        return resolved_op, _apply_set_node_field(ledger, resolved_op, op.value)
+    if isinstance(op, SetModeOp):
+        assert isinstance(resolved_op, ResolvedNodeRef)
+        _apply_set_mode(resolved_op, op.mode)
+        return resolved_op, []
+    if isinstance(op, RemoveLinkOp):
+        assert isinstance(resolved_op, ResolvedRemoveLinkRef)
+        return resolved_op, _apply_remove_link(ledger, resolved_op)
+    if isinstance(op, RemoveNodeOp):
+        assert isinstance(resolved_op, ResolvedRemoveNodePlan)
+        return resolved_op, _apply_remove_node(ledger, resolved_op)
+    if isinstance(op, UpsertLinkOp):
+        assert isinstance(resolved_op, tuple)
+        source, target = resolved_op
+        assert isinstance(source, ResolvedLinkEndpoint)
+        assert isinstance(target, ResolvedLinkEndpoint)
+        return resolved_op, _apply_upsert_link(ledger, source, target)
+    if isinstance(op, AddNodeOp):
+        assert isinstance(resolved_op, ResolvedAddNodeSpec)
+        return _apply_add_node(ledger, resolved_op)
+    assert isinstance(op, ReorderOp)
+    assert isinstance(resolved_op, ResolvedNodeRef)
+    return resolved_op, _apply_reorder(resolved_op, op)
+
+
+def _apply_set_mode(node_ref: ResolvedNodeRef, mode: int) -> None:
+    node = node_ref.node
+    if isinstance(node, dict):
+        node["mode"] = mode
+
+
+def _apply_remove_link(
+    ledger: EditLedger,
+    link_ref: ResolvedRemoveLinkRef,
+) -> list[PortIssue]:
+    removed = _remove_link_from_scope(
+        ledger,
+        scope_path=link_ref.scope_path,
+        link_id=link_ref.link_id,
+    )
+    if removed:
+        return []
+    return [
+        _issue(
+            "remove_link_missing_at_apply",
+            "Resolved link target was already absent by the time mutation applied.",
+            severity="warning",
+            detail={"scope_path": link_ref.scope_path, "link_id": link_ref.link_id},
+        )
+    ]
+
+
+def _apply_remove_node(
+    ledger: EditLedger,
+    plan: ResolvedRemoveNodePlan,
+) -> list[PortIssue]:
+    node_ref = plan.node_ref
+    node_id = node_ref.node_id if isinstance(node_ref.node_id, int) else None
+    if node_id is None:
+        return [
+            _issue(
+                "remove_node_missing_numeric_id",
+                "Resolved node has no numeric LiteGraph id, so remove_node could not update link substrate safely.",
+                severity="warning",
+                detail={
+                    "scope_path": node_ref.target.scope_path,
+                    "uid": node_ref.target.uid,
+                    "class_type": node_ref.class_type,
+                },
+            )
+        ]
+    scope = ledger.scopes[node_ref.target.scope_path]
+    diagnostics: list[PortIssue] = []
+    for rewire in plan.link_rewires:
+        _rewire_link_origin(
+            ledger,
+            scope_path=rewire.scope_path,
+            link_id=rewire.link_id,
+            old_origin_id=rewire.old_origin_id,
+            new_origin_id=rewire.new_origin_id,
+            new_origin_slot=rewire.new_origin_slot,
+        )
+        diagnostics.append(
+            _issue(
+                "remove_node_passthrough_rewire",
+                "remove_node re-stitched a helper passthrough link to its resolved source.",
+                severity="info",
+                detail={
+                    "scope_path": rewire.scope_path,
+                    "uid": node_ref.target.uid,
+                    "class_type": node_ref.class_type,
+                    "removed_node_id": node_id,
+                    "link_id": rewire.link_id,
+                    "old_origin_id": rewire.old_origin_id,
+                    "new_origin_id": rewire.new_origin_id,
+                    "new_origin_slot": rewire.new_origin_slot,
+                },
+            )
+        )
+    for link_id in plan.link_ids_to_remove:
+        link = ledger.link_index.get((node_ref.target.scope_path, link_id))
+        origin_id, _, target_id, _ = _link_endpoints(link) if link is not None else (None, None, None, None)
+        _remove_link_from_scope(ledger, scope_path=node_ref.target.scope_path, link_id=link_id)
+        diagnostics.append(
+            _issue(
+                "remove_node_link_cleanup",
+                "remove_node cascade-removed a connected link.",
+                severity="info",
+                detail={
+                    "scope_path": node_ref.target.scope_path,
+                    "uid": node_ref.target.uid,
+                    "class_type": node_ref.class_type,
+                    "node_id": node_id,
+                    "link_id": link_id,
+                    "origin_id": origin_id,
+                    "target_id": target_id,
+                },
+            )
+        )
+    _remove_node_from_scope(scope.graph, node_id)
+    ledger.node_index.pop((node_ref.target.scope_path, node_ref.target.uid), None)
+    return diagnostics
+
+
+def _apply_upsert_link(
+    ledger: EditLedger,
+    source: ResolvedLinkEndpoint,
+    target: ResolvedLinkEndpoint,
+) -> list[PortIssue]:
+    assert isinstance(source.ref, LinkSourceRef)
+    assert isinstance(target.ref, LinkTargetRef)
+    scope_path = source.ref.scope_path
+    scope = ledger.scopes[scope_path]
+    diagnostics: list[PortIssue] = []
+    target_slot = _ensure_input_slot(target.node, target.slot_name, target.socket_type)
+    existing = _find_named_slot(target.node.get("inputs"), target.slot_name)
+    duplicate_link_ids = (
+        _link_ids_targeting_input(scope, target.node_id, target_slot)
+        if isinstance(target.node_id, int)
+        else []
+    )
+    if isinstance(existing, dict) and isinstance(existing.get("link"), int):
+        duplicate_link_ids.append(existing["link"])
+    removed_link_ids: list[int] = []
+    for old_link_id in dict.fromkeys(duplicate_link_ids):
+        if _remove_link_from_scope(ledger, scope_path=scope_path, link_id=old_link_id):
+            removed_link_ids.append(old_link_id)
+    if removed_link_ids:
+        detail: dict[str, Any] = {
+            "scope_path": scope_path,
+            "to_uid": target.ref.uid,
+            "to_input": target.slot_name,
+            "removed_link_id": removed_link_ids[0],
+            "removed_link_ids": removed_link_ids,
+        }
+        if len(removed_link_ids) == 1:
+            diagnostics.append(
+                _issue(
+                    "upsert_link_replaced_existing",
+                    "upsert_link removed the previous incoming link for the target input.",
+                    severity="info",
+                    detail=detail,
+                )
+            )
+        else:
+            diagnostics.append(
+                _issue(
+                    "upsert_link_replaced_existing",
+                    "upsert_link removed previous incoming links for the target input.",
+                    severity="info",
+                    detail=detail,
+                )
+            )
+
+    link_id = ledger.mint_link_id(scope_path)
+    link_type = source.socket_type or target.socket_type or "*"
+    link = _new_link_for_scope(
+        scope,
+        link_id=link_id,
+        origin_id=source.node_id,
+        origin_slot=source.slot_index or 0,
+        target_id=target.node_id,
+        target_slot=target_slot,
+        link_type=link_type,
+    )
+    links = scope.graph.get("links")
+    if not isinstance(links, list):
+        links = []
+        scope.graph["links"] = links
+    links.append(link)
+    ledger.link_index[(scope_path, link_id)] = link
+    _ensure_output_link_reference(scope.graph, source.node_id, source.slot_index or 0, link_id)
+    _set_input_link_reference(target.node, target_slot, link_id)
+    return diagnostics
+
+
+def _apply_add_node(
+    ledger: EditLedger,
+    spec: ResolvedAddNodeSpec,
+) -> tuple[AppliedAddNodeSpec, list[PortIssue]]:
+    scope_path = spec.op.scope_path
+    node_id = ledger.mint_node_id(scope_path)
+    uid = ledger.mint_uid(scope_path)
+    provisional = materialize_litegraph_node(
+        spec.op.class_type,
+        spec.op.fields,
+        spec.schema,
+        node_id,
+        uid,
+        [0.0, 0.0],
+    )
+    size = _node_size(provisional)
+    pos, group_index, grew_group, group_issues = _place_add_node(ledger, spec, size)
+    node = materialize_litegraph_node(
+        spec.op.class_type,
+        spec.op.fields,
+        spec.schema,
+        node_id,
+        uid,
+        pos,
+    )
+    node["order"] = _next_node_order(spec.scope.graph)
+    nodes = spec.scope.graph.get("nodes")
+    if not isinstance(nodes, list):
+        nodes = []
+        spec.scope.graph["nodes"] = nodes
+    nodes.append(node)
+    ledger.node_index[(scope_path, uid)] = node
+
+    link_ids: list[int] = []
+    diagnostics: list[PortIssue] = list(group_issues)
+    for input_name in sorted(spec.resolved_inputs):
+        source = spec.resolved_inputs[input_name]
+        target_type = _normalize_type(getattr(spec.schema_inputs.get(input_name), "type", None))
+        target_slot = _ensure_input_slot(node, input_name, target_type)
+        link_id = ledger.mint_link_id(scope_path)
+        link = _new_link_for_scope(
+            spec.scope,
+            link_id=link_id,
+            origin_id=source.node_id,
+            origin_slot=source.slot_index or 0,
+            target_id=node_id,
+            target_slot=target_slot,
+            link_type=source.socket_type or target_type or "*",
+        )
+        links = spec.scope.graph.get("links")
+        if not isinstance(links, list):
+            links = []
+            spec.scope.graph["links"] = links
+        links.append(link)
+        ledger.link_index[(scope_path, link_id)] = link
+        link_ids.append(link_id)
+        _ensure_output_link_reference(spec.scope.graph, source.node_id, source.slot_index or 0, link_id)
+        _set_input_link_reference(node, target_slot, link_id)
+
+    diagnostics.append(
+        _issue(
+            "add_node_applied",
+            "add_node materialized a new LiteGraph node with deterministic ledger ids and placement.",
+            severity="info",
+            detail={
+                "scope_path": scope_path,
+                "class_type": spec.op.class_type,
+                "node_id": node_id,
+                "uid": uid,
+                "pos": list(node.get("pos") or []),
+                "group_index": group_index,
+                "link_ids": link_ids,
+            },
+        )
+    )
+    if grew_group and group_index is not None:
+        diagnostics.append(
+            _issue(
+                "add_node_group_growth",
+                "add_node grew the target group bounding box minimally to contain the new node.",
+                severity="info",
+                detail={"scope_path": scope_path, "group_index": group_index, "uid": uid},
+            )
+        )
+
+    return (
+        AppliedAddNodeSpec(
+            op=spec.op,
+            scope_path=scope_path,
+            uid=uid,
+            node_id=node_id,
+            link_ids=tuple(link_ids),
+            source_uids=tuple(source.ref.uid for source in spec.resolved_inputs.values()),
+            group_index=group_index if grew_group else None,
+        ),
+        diagnostics,
+    )
+
+
+def _apply_reorder(node_ref: ResolvedNodeRef, op: ReorderOp) -> list[PortIssue]:
+    names = _reorder_names(node_ref.node, node_ref.class_type, op.axis)
+    if names is None or tuple(names) == tuple(op.order):
+        return []
+    if op.axis == "widgets":
+        values = node_ref.node.get("widgets_values")
+        if not isinstance(values, list):
+            return []
+        index_by_name = {name: index for index, name in enumerate(names)}
+        node_ref.node["widgets_values"] = [values[index_by_name[name]] for name in op.order]
+        return [
+            _issue(
+                "reorder_widgets_applied",
+                "Reordered widget values by the requested complete field-name permutation.",
+                severity="info",
+                detail={
+                    "scope_path": op.target.scope_path,
+                    "uid": op.target.uid,
+                    "order": list(op.order),
+                },
+            )
+        ]
+
+    outputs = node_ref.node.get("outputs")
+    if not isinstance(outputs, list):
+        return []
+    index_by_name = {name: index for index, name in enumerate(names)}
+    node_ref.node["outputs"] = [outputs[index_by_name[name]] for name in op.order]
+    for index, output in enumerate(node_ref.node["outputs"]):
+        if isinstance(output, dict):
+            output["slot_index"] = index
+    return [
+        _issue(
+            "reorder_slots_applied",
+            "Reordered output slots by the requested complete slot-name permutation.",
+            severity="info",
+            detail={"scope_path": op.target.scope_path, "uid": op.target.uid, "order": list(op.order)},
+        )
+    ]
+
+
+def _apply_set_node_field(
+    ledger: EditLedger,
+    field_ref: ResolvedFieldRef,
+    value: Any,
+) -> list[PortIssue]:
+    diagnostics: list[PortIssue] = []
+    node = field_ref.node
+    if not isinstance(node, dict):
+        return diagnostics
+    if field_ref.automatic_link_removal is not None:
+        removed = _remove_link_from_scope(
+            ledger,
+            scope_path=field_ref.target.scope_path,
+            link_id=field_ref.automatic_link_removal,
+        )
+        if not removed:
+            diagnostics.append(
+                _issue(
+                    "automatic_link_removal_missing_link",
+                    "Linked widget override referenced a missing link during apply; cleared the target slot anyway.",
+                    severity="warning",
+                    detail={
+                        "scope_path": field_ref.target.scope_path,
+                        "uid": field_ref.target.uid,
+                        "field_path": field_ref.target.field_path,
+                        "link_id": field_ref.automatic_link_removal,
+                    },
+                )
+        )
+        _clear_linked_input_surface(node, field_ref)
+    _write_widget_value(node, field_ref, value)
+    return diagnostics
+
+
+def _sync_scope_counters(ledger: EditLedger) -> None:
+    for scope in ledger.scopes.values():
+        if scope.kind == "root":
+            scope.graph["last_node_id"] = max(scope.node_counter, max(scope.used_node_ids, default=0))
+            scope.graph["last_link_id"] = max(scope.link_counter, max(scope.used_link_ids, default=0))
+            continue
+        state = scope.graph.get("state")
+        if not isinstance(state, dict):
+            state = {}
+            scope.graph["state"] = state
+        state["lastNodeId"] = max(scope.node_counter, max(scope.used_node_ids, default=0))
+        state["lastLinkId"] = max(scope.link_counter, max(scope.used_link_ids, default=0))
