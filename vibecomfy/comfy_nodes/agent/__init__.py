@@ -7,6 +7,7 @@ __all__ = (
     "contracts",
     "diagnostics",
     "edit",
+    "execution_plan",
     "executor_response",
     "fixture_provider",
     "gates",
