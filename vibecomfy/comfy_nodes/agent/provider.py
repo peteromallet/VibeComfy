@@ -279,6 +279,7 @@ def build_batch_messages(
     graph_report: str = "",
     precedent_adaptation_plan: str = "",
     revision_evidence_json: str = "",
+    execution_plan_status: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build messages for the batch-REPL wire protocol.
 
@@ -511,10 +512,17 @@ def build_batch_messages(
                 "\n\nRevision evidence (JSON; collected before this model call):\n"
                 f"{revision_evidence_json}"
             )
+        execution_plan_status_block = ""
+        if execution_plan_status:
+            execution_plan_status_block = (
+                "\n\nExecution plan status (authoritative compact JSON):\n"
+                f"{json.dumps(dict(execution_plan_status), indent=2, sort_keys=True)}\n"
+            )
         user = (
             f"{conversation_block}"
             f"{clarification_block}"
             f"User request:\n{task}\n\n"
+            f"{execution_plan_status_block}"
             "Current scratchpad Python (full render):\n"
             "```python\n"
             f"{python_source}\n"
@@ -592,8 +600,15 @@ def build_batch_messages(
                 "\n\nRevision evidence (JSON; collected before first model call):\n"
                 f"{revision_evidence_json}"
             )
+        execution_plan_status_block = ""
+        if execution_plan_status:
+            execution_plan_status_block = (
+                "\n\nExecution plan status (authoritative compact JSON):\n"
+                f"{json.dumps(dict(execution_plan_status), indent=2, sort_keys=True)}"
+            )
         user = (
             f"User request:\n{task}\n"
+            f"{execution_plan_status_block}"
             f"{render_block}"
             f"{node_index_block}"
             f"{previous_message_block}"

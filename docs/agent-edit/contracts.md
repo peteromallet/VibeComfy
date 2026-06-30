@@ -257,6 +257,234 @@ Browser authority rule:
 - Client-side structural hash comparison is a diagnostic parity check only (`liveCanvasSnapshot.structuralHash` versus `panel.state.lastSubmit.client_structural_graph_hash`). It is **not** Apply authority — backend CAS is the single Apply authority. `client_structural_graph_hash` is submitted as a backend-parity snapshot in submit/rebaseline payloads and is never used by the backend to decide Apply eligibility.
 - `client_live_canvas_token` is only a local guard around async apply and rebaseline races. It is captured by `captureLiveCanvasToken()`, checked before local configure in the apply path, and never sent back as backend CAS authority.
 
+### 2.1 M3 execution-plan enforcement handoff
+
+M3 plan-backed turns keep the public payload boundary compatible: the executor
+continues to pass the plan under
+`execution_protocol_notes.execution_plan.plan`. At turn setup, [edit_entrypoint.py](../../vibecomfy/comfy_nodes/agent/edit_entrypoint.py)
+hydrates that nested value into `AgentEditState.execution_plan`, persists
+`turns/<turn_id>/execution_plan.json`, and later persists
+`turns/<turn_id>/plan_evaluation.json` through [execution_plan_runtime.py](../../vibecomfy/comfy_nodes/agent/execution_plan_runtime.py).
+No public top-level `execution_plan` field is introduced.
+
+`plan_validate_ok` participates in the same gate system as the other backend
+validation gates:
+
+- In [contracts.py](../../vibecomfy/comfy_nodes/agent/contracts.py), `plan_validate_ok`
+  is part of `DEFAULT_GATE_NAMES` and `CANVAS_APPLY_GATE_NAMES`.
+- In [gates.py](../../vibecomfy/comfy_nodes/agent/gates.py),
+  `update_plan_validate_gate()` marks the gate `true` when no execution plan
+  exists, `false` when a plan-backed turn has not been evaluated, and equal to
+  `PlanEvaluation.ok` once evaluation exists. Failed evidence includes the
+  `plan_id`, `blocking`, failed condition ids, evaluator feedback, and
+  `plan_evaluation_v1` contract version.
+- For non-plan turns, this is pass-through compatibility. Existing direct,
+  inspect, research, respond, and revise behavior is not made stricter merely
+  because the new gate exists.
+
+`done()` acceptance is also plan-backed. In [edit_batch_loop_finish.py](../../vibecomfy/comfy_nodes/agent/edit_batch_loop_finish.py),
+a requested `done()` reevaluates the latest candidate graph when
+`state.execution_plan` exists. If the resulting `PlanEvaluation` is
+`ok: false` and `blocking: true`, `done()` is not accepted; the next model turn
+receives compact refusal feedback with missing required step ids, failed
+condition ids, the plan id, and evaluator feedback. Only a passing evaluation
+allows `done()` to finish the batch.
+
+Candidate payloads, task satisfaction, debug gates, and apply eligibility all
+use the same `plan_validate_ok` result:
+
+- [edit_response_contract.py](../../vibecomfy/comfy_nodes/agent/edit_response_contract.py)
+  suppresses `candidate`, candidate aliases, `canvas_apply_allowed`, and
+  applyability when a plan-backed evaluation fails or is missing.
+- Successful plan evaluation keeps normal candidate payloads and records
+  `execution_plan_status`, `execution_plan_feedback`, `artifacts.execution_plan`,
+  `artifacts.plan_evaluation`, and `debug.execution_plan_artifacts`.
+- `debug.gates.plan_validate_ok` mirrors the top-level `gates.plan_validate_ok`
+  snapshot so failures are visible in both compatibility and typed envelopes.
+- `task_satisfaction` receives a `"check": "execution_plan"` entry with
+  `"satisfaction": "pass"` or `"fail"` and the failed condition ids.
+- `apply_eligibility` remains derived from backend gates. A failed plan yields
+  `reason: "no_candidate"` because no candidate is exposed. A passed plan can
+  still yield `reason: "queue_blocked_warning"` if only Queue validation fails.
+
+Queue blockers therefore remain warnings only after structural plan
+completeness passes. If the plan does not structurally validate, Queue state
+does not rescue the turn into applyability; the response has no candidate.
+
+Failed HotShotXL sidecar example: adding an `ADE_AnimateDiffLoaderWithContext`
+node beside `SaveImage` and calling `done()` does not satisfy the active video
+path plan, because motion never reaches a video terminal.
+
+`execution_plan_v1` input:
+
+```json
+{
+  "contract_version": "execution_plan_v1",
+  "plan_id": "hotshotxl-active-video-path",
+  "goal": "HotShotXL/AnimateDiff nodes must feed a video terminal on the active output path, not sit in a sidecar branch.",
+  "required_steps": [
+    {
+      "id": "add-animatediff-motion-node",
+      "kind": "add_node",
+      "criticality": "required",
+      "status": "required",
+      "class_type": "ADE_AnimateDiffLoaderWithContext"
+    },
+    {
+      "id": "add-video-terminal",
+      "kind": "add_node",
+      "criticality": "required",
+      "status": "required",
+      "class_type": "VHS_VideoCombine"
+    },
+    {
+      "id": "wire-motion-into-video-terminal",
+      "kind": "wire_active_path",
+      "criticality": "required",
+      "status": "required",
+      "conditions": [
+        {
+          "condition_id": "hotshotxl.motion_reaches_video_terminal",
+          "kind": "terminal_consumes"
+        }
+      ]
+    }
+  ],
+  "active_path_conditions": [
+    {
+      "condition_id": "hotshotxl.active_output_is_video",
+      "kind": "terminal_class",
+      "class_type": "VHS_VideoCombine"
+    }
+  ]
+}
+```
+
+Blocking `plan_evaluation_v1` result:
+
+```json
+{
+  "contract_version": "plan_evaluation_v1",
+  "plan_id": "hotshotxl-active-video-path",
+  "ok": false,
+  "blocking": true,
+  "failed_conditions": [
+    {
+      "condition_id": "add-video-terminal.required_class",
+      "severity": "required",
+      "message": "Required class VHS_VideoCombine is not present."
+    },
+    {
+      "condition_id": "hotshotxl.motion_reaches_video_terminal",
+      "severity": "required",
+      "message": "AnimateDiff output does not feed the video terminal."
+    },
+    {
+      "condition_id": "hotshotxl.active_output_is_video",
+      "severity": "required",
+      "message": "The active output path is still image-only."
+    }
+  ],
+  "feedback": "plan evaluation failed: the HotShotXL motion branch is not wired into a video terminal."
+}
+```
+
+Response effects for the failed example:
+
+```json
+{
+  "candidate": null,
+  "apply_allowed": false,
+  "canvas_apply_allowed": false,
+  "apply_eligibility": {
+    "applyable": false,
+    "reason": "no_candidate"
+  },
+  "gates": {
+    "plan_validate_ok": false
+  },
+  "execution_plan_status": {
+    "plan_id": "hotshotxl-active-video-path",
+    "ok": false,
+    "blocking": true,
+    "failed_condition_ids": [
+      "add-video-terminal.required_class",
+      "hotshotxl.motion_reaches_video_terminal",
+      "hotshotxl.active_output_is_video"
+    ]
+  },
+  "debug": {
+    "gates": {
+      "plan_validate_ok": false
+    },
+    "execution_plan_artifacts": {
+      "execution_plan": {
+        "path": "turns/0001/execution_plan.json"
+      },
+      "plan_evaluation": {
+        "path": "turns/0001/plan_evaluation.json"
+      }
+    }
+  }
+}
+```
+
+Passing HotShotXL example: the candidate adds
+`ADE_AnimateDiffLoaderWithContext`, adds `VHS_VideoCombine`, and wires
+`video.images` from the motion branch before calling `done()`.
+
+Passing `plan_evaluation_v1` result:
+
+```json
+{
+  "contract_version": "plan_evaluation_v1",
+  "plan_id": "hotshotxl-active-video-path",
+  "ok": true,
+  "blocking": false,
+  "failed_conditions": [],
+  "feedback": "plan evaluation passed."
+}
+```
+
+Response effects when only Queue validation still fails:
+
+```json
+{
+  "candidate": {
+    "state": "candidate"
+  },
+  "apply_allowed": true,
+  "canvas_apply_allowed": true,
+  "queue_allowed": false,
+  "apply_eligibility": {
+    "applyable": true,
+    "reason": "queue_blocked_warning",
+    "warnings": ["queue_blocked"]
+  },
+  "gates": {
+    "plan_validate_ok": true,
+    "queue_validate_ok": false
+  },
+  "execution_plan_status": {
+    "plan_id": "hotshotxl-active-video-path",
+    "ok": true,
+    "blocking": false,
+    "failed_condition_ids": []
+  },
+  "task_satisfaction": [
+    {
+      "check": "execution_plan",
+      "satisfaction": "pass",
+      "failed_condition_ids": []
+    }
+  ],
+  "artifacts": {
+    "execution_plan": "turns/0001/execution_plan.json",
+    "plan_evaluation": "turns/0001/plan_evaluation.json"
+  }
+}
+```
+
 Implemented browser-side rebaseline state fields in [vibecomfy_roundtrip.js](../../vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js):
 
 - `baselineTurnId`

@@ -52,6 +52,7 @@ from vibecomfy.comfy_nodes.agent.gates import (
     EXPLICIT_QUEUE_BLOCKER_CODES,
     derive_gates,
     initialize_gates,
+    update_plan_validate_gate,
     update_queue_gate,
     update_state_match_gate,
 )
@@ -2507,9 +2508,49 @@ def test_gate_derivation_leaves_skipped_gates_false_without_baseline_hash() -> N
 
     assert derived.gates["python_load_ok"].ok is False
     assert derived.gates["ui_emit_ok"].ok is False
+    assert derived.gates["plan_validate_ok"].ok is True
     assert derived.gates["state_match_ok"].ok is True
     assert context.canvas_apply_allowed is False
     assert context.queue_allowed is False
+
+
+def test_plan_validate_gate_passes_through_when_no_plan_exists() -> None:
+    context = TurnContext(session_id="s1")
+    initialize_gates(context)
+
+    assert context.gate_results["plan_validate_ok"].ok is True
+    assert context.gate_results["plan_validate_ok"].evidence["reason"] == "no_execution_plan"
+
+
+def test_plan_validate_gate_fails_closed_for_plan_without_evaluation() -> None:
+    context = TurnContext(session_id="s1")
+    initialize_gates(context, has_execution_plan=True)
+
+    assert context.gate_results["plan_validate_ok"].ok is False
+    assert context.gate_results["plan_validate_ok"].evidence["reason"] == "plan_not_evaluated"
+    assert context.canvas_apply_allowed is False
+
+
+def test_plan_validate_gate_records_failed_evaluation_evidence() -> None:
+    context = TurnContext(session_id="s1")
+    initialize_gates(context, has_execution_plan=True)
+    evaluation = SimpleNamespace(
+        plan_id="plan-hotshotxl",
+        ok=False,
+        blocking=True,
+        failed_conditions=({"condition_id": "terminal_consumes_video"},),
+        feedback="Required video node is not connected to an output path.",
+        contract_version="plan_evaluation_v1",
+    )
+
+    update_plan_validate_gate(context, plan_evaluation=evaluation)
+
+    gate = context.gate_results["plan_validate_ok"]
+    assert gate.ok is False
+    assert gate.evidence["reason"] == "plan_evaluation_failed"
+    assert gate.evidence["plan_id"] == "plan-hotshotxl"
+    assert gate.evidence["failed_condition_ids"] == ("terminal_consumes_video",)
+    assert gate.evidence["feedback"] == "Required video node is not connected to an output path."
 
 
 def test_queue_stage_diagnostics_derive_queue_only_blockers_from_emit_evidence() -> None:
@@ -3117,6 +3158,42 @@ def test_queue_blockers_keep_canvas_apply_true_but_force_queue_false() -> None:
     assert context.queue_allowed is False
     assert derived.apply_eligibility.applyable is True
     assert derived.apply_eligibility.reason == "queue_blocked_warning"
+
+
+def test_plan_pass_keeps_queue_blocker_as_apply_warning() -> None:
+    context = TurnContext(session_id="s1")
+    initialize_gates(context, has_execution_plan=True)
+    for name in (
+        "python_load_ok",
+        "ir_validate_ok",
+        "ui_emit_ok",
+        "ui_fidelity_ok",
+        "ui_load_safe_ok",
+        "state_match_ok",
+    ):
+        context.set_gate(name, True, evidence={"test": name})
+    evaluation = SimpleNamespace(
+        plan_id="plan-hotshotxl",
+        ok=True,
+        blocking=False,
+        failed_conditions=(),
+        feedback="All required plan conditions are satisfied.",
+        contract_version="plan_evaluation_v1",
+    )
+
+    derived = derive_gates(
+        context,
+        queue_blockers=({"code": "schema_less_queue_blocker", "severity": "error"},),
+        plan_evaluation=evaluation,
+        has_execution_plan=True,
+    )
+
+    assert derived.gates["plan_validate_ok"].ok is True
+    assert derived.canvas_apply_allowed is True
+    assert derived.queue_allowed is False
+    assert derived.apply_eligibility.applyable is True
+    assert derived.apply_eligibility.reason == "queue_blocked_warning"
+    assert derived.apply_eligibility.to_dict()["warnings"] == ["queue_blocked"]
 
 
 def test_apply_eligibility_reasons_are_defined_once_and_preserve_compat_fields() -> None:
@@ -4156,7 +4233,7 @@ def test_build_batch_messages_turn_zero_includes_full_python_scoped_catalog_and_
     assert "do NOT search for them" in system
     assert "search(" in system
     # Size ceiling: prompt should stay bounded even with research/code-node guidance.
-    assert len(system) < 6200, f"system prompt is {len(system)} chars, expected <6200"
+    assert len(system) < 7600, f"system prompt is {len(system)} chars, expected <7600"
     # No execution-semantics phrasing
     assert "return only json" not in system.lower()
     assert "delta" not in system.lower()
@@ -4191,7 +4268,7 @@ def test_build_batch_messages_later_turn_includes_diff_and_report_only() -> None
     assert "delta" not in system.lower()
     assert "execute the code" not in system.lower()
     assert "run the code" not in system.lower()
-    assert len(system) < 6200, f"system prompt is {len(system)} chars, expected <6200"
+    assert len(system) < 7600, f"system prompt is {len(system)} chars, expected <7600"
 
     # User message includes diff + report, NOT full Python
     assert "Fix the field" in user
@@ -4238,6 +4315,86 @@ def test_build_batch_messages_later_turn_can_reinclude_full_render_previous_mess
     assert "Budget: 1 turn(s) remaining out of 3." in user
 
 
+def test_build_batch_messages_turn_zero_includes_compact_execution_plan_status() -> None:
+    messages = agent_provider.build_batch_messages(
+        task="Add a required output path",
+        turn_number=0,
+        python_source="workflow = ...",
+        execution_plan_status={
+            "plan_id": "plan-hotshot",
+            "required_steps": [
+                {
+                    "step_id": "add_video_sink",
+                    "kind": "add_node",
+                    "criticality": "required",
+                    "status": "planned",
+                    "class_type": "VHS_VideoCombine",
+                }
+            ],
+            "ok": False,
+            "blocking": True,
+            "failed_condition_ids": ["active_video_path"],
+            "feedback": "Video sink is not connected to the active sampler path.",
+        },
+        research_summary="Large contextual research packet stays in its own block.",
+    )
+    user = messages[1]["content"]
+
+    assert "Execution plan status (authoritative compact JSON):" in user
+    assert '"plan_id": "plan-hotshot"' in user
+    assert '"step_id": "add_video_sink"' in user
+    assert '"ok": false' in user
+    assert '"blocking": true' in user
+    assert '"active_video_path"' in user
+    assert "Video sink is not connected" in user
+    assert "Research evidence/context (external + local corpus):" in user
+    assert user.index("Execution plan status") < user.index("Research evidence/context")
+
+
+def test_build_batch_messages_later_turn_includes_latest_execution_plan_status() -> None:
+    messages = agent_provider.build_batch_messages(
+        task="Continue the plan",
+        turn_number=2,
+        diff="-missing\n+connected",
+        report="Previous turn added the video sink.",
+        execution_plan_status={
+            "plan_id": "plan-hotshot",
+            "required_steps": [],
+            "ok": True,
+            "blocking": False,
+            "failed_condition_ids": [],
+            "feedback": "all required plan conditions passed.",
+        },
+    )
+    user = messages[1]["content"]
+
+    assert "Execution plan status (authoritative compact JSON):" in user
+    assert '"plan_id": "plan-hotshot"' in user
+    assert '"ok": true' in user
+    assert '"blocking": false' in user
+    assert "all required plan conditions passed." in user
+
+
+def test_build_batch_messages_omits_execution_plan_status_when_absent() -> None:
+    messages = agent_provider.build_batch_messages(
+        task="Direct seed edit",
+        turn_number=0,
+        python_source="sampler = KSampler(seed=0)",
+        research_summary="",
+    )
+    later_messages = agent_provider.build_batch_messages(
+        task="Direct seed edit",
+        turn_number=1,
+        diff="-seed=0\n+seed=42",
+        report="Seed changed.",
+    )
+
+    assert "Execution plan status" not in messages[1]["content"]
+    assert "plan_id" not in messages[1]["content"]
+    assert "Execution plan status" not in later_messages[1]["content"]
+    assert "plan_id" not in later_messages[1]["content"]
+
+
 def test_build_batch_messages_no_json_delta_wording() -> None:
     """The batch system prompt never mentions JSON delta requirements."""
     # Test both turn 0 and later-turn variants
@@ -4261,7 +4418,7 @@ def test_build_batch_messages_no_json_delta_wording() -> None:
         assert "execute the code" not in system.lower()
         assert "run the code" not in system.lower()
         # Size ceiling
-        assert len(system) < 6200, f"system prompt is {len(system)} chars, expected <6200"
+        assert len(system) < 7600, f"system prompt is {len(system)} chars, expected <7600"
 
 
 def test_build_batch_messages_system_prompt_contains_all_three_mode_strings() -> None:
@@ -4346,7 +4503,7 @@ def test_build_batch_messages_system_prompt_size_under_ceiling() -> None:
         max_batches=5,
     )
     system = messages[0]["content"]
-    assert len(system) < 6200, f"system prompt is {len(system)} chars, expected <6200"
+    assert len(system) < 7600, f"system prompt is {len(system)} chars, expected <7600"
 
 
 def test_build_batch_messages_conversation_memory_included_on_turn_zero() -> None:

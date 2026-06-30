@@ -75,6 +75,13 @@ from vibecomfy.security.agent_generated_loader import AgentGeneratedLoadError, S
 from vibecomfy.security.agent_generated_loader import (
     load_agent_generated_scratchpad,
 )
+from vibecomfy.comfy_nodes.agent.execution_plan import (
+    ExecutionPlan,
+    PlanCondition,
+    PlanEvaluation,
+    PlanStep,
+    SocketRef,
+)
 from vibecomfy.security.gate import GateContext, _gate_context_var, set_gate_context
 from vibecomfy.security.provenance import confirm, read as read_provenance
 from vibecomfy.schema.provider import InputSpec, NodeSchema, OutputSpec
@@ -210,6 +217,87 @@ def _batch_repl_provider() -> _Provider:
                 confidence=1.0,
             ),
         }
+    )
+
+
+def _hotshotxl_video_provider() -> _Provider:
+    return _Provider(
+        {
+            "LoadImage": _schema("LoadImage", [OutputSpec("IMAGE", "image")]),
+            "SaveImage": NodeSchema(
+                class_type="SaveImage",
+                pack=None,
+                inputs={
+                    "images": InputSpec("IMAGE", required=True),
+                    "filename_prefix": InputSpec("STRING"),
+                },
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "ADE_AnimateDiffLoaderWithContext": NodeSchema(
+                class_type="ADE_AnimateDiffLoaderWithContext",
+                pack=None,
+                inputs={},
+                outputs=[OutputSpec("IMAGE", "IMAGE")],
+                source_provider="test",
+                confidence=1.0,
+            ),
+            "VHS_VideoCombine": NodeSchema(
+                class_type="VHS_VideoCombine",
+                pack=None,
+                inputs={"images": InputSpec("IMAGE", required=True)},
+                outputs=[],
+                source_provider="test",
+                confidence=1.0,
+            ),
+        }
+    )
+
+
+def _hotshotxl_active_video_plan() -> ExecutionPlan:
+    return ExecutionPlan(
+        plan_id="hotshotxl-active-video-path",
+        goal=(
+            "HotShotXL/AnimateDiff nodes must feed a video terminal on the "
+            "active output path, not sit in a sidecar branch."
+        ),
+        required_steps=(
+            PlanStep(
+                step_id="add-animatediff-motion-node",
+                kind="add_node",
+                class_type="ADE_AnimateDiffLoaderWithContext",
+            ),
+            PlanStep(
+                step_id="add-video-terminal",
+                kind="add_node",
+                class_type="VHS_VideoCombine",
+            ),
+            PlanStep(
+                step_id="wire-motion-into-video-terminal",
+                kind="wire_active_path",
+                conditions=(
+                    PlanCondition(
+                        condition_id="hotshotxl.motion_reaches_video_terminal",
+                        kind="terminal_consumes",
+                        source=SocketRef(class_type="ADE_AnimateDiffLoaderWithContext"),
+                        target=SocketRef(class_type="VHS_VideoCombine"),
+                        message=(
+                            "AnimateDiff output must feed the active VHS video "
+                            "terminal, not remain sidecar-only."
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        active_path_conditions=(
+            PlanCondition(
+                condition_id="hotshotxl.active_output_is_video",
+                kind="active_output_domain",
+                expected="VIDEO",
+                message="The active terminal output must be video.",
+            ),
+        ),
     )
 
 
@@ -5919,6 +6007,556 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
     assert events[1][1]["turn_number"] == 1
     assert events[1][1]["exit_mode"] == "done"
     assert events[1][1]["done_summary"] == result["done_summary"]
+
+
+def test_handle_agent_edit_batch_repl_records_plan_evaluation_after_candidate_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    plan = ExecutionPlan(
+        plan_id="save-prefix-plan",
+        goal="SaveImage filename prefix must be updated.",
+        done_conditions=(
+            PlanCondition(
+                condition_id="saveimage.filename_prefix.after",
+                kind="required_value",
+                class_type="SaveImage",
+                expected="after",
+            ),
+        ),
+    )
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "after"',
+                "message": "Adjusted the save prefix.",
+            },
+            {
+                "batch": "done()",
+                "message": "Ready to commit the candidate.",
+            },
+        ]
+    )
+    captured_model_messages: list[list[dict[str, str]]] = []
+
+    def _client(messages: list[dict[str, str]]) -> dict[str, str]:
+        captured_model_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after and finish",
+            "session_id": "batch-plan-runtime",
+            "max_batches": 4,
+            "execution_protocol_notes": {
+                "execution_plan": {
+                    "plan": plan.to_dict(),
+                },
+            },
+        },
+        schema_provider=provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["batch_turns"][0]["field_changes"] == [
+        {
+            "uid": "2",
+            "field_path": "filename_prefix",
+            "old": "before",
+            "new": "after",
+        }
+    ]
+    first_status = result["batch_turns"][0]["execution_plan_status"]
+    assert first_status["plan_id"] == "save-prefix-plan"
+    assert first_status["ok"] is True
+    assert first_status["blocking"] is False
+    assert first_status["failed_condition_ids"] == []
+    assert result["batch_turns"][1]["execution_plan_status"]["ok"] is True
+    assert len(captured_model_messages) == 2
+    turn0_prompt = captured_model_messages[0][1]["content"]
+    turn1_prompt = captured_model_messages[1][1]["content"]
+    assert "Execution plan status (authoritative compact JSON):" in turn0_prompt
+    assert '"plan_id": "save-prefix-plan"' in turn0_prompt
+    assert '"ok": null' in turn0_prompt
+    assert "plan has not been evaluated yet." not in turn0_prompt
+    assert "Execution plan status (authoritative compact JSON):" in turn1_prompt
+    assert '"plan_id": "save-prefix-plan"' in turn1_prompt
+    assert '"ok": true' in turn1_prompt
+    assert '"blocking": false' in turn1_prompt
+    assert '"failed_condition_ids": []' in turn1_prompt
+
+    turn_dir = turn_dir_for(tmp_path, "batch-plan-runtime", result["turn_id"])
+    persisted_evaluation = json.loads(
+        (turn_dir / "plan_evaluation.json").read_text(encoding="utf-8")
+    )
+    assert persisted_evaluation["ok"] is True
+    assert persisted_evaluation["failed_conditions"] == []
+
+    messages_text = (turn_dir / "messages.jsonl").read_text(encoding="utf-8")
+    message_records = [
+        json.loads(line)
+        for line in messages_text.splitlines()
+        if line.strip()
+    ]
+    assert message_records[0]["execution_plan_status"] == first_status
+    model_response = json.loads(
+        (turn_dir / "model_response.json").read_text(encoding="utf-8")
+    )
+    assert model_response["turns"][0]["batch_result"]["execution_plan_status"] == first_status
+
+
+def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _batch_repl_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    condition = PlanCondition(
+        condition_id="saveimage.filename_prefix.after",
+        kind="required_value",
+        class_type="SaveImage",
+        expected="after",
+    )
+    plan = ExecutionPlan(
+        plan_id="save-prefix-required-step",
+        goal="SaveImage filename prefix must be updated before completion.",
+        required_steps=(
+            PlanStep(
+                step_id="save-prefix-step",
+                kind="set_widget",
+                class_type="SaveImage",
+                conditions=(condition,),
+            ),
+        ),
+    )
+    responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "wrong"\ndone()',
+                "message": "Changed the save prefix.",
+            },
+            {
+                "batch": 'saveimage.filename_prefix = "after"\ndone()',
+                "message": "Corrected the save prefix.",
+            },
+        ]
+    )
+    captured_model_messages: list[list[dict[str, str]]] = []
+
+    def _client(messages: list[dict[str, str]]) -> dict[str, str]:
+        captured_model_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to after and finish",
+            "session_id": "batch-plan-done-refusal",
+            "max_batches": 3,
+            "execution_protocol_notes": {
+                "execution_plan": {
+                    "plan": plan.to_dict(),
+                },
+            },
+        },
+        schema_provider=provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    assert len(captured_model_messages) == 2
+    retry_prompt = captured_model_messages[1][1]["content"]
+    assert "done() was NOT accepted" in retry_prompt
+    assert "missing required execution-plan step ids: save-prefix-step" in retry_prompt
+    assert (
+        "failed execution-plan condition ids: saveimage.filename_prefix.after"
+        in retry_prompt
+    )
+    assert result["batch_turns"][0]["execution_plan_status"]["ok"] is False
+    assert result["batch_turns"][0]["execution_plan_status"]["blocking"] is True
+    assert result["batch_turns"][0]["execution_plan_status"]["failed_condition_ids"] == [
+        "saveimage.filename_prefix.after"
+    ]
+    assert result["batch_turns"][1]["execution_plan_status"]["ok"] is True
+    assert result["batch_turns"][1]["execution_plan_status"]["blocking"] is False
+
+    turn_dir = turn_dir_for(tmp_path, "batch-plan-done-refusal", result["turn_id"])
+    persisted_evaluation = json.loads(
+        (turn_dir / "plan_evaluation.json").read_text(encoding="utf-8")
+    )
+    assert persisted_evaluation["ok"] is True
+    assert persisted_evaluation["failed_conditions"] == []
+
+
+def test_handle_agent_edit_hotshotxl_sidecar_done_remains_non_applyable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _hotshotxl_video_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    captured_model_messages: list[list[dict[str, str]]] = []
+    responses = iter(
+        [
+            {
+                "batch": "motion = ADE_AnimateDiffLoaderWithContext(near=saveimage)\ndone()",
+                "message": "Added the HotShotXL AnimateDiff node.",
+            },
+            {
+                "batch": (
+                    'clarify("I cannot complete HotShotXL until the '
+                    'AnimateDiff branch is wired into the video terminal.")'
+                ),
+                "message": "I cannot complete the requested HotShotXL edit yet.",
+            },
+        ]
+    )
+
+    def _client(messages: list[dict[str, str]]) -> dict[str, str]:
+        captured_model_messages.append(messages)
+        return next(responses)
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "Switch this to instead generate 8 frames of video using HotShotXL",
+            "session_id": "hotshotxl-sidecar-plan-block",
+            "max_batches": 2,
+            "max_consecutive_errors": 2,
+            "execution_protocol_notes": {
+                "execution_plan": {
+                    "plan": _hotshotxl_active_video_plan().to_dict(),
+                },
+            },
+        },
+        schema_provider=provider,
+        deepseek_client=_client,
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["candidate"] is None
+    assert result["apply_allowed"] is False
+    assert result["canvas_apply_allowed"] is False
+    assert result["apply_eligibility"]["applyable"] is False
+    assert result["gates"]["plan_validate_ok"] is False
+    assert result["debug"]["gates"]["plan_validate_ok"] is False
+    assert result["execution_plan_status"]["ok"] is False
+    assert result["execution_plan_status"]["blocking"] is True
+    assert set(result["execution_plan_status"]["failed_condition_ids"]) == {
+        "add-video-terminal.required_class",
+        "hotshotxl.motion_reaches_video_terminal",
+        "hotshotxl.active_output_is_video",
+    }
+    assert "plan evaluation failed" in result["execution_plan_feedback"]
+    assert "done() was NOT accepted" in result["batch_turns"][0]["report"]
+    assert "hotshotxl.motion_reaches_video_terminal" in result["batch_turns"][0]["report"]
+    assert "hotshotxl-active-video-path" in result["batch_turns"][0]["report"]
+    assert len(captured_model_messages) == 2
+    retry_prompt = captured_model_messages[1][1]["content"]
+    assert "done() was NOT accepted" in retry_prompt
+    assert "failed execution-plan condition ids:" in retry_prompt
+
+    turn_dir = turn_dir_for(
+        tmp_path,
+        "hotshotxl-sidecar-plan-block",
+        result["turn_id"],
+    )
+    assert Path(result["artifacts"]["execution_plan"]) == turn_dir / "execution_plan.json"
+    assert Path(result["artifacts"]["plan_evaluation"]) == turn_dir / "plan_evaluation.json"
+    persisted_evaluation = json.loads(
+        (turn_dir / "plan_evaluation.json").read_text(encoding="utf-8")
+    )
+    assert persisted_evaluation["ok"] is False
+    assert persisted_evaluation["blocking"] is True
+    assert {
+        item["condition_id"]
+        for item in persisted_evaluation["failed_conditions"]
+    } >= {
+        "hotshotxl.motion_reaches_video_terminal",
+        "hotshotxl.active_output_is_video",
+    }
+    response_payload = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))
+    assert response_payload["candidate"] is None
+    assert response_payload["gates"]["plan_validate_ok"] is False
+    assert response_payload["artifacts"]["plan_evaluation"] == str(
+        turn_dir / "plan_evaluation.json"
+    )
+    debug_artifacts = response_payload["debug"]["execution_plan_artifacts"]
+    assert debug_artifacts["execution_plan"]["path"] == str(turn_dir / "execution_plan.json")
+    assert debug_artifacts["plan_evaluation"]["path"] == str(
+        turn_dir / "plan_evaluation.json"
+    )
+
+
+def test_handle_agent_edit_hotshotxl_complete_plan_keeps_queue_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _hotshotxl_video_provider()
+    monkeypatch.setenv("VIBECOMFY_AGENT_EDIT_BATCH_REPL", "1")
+    queue_issue = {
+        "code": "schema_less_queue_blocker",
+        "severity": "error",
+        "failure_kind": FailureKind.SCHEMA_LESS_QUEUE_BLOCKER.value,
+        "detail": {"node_id": "video"},
+        "message": "HotShotXL custom video node is not queue-validated locally.",
+    }
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.edit.queue_stage_result",
+        lambda **_kwargs: StageResult(
+            stage="queue_validate",
+            ok=False,
+            blocking=False,
+            issues=(queue_issue,),
+            gate_updates={"queue_validate_ok": False},
+        ),
+    )
+
+    result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "Switch this to instead generate 8 frames of video using HotShotXL",
+            "session_id": "hotshotxl-complete-plan-queue-warning",
+            "max_batches": 2,
+            "max_consecutive_errors": 2,
+            "execution_protocol_notes": {
+                "execution_plan": {
+                    "plan": _hotshotxl_active_video_plan().to_dict(),
+                },
+            },
+        },
+        schema_provider=provider,
+        deepseek_client=lambda _messages: {
+            "batch": (
+                "motion = ADE_AnimateDiffLoaderWithContext(near=saveimage)\n"
+                "video = VHS_VideoCombine(images=motion.IMAGE, near=motion)\n"
+                "done()"
+            ),
+            "message": "Wired the HotShotXL motion branch into a video terminal.",
+        },
+        session_root=tmp_path,
+    )
+
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["candidate"] is not None
+    assert result["apply_allowed"] is True
+    assert result["canvas_apply_allowed"] is True
+    assert result["queue_allowed"] is False
+    assert result["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert result["apply_eligibility"]["warnings"] == ["queue_blocked"]
+    assert result["gates"]["plan_validate_ok"] is True
+    assert result["gates"]["queue_validate_ok"] is False
+    assert result["execution_plan_status"]["ok"] is True
+    assert result["execution_plan_status"]["failed_condition_ids"] == []
+    assert result["execution_plan_feedback"].endswith("plan evaluation passed.")
+    assert result["task_satisfaction"][-1]["check"] == "execution_plan"
+    assert result["task_satisfaction"][-1]["satisfaction"] == "pass"
+
+    node_types = {node.get("type") for node in result["graph"]["nodes"]}
+    assert "ADE_AnimateDiffLoaderWithContext" in node_types
+    assert "VHS_VideoCombine" in node_types
+    turn_dir = turn_dir_for(
+        tmp_path,
+        "hotshotxl-complete-plan-queue-warning",
+        result["turn_id"],
+    )
+    persisted_evaluation = json.loads(
+        (turn_dir / "plan_evaluation.json").read_text(encoding="utf-8")
+    )
+    assert persisted_evaluation["ok"] is True
+    assert persisted_evaluation["failed_conditions"] == []
+    response_payload = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))
+    assert response_payload["candidate"] is not None
+    assert response_payload["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert response_payload["execution_plan_status"]["ok"] is True
+    assert response_payload["artifacts"]["execution_plan"] == str(
+        turn_dir / "execution_plan.json"
+    )
+    assert response_payload["artifacts"]["plan_evaluation"] == str(
+        turn_dir / "plan_evaluation.json"
+    )
+
+
+def test_batch_repl_response_failed_execution_plan_suppresses_candidate_and_exposes_refs(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+
+    plan = ExecutionPlan(
+        plan_id="save-prefix-plan",
+        goal="SaveImage filename prefix must be updated.",
+        done_conditions=(
+            PlanCondition(
+                condition_id="saveimage.filename_prefix.after",
+                kind="required_value",
+                class_type="SaveImage",
+                expected="after",
+            ),
+        ),
+    )
+    evaluation = PlanEvaluation(
+        plan_id=plan.plan_id,
+        ok=False,
+        blocking=True,
+        failed_conditions=(
+            {
+                "condition_id": "saveimage.filename_prefix.after",
+                "severity": "required",
+                "message": "Save prefix is still wrong.",
+            },
+        ),
+        feedback="plan evaluation blocked: SaveImage prefix is still wrong.",
+    )
+    execution_plan_path = tmp_path / "execution_plan.json"
+    plan_evaluation_path = tmp_path / "plan_evaluation.json"
+    execution_plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
+    plan_evaluation_path.write_text(json.dumps(evaluation.to_dict()), encoding="utf-8")
+    state = _make_state(
+        graph={"nodes": []},
+        ui_payload={"nodes": [{"id": 1}]},
+        batch_exit_mode="done",
+        batch_done_summary="applied change",
+        execution_plan=plan,
+        plan_evaluation=evaluation,
+        execution_plan_path=execution_plan_path,
+        plan_evaluation_path=plan_evaluation_path,
+        artifacts={},
+    )
+    context = TurnContext(session_id="plan-fail", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_batch_repl_response(state, context)
+
+    assert response["candidate"] is None
+    assert response["outcome"]["kind"] == "noop"
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["apply_eligibility"]["reason"] == "no_candidate"
+    assert response["canvas_apply_allowed"] is False
+    assert response["gates"]["plan_validate_ok"] is False
+    assert response["debug"]["gates"]["plan_validate_ok"] is False
+    assert response["execution_plan_status"]["ok"] is False
+    assert response["execution_plan_status"]["blocking"] is True
+    assert response["execution_plan_status"]["failed_condition_ids"] == [
+        "saveimage.filename_prefix.after"
+    ]
+    assert "SaveImage prefix is still wrong" in response["execution_plan_feedback"]
+    assert response["artifacts"]["execution_plan"] == str(execution_plan_path)
+    assert response["artifacts"]["plan_evaluation"] == str(plan_evaluation_path)
+    debug_artifacts = response["debug"]["execution_plan_artifacts"]
+    assert debug_artifacts["execution_plan"]["path"] == str(execution_plan_path)
+    assert debug_artifacts["plan_evaluation"]["path"] == str(plan_evaluation_path)
+    plan_entry = response["task_satisfaction"][0]
+    assert plan_entry["check"] == "execution_plan"
+    assert plan_entry["satisfaction"] == "fail"
+    assert plan_entry["failed_condition_ids"] == ["saveimage.filename_prefix.after"]
+
+
+def test_batch_repl_response_passing_execution_plan_keeps_queue_warning_candidate(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+
+    plan = ExecutionPlan(
+        plan_id="save-prefix-plan",
+        goal="SaveImage filename prefix must be updated.",
+    )
+    evaluation = PlanEvaluation(
+        plan_id=plan.plan_id,
+        ok=True,
+        blocking=False,
+        feedback="plan evaluation passed.",
+    )
+    execution_plan_path = tmp_path / "execution_plan.json"
+    plan_evaluation_path = tmp_path / "plan_evaluation.json"
+    execution_plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
+    plan_evaluation_path.write_text(json.dumps(evaluation.to_dict()), encoding="utf-8")
+    state = _make_state(
+        graph={"nodes": []},
+        ui_payload={"nodes": [{"id": 1}]},
+        batch_exit_mode="done",
+        batch_done_summary="applied change",
+        execution_plan=plan,
+        plan_evaluation=evaluation,
+        execution_plan_path=execution_plan_path,
+        plan_evaluation_path=plan_evaluation_path,
+        artifacts={},
+    )
+    context = TurnContext(session_id="plan-pass", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+    context.set_gate("queue_validate_ok", False)
+
+    response = _build_batch_repl_response(state, context)
+
+    assert response["candidate"] is not None
+    assert response["outcome"]["kind"] == "candidate"
+    assert response["apply_eligibility"]["applyable"] is True
+    assert response["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert response["canvas_apply_allowed"] is True
+    assert response["queue_allowed"] is False
+    assert response["gates"]["plan_validate_ok"] is True
+    assert response["execution_plan_status"]["ok"] is True
+    assert response["artifacts"]["execution_plan"] == str(execution_plan_path)
+    assert response["artifacts"]["plan_evaluation"] == str(plan_evaluation_path)
+    plan_entry = response["task_satisfaction"][0]
+    assert plan_entry["check"] == "execution_plan"
+    assert plan_entry["satisfaction"] == "pass"
+
+
+def test_dev_success_response_failed_execution_plan_has_no_candidate(tmp_path: Path) -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_dev_success_response
+
+    plan = ExecutionPlan(
+        plan_id="dev-plan",
+        goal="A required plan-backed condition must pass.",
+    )
+    evaluation = PlanEvaluation(
+        plan_id=plan.plan_id,
+        ok=False,
+        blocking=True,
+        failed_conditions=(
+            {
+                "condition_id": "dev.condition",
+                "severity": "required",
+                "message": "Required condition failed.",
+            },
+        ),
+        feedback="plan evaluation blocked: required condition failed.",
+    )
+    execution_plan_path = tmp_path / "execution_plan.json"
+    plan_evaluation_path = tmp_path / "plan_evaluation.json"
+    execution_plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
+    plan_evaluation_path.write_text(json.dumps(evaluation.to_dict()), encoding="utf-8")
+    state = _make_state(
+        graph={"nodes": []},
+        ui_payload={"nodes": [{"id": 1}]},
+        execution_plan=plan,
+        plan_evaluation=evaluation,
+        execution_plan_path=execution_plan_path,
+        plan_evaluation_path=plan_evaluation_path,
+        artifacts={},
+    )
+    context = TurnContext(session_id="dev-plan-fail", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+
+    response = _build_dev_success_response(state, context, contract="full")
+
+    assert response["candidate"] is None
+    assert response["outcome"]["kind"] == "noop"
+    assert response["apply_eligibility"]["reason"] == "no_candidate"
+    assert response["debug"]["gates"]["plan_validate_ok"] is False
+    assert response["execution_plan_status"]["failed_condition_ids"] == ["dev.condition"]
+    assert response["task_satisfaction"][0]["satisfaction"] == "fail"
 
 
 def test_handle_agent_edit_batch_repl_queue_blocker_keeps_canvas_apply_true_but_queue_false(

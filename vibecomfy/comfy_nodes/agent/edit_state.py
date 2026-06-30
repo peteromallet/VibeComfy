@@ -62,6 +62,7 @@ from .gates import (
     apply_stage_gate_updates,
     derive_gates,
     initialize_gates,
+    update_plan_validate_gate,
     update_state_match_gate,
 )
 from .provider import (
@@ -79,6 +80,16 @@ from .provider import (
     run_agent_turn_delta,
 )
 from .diagnostics import lower_stage_result, queue_stage_result
+from .execution_plan import (
+    ExecutionPlan,
+    PlanEvaluation,
+)
+from .execution_plan_runtime import (
+    evaluate_execution_plan_for_state,
+    format_compact_plan_feedback,
+    format_compact_plan_status,
+    hydrate_execution_plan_from_protocol_notes,
+)
 from .session import (
     allocate_turn,
     normalize_session_id,
@@ -138,6 +149,8 @@ class AgentEditState:
     candidate_ui_path: Path
     messages_path: Path
     revision_evidence_path: Path = Path("revision_evidence.json")
+    execution_plan_path: Path = Path("execution_plan.json")
+    plan_evaluation_path: Path = Path("plan_evaluation.json")
     workflow: Any = None
     edited_workflow: Any = None
     original_intent_workflow: VibeWorkflow | None = None
@@ -171,6 +184,8 @@ class AgentEditState:
     executor_research_brief: dict[str, Any] | None = None
     # SD3: adapt-prefetch scoped research nested under execution_protocol_notes.
     execution_protocol_notes: dict[str, Any] | None = None
+    execution_plan: ExecutionPlan | None = None
+    plan_evaluation: PlanEvaluation | None = None
     # SD3: neutral precedent packet as discardable research context.
     research_context_packet: dict[str, Any] | None = None
     # SD2: compact graph facts from topology/readiness collectors for adapt context.
@@ -192,6 +207,13 @@ class AgentEditState:
     # T15: route label carried on state so response builders can apply route-aware
     # validation/reporting without changing their call signatures.
     route: str | None = None
+
+
+def _hydrate_execution_plan_from_protocol_notes(
+    state: AgentEditState,
+    protocol_notes: Mapping[str, Any],
+) -> None:
+    hydrate_execution_plan_from_protocol_notes(state, protocol_notes)
 
 
 class _StageBlocked(Exception):

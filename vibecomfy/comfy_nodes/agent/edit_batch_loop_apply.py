@@ -187,6 +187,7 @@ SOURCE = r'''
         state.after_py_path.write_text(next_render, encoding="utf-8")
         state.ui_payload = json.loads(json.dumps(session.working_ui))
         write_json_artifact(state.candidate_ui_path, state.ui_payload)
+        execution_plan_status = _evaluate_execution_plan_after_candidate_update(state)
 
         # ── lint gate: post-apply no-op detection on landed ops ──────────
         lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
@@ -342,6 +343,8 @@ SOURCE = r'''
             "diff": diff_text,
             "report": report_text,
         }
+        if execution_plan_status:
+            turn_record["execution_plan_status"] = execution_plan_status
         if noop_field_changes:
             turn_record["noop_field_changes"] = _field_changes_payload(noop_field_changes)
         if clarify_message is not None:
@@ -378,6 +381,8 @@ SOURCE = r'''
             "batch": turn_result.batch,
             "report": report_text,
         }
+        if execution_plan_status:
+            message_record["execution_plan_status"] = execution_plan_status
         if selected_precedent_unknown_class_feedback and not _batch_candidate_graph_changed(state):
             message_record["authoring_blocker"] = "selected_precedent_unknown_class"
             message_record["clarification_required"] = selected_precedent_unknown_class_feedback

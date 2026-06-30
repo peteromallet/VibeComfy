@@ -922,7 +922,7 @@ def _adapt_execution_plan_note(
     plan: ClassifyDecision,
     research_result: ResearchResult | None,
 ) -> dict[str, Any] | None:
-    """Return serialized M2 execution-plan context for qualifying adapt requests."""
+    """Return serialized M3-enforced execution-plan context for adapt requests."""
 
     if research_result is None or _canonical_route_for_plan(plan) != "adapt":
         return None
@@ -963,8 +963,8 @@ def _adapt_execution_plan_note(
         "provenance": {
             "builder": "vibecomfy.executor.execution_plan_builder.build_execution_plan",
             "routing": "vibecomfy.executor.execution_plan_builder.needs_precedent_plan",
-            "phase": "m2_adapt_context",
-            "enforced": False,
+            "phase": "m3_execute_enforcement",
+            "enforced": True,
         },
     }
 
@@ -1080,7 +1080,16 @@ def _run_implement(
             if execution_plan_note is not None:
                 protocol_notes["execution_plan"] = execution_plan_note
             if protocol_notes:
-                if research_result.selected_precedent is not None:
+                if execution_plan_note is not None:
+                    protocol_notes["_discardability"] = (
+                        "The nested execution_plan is enforced execution protocol "
+                        "and is hydrated into runtime state. Other research context "
+                        "in this packet is evidence only: it is NOT authoritative "
+                        "guidance or a required implementation. Discard any non-plan "
+                        "packet that is empty, irrelevant, or contradicts the user's "
+                        "explicit request."
+                    )
+                elif research_result.selected_precedent is not None:
                     protocol_notes["_discardability"] = (
                         "This research context is provided as evidence. "
                         "It is NOT authoritative guidance or a required "

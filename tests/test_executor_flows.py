@@ -1801,7 +1801,7 @@ def test_adapt_implementation_fails_closed_when_research_has_no_evidence() -> No
     assert "research failed" in result.message
 
 
-def test_adapt_payload_includes_execution_plan_note_without_enforcement() -> None:
+def test_adapt_payload_includes_enforced_execution_plan_note() -> None:
     plan = ClassifyDecision(
         research=True,
         implement=True,
@@ -1834,8 +1834,9 @@ def test_adapt_payload_includes_execution_plan_note_without_enforcement() -> Non
     payload = mock_edit.call_args[0][0]
     notes = payload["execution_protocol_notes"]
     execution_plan = notes["execution_plan"]
-    assert execution_plan["provenance"]["enforced"] is False
-    assert execution_plan["provenance"]["phase"] == "m2_adapt_context"
+    assert execution_plan["provenance"]["enforced"] is True
+    assert execution_plan["provenance"]["phase"] == "m3_execute_enforcement"
+    assert "enforced execution protocol" in notes["_discardability"]
     serialized_plan = execution_plan["plan"]
     assert serialized_plan["contract_version"] == "execution_plan_v1"
     assert serialized_plan["plan_id"].startswith("plan.hotshotxl_8f.")
@@ -4922,8 +4923,10 @@ class TestAdaptPrefetchAndResearchContextScoping:
         assert notes["research_goal"] == "Find HotShotXL workflow precedents for 8-frame video."
         execution_plan = notes.get("execution_plan")
         assert isinstance(execution_plan, dict)
-        assert execution_plan["provenance"]["enforced"] is False
+        assert execution_plan["provenance"]["enforced"] is True
+        assert execution_plan["provenance"]["phase"] == "m3_execute_enforcement"
         assert execution_plan["plan"]["plan_id"].startswith("plan.hotshotxl_8f.")
+        assert "execution_plan" not in payload
         brief = payload.get("research_brief")
         assert isinstance(brief, dict)
         assert brief["search_directions"] == [

@@ -10,6 +10,7 @@ from .contracts import (
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,
     GateResult,
+    PLAN_VALIDATE_GATE_NAME,
     StageResult,
     TurnContext,
     derive_apply_eligibility,
@@ -63,9 +64,79 @@ def _stage_gate_evidence(stage_result: StageResult, gate: str, ok: bool) -> dict
     )
 
 
-def initialize_gates(context: TurnContext) -> None:
+def _field(value: Any, name: str, default: Any = None) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+
+def _failed_condition_ids(evaluation: Any) -> list[str]:
+    condition_ids: list[str] = []
+    failed_conditions = _field(evaluation, "failed_conditions", ())
+    if not isinstance(failed_conditions, (list, tuple)):
+        return condition_ids
+    for condition in failed_conditions:
+        condition_id = _field(condition, "condition_id") or _field(condition, "id")
+        condition_ids.append(str(condition_id or "unknown_condition"))
+    return condition_ids
+
+
+def update_plan_validate_gate(
+    context: TurnContext,
+    *,
+    execution_plan: Any | None = None,
+    plan_evaluation: Any | None = None,
+    has_execution_plan: bool | None = None,
+) -> None:
+    plan_present = (
+        bool(has_execution_plan)
+        if has_execution_plan is not None
+        else execution_plan is not None or plan_evaluation is not None
+    )
+    if not plan_present:
+        context.set_gate(
+            PLAN_VALIDATE_GATE_NAME,
+            True,
+            evidence=_evidence("plan_validate", reason="no_execution_plan"),
+        )
+        return
+
+    plan_id = _field(plan_evaluation, "plan_id") or _field(execution_plan, "plan_id")
+    if plan_evaluation is None:
+        context.set_gate(
+            PLAN_VALIDATE_GATE_NAME,
+            False,
+            evidence=_evidence(
+                "plan_validate",
+                reason="plan_not_evaluated",
+                extra={"plan_id": plan_id},
+            ),
+        )
+        return
+
+    ok = bool(_field(plan_evaluation, "ok", False))
+    context.set_gate(
+        PLAN_VALIDATE_GATE_NAME,
+        ok,
+        evidence=_evidence(
+            "plan_validate",
+            reason="plan_evaluation_passed" if ok else "plan_evaluation_failed",
+            extra={
+                "plan_id": plan_id,
+                "ok": ok,
+                "blocking": bool(_field(plan_evaluation, "blocking", False)),
+                "failed_condition_ids": _failed_condition_ids(plan_evaluation),
+                "feedback": str(_field(plan_evaluation, "feedback", "") or ""),
+                "contract_version": _field(plan_evaluation, "contract_version"),
+            },
+        ),
+    )
+
+
+def initialize_gates(context: TurnContext, *, has_execution_plan: bool = False) -> None:
     for name in DEFAULT_GATE_NAMES:
         context.set_gate(name, False, evidence=_evidence("init", reason="fail_closed_default"))
+    update_plan_validate_gate(context, has_execution_plan=has_execution_plan)
 
 
 def apply_stage_gate_updates(context: TurnContext, stage_result: StageResult) -> None:
@@ -171,7 +242,16 @@ def derive_gates(
     baseline_graph_hash: str | None = None,
     client_graph_hash: str | None = None,
     queue_blockers: tuple[dict[str, Any], ...] | None = None,
+    execution_plan: Any | None = None,
+    plan_evaluation: Any | None = None,
+    has_execution_plan: bool | None = None,
 ) -> GateDerivation:
+    update_plan_validate_gate(
+        context,
+        execution_plan=execution_plan,
+        plan_evaluation=plan_evaluation,
+        has_execution_plan=has_execution_plan,
+    )
     update_state_match_gate(
         context,
         baseline_graph_hash=baseline_graph_hash,
@@ -195,6 +275,7 @@ __all__ = [
     "derive_gates",
     "derive_apply_eligibility",
     "initialize_gates",
+    "update_plan_validate_gate",
     "update_queue_gate",
     "update_state_match_gate",
 ]

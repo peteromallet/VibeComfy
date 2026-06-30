@@ -156,6 +156,37 @@ SOURCE = r'''
                     " drop any kwarg the node does not declare, re-wire the consumer, then"
                     " call done()."
                 )
+        if (
+            done_requested
+            and not refuse_done
+            and not research_only_route
+            and getattr(state, "execution_plan", None) is not None
+        ):
+            candidate_graph = (
+                state.ui_payload
+                if isinstance(state.ui_payload, Mapping)
+                else session.working_ui
+            )
+            update = evaluate_execution_plan_for_state(
+                state,
+                candidate_graph,
+                candidate_graph_hash=structural_graph_hash(candidate_graph),
+            )
+            execution_plan_status = dict(update.compact_status or {})
+            if execution_plan_status:
+                turn_record["execution_plan_status"] = execution_plan_status
+                if response_log and isinstance(response_log[-1], dict):
+                    batch_response_record = response_log[-1].get("batch_result")
+                    if isinstance(batch_response_record, dict):
+                        batch_response_record["execution_plan_status"] = execution_plan_status
+                    write_json_artifact(state.model_response_path, {"turns": response_log})
+            evaluation = getattr(state, "plan_evaluation", None)
+            if (
+                getattr(evaluation, "ok", True) is False
+                and getattr(evaluation, "blocking", False) is True
+            ):
+                refuse_done = True
+                hint = _execution_plan_done_refusal_hint(state)
         if refuse_done:
             last_report = last_report + "\n\nNOTE: done() was NOT accepted — " + hint
             continue

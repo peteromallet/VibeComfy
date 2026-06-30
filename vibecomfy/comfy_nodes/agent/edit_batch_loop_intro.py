@@ -59,6 +59,64 @@ def _batch_protocol_retry_messages(
     return [*messages, {"role": "system", "content": prompt}]
 
 
+def _evaluate_execution_plan_after_candidate_update(state: AgentEditState) -> dict[str, Any]:
+    if getattr(state, "execution_plan", None) is None:
+        return {}
+    if not isinstance(state.ui_payload, Mapping):
+        return {}
+    update = evaluate_execution_plan_for_state(
+        state,
+        state.ui_payload,
+        candidate_graph_hash=structural_graph_hash(state.ui_payload),
+    )
+    return dict(update.compact_status or {})
+
+
+def _execution_plan_status_for_prompt(state: AgentEditState) -> dict[str, Any]:
+    if getattr(state, "execution_plan", None) is None:
+        return {}
+    return format_compact_plan_status(state.execution_plan, state.plan_evaluation)
+
+
+def _execution_plan_done_refusal_hint(state: AgentEditState) -> str:
+    evaluation = getattr(state, "plan_evaluation", None)
+    if evaluation is None:
+        return "the execution plan has not been evaluated yet."
+    missing_step_ids = [
+        str(status.get("step_id") or "unknown_step")
+        for status in getattr(evaluation, "step_status", ()) or ()
+        if isinstance(status, Mapping)
+        and str(status.get("criticality") or "required") != "optional"
+        and str(status.get("status") or "") != "satisfied"
+    ]
+    failed_condition_ids = [
+        str(condition.get("condition_id") or condition.get("id") or "unknown_condition")
+        for condition in getattr(evaluation, "failed_conditions", ()) or ()
+        if isinstance(condition, Mapping)
+    ]
+    parts = [
+        "the authoritative execution plan still blocks completion.",
+        f"plan_id={getattr(evaluation, 'plan_id', 'unknown')}",
+    ]
+    if missing_step_ids:
+        parts.append(
+            "missing required execution-plan step ids: "
+            + ", ".join(missing_step_ids)
+        )
+    if failed_condition_ids:
+        parts.append(
+            "failed execution-plan condition ids: "
+            + ", ".join(failed_condition_ids)
+        )
+    feedback = str(getattr(evaluation, "feedback", "") or "").strip()
+    if feedback:
+        parts.append(feedback)
+    parts.append(
+        "Fix the missing planned graph structure and call done() again."
+    )
+    return " ".join(parts)
+
+
 _MAX_EXECUTION_PROTOCOL_SOURCES = 3
 _MAX_EXECUTION_PROTOCOL_LIST_ITEMS = 16
 _MAX_EXECUTION_PROTOCOL_STRING = 900
@@ -419,6 +477,7 @@ def _stage_agent_batch_repl(
             turn_research_summary = (
                 f"{turn_research_summary}\n\nPrior research/query memory:\n{research_memory}"
             ).strip()
+        execution_plan_status = _execution_plan_status_for_prompt(state)
         messages = build_batch_messages(
             task=effective_task,
             turn_number=turn_number,
@@ -446,6 +505,7 @@ def _stage_agent_batch_repl(
             revision_evidence_json=_revision_evidence_prompt_json(state)
             if turn_number == 0
             else "",
+            execution_plan_status=execution_plan_status,
         )
         request_entry = {
             "turn_number": turn_number,

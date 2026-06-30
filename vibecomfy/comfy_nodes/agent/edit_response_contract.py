@@ -80,6 +80,88 @@ def _build_candidate_payload(
     return candidate.to_dict()
 
 
+def _plan_validation_allows_candidate(state: AgentEditState, context: TurnContext) -> bool:
+    execution_plan = getattr(state, "execution_plan", None)
+    if execution_plan is None:
+        return True
+    plan_evaluation = getattr(state, "plan_evaluation", None)
+    update_plan_validate_gate(
+        context,
+        execution_plan=execution_plan,
+        plan_evaluation=plan_evaluation,
+        has_execution_plan=True,
+    )
+    return bool(plan_evaluation is not None and plan_evaluation.ok)
+
+
+def _execution_plan_artifact_refs(state: AgentEditState) -> dict[str, dict[str, Any]]:
+    refs: dict[str, dict[str, Any]] = {}
+    if getattr(state, "execution_plan", None) is not None and state.execution_plan_path.is_file():
+        refs["execution_plan"] = _artifact(state.execution_plan_path).to_dict()
+    if getattr(state, "plan_evaluation", None) is not None and state.plan_evaluation_path.is_file():
+        refs["plan_evaluation"] = _artifact(state.plan_evaluation_path).to_dict()
+    return refs
+
+
+def _response_artifacts_with_execution_plan(state: AgentEditState) -> dict[str, Any]:
+    artifacts = dict(state.artifacts or {})
+    if getattr(state, "execution_plan", None) is not None and state.execution_plan_path.is_file():
+        artifacts["execution_plan"] = str(state.execution_plan_path)
+    if getattr(state, "plan_evaluation", None) is not None and state.plan_evaluation_path.is_file():
+        artifacts["plan_evaluation"] = str(state.plan_evaluation_path)
+    return artifacts
+
+
+def _execution_plan_response_fields(state: AgentEditState) -> dict[str, Any]:
+    execution_plan = getattr(state, "execution_plan", None)
+    if execution_plan is None:
+        return {}
+    plan_evaluation = getattr(state, "plan_evaluation", None)
+    return {
+        "execution_plan_status": format_compact_plan_status(execution_plan, plan_evaluation),
+        "execution_plan_feedback": format_compact_plan_feedback(execution_plan, plan_evaluation),
+    }
+
+
+def _execution_plan_debug_fields(state: AgentEditState) -> dict[str, Any]:
+    fields = _execution_plan_response_fields(state)
+    if not fields:
+        return {}
+    fields["execution_plan_artifacts"] = _execution_plan_artifact_refs(state)
+    return fields
+
+
+def _execution_plan_task_satisfaction_entries(state: AgentEditState) -> list[dict[str, Any]]:
+    execution_plan = getattr(state, "execution_plan", None)
+    if execution_plan is None:
+        return []
+    plan_evaluation = getattr(state, "plan_evaluation", None)
+    status = format_compact_plan_status(execution_plan, plan_evaluation)
+    failed_condition_ids = list(status.get("failed_condition_ids") or [])
+    ok = status.get("ok")
+    if ok is True:
+        satisfaction = "pass"
+        description = "Execution plan validation passed."
+    elif ok is False:
+        satisfaction = "fail"
+        description = "Execution plan validation failed."
+    else:
+        satisfaction = "not_evaluated"
+        description = "Execution plan has not been evaluated for this candidate."
+    return [
+        {
+            "check": "execution_plan",
+            "status": satisfaction,
+            "satisfaction": satisfaction,
+            "description": description,
+            "plan_id": status.get("plan_id"),
+            "blocking": status.get("blocking"),
+            "failed_condition_ids": failed_condition_ids,
+            "feedback": status.get("feedback") or "",
+        }
+    ]
+
+
 def _stage_snapshot_payloads(context: TurnContext) -> list[dict[str, Any]]:
     snapshots = tuple(
         StageSnapshot.from_stage_result(result)
@@ -360,6 +442,9 @@ def _build_batch_repl_response(
         has_candidate = False
     if route_blocks_apply:
         has_candidate = False
+    plan_allows_candidate = _plan_validation_allows_candidate(state, context)
+    if not plan_allows_candidate:
+        has_candidate = False
     compatibility_fields = _build_compatibility_response_fields(state)
     response_apply_eligibility = derive_apply_eligibility(
         context,
@@ -378,7 +463,7 @@ def _build_batch_repl_response(
         message=state.user_message,
         graph=state.ui_payload,
         report=state.report,
-        artifacts=state.artifacts,
+        artifacts=_response_artifacts_with_execution_plan(state),
         apply_eligibility=response_apply_eligibility,
         canvas_apply_allowed=context.canvas_apply_allowed if has_candidate else False,
         queue_allowed=context.queue_allowed if has_candidate else False,
@@ -404,6 +489,10 @@ def _build_batch_repl_response(
     )
     if unresolved_schema_terminal:
         internal_outcome = TurnOutcome.clarify(question=state.user_message or None)
+    elif not plan_allows_candidate and state.execution_plan is not None:
+        internal_outcome = TurnOutcome.noop(
+            reason=format_compact_plan_feedback(state.execution_plan, state.plan_evaluation)
+        )
     elif route_blocks_apply and canonical_route != "clarify":
         internal_outcome = TurnOutcome.noop(reason=state.user_message or None)
     elif state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY:
@@ -453,12 +542,14 @@ def _build_batch_repl_response(
                     "final_summary": state.batch_final_summary,
                     "budget_state": _json_safe(state.batch_budget_state),
                 },
+                **_execution_plan_debug_fields(state),
             },
         )
     )
     response["internal_outcome"] = internal_outcome.to_dict()
     response["change_details"] = change_details
     response.update(compatibility_fields)
+    response.update(_execution_plan_response_fields(state))
     response.update(_session_artifact_response_fields(state))
     if canonical_route:
         response["route"] = canonical_route
@@ -484,6 +575,9 @@ def _build_batch_repl_response(
         semantic_entries = _build_precedent_semantic_check_entries(state)
         if semantic_entries:
             response.setdefault("task_satisfaction", []).extend(semantic_entries)
+    plan_satisfaction_entries = _execution_plan_task_satisfaction_entries(state)
+    if plan_satisfaction_entries:
+        response.setdefault("task_satisfaction", []).extend(plan_satisfaction_entries)
     # revise reports change focus.
     change_focus = _route_change_focus_label(state.route)
     if change_focus:
@@ -509,9 +603,10 @@ def _build_dev_success_response(
     turn_identity = TurnIdentity.from_context(context)
     stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
+    plan_allows_candidate = _plan_validation_allows_candidate(state, context)
     eligibility = derive_apply_eligibility(
         context,
-        has_candidate=True,
+        has_candidate=plan_allows_candidate,
         candidate_state="candidate",
     )
     # inspect and clarify routes cannot be Apply-eligible.
@@ -526,10 +621,10 @@ def _build_dev_success_response(
         message=state.user_message,
         graph=state.ui_payload,
         report=state.report,
-        artifacts=state.artifacts,
+        artifacts=_response_artifacts_with_execution_plan(state),
         apply_eligibility=eligibility,
-        canvas_apply_allowed=context.canvas_apply_allowed,
-        queue_allowed=context.queue_allowed,
+        canvas_apply_allowed=context.canvas_apply_allowed if plan_allows_candidate else False,
+        queue_allowed=context.queue_allowed if plan_allows_candidate else False,
     )
     response.update(compatibility_fields)
     response.update(_session_artifact_response_fields(state))
@@ -541,6 +636,11 @@ def _build_dev_success_response(
             internal_outcome = TurnOutcome.clarify(question=state.user_message or None)
         else:
             internal_outcome = TurnOutcome.noop(reason=state.user_message or None)
+    elif not plan_allows_candidate and state.execution_plan is not None:
+        has_candidate = False
+        internal_outcome = TurnOutcome.noop(
+            reason=format_compact_plan_feedback(state.execution_plan, state.plan_evaluation)
+        )
     else:
         has_candidate = True
         internal_outcome = TurnOutcome.edit()
@@ -566,10 +666,12 @@ def _build_dev_success_response(
                 "turn_identity": turn_identity.to_dict(),
                 "stage_snapshots": stage_snapshots,
                 "contract": contract,
+                **_execution_plan_debug_fields(state),
             },
         )
     )
     response["internal_outcome"] = internal_outcome.to_dict()
+    response.update(_execution_plan_response_fields(state))
     if contract == "delta":
         from vibecomfy.porting.edit.ops import op_to_dict
 
@@ -579,6 +681,9 @@ def _build_dev_success_response(
         semantic_entries = _build_precedent_semantic_check_entries(state)
         if semantic_entries:
             response.setdefault("task_satisfaction", []).extend(semantic_entries)
+    plan_satisfaction_entries = _execution_plan_task_satisfaction_entries(state)
+    if plan_satisfaction_entries:
+        response.setdefault("task_satisfaction", []).extend(plan_satisfaction_entries)
     # revise reports change focus.
     change_focus = _route_change_focus_label(state.route)
     if change_focus:

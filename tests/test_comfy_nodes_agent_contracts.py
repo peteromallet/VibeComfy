@@ -13,6 +13,7 @@ from vibecomfy.comfy_nodes.agent.contracts import (
     FAILURE_SPECS,
     INTERNAL_TO_PUBLIC_OUTCOME,
     PUBLIC_OUTCOME_KINDS,
+    PLAN_VALIDATE_GATE_NAME,
     REBASELINE_RECOVERY_FIELDS,
     SCAN_CODE_FAILURE_KIND,
     AgentError,
@@ -1070,6 +1071,110 @@ def test_build_legacy_agent_edit_v1_uses_apply_eligibility_mapping_fallback() ->
     assert payload["graph"] == candidate_graph
 
 
+def test_build_legacy_agent_edit_v1_preserves_plan_fields_and_non_plan_candidate_aliases() -> None:
+    from vibecomfy.comfy_nodes.agent.contracts import build_legacy_agent_edit_v1
+
+    candidate_graph = {
+        "nodes": [
+            {"id": 10, "type": "ADE_AnimateDiffLoaderWithContext"},
+            {"id": 11, "type": "VHS_VideoCombine"},
+        ],
+        "links": [[1, 10, 0, 11, 0, "IMAGE"]],
+    }
+    queue_warning = {
+        "applyable": True,
+        "reason": "queue_blocked_warning",
+        "message": "Apply is allowed, but Queue remains blocked for this candidate.",
+        "warnings": ["queue_blocked"],
+    }
+    plan_payload = build_legacy_agent_edit_v1(
+        {
+            "message": "HotShotXL candidate ready.",
+            "outcome": {"kind": "candidate", "changes": []},
+            "candidate": {
+                "state": "candidate",
+                "graph": candidate_graph,
+                "graph_hash": "candidate-hash",
+                "structural_graph_hash": "candidate-structural-hash",
+            },
+            "eligibility": queue_warning,
+            "canvas_apply_allowed": True,
+            "queue_allowed": False,
+            "gates": {
+                "plan_validate_ok": True,
+                "queue_validate_ok": False,
+            },
+            "execution_plan_status": {
+                "plan_id": "hotshotxl-active-video-path",
+                "ok": True,
+                "blocking": False,
+                "failed_condition_ids": [],
+            },
+            "execution_plan_feedback": "plan evaluation passed.",
+            "artifacts": {
+                "execution_plan": "turns/0001/execution_plan.json",
+                "plan_evaluation": "turns/0001/plan_evaluation.json",
+            },
+            "debug": {
+                "gates": {
+                    "plan_validate_ok": True,
+                    "queue_validate_ok": False,
+                },
+                "execution_plan_artifacts": {
+                    "execution_plan": {
+                        "path": "turns/0001/execution_plan.json",
+                        "sha256": "plan-sha",
+                        "byte_count": 42,
+                        "preview": None,
+                    },
+                    "plan_evaluation": {
+                        "path": "turns/0001/plan_evaluation.json",
+                        "sha256": "eval-sha",
+                        "byte_count": 84,
+                        "preview": None,
+                    },
+                },
+            },
+        }
+    )
+    non_plan_payload = build_legacy_agent_edit_v1(
+        {
+            "message": "Regular candidate ready.",
+            "outcome": {"kind": "candidate", "changes": []},
+            "candidate": {
+                "state": "candidate",
+                "graph": candidate_graph,
+                "graph_hash": "candidate-hash",
+                "structural_graph_hash": "candidate-structural-hash",
+            },
+            "eligibility": queue_warning,
+            "canvas_apply_allowed": True,
+            "queue_allowed": False,
+        }
+    )
+
+    assert plan_payload["apply_allowed"] is True
+    assert plan_payload["canvas_apply_allowed"] is True
+    assert plan_payload["queue_allowed"] is False
+    assert plan_payload["apply_eligibility"]["reason"] == "queue_blocked_warning"
+    assert plan_payload["gates"]["plan_validate_ok"] is True
+    assert plan_payload["execution_plan_status"]["ok"] is True
+    assert plan_payload["execution_plan_feedback"] == "plan evaluation passed."
+    assert plan_payload["artifacts"]["execution_plan"].endswith("execution_plan.json")
+    assert plan_payload["artifacts"]["plan_evaluation"].endswith("plan_evaluation.json")
+    assert (
+        plan_payload["debug"]["execution_plan_artifacts"]["plan_evaluation"]["path"]
+        == "turns/0001/plan_evaluation.json"
+    )
+    assert non_plan_payload["apply_allowed"] is True
+    assert non_plan_payload["canvas_apply_allowed"] is True
+    assert non_plan_payload["queue_allowed"] is False
+    assert non_plan_payload["apply_eligibility"] == queue_warning
+    assert non_plan_payload["candidate_graph"] == candidate_graph
+    assert "execution_plan_status" not in non_plan_payload
+    assert "execution_plan_feedback" not in non_plan_payload
+
+
 @pytest.mark.parametrize(
     ("apply_eligible", "expected_reason", "expected_message"),
     [
@@ -1208,8 +1313,8 @@ def test_build_legacy_agent_edit_v1_preserves_existing_graph_unchanged(
 
 def test_all_design_gates_present_and_distinct() -> None:
     """Every design-level named gate exists and is distinct."""
-    assert len(DEFAULT_GATE_NAMES) == 8
-    assert len(set(DEFAULT_GATE_NAMES)) == 8
+    assert len(DEFAULT_GATE_NAMES) == 9
+    assert len(set(DEFAULT_GATE_NAMES)) == 9
     assert set(DEFAULT_GATE_NAMES) == {
         "python_load_ok",
         "lower_ok",
@@ -1217,6 +1322,7 @@ def test_all_design_gates_present_and_distinct() -> None:
         "ui_emit_ok",
         "ui_fidelity_ok",
         "ui_load_safe_ok",
+        PLAN_VALIDATE_GATE_NAME,
         "queue_validate_ok",
         "state_match_ok",
     }
@@ -1225,6 +1331,7 @@ def test_all_design_gates_present_and_distinct() -> None:
 def test_canvas_apply_subset_is_proper_subset_of_all_gates() -> None:
     """canvas_apply_allowed checks every gate except queue_validate_ok."""
     assert set(CANVAS_APPLY_GATE_NAMES) == set(DEFAULT_GATE_NAMES) - {"queue_validate_ok", "lower_ok"}
+    assert PLAN_VALIDATE_GATE_NAME in CANVAS_APPLY_GATE_NAMES
     assert "queue_validate_ok" not in CANVAS_APPLY_GATE_NAMES
     assert "lower_ok" not in CANVAS_APPLY_GATE_NAMES
 

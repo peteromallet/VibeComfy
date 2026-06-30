@@ -17,11 +17,14 @@ DEFAULT_GATE_NAMES: tuple[str, ...] = (
     "ui_emit_ok",
     "ui_fidelity_ok",
     "ui_load_safe_ok",
+    "plan_validate_ok",
     "queue_validate_ok",
     "state_match_ok",
 )
 
 AGENT_EDIT_TURN_CONTRACT_VERSION = "agent_edit_turn_v2"
+
+PLAN_VALIDATE_GATE_NAME = "plan_validate_ok"
 
 CANVAS_APPLY_GATE_NAMES: tuple[str, ...] = (
     "python_load_ok",
@@ -29,6 +32,7 @@ CANVAS_APPLY_GATE_NAMES: tuple[str, ...] = (
     "ui_emit_ok",
     "ui_fidelity_ok",
     "ui_load_safe_ok",
+    PLAN_VALIDATE_GATE_NAME,
     "state_match_ok",
 )
 
@@ -844,6 +848,15 @@ class TurnContext:
 
     def __post_init__(self) -> None:
         merged = _default_gate_results()
+        if self.gate_results and PLAN_VALIDATE_GATE_NAME not in self.gate_results:
+            merged[PLAN_VALIDATE_GATE_NAME] = GateResult(
+                name=PLAN_VALIDATE_GATE_NAME,
+                ok=True,
+                evidence={
+                    "stage": "rehydrate",
+                    "reason": "legacy_no_execution_plan",
+                },
+            )
         for name, gate in self.gate_results.items():
             merged[name] = gate if isinstance(gate, GateResult) else GateResult(name=name, ok=bool(gate))
         self.gate_results = merged
@@ -2349,6 +2362,7 @@ __all__ = [
     "FailureKind",
     "GateResult",
     "INTERNAL_TO_PUBLIC_OUTCOME",
+    "PLAN_VALIDATE_GATE_NAME",
     "ProviderStatus",
     "PUBLIC_OUTCOME_KINDS",
     "REBASELINE_RECOVERY_FIELDS",

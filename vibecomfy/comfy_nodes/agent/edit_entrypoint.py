@@ -130,6 +130,8 @@ def handle_agent_edit(
         model_response_path=turn_dir / "model_response.json",
         candidate_ui_path=turn_dir / "candidate.ui.json",
         revision_evidence_path=turn_dir / "revision_evidence.json",
+        execution_plan_path=turn_dir / "execution_plan.json",
+        plan_evaluation_path=turn_dir / "plan_evaluation.json",
         projection_path=turn_dir / "projection.txt",
         messages_path=turn_dir / "messages.jsonl",
     )
@@ -176,6 +178,7 @@ def handle_agent_edit(
     protocol_notes = payload.get("execution_protocol_notes")
     if isinstance(protocol_notes, dict):
         state.execution_protocol_notes = protocol_notes
+        _hydrate_execution_plan_from_protocol_notes(state, protocol_notes)
     context_packet = payload.get("research_context_packet")
     if isinstance(context_packet, dict):
         state.research_context_packet = context_packet
