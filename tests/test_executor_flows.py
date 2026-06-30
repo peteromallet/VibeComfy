@@ -26,7 +26,10 @@ import pytest
 from vibecomfy.executor.contracts import (
     ClassifyDecision,
     ExecutorRequest,
+    PrecedentOption,
+    PrecedentPacket,
     ResearchResult,
+    SelectedPrecedent,
 )
 from vibecomfy.executor import core as executor_core
 from vibecomfy.executor.core import run_executor
@@ -1723,6 +1726,56 @@ def _fake_classify_adapt(
     )
 
 
+def _hotshotxl_execution_plan_research_result() -> ResearchResult:
+    return ResearchResult(
+        summary="Found a HotShotXL AnimateDiff workflow precedent.",
+        selected_precedent=SelectedPrecedent(
+            name="AnimateDiff HotShotXL video workflow",
+            source="hivemind_workflow",
+            source_workflow_path="workflows/hotshotxl_8f.json",
+            requested_terms=("HotShotXL", "video"),
+            implementation_ecosystems=("animatediff",),
+            models=("hotshotxl_mm_v1.pth", "sd_xl_base_1.0.safetensors"),
+            minimal_spine=(
+                "CheckpointLoaderSimple",
+                "HotshotXLLoader",
+                "ADE_AnimateDiffLoaderWithContext",
+                "EmptyLatentImage",
+                "KSampler",
+                "VAEDecode",
+                "VHS_VideoCombine",
+            ),
+            terminal_output_path=("VHS_VideoCombine",),
+        ),
+        precedent_packet=PrecedentPacket(
+            options=(
+                PrecedentOption(
+                    source_class_type="video/hotshot_i2v",
+                    node_types=("HotshotXLLoader", "VHS_VideoCombine"),
+                ),
+            ),
+        ),
+        precedent_sources=(
+            {
+                "source": "hivemind_workflow",
+                "source_workflow_path": "workflows/hotshotxl_8f.json",
+                "workflow_semantics": {
+                    "node_types": [
+                        "HotshotXLLoader",
+                        "ADE_AnimateDiffLoaderWithContext",
+                        "EmptyLatentImage",
+                        "KSampler",
+                        "VAEDecode",
+                        "VHS_VideoCombine",
+                    ],
+                    "models": ["hotshotxl_mm_v1.pth"],
+                },
+            },
+        ),
+        workflow_precedent_status="compatible_workflow_found",
+    )
+
+
 def test_adapt_implementation_fails_closed_when_research_has_no_evidence() -> None:
     plan = _fake_classify_adapt("Switch to Hotshot")
     request = ExecutorRequest(
@@ -1746,6 +1799,92 @@ def test_adapt_implementation_fails_closed_when_research_has_no_evidence() -> No
     assert result.durable_response["apply_eligible"] is False
     assert result.durable_response["no_candidate_reason"] == "implementation_skipped"
     assert "research failed" in result.message
+
+
+def test_adapt_payload_includes_execution_plan_note_without_enforcement() -> None:
+    plan = ClassifyDecision(
+        research=True,
+        implement=True,
+        reply=True,
+        effort="high",
+        plan_summary="research HotShotXL workflow precedent then edit",
+        intent="edit",
+        route="adapt",
+        task="research_precedent",
+        research_goal="Find HotShotXL AnimateDiff workflow precedents.",
+        search_directions=("HotShotXL AnimateDiff 8 frame workflow template",),
+    )
+    request = ExecutorRequest(
+        query="Switch this to generate 8 frames of video using a HotShotXL workflow template.",
+        graph={"nodes": [{"id": 1, "type": "KSampler", "class_type": "KSampler"}], "links": []},
+    )
+
+    with mock.patch(
+        "vibecomfy.executor.core.handle_agent_edit",
+        side_effect=_fake_handle_agent_edit,
+    ) as mock_edit:
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=_hotshotxl_execution_plan_research_result(),
+        )
+
+    assert result.graph is not None
+    payload = mock_edit.call_args[0][0]
+    notes = payload["execution_protocol_notes"]
+    execution_plan = notes["execution_plan"]
+    assert execution_plan["provenance"]["enforced"] is False
+    assert execution_plan["provenance"]["phase"] == "m2_adapt_context"
+    serialized_plan = execution_plan["plan"]
+    assert serialized_plan["contract_version"] == "execution_plan_v1"
+    assert serialized_plan["plan_id"].startswith("plan.hotshotxl_8f.")
+    assert serialized_plan["schema_provenance"]["execution_plan_builder"]["normalizer"] == (
+        "hotshotxl_video_v1"
+    )
+    assert "precedent_slices" not in payload
+    assert "adaptation_plan" not in payload
+    assert "execution_plan" not in payload
+
+
+def test_adapt_execution_plan_builder_failure_does_not_block_edit_payload() -> None:
+    plan = ClassifyDecision(
+        research=True,
+        implement=True,
+        reply=True,
+        effort="high",
+        plan_summary="research HotShotXL workflow precedent then edit",
+        intent="edit",
+        route="adapt",
+        task="research_precedent",
+        research_goal="Find HotShotXL AnimateDiff workflow precedents.",
+    )
+    request = ExecutorRequest(
+        query="Switch this to generate 8 frames of video using HotShotXL.",
+        graph={"nodes": [{"id": 1, "type": "KSampler", "class_type": "KSampler"}], "links": []},
+    )
+
+    with (
+        mock.patch(
+            "vibecomfy.executor.core.build_execution_plan",
+            side_effect=RuntimeError("builder unavailable"),
+        ),
+        mock.patch(
+            "vibecomfy.executor.core.handle_agent_edit",
+            side_effect=_fake_handle_agent_edit,
+        ) as mock_edit,
+    ):
+        result = executor_core._run_implement(
+            request,
+            AgentSpecShape(agent="hermes", model="test"),
+            plan=plan,
+            research_result=_hotshotxl_execution_plan_research_result(),
+        )
+
+    assert result.graph is not None
+    payload = mock_edit.call_args[0][0]
+    notes = payload["execution_protocol_notes"]
+    assert "execution_plan" not in notes
 
 
 def _fake_reply_route_gate(
@@ -3248,6 +3387,23 @@ class TestSessionReferenceContext:
         assert "Prior clarification options" in user
         assert "2. steps" in user
 
+    def test_classifier_prompt_preserves_user_named_external_technologies(self) -> None:
+        messages = build_classify_messages(
+            "Switch this workflow to generate 8 frames using HotShotXL",
+            has_graph=True,
+            graph_summary="2 node(s): LoadImage, KSampler",
+            graph_reference_map={"1": "LoadImage", "2": "KSampler"},
+        )
+
+        system = messages[0]["content"]
+        user = messages[1]["content"]
+        assert "Do not add unrelated technology ecosystems" in system
+        assert "absent from both the user's request and the current graph" in system
+        assert "User-named external technologies are valid adapt" in system
+        assert "research/planning signals" in system
+        assert "NEVER name a technology ecosystem" not in system
+        assert "HotShotXL" in user
+
     def test_save_clarification_context_preserves_blocked_route(
         self,
         tmp_path: Path,
@@ -4702,6 +4858,142 @@ class TestAdaptPrefetchAndResearchContextScoping:
             "HotShotXL frame count parameter",
         ]
         assert brief["source_preferences"] == ["workflows", "messages"]
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn",
+                side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
+                side_effect=_fake_handle_agent_edit)
+    def test_user_named_absent_hotshotxl_remains_adapt_planning_signal(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        """A user-named external workflow tech can drive adapt planning even
+        when no current graph node already belongs to that ecosystem."""
+        captured_research_queries: list[str] = []
+
+        def _fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            captured_research_queries.append(query)
+            return _hotshotxl_execution_plan_research_result()
+
+        mock_classify.return_value = ClassifyDecision(
+            research=True,
+            implement=True,
+            reply=True,
+            effort="high",
+            plan_summary="research HotShotXL precedent workflow then edit",
+            intent="edit",
+            route="adapt",
+            task="research_precedent",
+            research_goal="Find HotShotXL workflow precedents for 8-frame video.",
+            search_directions=(
+                "HotShotXL 8 frame workflow precedent",
+                "KSampler to AnimateDiff HotShotXL motion model wiring",
+            ),
+            source_preferences=("workflows", "messages"),
+        )
+
+        request = ExecutorRequest(
+            query="Switch this image workflow to generate 8 frames using HotShotXL.",
+            graph={
+                "nodes": [
+                    {"id": 1, "type": "LoadImage", "class_type": "LoadImage"},
+                    {"id": 2, "type": "KSampler", "class_type": "KSampler"},
+                ],
+                "links": [],
+            },
+            profile="default",
+        )
+
+        with mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=_fake_research):
+            result = run_executor(request)
+
+        assert result.ok is True
+        assert captured_research_queries == [
+            "HotShotXL 8 frame workflow precedent; "
+            "KSampler to AnimateDiff HotShotXL motion model wiring"
+        ]
+        payload = self._capture_edit_payload(mock_edit)
+        notes = payload.get("execution_protocol_notes")
+        assert isinstance(notes, dict)
+        assert notes["research_goal"] == "Find HotShotXL workflow precedents for 8-frame video."
+        execution_plan = notes.get("execution_plan")
+        assert isinstance(execution_plan, dict)
+        assert execution_plan["provenance"]["enforced"] is False
+        assert execution_plan["plan"]["plan_id"].startswith("plan.hotshotxl_8f.")
+        brief = payload.get("research_brief")
+        assert isinstance(brief, dict)
+        assert brief["search_directions"] == [
+            "HotShotXL 8 frame workflow precedent",
+            "KSampler to AnimateDiff HotShotXL motion model wiring",
+        ]
+
+    @mock.patch("vibecomfy.executor.core.run_classify_turn")
+    @mock.patch("vibecomfy.executor.core.run_reply_turn",
+                side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
+                side_effect=_fake_handle_agent_edit)
+    def test_explicit_install_request_keeps_install_provider_research_terms(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        profile_dir: Path,
+    ) -> None:
+        captured_research_queries: list[str] = []
+
+        def _fake_research(query: str, **kwargs: Any) -> ResearchResult:
+            captured_research_queries.append(query)
+            return _hotshotxl_execution_plan_research_result()
+
+        mock_classify.return_value = ClassifyDecision(
+            research=True,
+            implement=True,
+            reply=True,
+            effort="high",
+            plan_summary="research HotShotXL installation and workflow precedent",
+            intent="edit",
+            route="adapt",
+            task="research_precedent",
+            research_goal="Find HotShotXL node pack installation and workflow details.",
+            search_directions=(
+                "HotShotXL node pack installation and usage",
+                "HotShotXL provider pack workflow example",
+            ),
+            source_preferences=("workflows", "registry", "messages"),
+        )
+
+        request = ExecutorRequest(
+            query=(
+                "Which pack provides HotShotXL, install it if needed, and switch "
+                "this workflow to 8-frame video?"
+            ),
+            graph={"nodes": [{"id": 1, "type": "KSampler", "class_type": "KSampler"}]},
+            profile="default",
+        )
+
+        with mock.patch("vibecomfy.executor.core.run_research_phase", side_effect=_fake_research):
+            result = run_executor(request)
+
+        assert result.ok is True
+        assert captured_research_queries == [
+            "HotShotXL node pack installation and usage; "
+            "HotShotXL provider pack workflow example"
+        ]
+        payload = self._capture_edit_payload(mock_edit)
+        brief = payload.get("research_brief")
+        assert isinstance(brief, dict)
+        assert brief["research_goal"] == (
+            "Find HotShotXL node pack installation and workflow details."
+        )
+        assert brief["search_directions"] == [
+            "HotShotXL node pack installation and usage",
+            "HotShotXL provider pack workflow example",
+        ]
+        assert brief["source_preferences"] == ["workflows", "registry", "messages"]
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn",
                 side_effect=_fake_classify_adapt)

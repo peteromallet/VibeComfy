@@ -56,11 +56,13 @@ from .contracts import (
     warning_detail_from_exception,
 )
 from .graph_inspection import _graph_inspection
+from .execution_plan_builder import build_execution_plan, needs_precedent_plan
 from .profiles import (
     AgentSpecShape,
     load_profile,
 )
 from .research import _default_hivemind_client, research as run_research_phase
+from .revision_evidence import collect_graph_facts
 
 LOGGER = logging.getLogger(__name__)
 
@@ -915,6 +917,58 @@ def _run_research(
 # ── implement phase ──────────────────────────────────────────────────────────
 
 
+def _adapt_execution_plan_note(
+    request: ExecutorRequest,
+    plan: ClassifyDecision,
+    research_result: ResearchResult | None,
+) -> dict[str, Any] | None:
+    """Return serialized M2 execution-plan context for qualifying adapt requests."""
+
+    if research_result is None or _canonical_route_for_plan(plan) != "adapt":
+        return None
+
+    graph_facts = None
+    should_plan = needs_precedent_plan(plan, task=request.query)
+    if request.graph is not None:
+        try:
+            graph_facts = collect_graph_facts(request.graph)
+        except Exception:
+            LOGGER.debug("execution plan graph-fact collection failed", exc_info=True)
+            graph_facts = None
+        if not should_plan:
+            should_plan = needs_precedent_plan(
+                plan,
+                task=request.query,
+                graph_facts=graph_facts,
+            )
+    if not should_plan:
+        return None
+
+    try:
+        execution_plan = build_execution_plan(
+            research_result=research_result,
+            classify_result=plan,
+            task=request.query,
+            graph_facts=graph_facts,
+            graph=request.graph,
+        )
+    except Exception:
+        LOGGER.debug("execution plan builder failed", exc_info=True)
+        return None
+    if execution_plan is None:
+        return None
+
+    return {
+        "plan": execution_plan.to_dict(),
+        "provenance": {
+            "builder": "vibecomfy.executor.execution_plan_builder.build_execution_plan",
+            "routing": "vibecomfy.executor.execution_plan_builder.needs_precedent_plan",
+            "phase": "m2_adapt_context",
+            "enforced": False,
+        },
+    }
+
+
 def _run_implement(
     request: ExecutorRequest,
     spec: AgentSpecShape,
@@ -1018,10 +1072,20 @@ def _run_implement(
                 )
             if research_result.warnings:
                 protocol_notes["research_warnings"] = list(research_result.warnings)
+            execution_plan_note = _adapt_execution_plan_note(
+                request,
+                plan,
+                research_result,
+            )
+            if execution_plan_note is not None:
+                protocol_notes["execution_plan"] = execution_plan_note
             if protocol_notes:
                 if research_result.selected_precedent is not None:
                     protocol_notes["_discardability"] = (
                         "This research context is provided as evidence. "
+                        "It is NOT authoritative guidance or a required "
+                        "implementation. Discard any packet that is empty, "
+                        "irrelevant, or contradicts the user's explicit request. "
                         "Use selected_precedent as the grounding workflow "
                         "interpretation unless it contradicts the user's "
                         "explicit request. Other packets remain supporting "

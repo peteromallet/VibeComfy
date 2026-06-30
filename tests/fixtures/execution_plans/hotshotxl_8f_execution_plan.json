@@ -1,0 +1,683 @@
+{
+  "active_path_conditions": [
+    {
+      "criticality": "required",
+      "details": {
+        "terminal_role": "video_terminal"
+      },
+      "expected": "VIDEO",
+      "id": "video.output_domain.active",
+      "kind": "active_output_domain",
+      "message": "The active terminal output must be video-domain."
+    }
+  ],
+  "blocked_if": [
+    {
+      "criticality": "critical",
+      "details": {
+        "blocked_domain": "IMAGE"
+      },
+      "expected": "IMAGE",
+      "id": "video.image_terminal.active",
+      "kind": "active_output_domain",
+      "message": "A still-image terminal must not be the active output for this video plan."
+    }
+  ],
+  "candidate_graph_hash": null,
+  "contract_version": "execution_plan_v1",
+  "done_conditions": [
+    {
+      "class_type": "HotshotXLLoader",
+      "criticality": "required",
+      "details": {
+        "role": "hotshotxl_motion_model"
+      },
+      "id": "hotshotxl.motion_model.present",
+      "kind": "required_class",
+      "message": "HotShotXL motion model loader must be present."
+    },
+    {
+      "class_type": "ADE_AnimateDiffLoaderWithContext",
+      "criticality": "required",
+      "details": {
+        "role": "animatediff_context"
+      },
+      "id": "animatediff.context.present",
+      "kind": "required_class",
+      "message": "AnimateDiff context loader must be present."
+    },
+    {
+      "criticality": "required",
+      "details": {
+        "source_role": "hotshotxl_motion_model",
+        "target_role": "animatediff_context"
+      },
+      "id": "animatediff.motion_model.edge",
+      "input_name": "motion_model",
+      "kind": "direct_edge",
+      "message": "HotShotXL motion model must feed the AnimateDiff context.",
+      "source": {
+        "class_type": "HotshotXLLoader",
+        "output_name": "MOTION_MODEL",
+        "role": "hotshotxl_motion_model"
+      },
+      "target": {
+        "class_type": "ADE_AnimateDiffLoaderWithContext",
+        "input_name": "motion_model",
+        "role": "animatediff_context"
+      }
+    },
+    {
+      "criticality": "required",
+      "details": {
+        "source_role": "animatediff_context",
+        "target_role": "sampler"
+      },
+      "id": "sampler.uses_animatediff_model",
+      "input_name": "model",
+      "kind": "direct_edge_or_reachable_path",
+      "message": "Sampler model input must consume the AnimateDiff-wrapped model path.",
+      "source": {
+        "class_type": "ADE_AnimateDiffLoaderWithContext",
+        "output_name": "MODEL",
+        "role": "animatediff_context"
+      },
+      "target": {
+        "class_type": "KSampler",
+        "input_name": "model",
+        "role": "sampler"
+      }
+    },
+    {
+      "class_type": "EmptyLatentImage",
+      "criticality": "required",
+      "details": {
+        "field": "widget_2",
+        "role": "latent_source",
+        "target_role": "sampler"
+      },
+      "expected": 8,
+      "id": "hotshotxl.active_8_frame_latent_path",
+      "input_name": "latent_image",
+      "kind": "batch_frame_count",
+      "message": "HotShotXL video generation must use an active 8-frame latent path.",
+      "source": {
+        "class_type": "EmptyLatentImage",
+        "role": "latent_source"
+      },
+      "target": {
+        "class_type": "KSampler",
+        "input_name": "latent_image",
+        "role": "sampler"
+      }
+    },
+    {
+      "criticality": "required",
+      "details": {
+        "source_role": "sampler",
+        "target_role": "decoder"
+      },
+      "id": "video.decoded_frames",
+      "input_name": "samples",
+      "kind": "direct_edge_or_reachable_path",
+      "message": "Sampler latent output must be decoded into frames.",
+      "source": {
+        "class_type": "KSampler",
+        "output_name": "LATENT",
+        "role": "sampler"
+      },
+      "target": {
+        "class_type": "VAEDecode",
+        "input_name": "samples",
+        "role": "decoder"
+      }
+    },
+    {
+      "criticality": "required",
+      "details": {
+        "source_role": "decoder",
+        "target_role": "video_terminal"
+      },
+      "id": "video.terminal.consumes_decoded_frames",
+      "input_name": "images",
+      "kind": "terminal_consumes",
+      "message": "A video terminal must consume decoded frames.",
+      "source": {
+        "class_type": "VAEDecode",
+        "output_name": "IMAGE",
+        "role": "decoder"
+      },
+      "target": {
+        "class_type": "VHS_VideoCombine",
+        "input_name": "images",
+        "role": "video_terminal"
+      }
+    }
+  ],
+  "goal": "Generate an active 8-frame HotShotXL video output.",
+  "plan_id": "plan.hotshotxl_8f.b4bc69554c4f",
+  "required_steps": [
+    {
+      "assign_to": "hotshotxl_motion_model",
+      "class_type": "HotshotXLLoader",
+      "conditions": [
+        {
+          "class_type": "HotshotXLLoader",
+          "criticality": "required",
+          "details": {
+            "role": "hotshotxl_motion_model"
+          },
+          "id": "hotshotxl.motion_model.present",
+          "kind": "required_class",
+          "message": "HotShotXL motion model loader must be present."
+        },
+        {
+          "criticality": "required",
+          "details": {
+            "source_role": "hotshotxl_motion_model",
+            "target_role": "animatediff_context"
+          },
+          "id": "animatediff.motion_model.edge",
+          "input_name": "motion_model",
+          "kind": "direct_edge",
+          "message": "HotShotXL motion model must feed the AnimateDiff context.",
+          "source": {
+            "class_type": "HotshotXLLoader",
+            "output_name": "MOTION_MODEL",
+            "role": "hotshotxl_motion_model"
+          },
+          "target": {
+            "class_type": "ADE_AnimateDiffLoaderWithContext",
+            "input_name": "motion_model",
+            "role": "animatediff_context"
+          }
+        }
+      ],
+      "criticality": "required",
+      "evidence_refs": [
+        "selected_precedent.minimal_spine",
+        "precedent_sources[0].workflow_semantics.node_types",
+        "precedent_packet.options[0].node_types",
+        "named_technology.HotShotXL"
+      ],
+      "id": "step.hotshotxl_motion_model",
+      "inputs": {},
+      "kind": "add_or_bind_node",
+      "runtime_availability": "graph_facts.unknown_class_types",
+      "schema_source": "not_available",
+      "status": "planned",
+      "values": {
+        "models": [
+          "hotshotxl_mm_v1.pth"
+        ]
+      }
+    },
+    {
+      "assign_to": "animatediff_context",
+      "class_type": "ADE_AnimateDiffLoaderWithContext",
+      "conditions": [
+        {
+          "class_type": "ADE_AnimateDiffLoaderWithContext",
+          "criticality": "required",
+          "details": {
+            "role": "animatediff_context"
+          },
+          "id": "animatediff.context.present",
+          "kind": "required_class",
+          "message": "AnimateDiff context loader must be present."
+        },
+        {
+          "criticality": "required",
+          "details": {
+            "source_role": "hotshotxl_motion_model",
+            "target_role": "animatediff_context"
+          },
+          "id": "animatediff.motion_model.edge",
+          "input_name": "motion_model",
+          "kind": "direct_edge",
+          "message": "HotShotXL motion model must feed the AnimateDiff context.",
+          "source": {
+            "class_type": "HotshotXLLoader",
+            "output_name": "MOTION_MODEL",
+            "role": "hotshotxl_motion_model"
+          },
+          "target": {
+            "class_type": "ADE_AnimateDiffLoaderWithContext",
+            "input_name": "motion_model",
+            "role": "animatediff_context"
+          }
+        },
+        {
+          "criticality": "required",
+          "details": {
+            "source_role": "animatediff_context",
+            "target_role": "sampler"
+          },
+          "id": "sampler.uses_animatediff_model",
+          "input_name": "model",
+          "kind": "direct_edge_or_reachable_path",
+          "message": "Sampler model input must consume the AnimateDiff-wrapped model path.",
+          "source": {
+            "class_type": "ADE_AnimateDiffLoaderWithContext",
+            "output_name": "MODEL",
+            "role": "animatediff_context"
+          },
+          "target": {
+            "class_type": "KSampler",
+            "input_name": "model",
+            "role": "sampler"
+          }
+        }
+      ],
+      "criticality": "required",
+      "evidence_refs": [
+        "selected_precedent.minimal_spine",
+        "precedent_sources[0].workflow_semantics.node_types",
+        "precedent_sources[0].workflow_schema"
+      ],
+      "id": "step.animatediff_context",
+      "inputs": {
+        "model": "MODEL",
+        "motion_model": "MOTION_MODEL"
+      },
+      "kind": "add_or_bind_node",
+      "runtime_availability": "graph_facts.not_reported",
+      "schema_source": "precedent_sources[0].workflow_schema",
+      "status": "planned",
+      "values": {}
+    },
+    {
+      "assign_to": "sampler",
+      "class_type": "KSampler",
+      "conditions": [
+        {
+          "criticality": "required",
+          "details": {
+            "source_role": "animatediff_context",
+            "target_role": "sampler"
+          },
+          "id": "sampler.uses_animatediff_model",
+          "input_name": "model",
+          "kind": "direct_edge_or_reachable_path",
+          "message": "Sampler model input must consume the AnimateDiff-wrapped model path.",
+          "source": {
+            "class_type": "ADE_AnimateDiffLoaderWithContext",
+            "output_name": "MODEL",
+            "role": "animatediff_context"
+          },
+          "target": {
+            "class_type": "KSampler",
+            "input_name": "model",
+            "role": "sampler"
+          }
+        }
+      ],
+      "criticality": "required",
+      "evidence_refs": [
+        "selected_precedent.minimal_spine",
+        "precedent_sources[0].workflow_semantics.node_types"
+      ],
+      "id": "step.sampler_model_path",
+      "inputs": {
+        "latent_image": "LATENT",
+        "model": "MODEL",
+        "negative": "CONDITIONING",
+        "positive": "CONDITIONING"
+      },
+      "kind": "wire_path",
+      "runtime_availability": "graph_facts.not_reported",
+      "schema_source": "not_available",
+      "status": "planned",
+      "values": {}
+    },
+    {
+      "assign_to": "latent_source",
+      "class_type": "EmptyLatentImage",
+      "conditions": [
+        {
+          "class_type": "EmptyLatentImage",
+          "criticality": "required",
+          "details": {
+            "field": "widget_2",
+            "role": "latent_source",
+            "target_role": "sampler"
+          },
+          "expected": 8,
+          "id": "hotshotxl.active_8_frame_latent_path",
+          "input_name": "latent_image",
+          "kind": "batch_frame_count",
+          "message": "HotShotXL video generation must use an active 8-frame latent path.",
+          "source": {
+            "class_type": "EmptyLatentImage",
+            "role": "latent_source"
+          },
+          "target": {
+            "class_type": "KSampler",
+            "input_name": "latent_image",
+            "role": "sampler"
+          }
+        }
+      ],
+      "criticality": "required",
+      "evidence_refs": [
+        "selected_precedent.minimal_spine",
+        "precedent_sources[0].workflow_semantics.node_types"
+      ],
+      "id": "step.active_8_frame_latent_path",
+      "inputs": {},
+      "kind": "set_value",
+      "runtime_availability": "graph_facts.not_reported",
+      "schema_source": "not_available",
+      "status": "planned",
+      "values": {
+        "batch_size": 8
+      }
+    },
+    {
+      "assign_to": "decoder",
+      "class_type": "VAEDecode",
+      "conditions": [
+        {
+          "criticality": "required",
+          "details": {
+            "source_role": "sampler",
+            "target_role": "decoder"
+          },
+          "id": "video.decoded_frames",
+          "input_name": "samples",
+          "kind": "direct_edge_or_reachable_path",
+          "message": "Sampler latent output must be decoded into frames.",
+          "source": {
+            "class_type": "KSampler",
+            "output_name": "LATENT",
+            "role": "sampler"
+          },
+          "target": {
+            "class_type": "VAEDecode",
+            "input_name": "samples",
+            "role": "decoder"
+          }
+        }
+      ],
+      "criticality": "required",
+      "evidence_refs": [
+        "selected_precedent.minimal_spine",
+        "precedent_sources[0].workflow_semantics.node_types"
+      ],
+      "id": "step.decoded_frames",
+      "inputs": {
+        "samples": "LATENT",
+        "vae": "VAE"
+      },
+      "kind": "wire_path",
+      "runtime_availability": "graph_facts.not_reported",
+      "schema_source": "not_available",
+      "status": "planned",
+      "values": {}
+    },
+    {
+      "assign_to": "video_terminal",
+      "class_type": "VHS_VideoCombine",
+      "conditions": [
+        {
+          "criticality": "required",
+          "details": {
+            "source_role": "decoder",
+            "target_role": "video_terminal"
+          },
+          "id": "video.terminal.consumes_decoded_frames",
+          "input_name": "images",
+          "kind": "terminal_consumes",
+          "message": "A video terminal must consume decoded frames.",
+          "source": {
+            "class_type": "VAEDecode",
+            "output_name": "IMAGE",
+            "role": "decoder"
+          },
+          "target": {
+            "class_type": "VHS_VideoCombine",
+            "input_name": "images",
+            "role": "video_terminal"
+          }
+        }
+      ],
+      "criticality": "required",
+      "evidence_refs": [
+        "selected_precedent.minimal_spine",
+        "selected_precedent.terminal_output_path",
+        "precedent_sources[0].workflow_semantics.node_types",
+        "precedent_sources[0].workflow_schema",
+        "precedent_packet.options[0].node_types"
+      ],
+      "id": "step.video_terminal_consumption",
+      "inputs": {
+        "images": "IMAGE"
+      },
+      "kind": "add_or_bind_terminal",
+      "runtime_availability": "graph_facts.not_reported",
+      "schema_source": "precedent_sources[0].workflow_schema",
+      "status": "planned",
+      "values": {}
+    }
+  ],
+  "research_result_hash": "456e36293d48",
+  "role_bindings": [
+    {
+      "class_type": "HotshotXLLoader",
+      "confidence": "planned",
+      "evidence": {
+        "class_types": [
+          "HotshotXLLoader"
+        ],
+        "evidence_refs": [
+          "selected_precedent.minimal_spine",
+          "precedent_sources[0].workflow_semantics.node_types",
+          "precedent_packet.options[0].node_types",
+          "named_technology.HotShotXL"
+        ],
+        "models": [
+          "hotshotxl_mm_v1.pth"
+        ],
+        "required": true,
+        "unresolved": [
+          {
+            "class_type": "HotshotXLLoader",
+            "kind": "schema_unavailable",
+            "role": "hotshotxl_motion_model"
+          }
+        ]
+      },
+      "node_ref": {
+        "class_type": "HotshotXLLoader",
+        "role": "hotshotxl_motion_model"
+      },
+      "role": "hotshotxl_motion_model"
+    },
+    {
+      "class_type": "ADE_AnimateDiffLoaderWithContext",
+      "confidence": "planned",
+      "evidence": {
+        "class_types": [
+          "ADE_AnimateDiffLoaderWithContext"
+        ],
+        "evidence_refs": [
+          "selected_precedent.minimal_spine",
+          "precedent_sources[0].workflow_semantics.node_types",
+          "precedent_sources[0].workflow_schema"
+        ],
+        "models": [],
+        "required": true,
+        "unresolved": []
+      },
+      "node_ref": {
+        "class_type": "ADE_AnimateDiffLoaderWithContext",
+        "role": "animatediff_context"
+      },
+      "role": "animatediff_context"
+    },
+    {
+      "class_type": "EmptyLatentImage",
+      "confidence": "planned",
+      "evidence": {
+        "class_types": [
+          "EmptyLatentImage"
+        ],
+        "evidence_refs": [
+          "selected_precedent.minimal_spine",
+          "precedent_sources[0].workflow_semantics.node_types"
+        ],
+        "models": [],
+        "required": true,
+        "unresolved": [
+          {
+            "class_type": "EmptyLatentImage",
+            "kind": "schema_unavailable",
+            "role": "latent_source"
+          }
+        ]
+      },
+      "node_ref": {
+        "class_type": "EmptyLatentImage",
+        "role": "latent_source"
+      },
+      "role": "latent_source"
+    },
+    {
+      "class_type": "KSampler",
+      "confidence": "planned",
+      "evidence": {
+        "class_types": [
+          "KSampler"
+        ],
+        "evidence_refs": [
+          "selected_precedent.minimal_spine",
+          "precedent_sources[0].workflow_semantics.node_types"
+        ],
+        "models": [],
+        "required": true,
+        "unresolved": [
+          {
+            "class_type": "KSampler",
+            "kind": "schema_unavailable",
+            "role": "sampler"
+          }
+        ]
+      },
+      "node_ref": {
+        "class_type": "KSampler",
+        "role": "sampler"
+      },
+      "role": "sampler"
+    },
+    {
+      "class_type": "VAEDecode",
+      "confidence": "planned",
+      "evidence": {
+        "class_types": [
+          "VAEDecode"
+        ],
+        "evidence_refs": [
+          "selected_precedent.minimal_spine",
+          "precedent_sources[0].workflow_semantics.node_types"
+        ],
+        "models": [],
+        "required": true,
+        "unresolved": [
+          {
+            "class_type": "VAEDecode",
+            "kind": "schema_unavailable",
+            "role": "decoder"
+          }
+        ]
+      },
+      "node_ref": {
+        "class_type": "VAEDecode",
+        "role": "decoder"
+      },
+      "role": "decoder"
+    },
+    {
+      "class_type": "VHS_VideoCombine",
+      "confidence": "planned",
+      "evidence": {
+        "class_types": [
+          "VHS_VideoCombine"
+        ],
+        "evidence_refs": [
+          "selected_precedent.minimal_spine",
+          "selected_precedent.terminal_output_path",
+          "precedent_sources[0].workflow_semantics.node_types",
+          "precedent_sources[0].workflow_schema",
+          "precedent_packet.options[0].node_types"
+        ],
+        "models": [],
+        "required": true,
+        "unresolved": []
+      },
+      "node_ref": {
+        "class_type": "VHS_VideoCombine",
+        "role": "video_terminal"
+      },
+      "role": "video_terminal"
+    }
+  ],
+  "runtime_provenance": {
+    "ADE_AnimateDiffLoaderWithContext": "graph_facts.not_reported",
+    "EmptyLatentImage": "graph_facts.not_reported",
+    "HotshotXLLoader": "graph_facts.unknown_class_types",
+    "KSampler": "graph_facts.not_reported",
+    "VAEDecode": "graph_facts.not_reported",
+    "VHS_VideoCombine": "graph_facts.not_reported"
+  },
+  "schema_provenance": {
+    "ADE_AnimateDiffLoaderWithContext": "precedent_sources[0].workflow_schema",
+    "CheckpointLoaderSimple": "not_available",
+    "EmptyLatentImage": "not_available",
+    "HotshotXLLoader": "not_available",
+    "KSampler": "not_available",
+    "VAEDecode": "not_available",
+    "VHS_VideoCombine": "precedent_sources[0].workflow_schema",
+    "execution_plan_builder": {
+      "builder": "vibecomfy.executor.execution_plan_builder.build_execution_plan",
+      "normalizer": "hotshotxl_video_v1",
+      "source_refs": [
+        "selected_precedent:AnimateDiff HotShotXL video workflow",
+        "workflows/hotshotxl_8f.json"
+      ],
+      "technologies": [
+        "HotShotXL",
+        "AnimateDiff"
+      ]
+    }
+  },
+  "selected_precedent": {
+    "implementation_ecosystems": [
+      "animatediff"
+    ],
+    "minimal_spine": [
+      "CheckpointLoaderSimple",
+      "HotshotXLLoader",
+      "ADE_AnimateDiffLoaderWithContext",
+      "EmptyLatentImage",
+      "KSampler",
+      "VAEDecode",
+      "VHS_VideoCombine"
+    ],
+    "models": [
+      "hotshotxl_mm_v1.pth",
+      "sd_xl_base_1.0.safetensors"
+    ],
+    "name": "AnimateDiff HotShotXL video workflow",
+    "requested_terms": [
+      "HotShotXL",
+      "video"
+    ],
+    "source": "hivemind_workflow",
+    "source_workflow_path": "workflows/hotshotxl_8f.json",
+    "terminal_output_path": [
+      "VHS_VideoCombine"
+    ]
+  },
+  "selected_precedent_id": "precedent.b47b7ce37fc6",
+  "source_graph_hash": null
+}

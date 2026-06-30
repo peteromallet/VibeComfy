@@ -807,15 +807,22 @@ def _active_output_domain_satisfied(
     expected_domain = str(expected).upper()
     terminal_nodes = tuple(node for node in evidence.nodes if _is_terminal_class(node.class_type))
     for node in terminal_nodes:
-        if _terminal_domain(node) == expected_domain and _linked_input_slots(node):
-            return True
+        terminal_domain = _terminal_domain(node)
+        if terminal_domain is not None:
+            if terminal_domain == expected_domain and _linked_input_slots(node):
+                return True
+            continue
         for slot in (*node.input_slots, *node.output_slots):
             if str(slot.name).upper() == expected_domain:
                 return True
     for edge in evidence.edges:
         if edge.link_type is not None and str(edge.link_type).upper() == expected_domain:
             target = _node_by_id(evidence).get(edge.target_node)
-            if target is not None and _is_terminal_class(target.class_type):
+            if (
+                target is not None
+                and _is_terminal_class(target.class_type)
+                and _terminal_domain(target) is None
+            ):
                 return True
     return False
 
@@ -867,11 +874,20 @@ def _batch_frame_count_satisfied(
     if expected is None:
         return False
     source_ref = _as_socket_ref(_condition_value(condition, "source"))
+    target_ref = _as_socket_ref(_condition_value(condition, "target"))
     class_type = _condition_value(condition, "class_type") or _condition_details(condition).get("class_type")
     nodes = _nodes_matching(evidence, ref=source_ref, class_type=class_type)
     for node in nodes:
         for value in _values_for_node(node, fields):
-            if _value_matches(value, expected):
+            if not _value_matches(value, expected):
+                continue
+            if target_ref is None:
+                return True
+            target_nodes = _nodes_matching(evidence, ref=target_ref)
+            if not target_nodes:
+                return False
+            reachable = _reachable_nodes(evidence, {node.node_id})
+            if any(target.node_id in reachable for target in target_nodes):
                 return True
     return False
 
