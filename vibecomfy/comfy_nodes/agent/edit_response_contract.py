@@ -83,6 +83,12 @@ def _build_candidate_payload(
 def _plan_validation_allows_candidate(state: AgentEditState, context: TurnContext) -> bool:
     execution_plan = getattr(state, "execution_plan", None)
     if execution_plan is None:
+        update_plan_validate_gate(
+            context,
+            execution_plan=None,
+            plan_evaluation=None,
+            has_execution_plan=False,
+        )
         return True
     plan_evaluation = getattr(state, "plan_evaluation", None)
     update_plan_validate_gate(

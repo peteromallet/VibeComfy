@@ -257,9 +257,9 @@ Browser authority rule:
 - Client-side structural hash comparison is a diagnostic parity check only (`liveCanvasSnapshot.structuralHash` versus `panel.state.lastSubmit.client_structural_graph_hash`). It is **not** Apply authority — backend CAS is the single Apply authority. `client_structural_graph_hash` is submitted as a backend-parity snapshot in submit/rebaseline payloads and is never used by the backend to decide Apply eligibility.
 - `client_live_canvas_token` is only a local guard around async apply and rebaseline races. It is captured by `captureLiveCanvasToken()`, checked before local configure in the apply path, and never sent back as backend CAS authority.
 
-### 2.1 M3 execution-plan enforcement handoff
+### 2.1 Execution-plan enforcement handoff
 
-M3 plan-backed turns keep the public payload boundary compatible: the executor
+Plan-backed turns keep the public payload boundary compatible: the executor
 continues to pass the plan under
 `execution_protocol_notes.execution_plan.plan`. At turn setup, [edit_entrypoint.py](../../vibecomfy/comfy_nodes/agent/edit_entrypoint.py)
 hydrates that nested value into `AgentEditState.execution_plan`, persists
@@ -310,6 +310,23 @@ use the same `plan_validate_ok` result:
 Queue blockers therefore remain warnings only after structural plan
 completeness passes. If the plan does not structurally validate, Queue state
 does not rescue the turn into applyability; the response has no candidate.
+
+Operational boundaries for plan-backed turns:
+
+- The only accepted inbound plan payload is nested under
+  `execution_protocol_notes.execution_plan.plan`.
+- Public responses expose compact status, feedback, artifacts, and debug refs;
+  they do not expose the raw plan at top level.
+- `plan_validate_ok` is `true` for non-plan turns, `false` for an unevaluated or
+  failed plan-backed turn, and equal to `PlanEvaluation.ok` after evaluation.
+- Failed plan validation suppresses candidate aliases (`candidate`,
+  `candidate_graph`) and apply aliases (`canvas_apply_allowed`,
+  `apply_allowed`) through the normal response contract.
+- Compact plan feedback is prompt-scoped retry guidance. It belongs in active
+  plan-backed execute-turn prompts and persisted model artifacts, not in
+  unrelated follow-up prompts.
+- Queue validation is anti-scope for plan semantics. Queue blockers can warn on
+  a complete plan; they cannot make an incomplete plan applyable.
 
 Failed HotShotXL sidecar example: adding an `ADE_AnimateDiffLoaderWithContext`
 node beside `SaveImage` and calling `done()` does not satisfy the active video
@@ -484,6 +501,26 @@ Response effects when only Queue validation still fails:
   }
 }
 ```
+
+### 2.2 Extending precedent-backed plan patterns
+
+New precedent-backed workflow families should reuse this handoff:
+
+1. Route only normalized `adapt` decisions into plan construction.
+2. Add builder fixtures and golden JSON for the new `ExecutionPlan`.
+3. Add evaluator conditions or shared condition kinds for the semantic
+   obligation.
+4. Add runtime evidence for both a connected complete graph and a disconnected
+   sidecar or incomplete graph.
+5. Confirm public response compatibility: no top-level `execution_plan`,
+   artifact refs present, `debug.gates.plan_validate_ok` present, failed plans
+   non-applyable, and passed plans allowed to carry `queue_blocked_warning`.
+6. Confirm simple local edit routes bypass planning and do not leak nested
+   payloads.
+
+Avoid new route-specific Apply enums or bespoke response fields. A new pattern
+should only change builder evidence, plan fixture contents, evaluator
+expectations, and tests around the shared `plan_validate_ok` gate.
 
 Implemented browser-side rebaseline state fields in [vibecomfy_roundtrip.js](../../vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js):
 

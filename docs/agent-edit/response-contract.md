@@ -124,7 +124,7 @@ The normalization entry points are:
   `_validated_failure_response`, `_handle_agent_edit`).
 - **Browser:** `normalizePublicOutcome()` in `agent_edit_response_contract.js`.  The
   browser boundary also handles **legacy direct‑response inference** for server responses
-  that arrive without an explicit `outcome` object (see §6).
+  that arrive without an explicit `outcome` object (see §8).
 
 ---
 
@@ -343,7 +343,93 @@ unchanged.
 
 ---
 
-## 5. Recovery payload shape
+## 5. Execution-plan response fields
+
+Plan-backed agent-edit responses preserve the public outcome union. They add
+compact plan evidence fields, but never a public top-level `execution_plan`
+payload.
+
+Inbound plan boundary:
+
+```json
+{
+  "execution_protocol_notes": {
+    "execution_plan": {
+      "plan": {"contract_version": "execution_plan_v1"}
+    }
+  }
+}
+```
+
+Public response boundary:
+
+```json
+{
+  "outcome": {"kind": "candidate"},
+  "execution_plan_status": {
+    "plan_id": "plan.hotshotxl_8f.example",
+    "ok": true,
+    "blocking": false,
+    "failed_condition_ids": []
+  },
+  "execution_plan_feedback": "plan evaluation passed.",
+  "gates": {"plan_validate_ok": true},
+  "debug": {
+    "gates": {"plan_validate_ok": true},
+    "execution_plan_artifacts": {
+      "execution_plan": {
+        "path": "turns/0001/execution_plan.json",
+        "sha256": "sha256:...",
+        "byte_count": 1234
+      },
+      "plan_evaluation": {
+        "path": "turns/0001/plan_evaluation.json",
+        "sha256": "sha256:...",
+        "byte_count": 567
+      }
+    }
+  },
+  "artifacts": {
+    "execution_plan": "turns/0001/execution_plan.json",
+    "plan_evaluation": "turns/0001/plan_evaluation.json"
+  },
+  "task_satisfaction": [
+    {
+      "check": "execution_plan",
+      "satisfaction": "pass",
+      "failed_condition_ids": []
+    }
+  ]
+}
+```
+
+Failure response effects:
+
+- `execution_plan_status.ok` is `false` and `blocking` is `true` for blocking
+  semantic misses.
+- `execution_plan_feedback` is compact and actionable, including failed
+  condition ids and evaluator feedback.
+- `candidate`, `candidate_graph`, `canvas_apply_allowed`, and `apply_allowed`
+  are suppressed or false through the existing compatibility aliases.
+- `apply_eligibility.reason` is `no_candidate`.
+- `debug.gates.plan_validate_ok` mirrors `gates.plan_validate_ok`.
+- artifact refs remain present so the failure can be audited.
+
+Passing-plan response effects:
+
+- candidate and candidate-graph aliases remain available.
+- `apply_eligibility.reason` may be `applyable` or `queue_blocked_warning`.
+- `queue_blocked_warning` does not alter plan semantics; it only means Apply is
+  allowed while Queue remains blocked by the separate queue-validation layer.
+
+The browser boundary normalizes these fields like any other response field:
+snake_case on the wire, camelCase after `normalizeAgentEditResponse()`. Consumer
+code should read compact status and artifact refs, not raw nested executor
+notes.
+
+---
+
+## 6. Recovery payload shape
 
 When a failure outcome carries recovery information (e.g. a stale‑state mismatch), the
 `rebaseline_recovery` / `rebaselineRecovery` descriptor is extracted from one of several
@@ -384,17 +470,17 @@ symmetric recovery shapes.
 
 ---
 
-## 6. `/chat` endpoint rules
+## 7. `/chat` endpoint rules
 
 The `GET /vibecomfy/agent-edit/chat` endpoint returns a rehydrated conversation history
 with three outcome‑bearing surfaces:
 
-### 6.1 Top‑level `outcome`
+### 7.1 Top‑level `outcome`
 
 The chat response itself carries an `outcome` (always `noop` on success, `error` on
 failure) validated through `_validated_success_response` / `_validated_failure_response`.
 
-### 6.2 `messages[].outcome` (agent messages only)
+### 7.2 `messages[].outcome` (agent messages only)
 
 Every agent‑role message in the `messages` array carries a normalized `outcome`:
 
@@ -408,7 +494,7 @@ Every agent‑role message in the `messages` array carries a normalized `outcome
 
 Only public kinds (`candidate`, `noop`, `clarify`, `error`) appear.
 
-### 6.3 `latest_candidate.outcome`
+### 7.3 `latest_candidate.outcome`
 
 The `latest_candidate` object (see `_latest_session_candidate_payload`) contains an
 `outcome` field derived via `_stamped_turn_response_outcome()`:
@@ -418,7 +504,7 @@ The `latest_candidate` object (see `_latest_session_candidate_payload`) contains
 - The outcome is the server‑stamped public outcome — the browser should **not**
   re‑infer the outcome from the raw `latest_candidate` fields.
 
-### 6.4 Browser normalization
+### 7.4 Browser normalization
 
 On the browser side, `normalizeAgentEditResponse()` is applied to the chat payload
 immediately after `res.json()`.  The `latest_candidate` sub‑object is recursively
@@ -428,9 +514,9 @@ through the same contract gate.
 
 ---
 
-## 7. Server vs. browser normalization responsibilities
+## 8. Server vs. browser normalization responsibilities
 
-### 7.1 Server responsibilities
+### 8.1 Server responsibilities
 
 - **Authoritative stamping.**  The server `ensure_agent_edit_response_contract()` is the
   canonical gate for all endpoint responses (submit, accept, reject, rebaseline, chat).
@@ -441,7 +527,7 @@ through the same contract gate.
 - **Closed‑set enforcement.**  The server rejects any response whose `outcome.kind` is
   not in the public union.
 
-### 7.2 Browser responsibilities
+### 8.2 Browser responsibilities
 
 - **Normalization boundary.**  The browser applies `normalizeAgentEditResponse()`
   immediately after `res.json()` at every fetch call site.  Only the normalized payload
@@ -457,7 +543,7 @@ through the same contract gate.
   `rebaselineRecovery` extraction across all supported positions.  No consumer should
   walk raw payload fields to find recovery data.
 
-### 7.3 Single inference per code path
+### 8.3 Single inference per code path
 
 Each response path (server endpoint → wire → browser `fetch` → boundary normalization →
 consumer) performs outcome classification **at most once**:
@@ -475,7 +561,7 @@ they serve the boundary‑only legacy path.
 
 ---
 
-## 8. Reference: server contract functions
+## 9. Reference: server contract functions
 
 | Function                                   | Location              | Role                                           |
 |--------------------------------------------|-----------------------|------------------------------------------------|
@@ -490,7 +576,7 @@ they serve the boundary‑only legacy path.
 | `_validated_failure_response()`            | `routes.py`           | Wraps failure payloads through contract gate.  |
 | `_promote_accept_rebaseline_recovery()`    | `routes.py`           | Accept‑stage recovery symmetry.                |
 
-## 9. Reference: browser contract functions
+## 10. Reference: browser contract functions
 
 | Function / Export                         | Location                            | Role                                              |
 |-------------------------------------------|-------------------------------------|---------------------------------------------------|
@@ -509,7 +595,7 @@ they serve the boundary‑only legacy path.
 
 ---
 
-## 10. Design decisions (settled)
+## 11. Design decisions (settled)
 
 - **SD1:** Legacy/internal `edit` and `edit+clarify` outcome kinds are normalized to
   public `candidate` before crossing the public boundary; they are not surfaced as public

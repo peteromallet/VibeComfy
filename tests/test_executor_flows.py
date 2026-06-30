@@ -4580,6 +4580,87 @@ class TestAdaptPrefetchAndResearchContextScoping:
         assert "precedent_slices" not in payload
         assert "adaptation_plan" not in payload
 
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "change the prompt to a rainy city street",
+            "set seed to 42",
+            "increase CFG to 7.5",
+            "change sampler steps to 20",
+            "switch the checkpoint model name to dreamshaper",
+            "rewire the existing VAE decode output locally",
+            "add a SaveImage output node",
+        ],
+        ids=[
+            "prompt",
+            "seed",
+            "cfg",
+            "sampler_steps",
+            "model_name",
+            "local_rewire",
+            "output_node",
+        ],
+    )
+    @mock.patch("vibecomfy.executor.core.run_classify_turn",
+                side_effect=_fake_classify_revise)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn",
+                side_effect=_fake_reply_route_gate)
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit",
+                side_effect=_fake_handle_agent_edit)
+    def test_ordinary_revise_edits_do_not_plan_or_leak_execution_protocol(
+        self,
+        mock_edit: mock.MagicMock,
+        mock_reply: mock.MagicMock,
+        mock_classify: mock.MagicMock,
+        query: str,
+        profile_dir: Path,
+    ) -> None:
+        """Ordinary direct edits keep revise routing and payload/apply boundaries."""
+
+        def assert_no_execution_plan_leak(obj: object, path: str = "root") -> None:
+            if isinstance(obj, dict):
+                assert "execution_plan" not in obj, f"execution_plan leaked at {path}"
+                for key, value in obj.items():
+                    assert_no_execution_plan_leak(value, f"{path}.{key}")
+            elif isinstance(obj, list):
+                for index, value in enumerate(obj):
+                    assert_no_execution_plan_leak(value, f"{path}[{index}]")
+
+        with (
+            mock.patch("vibecomfy.executor.research.build_search_corpus") as mock_corpus,
+            mock.patch("vibecomfy.executor.core.build_execution_plan") as mock_plan_builder,
+        ):
+            request = ExecutorRequest(
+                query=query,
+                graph={"nodes": [{"id": 1, "type": "KSampler"}]},
+                profile="default",
+            )
+            result = run_executor(request)
+
+        assert result.ok is True
+        assert result.report.plan.effective_route == "revise"
+        assert result.report.research is None
+        assert result.turn.route == "revise"
+        assert result.turn.apply_eligible is True
+        assert result.turn.no_candidate_reason is None
+        assert result.to_dict()["candidate"] == {"graph": result.graph}
+
+        payload = self._capture_edit_payload(mock_edit)
+        assert payload["route"] == "revise"
+        assert payload["executor_route"] == "revise"
+        assert payload["executor_classification"]["route"] == "revise"
+        assert "execution_protocol_notes" not in payload
+        assert "research_context_packet" not in payload
+        assert "research_summary" not in payload
+        assert "research_sources" not in payload
+        assert "executor_research" not in payload
+        assert "precedent_slices" not in payload
+        assert "adaptation_plan" not in payload
+        assert "execution_plan" not in payload
+        assert_no_execution_plan_leak(result.to_dict())
+        mock_corpus.assert_not_called()
+        mock_plan_builder.assert_not_called()
+
     @mock.patch("vibecomfy.executor.core.run_classify_turn",
                 side_effect=_fake_classify_revise)
     @mock.patch("vibecomfy.executor.core.run_reply_turn",

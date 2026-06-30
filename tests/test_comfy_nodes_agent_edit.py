@@ -6171,8 +6171,21 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
 
     assert result["ok"] is True
     assert result["outcome"]["kind"] == "candidate"
+    assert len(result["batch_turns"]) == 2
+    assert result["debug"]["batch_repl"]["budget_state"]["max_batches"] == 3
+    assert result["debug"]["batch_repl"]["budget_state"]["remaining_batches"] == 1
     assert len(captured_model_messages) == 2
+    first_prompt = captured_model_messages[0][1]["content"]
     retry_prompt = captured_model_messages[1][1]["content"]
+    assert "done() was NOT accepted" not in first_prompt
+    assert "Execution plan status (authoritative compact JSON):" in retry_prompt
+    assert '"plan_id": "save-prefix-required-step"' in retry_prompt
+    assert '"ok": false' in retry_prompt
+    assert '"blocking": true' in retry_prompt
+    assert '"feedback": "plan evaluation failed: saveimage.filename_prefix.after."' in retry_prompt
+    assert '"failed_condition_ids": [' in retry_prompt
+    assert '"saveimage.filename_prefix.after"' in retry_prompt
+    assert '"step_id": "save-prefix-step"' in retry_prompt
     assert "done() was NOT accepted" in retry_prompt
     assert "missing required execution-plan step ids: save-prefix-step" in retry_prompt
     assert (
@@ -6188,11 +6201,64 @@ def test_handle_agent_edit_batch_repl_refuses_done_when_plan_evaluation_blocks(
     assert result["batch_turns"][1]["execution_plan_status"]["blocking"] is False
 
     turn_dir = turn_dir_for(tmp_path, "batch-plan-done-refusal", result["turn_id"])
+    persisted_request = json.loads(
+        (turn_dir / "model_request.json").read_text(encoding="utf-8")
+    )
+    assert len(persisted_request["turns"]) == 2
+    assert (
+        "done() was NOT accepted"
+        not in persisted_request["turns"][0]["messages"][1]["content"]
+    )
+    assert (
+        "done() was NOT accepted"
+        in persisted_request["turns"][1]["messages"][1]["content"]
+    )
+    persisted_response = json.loads(
+        (turn_dir / "model_response.json").read_text(encoding="utf-8")
+    )
+    assert (
+        "done() was NOT accepted"
+        in persisted_response["turns"][0]["batch_result"]["report"]
+    )
     persisted_evaluation = json.loads(
         (turn_dir / "plan_evaluation.json").read_text(encoding="utf-8")
     )
     assert persisted_evaluation["ok"] is True
     assert persisted_evaluation["failed_conditions"] == []
+
+    non_plan_responses = iter(
+        [
+            {
+                "batch": 'saveimage.filename_prefix = "plain"\ndone()',
+                "message": "Changed the save prefix without a plan.",
+            },
+        ]
+    )
+    non_plan_messages: list[list[dict[str, str]]] = []
+
+    def _non_plan_client(messages: list[dict[str, str]]) -> dict[str, str]:
+        non_plan_messages.append(messages)
+        return next(non_plan_responses)
+
+    non_plan_result = handle_agent_edit(
+        {
+            "graph": _ui_graph(),
+            "task": "change the save prefix to plain and finish",
+            "session_id": "batch-no-plan-after-plan-refusal",
+            "max_batches": 3,
+        },
+        schema_provider=provider,
+        deepseek_client=_non_plan_client,
+        session_root=tmp_path,
+    )
+
+    assert non_plan_result["ok"] is True
+    assert len(non_plan_messages) == 1
+    non_plan_prompt = non_plan_messages[0][1]["content"]
+    assert "Execution plan status (authoritative compact JSON):" not in non_plan_prompt
+    assert "done() was NOT accepted" not in non_plan_prompt
+    assert "save-prefix-required-step" not in non_plan_prompt
+    assert "saveimage.filename_prefix.after" not in non_plan_prompt
 
 
 def test_handle_agent_edit_hotshotxl_sidecar_done_remains_non_applyable(
@@ -6436,11 +6502,17 @@ def test_batch_repl_response_failed_execution_plan_suppresses_candidate_and_expo
 
     response = _build_batch_repl_response(state, context)
 
+    assert "execution_plan" not in response
+    assert response["outcome"]["kind"] in PUBLIC_OUTCOME_KINDS
     assert response["candidate"] is None
+    assert response.get("candidate_graph") is None
     assert response["outcome"]["kind"] == "noop"
+    assert response["eligibility"] == response["apply_eligibility"]
+    assert response["apply_allowed"] is False
     assert response["apply_eligibility"]["applyable"] is False
     assert response["apply_eligibility"]["reason"] == "no_candidate"
     assert response["canvas_apply_allowed"] is False
+    assert response["queue_allowed"] is False
     assert response["gates"]["plan_validate_ok"] is False
     assert response["debug"]["gates"]["plan_validate_ok"] is False
     assert response["execution_plan_status"]["ok"] is False
@@ -6449,15 +6521,57 @@ def test_batch_repl_response_failed_execution_plan_suppresses_candidate_and_expo
         "saveimage.filename_prefix.after"
     ]
     assert "SaveImage prefix is still wrong" in response["execution_plan_feedback"]
+    assert "failed_conditions=saveimage.filename_prefix.after" in response["execution_plan_feedback"]
     assert response["artifacts"]["execution_plan"] == str(execution_plan_path)
     assert response["artifacts"]["plan_evaluation"] == str(plan_evaluation_path)
     debug_artifacts = response["debug"]["execution_plan_artifacts"]
     assert debug_artifacts["execution_plan"]["path"] == str(execution_plan_path)
+    assert debug_artifacts["execution_plan"]["sha256"]
+    assert debug_artifacts["execution_plan"]["byte_count"] > 0
     assert debug_artifacts["plan_evaluation"]["path"] == str(plan_evaluation_path)
+    assert debug_artifacts["plan_evaluation"]["sha256"]
+    assert debug_artifacts["plan_evaluation"]["byte_count"] > 0
     plan_entry = response["task_satisfaction"][0]
     assert plan_entry["check"] == "execution_plan"
     assert plan_entry["satisfaction"] == "fail"
     assert plan_entry["failed_condition_ids"] == ["saveimage.filename_prefix.after"]
+    assert "SaveImage prefix is still wrong" in plan_entry["feedback"]
+
+
+def test_batch_repl_response_no_plan_preserves_legacy_candidate_aliases() -> None:
+    from vibecomfy.comfy_nodes.agent.edit import _build_batch_repl_response
+
+    state = _make_state(
+        graph={"nodes": []},
+        ui_payload={"nodes": [{"id": 1}]},
+        batch_exit_mode="done",
+        batch_done_summary="applied change",
+    )
+    context = TurnContext(session_id="no-plan-compat", turn_id="0001")
+    for gate_name in context.gate_results:
+        context.set_gate(gate_name, True)
+    context.set_gate("plan_validate_ok", False)
+
+    response = _build_batch_repl_response(state, context)
+
+    assert "execution_plan" not in response
+    assert "execution_plan_status" not in response
+    assert "execution_plan_feedback" not in response
+    assert "task_satisfaction" not in response
+    assert "execution_plan_artifacts" not in response["debug"]
+    assert response["outcome"]["kind"] in PUBLIC_OUTCOME_KINDS
+    assert response["outcome"]["kind"] == "candidate"
+    assert response["candidate"] is not None
+    assert response["candidate_graph"] == response["candidate"]["graph"]
+    assert response["graph"] == response["candidate"]["graph"]
+    assert response["eligibility"] == response["apply_eligibility"]
+    assert response["apply_allowed"] is True
+    assert response["apply_eligibility"]["applyable"] is True
+    assert response["apply_eligibility"]["reason"] == "applyable"
+    assert response["canvas_apply_allowed"] is True
+    assert response["queue_allowed"] is True
+    assert response["gates"]["plan_validate_ok"] is True
+    assert response["debug"]["gates"]["plan_validate_ok"] is True
 
 
 def test_batch_repl_response_passing_execution_plan_keeps_queue_warning_candidate(
@@ -6497,13 +6611,19 @@ def test_batch_repl_response_passing_execution_plan_keeps_queue_warning_candidat
 
     response = _build_batch_repl_response(state, context)
 
+    assert "execution_plan" not in response
+    assert response["outcome"]["kind"] in PUBLIC_OUTCOME_KINDS
     assert response["candidate"] is not None
+    assert response["candidate_graph"] == response["candidate"]["graph"]
     assert response["outcome"]["kind"] == "candidate"
+    assert response["eligibility"] == response["apply_eligibility"]
+    assert response["apply_allowed"] is True
     assert response["apply_eligibility"]["applyable"] is True
     assert response["apply_eligibility"]["reason"] == "queue_blocked_warning"
     assert response["canvas_apply_allowed"] is True
     assert response["queue_allowed"] is False
     assert response["gates"]["plan_validate_ok"] is True
+    assert response["debug"]["gates"]["plan_validate_ok"] is True
     assert response["execution_plan_status"]["ok"] is True
     assert response["artifacts"]["execution_plan"] == str(execution_plan_path)
     assert response["artifacts"]["plan_evaluation"] == str(plan_evaluation_path)

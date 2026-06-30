@@ -189,6 +189,14 @@ SOURCE = r'''
                 hint = _execution_plan_done_refusal_hint(state)
         if refuse_done:
             last_report = last_report + "\n\nNOTE: done() was NOT accepted — " + hint
+            turn_record["report"] = last_report
+            if state.batch_turns and state.batch_turns[-1] is turn_record:
+                state.batch_turns[-1]["report"] = last_report
+            if response_log and isinstance(response_log[-1], dict):
+                batch_response_record = response_log[-1].get("batch_result")
+                if isinstance(batch_response_record, dict):
+                    batch_response_record["report"] = last_report
+                write_json_artifact(state.model_response_path, {"turns": response_log})
             continue
         if done_requested:
             done_result = session.done()

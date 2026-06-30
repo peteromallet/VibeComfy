@@ -1,6 +1,6 @@
 # Execution Plan Contract
 
-This note documents the M1 execution-plan contract implemented at:
+This note documents the execution-plan contract implemented at:
 
 ```python
 from vibecomfy.comfy_nodes.agent.execution_plan import (
@@ -14,9 +14,10 @@ from vibecomfy.comfy_nodes.agent.execution_plan import (
 )
 ```
 
-The module is a pure contract and evaluator surface. It does not route agent
-turns, change execute prompts, persist artifacts, or decide frontend Apply
-eligibility.
+The module is the pure contract and evaluator surface. Routing, runtime
+hydration, prompt retry feedback, artifact persistence, and Apply eligibility
+are documented here only as consumers of this contract; they must not introduce
+a parallel plan or evaluation shape.
 
 ## Public Surface
 
@@ -379,21 +380,97 @@ or AnimateDiff classes. An 8-frame latent that is not on the active video path
 does not satisfy the obligation. A path that ends in an image terminal instead
 of connected `VHS_VideoCombine` does not satisfy the obligation.
 
-## M1 Boundary
+## Runtime Enforcement Boundary
 
-M1 stops at public contracts, deterministic `to_dict()` serialization, pure
-evaluator primitives, focused fixtures/tests, and this documentation.
+The runtime accepts an execution plan only from the nested executor payload:
 
-M1 intentionally leaves these surfaces untouched:
+```json
+{
+  "execution_protocol_notes": {
+    "execution_plan": {
+      "plan": {"contract_version": "execution_plan_v1"},
+      "provenance": {
+        "phase": "m3_execute_enforcement",
+        "enforced": true
+      }
+    }
+  }
+}
+```
+
+`execution_protocol_notes.execution_plan.plan` is hydrated into
+`AgentEditState.execution_plan`, persisted as
+`turns/<turn_id>/execution_plan.json`, evaluated against the current candidate
+graph, and persisted as `turns/<turn_id>/plan_evaluation.json`. The public
+response never exposes a top-level `execution_plan` payload.
+
+When a plan-backed turn calls `done()`, the latest candidate is reevaluated. A
+blocking failed `PlanEvaluation` refuses `done()` and feeds the model compact
+plan feedback on the next execute turn only while the plan-backed turn remains
+active. The prompt block is headed:
+
+```text
+Execution plan status (authoritative compact JSON):
+```
+
+The compact status is derived from `format_compact_plan_status(...)` and carries
+only the stable retry fields: plan id, ok/blocking booleans, failed condition
+ids, failed required step ids, and evaluator feedback. It is not a second
+contract and it is not sent for non-plan prompts.
+
+## Artifact And Debug Fields
+
+Plan artifacts are durable evidence, not public plan payloads:
+
+- `artifacts.execution_plan`: string path to `execution_plan.json`.
+- `artifacts.plan_evaluation`: string path to `plan_evaluation.json`.
+- `debug.execution_plan_artifacts.execution_plan`: artifact ref with path,
+  sha256, and byte count when available.
+- `debug.execution_plan_artifacts.plan_evaluation`: artifact ref with path,
+  sha256, and byte count when available.
+- `debug.gates.plan_validate_ok`: mirrors the public gate snapshot.
+
+These fields may be used for diagnostics, chat/session rehydration, and rollout
+evidence. Callers must not treat them as a replacement for the nested executor
+payload or as permission to pass a top-level `execution_plan` through the public
+response.
+
+## Extension Guidance
+
+To add a new precedent-backed pattern, extend the existing surfaces in order:
+
+1. Teach `needs_precedent_plan(...)` to recognize the route signal only when the
+   normalized route is `adapt`.
+2. Add deterministic builder evidence in
+   `vibecomfy.executor.execution_plan_builder.build_execution_plan(...)`.
+3. Add or update golden plan fixtures under `tests/fixtures/execution_plans/`.
+4. Add evaluator conditions using existing `PlanCondition` kinds where possible;
+   if a new condition kind is required, add it to `SUPPORTED_CONDITION_KINDS`,
+   document it here, and cover pass/fail/unsupported behavior.
+5. Add runtime fixture coverage for connected-path pass, disconnected sidecar
+   fail, artifact persistence, compact feedback, and `plan_validate_ok`.
+6. Verify ordinary prompt/seed/CFG/sampler/model/rewire/output-node revise
+   routes still bypass planning and do not leak nested execution-plan payloads.
+
+Do not add a special-case Apply gate for a new pattern. New patterns must feed
+the same `ExecutionPlan` -> `PlanEvaluation` -> `plan_validate_ok` chain.
+
+## Contract Boundary
+
+The contract module stops at public dataclasses, deterministic `to_dict()`
+serialization, pure evaluator primitives, and fail-closed version behavior.
+
+The contract module intentionally leaves these surfaces to runtime consumers:
 
 - Classifier behavior.
 - Research routing.
 - Execute prompt content and model instructions.
-- Runtime done gates.
+- Runtime `done()` retry/refusal behavior.
 - Runtime Apply gates and Apply eligibility.
-- Candidate or evaluation artifact persistence.
+- Candidate and evaluation artifact persistence.
 - Frontend display or Apply behavior.
 
-Later milestones may wire the contract into those systems. Until then,
-`evaluate_execution_plan()` is available as a pure authority primitive, but its
-result is not itself an enforcement path in the agent-edit runtime.
+Those consumers must use `ExecutionPlan` and `PlanEvaluation` as the single
+semantic authority. A newer milestone may add more patterns or condition kinds,
+but it should not create a second plan contract, a second evaluation contract,
+or a route-specific Apply semantics surface.
