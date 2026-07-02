@@ -7,7 +7,7 @@ milestones:
   - label: m1-layout-contract-and-facts
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m1-layout-contract-and-facts.md
     branch: epic/reorganise-comfy-workflow/m1-layout-contract-and-facts
-    profile: partnered-4
+    profile: all-codex
     robustness: full
     depth: high
     with_prep: true
@@ -15,7 +15,7 @@ milestones:
   - label: m2-semantic-layout-compiler
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m2-semantic-layout-compiler.md
     branch: epic/reorganise-comfy-workflow/m2-semantic-layout-compiler
-    profile: partnered-4
+    profile: all-codex
     robustness: full
     depth: high
     with_prep: true
@@ -23,7 +23,7 @@ milestones:
   - label: m3-agent-skill-cli-preview
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m3-agent-skill-cli-preview.md
     branch: epic/reorganise-comfy-workflow/m3-agent-skill-cli-preview
-    profile: partnered-4
+    profile: all-codex
     robustness: full
     depth: high
     with_prep: true
@@ -31,7 +31,7 @@ milestones:
   - label: m4-main-flow-rollout-and-goldens
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m4-main-flow-rollout-and-goldens.md
     branch: epic/reorganise-comfy-workflow/m4-main-flow-rollout-and-goldens
-    profile: partnered-4
+    profile: all-codex
     robustness: full
     depth: high
     with_prep: true
