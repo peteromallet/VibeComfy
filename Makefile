@@ -46,6 +46,7 @@ ROOT_ALLOWLIST := \
 	LICENSE \
 	Makefile \
 	README.md \
+	cloud.yaml \
 	custom_nodes.lock \
 	docs \
 	pyproject.toml \
