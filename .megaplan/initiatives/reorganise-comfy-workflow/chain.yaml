@@ -11,7 +11,6 @@ milestones:
     robustness: full
     depth: high
     with_prep: true
-    prep_direction: "Focus on the lossless LiteGraph substrate, scoped identity, graph-fact extraction, strict LayoutPlan schema, Set/Get effective virtual links, and assessment metrics. Do not implement coordinate layout yet."
 
   - label: m2-semantic-layout-compiler
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m2-semantic-layout-compiler.md
@@ -20,7 +19,6 @@ milestones:
     robustness: full
     depth: high
     with_prep: true
-    prep_direction: "Focus on turning validated semantic sections into deterministic coordinates, groups, colors, title/bounding boxes, overlap resolution, and aesthetic metrics. Treat this as a new semantic layout compiler, not a thin wrapper over the existing topology engine."
 
   - label: m3-agent-skill-cli-preview
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m3-agent-skill-cli-preview.md
@@ -29,7 +27,6 @@ milestones:
     robustness: full
     depth: high
     with_prep: true
-    prep_direction: "Focus on the explicit /reorganise_comfy_workflow and CLI preview/apply surfaces, strict agent-output parsing, candidate graph production, report artifacts, and non-destructive apply gates."
 
   - label: m4-main-flow-rollout-and-goldens
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m4-main-flow-rollout-and-goldens.md
@@ -38,7 +35,6 @@ milestones:
     robustness: full
     depth: high
     with_prep: true
-    prep_direction: "Focus on conservative main-flow suggestion-only integration, golden fixtures, browser/e2e validation, documentation, and rollout flags. Do not auto-apply reorganisation in normal agent-edit turns."
 
 on_failure:
   abort: stop_chain
