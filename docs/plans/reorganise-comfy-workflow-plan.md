@@ -4,12 +4,12 @@
 
 Add a workflow reorganisation capability that can make messy ComfyUI workflows readable, shareable, and consistent without changing runtime behaviour.
 
-The capability should run in two ways:
+The full capability should eventually run in two ways:
 
 - Explicitly, via `/reorganise_comfy_workflow` and a CLI/API surface.
 - Opportunistically, in the main agent-edit flow, when deterministic assessment says the current workflow likely needs reorganisation.
 
-The v1 contract is layout-only: no node additions/removals, no rewiring, no widget changes, and no Set/Get conversion. It may change UI furniture: `pos`, `size` when needed, `title`, `color`, `bgcolor`, `groups`, and layout metadata.
+The eventual v1 capability is layout-only: no node additions/removals, no rewiring, no widget changes, and no Set/Get conversion. The later apply step may change UI furniture such as `pos`, `size` when needed, `title`, `color`, `bgcolor`, `groups`, and layout metadata. M1 stops before that apply step.
 
 ## Principles
 
@@ -74,6 +74,14 @@ Responsibilities:
 - `compile.py`: convert semantic plan into concrete positions, groups, colors, and node titles.
 - `classify.py`: deterministic fallback role classification for unassigned or low-confidence nodes.
 - `report.py`: before/after score, movement summary, warnings, and rationale.
+
+## M1 Foundation Contract Status
+
+M1 lands the read-only contract and graph-fact substrate for later layout work. It deliberately does not add a coordinate compiler, CLI command, API endpoint, LLM call path, topology mutation, or automatic main-flow integration.
+
+The authoritative apply-time substrate remains the original LiteGraph UI JSON plus the layout-store sidecar envelope. Reorganisation modules may read that substrate to derive facts, projections, validation diagnostics, and assessment reports, but M1 does not rewrite widgets, links, node classes, graph topology, or final coordinates.
+
+The contract path uses frozen dataclasses plus a custom strict parser/validator. M1 intentionally does not add `pydantic` as a runtime dependency and does not emit a standalone schema artifact; `vibecomfy.porting.reorganise.parse.LAYOUT_PLAN_SCHEMA_V1` is the in-code schema dictionary and parser-adjacent documentation source.
 
 ## Agent Input: Pythonic Dataflow Projection
 
@@ -158,40 +166,40 @@ The agent-facing data should be intuitive, but the backend-owned graph facts mus
 
 ## Agent Output: Semantic LayoutPlan
 
-The agent should output JSON, not executable Python and not raw full-workflow coordinates.
+The agent should output JSON, not executable Python and not raw full-workflow coordinates. The M1 envelope is `LayoutPlan v1`:
 
 Example:
 
 ```json
 {
-  "contract_version": "layout_plan_v1",
+  "version": 1,
   "sections": [
     {
       "id": "model_pipe",
       "title": "MODEL PIPE",
-      "role": "model",
-      "kind": "row",
+      "kind": "loaders",
+      "role_hint": "loader",
       "nodes": [["", "ckpt_uid"]]
     },
     {
       "id": "prompts",
       "title": "PROMPTS",
-      "role": "conditioning",
-      "kind": "pair",
+      "kind": "conditioning",
+      "role_hint": "conditioning",
       "nodes": [["", "pos_uid"], ["", "neg_uid"]]
     },
     {
       "id": "sampling",
       "title": "SAMPLING",
-      "role": "sampling",
-      "kind": "fan_in",
+      "kind": "sampling",
+      "role_hint": "sampler",
       "nodes": [["", "latent_uid"], ["", "sampler_uid"]]
     },
     {
       "id": "output",
       "title": "OUTPUT",
-      "role": "output",
-      "kind": "pipeline",
+      "kind": "output",
+      "role_hint": "output",
       "nodes": [["", "decode_uid"], ["", "save_uid"]]
     }
   ],
@@ -203,29 +211,27 @@ Example:
     }
   ],
   "helper_placements": [],
-  "constraints": {
-    "preserve_existing_groups": true,
-    "preserve_pinned_nodes": true,
-    "no_topology_changes": true
-  }
+  "sampler_relations": [],
+  "unassigned_policy": "classify_deterministically"
 }
 ```
 
-The schema should be a strict JSON Schema or Pydantic discriminated union. It must reject unknown section kinds, unknown keys, duplicate ownership, forbidden topology fields, and bare UID references.
+The parser must reject unknown top-level and nested keys, unknown section kinds, malformed helper placements, forbidden backend-owned fields, and bare UID references. The validator then rejects unknown refs, duplicate or missing primary ownership, invalid helper targets, cross-scope primary ownership, invalid subgraph boundaries, forbidden topology and coordinate payloads, and sampler relationship contradictions proven by graph facts.
 
-Allowed section kinds:
+Allowed M1 section kinds are semantic ownership buckets:
 
-- `single`
-- `pair`
-- `row`
-- `pipeline`
-- `fan_in`
-- `fan_out`
-- `parallel_branches`
-- `alternatives`
-- `grid`
-- `hub_and_spokes`
-- `notes_sidebar`
+- `loaders`
+- `conditioning`
+- `latent`
+- `sampling`
+- `decode`
+- `output`
+- `control`
+- `postprocess`
+- `utility`
+- `branch`
+- `container`
+- `custom`
 
 Canonical node refs are always:
 
@@ -235,9 +241,9 @@ Canonical node refs are always:
 
 Never use bare UIDs, because subgraphs and scoped nodes need the same address model as agent-edit.
 
-`flows` should not be agent-authored in v1. The compiler computes group dependencies from the graph. If a future plan includes advisory flow hints, they must be validated against topology and never override actual edges.
+`scope_path` is the scope-chain string and `""` means the root workflow scope. Raw LiteGraph integer IDs are not durable plan references.
 
-`shared_nodes.consumers` should be compiler-derived. The agent may choose `home` and an optional semantic `label`; the backend computes consumers from the effective graph.
+Backend-owned fields are not agent-authored in v1. This includes coordinates (`pos`, `position`, `coords`, `x`, `y`, `size`), topology (`links`, `link`, `edges`, `flow`, `flows`, `topology`), widgets and node payloads (`widgets`, `node_payload`, `raw_node`, `raw_link`), and derived ownership/fact fields such as `shared_nodes.consumers`. The backend computes topology, consumers, dependency order, and future coordinates from the LiteGraph UI JSON and graph facts.
 
 Every non-helper node must be owned by exactly one primary section. Helper nodes may be handled through `helper_placements`. If the agent leaves nodes unassigned, the plan may set an explicit `unassigned_policy`:
 
@@ -251,9 +257,11 @@ Allowed unassigned policies:
 
 - `reject`
 - `classify_deterministically`
-- `misc_section`
+- `preserve_existing`
 
 Schema default for v1: `classify_deterministically`. Omission is normalized to this value, not rejected, but the report must list every backend-assigned node.
+
+Optional `sampler_relations` are semantic claims only. Allowed kinds are `same_sampler_pair`, `parallel_sampler_branch`, `sampler_refines`, `sampler_precedes`, and `independent_samplers`. They cannot override topology facts.
 
 The agent decides semantic structure:
 
@@ -270,29 +278,26 @@ The backend decides coordinates.
 
 Set/Get, reroute, primitives, switches, and notes should not be forced into primary semantic ownership when that would make the layout misleading.
 
-Add a separate helper placement channel:
+M1 uses a separate helper placement channel:
 
 ```json
 {
   "helper_placements": [
     {
-      "node": ["", "set_model_uid"],
-      "kind": "set_node",
-      "place": "near_producer",
+      "helper": ["", "set_model_uid"],
+      "kind": "near-producer",
       "target": ["", "ckpt_uid"],
-      "virtual_edge_name": "ModelPipe"
+      "reason": "ModelPipe producer"
     },
     {
-      "node": ["", "get_model_uid"],
-      "kind": "get_node",
-      "place": "near_consumer",
+      "helper": ["", "get_model_uid"],
+      "kind": "near-consumer",
       "target": ["", "sampler_uid"],
-      "virtual_edge_name": "ModelPipe"
+      "reason": "ModelPipe consumer"
     },
     {
-      "node": ["", "reroute_uid"],
-      "kind": "reroute",
-      "place": "on_edge_path",
+      "helper": ["", "reroute_uid"],
+      "kind": "edge-path",
       "from": ["", "pos_uid"],
       "to": ["", "sampler_uid"]
     }
@@ -302,27 +307,23 @@ Add a separate helper placement channel:
 
 Allowed helper placements:
 
-- `near_producer`
-- `near_consumer`
-- `on_edge_path`
-- `inside_section`
-- `notes_sidebar`
-- `preserve_position`
+- `near-producer`
+- `near-consumer`
+- `edge-path`
+- `inside-section`
 
 Required fields by placement:
 
-| `place` | Required fields | Compiler behavior |
+| `kind` | Required fields | M1 validation behavior |
 |---|---|---|
-| `near_producer` | `target` | place above or right of the producer bounding box with `helper_gutter_px` spacing |
-| `near_consumer` | `target` | place above or left of the consumer bounding box with `helper_gutter_px` spacing |
-| `on_edge_path` | `from`, `to` | place at `lerp(source.center, target.center, 0.5)` with a small perpendicular offset if needed |
-| `inside_section` | `section_id` | place in the section's utility lane, outside the primary node chain |
-| `notes_sidebar` | none | place in the annotation gutter for the nearest owning section |
-| `preserve_position` | none | preserve existing position unless it overlaps after primary layout |
+| `near-producer` | `target` | `helper` must be a helper/UI node and `target` must be a non-helper node in the same scope. |
+| `near-consumer` | `target` | `helper` must be a helper/UI node and `target` must be a non-helper node in the same scope. |
+| `edge-path` | `from`, `to` | `helper` must be a helper/UI node; both endpoints must be valid non-helper refs in the helper's scope. |
+| `inside-section` | `section_id` | `helper` must be a helper/UI node and `section_id` must refer to an existing section. |
 
-Missing required fields are validation errors. The compiler may auto-detect omitted Set/Get/reroute helper nodes and assign `preserve_position` or a deterministic helper placement, but it must report every auto-assigned helper.
+Missing required fields are parser or validation errors. Helper/UI nodes are invalid in primary section ownership and shared-node home channels.
 
-The compiler uses effective virtual edges for ranking and proximity, but v1 does not add/remove Set/Get/reroute nodes.
+Graph facts include Set/Get virtual links and reroute/source passthrough facts for reasoning, ranking, and validation. M1 does not add/remove Set/Get/reroute nodes or change helper topology.
 
 ## Top-Level Grouping Rules
 
@@ -355,8 +356,8 @@ Default ownership policy:
 - `VAEDecode` and immediate decode-to-terminal transforms live in `output` when the path is simply `sampler -> decode -> save/preview/video combine`.
 - Use a separate `decode` section only when there are multiple decode nodes, decode-side branching, decode-specific controls, or post-decode transforms before terminal output.
 - `EmptyLatentImage` and latent source nodes live in `sampling` when their only consumer is a sampler. They live in `input` only when they behave like user-facing source media or feed several downstream paths.
-- Prompt pairs (`positive`/`negative`) are `pair` sections by default.
-- Two equivalent single-node siblings are `pair`; promote to `parallel_branches` when each sibling owns an internal chain or terminal path.
+- Prompt pairs (`positive`/`negative`) are grouped in a `conditioning` section and may receive a future local `pair` template.
+- Two equivalent single-node siblings may use a future local `pair` template; promote to a future `parallel_branches` local template when each sibling owns an internal chain or terminal path.
 - Symmetric branches with no objective primary should use neutral names such as `BRANCH A`, `BRANCH B`, or role-derived names. Use `MAIN`/`VARIATION` only when topology, title, active output, or user metadata supports that distinction.
 - For parallel sampler branches with their own decode/output terminal path, keep `latent -> sampler -> decode -> save` inside each branch pipeline. Do not split decode/output into separate top-level sections unless the terminal path is shared or complex.
 - `shared_nodes` is for broad infrastructure and cross-section producers whose home matters visually, especially model, CLIP, VAE, source media, and reusable masks. It is not required for every ordinary edge that crosses section boundaries.
@@ -374,15 +375,35 @@ If sampler B consumes sampler A's latent/image output, they are sequential.
 BASE SAMPLER -> REFINER SAMPLER -> DECODE -> OUTPUT
 ```
 
-Plan shape:
+M1 plan shape:
 
 ```json
 {
-  "id": "two_stage_sampling",
-  "title": "TWO-STAGE SAMPLING",
-  "role": "sampling",
-  "kind": "pipeline",
-  "nodes": [["", "sampler_base_uid"], ["", "sampler_refiner_uid"], ["", "decode_uid"], ["", "save_uid"]]
+  "version": 1,
+  "sections": [
+    {
+      "id": "two_stage_sampling",
+      "title": "TWO-STAGE SAMPLING",
+      "kind": "sampling",
+      "role_hint": "sampler",
+      "nodes": [["", "sampler_base_uid"], ["", "sampler_refiner_uid"]]
+    },
+    {
+      "id": "output",
+      "title": "OUTPUT",
+      "kind": "output",
+      "role_hint": "output",
+      "nodes": [["", "decode_uid"], ["", "save_uid"]]
+    }
+  ],
+  "sampler_relations": [
+    {
+      "kind": "sampler_refines",
+      "samplers": [["", "sampler_base_uid"], ["", "sampler_refiner_uid"]],
+      "source": ["", "sampler_base_uid"],
+      "target": ["", "sampler_refiner_uid"]
+    }
+  ]
 }
 ```
 
@@ -395,29 +416,39 @@ SAMPLER A -> DECODE A -> OUTPUT A
 SAMPLER B -> DECODE B -> OUTPUT B
 ```
 
-Plan shape:
+M1 plan shape:
 
 ```json
 {
-  "id": "sampling",
-  "title": "SAMPLING",
-  "role": "sampling",
-  "kind": "parallel_branches",
-  "branches": [
+  "version": 1,
+  "sections": [
     {
-      "id": "main",
+      "id": "sampling_main",
       "title": "MAIN",
-      "nodes": [["", "latent_a_uid"], ["", "sampler_a_uid"], ["", "decode_a_uid"], ["", "save_a_uid"]],
-      "kind": "pipeline"
+      "kind": "branch",
+      "role_hint": "sampler",
+      "nodes": [["", "latent_a_uid"], ["", "sampler_a_uid"], ["", "decode_a_uid"], ["", "save_a_uid"]]
     },
     {
-      "id": "variation",
+      "id": "sampling_variation",
       "title": "VARIATION",
-      "nodes": [["", "latent_b_uid"], ["", "sampler_b_uid"], ["", "decode_b_uid"], ["", "save_b_uid"]],
-      "kind": "pipeline"
+      "kind": "branch",
+      "role_hint": "sampler",
+      "nodes": [["", "latent_b_uid"], ["", "sampler_b_uid"], ["", "decode_b_uid"], ["", "save_b_uid"]]
     }
   ],
-  "shared_inputs": [["", "model_uid"], ["", "positive_uid"], ["", "negative_uid"], ["", "vae_uid"]]
+  "shared_nodes": [
+    {"node": ["", "model_uid"], "home": "model_pipe"},
+    {"node": ["", "positive_uid"], "home": "prompts"},
+    {"node": ["", "negative_uid"], "home": "prompts"},
+    {"node": ["", "vae_uid"], "home": "model_pipe"}
+  ],
+  "sampler_relations": [
+    {
+      "kind": "parallel_sampler_branch",
+      "samplers": [["", "sampler_a_uid"], ["", "sampler_b_uid"]]
+    }
+  ]
 }
 ```
 
@@ -634,7 +665,7 @@ The compiler must report numeric metrics:
 - `backwards_edge_ratio <= 0.10` for visible non-helper links
 - `crossing_proxy_score` improves versus baseline or remains below threshold
 - `min_node_gutter_px >= NODE_ROW_GAP`
-- `max_helper_distance_px <= configured threshold` unless `preserve_position`
+- `max_helper_distance_px <= configured threshold` unless a later compiler explicitly preserves an existing helper position
 - `idempotence_pos_delta_px <= 2` on second reorganise pass
 - `unassigned_non_helper_count == 0`
 - `structural_hash_unchanged == true`
