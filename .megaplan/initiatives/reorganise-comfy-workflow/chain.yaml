@@ -1,5 +1,8 @@
 base_branch: main
 
+anchors:
+  north_star: NORTHSTAR.md
+
 milestones:
   - label: m1-layout-contract-and-facts
     idea: .megaplan/initiatives/reorganise-comfy-workflow/briefs/m1-layout-contract-and-facts.md
