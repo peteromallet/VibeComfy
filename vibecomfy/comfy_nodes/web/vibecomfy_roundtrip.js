@@ -160,6 +160,7 @@ import {
   assertApplyScopeConsistency,
 } from "./active_canvas_scope_guard.js";
 import { installPreviewPicker } from "./preview_picker.js";
+import { installAgenticReplay } from "./agentic_replay.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
@@ -3862,6 +3863,76 @@ function createAgentPanelShell() {
       PANEL_STATE,
       RENDER_SECTIONS,
     },
+  });
+
+  // ── Agentic replay toolbar (dev-only, gated by localStorage) ───────────────
+  // Local canvas-apply helpers that mirror the existing demo Apply branch in
+  // applyAgentCandidate: intent decoration before configure, intent repair
+  // after configure, and repaint.  These are passed into the replay module so
+  // it can apply/restore graphs without duplicating the roundtrip's own
+  // intent-decorate and repair logic.
+
+  /**
+   * Apply a replay candidate graph with intent decoration and repair,
+   * mirroring the demo Apply branch in applyAgentCandidate.
+   * @param {object} candidateGraph - LiteGraph payload to apply
+   */
+  function applyReplayGraphCandidate(candidateGraph) {
+    if (!candidateGraph) return;
+    let repairCandidate = null;
+    try {
+      applyGraphCandidateInPlace(app, candidateGraph, {
+        beforeConfigure(nextCandidate) {
+          decorateIntentGraphPayload(nextCandidate);
+          repairCandidate = clonePlainData(nextCandidate);
+        },
+        afterConfigure(_graph, nextCandidate) {
+          repairLiveIntentNodesFromCandidate(repairCandidate || nextCandidate);
+        },
+        repaint: true,
+      });
+    } catch (e) {
+      console.warn("[vibecomfy] replay candidate graph apply failed:", e);
+    }
+  }
+
+  /**
+   * Apply (restore) an original graph.  Uses the same path as the candidate
+   * helper for consistency.
+   * @param {object} originalGraph - LiteGraph payload to apply
+   */
+  function applyReplayOriginalGraph(originalGraph) {
+    if (!originalGraph) return;
+    let repairCandidate = null;
+    try {
+      applyGraphCandidateInPlace(app, originalGraph, {
+        beforeConfigure(nextCandidate) {
+          decorateIntentGraphPayload(nextCandidate);
+          repairCandidate = clonePlainData(nextCandidate);
+        },
+        afterConfigure(_graph, nextCandidate) {
+          repairLiveIntentNodesFromCandidate(repairCandidate || nextCandidate);
+        },
+        repaint: true,
+      });
+    } catch (e) {
+      console.warn("[vibecomfy] replay original graph apply failed:", e);
+    }
+  }
+
+  panel.agenticReplay = installAgenticReplay(panel, {
+    headerRight,
+    helpers: {
+      app,
+      applyGraphCandidateInPlace,
+      scheduleRenderAgentPanel,
+      currentAgentPanel,
+      PANEL_STATE,
+      RENDER_SECTIONS,
+    },
+    applyReplayGraphCandidate,
+    applyReplayOriginalGraph,
+    _panel: panel,
   });
 
   return panel;

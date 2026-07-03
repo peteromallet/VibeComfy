@@ -25,6 +25,7 @@ const SCOPE_RESOLVER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "
 const SCOPED_SESSION_STORAGE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "scoped_session_storage.js");
 const MARKDOWN_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "markdown.js");
 const PREVIEW_PICKER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "preview_picker.js");
+const AGENTIC_REPLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agentic_replay.js");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -137,6 +138,10 @@ class FakeElement {
     return Boolean(this.parentNode?.isConnected);
   }
 
+  get options() {
+    return this.children;
+  }
+
   appendChild(child) {
     if (child.parentNode && child.parentNode !== this) {
       child.parentNode.removeChild(child);
@@ -157,7 +162,14 @@ class FakeElement {
     return child;
   }
 
-  remove() {
+  remove(index) {
+    if (typeof index === "number") {
+      const child = this.children[index];
+      if (child) {
+        this.removeChild(child);
+      }
+      return;
+    }
     if (this.parentNode) {
       this.parentNode.removeChild(this);
     }
@@ -809,6 +821,7 @@ export async function createBrowserHarness({
   await writeFile(path.join(webRoot, "scoped_session_storage.js"), await readFile(SCOPED_SESSION_STORAGE_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "markdown.js"), await readFile(MARKDOWN_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "preview_picker.js"), await readFile(PREVIEW_PICKER_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "agentic_replay.js"), await readFile(AGENTIC_REPLAY_SOURCE, "utf8"));
 
   const apiEventListeners = {};
   const mockApi = {
@@ -1012,6 +1025,10 @@ export async function createBrowserHarness({
     },
     async loadPreviewPicker() {
       const target = pathToFileURL(path.join(webRoot, "preview_picker.js")).href;
+      return import(`${target}?t=${Date.now()}`);
+    },
+    async loadAgenticReplay() {
+      const target = pathToFileURL(path.join(webRoot, "agentic_replay.js")).href;
       return import(`${target}?t=${Date.now()}`);
     },
     async loadPanelRuntime() {
