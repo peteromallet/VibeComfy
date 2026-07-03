@@ -277,6 +277,11 @@ def _canonical_agent_edit_route(route: str | None) -> str | None:
         "direct_edit": "revise",
         "diagnose_repair": "revise",
         "precedent_research": "adapt",
+        "/reorganise_comfy_workflow": "reorganise",
+        "reorganise_comfy_workflow": "reorganise",
+        "/reorganize_comfy_workflow": "reorganise",
+        "reorganize_comfy_workflow": "reorganise",
+        "reorganize": "reorganise",
     }
     return aliases.get(normalized, normalized)
 

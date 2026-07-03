@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts import sync_agent_skill
+
 
 ROOT = Path(__file__).resolve().parents[1]
 AUXILIARY_SKILLS = {
@@ -11,6 +13,7 @@ AUXILIARY_SKILLS = {
     "debug-comfy-workflow",
     "explain-comfy-workflow",
     "edit-comfy-workflow",
+    "reorganise-comfy-workflow",
     "run-comfy-workflow",
     "search-comfy-workflows",
     "vibecomfy-setup",
@@ -21,6 +24,8 @@ def test_agent_skill_surfaces_are_synced() -> None:
     source = (ROOT / "docs" / "agent-skill" / "SKILL.md").read_text(encoding="utf-8")
     reference = ROOT / "docs" / "agent-skill" / "REFERENCE.md"
 
+    assert set(sync_agent_skill.EXPECTED_AUXILIARY_SKILLS) == AUXILIARY_SKILLS
+    assert "sync-vibecomfy-skills" in sync_agent_skill.OBSOLETE_AUXILIARY_SKILLS
     assert "name: vibecomfy" in source
     assert "REFERENCE.md" in source
     assert reference.exists(), f"{reference} is missing"

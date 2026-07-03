@@ -206,6 +206,41 @@ def handle_agent_edit(
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
     state.route = route
 
+    from .reorganise import build_reorganise_agent_response, is_reorganise_agent_request
+
+    if is_reorganise_agent_request(task, route):
+        state.route = "reorganise"
+        response = _validated_agent_edit_response(
+            build_reorganise_agent_response(state, context),
+            stage="submit",
+        )
+        try:
+            audit_ref = _stage_audit(state, context, response=response)
+            response["audit_ref"] = audit_ref.to_dict()
+        except Exception as exc:
+            failure = failure_envelope(
+                FailureKind.AUDIT_WRITE_FAILURE,
+                "audit",
+                context,
+                agent_failure_context={"explanation": str(exc)},
+                audit_error=str(exc),
+            )
+            return _validated_agent_edit_response(_product_failure_response(failure), stage="audit")
+        response = _validated_agent_edit_response(response, stage="submit")
+        _write_turn_chat_artifact(state, context, response, contract)
+        record_idempotent_response(
+            session_root=root,
+            session_id=session_id,
+            scope="edit",
+            idempotency_key=payload.get("idempotency_key") if isinstance(payload.get("idempotency_key"), str) else None,
+            request_hash=allocation.request_hash,
+            response=response,
+            response_path=turn_dir / "response.json",
+            operation="edit",
+            turn_id=context.turn_id,
+        )
+        return response
+
     # Load session-local last-five conversation messages for prompt memory.
     # Only the batch_repl product path injects them (SD2); delta/full-dev
     # paths persist chat artifacts but do not receive prompt memory in this

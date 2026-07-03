@@ -131,8 +131,10 @@ def test_compile_layout_plan_returns_public_contract_and_candidate_patch() -> No
     facts = extract_graph_facts(_ui())
 
     result = compile_layout_plan(_valid_plan(), facts)
+    from_ui_result = compile_layout_plan_from_ui(_valid_plan(), _ui())
 
     assert result.ok is True
+    assert from_ui_result.to_json() == result.to_json()
     assert result.validation_report.ok is True
     assert result.report.verdict == "ok"
     assert [metric.name for metric in result.metrics] == [
@@ -182,6 +184,22 @@ def test_compile_layout_plan_returns_public_contract_and_candidate_patch() -> No
         "sample",
         "save",
     ]
+    assert set(patch["entries"]["checkpoint"]) <= {
+        "pos",
+        "size",
+        "flags",
+        "color",
+        "bgcolor",
+        "mode",
+        "properties",
+    }
+    assert not {
+        "type",
+        "class_type",
+        "widgets_values",
+        "inputs",
+        "outputs",
+    } & set(patch["entries"]["checkpoint"])
     assert [group["title"] for group in patch["groups"]] == [
         "Conditioning",
         "Loaders",
@@ -230,6 +248,7 @@ def test_compile_layout_plan_candidate_patch_round_trips_as_layout_store_envelop
     assert patch["store_version"] == STORE_VERSION
     assert patch["vibecomfy_version"] == "sidecar-version"
     assert patch["schema_hash"] != "stale-schema"
+    assert "reorganise_compiler" not in patch
     assert patch["extra"] == sidecar["extra"]
     assert patch["lastRerouteId"] == 44
     assert patch["definitions"] == sidecar["definitions"]

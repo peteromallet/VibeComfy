@@ -17,6 +17,7 @@ EXPECTED_AUXILIARY_SKILLS = (
     "debug-comfy-workflow",
     "explain-comfy-workflow",
     "edit-comfy-workflow",
+    "reorganise-comfy-workflow",
     "run-comfy-workflow",
     "search-comfy-workflows",
     "vibecomfy-setup",

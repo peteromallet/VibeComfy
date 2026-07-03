@@ -24,6 +24,7 @@ def test_cli_command_registry_is_explicit_and_ordered() -> None:
         "analyze",
         "search",
         "inspect",
+        "reorganise",
         "port",
         "contract",
         "validate",

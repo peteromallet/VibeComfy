@@ -87,6 +87,43 @@ def _build_candidate_payload(
     return candidate.to_dict()
 
 
+def _layout_only_reorganise_evidence_changed(state: AgentEditState) -> bool:
+    report = getattr(state, "report", None)
+    if not isinstance(report, Mapping) or report.get("kind") != "reorganise":
+        return False
+    evidence = report.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return False
+    if evidence.get("candidate_available") is True:
+        return True
+    if evidence.get("full_ui_payload_hash_changed") is True:
+        return True
+    if evidence.get("layout_evidence_changed") is True:
+        return True
+    patch_apply = evidence.get("patch_apply")
+    if not isinstance(patch_apply, Mapping):
+        return False
+    return bool(
+        patch_apply.get("applied_entry_keys")
+        or patch_apply.get("applied_group_scopes")
+        or patch_apply.get("candidate_patch_sha256")
+    )
+
+
+def _candidate_full_ui_payload_changed(state: AgentEditState) -> bool:
+    if not isinstance(state.ui_payload, Mapping) or not isinstance(state.graph, Mapping):
+        return False
+    return payload_hash(state.ui_payload) != payload_hash(state.graph)
+
+
+def _response_contract_candidate_present(state: AgentEditState) -> bool:
+    if _batch_candidate_graph_changed(state):
+        return True
+    if _canonical_agent_edit_route(state.route) != "reorganise":
+        return False
+    return _candidate_full_ui_payload_changed(state) or _layout_only_reorganise_evidence_changed(state)
+
+
 def _plan_validation_allows_candidate(state: AgentEditState, context: TurnContext) -> bool:
     execution_plan = getattr(state, "execution_plan", None)
     if execution_plan is None:
@@ -623,7 +660,7 @@ def _build_batch_repl_response(
     route_blocks_apply = _route_blocks_apply(state.route)
     has_candidate = (
         state.batch_exit_mode in {_BATCH_EXIT_EDIT_CLARIFY, _BATCH_EXIT_DONE}
-        and _batch_candidate_graph_changed(state)
+        and _response_contract_candidate_present(state)
     )
     if (
         _canonical_agent_edit_route(state.route) == "revise"

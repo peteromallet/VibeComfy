@@ -20,6 +20,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("analyze", "vibecomfy.commands.analyze"),
     CommandSpec("search", "vibecomfy.commands.search"),
     CommandSpec("inspect", "vibecomfy.commands.inspect"),
+    CommandSpec("reorganise", "vibecomfy.commands.reorganise"),
     CommandSpec("port", "vibecomfy.commands.port"),
     CommandSpec("contract", "vibecomfy.commands.contract"),
     CommandSpec("validate", "vibecomfy.commands.validate"),

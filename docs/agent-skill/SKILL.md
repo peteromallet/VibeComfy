@@ -14,6 +14,7 @@ Use this umbrella skill for orientation and package rules. For real work, route 
 | Configure ComfyUI paths, server URL, custom nodes, or models | `vibecomfy-setup` |
 | Find a workflow, precedent, node wiring, or Hivemind evidence | `search-comfy-workflows` |
 | Explain what a workflow does or answer questions about it | `explain-comfy-workflow` |
+| Clean up, regroup, or align a ComfyUI workflow layout without changing runtime behavior | `reorganise-comfy-workflow` |
 | Tweak or rewrite a workflow without running it | `edit-comfy-workflow` |
 | Execute a ready template, recipe, scratchpad, server run, or RunPod smoke | `run-comfy-workflow` |
 | Diagnose validation, conversion, node/model, or runtime failures | `debug-comfy-workflow` |
