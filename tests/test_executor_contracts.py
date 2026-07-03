@@ -29,6 +29,7 @@ from vibecomfy.executor.contracts import (
     TopologyFindings,
     WorkflowSlice,
     _ALLOWED_ROUTES,
+    _ALLOWED_TASKS,
     adaptation_plan_actionability,
     adaptation_plan_actionability_payload,
     format_route_options_for_prompt,
@@ -239,7 +240,7 @@ class TestClassifyDecision:
 
     def test_route_allows_all_valid_values(self) -> None:
         """All canonical route values are accepted."""
-        valid_routes = ["", "clarify", "inspect", "revise", "adapt"]
+        valid_routes = ["", "clarify", "inspect", "revise", "adapt", "reorganise"]
         for r in valid_routes:
             d = ClassifyDecision(route=r)
             assert d.route == r, f"route={r!r} was clamped"
@@ -344,13 +345,50 @@ class TestClassifyDecision:
 
     def test_task_allows_all_valid_values(self) -> None:
         """All canonical task values are accepted."""
-        valid_tasks = [
-            "", "edit_graph", "inspect_graph", "find_assets",
-            "diagnose", "preview_subgraph", "research_precedent", "respond", "research_nodes",
-        ]
-        for t in valid_tasks:
+        for t in _ALLOWED_TASKS:
             d = ClassifyDecision(task=t)
             assert d.task == t, f"task={t!r} was clamped"
+
+    @pytest.mark.parametrize(
+        "route_alias",
+        [
+            "reorganise",
+            "layout_reorganise",
+            "reorganise_workflow",
+            "reorganize_workflow",
+            "reorganise_comfy_workflow",
+            "/reorganise_comfy_workflow",
+        ],
+    )
+    def test_explicit_reorganise_aliases_canonicalize_to_layout_task(
+        self,
+        route_alias: str,
+    ) -> None:
+        d = ClassifyDecision(
+            research=True,
+            implement=False,
+            intent="edit",
+            route=route_alias,
+            task="edit_graph",
+        )
+
+        assert d.route == "reorganise"
+        assert d.task == "layout_reorganise"
+        assert d.effective_route == "reorganise"
+        assert d.effective_task == "layout_reorganise"
+        assert d.research is False
+        assert d.implement is True
+
+    def test_layout_reorganise_task_without_route_canonicalizes_to_reorganise(self) -> None:
+        d = ClassifyDecision(
+            research=False,
+            implement=True,
+            intent="edit",
+            task="layout_reorganise",
+        )
+
+        assert d.route == "reorganise"
+        assert d.task == "layout_reorganise"
 
     def test_intent_clamped_to_respond(self) -> None:
         """Invalid intent is clamped to 'respond' in __post_init__."""
@@ -626,6 +664,7 @@ class TestAgentTurnResult:
             ("inspect", None, False, "route_not_applyable"),
             ("revise", {"graph": {"nodes": [{"id": 1}]}}, True, None),
             ("adapt", {"graph": {"nodes": [{"id": 1}]}}, True, None),
+            ("reorganise", {"graph": {"nodes": [{"id": 1}]}}, True, None),
         ],
     )
     def test_canonical_public_envelope_and_apply_eligibility_by_route(
@@ -652,7 +691,7 @@ class TestAgentTurnResult:
             "no_candidate_reason",
         }
         assert payload["route"] == route
-        assert payload["route"] in {"clarify", "inspect", "revise", "adapt"}
+        assert payload["route"] in {"clarify", "inspect", "revise", "adapt", "reorganise"}
         assert payload["apply_eligible"] is expected_apply_eligible
         assert payload["candidate"] == candidate
         assert payload["no_candidate_reason"] == expected_reason
@@ -1162,6 +1201,37 @@ class TestParseClassifyResponse:
         assert d.task == "edit_graph"
         assert d.effective_route == "revise"
         assert d.effective_task == "edit_graph"
+
+    @pytest.mark.parametrize(
+        "request_text",
+        [
+            "/reorganise_comfy_workflow",
+            "organise this workflow",
+            "clean up the canvas",
+            "make this readable",
+        ],
+    )
+    def test_parse_reorganise_examples_canonicalize_to_layout_task(
+        self,
+        request_text: str,
+    ) -> None:
+        raw = json.dumps({
+            "research": True,
+            "implement": False,
+            "reply": True,
+            "effort": "low",
+            "plan_summary": request_text,
+            "intent": "edit",
+            "route": "reorganise",
+        })
+
+        d = parse_classify_response(raw)
+
+        assert d.route == "reorganise"
+        assert d.task == "layout_reorganise"
+        assert d.effective_task == "layout_reorganise"
+        assert d.research is False
+        assert d.implement is True
 
     def test_parse_legacy_explicit_route_serializes_canonical(self) -> None:
         raw = json.dumps({
@@ -2357,10 +2427,10 @@ class TestResearchResultPrecedentFields:
 
 
 class TestCanonicalRouteVocabulary:
-    """Public route taxonomy is exactly the seven canonical labels plus the
+    """Public route taxonomy is exactly the eight canonical labels plus the
     internal empty-string sentinel."""
 
-    def test_allowed_routes_are_seven_public_plus_empty_sentinel(self) -> None:
+    def test_allowed_routes_are_eight_public_plus_empty_sentinel(self) -> None:
         assert _ALLOWED_ROUTES == {
             "",
             "clarify",
@@ -2369,6 +2439,7 @@ class TestCanonicalRouteVocabulary:
             "research",
             "revise",
             "adapt",
+            "reorganise",
             "requires_custom_nodes",
         }
 
@@ -2381,6 +2452,7 @@ class TestCanonicalRouteVocabulary:
             "research",
             "revise",
             "adapt",
+            "reorganise",
             "requires_custom_nodes",
         ):
             assert f'"{route}"' in options, f"route {route!r} missing from prompt"
@@ -2404,11 +2476,26 @@ class TestClassifierDecisionTable:
             "inspect": 'route="inspect"',
             "revise": 'route="revise"',
             "adapt": 'route="adapt"',
+            "reorganise": 'route="reorganise"',
             "clarify": 'route="clarify"',
         }
         for route, marker in route_entries.items():
             assert marker in system, f"Decision-table entry for {route!r} missing from classify prompt"
         assert 'route="requires_custom_nodes"' not in system
+
+    def test_system_prompt_routes_organisational_requests_to_reorganise(self) -> None:
+        msgs = build_classify_messages("make this readable")
+        system = msgs[0]["content"]
+
+        for example in (
+            "/reorganise_comfy_workflow",
+            "organise this workflow",
+            "clean up the canvas",
+            "make this readable",
+        ):
+            assert example in system
+        assert 'route="reorganise"' in system
+        assert 'task="layout_reorganise"' in system
 
     def test_system_prompt_routes_named_external_edit_to_adapt(self) -> None:
         msgs = build_classify_messages("Switch to generating 16 frames with Hotshot")
@@ -2546,7 +2633,7 @@ class TestRepresentativeExamples:
 
 
 class TestRouteAwareReplyConstraints:
-    """Verify the reply system prompt has per-route instructions for all six
+    """Verify the reply system prompt has per-route instructions for canonical
     routes, forbids internal gate names, and forbids apply/review language for
     non-applyable routes."""
 
@@ -2557,6 +2644,7 @@ class TestRouteAwareReplyConstraints:
         ("research", 'route="research"'),
         ("revise", 'route="revise"'),
         ("adapt", 'route="adapt"'),
+        ("reorganise", 'route="reorganise"'),
     ])
     def test_reply_prompt_has_per_route_instruction(self, route: str, marker: str) -> None:
         from vibecomfy.executor.prompts import _REPLY_SYSTEM

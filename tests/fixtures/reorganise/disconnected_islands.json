@@ -1,0 +1,204 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "vibecomfy": {
+      "fixture": "disconnected_islands",
+      "coverage": [
+        "disconnected_islands",
+        "main_output_path",
+        "reference_preview_island"
+      ],
+      "thresholds": {
+        "min_disconnected_components": 2,
+        "max_primary_nodes": 7,
+        "expected_layout_pressure": "separate unrelated islands while keeping each island internally readable"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "class_type": "LoadImage",
+      "title": "Source",
+      "pos": [
+        120,
+        120
+      ],
+      "size": [
+        260,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "source"
+      },
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            10
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "ImageBlur",
+      "class_type": "ImageBlur",
+      "pos": [
+        140,
+        140
+      ],
+      "size": [
+        240,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "blur"
+      },
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            11
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "pos": [
+        165,
+        165
+      ],
+      "size": [
+        240,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "save"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 11
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LoadImage",
+      "class_type": "LoadImage",
+      "title": "Reference Only",
+      "pos": [
+        130,
+        130
+      ],
+      "size": [
+        260,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "reference"
+      },
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "PreviewImage",
+      "class_type": "PreviewImage",
+      "pos": [
+        155,
+        155
+      ],
+      "size": [
+        240,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "reference_preview"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "CLIPTextEncode",
+      "class_type": "CLIPTextEncode",
+      "title": "Parked Prompt",
+      "pos": [
+        150,
+        150
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "properties": {
+        "vibecomfy_uid": "parked_prompt"
+      },
+      "widgets_values": [
+        "unused prompt island"
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      2,
+      0,
+      "IMAGE"
+    ],
+    [
+      11,
+      2,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      12,
+      4,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": []
+}

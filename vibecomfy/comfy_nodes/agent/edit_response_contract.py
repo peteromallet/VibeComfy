@@ -234,6 +234,66 @@ def _record_narrative_artifacts(state: AgentEditState) -> None:
         state.artifacts = {**(state.artifacts or {}), **artifacts}
 
 
+def _post_edit_reorganisation_public_advisory(decision: Any) -> dict[str, Any]:
+    payload = decision.to_json()
+    return {
+        **_json_safe(payload),
+        "advisory": True,
+        "suggested_command": "/reorganise_comfy_workflow",
+        "message": (
+            "The edit is ready to review, and the canvas may benefit from "
+            "/reorganise_comfy_workflow."
+        ),
+    }
+
+
+def _record_post_edit_reorganisation_advisory(
+    state: AgentEditState,
+    context: TurnContext,
+    *,
+    has_candidate: bool,
+    apply_eligibility: ApplyEligibility,
+) -> dict[str, Any] | None:
+    state.post_edit_reorganisation_advisory = None
+    if not has_candidate or not apply_eligibility.applyable:
+        return None
+    if (
+        _route_blocks_apply(state.route)
+        or _canonical_agent_edit_route(state.route) == "reorganise"
+    ):
+        return None
+    if not isinstance(state.graph, Mapping) or not isinstance(state.ui_payload, Mapping):
+        return None
+    try:
+        from .layout_reorganisation import decide_post_edit_reorganisation
+
+        decision = decide_post_edit_reorganisation(state.graph, state.ui_payload)
+    except Exception:
+        LOGGER.debug("post-edit reorganisation advisory decision failed", exc_info=True)
+        return None
+    decision_result = getattr(decision, "result", None)
+    if decision_result == "prepare_candidate":
+        try:
+            from .reorganise import prepare_post_edit_reorganise_candidate
+
+            metadata = prepare_post_edit_reorganise_candidate(
+                state,
+                context,
+                source_ui=dict(state.ui_payload),
+                decision=decision,
+            )
+        except Exception:
+            LOGGER.debug("post-edit reorganisation candidate preparation failed", exc_info=True)
+            return None
+        state.post_edit_reorganisation_advisory = metadata
+        return metadata
+    if decision_result != "offer_reorganisation":
+        return None
+    advisory = _post_edit_reorganisation_public_advisory(decision)
+    state.post_edit_reorganisation_advisory = advisory
+    return advisory
+
+
 def _has_enough_grounded_facts_for_dev_narrative(state: AgentEditState) -> bool:
     """Return True when the dev success path has batch-repl-style grounded facts.
 
@@ -676,7 +736,6 @@ def _build_batch_repl_response(
     plan_allows_candidate = _plan_validation_allows_candidate(state, context)
     if not plan_allows_candidate:
         has_candidate = False
-    compatibility_fields = _build_compatibility_response_fields(state)
     response_apply_eligibility = derive_apply_eligibility(
         context,
         has_candidate=has_candidate,
@@ -689,6 +748,13 @@ def _build_batch_repl_response(
             reason="no_candidate",
             message=f"Apply is not available for {state.route} routes.",
         )
+    _record_post_edit_reorganisation_advisory(
+        state,
+        context,
+        has_candidate=has_candidate,
+        apply_eligibility=response_apply_eligibility,
+    )
+    compatibility_fields = _build_compatibility_response_fields(state)
     candidate_payload = _build_candidate_payload(
         state,
         compatibility_fields=compatibility_fields,
@@ -809,6 +875,10 @@ def _build_batch_repl_response(
             response["done_summary"] = state.batch_done_summary
     elif state.batch_done_summary:
         response["done_summary"] = state.batch_done_summary
+    if state.post_edit_reorganisation_advisory is not None:
+        response["layout_reorganisation"] = _json_safe(
+            dict(state.post_edit_reorganisation_advisory)
+        )
     response["batch_turns"] = _json_safe(state.batch_turns)
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
@@ -842,7 +912,6 @@ def _build_dev_success_response(
 ) -> dict[str, Any]:
     turn_identity = TurnIdentity.from_context(context)
     stage_snapshots = _stage_snapshot_payloads(context)
-    compatibility_fields = _build_compatibility_response_fields(state)
     plan_allows_candidate = _plan_validation_allows_candidate(state, context)
     eligibility = derive_apply_eligibility(
         context,
@@ -876,6 +945,13 @@ def _build_dev_success_response(
         internal_outcome,
         response=None,
     )
+    _record_post_edit_reorganisation_advisory(
+        state,
+        context,
+        has_candidate=has_candidate,
+        apply_eligibility=eligibility,
+    )
+    compatibility_fields = _build_compatibility_response_fields(state)
     public_outcome_kind = public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None
     if _has_enough_grounded_facts_for_dev_narrative(state):
         _prepare_narrative_artifact_paths(state)
@@ -950,6 +1026,10 @@ def _build_dev_success_response(
     )
     response["internal_outcome"] = internal_outcome.to_dict()
     response.update(_execution_plan_response_fields(state))
+    if state.post_edit_reorganisation_advisory is not None:
+        response["layout_reorganisation"] = _json_safe(
+            dict(state.post_edit_reorganisation_advisory)
+        )
     if contract == "delta":
         from vibecomfy.porting.edit.ops import op_to_dict
 

@@ -19,6 +19,7 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _agent_edit_contract,
     _agent_edit_turn_event_payload,
     _batch_warning_sentence,
+    _build_batch_repl_response,
     _conversation_with_candidate_reference,
     _format_available_node_names,
     _human_change_phrase,
@@ -369,6 +370,72 @@ def _ui_graph() -> dict:
 
 def _json_clone(value: dict) -> dict:
     return json.loads(json.dumps(value))
+
+
+def _layout_reorganisation_base_ui() -> dict:
+    return {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "pos": [100, 100],
+                "size": [180, 80],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sampler"},
+                "pos": [420, 100],
+                "size": [220, 100],
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 10}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            },
+            {
+                "id": 3,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "pos": [820, 100],
+                "size": [180, 80],
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 11}],
+            },
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+        ],
+        "groups": [
+            {
+                "title": "Generation",
+                "bounding": [50, 50, 1000, 180],
+                "nodes": [1, 2, 3],
+            }
+        ],
+    }
+
+
+def _layout_reorganisation_branch_ui() -> dict:
+    after = _json_clone(_layout_reorganisation_base_ui())
+    after["nodes"][1]["outputs"][0]["links"].append(12)
+    after["nodes"].append(
+        {
+            "id": 4,
+            "type": "PreviewImage",
+            "class_type": "PreviewImage",
+            "properties": {"vibecomfy_uid": "preview"},
+            "pos": [820, 260],
+            "size": [180, 80],
+            "inputs": [{"name": "images", "type": "IMAGE", "link": 12}],
+        }
+    )
+    after["links"].append([12, 2, 0, 4, 0, "IMAGE"])
+    after["groups"][0]["bounding"] = [50, 50, 1000, 360]
+    after["groups"][0]["nodes"].append(4)
+    return after
 
 
 def _with_volatile_canvas_drift(graph: dict) -> dict:
@@ -875,6 +942,208 @@ def _headless_gate_context() -> GateContext:
         yield ctx
     finally:
         _gate_context_var.reset(token)
+
+
+def test_batch_response_default_suggest_adds_reorganisation_advisory_without_second_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("VIBECOMFY_REORGANISE_AUTO", raising=False)
+    monkeypatch.delenv("VIBECOMFY_NARRATOR_ROUTE", raising=False)
+    monkeypatch.delenv("VIBECOMFY_NARRATOR_MODEL", raising=False)
+    before = _layout_reorganisation_base_ui()
+    after = _layout_reorganisation_branch_ui()
+    before_hash = payload_hash(before)
+    after_hash = payload_hash(after)
+    state = AgentEditState(
+        task="add a preview branch",
+        graph=before,
+        request_payload={"task": "add a preview branch", "graph": before},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=before_hash,
+        submit_graph_hash=before_hash,
+        submit_structural_graph_hash=structural_graph_hash(before),
+        submitted_client_graph_hash=before_hash,
+        submitted_client_structural_graph_hash=structural_graph_hash(before),
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+        narrative_context_path=tmp_path / "narrative_context.json",
+        narrative_request_path=tmp_path / "narrative_request.json",
+        narrative_response_path=tmp_path / "narrative_response.json",
+        narrative_validation_path=tmp_path / "narrative_validation.json",
+    )
+    state.route = "dev"
+    state.ui_payload = after
+    state.batch_exit_mode = "done"
+    state.batch_done_summary = "Added the preview branch."
+    context = TurnContext(session_id="suggest-reorganise", turn_id="0001")
+    for gate_name in list(context.gate_results):
+        context.set_gate(gate_name, True)
+
+    response = _build_batch_repl_response(state, context)
+
+    assert response["ok"] is True
+    assert response["outcome"]["kind"] == "candidate"
+    assert response["candidate"] is not None
+    assert response["candidate"]["graph"] == after
+    assert payload_hash(response["candidate"]["graph"]) == after_hash
+    assert payload_hash(response["graph"]) == after_hash
+    assert payload_hash(before) == before_hash
+    assert response["candidate_graph_hash"] == after_hash
+    advisory = response["change_details"]["layout_reorganisation"]
+    assert advisory["result"] == "offer_reorganisation"
+    assert advisory["suggested_command"] == "/reorganise_comfy_workflow"
+    assert response["layout_reorganisation"] == advisory
+    assert "/reorganise_comfy_workflow" in response["message"]
+    assert response["apply_allowed"] is True
+    assert "reorganisation_candidate" not in response
+    narrative_context = json.loads(
+        (tmp_path / "narrative_context.json").read_text(encoding="utf-8")
+    )
+    assert (
+        narrative_context["change_details"]["layout_reorganisation"]["result"]
+        == "offer_reorganisation"
+    )
+
+
+def test_batch_response_candidate_mode_replaces_functional_candidate_with_reorganised_candidate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VIBECOMFY_REORGANISE_AUTO", "candidate")
+    monkeypatch.delenv("VIBECOMFY_NARRATOR_ROUTE", raising=False)
+    monkeypatch.delenv("VIBECOMFY_NARRATOR_MODEL", raising=False)
+    before = _layout_reorganisation_base_ui()
+    functional = _layout_reorganisation_branch_ui()
+    before_hash = payload_hash(before)
+    functional_hash = payload_hash(functional)
+    state = AgentEditState(
+        task="add a preview branch",
+        graph=before,
+        request_payload={"task": "add a preview branch", "graph": before},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=before_hash,
+        submit_graph_hash=before_hash,
+        submit_structural_graph_hash=structural_graph_hash(before),
+        submitted_client_graph_hash=before_hash,
+        submitted_client_structural_graph_hash=structural_graph_hash(before),
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+        narrative_context_path=tmp_path / "narrative_context.json",
+        narrative_request_path=tmp_path / "narrative_request.json",
+        narrative_response_path=tmp_path / "narrative_response.json",
+        narrative_validation_path=tmp_path / "narrative_validation.json",
+    )
+    state.route = "dev"
+    state.ui_payload = functional
+    state.batch_exit_mode = "done"
+    state.batch_done_summary = "Added the preview branch."
+    context = TurnContext(session_id="candidate-reorganise", turn_id="0001")
+    for gate_name in list(context.gate_results):
+        context.set_gate(gate_name, True)
+
+    response = _build_batch_repl_response(state, context)
+
+    assert response["ok"] is True
+    assert response["outcome"]["kind"] == "candidate"
+    assert response["apply_eligibility"]["applyable"] is True
+    layout = response["change_details"]["layout_reorganisation"]
+    assert layout["result"] == "prepare_candidate"
+    assert layout["candidate_prepared"] is True
+    assert layout["functional_candidate_graph_hash"] == functional_hash
+    assert layout["reorganised_candidate_graph_hash"] == response["candidate_graph_hash"]
+    assert response["layout_reorganisation"] == layout
+    assert response["candidate"]["graph"] == response["graph"]
+    assert response["candidate"]["graph"] != functional
+    assert response["candidate_graph_hash"] != functional_hash
+    assert layout["evidence"]["layout_only_structural_noop"] is True
+    persisted_candidate = json.loads(
+        (tmp_path / "candidate.ui.json").read_text(encoding="utf-8")
+    )
+    assert persisted_candidate == response["candidate"]["graph"]
+    assert (tmp_path / "post_edit_reorganisation_plan.json").is_file()
+    assert any(
+        snapshot["stage"] == "post_edit_reorganise"
+        for snapshot in response["debug"]["stage_snapshots"]
+    )
+
+
+def test_batch_response_candidate_mode_does_not_preview_when_functional_candidate_is_not_applyable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fail_if_called(*_args, **_kwargs):
+        raise AssertionError("optional reorganise preview should not run")
+
+    monkeypatch.setenv("VIBECOMFY_REORGANISE_AUTO", "candidate")
+    monkeypatch.delenv("VIBECOMFY_NARRATOR_ROUTE", raising=False)
+    monkeypatch.delenv("VIBECOMFY_NARRATOR_MODEL", raising=False)
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.reorganise.preview_reorganise_workflow",
+        _fail_if_called,
+    )
+    before = _layout_reorganisation_base_ui()
+    functional = _layout_reorganisation_branch_ui()
+    before_hash = payload_hash(before)
+    functional_hash = payload_hash(functional)
+    state = AgentEditState(
+        task="add a preview branch",
+        graph=before,
+        request_payload={"task": "add a preview branch", "graph": before},
+        schema_provider=_batch_repl_provider(),
+        baseline_graph_hash=before_hash,
+        submit_graph_hash=before_hash,
+        submit_structural_graph_hash=structural_graph_hash(before),
+        submitted_client_graph_hash=before_hash,
+        submitted_client_structural_graph_hash=structural_graph_hash(before),
+        session_dir=tmp_path,
+        turn_dir=tmp_path,
+        request_path=tmp_path / "request.json",
+        original_ui_path=tmp_path / "original.ui.json",
+        before_py_path=tmp_path / "before.py",
+        after_py_path=tmp_path / "after.py",
+        projection_path=tmp_path / "projection.txt",
+        model_request_path=tmp_path / "model_request.json",
+        model_response_path=tmp_path / "model_response.json",
+        candidate_ui_path=tmp_path / "candidate.ui.json",
+        messages_path=tmp_path / "messages.jsonl",
+        narrative_context_path=tmp_path / "narrative_context.json",
+        narrative_request_path=tmp_path / "narrative_request.json",
+        narrative_response_path=tmp_path / "narrative_response.json",
+        narrative_validation_path=tmp_path / "narrative_validation.json",
+    )
+    state.route = "dev"
+    state.ui_payload = functional
+    state.batch_exit_mode = "done"
+    context = TurnContext(session_id="candidate-reorganise-blocked", turn_id="0001")
+
+    response = _build_batch_repl_response(state, context)
+
+    assert response["ok"] is True
+    assert response["outcome"]["kind"] == "candidate"
+    assert response["apply_eligibility"]["applyable"] is False
+    assert response["candidate"]["graph"] == functional
+    assert response["candidate_graph_hash"] == functional_hash
+    assert "layout_reorganisation" not in response["change_details"]
+    assert "layout_reorganisation" not in response
 
 
 # ── existing T6 regression tests (refactored) ────────────────────────────

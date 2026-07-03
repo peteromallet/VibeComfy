@@ -58,6 +58,7 @@ from .contracts import (
 )
 from .graph_inspection import _graph_inspection
 from .execution_plan_builder import build_execution_plan, needs_precedent_plan
+from .layout_hints import build_classify_layout_hint
 from .profiles import (
     AgentSpecShape,
     load_profile,
@@ -250,6 +251,15 @@ _ROUTE_BEHAVIORS = MappingProxyType({
         needs_research=True,
         needs_implement=True,
         plan_summary="Research workflow precedents, then adapt them to the current graph.",
+        clears_result_graph=False,
+        reply_uses_graph_inspection=False,
+        can_produce_candidate=True,
+    ),
+    "reorganise": RouteBehavior(
+        route="reorganise",
+        needs_research=False,
+        needs_implement=True,
+        plan_summary="Reorganise the current canvas layout without changing workflow semantics.",
         clears_result_graph=False,
         reply_uses_graph_inspection=False,
         can_produce_candidate=True,
@@ -781,17 +791,22 @@ def _run_classify(
         # Build enriched messages when session context carries actual data
         # for reference resolution (M3).  Otherwise, let run_classify_turn
         # build them from the default parameters.
+        graph_summary = _graph_summary(request.graph)
+        layout_hint = build_classify_layout_hint(request.graph)
+        compact_layout_hint = (
+            layout_hint.to_prompt_fields() if layout_hint is not None else None
+        )
         classify_kwargs: dict[str, Any] = {
             "route": spec.agent,
             "model": spec.model,
             "has_graph": request.graph is not None,
-            "graph_summary": _graph_summary(request.graph),
+            "graph_summary": graph_summary,
         }
         # Pre-build messages whenever we have context beyond the bare query.
         # First-turn graph edits need the node reference map just as much as
         # follow-ups do; otherwise the classifier sees "a graph is attached"
         # without the custom class names required for revise/adapt routing.
-        if graph_reference_map or (
+        if graph_reference_map or compact_layout_hint or (
             isinstance(session_context, dict)
             and (
                 session_context.get("recent_messages")
@@ -803,9 +818,10 @@ def _run_classify(
             classify_kwargs["messages"] = build_classify_messages(
                 request.query,
                 has_graph=request.graph is not None,
-                graph_summary=_graph_summary(request.graph),
+                graph_summary=graph_summary,
                 session_context=session_context,
                 graph_reference_map=graph_reference_map,
+                layout_hint=compact_layout_hint,
             )
 
         return run_classify_turn(request.query, **classify_kwargs)

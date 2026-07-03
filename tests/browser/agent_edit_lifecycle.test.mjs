@@ -819,6 +819,100 @@ test("OK_CANDIDATE_RESPONSE reduces canonical candidate, identity, stage, and fi
   });
 });
 
+test("OK_CANDIDATE_RESPONSE keeps optional reorganise candidates applyable and latest", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    candidateGraph: { nodes: [{ id: 4, type: "KSampler", pos: [20, 20] }], links: [] },
+    candidateGraphHash: "stale-functional-hash",
+    applyEligibility: { applyable: true, reason: "applyable", message: "Old candidate." },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: true,
+  });
+  const reorganisedGraph = {
+    nodes: [{ id: 4, type: "KSampler", pos: [360, 160] }],
+    links: [],
+  };
+  const layoutReorganisation = {
+    result: "prepare_candidate",
+    candidate_prepared: true,
+    functional_candidate_graph_hash: "functional-candidate-hash",
+    reorganised_candidate_graph_hash: "layout-candidate-hash",
+    evidence: { layout_only_structural_noop: true },
+  };
+
+  const obligations = transition(panel, "OK_CANDIDATE_RESPONSE", {
+    result: {
+      ok: true,
+      message: "Prepared a layout-only candidate for review.",
+      outcome: {
+        kind: "candidate",
+        changes: [{ uid: "4", field_path: "widgets.prompt", old: "old", new: "new" }],
+      },
+      candidate: {
+        state: "candidate",
+        graph: reorganisedGraph,
+        graph_hash: "layout-candidate-hash",
+        submit_graph_hash: "submit-hash-layout",
+        turn_identity: {
+          session_id: "sess-layout-candidate",
+          turn_id: "turn-layout-candidate",
+          baseline_turn_id: "turn-before-layout",
+        },
+      },
+      apply_eligibility: {
+        applyable: true,
+        reason: "applyable",
+        message: "Ready to apply layout candidate.",
+        warnings: [],
+      },
+      layout_reorganisation: layoutReorganisation,
+      debug: {
+        stage_snapshots: [
+          { stage: "post_edit_reorganise", ok: true, blocking: false, duration_ms: 11 },
+        ],
+      },
+    },
+    queueAllowed: true,
+    changeDetails: {
+      edited_nodes: ["4"],
+      layout_reorganisation: layoutReorganisation,
+    },
+  });
+
+  assert.equal(obligations.invalidateCandidate, true);
+  assert.deepEqual(obligations.setQueueGuardContext, {
+    sessionId: "sess-layout-candidate",
+    turnId: "turn-layout-candidate",
+    queueAllowed: true,
+  });
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.sessionId, "sess-layout-candidate");
+  assert.equal(panel.state.turnId, "turn-layout-candidate");
+  assert.deepEqual(panel.state.candidateGraph, reorganisedGraph);
+  assert.equal(panel.state.candidateGraphHash, "layout-candidate-hash");
+  assert.equal(panel.state.serverSubmitGraphHash, "submit-hash-layout");
+  assert.deepEqual(panel.state.applyEligibility, {
+    applyable: true,
+    reason: "applyable",
+    message: "Ready to apply layout candidate.",
+    warnings: [],
+  });
+  assert.equal(panel.state.applyAllowed, true);
+  assert.equal(panel.state.canvasApplyAllowed, true);
+  assert.equal(panel.state.queueAllowed, true);
+  assert.deepEqual(panel.state.changeDetails.layout_reorganisation, layoutReorganisation);
+  assert.deepEqual(panel.state.lastSubmitFieldChanges.all, [
+    { uid: "4", fieldPath: "widgets.prompt", old: "old", new: "new" },
+  ]);
+  assert.deepEqual(panel.state.debugPayload.stageSnapshot, {
+    stage: "post_edit_reorganise",
+    ok: true,
+    blocking: false,
+    durationMs: 11,
+  });
+});
+
 test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE gates restored actions on eligibility plus candidate presence", () => {
   const panel = makePanel({ phase: PANEL_STATE.IDLE });
 
@@ -2991,6 +3085,85 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE atomically restores candidate, bas
   assert.equal(panel.state.applyEligibilityWarningKey, null);
   assert.equal(panel.state._previewDiff, undefined);
   assert.equal(panel.state._previewDiffGraphHash, undefined);
+});
+
+test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE restores optional reorganise candidate eligibility", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.IDLE,
+    sessionId: "sess-layout-restore",
+    chatScopeId: "scope-layout",
+  });
+  const reorganisedGraph = {
+    nodes: [{ id: 9, type: "SaveImage", pos: [480, 220] }],
+    links: [],
+  };
+  const layoutReorganisation = {
+    result: "prepare_candidate",
+    candidate_prepared: true,
+    functional_candidate_graph_hash: "functional-restore-hash",
+    reorganised_candidate_graph_hash: "layout-restore-hash",
+  };
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
+    requestScopeId: "scope-layout",
+    candidateSessionId: "sess-layout-restore",
+    result: {
+      ok: true,
+      message: "Restored optional layout candidate.",
+      outcome: { kind: "candidate", changes: [] },
+      candidate: {
+        state: "candidate",
+        graph: reorganisedGraph,
+        graph_hash: "layout-restore-hash",
+        submit_graph_hash: "submit-restore-hash",
+        turn_identity: {
+          session_id: "sess-layout-restore",
+          turn_id: "turn-layout-restore",
+          baseline_turn_id: "turn-before-restore",
+        },
+      },
+      apply_eligibility: {
+        applyable: true,
+        reason: "applyable",
+        message: "Restored candidate is still latest.",
+        warnings: [],
+      },
+      layout_reorganisation: layoutReorganisation,
+    },
+    baseline: {
+      baseline_turn_id: "turn-before-restore",
+      baseline_graph_hash: "base-restore-hash",
+      baseline_graph_hash_kind: "structural",
+      baseline_graph_hash_version: 2,
+      turn_id: "turn-layout-restore",
+    },
+    queueAllowed: true,
+    changeDetails: {
+      layout_reorganisation: layoutReorganisation,
+    },
+  });
+
+  assert.equal(obligations.restored, true);
+  assert.deepEqual(obligations.setQueueGuardContext, {
+    sessionId: "sess-layout-restore",
+    turnId: "turn-layout-restore",
+    queueAllowed: true,
+  });
+  assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW);
+  assert.equal(panel.state.candidateScopeId, "scope-layout");
+  assert.deepEqual(panel.state.candidateGraph, reorganisedGraph);
+  assert.equal(panel.state.candidateGraphHash, "layout-restore-hash");
+  assert.equal(panel.state.serverSubmitGraphHash, "submit-restore-hash");
+  assert.deepEqual(panel.state.applyEligibility, {
+    applyable: true,
+    reason: "applyable",
+    message: "Restored candidate is still latest.",
+    warnings: [],
+  });
+  assert.equal(panel.state.applyAllowed, true);
+  assert.equal(panel.state.canvasApplyAllowed, true);
+  assert.equal(panel.state.queueAllowed, true);
+  assert.deepEqual(panel.state.changeDetails.layout_reorganisation, layoutReorganisation);
 });
 
 test("CHAT_REHYDRATE_NO_SESSION clears only thread-visible chat state and leaves metadata clean", () => {

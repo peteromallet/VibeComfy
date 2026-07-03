@@ -109,6 +109,118 @@ test("candidateActionState keeps active and historical candidate semantics", () 
   assert.equal(staleHistorical.rejectDisabled, true);
 });
 
+test("candidateActionState preserves optional reorganise candidate eligibility and stale history", () => {
+  const panel = {
+    state: {
+      phase: "AWAITING_REVIEW",
+      candidateGraph: { nodes: [{ id: 3, type: "KSampler", pos: [320, 160] }], links: [] },
+      candidateGraphHash: "layout-candidate-hash",
+      turnId: "0003",
+      applyEligibility: {
+        applyable: true,
+        reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
+        message: "Ready to apply layout candidate.",
+        warnings: [],
+      },
+      changeDetails: {
+        layout_reorganisation: {
+          result: "prepare_candidate",
+          candidate_prepared: true,
+          functional_candidate_graph_hash: "functional-candidate-hash",
+          reorganised_candidate_graph_hash: "layout-candidate-hash",
+        },
+      },
+    },
+  };
+  const activeMessage = {
+    turn_id: "0003",
+    candidate: {
+      graph: { nodes: [{ id: 3, type: "KSampler", pos: [320, 160] }], links: [] },
+    },
+    response: {
+      layout_reorganisation: {
+        result: "prepare_candidate",
+        candidate_prepared: true,
+      },
+    },
+  };
+
+  const activeState = candidateActionState(panel, activeMessage, {
+    applyEligibility: {
+      applyable: false,
+      reason: APPLY_ELIGIBILITY_REASON.NOT_LATEST,
+      message: "Stale projected detail should not override active panel state.",
+      warnings: ["not_latest"],
+    },
+  });
+
+  assert.equal(activeState.visible, true);
+  assert.equal(activeState.active, true);
+  assert.equal(activeState.turnId, "0003");
+  assert.equal(activeState.applyDisabled, false);
+  assert.equal(activeState.rejectDisabled, false);
+  assert.deepEqual(activeState.eligibility, {
+    applyable: true,
+    reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
+    message: "Ready to apply layout candidate.",
+    warnings: [],
+  });
+
+  const staleFunctionalCandidate = candidateActionState(
+    panel,
+    {
+      turn_id: "0002",
+      candidate: {
+        graph: { nodes: [{ id: 3, type: "KSampler", pos: [20, 20] }], links: [] },
+      },
+      response: {
+        layout_reorganisation: {
+          result: "prepare_candidate",
+          functional_candidate_graph_hash: "functional-candidate-hash",
+          reorganised_candidate_graph_hash: "layout-candidate-hash",
+        },
+      },
+    },
+    {
+      applyEligibility: {
+        applyable: true,
+        reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
+        message: "Historical functional candidate was applyable before reorganisation.",
+        warnings: [],
+      },
+    },
+  );
+
+  assert.equal(staleFunctionalCandidate.visible, true);
+  assert.equal(staleFunctionalCandidate.active, false);
+  assert.equal(staleFunctionalCandidate.eligibility.reason, APPLY_ELIGIBILITY_REASON.NOT_LATEST);
+  assert.equal(staleFunctionalCandidate.applyDisabled, true);
+  assert.equal(staleFunctionalCandidate.rejectDisabled, true);
+
+  const supersededLayoutCandidate = candidateActionState(
+    panel,
+    { turn_id: "0001", candidateGraph: { nodes: [{ id: 1 }] } },
+    {
+      applyEligibility: {
+        applyable: false,
+        reason: APPLY_ELIGIBILITY_REASON.SUPERSEDED,
+        message: "This layout candidate was rejected.",
+        warnings: ["superseded"],
+      },
+    },
+  );
+
+  assert.equal(supersededLayoutCandidate.active, false);
+  assert.deepEqual(supersededLayoutCandidate.eligibility, {
+    applyable: false,
+    reason: APPLY_ELIGIBILITY_REASON.SUPERSEDED,
+    message: "This layout candidate was rejected.",
+    warnings: ["superseded"],
+  });
+  assert.equal(supersededLayoutCandidate.applyDisabled, true);
+  assert.equal(supersededLayoutCandidate.rejectDisabled, true);
+});
+
 test("disabledApplyEligibility and no-candidate action states remain immutable payload builders", () => {
   const warnings = ["server_blocked"];
   const disabled = disabledApplyEligibility(

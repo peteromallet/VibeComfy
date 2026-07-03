@@ -734,16 +734,27 @@ Tests must include a non-trivial subgraph pipeline, shared producer crossing a s
 
 ## Automatic Main-Flow Integration
 
-The automatic path should be conservative.
+The automatic path is conservative. Explicit organisational intent uses the
+dedicated `reorganise` route; ordinary functional edits stay functional and may
+only receive layout advice after the edit candidate is already successful and
+applyable.
 
-Run deterministic `assess_layout_quality(ui_json)` before or alongside classify. If it reports `needs_reorganisation` or `chaotic`, inject a hint into the main flow:
+Before or alongside classify, deterministic layout hints are derived from the
+existing reorganise assessment and graph-facts helpers. When a graph appears
+hard to review, the compact hint can be added to classify context:
 
 ```text
 The current workflow layout appears hard to read: overlap_count=..., backward_edges=..., missing_groups=...
 Consider offering a reorganisation candidate if the user request implies readability or if a functional edit would be hard to review in the current layout.
 ```
 
-Do not silently reorganise. Return a preview candidate only.
+These hints are advisory evidence only. They must not route a concrete
+functional request to `reorganise` on their own, and they must stay compact:
+verdict, overlap signal, backward-edge signal, spacing/group/helper signal, and
+a concise review-hostile flag.
+
+Do not silently reorganise. Do not auto-apply. Do not start a second hidden edit
+phase.
 
 Config:
 
@@ -753,7 +764,22 @@ VIBECOMFY_REORGANISE_AUTO=off|suggest|candidate
 
 Default: `suggest`.
 
-Codex review recommendation: v1 should ship explicit/preview only. Main-flow integration should remain `suggest` until golden fixtures prove stable compiler behaviour across complex workflows.
+Semantics:
+
+- `off`: no post-edit layout offer is emitted.
+- `suggest`: after a successful applyable functional candidate, deterministic
+  before/after layout evidence may add `layout_reorganisation` advisory metadata
+  and suggest `/reorganise_comfy_workflow`. The functional candidate graph is
+  not moved or replaced.
+- `candidate`: experimental rollout mode. After a successful applyable
+  functional candidate, reuse `preview_reorganise_workflow` and the existing
+  durable candidate lifecycle to prepare an optional layout-only candidate. If
+  previewing, structural no-op evidence, candidate write, or apply eligibility
+  fails, retain the functional candidate and report the failed closed state.
+
+Invalid config values fail closed to `off` with visible config metadata. The
+default remains `suggest` for rollout because it preserves main-flow behavior
+while collecting reviewable advice and golden/browser coverage evidence.
 
 ## CLI And Skill Surface
 
@@ -771,7 +797,12 @@ Add skill:
 docs/agent-skill/skills/reorganise-comfy-workflow/SKILL.md
 ```
 
-Route `/reorganise_comfy_workflow` to the explicit reorganise path. It should produce a candidate and report rather than immediately applying.
+Route `/reorganise_comfy_workflow`, "organise this workflow", "clean up the
+canvas", and "make this readable" to the explicit reorganise path using
+canonical `route="reorganise"` and `task="layout_reorganise"`. It should
+produce a candidate and report rather than immediately applying, and it should
+use the normal candidate accept/reject/apply-eligibility lifecycle instead of a
+parallel apply path.
 
 ## Validation And Guardrails
 
@@ -785,6 +816,9 @@ Hard gates:
 - Pinned nodes preserve positions unless force is enabled.
 - Existing groups are preserved unless `force_regroup` is enabled.
 - Structural hash is unchanged except UI-only fields.
+- No reorganise path may change topology: node classes, node identities, links,
+  widget values, prompts, runtime payloads, generated API graph state, and edge
+  endpoints are outside the layout contract.
 - Candidate round-trips through LiteGraph/VibeComfy without losing identity.
 - Final layout has no node overlaps.
 - Second reorganise pass is idempotent or near-idempotent.
@@ -857,4 +891,6 @@ A high-reasoning Codex review on this plan agreed with the broad architecture bu
 - Add `helper_placements` for Set/Get/reroute/note handling.
 - Define existing-group coherence and policies.
 - Define numeric geometry and aesthetic acceptance gates.
-- Keep automatic main-flow behaviour at suggestion-only until golden fixtures pass.
+- Keep automatic main-flow behaviour suggestion-only by default. Golden fixtures
+  and browser coverage are the gate for enabling experimental `candidate` mode
+  in a specific deployment.

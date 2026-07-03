@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Mapping
 
 from .contracts import (
     ClassifyDecision,
@@ -65,6 +65,10 @@ _CLASSIFY_SYSTEM = (
     "research. Set intent=edit, research=false, implement=true, reply=true.\n"
     "- route=\"adapt\": research precedent first, then edit the current graph. "
     "Set intent=edit, research=true, implement=true, reply=true.\n"
+    "- route=\"reorganise\": explicit canvas organisation/readability/layout "
+    "cleanup request. Set intent=edit, research=false, implement=true, "
+    "reply=true, task=\"layout_reorganise\". This route may move, group, "
+    "or tidy nodes but must not change workflow semantics.\n"
     "- route=\"clarify\": ask only when load-bearing information is missing and "
     "the next safe route cannot be chosen.\n"
     "\n"
@@ -234,6 +238,12 @@ _CLASSIFY_SYSTEM = (
     "- Generic edits to the current graph such as changing seeds, prompts, "
     "sampler steps, model names, node positions, or direct local wiring should "
     "stay route=\"revise\" when concrete, or route=\"clarify\" when ambiguous.\n"
+    "- Explicit organisational requests such as a /reorganise_comfy_workflow "
+    "command, \"organise this workflow\", \"clean up the canvas\", or "
+    "\"make this readable\" should use route=\"reorganise\" with "
+    "task=\"layout_reorganise\". Do not use route=\"revise\" for layout-only "
+    "canvas readability cleanup, and do not use route=\"adapt\" unless the "
+    "user also asks for outside workflow/template research.\n"
     "- Exception to the previous rule: if the generic edit is inside a graph "
     "dominated by custom class types, targets a custom class itself, or edits "
     "the output/composition path fed by a custom graph, use route=\"adapt\" with "
@@ -255,6 +265,14 @@ _CLASSIFY_SYSTEM = (
     "route=\"adapt\".\n"
     "- \"Generate the standard SD1.5 workflow\" -> route=\"revise\".\n"
     "- \"Switch this workflow to SDXL\" -> route=\"revise\".\n"
+    "- \"/reorganise_comfy_workflow\" -> route=\"reorganise\", "
+    "task=\"layout_reorganise\".\n"
+    "- \"organise this workflow\" -> route=\"reorganise\", "
+    "task=\"layout_reorganise\".\n"
+    "- \"clean up the canvas\" -> route=\"reorganise\", "
+    "task=\"layout_reorganise\".\n"
+    "- \"make this readable\" -> route=\"reorganise\", "
+    "task=\"layout_reorganise\".\n"
     "- \"Can you explain the previous failure?\" with logs in context -> "
     "route=\"respond\" or route=\"inspect\" depending on whether graph "
     "inspection is needed; not route=\"research\".\n"
@@ -276,6 +294,7 @@ def build_classify_messages(
     graph_summary: str | None = None,
     session_context: dict[str, Any] | None = None,
     graph_reference_map: dict[str, str] | None = None,
+    layout_hint: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build system + user messages for the classify phase.
 
@@ -291,12 +310,19 @@ def build_classify_messages(
     *graph_reference_map* is a compact ``{node_id: label}`` lookup built from
     the current graph so the classifier can map user references like
     \"the KSampler\" or \"node #3\" to concrete ids.
+
+    *layout_hint* is compact deterministic advisory evidence about current
+    canvas readability.  It must never be the sole reason to reroute a
+    concrete functional edit to ``reorganise``.
     """
     parts = [f"User request:\n{query}"]
     if has_graph:
         parts.append("\nA ComfyUI canvas graph is attached to this request.")
     if graph_summary:
         parts.append(f"\nGraph summary: {graph_summary}")
+    layout_hint_line = _layout_hint_prompt_line(layout_hint)
+    if layout_hint_line:
+        parts.append(layout_hint_line)
 
     # ── session context: durable chat messages (backend-owned) ───────────
     if isinstance(session_context, dict):
@@ -412,6 +438,46 @@ def build_classify_messages(
     ]
 
 
+def _layout_hint_prompt_line(layout_hint: Mapping[str, Any] | None) -> str:
+    if not isinstance(layout_hint, Mapping):
+        return ""
+
+    fields = {
+        "verdict": _compact_hint_value(layout_hint.get("verdict")),
+        "overlap": _compact_hint_value(layout_hint.get("overlap_signal")),
+        "backward_edges": _compact_hint_value(layout_hint.get("backward_edge_signal")),
+        "spacing_group_helper": _compact_hint_value(
+            layout_hint.get("spacing_group_helper_signal")
+        ),
+        "review_hostile": _compact_bool_value(layout_hint.get("review_hostile")),
+    }
+    if not all(fields.values()):
+        return ""
+
+    return (
+        "\nDeterministic layout hint (advisory; do not route concrete "
+        "functional edits to reorganise solely from this hint): "
+        + "; ".join(f"{key}={value}" for key, value in fields.items())
+    )
+
+
+def _compact_hint_value(value: Any, *, limit: int = 120) -> str:
+    if not isinstance(value, str):
+        return ""
+    compact = " ".join(value.split())
+    if not compact:
+        return ""
+    return compact[:limit]
+
+
+def _compact_bool_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str) and value.lower() in {"true", "false"}:
+        return value.lower()
+    return ""
+
+
 def _ref_sort_key(node_id: str) -> tuple[int, str]:
     """Sort node ids numerically when possible, for stable reference maps."""
     try:
@@ -472,8 +538,9 @@ _REPLY_SYSTEM = (
     "existing context only; for route=\"inspect\", explain the current graph "
     "from inspection evidence only; for route=\"research\", summarize the "
     "research findings without implying an edit; for route=\"revise\", describe "
-    "the concrete graph edit; for route=\"adapt\", explain how the researched "
-    "precedent informed the edit.\n"
+    "the concrete graph edit; for route=\"reorganise\", describe the layout "
+    "cleanup without implying semantic workflow changes; for route=\"adapt\", "
+    "explain how the researched precedent informed the edit.\n"
     "- Prefer 1-3 sentences for simple status replies. For inspect-only or "
     "explain-style replies, use enough structure to stay readable instead of "
     "compressing everything into one paragraph.\n"

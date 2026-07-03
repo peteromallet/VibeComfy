@@ -1,0 +1,219 @@
+{
+  "lastRerouteId": 2,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "virtual_wires": {
+      "latent-bus": {
+        "type": "SetNode",
+        "channel": "LATENT",
+        "endpoints": [
+          2,
+          3
+        ]
+      }
+    },
+    "vibecomfy": {
+      "fixture": "set_get_reroute_helpers",
+      "coverage": [
+        "set_node",
+        "get_node",
+        "reroute_chain",
+        "virtual_wire"
+      ],
+      "thresholds": {
+        "helper_count": 3,
+        "max_primary_nodes": 2,
+        "expected_layout_pressure": "anchor Set/Get helpers to producer and consumer while keeping reroutes on the edge path"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "PrimitiveNode",
+      "class_type": "PrimitiveNode",
+      "title": "Producer",
+      "pos": [
+        120,
+        120
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "properties": {
+        "vibecomfy_uid": "producer"
+      },
+      "outputs": [
+        {
+          "name": "out",
+          "type": "*",
+          "links": [
+            10,
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "SetNode",
+      "class_type": "SetNode",
+      "title": "Set latent-bus",
+      "pos": [
+        610,
+        430
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "properties": {
+        "vibecomfy_uid": "set_latent_bus",
+        "channel": "LATENT"
+      },
+      "widgets_values": [
+        "LATENT"
+      ],
+      "inputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "link": 10
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "GetNode",
+      "class_type": "GetNode",
+      "title": "Get latent-bus",
+      "pos": [
+        35,
+        55
+      ],
+      "size": [
+        120,
+        50
+      ],
+      "properties": {
+        "vibecomfy_uid": "get_latent_bus",
+        "channel": "LATENT"
+      },
+      "widgets_values": [
+        "LATENT"
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "*",
+          "links": [
+            11
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "PrimitiveNode",
+      "class_type": "PrimitiveNode",
+      "title": "Consumer",
+      "pos": [
+        165,
+        150
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "properties": {
+        "vibecomfy_uid": "consumer"
+      },
+      "inputs": [
+        {
+          "name": "broadcast",
+          "type": "*",
+          "link": 11
+        },
+        {
+          "name": "direct",
+          "type": "*",
+          "link": 13
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "Reroute",
+      "class_type": "Reroute",
+      "pos": [
+        840,
+        120
+      ],
+      "size": [
+        30,
+        30
+      ],
+      "properties": {
+        "vibecomfy_uid": "cross_reroute"
+      },
+      "inputs": [
+        {
+          "name": "",
+          "type": "*",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "*",
+          "links": [
+            13
+          ]
+        }
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      2,
+      0,
+      "*"
+    ],
+    [
+      11,
+      3,
+      0,
+      4,
+      0,
+      "*"
+    ],
+    [
+      12,
+      1,
+      0,
+      5,
+      0,
+      "*"
+    ],
+    [
+      13,
+      5,
+      0,
+      4,
+      1,
+      "*"
+    ]
+  ],
+  "groups": []
+}

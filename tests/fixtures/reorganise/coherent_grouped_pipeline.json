@@ -1,0 +1,265 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "vibecomfy": {
+      "fixture": "coherent_grouped_pipeline",
+      "coverage": [
+        "coherent_groups",
+        "contained_group_bounds",
+        "functional_stage_groups"
+      ],
+      "thresholds": {
+        "min_group_signal_strength": 0.75,
+        "min_group_coherence": 0.65,
+        "expected_layout_pressure": "preserve clear stage groups while normalising compact left-to-right spacing"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "CheckpointLoaderSimple",
+      "class_type": "CheckpointLoaderSimple",
+      "pos": [
+        80,
+        100
+      ],
+      "size": [
+        260,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "checkpoint"
+      },
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            11
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "CLIPTextEncode",
+      "class_type": "CLIPTextEncode",
+      "pos": [
+        100,
+        215
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "properties": {
+        "vibecomfy_uid": "prompt"
+      },
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "KSampler",
+      "class_type": "KSampler",
+      "pos": [
+        450,
+        140
+      ],
+      "size": [
+        300,
+        220
+      ],
+      "properties": {
+        "vibecomfy_uid": "sample"
+      },
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 10
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            13
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "VAEDecode",
+      "class_type": "VAEDecode",
+      "pos": [
+        820,
+        120
+      ],
+      "size": [
+        240,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "decode"
+      },
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 13
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "pos": [
+        820,
+        235
+      ],
+      "size": [
+        240,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "save"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 14
+        }
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      3,
+      0,
+      "MODEL"
+    ],
+    [
+      11,
+      1,
+      1,
+      2,
+      0,
+      "CLIP"
+    ],
+    [
+      12,
+      2,
+      0,
+      3,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      13,
+      3,
+      0,
+      4,
+      0,
+      "LATENT"
+    ],
+    [
+      14,
+      4,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "title": "Inputs and Prompt",
+      "bounding": [
+        55,
+        70,
+        380,
+        285
+      ],
+      "nodes": [
+        1,
+        2
+      ]
+    },
+    {
+      "title": "Sampling",
+      "bounding": [
+        425,
+        110,
+        350,
+        280
+      ],
+      "nodes": [
+        3
+      ]
+    },
+    {
+      "title": "Decode and Output",
+      "bounding": [
+        795,
+        90,
+        300,
+        265
+      ],
+      "nodes": [
+        4,
+        5
+      ]
+    }
+  ]
+}

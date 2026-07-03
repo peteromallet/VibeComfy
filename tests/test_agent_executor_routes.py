@@ -673,8 +673,9 @@ class TestRepresentativeRouteScenarios:
         ("research", True, False),
         ("revise", False, True),
         ("adapt", True, True),
+        ("reorganise", False, True),
     ])
-    def test_all_six_routes_have_correct_boolean_canonicalization(
+    def test_all_canonical_routes_have_correct_boolean_canonicalization(
         self, route, expected_research, expected_implement,
     ) -> None:
         """Every explicit canonical route must canonicalize booleans correctly."""
@@ -683,12 +684,12 @@ class TestRepresentativeRouteScenarios:
         assert decision.research == expected_research
         assert decision.implement == expected_implement
 
-    @pytest.mark.parametrize("route", ["clarify", "respond", "inspect", "research", "revise", "adapt"])
-    def test_all_six_routes_produce_non_applyable_for_first_four(self, route) -> None:
-        """Only revise/adapt are apply-eligible."""
+    @pytest.mark.parametrize("route", ["clarify", "respond", "inspect", "research", "revise", "adapt", "reorganise"])
+    def test_canonical_routes_produce_applyable_for_candidate_routes(self, route) -> None:
+        """Only candidate-producing routes are apply-eligible."""
         decision = ClassifyDecision(route=route)
         behavior = _route_behavior(decision)
-        if route in ("revise", "adapt"):
+        if route in ("revise", "adapt", "reorganise"):
             assert behavior.can_produce_candidate is True
         else:
             assert behavior.can_produce_candidate is False

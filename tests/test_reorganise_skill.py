@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit
-from vibecomfy.comfy_nodes.agent.session import read_state
+from vibecomfy.comfy_nodes.agent.edit import handle_agent_edit, read_session_chat
+from vibecomfy.comfy_nodes.agent.session import payload_hash, read_state, structural_graph_hash
 
 
 def _node(node_id: int, class_type: str, uid: str) -> dict:
@@ -35,6 +35,30 @@ def _ui() -> dict:
         "groups": [{"title": "Existing", "bounding": [0, 0, 100, 100], "nodes": [1]}],
         "extra": {"ds": {"scale": 1.0, "offset": [0, 0]}},
     }
+
+
+def _ui_with_branch() -> dict:
+    graph = json.loads(json.dumps(_ui()))
+    graph["nodes"].extend(
+        [
+            _node(6, "CLIPTextEncode", "branch-positive"),
+            _node(7, "KSampler", "branch-sample"),
+            _node(8, "VAEDecode", "branch-decode"),
+            _node(9, "SaveImage", "branch-save"),
+        ]
+    )
+    for node in graph["nodes"]:
+        if node["id"] >= 6:
+            node["pos"] = [12, 24]
+    graph["links"].extend(
+        [
+            [5, 1, 0, 7, 0, "MODEL"],
+            [6, 6, 0, 7, 1, "CONDITIONING"],
+            [7, 7, 0, 8, 0, "LATENT"],
+            [8, 8, 0, 9, 0, "IMAGE"],
+        ]
+    )
+    return graph
 
 
 def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> None:
@@ -86,6 +110,99 @@ def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> N
     assert persisted["candidate"]["graph"] == result["candidate"]["graph"]
     state = read_state(tmp_path / "reorganise-session")
     assert state["turns"][result["turn_id"]]["state"] == "candidate"
+
+
+def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent import edit as agent_edit_module
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_accept
+
+    monkeypatch.setenv("VIBECOMFY_REORGANISE_AUTO", "candidate")
+    before = _ui()
+    functional = _ui_with_branch()
+    functional_hash = payload_hash(functional)
+
+    def _fake_functional_candidate(state, context, **_kwargs):
+        state.ui_payload = functional
+        state.batch_exit_mode = "done"
+        state.batch_done_summary = "Added the branch."
+        for gate_name in list(context.gate_results):
+            context.set_gate(gate_name, True)
+        return state
+
+    monkeypatch.setattr(
+        agent_edit_module,
+        "_run_batch_repl_product_path",
+        _fake_functional_candidate,
+    )
+    payload = {
+        "task": "add a preview branch",
+        "graph": before,
+        "session_id": "auto-reorganise-session",
+        "idempotency_key": "auto-reorganise-once",
+    }
+
+    result = handle_agent_edit(
+        payload,
+        schema_provider=object(),
+        session_root=tmp_path,
+    )
+    replay = handle_agent_edit(
+        payload,
+        schema_provider=object(),
+        session_root=tmp_path,
+    )
+
+    assert replay == result
+    assert result["ok"] is True
+    assert result["outcome"]["kind"] == "candidate"
+    assert result["apply_eligibility"]["applyable"] is True
+    assert result["layout_reorganisation"]["result"] == "prepare_candidate"
+    assert result["layout_reorganisation"]["candidate_prepared"] is True
+    assert result["layout_reorganisation"]["functional_candidate_graph_hash"] == functional_hash
+    assert result["layout_reorganisation"]["evidence"]["layout_only_structural_noop"] is True
+    assert result["candidate_graph_hash"] != functional_hash
+    assert result["candidate"]["graph"] == result["graph"]
+
+    turn_dir = tmp_path / "auto-reorganise-session" / "turns" / result["turn_id"]
+    persisted = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))
+    persisted_candidate = json.loads((turn_dir / "candidate.ui.json").read_text(encoding="utf-8"))
+    assert persisted["candidate"]["graph"] == result["candidate"]["graph"]
+    assert persisted_candidate == result["candidate"]["graph"]
+    state = read_state(tmp_path / "auto-reorganise-session")
+    assert state["turns"][result["turn_id"]]["state"] == "candidate"
+    assert state["turns"][result["turn_id"]]["candidate_graph_hash"] == result["candidate_graph_hash"]
+
+    chat = read_session_chat(tmp_path, "auto-reorganise-session")
+    assert chat["latest_candidate"]["turn_id"] == result["turn_id"]
+    assert chat["latest_candidate"]["candidate_graph_hash"] == result["candidate_graph_hash"]
+
+    stale = _handle_agent_edit_accept(
+        {
+            "session_id": "auto-reorganise-session",
+            "turn_id": result["turn_id"],
+            "client_graph_hash": "not-the-submitted-graph",
+            "idempotency_key": "accept-stale",
+        },
+        session_root=tmp_path,
+    )
+    assert stale["ok"] is False
+    assert stale["kind"] == "StaleStateMismatch"
+
+    accepted = _handle_agent_edit_accept(
+        {
+            "session_id": "auto-reorganise-session",
+            "turn_id": result["turn_id"],
+            "client_graph_hash": result["submit_graph_hash"],
+            "idempotency_key": "accept-auto-reorganise",
+        },
+        session_root=tmp_path,
+    )
+    assert accepted["ok"] is True
+    assert accepted["candidate_graph_hash"] == result["candidate_graph_hash"]
+    assert accepted["baseline_graph_hash"] == result["candidate_structural_graph_hash"]
 
 
 def test_reorganise_route_bad_plan_fails_closed_without_candidate(tmp_path) -> None:

@@ -266,6 +266,133 @@ def build_reorganise_agent_response(
     return build_legacy_agent_edit_v1(response)
 
 
+def prepare_post_edit_reorganise_candidate(
+    state: Any,
+    context: TurnContext,
+    *,
+    source_ui: Mapping[str, Any],
+    decision: Any,
+) -> dict[str, Any]:
+    """Prepare an optional layout candidate for an already-successful edit turn."""
+    write_json_artifact = _artifact_writer()
+    options = ReorganisePreviewOptions(
+        compile_options=_compile_options_from_payload(state.request_payload)
+    )
+    result = preview_reorganise_workflow(
+        source_ui,
+        sidecar_envelope=_sidecar_from_payload(state.request_payload),
+        plan_payload=None,
+        semantic_plan_provider=None,
+        options=options,
+    )
+
+    projection_path = state.turn_dir / "post_edit_reorganisation_projection.txt"
+    plan_path = state.turn_dir / "post_edit_reorganisation_plan.json"
+    report_path = state.turn_dir / "post_edit_reorganisation_report.md"
+    metrics_path = state.turn_dir / "post_edit_reorganisation_metrics.json"
+    evidence_path = state.turn_dir / "post_edit_structural_noop_evidence.json"
+
+    projection_path.write_text(result.projection.text, encoding="utf-8")
+    write_json_artifact(plan_path, _plan_payload(result))
+    write_json_artifact(metrics_path, _metrics_payload(result))
+
+    patch_apply = None
+    patch_apply_error: dict[str, Any] | None = None
+    has_candidate = False
+    if result.ok and result.candidate_patch is not None:
+        try:
+            patch_apply = apply_layout_candidate_patch_to_ui(source_ui, result.candidate_patch)
+        except Exception as exc:  # noqa: BLE001 - optional layout candidate must fail closed.
+            patch_apply_error = {
+                "code": "layout_candidate_patch_apply_failed",
+                "severity": "warning",
+                "message": "Optional layout candidate could not be applied without structural drift.",
+                "detail": {"exception_type": type(exc).__name__},
+            }
+        else:
+            candidate_ui = dict(patch_apply.ui_json)
+            has_candidate = _layout_candidate_has_effect(
+                original_ui=source_ui,
+                candidate_ui=candidate_ui,
+                result=result,
+                patch_apply=patch_apply,
+            )
+            if has_candidate:
+                state.ui_payload = candidate_ui
+                write_json_artifact(state.candidate_ui_path, candidate_ui)
+
+    evidence_payload = _evidence_payload(
+        result,
+        patch_apply,
+        original_ui=source_ui,
+        patch_apply_error=patch_apply_error,
+        has_candidate=has_candidate,
+    )
+    write_json_artifact(evidence_path, evidence_payload)
+    report_path.write_text(_render_report(result, candidate_written=has_candidate), encoding="utf-8")
+
+    artifact_paths = {
+        "post_edit_reorganisation_projection": str(projection_path),
+        "post_edit_reorganisation_plan": str(plan_path),
+        "post_edit_reorganisation_report": str(report_path),
+        "post_edit_reorganisation_metrics": str(metrics_path),
+        "post_edit_structural_noop_evidence": str(evidence_path),
+    }
+    if has_candidate:
+        artifact_paths["candidate_ui"] = str(state.candidate_ui_path)
+    state.artifacts = {**(state.artifacts or {}), **artifact_paths}
+
+    artifacts = (
+        _artifact_ref(projection_path),
+        _artifact_ref(plan_path),
+        _artifact_ref(metrics_path),
+        _artifact_ref(evidence_path),
+        _artifact_ref(report_path),
+        *((_artifact_ref(state.candidate_ui_path),) if has_candidate else ()),
+    )
+    context.record_stage(
+        StageResult(
+            stage="post_edit_reorganise",
+            ok=has_candidate,
+            blocking=False,
+            artifacts=artifacts,
+            issues=tuple(_diagnostic_issues(result))
+            + ((dict(patch_apply_error),) if patch_apply_error is not None else ()),
+            value={
+                "candidate_available": has_candidate,
+                "functional_candidate_graph_hash": payload_hash(source_ui),
+                "reorganised_candidate_graph_hash": (
+                    payload_hash(state.ui_payload) if has_candidate else None
+                ),
+                "layout_only_structural_noop": evidence_payload["layout_only_structural_noop"],
+                "full_ui_payload_hash_changed": evidence_payload["full_ui_payload_hash_changed"],
+                "layout_evidence_changed": evidence_payload["layout_evidence_changed"],
+            },
+        )
+    )
+
+    decision_payload = (
+        decision.to_json() if hasattr(decision, "to_json") else {"result": "prepare_candidate"}
+    )
+    return {
+        **_json_safe(decision_payload),
+        "advisory": False,
+        "suggested_command": _SKILL_TRIGGER,
+        "candidate_prepared": has_candidate,
+        "functional_candidate_graph_hash": payload_hash(source_ui),
+        "reorganised_candidate_graph_hash": (
+            payload_hash(state.ui_payload) if has_candidate else None
+        ),
+        "message": (
+            "Prepared a layout-only reorganise candidate for the edited workflow."
+            if has_candidate
+            else "The edited workflow remains the candidate; optional layout reorganisation did not produce a separate candidate."
+        ),
+        "evidence": _json_safe(evidence_payload),
+        "artifacts": _json_safe(artifact_paths),
+    }
+
+
 def _compile_options_from_payload(payload: Mapping[str, Any]) -> LayoutCompileOptions:
     spacing = payload.get("spacing") if isinstance(payload.get("spacing"), str) else "balanced"
     existing_group_policy = (
@@ -547,6 +674,10 @@ def _relative_artifact_paths(state: Any) -> dict[str, str]:
         except ValueError:
             artifacts[name] = path.name
     return artifacts
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, sort_keys=True, default=str))
 
 
 def _stage_snapshots(results: Any) -> list[Any]:

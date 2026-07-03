@@ -1,0 +1,227 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "vibecomfy": {
+      "fixture": "subgraph_scoped_pipeline",
+      "coverage": [
+        "subgraph_scope",
+        "container_parent",
+        "nested_scope_groups"
+      ],
+      "thresholds": {
+        "min_scope_count": 2,
+        "max_root_nodes": 2,
+        "expected_layout_pressure": "keep nested scope sections tied to the parent container without flattening subgraph identity"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "SubgraphContainer",
+      "class_type": "SubgraphContainer",
+      "title": "Detail Enhancer",
+      "pos": [
+        120,
+        120
+      ],
+      "size": [
+        320,
+        220
+      ],
+      "properties": {
+        "vibecomfy_uid": "detail_enhancer"
+      },
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            10
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "pos": [
+        150,
+        150
+      ],
+      "size": [
+        240,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "save_detail"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 10
+        }
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      2,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "title": "Root Output",
+      "bounding": [
+        95,
+        90,
+        395,
+        280
+      ],
+      "nodes": [
+        1,
+        2
+      ]
+    }
+  ],
+  "definitions": {
+    "subgraphs": [
+      {
+        "name": "Detail Enhancer",
+        "nodes": [
+          {
+            "id": 1,
+            "type": "CheckpointLoaderSimple",
+            "class_type": "CheckpointLoaderSimple",
+            "pos": [
+              40,
+              80
+            ],
+            "size": [
+              260,
+              96
+            ],
+            "properties": {
+              "vibecomfy_uid": "inner_source"
+            },
+            "outputs": [
+              {
+                "name": "MODEL",
+                "type": "MODEL",
+                "links": [
+                  20
+                ]
+              }
+            ]
+          },
+          {
+            "id": 2,
+            "type": "KSampler",
+            "class_type": "KSampler",
+            "pos": [
+              55,
+              95
+            ],
+            "size": [
+              240,
+              96
+            ],
+            "properties": {
+              "vibecomfy_uid": "inner_sampler"
+            },
+            "inputs": [
+              {
+                "name": "model",
+                "type": "MODEL",
+                "link": 20
+              }
+            ],
+            "outputs": [
+              {
+                "name": "LATENT",
+                "type": "LATENT",
+                "links": [
+                  21
+                ]
+              }
+            ]
+          },
+          {
+            "id": 3,
+            "type": "PreviewImage",
+            "class_type": "PreviewImage",
+            "pos": [
+              75,
+              115
+            ],
+            "size": [
+              240,
+              90
+            ],
+            "properties": {
+              "vibecomfy_uid": "inner_preview"
+            },
+            "inputs": [
+              {
+                "name": "images",
+                "type": "LATENT",
+                "link": 21
+              }
+            ]
+          }
+        ],
+        "links": [
+          [
+            20,
+            1,
+            0,
+            2,
+            0,
+            "MODEL"
+          ],
+          [
+            21,
+            2,
+            0,
+            3,
+            0,
+            "LATENT"
+          ]
+        ],
+        "groups": [
+          {
+            "title": "Nested Detail",
+            "bounding": [
+              20,
+              50,
+              340,
+              220
+            ],
+            "nodes": [
+              1,
+              2,
+              3
+            ]
+          }
+        ],
+        "state": {
+          "lastRerouteId": 0
+        }
+      }
+    ]
+  }
+}

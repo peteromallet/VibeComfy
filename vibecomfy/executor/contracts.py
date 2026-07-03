@@ -176,6 +176,7 @@ _ALLOWED_ROUTES = frozenset({
     "requires_custom_nodes",
     "revise",
     "adapt",
+    "reorganise",
 })
 
 # Normalized task vocabulary carried alongside route.
@@ -187,6 +188,7 @@ _ALLOWED_TASKS = frozenset({
     "diagnose",
     "preview_subgraph",
     "research_precedent",
+    "layout_reorganise",
     "respond",
     "research_nodes",
 })
@@ -199,13 +201,14 @@ _ROUTE_DESCRIPTIONS: dict[str, str] = {
     "requires_custom_nodes": "return that the requested edit cannot be safely authored from current evidence without applying graph changes.",
     "revise": "edit the current graph using local context only.",
     "adapt": "research precedent or workflow patterns, then edit the graph.",
+    "reorganise": "reorganise the current canvas layout/readability without changing workflow semantics.",
 }
 
 _PUBLIC_ROUTES = frozenset({
     *_ROUTE_DESCRIPTIONS,
     "requires_custom_nodes",
 })
-_APPLY_ELIGIBLE_ROUTES = frozenset({"revise", "adapt"})
+_APPLY_ELIGIBLE_ROUTES = frozenset({"revise", "adapt", "reorganise"})
 _EVIDENCE_KEYS = frozenset({
     "classification",
     "graph_inspection",
@@ -229,6 +232,7 @@ _TASK_DESCRIPTIONS: dict[str, str] = {
     "diagnose": "diagnose workflow problems.",
     "preview_subgraph": "preview a subgraph or node group.",
     "research_precedent": "research precedent templates or techniques.",
+    "layout_reorganise": "reorganise canvas layout/readability without changing workflow semantics.",
     "respond": "reply without graph actions.",
     "research_nodes": "research nodes or workflow techniques.",
 }
@@ -255,6 +259,14 @@ def _normalize_explicit_route(
     output never exposes blank or legacy route values.
     """
     if not route:
+        if task in {
+            "layout_reorganise",
+            "reorganise_comfy_workflow",
+            "reorganize_comfy_workflow",
+            "/reorganise_comfy_workflow",
+            "/reorganize_comfy_workflow",
+        }:
+            return "reorganise"
         return ""
 
     if route == "requires_custom_nodes":
@@ -283,6 +295,14 @@ def _normalize_explicit_route(
         "direct_edit": "revise",
         "diagnose_repair": "revise",
         "precedent_research": "adapt",
+        "layout_reorganise": "reorganise",
+        "layout_reorganize": "reorganise",
+        "reorganise_workflow": "reorganise",
+        "reorganize_workflow": "reorganise",
+        "reorganise_comfy_workflow": "reorganise",
+        "reorganize_comfy_workflow": "reorganise",
+        "/reorganise_comfy_workflow": "reorganise",
+        "/reorganize_comfy_workflow": "reorganise",
     }
     if route in static_aliases:
         normalized = static_aliases[route]
@@ -421,6 +441,7 @@ class ClassifyDecision:
             "research": (True, False),
             "revise": (False, True),
             "adapt": (True, True),
+            "reorganise": (False, True),
         }
         if self.route in route_booleans:
             expected_research, expected_implement = route_booleans[self.route]
@@ -430,6 +451,8 @@ class ClassifyDecision:
         # Clamp task to allowed values.
         if self.task not in _ALLOWED_TASKS:
             object.__setattr__(self, "task", "")
+        if self.route == "reorganise" and self.task != "layout_reorganise":
+            object.__setattr__(self, "task", "layout_reorganise")
 
         # Freeze tuple fields.
         object.__setattr__(self, "search_directions", tuple(self.search_directions))
@@ -456,6 +479,8 @@ class ClassifyDecision:
         """Return the normalized task, deriving from legacy fields when empty."""
         if self.task:
             return self.task
+        if self.route == "reorganise":
+            return "layout_reorganise"
         return _derive_task(
             research=self.research,
             implement=self.implement,

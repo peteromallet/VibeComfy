@@ -1,0 +1,221 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "vibecomfy": {
+      "fixture": "muted_sampler_alternative",
+      "coverage": [
+        "muted_sampler",
+        "parallel_alternative"
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "class_type": "LoadImage",
+      "pos": [
+        105,
+        105
+      ],
+      "size": [
+        260,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "load"
+      },
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            10,
+            11
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "KSampler",
+      "class_type": "KSampler",
+      "title": "Primary Sampler",
+      "pos": [
+        115,
+        115
+      ],
+      "size": [
+        260,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "primary_sampler"
+      },
+      "widgets_values": [
+        444,
+        "fixed",
+        22,
+        7.0,
+        "euler",
+        "normal",
+        1.0
+      ],
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "KSampler",
+      "class_type": "KSampler",
+      "title": "Muted Alternative Sampler",
+      "pos": [
+        125,
+        125
+      ],
+      "size": [
+        260,
+        90
+      ],
+      "mode": 2,
+      "flags": {
+        "muted": true
+      },
+      "properties": {
+        "vibecomfy_uid": "muted_sampler"
+      },
+      "widgets_values": [
+        555,
+        "fixed",
+        32,
+        5.5,
+        "dpmpp_sde",
+        "karras",
+        1.0
+      ],
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            13
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "pos": [
+        140,
+        140
+      ],
+      "size": [
+        260,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "save_primary"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "PreviewImage",
+      "class_type": "PreviewImage",
+      "title": "Muted Preview",
+      "pos": [
+        150,
+        150
+      ],
+      "size": [
+        260,
+        90
+      ],
+      "mode": 2,
+      "flags": {
+        "muted": true
+      },
+      "properties": {
+        "vibecomfy_uid": "preview_muted"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 13
+        }
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      2,
+      0,
+      "IMAGE"
+    ],
+    [
+      11,
+      1,
+      0,
+      3,
+      0,
+      "IMAGE"
+    ],
+    [
+      12,
+      2,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ],
+    [
+      13,
+      3,
+      0,
+      5,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": []
+}

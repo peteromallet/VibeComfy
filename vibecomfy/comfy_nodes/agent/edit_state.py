@@ -217,6 +217,7 @@ class AgentEditState:
     narrative_request_path: Path = Path("narrative_request.json")
     narrative_response_path: Path = Path("narrative_response.json")
     narrative_validation_path: Path = Path("narrative_validation.json")
+    post_edit_reorganisation_advisory: dict[str, Any] | None = None
 
 
 def _hydrate_execution_plan_from_protocol_notes(

@@ -1,0 +1,212 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "vibecomfy": {
+      "fixture": "incoherent_crossed_groups",
+      "coverage": [
+        "incoherent_groups",
+        "cross_stage_group_members",
+        "backward_edges"
+      ],
+      "thresholds": {
+        "max_group_coherence": 0.65,
+        "min_backward_edge_ratio": 0.15,
+        "expected_layout_pressure": "repair misleading groups and backward visual flow without changing topology"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "CheckpointLoaderSimple",
+      "class_type": "CheckpointLoaderSimple",
+      "pos": [
+        650,
+        120
+      ],
+      "size": [
+        260,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "load_image"
+      },
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            10
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "KSampler",
+      "class_type": "KSampler",
+      "pos": [
+        360,
+        125
+      ],
+      "size": [
+        240,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "scale_image"
+      },
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            11
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "pos": [
+        115,
+        130
+      ],
+      "size": [
+        240,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "decode"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "LATENT",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "PreviewImage",
+      "class_type": "PreviewImage",
+      "pos": [
+        460,
+        265
+      ],
+      "size": [
+        240,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "preview"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 12
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "MarkdownNote",
+      "class_type": "MarkdownNote",
+      "pos": [
+        80,
+        400
+      ],
+      "size": [
+        260,
+        120
+      ],
+      "properties": {
+        "vibecomfy_uid": "review_note"
+      },
+      "widgets_values": [
+        "Groups intentionally mix input and output stages."
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      2,
+      0,
+      "MODEL"
+    ],
+    [
+      11,
+      2,
+      0,
+      3,
+      0,
+      "LATENT"
+    ],
+    [
+      12,
+      3,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "title": "Inputs",
+      "bounding": [
+        70,
+        85,
+        320,
+        190
+      ],
+      "nodes": [
+        1,
+        4
+      ]
+    },
+    {
+      "title": "Output",
+      "bounding": [
+        420,
+        220,
+        330,
+        170
+      ],
+      "nodes": [
+        2,
+        3
+      ]
+    }
+  ]
+}

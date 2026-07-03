@@ -1,0 +1,319 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "vibecomfy": {
+      "fixture": "shared_model_vae_fanout",
+      "coverage": [
+        "shared_model",
+        "shared_vae",
+        "dual_sampler_outputs"
+      ],
+      "thresholds": {
+        "max_primary_nodes": 7,
+        "min_shared_fanout": 2,
+        "expected_layout_pressure": "keep one shared loader/VAE source readable while separating two sampler branches"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "CheckpointLoaderSimple",
+      "class_type": "CheckpointLoaderSimple",
+      "title": "Shared SD15 Checkpoint",
+      "pos": [
+        180,
+        140
+      ],
+      "size": [
+        300,
+        98
+      ],
+      "properties": {
+        "vibecomfy_uid": "shared_checkpoint"
+      },
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            10,
+            11
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            16,
+            17
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "KSampler",
+      "class_type": "KSampler",
+      "title": "Warm Branch Sampler",
+      "pos": [
+        150,
+        165
+      ],
+      "size": [
+        300,
+        220
+      ],
+      "properties": {
+        "vibecomfy_uid": "warm_sampler"
+      },
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 10
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "KSampler",
+      "class_type": "KSampler",
+      "title": "Cool Branch Sampler",
+      "pos": [
+        160,
+        180
+      ],
+      "size": [
+        300,
+        220
+      ],
+      "properties": {
+        "vibecomfy_uid": "cool_sampler"
+      },
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            15
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "VAEDecode",
+      "class_type": "VAEDecode",
+      "title": "Warm Decode",
+      "pos": [
+        200,
+        150
+      ],
+      "size": [
+        240,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "warm_decode"
+      },
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 14
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 16
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            18
+          ]
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "VAEDecode",
+      "class_type": "VAEDecode",
+      "title": "Cool Decode",
+      "pos": [
+        210,
+        175
+      ],
+      "size": [
+        240,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "cool_decode"
+      },
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 15
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 17
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            19
+          ]
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "title": "Save Warm",
+      "pos": [
+        230,
+        165
+      ],
+      "size": [
+        240,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "save_warm"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 18
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "title": "Save Cool",
+      "pos": [
+        240,
+        190
+      ],
+      "size": [
+        240,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "save_cool"
+      },
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 19
+        }
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      3,
+      0,
+      "MODEL"
+    ],
+    [
+      11,
+      1,
+      0,
+      4,
+      0,
+      "MODEL"
+    ],
+    [
+      14,
+      3,
+      0,
+      5,
+      0,
+      "LATENT"
+    ],
+    [
+      15,
+      4,
+      0,
+      6,
+      0,
+      "LATENT"
+    ],
+    [
+      16,
+      1,
+      1,
+      5,
+      1,
+      "VAE"
+    ],
+    [
+      17,
+      1,
+      1,
+      6,
+      1,
+      "VAE"
+    ],
+    [
+      18,
+      5,
+      0,
+      7,
+      0,
+      "IMAGE"
+    ],
+    [
+      19,
+      6,
+      0,
+      8,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": []
+}

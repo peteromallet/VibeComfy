@@ -1,0 +1,300 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    },
+    "vibecomfy": {
+      "fixture": "simple_text_to_image",
+      "coverage": [
+        "txt2img"
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "CheckpointLoaderSimple",
+      "class_type": "CheckpointLoaderSimple",
+      "pos": [
+        80,
+        80
+      ],
+      "size": [
+        300,
+        98
+      ],
+      "properties": {
+        "vibecomfy_uid": "checkpoint"
+      },
+      "widgets_values": [
+        "sd15.safetensors"
+      ],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            10
+          ]
+        },
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            11
+          ]
+        },
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            15
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "CLIPTextEncode",
+      "class_type": "CLIPTextEncode",
+      "pos": [
+        120,
+        110
+      ],
+      "size": [
+        340,
+        130
+      ],
+      "properties": {
+        "vibecomfy_uid": "prompt"
+      },
+      "widgets_values": [
+        "a small cabin under clear morning light"
+      ],
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 11
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "EmptyLatentImage",
+      "class_type": "EmptyLatentImage",
+      "pos": [
+        140,
+        140
+      ],
+      "size": [
+        260,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "latent"
+      },
+      "widgets_values": [
+        768,
+        512,
+        1
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            13
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "KSampler",
+      "class_type": "KSampler",
+      "pos": [
+        160,
+        150
+      ],
+      "size": [
+        320,
+        260
+      ],
+      "properties": {
+        "vibecomfy_uid": "sample"
+      },
+      "widgets_values": [
+        12345,
+        "fixed",
+        20,
+        7.0,
+        "euler",
+        "normal",
+        1.0
+      ],
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 10
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 12
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 13
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            14
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "VAEDecode",
+      "class_type": "VAEDecode",
+      "pos": [
+        190,
+        165
+      ],
+      "size": [
+        240,
+        96
+      ],
+      "properties": {
+        "vibecomfy_uid": "decode"
+      },
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 14
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 15
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            16
+          ]
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "SaveImage",
+      "class_type": "SaveImage",
+      "pos": [
+        210,
+        180
+      ],
+      "size": [
+        260,
+        90
+      ],
+      "properties": {
+        "vibecomfy_uid": "save"
+      },
+      "widgets_values": [
+        "vibecomfy_simple"
+      ],
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 16
+        }
+      ]
+    }
+  ],
+  "links": [
+    [
+      10,
+      1,
+      0,
+      4,
+      0,
+      "MODEL"
+    ],
+    [
+      11,
+      1,
+      1,
+      2,
+      0,
+      "CLIP"
+    ],
+    [
+      12,
+      2,
+      0,
+      4,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      13,
+      3,
+      0,
+      4,
+      2,
+      "LATENT"
+    ],
+    [
+      14,
+      4,
+      0,
+      5,
+      0,
+      "LATENT"
+    ],
+    [
+      15,
+      1,
+      2,
+      5,
+      1,
+      "VAE"
+    ],
+    [
+      16,
+      5,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": []
+}

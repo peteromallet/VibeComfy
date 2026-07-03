@@ -551,7 +551,7 @@ def _change_details_payload(state: AgentEditState, context: TurnContext) -> dict
     gate_a = gate_snapshot.get("edit_scope_ok") or gate_snapshot.get("python_load_ok")
     gate_b = gate_snapshot.get("isomorphic_ok") or gate_snapshot.get("ui_fidelity_ok")
     operations = _operation_detail_payload(tuple(state.batch_field_changes or ()))
-    return {
+    payload = {
         "landed_operation_count": _total_landed_edit_count(state),
         "done_summary": state.batch_done_summary or "",
         "final_summary": state.batch_final_summary or "",
@@ -560,6 +560,10 @@ def _change_details_payload(state: AgentEditState, context: TurnContext) -> dict
         "operations": operations,
         "batch_turns": _json_safe(state.batch_turns),
     }
+    advisory = getattr(state, "post_edit_reorganisation_advisory", None)
+    if isinstance(advisory, Mapping):
+        payload["layout_reorganisation"] = _json_safe(dict(advisory))
+    return payload
 
 
 _NARRATIVE_GATE_JARGON_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -796,7 +800,36 @@ def _compact_change_details_payload(change_details: Mapping[str, Any]) -> dict[s
         payload["gate_a"] = _json_safe(change_details.get("gate_a"))
     if "gate_b" in change_details:
         payload["gate_b"] = _json_safe(change_details.get("gate_b"))
+    advisory = change_details.get("layout_reorganisation")
+    if isinstance(advisory, Mapping):
+        payload["layout_reorganisation"] = _json_safe(dict(advisory))
     return payload
+
+
+def _post_edit_reorganisation_advice_sentence(state: AgentEditState) -> str:
+    advisory = getattr(state, "post_edit_reorganisation_advisory", None)
+    if not isinstance(advisory, Mapping):
+        return ""
+    if advisory.get("result") != "offer_reorganisation":
+        return ""
+    command = advisory.get("suggested_command")
+    command_text = (
+        command
+        if isinstance(command, str) and command.strip()
+        else "/reorganise_comfy_workflow"
+    )
+    return (
+        "The edit is ready to review, and the canvas may benefit from "
+        f"{command_text}."
+    )
+
+
+def _append_post_edit_reorganisation_advice(message: str, state: AgentEditState) -> str:
+    advice = _post_edit_reorganisation_advice_sentence(state)
+    if not advice:
+        return message
+    base = ensure_sentence_message(message, fallback="The candidate is ready to review.")
+    return f"{base} {advice}"
 
 
 def _narrative_context_payload(
@@ -888,8 +921,8 @@ def _fallback_narrative_message(
     if outcome.kind == "edit":
         message = _humanized_edit_message(state)
         if fallback_reason in {"provider_failure", "malformed_response", "refused_narrative", "timeout"}:
-            return ensure_sentence_message(message, fallback="The candidate is ready to review.")
-        return message
+            message = ensure_sentence_message(message, fallback="The candidate is ready to review.")
+        return _append_post_edit_reorganisation_advice(message, state)
     if outcome.kind == "edit+clarify":
         question = (
             outcome.question.strip()
