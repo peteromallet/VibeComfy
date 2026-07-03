@@ -9,10 +9,12 @@ from . import plan_types as _plan_types
 from . import projection as _projection
 from . import assess as _assess
 from . import classify as _classify
+from . import compile as _compile
 from . import report as _report
 from . import validate as _validate
 from .assess import *  # noqa: F403
 from .classify import *  # noqa: F403
+from .compile import *  # noqa: F403
 from .diagnostics import *  # noqa: F403
 from .graph_facts import *  # noqa: F403
 from .parse import *  # noqa: F403
@@ -24,6 +26,7 @@ from .validate import *  # noqa: F403
 __all__ = [
     *_assess.__all__,
     *_classify.__all__,
+    *_compile.__all__,
     *_diagnostics.__all__,
     *_graph_facts.__all__,
     *_parse.__all__,
