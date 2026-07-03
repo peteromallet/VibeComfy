@@ -298,22 +298,48 @@ def _toposort_component(
     deps: Mapping[str, set[str]],
     statement_order: Mapping[str, int],
 ) -> list[str]:
-    remaining = {name: set(dep for dep in deps[name] if dep in component) for name in component}
-    ready = sorted([name for name, dep_set in remaining.items() if not dep_set], key=lambda name: statement_order[name])
+    """Topological sort using dependency counts and reverse edges.
+
+    Builds in-degree counts and reverse adjacency once (O(V+E)), then
+    processes a deterministically-sorted ready queue.  When a cycle is
+    detected the partially-ordered prefix is preserved and the remainder
+    is appended in deterministic ``statement_order`` order.
+    """
+    # ---- dependency counts + reverse edges (intra-component only) -----
+    in_degree: dict[str, int] = {}
+    reverse_edges: dict[str, list[str]] = {name: [] for name in component}
+    for name in component:
+        comp_deps = [d for d in deps.get(name, set()) if d in component]
+        in_degree[name] = len(comp_deps)
+        for dep in comp_deps:
+            reverse_edges[dep].append(name)
+
+    # ---- deterministic ready queue -----------------------------------
+    _key = lambda n: statement_order[n]  # noqa: E731
+    ready = sorted(
+        [name for name, deg in in_degree.items() if deg == 0],
+        key=_key,
+    )
+
     ordered: list[str] = []
     while ready:
         current = ready.pop(0)
         ordered.append(current)
-        for candidate in sorted(component, key=lambda name: statement_order[name]):
-            if current not in remaining[candidate]:
-                continue
-            remaining[candidate].remove(current)
-            if not remaining[candidate]:
-                if candidate not in ordered and candidate not in ready:
-                    ready.append(candidate)
-                    ready.sort(key=lambda name: statement_order[name])
+        # Only decrement the nodes that actually depend on *current*.
+        for dependent in reverse_edges[current]:
+            in_degree[dependent] -= 1
+            if in_degree[dependent] == 0:
+                ready.append(dependent)
+                ready.sort(key=_key)
+
+    # ---- cycle remainder: keep partial order, append remainder --------
     if len(ordered) != len(component):
-        return sorted(component, key=lambda name: statement_order[name])
+        remainder = sorted(
+            [name for name in component if name not in ordered],
+            key=_key,
+        )
+        ordered.extend(remainder)
+
     return ordered
 
 

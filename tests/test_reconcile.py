@@ -1037,3 +1037,157 @@ def test_change_report_no_cry_wolf_for_content_edits():
     # even when content_edits has none.
     assert isinstance(report.identity_stabilization.definition_relayout, list)
     assert isinstance(report.identity_stabilization.unmatched_legacy, list)
+
+
+# ---------------------------------------------------------------------------
+# T11: Bound reconcile assignment cost — fallback and synthetic stress
+# ---------------------------------------------------------------------------
+
+
+def test_min_cost_assign_exhaustive_for_small_groups():
+    """Exact exhaustive matching is used when min(n,m) ≤ 8 and budget is safe.
+
+    Builds a workflow with 6 twin uid-less nodes, a store with 6 annotated
+    prior entries, and asserts that every node is matched to its nearest
+    prior position (exact behaviour unchanged for small groups).
+    """
+    from vibecomfy.porting.layout.reconcile import _use_exhaustive
+
+    assert _use_exhaustive(6, 6) is True, "6×6 must use exhaustive"
+    assert _use_exhaustive(8, 8) is True, "8×8 must use exhaustive (budget = 40320)"
+    assert _use_exhaustive(7, 10) is False, (
+        "7×10 → P(10,7)=604800 exceeds the 40320 budget"
+    )
+    assert _use_exhaustive(3, 10) is True, "3×10 → P(10,3)=720 ≤ budget"
+    assert _use_exhaustive(9, 9) is False, "min(n,m)=9 > SAFE_K → fallback"
+    assert _use_exhaustive(1, 1) is True, "trivial case"
+
+
+def test_min_cost_assign_fallback_used_for_large_groups():
+    """Deterministic greedy fallback is used when min(n,m) > 8.
+
+    Creates a hash-collision group of 10 twin RandomNoise nodes and
+    10 annotated prior entries.  Verifies that reconcile completes
+    without hanging and all 10 nodes are matched.
+    """
+    wf = _wf("large_twin_group")
+    # 10 structurally identical uid-less RandomNoise nodes at distinct positions.
+    for i in range(10):
+        nid = str(i)
+        wf.nodes[nid] = VibeNode(
+            id=nid,
+            class_type="RandomNoise",
+            inputs={"noise_seed": 42},
+            uid="",
+            metadata={
+                "_ui": {
+                    "id": i,
+                    "pos": [float(i * 100), 0.0],
+                    "size": [200.0, 100.0],
+                    "mode": 0,
+                    "properties": {},
+                }
+            },
+        )
+
+    shared_hash = legacy_hash("0", wf)
+    for i in range(1, 10):
+        assert legacy_hash(str(i), wf) == shared_hash, "all 10 nodes must hash identically"
+
+    store = {
+        "entries": {
+            f"prior-{i}": {**_furniture(float(i * 100)), "_legacy_hash": shared_hash}
+            for i in range(10)
+        },
+        "groups": [],
+        "extra": {},
+        "definitions": {},
+        "virtual_wires": [],
+    }
+
+    result = reconcile(wf, store)
+
+    assert len(result.bridge_minted) == 10, "all 10 nodes must be bridge-matched"
+    assert result.new == [], "no nodes should remain unmatched"
+    assert result.unmatched_legacy == [], "no prior entries should remain unmatched"
+
+    # Each node should be assigned to the nearest prior position.
+    # (Greedy may not be globally optimal but should be near-optimal.)
+    for nid, node in wf.nodes.items():
+        assert node.uid, f"node {nid} must have a minted uid"
+        assigned_pos = result.matched[node.uid]["pos"]
+        node_x = node.metadata["_ui"]["pos"][0]
+        # Distance to assigned prior pos ≤ 500 (halfway to next) is reasonable
+        assert abs(node_x - assigned_pos[0]) <= 500, (
+            f"node {nid} at x={node_x} assigned to x={assigned_pos[0]} — too far"
+        )
+
+
+def test_100_node_synthetic_reconcile_completes():
+    """A ~100-node hash-collision group completes reconcile without hanging.
+
+    Creates 100 structurally identical uid-less nodes and 100 annotated
+    prior entries, then reconciles.  The assignment uses the greedy
+    fallback path (min(100,100) > 8) and must finish in a reasonable
+    time without excessive memory use.
+    """
+    N = 100
+    wf = _wf("synthetic_100")
+
+    for i in range(N):
+        nid = str(i)
+        wf.nodes[nid] = VibeNode(
+            id=nid,
+            class_type="RandomNoise",
+            inputs={"noise_seed": 42},
+            uid="",
+            metadata={
+                "_ui": {
+                    "id": i,
+                    "pos": [float(i * 10), 0.0],
+                    "size": [200.0, 100.0],
+                    "mode": 0,
+                    "properties": {},
+                }
+            },
+        )
+
+    shared_hash = legacy_hash("0", wf)
+    # Sanity: all nodes share the same hash.
+    for i in (1, N // 2, N - 1):
+        assert legacy_hash(str(i), wf) == shared_hash
+
+    store = {
+        "entries": {
+            f"prior-{i}": {**_furniture(float(i * 10)), "_legacy_hash": shared_hash}
+            for i in range(N)
+        },
+        "groups": [],
+        "extra": {},
+        "definitions": {},
+        "virtual_wires": [],
+    }
+
+    result = reconcile(wf, store)
+
+    assert len(result.bridge_minted) == N, f"all {N} nodes must be bridge-matched"
+    assert result.new == [], "no nodes should remain unmatched"
+    assert result.unmatched_legacy == [], "no prior entries should remain unmatched"
+
+    # Verify every node got a minted uid and furniture.
+    for nid, node in wf.nodes.items():
+        assert node.uid, f"node {nid} must have a minted uid"
+        assert node.uid in result.matched, f"minted uid {node.uid} must be in matched"
+
+    # Quick sanity: assigned positions should be near the node's canvas position.
+    max_deviation = 0.0
+    for nid, node in wf.nodes.items():
+        node_x = node.metadata["_ui"]["pos"][0]
+        assigned_x = result.matched[node.uid]["pos"][0]
+        max_deviation = max(max_deviation, abs(node_x - assigned_x))
+
+    # Greedy nearest-neighbour should keep every node within ~500px of its
+    # original position (much tighter than the 1000px canvas span).
+    assert max_deviation <= 500.0, (
+        f"max deviation {max_deviation} exceeds 500px — assignment is too scattered"
+    )

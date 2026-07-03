@@ -294,6 +294,152 @@ def _euclidean(p1: tuple[float, float], p2: tuple[float, float]) -> float:
     return (dx * dx + dy * dy) ** 0.5
 
 
+# Maximum safe size for exact exhaustive assignment and the corresponding
+# permutation budget (8! = 40320).  Above these thresholds a deterministic
+# greedy nearest-neighbour fallback is used to keep reconcile fast and
+# predictable on large hash-collision groups.
+_SAFE_K = 8
+_SAFE_PERM_BUDGET = 40320  # math.perm(8, 8)
+
+
+def _permutation_count(n: int, m: int) -> int:
+    """Return the number of permutations for the n×m assignment problem.
+
+    When *n* ≤ *m* this is P(m, n); otherwise P(n, m).  Returns 1 when the
+    smaller dimension is 0 (no assignment to make).
+    """
+    k = min(n, m)
+    if k == 0:
+        return 1
+    top = max(n, m)
+    # Product of (top - i) for i in 0..k-1
+    count = 1
+    for i in range(k):
+        count *= (top - i)
+        if count > _SAFE_PERM_BUDGET:
+            break
+    return count
+
+
+def _use_exhaustive(n: int, m: int) -> bool:
+    """Return True when the (n,m) assignment is small enough for exact search."""
+    k = min(n, m)
+    if k > _SAFE_K:
+        return False
+    return _permutation_count(n, m) <= _SAFE_PERM_BUDGET
+
+
+def _exhaustive_assign(
+    n: int,
+    m: int,
+    costs: list[list[float]],
+    c_layers: list[int],
+) -> list[tuple[int, int]]:
+    """Exact min-cost bipartite assignment via permutation enumeration.
+
+    Only called when the search space has been confirmed safe by
+    :func:`_use_exhaustive`.
+    """
+    best_cost: float = float("inf")
+    best_secondary: int = 0
+    best_assignment: list[tuple[int, int]] = []
+
+    if n <= m:
+        for perm in itertools.permutations(range(m), n):
+            cost = sum(costs[i][perm[i]] for i in range(n))
+            secondary = sum(c_layers[i] * perm[i] for i in range(n))
+            if cost < best_cost or (cost == best_cost and secondary < best_secondary):
+                best_cost = cost
+                best_secondary = secondary
+                best_assignment = [(i, perm[i]) for i in range(n)]
+    else:
+        for perm in itertools.permutations(range(n), m):
+            cost = sum(costs[perm[j]][j] for j in range(m))
+            secondary = sum(c_layers[perm[j]] * j for j in range(m))
+            if cost < best_cost or (cost == best_cost and secondary < best_secondary):
+                best_cost = cost
+                best_secondary = secondary
+                best_assignment = [(perm[j], j) for j in range(m)]
+
+    return best_assignment
+
+
+def _greedy_assign(
+    n: int,
+    m: int,
+    costs: list[list[float]],
+    c_layers: list[int],
+) -> list[tuple[int, int]]:
+    """Deterministic greedy nearest-neighbour fallback assignment.
+
+    When the search space is too large for exact enumeration (see
+    :func:`_use_exhaustive`), this function produces a stable, repeatable
+    assignment in O(n·m·min(n,m)) time.
+
+    Strategy
+    --------
+    * Sort current items by Kahn layer rank (lower = upstream first), with
+      index as a secondary tiebreak for determinism.
+    * Process each current item in that order and assign it to the *nearest
+      unmatched* prior entry, using the same Euclidean+cost tiebreak as the
+      exact path.
+    * When there are more prior than current entries the direction is the same
+      (assign each current to a distinct prior).  When there are more current
+      than prior entries the roles are reversed: sort prior entries stably and
+      assign each to the nearest unmatched current.
+
+    Returns a list of ``(current_index, prior_index)`` pairs.
+    """
+    k = min(n, m)
+    if k == 0:
+        return []
+
+    assignment: list[tuple[int, int]] = []
+
+    if n <= m:
+        # Assign each current to a distinct prior.
+        order = sorted(range(n), key=lambda i: (c_layers[i], i))
+        used_prior: set[int] = set()
+        for ci in order:
+            best_j = -1
+            best_cost = float("inf")
+            best_secondary = 0
+            for j in range(m):
+                if j in used_prior:
+                    continue
+                cost = costs[ci][j]
+                secondary = c_layers[ci] * j
+                if cost < best_cost or (cost == best_cost and secondary < best_secondary):
+                    best_cost = cost
+                    best_secondary = secondary
+                    best_j = j
+            if best_j >= 0:
+                used_prior.add(best_j)
+                assignment.append((ci, best_j))
+    else:
+        # More current than prior — assign each prior to a distinct current.
+        order = sorted(range(m), key=lambda j: j)  # stable: index order
+        used_current: set[int] = set()
+        for pj in order:
+            best_i = -1
+            best_cost = float("inf")
+            best_secondary = 0
+            for i in range(n):
+                if i in used_current:
+                    continue
+                cost = costs[i][pj]
+                secondary = c_layers[i] * pj
+                if cost < best_cost or (cost == best_cost and secondary < best_secondary):
+                    best_cost = cost
+                    best_secondary = secondary
+                    best_i = i
+            if best_i >= 0:
+                used_current.add(best_i)
+                assignment.append((best_i, pj))
+
+    return assignment
+
+
 def _min_cost_assign(
     current_items: list[tuple[str, Any]],   # (node_id, node)
     prior_items: list[tuple[str, dict]],     # (store_uid, entry)
@@ -304,6 +450,11 @@ def _min_cost_assign(
     Minimises Σ Euclidean(current_pos, prior_pos).  Tiebreaks prefer
     assignments where lower-layer (upstream) current nodes are matched to
     lower-ranked prior entries (sorted by store uid).
+
+    Uses exact exhaustive search for small groups (≤ *SAFE_K* items and
+    within the safe permutation budget) and falls back to a deterministic
+    greedy nearest-neighbour algorithm for larger groups to keep reconcile
+    fast and predictable.
 
     Returns a list of ``(current_index, prior_index)`` pairs covering
     ``min(len(current_items), len(prior_items))`` nodes.
@@ -328,28 +479,10 @@ def _min_cost_assign(
     # Kahn-rank tiebreak weights: lower layer = lower weight = preferred earlier
     c_layers = [layers.get(node.uid or nid, 0) for nid, node in current_items]
 
-    best_cost: float = float("inf")
-    best_secondary: int = 0
-    best_assignment: list[tuple[int, int]] = []
-
-    if n <= m:
-        for perm in itertools.permutations(range(m), n):
-            cost = sum(costs[i][perm[i]] for i in range(n))
-            secondary = sum(c_layers[i] * perm[i] for i in range(n))
-            if cost < best_cost or (cost == best_cost and secondary < best_secondary):
-                best_cost = cost
-                best_secondary = secondary
-                best_assignment = [(i, perm[i]) for i in range(n)]
+    if _use_exhaustive(n, m):
+        return _exhaustive_assign(n, m, costs, c_layers)
     else:
-        for perm in itertools.permutations(range(n), m):
-            cost = sum(costs[perm[j]][j] for j in range(m))
-            secondary = sum(c_layers[perm[j]] * j for j in range(m))
-            if cost < best_cost or (cost == best_cost and secondary < best_secondary):
-                best_cost = cost
-                best_secondary = secondary
-                best_assignment = [(perm[j], j) for j in range(m)]
-
-    return best_assignment
+        return _greedy_assign(n, m, costs, c_layers)
 
 
 # ---------------------------------------------------------------------------

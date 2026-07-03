@@ -151,3 +151,104 @@ def test_snapshot_absent_node_omitted_matches_add_semantics():
     assert "latent-uid" not in delta
     # sampler-uid was not modified → also not in delta
     assert "sampler-uid" not in delta
+
+
+# ---------------------------------------------------------------------------
+# Batch-placement toposort tests (T12: dependency counts + reverse edges)
+# ---------------------------------------------------------------------------
+
+
+def test_toposort_linear_chain_dependency_count_ordering():
+    """A→B→C linear chain: in-degree counts produce deterministic A,B,C order."""
+    from vibecomfy.porting.layout.placement import _toposort_component
+
+    component = {"A", "B", "C"}
+    deps = {"A": set(), "B": {"A"}, "C": {"B"}}
+    statement_order = {"A": 0, "B": 1, "C": 2}
+
+    result = _toposort_component(component, deps, statement_order)
+    assert result == ["A", "B", "C"]
+
+
+def test_toposort_deterministic_ready_ordering():
+    """Independent nodes A,B,C (no deps) → ordered by statement_order."""
+    from vibecomfy.porting.layout.placement import _toposort_component
+
+    component = {"A", "B", "C"}
+    deps = {"A": set(), "B": set(), "C": set()}
+    statement_order = {"A": 2, "B": 0, "C": 1}
+
+    result = _toposort_component(component, deps, statement_order)
+    assert result == ["B", "C", "A"]
+
+
+def test_toposort_diamond_dependency_count():
+    """Diamond: A→B, A→C, B→D, C→D. Verify in-degree counting is correct."""
+    from vibecomfy.porting.layout.placement import _toposort_component
+
+    component = {"A", "B", "C", "D"}
+    deps = {"A": set(), "B": {"A"}, "C": {"A"}, "D": {"B", "C"}}
+    statement_order = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+    result = _toposort_component(component, deps, statement_order)
+    # A first (only ready). Then B and C both become ready; B < C by statement_order.
+    # After B→C processed, D becomes ready.
+    assert result == ["A", "B", "C", "D"]
+
+
+def test_toposort_cycle_remainder_preserves_partial_order():
+    """Cycle A→B→C→A: no node has in-degree 0, remainder appended deterministically."""
+    from vibecomfy.porting.layout.placement import _toposort_component
+
+    component = {"A", "B", "C"}
+    deps = {"A": {"C"}, "B": {"A"}, "C": {"B"}}
+    statement_order = {"A": 2, "B": 1, "C": 0}
+
+    result = _toposort_component(component, deps, statement_order)
+    # All three in cycle → all in remainder, sorted by statement_order.
+    assert result == ["C", "B", "A"]
+
+
+def test_toposort_cycle_with_non_cycle_prefix():
+    """D→A→B→C→A: D is outside the cycle, so D comes first, then A,B,C appended."""
+    from vibecomfy.porting.layout.placement import _toposort_component
+
+    component = {"D", "A", "B", "C"}
+    deps = {"D": set(), "A": {"D", "C"}, "B": {"A"}, "C": {"B"}}
+    statement_order = {"D": 0, "A": 2, "B": 1, "C": 3}
+
+    result = _toposort_component(component, deps, statement_order)
+    # D has in-degree 0 → processed first. A,B,C in cycle → remainder sorted.
+    assert result[0] == "D"
+    assert set(result[1:]) == {"A", "B", "C"}
+    # Remainder sorted by statement_order: B(1), A(2), C(3)
+    assert result[1:] == ["B", "A", "C"]
+
+
+def test_toposort_deterministic_across_runs():
+    """Same input 3 times → same output (no non-determinism from hash ordering)."""
+    from vibecomfy.porting.layout.placement import _toposort_component
+
+    component = {"X", "Y", "Z", "W"}
+    deps = {"W": set(), "X": {"W"}, "Y": {"W"}, "Z": {"X", "Y"}}
+    statement_order = {"W": 0, "X": 10, "Y": 5, "Z": 20}
+
+    results = [
+        _toposort_component(component, deps, statement_order)
+        for _ in range(5)
+    ]
+    assert all(r == results[0] for r in results)
+    # W first, then X(10) vs Y(5): Y comes before X, Z last after both.
+    assert results[0] == ["W", "Y", "X", "Z"]
+
+
+def test_toposort_reverse_edges_not_scanned():
+    """When A depends on nothing, its reverse_edges should still be clean (no KeyError)."""
+    from vibecomfy.porting.layout.placement import _toposort_component
+
+    component = {"A", "B"}
+    deps = {"A": set(), "B": {"A"}}
+    statement_order = {"A": 0, "B": 1}
+
+    result = _toposort_component(component, deps, statement_order)
+    assert result == ["A", "B"]

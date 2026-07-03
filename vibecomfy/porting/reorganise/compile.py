@@ -127,6 +127,7 @@ COMPILE_ISSUE_IDEMPOTENCE_DELTA = "compiler_idempotence_delta"
 COMPILE_ISSUE_STRUCTURAL_HASH_CHANGED = "compiler_structural_hash_changed"
 COMPILE_ISSUE_EXISTING_GROUP_DISSOLVED = "existing_group_dissolved"
 COMPILE_ISSUE_EXISTING_GROUP_REBUILT = "existing_group_rebuilt"
+COMPILE_ISSUE_MIXED_CORE_ROLE = "compiler_mixed_core_role"
 COMPILE_BACKWARD_EDGE_RATIO_THRESHOLD = 0.15
 COMPILE_BACKWARD_EDGE_X_TOLERANCE = 8.0
 COMPILE_CROSSING_PROXY_THRESHOLD = 0
@@ -156,6 +157,7 @@ COMPILE_ISSUE_ORDER = (
     COMPILE_ISSUE_STRUCTURAL_HASH_CHANGED,
     COMPILE_ISSUE_EXISTING_GROUP_DISSOLVED,
     COMPILE_ISSUE_EXISTING_GROUP_REBUILT,
+    COMPILE_ISSUE_MIXED_CORE_ROLE,
 )
 
 _ENTRY_KEYS = ("pos", "size", "flags", "color", "bgcolor", "mode", "properties")
@@ -698,6 +700,7 @@ def compile_layout_plan(
         classification,
     ) if should_apply_existing_policy else (group_layouts, ())
     candidate_patch = _candidate_patch(node_layouts, group_layouts, facts, opts)
+    role_purity_issues = _validate_role_purity(sections, classification)
     report = _build_report(
         node_layouts=node_layouts,
         group_layouts=group_layouts,
@@ -706,7 +709,7 @@ def compile_layout_plan(
         structural_hash_before=structural_hash,
         structural_hash_after=structural_hash,
         diagnostics=validation_report.diagnostics,
-        issues=policy_issues,
+        issues=(*policy_issues, *role_purity_issues),
     )
     return LayoutCompileResult(
         ok=validation_report.ok and report.verdict != "blocked",
@@ -2917,6 +2920,100 @@ def _candidate_unkeyed(sidecar: Mapping[str, Any]) -> tuple[Any, ...]:
     if isinstance(unkeyed, Sequence) and not isinstance(unkeyed, (str, bytes)):
         return tuple(unkeyed)
     return ()
+
+
+# Section kinds excluded from role-purity diagnostics.
+_ROLE_PURITY_EXCLUDED_KINDS: frozenset[SectionKind] = frozenset(
+    {SECTION_KIND_CUSTOM, SECTION_KIND_UTILITY, SECTION_KIND_CONTAINER, SECTION_KIND_BRANCH}
+)
+
+# For each single-role core section kind, the set of classification role hints
+# that are acceptable without a mixed-core-role warning.
+_SECTION_KIND_ACCEPTABLE_ROLES: Mapping[SectionKind, frozenset[RoleHint]] = MappingProxyType(
+    {
+        SECTION_KIND_LOADERS: frozenset({ROLE_HINT_LOADER}),
+        SECTION_KIND_CONDITIONING: frozenset({ROLE_HINT_CONDITIONING}),
+        SECTION_KIND_LATENT: frozenset({ROLE_HINT_LATENT}),
+        SECTION_KIND_SAMPLING: frozenset({ROLE_HINT_SAMPLER}),
+        SECTION_KIND_DECODE: frozenset({ROLE_HINT_DECODE}),
+        SECTION_KIND_OUTPUT: frozenset({ROLE_HINT_OUTPUT, ROLE_HINT_DECODE}),
+        SECTION_KIND_CONTROL: frozenset({ROLE_HINT_CONTROL}),
+        SECTION_KIND_POSTPROCESS: frozenset({ROLE_HINT_POSTPROCESS}),
+    }
+)
+
+# Core role hints that, when misplaced, trigger a mixed-core-role warning.
+_CORE_ROLE_HINTS: frozenset[RoleHint] = frozenset(
+    {
+        ROLE_HINT_LOADER,
+        ROLE_HINT_CONDITIONING,
+        ROLE_HINT_LATENT,
+        ROLE_HINT_SAMPLER,
+        ROLE_HINT_DECODE,
+        ROLE_HINT_OUTPUT,
+        ROLE_HINT_CONTROL,
+        ROLE_HINT_POSTPROCESS,
+    }
+)
+
+
+def _validate_role_purity(
+    sections: Sequence[_CompileSection],
+    classification: ClassificationReport,
+) -> tuple[AssessmentIssue, ...]:
+    """Emit warning diagnostics when a core-role node appears in a mismatched
+    single-role section.
+
+    Sections of kind ``custom``, ``utility``, ``container``, and ``branch`` are
+    excluded from these checks.  Helper nodes (``helper`` / ``ui`` role hints)
+    and nodes with an ``unknown`` role hint are also never flagged.
+    """
+    issues: list[AssessmentIssue] = []
+    for section in sections:
+        if section.kind in _ROLE_PURITY_EXCLUDED_KINDS:
+            continue
+        acceptable = _SECTION_KIND_ACCEPTABLE_ROLES.get(section.kind)
+        if acceptable is None:
+            continue
+        mismatched: list[dict[str, Any]] = []
+        for ref in section.node_refs:
+            hint = classification.hint_for(ref)
+            if hint is None:
+                continue
+            role = hint.role_hint
+            if role not in _CORE_ROLE_HINTS:
+                # Helpers, UI, unknown, shared, subgraph-container are not
+                # considered misplacements here.
+                continue
+            if role in acceptable:
+                continue
+            mismatched.append(
+                {
+                    "ref": ref.to_json(),
+                    "class_type": hint.class_type,
+                    "actual_role": role,
+                    "section_kind": section.kind,
+                }
+            )
+        if mismatched:
+            issues.append(
+                AssessmentIssue(
+                    code=COMPILE_ISSUE_MIXED_CORE_ROLE,
+                    message=f"Section \"{section.id}\" ({section.kind}) contains nodes "
+                    f"with unexpected core roles.",
+                    severity="warning",
+                    refs=tuple(
+                        CanonicalNodeRef(*item["ref"])
+                        for item in mismatched
+                    ),
+                    detail={
+                        "section_id": section.id,
+                        "section_kind": section.kind,
+                        "mismatched": mismatched,
+                    },
+                )
+            )
+    return tuple(issues)
 
 
 def _build_report(

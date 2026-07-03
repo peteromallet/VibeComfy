@@ -9,6 +9,7 @@ from vibecomfy.porting.reorganise.compile import (
     COMPILE_ISSUE_GROUP_OVERLAP,
     COMPILE_ISSUE_HELPER_DISTANCE_HIGH,
     COMPILE_ISSUE_IDEMPOTENCE_DELTA,
+    COMPILE_ISSUE_MIXED_CORE_ROLE,
     COMPILE_ISSUE_MINIMUM_GUTTER,
     COMPILE_ISSUE_NODE_OVERLAP,
     COMPILE_HUGE_WORKFLOW_NODE_THRESHOLD,
@@ -1403,6 +1404,222 @@ def test_compile_layout_plan_gate_failure_report_orders_actionable_details() -> 
     assert issues[COMPILE_ISSUE_HELPER_DISTANCE_HIGH]["detail"]["violations"][0]["helper_ref"] == ["", "helper"]
     assert issues[COMPILE_ISSUE_IDEMPOTENCE_DELTA]["detail"]["measured"] is True
     assert issues["compiler_structural_hash_changed"]["detail"] == {"before": "before", "after": "after"}
+
+
+def test_compile_issues_warn_on_loader_in_output_section() -> None:
+    """A CheckpointLoaderSimple inside an output section should trigger a
+    warning-level mixed-core-role diagnostic without blocking compilation."""
+    ui = {
+        "nodes": [
+            _node(1, "CheckpointLoaderSimple", "checkpoint"),
+            _node(2, "SaveImage", "save"),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "MODEL"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "output", "kind": "output", "nodes": [["", "checkpoint"], ["", "save"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    # Compilation must not be blocked — warning only.
+    assert result.ok is True
+    issues_by_code = {issue.code: issue for issue in result.report.issues}
+    assert COMPILE_ISSUE_MIXED_CORE_ROLE in issues_by_code
+    issue = issues_by_code[COMPILE_ISSUE_MIXED_CORE_ROLE]
+    assert issue.severity == "warning"
+    assert issue.detail["section_id"] == "output"
+    assert issue.detail["section_kind"] == "output"
+    mismatched = issue.detail["mismatched"]
+    assert len(mismatched) == 1
+    assert mismatched[0]["ref"] == ("", "checkpoint")
+    assert mismatched[0]["actual_role"] == "loader"
+
+
+def test_compile_no_warning_when_all_nodes_match_section_role() -> None:
+    """No mixed-core-role warning when every node's classified role matches its section."""
+    ui = {
+        "nodes": [
+            _node(1, "CheckpointLoaderSimple", "checkpoint"),
+            _node(2, "CLIPTextEncode", "positive"),
+            _node(3, "KSampler", "sample"),
+            _node(4, "VAEDecode", "decode"),
+            _node(5, "SaveImage", "save"),
+        ],
+        "links": [
+            [10, 1, 0, 3, 0, "MODEL"],
+            [11, 2, 0, 3, 1, "CONDITIONING"],
+            [12, 3, 0, 4, 0, "LATENT"],
+            [13, 4, 0, 5, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "loaders", "kind": "loaders", "nodes": [["", "checkpoint"]]},
+                {"id": "conditioning", "kind": "conditioning", "nodes": [["", "positive"]]},
+                {"id": "sampling", "kind": "sampling", "nodes": [["", "sample"]]},
+                {"id": "output", "kind": "output", "nodes": [["", "decode"], ["", "save"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    issues_by_code = {issue.code for issue in result.report.issues}
+    assert COMPILE_ISSUE_MIXED_CORE_ROLE not in issues_by_code
+
+
+def test_compile_custom_section_excluded_from_role_purity_warnings() -> None:
+    """Custom sections are never checked for mixed core roles."""
+    ui = {
+        "nodes": [
+            _node(1, "CheckpointLoaderSimple", "checkpoint"),
+            _node(2, "SaveImage", "save"),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "MODEL"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "custom_section", "kind": "custom", "nodes": [["", "checkpoint"], ["", "save"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    issues_by_code = {issue.code for issue in result.report.issues}
+    assert COMPILE_ISSUE_MIXED_CORE_ROLE not in issues_by_code
+
+
+def test_compile_utility_section_excluded_from_role_purity_warnings() -> None:
+    """Utility sections are never checked for mixed core roles."""
+    ui = {
+        "nodes": [
+            _node(1, "CheckpointLoaderSimple", "checkpoint"),
+            _node(2, "Reroute", "reroute"),
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "utils", "kind": "utility", "nodes": [["", "checkpoint"]]},
+            ],
+            "helper_placements": [
+                {"helper": ["", "reroute"], "kind": "inside-section", "section_id": "utils"},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    issues_by_code = {issue.code for issue in result.report.issues}
+    assert COMPILE_ISSUE_MIXED_CORE_ROLE not in issues_by_code
+
+
+def test_compile_container_section_excluded_from_role_purity_warnings() -> None:
+    """Container sections are never checked for mixed core roles."""
+    ui = {
+        "nodes": [
+            _node(1, "CheckpointLoaderSimple", "checkpoint"),
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "container", "kind": "container", "nodes": [["", "checkpoint"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    issues_by_code = {issue.code for issue in result.report.issues}
+    assert COMPILE_ISSUE_MIXED_CORE_ROLE not in issues_by_code
+
+
+def test_compile_branch_section_excluded_from_role_purity_warnings() -> None:
+    """Branch sections (inherently heterogeneous) are never checked for mixed core roles."""
+    ui = {
+        "nodes": [
+            _node(1, "CheckpointLoaderSimple", "checkpoint"),
+            _node(2, "CLIPTextEncode", "prompt"),
+            _node(3, "KSampler", "sample"),
+        ],
+        "links": [
+            [10, 1, 0, 3, 0, "MODEL"],
+            [11, 2, 0, 3, 1, "CONDITIONING"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "branch", "kind": "branch", "nodes": [["", "checkpoint"], ["", "prompt"], ["", "sample"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    issues_by_code = {issue.code for issue in result.report.issues}
+    assert COMPILE_ISSUE_MIXED_CORE_ROLE not in issues_by_code
+
+
+def test_compile_helper_node_in_core_section_does_not_trigger_warning() -> None:
+    """A Reroute helper inside a loader section should not trigger a mixed-role warning."""
+    ui = {
+        "nodes": [
+            _node(1, "CheckpointLoaderSimple", "checkpoint"),
+            _node(2, "Reroute", "reroute"),
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "loaders", "kind": "loaders", "nodes": [["", "checkpoint"]]},
+            ],
+            "helper_placements": [
+                {"helper": ["", "reroute"], "kind": "inside-section", "section_id": "loaders"},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    issues_by_code = {issue.code for issue in result.report.issues}
+    assert COMPILE_ISSUE_MIXED_CORE_ROLE not in issues_by_code
 
 
 def _expected_compile_metric_order() -> list[str]:
