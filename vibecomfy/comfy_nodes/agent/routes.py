@@ -321,8 +321,14 @@ def _agentic_replay_root() -> Path:
     return _demo_repo_root() / "out" / "agentic"
 
 
+def _is_agentic_replay_enabled() -> bool:
+    return os.environ.get("VIBECOMFY_AGENTIC_REPLAY") == "1"
+
+
 def _is_safe_replay_id(value: str) -> bool:
-    return _is_safe_demo_id(value)
+    if not _is_safe_demo_id(value):
+        return False
+    return "~" not in value
 
 
 def _agentic_replay_run_dir(run_id: str) -> Path | None:
@@ -385,31 +391,47 @@ def _agentic_replay_graph(test_dir: Path, response_json: Mapping[str, Any], kind
 def _agentic_replay_stage_payload(
     response_json: Mapping[str, Any],
     *,
-    original_graph: dict[str, Any],
-    candidate_graph: dict[str, Any],
+    original_graph: dict[str, Any] | None,
+    candidate_graph: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     stages = response_json.get("stages")
     if isinstance(stages, list) and all(isinstance(stage, dict) for stage in stages):
         return [dict(stage) for stage in stages]
-    return [
+    projected: list[dict[str, Any]] = [
         {"id": "sent", "label": "Sent"},
         {"id": "thinking", "label": "Thinking"},
-        {
-            "id": "ready_to_apply",
-            "label": "Ready to apply",
-            "original_graph": original_graph,
-            "candidate_graph": candidate_graph,
-        },
-        {
-            "id": "applied",
-            "label": "Applied",
-            "original_graph": original_graph,
-            "candidate_graph": candidate_graph,
-        },
     ]
+    if original_graph is not None and candidate_graph is not None:
+        projected.extend(
+            [
+                {
+                    "id": "ready_to_apply",
+                    "label": "Ready to apply",
+                    "original_graph": original_graph,
+                    "candidate_graph": candidate_graph,
+                },
+                {
+                    "id": "applied",
+                    "label": "Applied",
+                    "original_graph": original_graph,
+                    "candidate_graph": candidate_graph,
+                },
+            ]
+        )
+    else:
+        projected.append(
+            {
+                "id": "missing_artifacts",
+                "label": "Missing artifacts",
+                "status": "missing",
+            }
+        )
+    return projected
 
 
 def _list_agentic_replay_runs() -> tuple[dict[str, Any], int]:
+    if not _is_agentic_replay_enabled():
+        return {"ok": False, "error": "Not found"}, 404
     root = _agentic_replay_root()
     if not root.is_dir():
         return {"ok": True, "runs": []}, 200
@@ -422,6 +444,8 @@ def _list_agentic_replay_runs() -> tuple[dict[str, Any], int]:
 
 
 def _list_agentic_replay_tests(run_id: str) -> tuple[dict[str, Any], int]:
+    if not _is_agentic_replay_enabled():
+        return {"ok": False, "error": "Not found"}, 404
     run_dir = _agentic_replay_run_dir(run_id)
     if run_dir is None:
         return {"ok": False, "error": "Invalid run ID"}, 400
@@ -443,6 +467,8 @@ def _list_agentic_replay_tests(run_id: str) -> tuple[dict[str, Any], int]:
 
 
 def _resolve_agentic_replay_scenario(run_id: str, test_id: str) -> tuple[dict[str, Any], int]:
+    if not _is_agentic_replay_enabled():
+        return {"ok": False, "error": "Not found"}, 404
     test_dir = _agentic_replay_test_dir(run_id, test_id)
     if test_dir is None:
         return {"ok": False, "error": "Invalid replay ID"}, 400
@@ -452,19 +478,24 @@ def _resolve_agentic_replay_scenario(run_id: str, test_id: str) -> tuple[dict[st
     if not isinstance(response_json, Mapping):
         return {"ok": False, "error": "response.json not found"}, 404
     original_graph = _agentic_replay_graph(test_dir, response_json, "original")
-    if original_graph is None:
-        return {"ok": False, "error": "Original graph not found"}, 404
     candidate_graph = _agentic_replay_graph(test_dir, response_json, "candidate")
-    if candidate_graph is None:
-        return {"ok": False, "error": "Candidate graph not found"}, 404
     query = response_json.get("query")
     reply = response_json.get("reply") or response_json.get("message") or response_json.get("agent_reply") or ""
+    checks = response_json.get("checks")
+    status = "ready" if original_graph is not None and candidate_graph is not None else "missing"
+    missing: list[str] = []
+    if original_graph is None:
+        missing.append("original_graph")
+    if candidate_graph is None:
+        missing.append("candidate_graph")
     session_id = response_json.get("session_id") or f"replay-{run_id}-{test_id}"
     turn_id = response_json.get("turn_id") or f"replay-{test_id}-turn"
-    return {
+    payload = {
         "ok": True,
         "run_id": run_id,
         "test_id": test_id,
+        "status": status,
+        "checks": checks if isinstance(checks, list) else [],
         "query": query if isinstance(query, str) else "",
         "agent_reply": reply if isinstance(reply, str) else "",
         "original_graph": original_graph,
@@ -477,7 +508,12 @@ def _resolve_agentic_replay_scenario(run_id: str, test_id: str) -> tuple[dict[st
         "session_id": session_id if isinstance(session_id, str) else f"replay-{run_id}-{test_id}",
         "turn_id": turn_id if isinstance(turn_id, str) else f"replay-{test_id}-turn",
         "source_dir": str(test_dir.relative_to(_agentic_replay_root())),
-    }, 200
+    }
+    if missing:
+        payload["ok"] = False
+        payload["error"] = "Replay artifacts missing: " + ", ".join(missing)
+        payload["missing_artifacts"] = missing
+    return payload, 200
 
 
 def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]:

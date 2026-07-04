@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from vibecomfy.comfy_nodes.agent.routes import (
+    _is_agentic_replay_enabled,
     _is_safe_replay_id,
     _list_agentic_replay_runs,
     _list_agentic_replay_tests,
@@ -21,6 +22,7 @@ from vibecomfy.comfy_nodes.agent.routes import (
 def replay_root(tmp_path: Path, monkeypatch):
     root = tmp_path / "out" / "agentic"
     root.mkdir(parents=True)
+    monkeypatch.setenv("VIBECOMFY_AGENTIC_REPLAY", "1")
     monkeypatch.setattr(
         "vibecomfy.comfy_nodes.agent.routes._agentic_replay_root",
         lambda: root,
@@ -52,6 +54,7 @@ def _write_replay_case(
                 "reply": "Updated the graph.",
                 "session_id": "sess-1",
                 "turn_id": "turn-1",
+                "checks": [{"name": "route_shape", "status": "passed"}],
                 "artifacts": {
                     "original_ui": "original.ui.json",
                     "candidate_ui": "candidate.ui.json",
@@ -65,9 +68,29 @@ def _write_replay_case(
 
 def test_agentic_replay_id_rejects_traversal() -> None:
     assert _is_safe_replay_id("agentic-100-20260630-021138") is True
+    assert _is_safe_replay_id("") is False
+    assert _is_safe_replay_id("~") is False
+    assert _is_safe_replay_id("~/escape") is False
     assert _is_safe_replay_id("../escape") is False
     assert _is_safe_replay_id("run/test") is False
     assert _is_safe_replay_id(".hidden") is False
+
+
+def test_agentic_replay_routes_are_gated(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("VIBECOMFY_AGENTIC_REPLAY", raising=False)
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.routes._agentic_replay_root",
+        lambda: tmp_path / "out" / "agentic",
+    )
+
+    assert _is_agentic_replay_enabled() is False
+    for result, status in (
+        _list_agentic_replay_runs(),
+        _list_agentic_replay_tests("agentic-100"),
+        _resolve_agentic_replay_scenario("agentic-100", "case"),
+    ):
+        assert status == 404
+        assert result == {"ok": False, "error": "Not found"}
 
 
 def test_agentic_replay_lists_runs_and_tests(replay_root: Path) -> None:
@@ -110,6 +133,8 @@ def test_agentic_replay_scenario_projection(replay_root: Path) -> None:
     assert result["ok"] is True
     assert result["run_id"] == "agentic-100-20260630-021138"
     assert result["test_id"] == "tts_emotion_injection"
+    assert result["status"] == "ready"
+    assert result["checks"] == [{"name": "route_shape", "status": "passed"}]
     assert result["query"] == "Add emotion to this voiceover"
     assert result["agent_reply"] == "Updated the graph."
     assert result["session_id"] == "sess-1"
@@ -123,6 +148,27 @@ def test_agentic_replay_scenario_projection(replay_root: Path) -> None:
         "applied",
     ]
     assert result["stages"][2]["candidate_graph"] == result["candidate_graph"]
+
+
+def test_agentic_replay_missing_artifacts_returns_user_facing_status(replay_root: Path) -> None:
+    case_dir = _write_replay_case(replay_root, test_id="missing_candidate")
+    (case_dir / "candidate.ui.json").unlink()
+
+    result, status = _resolve_agentic_replay_scenario(
+        "agentic-100-20260630-021138",
+        "missing_candidate",
+    )
+
+    assert status == 200
+    assert result["ok"] is False
+    assert result["status"] == "missing"
+    assert result["missing_artifacts"] == ["candidate_graph"]
+    assert "candidate_graph" in result["error"]
+    assert [stage["id"] for stage in result["stages"]] == [
+        "sent",
+        "thinking",
+        "missing_artifacts",
+    ]
 
 
 def test_agentic_replay_scenario_rejects_unsafe_ids(replay_root: Path) -> None:
