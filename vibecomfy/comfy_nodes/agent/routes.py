@@ -313,6 +313,173 @@ def _load_demo_scenarios_list() -> tuple[dict[str, Any], int]:
     }, 200
 
 
+# ── Agentic replay helpers ───────────────────────────────────────────────────
+
+
+def _agentic_replay_root() -> Path:
+    """Return the root containing persisted agentic run evidence."""
+    return _demo_repo_root() / "out" / "agentic"
+
+
+def _is_safe_replay_id(value: str) -> bool:
+    return _is_safe_demo_id(value)
+
+
+def _agentic_replay_run_dir(run_id: str) -> Path | None:
+    if not _is_safe_replay_id(run_id):
+        return None
+    root = _agentic_replay_root().resolve()
+    run_dir = (root / run_id).resolve()
+    try:
+        run_dir.relative_to(root)
+    except ValueError:
+        return None
+    return run_dir
+
+
+def _agentic_replay_test_dir(run_id: str, test_id: str) -> Path | None:
+    if not _is_safe_replay_id(test_id):
+        return None
+    run_dir = _agentic_replay_run_dir(run_id)
+    if run_dir is None:
+        return None
+    test_dir = (run_dir / test_id).resolve()
+    try:
+        test_dir.relative_to(run_dir)
+    except ValueError:
+        return None
+    return test_dir
+
+
+def _agentic_replay_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
+
+
+def _agentic_replay_graph(test_dir: Path, response_json: Mapping[str, Any], kind: str) -> dict[str, Any] | None:
+    keys = {
+        "original": ("original_graph", "original_ui"),
+        "candidate": ("candidate_graph", "candidate_ui"),
+    }[kind]
+    for key in keys:
+        value = response_json.get(key)
+        if isinstance(value, dict):
+            return value
+    artifacts = response_json.get("artifacts")
+    if isinstance(artifacts, Mapping):
+        for key in keys:
+            value = artifacts.get(key)
+            if isinstance(value, str):
+                graph = _agentic_replay_json(test_dir / value)
+                if isinstance(graph, dict):
+                    return graph
+    fallback = "original.ui.json" if kind == "original" else "candidate.ui.json"
+    graph = _agentic_replay_json(test_dir / fallback)
+    return graph if isinstance(graph, dict) else None
+
+
+def _agentic_replay_stage_payload(
+    response_json: Mapping[str, Any],
+    *,
+    original_graph: dict[str, Any],
+    candidate_graph: dict[str, Any],
+) -> list[dict[str, Any]]:
+    stages = response_json.get("stages")
+    if isinstance(stages, list) and all(isinstance(stage, dict) for stage in stages):
+        return [dict(stage) for stage in stages]
+    return [
+        {"id": "sent", "label": "Sent"},
+        {"id": "thinking", "label": "Thinking"},
+        {
+            "id": "ready_to_apply",
+            "label": "Ready to apply",
+            "original_graph": original_graph,
+            "candidate_graph": candidate_graph,
+        },
+        {
+            "id": "applied",
+            "label": "Applied",
+            "original_graph": original_graph,
+            "candidate_graph": candidate_graph,
+        },
+    ]
+
+
+def _list_agentic_replay_runs() -> tuple[dict[str, Any], int]:
+    root = _agentic_replay_root()
+    if not root.is_dir():
+        return {"ok": True, "runs": []}, 200
+    runs = []
+    for path in sorted(root.iterdir(), key=lambda item: item.name):
+        if not path.is_dir() or not _is_safe_replay_id(path.name):
+            continue
+        runs.append({"run_id": path.name, "label": path.name})
+    return {"ok": True, "runs": runs}, 200
+
+
+def _list_agentic_replay_tests(run_id: str) -> tuple[dict[str, Any], int]:
+    run_dir = _agentic_replay_run_dir(run_id)
+    if run_dir is None:
+        return {"ok": False, "error": "Invalid run ID"}, 400
+    if not run_dir.is_dir():
+        return {"ok": False, "error": "Run not found"}, 404
+    tests = []
+    for path in sorted(run_dir.iterdir(), key=lambda item: item.name):
+        if not path.is_dir() or not _is_safe_replay_id(path.name):
+            continue
+        response_json = _agentic_replay_json(path / "response.json")
+        label = path.name
+        query = None
+        if isinstance(response_json, Mapping):
+            label = str(response_json.get("title") or response_json.get("name") or path.name)
+            query_value = response_json.get("query")
+            query = query_value if isinstance(query_value, str) else None
+        tests.append({"test_id": path.name, "label": label, "query": query})
+    return {"ok": True, "run_id": run_id, "tests": tests}, 200
+
+
+def _resolve_agentic_replay_scenario(run_id: str, test_id: str) -> tuple[dict[str, Any], int]:
+    test_dir = _agentic_replay_test_dir(run_id, test_id)
+    if test_dir is None:
+        return {"ok": False, "error": "Invalid replay ID"}, 400
+    if not test_dir.is_dir():
+        return {"ok": False, "error": "Replay test not found"}, 404
+    response_json = _agentic_replay_json(test_dir / "response.json")
+    if not isinstance(response_json, Mapping):
+        return {"ok": False, "error": "response.json not found"}, 404
+    original_graph = _agentic_replay_graph(test_dir, response_json, "original")
+    if original_graph is None:
+        return {"ok": False, "error": "Original graph not found"}, 404
+    candidate_graph = _agentic_replay_graph(test_dir, response_json, "candidate")
+    if candidate_graph is None:
+        return {"ok": False, "error": "Candidate graph not found"}, 404
+    query = response_json.get("query")
+    reply = response_json.get("reply") or response_json.get("message") or response_json.get("agent_reply") or ""
+    session_id = response_json.get("session_id") or f"replay-{run_id}-{test_id}"
+    turn_id = response_json.get("turn_id") or f"replay-{test_id}-turn"
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "test_id": test_id,
+        "query": query if isinstance(query, str) else "",
+        "agent_reply": reply if isinstance(reply, str) else "",
+        "original_graph": original_graph,
+        "candidate_graph": candidate_graph,
+        "stages": _agentic_replay_stage_payload(
+            response_json,
+            original_graph=original_graph,
+            candidate_graph=candidate_graph,
+        ),
+        "session_id": session_id if isinstance(session_id, str) else f"replay-{run_id}-{test_id}",
+        "turn_id": turn_id if isinstance(turn_id, str) else f"replay-{test_id}-turn",
+        "source_dir": str(test_dir.relative_to(_agentic_replay_root())),
+    }, 200
+
+
 def _handle_agent_status(params: dict[str, Any] | None = None) -> dict[str, Any]:
     params = params or {}
     route = params.get("route") if isinstance(params.get("route"), str) else None
@@ -1690,6 +1857,51 @@ def register_agent_edit_routes(app) -> None:
             _LOGGER.exception("/vibecomfy/demo/scenario failed")
             return _web.json_response(
                 {"ok": False, "error": f"Failed to load scenario: {exc}"},
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result), status=status)
+
+    @app.routes.get("/vibecomfy/agentic-replay/runs")
+    async def _agentic_replay_runs_route(request):  # type: ignore[no-untyped-def]
+        try:
+            result, status = await asyncio.to_thread(_list_agentic_replay_runs)
+        except Exception as exc:
+            _LOGGER.exception("/vibecomfy/agentic-replay/runs failed")
+            return _web.json_response(
+                {"ok": False, "error": f"Failed to list replay runs: {exc}"},
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result), status=status)
+
+    @app.routes.get("/vibecomfy/agentic-replay/runs/{run_id}/tests")
+    async def _agentic_replay_tests_route(request):  # type: ignore[no-untyped-def]
+        run_id = request.match_info.get("run_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            return _web.json_response({"ok": False, "error": "run_id is required"}, status=400)
+        try:
+            result, status = await asyncio.to_thread(_list_agentic_replay_tests, run_id)
+        except Exception as exc:
+            _LOGGER.exception("/vibecomfy/agentic-replay/runs/%s/tests failed", run_id)
+            return _web.json_response(
+                {"ok": False, "error": f"Failed to list replay tests: {exc}"},
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result), status=status)
+
+    @app.routes.get("/vibecomfy/agentic-replay/runs/{run_id}/tests/{test_id}")
+    async def _agentic_replay_scenario_route(request):  # type: ignore[no-untyped-def]
+        run_id = request.match_info.get("run_id")
+        test_id = request.match_info.get("test_id")
+        if not isinstance(run_id, str) or not run_id.strip():
+            return _web.json_response({"ok": False, "error": "run_id is required"}, status=400)
+        if not isinstance(test_id, str) or not test_id.strip():
+            return _web.json_response({"ok": False, "error": "test_id is required"}, status=400)
+        try:
+            result, status = await asyncio.to_thread(_resolve_agentic_replay_scenario, run_id, test_id)
+        except Exception as exc:
+            _LOGGER.exception("/vibecomfy/agentic-replay/runs/%s/tests/%s failed", run_id, test_id)
+            return _web.json_response(
+                {"ok": False, "error": f"Failed to load replay scenario: {exc}"},
                 status=500,
             )
         return _web.json_response(_to_serializable(result), status=status)
