@@ -20,6 +20,10 @@ from .plan_types import (
     HELPER_PLACEMENT_INSIDE_SECTION,
     HELPER_PLACEMENT_NEAR_CONSUMER,
     HELPER_PLACEMENT_NEAR_PRODUCER,
+    LAYOUT_BEHAVIOR_NOTE,
+    LAYOUT_BEHAVIOR_PRIMARY,
+    LAYOUT_BEHAVIOR_SIDECAR,
+    LAYOUT_BEHAVIOR_WALL,
     ROLE_HINT_CONDITIONING,
     ROLE_HINT_CONTROL,
     ROLE_HINT_DECODE,
@@ -54,6 +58,7 @@ from .plan_types import (
     CanonicalNodeRef,
     LayoutPlanV1,
     LayoutSection,
+    LayoutTraceEntry,
     RoleHint,
     SamplerRelationClaim,
     SectionKind,
@@ -111,6 +116,13 @@ COMPILE_METRIC_GROUP_LAYOUT_COUNT = "compiled_group_layout_count"
 COMPILE_METRIC_HELPER_LAYOUT_COUNT = "compiled_helper_layout_count"
 COMPILE_METRIC_NODE_OVERLAP_COUNT = "compiled_node_overlap_count"
 COMPILE_METRIC_GROUP_OVERLAP_COUNT = "compiled_group_overlap_count"
+COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX = "compiled_internal_whitespace_ratio_max"
+COMPILE_METRIC_BASELINE_VARIANCE_MAX = "compiled_baseline_variance_max"
+COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX = "compiled_detached_group_distance_max"
+COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT = "compiled_helper_sidecar_overlap_count"
+COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT = "compiled_note_section_mismatch_count"
+COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW = "compiled_max_primary_nodes_per_row"
+COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX = "compiled_long_edge_distance_max"
 COMPILE_METRIC_BACKWARD_EDGE_RATIO = "compiled_backward_edge_ratio"
 COMPILE_METRIC_CROSSING_PROXY_COUNT = "compiled_crossing_proxy_count"
 COMPILE_METRIC_MINIMUM_GUTTER = "compiled_minimum_gutter"
@@ -119,6 +131,13 @@ COMPILE_METRIC_IDEMPOTENCE_DELTA = "compiled_idempotence_delta"
 COMPILE_METRIC_STRUCTURAL_HASH_UNCHANGED = "structural_hash_unchanged"
 COMPILE_ISSUE_NODE_OVERLAP = "compiler_node_overlap"
 COMPILE_ISSUE_GROUP_OVERLAP = "compiler_group_overlap"
+COMPILE_ISSUE_INTERNAL_WHITESPACE_HIGH = "compiler_internal_whitespace_high"
+COMPILE_ISSUE_BASELINE_VARIANCE_HIGH = "compiler_baseline_variance_high"
+COMPILE_ISSUE_DETACHED_GROUP_DISTANCE_HIGH = "compiler_detached_group_distance_high"
+COMPILE_ISSUE_HELPER_SIDECAR_OVERLAP = "compiler_helper_sidecar_overlap"
+COMPILE_ISSUE_NOTE_SECTION_MISMATCH = "compiler_note_section_mismatch"
+COMPILE_ISSUE_MAX_PRIMARY_ROW_COUNT_HIGH = "compiler_max_primary_row_count_high"
+COMPILE_ISSUE_LONG_EDGE_DISTANCE_HIGH = "compiler_long_edge_distance_high"
 COMPILE_ISSUE_BACKWARD_EDGE_RATIO_HIGH = "compiler_backward_edge_ratio_high"
 COMPILE_ISSUE_CROSSING_PROXY_HIGH = "compiler_crossing_proxy_high"
 COMPILE_ISSUE_MINIMUM_GUTTER = "compiler_minimum_gutter_violation"
@@ -131,6 +150,11 @@ COMPILE_ISSUE_MIXED_CORE_ROLE = "compiler_mixed_core_role"
 COMPILE_BACKWARD_EDGE_RATIO_THRESHOLD = 0.15
 COMPILE_BACKWARD_EDGE_X_TOLERANCE = 8.0
 COMPILE_CROSSING_PROXY_THRESHOLD = 0
+COMPILE_INTERNAL_WHITESPACE_RATIO_THRESHOLD = 0.9
+COMPILE_BASELINE_VARIANCE_THRESHOLD = 16.0
+COMPILE_DETACHED_GROUP_DISTANCE_THRESHOLD = 1600.0
+COMPILE_MAX_PRIMARY_ROW_COUNT_THRESHOLD = 3
+COMPILE_LONG_EDGE_DISTANCE_THRESHOLD = 2200.0
 COMPILE_HELPER_DISTANCE_THRESHOLD = 420.0
 COMPILE_IDEMPOTENCE_DELTA_THRESHOLD = 0
 COMPILE_METRIC_ORDER = (
@@ -139,6 +163,13 @@ COMPILE_METRIC_ORDER = (
     COMPILE_METRIC_HELPER_LAYOUT_COUNT,
     COMPILE_METRIC_NODE_OVERLAP_COUNT,
     COMPILE_METRIC_GROUP_OVERLAP_COUNT,
+    COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX,
+    COMPILE_METRIC_BASELINE_VARIANCE_MAX,
+    COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX,
+    COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT,
+    COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
+    COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW,
+    COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX,
     COMPILE_METRIC_BACKWARD_EDGE_RATIO,
     COMPILE_METRIC_CROSSING_PROXY_COUNT,
     COMPILE_METRIC_MINIMUM_GUTTER,
@@ -149,6 +180,13 @@ COMPILE_METRIC_ORDER = (
 COMPILE_ISSUE_ORDER = (
     COMPILE_ISSUE_NODE_OVERLAP,
     COMPILE_ISSUE_GROUP_OVERLAP,
+    COMPILE_ISSUE_INTERNAL_WHITESPACE_HIGH,
+    COMPILE_ISSUE_BASELINE_VARIANCE_HIGH,
+    COMPILE_ISSUE_DETACHED_GROUP_DISTANCE_HIGH,
+    COMPILE_ISSUE_HELPER_SIDECAR_OVERLAP,
+    COMPILE_ISSUE_NOTE_SECTION_MISMATCH,
+    COMPILE_ISSUE_MAX_PRIMARY_ROW_COUNT_HIGH,
+    COMPILE_ISSUE_LONG_EDGE_DISTANCE_HIGH,
     COMPILE_ISSUE_BACKWARD_EDGE_RATIO_HIGH,
     COMPILE_ISSUE_CROSSING_PROXY_HIGH,
     COMPILE_ISSUE_MINIMUM_GUTTER,
@@ -476,12 +514,14 @@ class LayoutCompileResult:
     report: Any
     structural_hash_before: str
     structural_hash_after: str
+    trace_entries: tuple[LayoutTraceEntry, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "node_layouts", tuple(self.node_layouts))
         object.__setattr__(self, "group_layouts", tuple(self.group_layouts))
         object.__setattr__(self, "section_topologies", tuple(self.section_topologies))
         object.__setattr__(self, "sampler_relations", tuple(self.sampler_relations))
+        object.__setattr__(self, "trace_entries", tuple(self.trace_entries))
 
     @property
     def diagnostics(self) -> tuple[Any, ...]:
@@ -504,6 +544,7 @@ class LayoutCompileResult:
             "candidate_patch": self.candidate_patch.to_json(),
             "validation_report": self.validation_report.to_json(),
             "report": self.report.to_json(),
+            "trace_entries": [entry.to_json() for entry in self.trace_entries],
         }
 
 
@@ -535,6 +576,14 @@ class _GeneratedSection:
     kind: SectionKind
     title: str
     role_hint: RoleHint | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _OwnershipDecision:
+    ref: CanonicalNodeRef
+    section_id: str
+    attachment_target: CanonicalNodeRef | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -638,9 +687,190 @@ class _LocalSectionLayout:
     offsets: Mapping[CanonicalNodeRef, tuple[int, int]]
     width: int
     height: int
+    placement_choices: Mapping[CanonicalNodeRef, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "offsets", MappingProxyType(dict(self.offsets)))
+        object.__setattr__(self, "placement_choices", MappingProxyType(dict(self.placement_choices)))
+
+
+@dataclass(frozen=True, slots=True)
+class _CompiledLayoutPlacement:
+    node_layouts: tuple[CompiledNodeLayout, ...]
+    group_layouts: tuple[CompiledGroupLayout, ...]
+
+
+@dataclass(slots=True)
+class _TraceNodeState:
+    ref: CanonicalNodeRef
+    class_type: str
+    role_hint: RoleHint = ROLE_HINT_UNKNOWN
+    layout_behavior: str = "unknown"
+    section_id: str | None = None
+    attachment_target: CanonicalNodeRef | None = None
+    placement_choice: str | None = None
+    x: float | None = None
+    y: float | None = None
+    reason: str | None = None
+
+
+class _CompileTraceAccumulator:
+    def __init__(self, facts: GraphInventoryFacts) -> None:
+        self._states: dict[CanonicalNodeRef, _TraceNodeState] = {}
+        for fact in facts.canonical_refs:
+            class_type = str(getattr(fact, "class_type", ""))
+            layout_behavior = str(getattr(fact, "layout_behavior", "unknown") or "unknown")
+            self._states[fact.ref] = _TraceNodeState(
+                ref=fact.ref,
+                class_type=class_type,
+                role_hint=fact.role_hint,
+                layout_behavior=layout_behavior,
+            )
+
+    def record_classification(self, classification: ClassificationReport) -> None:
+        for ref, state in self._states.items():
+            hint = classification.hint_for(ref)
+            if hint is not None:
+                state.role_hint = hint.role_hint
+
+    def record_section_ownership(
+        self,
+        ownership: Mapping[CanonicalNodeRef, _OwnershipDecision],
+    ) -> None:
+        for ref, decision in ownership.items():
+            state = self._states.get(ref)
+            if state is None:
+                continue
+            state.section_id = decision.section_id
+            state.attachment_target = decision.attachment_target
+            state.reason = decision.reason
+
+    def record_local_packing(
+        self,
+        section: _CompileSection,
+        local_layout: _LocalSectionLayout,
+    ) -> None:
+        # Compute row placement for readable trace entries.
+        # Group offsets by y-coordinate: nodes sharing the same y are in the same row.
+        row_index_by_ref: dict[CanonicalNodeRef, int] = {}
+        if local_layout.offsets:
+            y_values = sorted({y for _x, y in local_layout.offsets.values()})
+            for ref, (_x, y) in local_layout.offsets.items():
+                row_index_by_ref[ref] = y_values.index(y)
+        for ref in section.node_refs:
+            state = self._states.get(ref)
+            if state is not None:
+                state.section_id = section.id
+                explicit_choice = local_layout.placement_choices.get(ref)
+                if explicit_choice is not None:
+                    state.placement_choice = explicit_choice
+                elif local_layout.template == "row":
+                    row_idx = row_index_by_ref.get(ref, 0)
+                    state.placement_choice = f"row:{row_idx}"
+                else:
+                    state.placement_choice = local_layout.template
+
+    def record_global_layout(self, layout: CompiledNodeLayout) -> None:
+        state = self._states.get(layout.ref)
+        if state is not None:
+            state.section_id = layout.section_id
+            state.x = layout.x
+            state.y = layout.y
+
+    def record_wall_placement(
+        self,
+        section: _CompileSection,
+        placement: _SectionPlacement,
+        *,
+        order: int,
+    ) -> None:
+        choice = f"wall:order:{order}:rank:{placement.rank}:band:{placement.band}:row:{placement.row}"
+        for ref in section.node_refs:
+            state = self._states.get(ref)
+            if state is None:
+                continue
+            state.section_id = section.id
+            state.placement_choice = (
+                f"{state.placement_choice}|{choice}"
+                if state.placement_choice is not None
+                else choice
+            )
+
+    def to_entries(self) -> tuple[LayoutTraceEntry, ...]:
+        return tuple(
+            LayoutTraceEntry(
+                ref=state.ref,
+                class_type=state.class_type,
+                role_hint=state.role_hint,
+                layout_behavior=state.layout_behavior,
+                section_id=state.section_id,
+                attachment_target=state.attachment_target,
+                placement_choice=state.placement_choice,
+                x=state.x,
+                y=state.y,
+                reason=state.reason,
+            )
+            for state in sorted(self._states.values(), key=lambda item: _ref_sort_key(item.ref))
+        )
+
+
+def _classify_layout_phase(
+    facts: GraphInventoryFacts,
+    *,
+    trace: _CompileTraceAccumulator | None = None,
+) -> ClassificationReport:
+    classification = classify_layout_facts(facts)
+    if trace is not None:
+        trace.record_classification(classification)
+    return classification
+
+
+def _compile_section_ownership_phase(
+    plan: LayoutPlanV1,
+    facts: GraphInventoryFacts,
+    classification: ClassificationReport,
+    options: LayoutCompileOptions,
+    *,
+    trace: _CompileTraceAccumulator | None = None,
+) -> tuple[_CompileSection, ...]:
+    sections, ownership = _compile_sections(plan, facts, classification, options)
+    if trace is not None:
+        trace.record_section_ownership(ownership)
+    return sections
+
+
+def _patch_emission_phase(
+    node_layouts: Sequence[CompiledNodeLayout],
+    group_layouts: Sequence[CompiledGroupLayout],
+    facts: GraphInventoryFacts,
+    options: LayoutCompileOptions,
+) -> LayoutCandidatePatch:
+    return _candidate_patch(node_layouts, group_layouts, facts, options)
+
+
+def _validation_metrics_phase(
+    *,
+    sections: Sequence[_CompileSection],
+    classification: ClassificationReport,
+    node_layouts: Sequence[CompiledNodeLayout],
+    group_layouts: Sequence[CompiledGroupLayout],
+    facts: GraphInventoryFacts,
+    candidate_patch: LayoutCandidatePatch,
+    structural_hash: str,
+    diagnostics: Sequence[Any],
+    issues: Sequence[AssessmentIssue] = (),
+):
+    role_purity_issues = _validate_role_purity(sections, classification)
+    return _build_report(
+        node_layouts=node_layouts,
+        group_layouts=group_layouts,
+        facts=facts,
+        candidate_patch=candidate_patch,
+        structural_hash_before=structural_hash,
+        structural_hash_after=structural_hash,
+        diagnostics=diagnostics,
+        issues=(*issues, *role_purity_issues),
+    )
 
 
 def compile_layout_plan(
@@ -675,20 +905,31 @@ def compile_layout_plan(
             report=report,
             structural_hash_before=structural_hash,
             structural_hash_after=structural_hash,
+            trace_entries=(),
         )
 
-    classification = classify_layout_facts(facts)
-    sections = _compile_sections(plan, facts, classification, opts)
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        classification,
+        opts,
+        trace=trace,
+    )
     section_topologies = _compile_section_topologies(sections, facts)
     sampler_relations = _normalize_sampler_relations(plan, facts, sections)
-    node_layouts, group_layouts = _layout_sections(
+    layout = _layout_sections(
         plan,
         sections,
         section_topologies,
         facts,
         opts,
         classification,
+        trace=trace,
     )
+    node_layouts = layout.node_layouts
+    group_layouts = layout.group_layouts
     should_apply_existing_policy = (
         not _large_workflow_soft_quality_gate(facts)
         and _effective_grouping_policy(facts, opts) != "none"
@@ -699,17 +940,17 @@ def compile_layout_plan(
         opts,
         classification,
     ) if should_apply_existing_policy else (group_layouts, ())
-    candidate_patch = _candidate_patch(node_layouts, group_layouts, facts, opts)
-    role_purity_issues = _validate_role_purity(sections, classification)
-    report = _build_report(
+    candidate_patch = _patch_emission_phase(node_layouts, group_layouts, facts, opts)
+    report = _validation_metrics_phase(
+        sections=sections,
+        classification=classification,
         node_layouts=node_layouts,
         group_layouts=group_layouts,
         facts=facts,
         candidate_patch=candidate_patch,
-        structural_hash_before=structural_hash,
-        structural_hash_after=structural_hash,
+        structural_hash=structural_hash,
         diagnostics=validation_report.diagnostics,
-        issues=(*policy_issues, *role_purity_issues),
+        issues=policy_issues,
     )
     return LayoutCompileResult(
         ok=validation_report.ok and report.verdict != "blocked",
@@ -723,6 +964,7 @@ def compile_layout_plan(
         report=report,
         structural_hash_before=structural_hash,
         structural_hash_after=structural_hash,
+        trace_entries=trace.to_entries(),
     )
 
 
@@ -769,53 +1011,76 @@ def _compile_sections(
     facts: GraphInventoryFacts,
     classification: ClassificationReport,
     options: LayoutCompileOptions,
-) -> tuple[_CompileSection, ...]:
+) -> tuple[tuple[_CompileSection, ...], Mapping[CanonicalNodeRef, _OwnershipDecision]]:
     section_defs = {section.id: section for section in plan.sections}
     generated_defs: dict[str, _GeneratedSection] = {}
     huge_mode = _large_workflow_soft_quality_gate(facts)
     helper_refs = {fact.ref for fact in facts.canonical_refs if fact.is_helper}
     canonical_by_ref = {fact.ref: fact for fact in facts.canonical_refs}
+    furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
+    placement_by_helper = {placement.helper: placement for placement in plan.helper_placements}
 
     primary_owned: dict[CanonicalNodeRef, str] = {}
+    ownership: dict[CanonicalNodeRef, _OwnershipDecision] = {}
     for section in plan.sections:
         for ref in section.nodes:
             if ref not in helper_refs:
                 primary_owned[ref] = section.id
+                ownership[ref] = _OwnershipDecision(
+                    ref=ref,
+                    section_id=section.id,
+                    reason="primary_explicit_section",
+                )
     for shared in plan.shared_nodes:
         if shared.node not in helper_refs:
             primary_owned[shared.node] = shared.home
+            ownership[shared.node] = _OwnershipDecision(
+                ref=shared.node,
+                section_id=shared.home,
+                reason="primary_shared_home",
+            )
 
-    helper_targets: dict[CanonicalNodeRef, str] = {}
-    for placement in plan.helper_placements:
-        helper_targets[placement.helper] = _helper_section_id(placement, primary_owned)
-
-    owned: dict[CanonicalNodeRef, str] = dict(primary_owned)
     if huge_mode:
         prompt_generated = _GeneratedSection(
             kind=SECTION_KIND_CONDITIONING,
             title="Prompt / Conditioning",
             role_hint=ROLE_HINT_CONDITIONING,
         )
-        for ref, section_id in tuple(owned.items()):
+        for ref, section_id in tuple(primary_owned.items()):
             section = section_defs.get(section_id)
             title = (section.title if section is not None and section.title is not None else section_id).lower()
             if section is not None and (
                 section.kind == SECTION_KIND_CONDITIONING
                 or _huge_prompt_prep_title(title)
             ):
-                owned[ref] = "__huge_prompt_conditioning__"
+                primary_owned[ref] = "__huge_prompt_conditioning__"
+                ownership[ref] = _OwnershipDecision(
+                    ref=ref,
+                    section_id="__huge_prompt_conditioning__",
+                    reason="primary_huge_prompt_conditioning",
+                )
                 generated_defs["__huge_prompt_conditioning__"] = prompt_generated
-    for helper_ref in helper_refs:
-        owned[helper_ref] = helper_targets.get(helper_ref, "__helpers__")
 
     if huge_mode and _can_preserve_existing_groups(options):
         for ref, generated in _huge_existing_group_ownership(facts, classification).items():
             if ref in helper_refs:
                 continue
-            owned[ref] = generated[0]
+            primary_owned[ref] = generated[0]
+            ownership[ref] = _OwnershipDecision(
+                ref=ref,
+                section_id=generated[0],
+                reason="primary_huge_existing_group",
+            )
             generated_defs.setdefault(generated[0], generated[1])
         for ref, generated in _huge_existing_label_ownership(facts, classification).items():
-            owned[ref] = generated[0]
+            if ref in helper_refs:
+                continue
+            primary_owned[ref] = generated[0]
+            ownership[ref] = _OwnershipDecision(
+                ref=ref,
+                section_id=generated[0],
+                reason="primary_huge_existing_label",
+            )
             generated_defs.setdefault(generated[0], generated[1])
 
     unassigned = tuple(
@@ -831,7 +1096,12 @@ def _compile_sections(
             classification=classification,
         )
         for ref, generated in preserved.items():
-            owned[ref] = generated[0]
+            primary_owned[ref] = generated[0]
+            ownership[ref] = _OwnershipDecision(
+                ref=ref,
+                section_id=generated[0],
+                reason="primary_preserve_existing_group",
+            )
             generated_defs.setdefault(generated[0], generated[1])
 
     if plan.unassigned_policy in {
@@ -839,11 +1109,16 @@ def _compile_sections(
         UNASSIGNED_PRESERVE_EXISTING,
     }:
         for ref in unassigned:
-            if ref in owned:
+            if ref in primary_owned:
                 continue
             fact = canonical_by_ref.get(ref)
             if huge_mode and _is_prompt_text_ref(ref, canonical_by_ref):
-                owned[ref] = "__huge_prompt_conditioning__"
+                primary_owned[ref] = "__huge_prompt_conditioning__"
+                ownership[ref] = _OwnershipDecision(
+                    ref=ref,
+                    section_id="__huge_prompt_conditioning__",
+                    reason="primary_huge_prompt_text",
+                )
                 generated_defs["__huge_prompt_conditioning__"] = _GeneratedSection(
                     kind=SECTION_KIND_CONDITIONING,
                     title="Prompt / Conditioning",
@@ -852,13 +1127,30 @@ def _compile_sections(
                 continue
             hint = classification.hint_for(ref)
             role = hint.role_hint if hint is not None else fact.role_hint if fact is not None else ROLE_HINT_UNKNOWN
-            owned[ref] = _section_for_role(role, section_defs)
+            primary_owned[ref] = _section_for_role(role, section_defs)
+            ownership[ref] = _OwnershipDecision(
+                ref=ref,
+                section_id=primary_owned[ref],
+                reason="primary_classified_role",
+            )
     elif plan.unassigned_policy == UNASSIGNED_REJECT:
         pass
 
+    incident_adjacency = _incident_ref_adjacency(facts)
+    for helper_ref in sorted(helper_refs, key=_ref_sort_key):
+        ownership[helper_ref] = _resolve_helper_ownership(
+            helper_ref,
+            facts=facts,
+            primary_owned=primary_owned,
+            canonical_by_ref=canonical_by_ref,
+            furniture_by_ref=furniture_by_ref,
+            placement_by_helper=placement_by_helper,
+            incident_adjacency=incident_adjacency,
+        )
+
     refs_by_section: dict[str, list[CanonicalNodeRef]] = {}
-    for ref, section_id in sorted(owned.items(), key=lambda item: _ref_sort_key(item[0])):
-        refs_by_section.setdefault(section_id, []).append(ref)
+    for ref, decision in sorted(ownership.items(), key=lambda item: _ref_sort_key(item[0])):
+        refs_by_section.setdefault(decision.section_id, []).append(ref)
 
     section_ids_to_emit = set(refs_by_section)
     parent_ids = {
@@ -907,7 +1199,7 @@ def _compile_sections(
                 enabled=huge_mode,
             )
         )
-    return tuple(sections)
+    return tuple(sections), MappingProxyType(dict(ownership))
 
 
 def _huge_existing_group_ownership(
@@ -1474,7 +1766,30 @@ def _layout_sections(
     facts: GraphInventoryFacts,
     options: LayoutCompileOptions,
     classification: ClassificationReport,
-) -> tuple[tuple[CompiledNodeLayout, ...], tuple[CompiledGroupLayout, ...]]:
+    *,
+    trace: _CompileTraceAccumulator | None = None,
+) -> _CompiledLayoutPlacement:
+    return _layout_sections_with_phases(
+        plan,
+        sections,
+        section_topologies,
+        facts,
+        options,
+        classification,
+        trace=trace,
+    )
+
+
+def _layout_sections_with_phases(
+    plan: LayoutPlanV1,
+    sections: Sequence[_CompileSection],
+    section_topologies: Sequence[CompiledSectionTopology],
+    facts: GraphInventoryFacts,
+    options: LayoutCompileOptions,
+    classification: ClassificationReport,
+    *,
+    trace: _CompileTraceAccumulator | None,
+) -> _CompiledLayoutPlacement:
     spacing = _spacing(options.spacing_preset)
     furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
     canonical_by_ref = {fact.ref: fact for fact in facts.canonical_refs}
@@ -1485,56 +1800,167 @@ def _layout_sections(
     pinned_refs = set() if huge_mode else _effective_pinned_refs(facts, layout_options, classification)
     topology_by_section = {topology.section_id: topology for topology in section_topologies}
     placements = _section_placements(sections, section_topologies, facts, spacing, furniture_by_ref, layout_options)
+    node_layouts = _global_placement_shim(
+        sections,
+        placements,
+        topology_by_section,
+        facts,
+        furniture_by_ref,
+        canonical_by_ref,
+        layout_options,
+        spacing,
+        pinned_refs,
+        classification,
+        plan,
+        trace=trace,
+    )
+    node_layouts = list(_sidecar_layout_shim(plan, node_layouts, spacing, trace=trace))
+    if trace is not None:
+        for layout in node_layouts:
+            trace.record_global_layout(layout)
+    group_layouts = _compiled_group_layouts(sections, node_layouts, facts, spacing, layout_options)
+    group_layouts = _filter_group_layouts_for_policy(group_layouts, facts, layout_options)
+    return _CompiledLayoutPlacement(
+        node_layouts=tuple(sorted(node_layouts, key=lambda layout: _ref_sort_key(layout.ref))),
+        group_layouts=group_layouts,
+    )
+
+
+def _global_placement_shim(
+    sections: Sequence[_CompileSection],
+    placements: Mapping[str, _SectionPlacement],
+    topology_by_section: Mapping[str, CompiledSectionTopology],
+    facts: GraphInventoryFacts,
+    furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
+    canonical_by_ref: Mapping[CanonicalNodeRef, Any],
+    layout_options: LayoutCompileOptions,
+    spacing: _Spacing,
+    pinned_refs: set[CanonicalNodeRef],
+    classification: ClassificationReport,
+    plan: LayoutPlanV1,
+    *,
+    trace: _CompileTraceAccumulator | None,
+) -> list[CompiledNodeLayout]:
     node_layouts: list[CompiledNodeLayout] = []
-    for section in sorted(
+    for order, section in enumerate(sorted(
         sections,
         key=lambda section: _section_placement_sort_key(section, placements, topology_by_section),
-    ):
+    )):
         placement = placements[section.id]
-        x = placement.x
-        y = placement.y
-        local_layout = _local_section_layout(section, facts, furniture_by_ref, layout_options, spacing, plan)
-        for ref in section.node_refs:
-            furniture = furniture_by_ref.get(ref)
-            width, height = _node_size_for_ref(
-                ref,
+        if trace is not None:
+            trace.record_wall_placement(section, placement, order=order)
+        local_layout = _local_packing_shim(
+            section,
+            facts,
+            furniture_by_ref,
+            layout_options,
+            spacing,
+            plan,
+            trace=trace,
+        )
+        node_layouts.extend(
+            _place_section_node_layouts(
+                section,
+                placement,
+                local_layout,
                 facts,
-                furniture,
-                preserve=layout_options.preserve_node_sizes,
-                minimize_setget_helpers=layout_options.minimize_setget_helpers,
+                furniture_by_ref,
+                canonical_by_ref,
+                layout_options,
+                spacing,
+                pinned_refs,
+                classification,
+                trace=trace,
             )
-            local_x, local_y = local_layout.offsets[ref]
-            node_x = x + spacing.group_padding + local_x
-            node_y = y + spacing.group_padding + DEFAULT_GROUP_HEADER_HEIGHT + local_y
-            if ref in pinned_refs and furniture is not None:
-                pinned_pos = _pos(furniture.pos)
-                if pinned_pos is not None:
-                    node_x, node_y = pinned_pos
-            hint = classification.hint_for(ref)
-            fact = canonical_by_ref.get(ref)
-            layout = CompiledNodeLayout(
-                ref=ref,
-                section_id=section.id,
-                role_hint=(
-                    hint.role_hint
-                    if hint is not None
-                    else fact.role_hint
-                    if fact is not None
-                    else ROLE_HINT_UNKNOWN
-                ),
-                x=node_x,
-                y=node_y,
-                width=width,
-                height=height,
-                pinned=ref in pinned_refs,
-            )
-            node_layouts.append(layout)
-    node_layouts = list(_apply_floating_helper_positions(plan, node_layouts, spacing))
-    if not huge_mode:
-        node_layouts = list(_resolve_node_collisions(node_layouts, facts, spacing))
-    group_layouts = _compiled_group_layouts(sections, node_layouts, facts, spacing)
-    group_layouts = _filter_group_layouts_for_policy(group_layouts, facts, layout_options)
-    return tuple(sorted(node_layouts, key=lambda layout: _ref_sort_key(layout.ref))), group_layouts
+        )
+    return node_layouts
+
+
+def _local_packing_shim(
+    section: _CompileSection,
+    facts: GraphInventoryFacts,
+    furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
+    options: LayoutCompileOptions,
+    spacing: _Spacing,
+    plan: LayoutPlanV1 | None,
+    *,
+    trace: _CompileTraceAccumulator | None,
+) -> _LocalSectionLayout:
+    local_layout = _local_section_layout(section, facts, furniture_by_ref, options, spacing, plan)
+    if trace is not None:
+        trace.record_local_packing(section, local_layout)
+    return local_layout
+
+
+def _place_section_node_layouts(
+    section: _CompileSection,
+    placement: _SectionPlacement,
+    local_layout: _LocalSectionLayout,
+    facts: GraphInventoryFacts,
+    furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
+    canonical_by_ref: Mapping[CanonicalNodeRef, Any],
+    layout_options: LayoutCompileOptions,
+    spacing: _Spacing,
+    pinned_refs: set[CanonicalNodeRef],
+    classification: ClassificationReport,
+    *,
+    trace: _CompileTraceAccumulator | None,
+) -> list[CompiledNodeLayout]:
+    node_layouts: list[CompiledNodeLayout] = []
+    x = placement.x
+    y = placement.y
+    for ref in section.node_refs:
+        furniture = furniture_by_ref.get(ref)
+        width, height = _node_size_for_ref(
+            ref,
+            facts,
+            furniture,
+            preserve=layout_options.preserve_node_sizes,
+            minimize_setget_helpers=layout_options.minimize_setget_helpers,
+        )
+        local_x, local_y = local_layout.offsets[ref]
+        node_x = x + spacing.group_padding + local_x
+        node_y = y + spacing.group_padding + DEFAULT_GROUP_HEADER_HEIGHT + local_y
+        if ref in pinned_refs and furniture is not None:
+            pinned_pos = _pos(furniture.pos)
+            if pinned_pos is not None:
+                node_x, node_y = pinned_pos
+        hint = classification.hint_for(ref)
+        fact = canonical_by_ref.get(ref)
+        layout = CompiledNodeLayout(
+            ref=ref,
+            section_id=section.id,
+            role_hint=(
+                hint.role_hint
+                if hint is not None
+                else fact.role_hint
+                if fact is not None
+                else ROLE_HINT_UNKNOWN
+            ),
+            x=node_x,
+            y=node_y,
+            width=width,
+            height=height,
+            pinned=ref in pinned_refs,
+        )
+        node_layouts.append(layout)
+        if trace is not None:
+            trace.record_global_layout(layout)
+    return node_layouts
+
+
+def _sidecar_layout_shim(
+    plan: LayoutPlanV1,
+    node_layouts: Sequence[CompiledNodeLayout],
+    spacing: _Spacing,
+    *,
+    trace: _CompileTraceAccumulator | None,
+) -> Sequence[CompiledNodeLayout]:
+    adjusted = _apply_floating_helper_positions(plan, node_layouts, spacing)
+    if trace is not None:
+        for layout in adjusted:
+            trace.record_global_layout(layout)
+    return adjusted
 
 
 def _filter_group_layouts_for_policy(
@@ -1656,48 +2082,41 @@ def _section_placements(
     options: LayoutCompileOptions,
 ) -> dict[str, _SectionPlacement]:
     topology_by_section = {topology.section_id: topology for topology in section_topologies}
-    use_measured_offsets = _large_workflow_soft_quality_gate(facts)
+    huge_mode = _large_workflow_soft_quality_gate(facts)
     effective_ranks = (
         _wall_section_ranks(sections)
-        if use_measured_offsets
+        if huge_mode
         else _effective_section_ranks(sections, section_topologies)
     )
     raw_band_by_section = {
         section.id: (
             _huge_wall_band(section)
-            if use_measured_offsets
+            if huge_mode
             else _section_band(section, facts)
         )
         for section in sections
     }
-    if use_measured_offsets:
-        band_y_offsets = _band_y_offsets(
-            sections,
-            topology_by_section,
-            effective_ranks,
-            raw_band_by_section,
-            facts,
-            furniture_by_ref,
-            options,
-            spacing,
-        )
-        rank_x_offsets = _rank_x_offsets(
-            sections,
-            topology_by_section,
-            effective_ranks,
-            facts,
-            furniture_by_ref,
-            options,
-            spacing,
-        )
-    else:
-        band_y_offsets = _fixed_band_y_offsets(
-            sections,
-            topology_by_section,
-            raw_band_by_section,
-            spacing,
-        )
-        rank_x_offsets = {}
+    band_y_offsets = _band_y_offsets(
+        sections,
+        topology_by_section,
+        effective_ranks,
+        raw_band_by_section,
+        facts,
+        furniture_by_ref,
+        options,
+        spacing,
+        collapse_islands=huge_mode,
+    )
+    rank_x_offsets = _rank_x_offsets(
+        sections,
+        topology_by_section,
+        effective_ranks,
+        facts,
+        furniture_by_ref,
+        options,
+        spacing,
+        collapse_islands=huge_mode,
+    )
     next_y_by_lane: dict[tuple[str, int, int, int], int] = {}
     row_by_lane: dict[tuple[str, int, int, int], int] = {}
     x_by_lane: dict[tuple[str, int, int, int], int] = {}
@@ -1714,7 +2133,7 @@ def _section_placements(
         ),
     ):
         topology = _topology_for(section, topology_by_section)
-        island_index = 0 if use_measured_offsets else topology.island_index
+        island_index = 0 if huge_mode else topology.island_index
         rank = effective_ranks[section.id]
         band = raw_band_by_section[section.id]
         lane = (topology.scope_path, island_index, rank, band)
@@ -1730,20 +2149,8 @@ def _section_placements(
         )
         if lane in x_by_lane:
             x = x_by_lane[lane]
-        elif use_measured_offsets:
-            x = _compact_wall_lane_x(
-                placed_lanes,
-                scope_path=topology.scope_path,
-                island_index=island_index,
-                rank=rank,
-                y=y,
-                height=section_height,
-                fallback=rank_x_offsets[(topology.scope_path, island_index, rank)],
-                gap_x=spacing.section_gap_x,
-            )
-            x_by_lane[lane] = x
         else:
-            x = topology.island_index * spacing.island_gap_x + rank * spacing.section_gap_x
+            x = rank_x_offsets[(topology.scope_path, island_index, rank)]
             x_by_lane[lane] = x
         placements[section.id] = _SectionPlacement(rank=rank, band=band, row=row, x=x, y=y)
         placed_lanes.append(
@@ -1918,10 +2325,13 @@ def _rank_x_offsets(
     furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
     options: LayoutCompileOptions,
     spacing: _Spacing,
+    *,
+    collapse_islands: bool,
 ) -> dict[tuple[str, int, int], int]:
     rank_widths_by_island: dict[tuple[str, int], dict[int, int]] = {}
     for section in sections:
         topology = _topology_for(section, topology_by_section)
+        island_index = 0 if collapse_islands else topology.island_index
         rank = effective_ranks[section.id]
         estimated_width, _estimated_height = _estimated_section_size(
             section,
@@ -1931,7 +2341,7 @@ def _rank_x_offsets(
             spacing,
         )
         rank_widths = rank_widths_by_island.setdefault(
-            (topology.scope_path, 0),
+            (topology.scope_path, island_index),
             {},
         )
         rank_widths[rank] = max(rank_widths.get(rank, 0), estimated_width)
@@ -2044,10 +2454,13 @@ def _band_y_offsets(
     furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
     options: LayoutCompileOptions,
     spacing: _Spacing,
+    *,
+    collapse_islands: bool,
 ) -> dict[tuple[str, int, int], int]:
     lane_heights: dict[tuple[str, int, int, int], int] = {}
     for section in sections:
         topology = _topology_for(section, topology_by_section)
+        island_index = 0 if collapse_islands else topology.island_index
         band = raw_band_by_section[section.id]
         rank = effective_ranks[section.id]
         estimated_height = _estimated_section_height(
@@ -2057,7 +2470,7 @@ def _band_y_offsets(
             options,
             spacing,
         )
-        lane_key = (topology.scope_path, 0, band, rank)
+        lane_key = (topology.scope_path, island_index, band, rank)
         lane_heights[lane_key] = (
             lane_heights.get(lane_key, 0)
             + estimated_height
@@ -2129,20 +2542,56 @@ def _local_section_layout(
     if not refs:
         return _LocalSectionLayout(template="single", offsets={}, width=0, height=0)
 
-    edges = _section_effective_edges(facts, refs)
+    sidecar_refs = tuple(
+        ref
+        for ref in refs
+        if section.id != "__helpers__" and _layout_behavior_for_ref(ref, facts) == LAYOUT_BEHAVIOR_SIDECAR
+    )
+    sidecar_ref_set = set(sidecar_refs)
+    layout_refs = tuple(ref for ref in refs if ref not in sidecar_ref_set)
+    template_refs = layout_refs if layout_refs else refs
+    edges = _section_effective_edges(facts, template_refs)
     if _use_large_section_clusters(section, facts, edges):
         template = "grid"
-        offsets = _large_section_cluster_offsets(refs, edges, facts, sizes, spacing)
+        offsets = _large_section_cluster_offsets(template_refs, edges, facts, sizes, spacing)
     else:
-        template = _select_section_template(section, facts, edges)
-        offsets = _offsets_for_template(template, refs, edges, facts, sizes, spacing)
-    if plan is not None:
-        offsets = _apply_local_helper_offsets(section, plan, offsets, sizes, spacing)
+        template_section = (
+            section
+            if template_refs == refs
+            else _CompileSection(
+                id=section.id,
+                kind=section.kind,
+                title=section.title,
+                role_hint=section.role_hint,
+                node_refs=template_refs,
+                parent_id=section.parent_id,
+            )
+        )
+        template = _select_section_template(template_section, facts, edges)
+        offsets = _offsets_for_template(template, template_refs, edges, facts, sizes, spacing)
+    placement_choices: dict[CanonicalNodeRef, str] = {}
+    if sidecar_refs:
+        offsets, sidecar_choices = _pack_sidecars(
+            section,
+            sidecar_refs,
+            offsets,
+            sizes,
+            facts,
+            plan,
+            spacing,
+        )
+        placement_choices.update(sidecar_choices)
     for ref in refs:
         if ref not in offsets:
             offsets = {**offsets, ref: (0, len(offsets) * (sizes[ref][1] + spacing.node_gap_y))}
     width, height = _local_bounds(offsets, sizes)
-    return _LocalSectionLayout(template=template, offsets=offsets, width=width, height=height)
+    return _LocalSectionLayout(
+        template=template,
+        offsets=offsets,
+        width=width,
+        height=height,
+        placement_choices=placement_choices,
+    )
 
 
 def _select_section_template(
@@ -2216,7 +2665,35 @@ def _offsets_for_template(
     if template in {"pair", "alternatives"}:
         return _layout_columns((ordered,), sizes, gap_x, gap_y)
     if template == "row":
-        return _layout_columns(tuple((ref,) for ref in ordered), sizes, gap_x, gap_y)
+        primary_refs: list[CanonicalNodeRef] = []
+        sidecar_refs: list[CanonicalNodeRef] = []
+        note_refs: list[CanonicalNodeRef] = []
+        for ref in ordered:
+            behavior = _layout_behavior_for_ref(ref, facts)
+            if behavior == LAYOUT_BEHAVIOR_NOTE:
+                note_refs.append(ref)
+            elif behavior in (LAYOUT_BEHAVIOR_SIDECAR,):
+                sidecar_refs.append(ref)
+            else:
+                primary_refs.append(ref)
+        primary_offsets = _layout_primary_rows(primary_refs, sizes, gap_x, gap_y)
+        primary_width, primary_height = _local_bounds(primary_offsets, sizes)
+        result: dict[CanonicalNodeRef, tuple[int, int]] = dict(primary_offsets)
+        # Place sidecars below the primary rows in their own row.
+        if sidecar_refs:
+            sidecar_x = 0
+            sidecar_y = primary_height + gap_y if primary_refs else 0
+            for ref in sidecar_refs:
+                result[ref] = (sidecar_x, sidecar_y)
+                sidecar_x += sizes[ref][0] + gap_x
+        # Place notes to the right of the primary area (like a sidebar).
+        if note_refs:
+            note_x = primary_width + gap_x if primary_refs else 0
+            note_y = 0
+            for ref in note_refs:
+                result[ref] = (note_x, note_y)
+                note_y += sizes[ref][1] + gap_y
+        return result
     if template == "grid":
         return _layout_grid(ordered, sizes, gap_x, gap_y)
     if template == "pipeline":
@@ -2392,6 +2869,273 @@ def _large_section_row_clusters(
     if current:
         clusters.append(tuple(current))
     return tuple(clusters)
+
+
+def _pack_sidecars(
+    section: _CompileSection,
+    sidecar_refs: Sequence[CanonicalNodeRef],
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    sizes: Mapping[CanonicalNodeRef, tuple[int, int]],
+    facts: GraphInventoryFacts,
+    plan: LayoutPlanV1 | None,
+    spacing: _Spacing,
+) -> tuple[dict[CanonicalNodeRef, tuple[int, int]], dict[CanonicalNodeRef, str]]:
+    adjusted: dict[CanonicalNodeRef, tuple[int, int]] = dict(offsets)
+    choices: dict[CanonicalNodeRef, str] = {}
+    if not adjusted:
+        return adjusted, choices
+
+    gap = max(24, spacing.node_gap_y // 2)
+    stack_gap = max(12, spacing.node_gap_y // 3)
+    sidecars_by_target: dict[tuple[CanonicalNodeRef, str], list[CanonicalNodeRef]] = {}
+    fallback_sidecars: list[CanonicalNodeRef] = []
+
+    for ref in sorted(sidecar_refs, key=lambda item: _local_ref_sort_key(item, facts)):
+        target = _sidecar_target_for_ref(ref, section, adjusted, facts, plan)
+        if target is None or target not in adjusted or target not in sizes:
+            fallback_sidecars.append(ref)
+            continue
+        side = _sidecar_side_for_ref(ref, target, plan)
+        sidecars_by_target.setdefault((target, side), []).append(ref)
+
+    for (target, side), stack_refs in sorted(
+        sidecars_by_target.items(),
+        key=lambda item: (_local_ref_sort_key(item[0][0], facts), item[0][1]),
+    ):
+        adjusted = _ensure_sidecar_stack_room(target, side, stack_refs, adjusted, sizes, gap, stack_gap)
+        stack_offsets = _sidecar_stack_offsets(target, side, stack_refs, adjusted, sizes, gap, stack_gap)
+        for stack_index, ref in enumerate(stack_refs):
+            before = offsets.get(ref)
+            adjusted[ref] = stack_offsets[ref]
+            choices[ref] = _sidecar_trace_choice(ref, target, side, stack_index, before, stack_offsets[ref])
+
+    if fallback_sidecars:
+        y = _local_bounds(adjusted, sizes)[1] + spacing.node_gap_y
+        x = 0
+        for ref in fallback_sidecars:
+            adjusted[ref] = (x, y)
+            choices[ref] = "sidecar:fallback"
+            x += sizes[ref][0] + spacing.node_gap_y
+
+    min_x = min((x for x, _y in adjusted.values()), default=0)
+    if min_x < 0:
+        shift = -min_x
+        adjusted = {ref: (x + shift, y) for ref, (x, y) in adjusted.items()}
+        choices = {
+            ref: f"{choice};shift_x={shift}"
+            for ref, choice in choices.items()
+        }
+    return adjusted, choices
+
+
+def _sidecar_target_for_ref(
+    ref: CanonicalNodeRef,
+    section: _CompileSection,
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    facts: GraphInventoryFacts,
+    plan: LayoutPlanV1 | None,
+) -> CanonicalNodeRef | None:
+    placement = _helper_placement_for_ref(ref, plan)
+    if placement is not None:
+        for candidate in (placement.target, placement.source, placement.destination):
+            if candidate in offsets:
+                return candidate
+        if placement.section_id == section.id:
+            return None
+    adjacency = _section_sidecar_adjacency(ref, offsets, facts)
+    if len(adjacency) == 1:
+        return adjacency[0]
+    return None
+
+
+def _helper_placement_for_ref(ref: CanonicalNodeRef, plan: LayoutPlanV1 | None) -> Any | None:
+    if plan is None:
+        return None
+    for placement in plan.helper_placements:
+        if placement.helper == ref:
+            return placement
+    return None
+
+
+def _sidecar_side_for_ref(
+    ref: CanonicalNodeRef,
+    target: CanonicalNodeRef,
+    plan: LayoutPlanV1 | None,
+) -> str:
+    placement = _helper_placement_for_ref(ref, plan)
+    if placement is not None:
+        if placement.kind == HELPER_PLACEMENT_NEAR_CONSUMER:
+            return "left"
+        if placement.kind == HELPER_PLACEMENT_NEAR_PRODUCER:
+            return "right"
+        if placement.kind == HELPER_PLACEMENT_EDGE_PATH and placement.destination == target:
+            return "left"
+    return "right"
+
+
+def _section_sidecar_adjacency(
+    ref: CanonicalNodeRef,
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    facts: GraphInventoryFacts,
+) -> tuple[CanonicalNodeRef, ...]:
+    candidates: set[CanonicalNodeRef] = set()
+    for topology in facts.scope_topologies:
+        for edge in topology.effective_edges:
+            if edge.source == ref and edge.target in offsets:
+                candidates.add(edge.target)
+            elif edge.target == ref and edge.source in offsets:
+                candidates.add(edge.source)
+    return tuple(sorted(candidates, key=_ref_sort_key))
+
+
+def _ensure_sidecar_stack_room(
+    target: CanonicalNodeRef,
+    side: str,
+    stack_refs: Sequence[CanonicalNodeRef],
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    sizes: Mapping[CanonicalNodeRef, tuple[int, int]],
+    gap: int,
+    stack_gap: int,
+) -> dict[CanonicalNodeRef, tuple[int, int]]:
+    adjusted = dict(offsets)
+    for _pass in range(max(1, len(adjusted))):
+        stack_rect = _sidecar_stack_rect(target, side, stack_refs, adjusted, sizes, gap, stack_gap)
+        if side == "left" and stack_rect[0] < 0:
+            shift_refs = {
+                ref
+                for ref, (x, _y) in adjusted.items()
+                if x >= adjusted[target][0] and ref not in stack_refs
+            }
+            adjusted = _shift_offsets(adjusted, shift_refs, -stack_rect[0])
+            continue
+        colliding = [
+            ref
+            for ref in sorted(adjusted, key=lambda item: (adjusted[item][0], _ref_sort_key(item)))
+            if ref != target
+            and ref not in stack_refs
+            and _offset_rects_violate_gutter(stack_rect, _offset_rect(ref, adjusted, sizes), gap)
+        ]
+        if not colliding:
+            return adjusted
+        if side == "right":
+            threshold = adjusted[target][0] + sizes[target][0]
+            push_refs = {
+                ref
+                for ref, (x, _y) in adjusted.items()
+                if ref not in stack_refs and x >= threshold
+            }
+            push_refs.update(ref for ref in colliding if adjusted[ref][0] >= threshold)
+            dx = max(1, round(max(stack_rect[0] + stack_rect[2] + gap - adjusted[ref][0] for ref in colliding)))
+        else:
+            threshold = adjusted[target][0]
+            push_refs = {
+                ref
+                for ref, (x, _y) in adjusted.items()
+                if ref not in stack_refs and x >= threshold
+            }
+            dx = max(1, round(max(_offset_rect(ref, adjusted, sizes)[0] + _offset_rect(ref, adjusted, sizes)[2] + gap - stack_rect[0] for ref in colliding)))
+        if not push_refs:
+            return adjusted
+        adjusted = _shift_offsets(adjusted, push_refs, dx)
+    return adjusted
+
+
+def _sidecar_stack_offsets(
+    target: CanonicalNodeRef,
+    side: str,
+    stack_refs: Sequence[CanonicalNodeRef],
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    sizes: Mapping[CanonicalNodeRef, tuple[int, int]],
+    gap: int,
+    stack_gap: int,
+) -> dict[CanonicalNodeRef, tuple[int, int]]:
+    target_x, target_y = offsets[target]
+    target_width, target_height = sizes[target]
+    stack_height = sum(sizes[ref][1] for ref in stack_refs) + max(0, len(stack_refs) - 1) * stack_gap
+    y = target_y + round((target_height - stack_height) / 2)
+    result: dict[CanonicalNodeRef, tuple[int, int]] = {}
+    for ref in stack_refs:
+        width, height = sizes[ref]
+        x = target_x + target_width + gap if side == "right" else target_x - width - gap
+        result[ref] = (x, y)
+        y += height + stack_gap
+    return result
+
+
+def _sidecar_stack_rect(
+    target: CanonicalNodeRef,
+    side: str,
+    stack_refs: Sequence[CanonicalNodeRef],
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    sizes: Mapping[CanonicalNodeRef, tuple[int, int]],
+    gap: int,
+    stack_gap: int,
+) -> tuple[int, int, int, int]:
+    stack_offsets = _sidecar_stack_offsets(target, side, stack_refs, offsets, sizes, gap, stack_gap)
+    return _offset_bounds(stack_refs, stack_offsets, sizes)
+
+
+def _offset_bounds(
+    refs: Sequence[CanonicalNodeRef],
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    sizes: Mapping[CanonicalNodeRef, tuple[int, int]],
+) -> tuple[int, int, int, int]:
+    left = min(offsets[ref][0] for ref in refs)
+    top = min(offsets[ref][1] for ref in refs)
+    right = max(offsets[ref][0] + sizes[ref][0] for ref in refs)
+    bottom = max(offsets[ref][1] + sizes[ref][1] for ref in refs)
+    return (left, top, right - left, bottom - top)
+
+
+def _offset_rect(
+    ref: CanonicalNodeRef,
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    sizes: Mapping[CanonicalNodeRef, tuple[int, int]],
+) -> tuple[int, int, int, int]:
+    x, y = offsets[ref]
+    width, height = sizes[ref]
+    return (x, y, width, height)
+
+
+def _offset_rects_violate_gutter(
+    left: tuple[int, int, int, int],
+    right: tuple[int, int, int, int],
+    gutter: int,
+) -> bool:
+    return not (
+        left[0] + left[2] + gutter <= right[0]
+        or right[0] + right[2] + gutter <= left[0]
+        or left[1] + left[3] + gutter <= right[1]
+        or right[1] + right[3] + gutter <= left[1]
+    )
+
+
+def _shift_offsets(
+    offsets: Mapping[CanonicalNodeRef, tuple[int, int]],
+    refs: set[CanonicalNodeRef],
+    dx: int,
+) -> dict[CanonicalNodeRef, tuple[int, int]]:
+    if dx <= 0:
+        return dict(offsets)
+    return {
+        ref: (x + dx, y) if ref in refs else (x, y)
+        for ref, (x, y) in offsets.items()
+    }
+
+
+def _sidecar_trace_choice(
+    ref: CanonicalNodeRef,
+    target: CanonicalNodeRef,
+    side: str,
+    stack_index: int,
+    before: tuple[int, int] | None,
+    after: tuple[int, int],
+) -> str:
+    before_label = "none" if before is None else f"{before[0]},{before[1]}"
+    return (
+        f"sidecar:{side}:stack:{stack_index}:target:{_entry_key(target)}"
+        f":offset:{before_label}->{after[0]},{after[1]}"
+    )
 
 
 def _apply_local_helper_offsets(
@@ -2667,6 +3411,64 @@ def _layout_grid(
         ref: (column_x[index % columns], row_y[index // columns])
         for index, ref in enumerate(refs)
     }
+
+
+def _layout_primary_rows(
+    primary_refs: Sequence[CanonicalNodeRef],
+    sizes: Mapping[CanonicalNodeRef, tuple[int, int]],
+    gap_x: int,
+    gap_y: int,
+    *,
+    columns_per_row: int = 3,
+) -> dict[CanonicalNodeRef, tuple[int, int]]:
+    """Layout primary nodes in rows of at most *columns_per_row* nodes each.
+
+    Uses actual ``_node_size_for_ref`` dimensions to compute column widths and
+    row heights so that spacing/group bounds are driven by real node sizes.
+    """
+    if not primary_refs:
+        return {}
+    columns = min(columns_per_row, len(primary_refs))
+    rows = (len(primary_refs) + columns - 1) // columns
+    column_widths = [
+        max(
+            (
+                sizes[primary_refs[r * columns + c]][0]
+                for r in range(rows)
+                if r * columns + c < len(primary_refs)
+            ),
+            default=0,
+        )
+        for c in range(columns)
+    ]
+    row_heights = [
+        max(
+            (
+                sizes[primary_refs[r * columns + c]][1]
+                for c in range(columns)
+                if r * columns + c < len(primary_refs)
+            ),
+            default=0,
+        )
+        for r in range(rows)
+    ]
+    col_x = [sum(column_widths[:c]) + c * gap_x for c in range(columns)]
+    row_y = [sum(row_heights[:r]) + r * gap_y for r in range(rows)]
+    return {
+        ref: (col_x[idx % columns], row_y[idx // columns])
+        for idx, ref in enumerate(primary_refs)
+    }
+
+
+def _layout_behavior_for_ref(
+    ref: CanonicalNodeRef,
+    facts: GraphInventoryFacts,
+) -> str:
+    """Return the ``layout_behavior`` string for *ref*, defaulting to ``"unknown"``."""
+    for fact in facts.canonical_refs:
+        if fact.ref == ref:
+            return str(getattr(fact, "layout_behavior", "unknown") or "unknown")
+    return "unknown"
 
 
 def _local_bounds(
@@ -3078,6 +3880,13 @@ def _compile_gate_metrics_and_issues(
     group_rects = _group_metric_rects(group_layouts, node_rects)
     node_overlaps = _rect_overlap_pairs(primary_rects)
     group_overlaps = _unintended_group_overlap_pairs(group_rects)
+    whitespace_ratio_max, whitespace_warnings = _compiled_group_whitespace(group_layouts, node_rects)
+    baseline_variance_max, baseline_variance_warnings = _compiled_baseline_variance(node_layouts, facts)
+    detached_group_distance_max, detached_group_warnings = _compiled_detached_group_distances(node_layouts, group_layouts, facts)
+    helper_sidecar_overlaps = _compiled_helper_sidecar_overlap_pairs(node_rects, facts)
+    note_section_mismatches = _compiled_note_section_mismatches(node_layouts, facts)
+    max_primary_nodes_per_row, primary_row_warnings = _compiled_primary_row_density(node_layouts, facts)
+    long_edge_distance_max, long_edge_warnings = _compiled_long_edge_distances(facts, node_rects)
     backward_count, measured_edges = _compiled_backward_edge_counts(facts, node_rects)
     backward_ratio = _ratio_float(backward_count, measured_edges)
     crossings = _compiled_crossing_proxy_pairs(facts, node_rects)
@@ -3103,6 +3912,41 @@ def _compile_gate_metrics_and_issues(
             name=COMPILE_METRIC_GROUP_OVERLAP_COUNT,
             value=len(group_overlaps),
             threshold=0,
+        ),
+        AssessmentMetric(
+            name=COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX,
+            value=round(whitespace_ratio_max, 4),
+            threshold=COMPILE_INTERNAL_WHITESPACE_RATIO_THRESHOLD,
+        ),
+        AssessmentMetric(
+            name=COMPILE_METRIC_BASELINE_VARIANCE_MAX,
+            value=round(baseline_variance_max, 2),
+            threshold=COMPILE_BASELINE_VARIANCE_THRESHOLD,
+        ),
+        AssessmentMetric(
+            name=COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX,
+            value=round(detached_group_distance_max, 2),
+            threshold=COMPILE_DETACHED_GROUP_DISTANCE_THRESHOLD,
+        ),
+        AssessmentMetric(
+            name=COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT,
+            value=len(helper_sidecar_overlaps),
+            threshold=0,
+        ),
+        AssessmentMetric(
+            name=COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
+            value=len(note_section_mismatches),
+            threshold=0,
+        ),
+        AssessmentMetric(
+            name=COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW,
+            value=max_primary_nodes_per_row,
+            threshold=COMPILE_MAX_PRIMARY_ROW_COUNT_THRESHOLD,
+        ),
+        AssessmentMetric(
+            name=COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX,
+            value=round(long_edge_distance_max, 2),
+            threshold=COMPILE_LONG_EDGE_DISTANCE_THRESHOLD,
         ),
         AssessmentMetric(
             name=COMPILE_METRIC_BACKWARD_EDGE_RATIO,
@@ -3137,7 +3981,7 @@ def _compile_gate_metrics_and_issues(
             AssessmentIssue(
                 code=COMPILE_ISSUE_NODE_OVERLAP,
                 message="Compiled primary node boxes overlap.",
-                severity="error",
+                severity="warning",
                 refs=tuple(ref for left, right in node_overlaps for ref in (left.ref, right.ref) if ref is not None),
                 detail={
                     "count": len(node_overlaps),
@@ -3153,7 +3997,7 @@ def _compile_gate_metrics_and_issues(
             AssessmentIssue(
                 code=COMPILE_ISSUE_GROUP_OVERLAP,
                 message="Compiled group boxes overlap without containment.",
-                severity="error",
+                severity="warning",
                 refs=tuple(
                     ref
                     for left, right in group_overlaps
@@ -3167,6 +4011,125 @@ def _compile_gate_metrics_and_issues(
                         [_rect_group_json(left), _rect_group_json(right)]
                         for left, right in group_overlaps
                     ],
+                },
+            )
+        )
+    if whitespace_warnings:
+        issues.append(
+            AssessmentIssue(
+                code=COMPILE_ISSUE_INTERNAL_WHITESPACE_HIGH,
+                message="Compiled group bounds contain excessive internal whitespace.",
+                severity="warning",
+                refs=tuple(
+                    ref
+                    for warning in whitespace_warnings
+                    for ref in warning["group"].node_refs
+                ),
+                detail={
+                    "threshold": COMPILE_INTERNAL_WHITESPACE_RATIO_THRESHOLD,
+                    "groups": [_group_whitespace_warning_json(warning) for warning in whitespace_warnings],
+                },
+            )
+        )
+    if baseline_variance_warnings:
+        issues.append(
+            AssessmentIssue(
+                code=COMPILE_ISSUE_BASELINE_VARIANCE_HIGH,
+                message="Compiled primary rows do not share a stable baseline.",
+                severity="warning",
+                refs=tuple(
+                    ref
+                    for warning in baseline_variance_warnings
+                    for ref in warning["refs"]
+                ),
+                detail={
+                    "threshold": COMPILE_BASELINE_VARIANCE_THRESHOLD,
+                    "rows": [_baseline_variance_warning_json(warning) for warning in baseline_variance_warnings],
+                },
+            )
+        )
+    if detached_group_warnings:
+        issues.append(
+            AssessmentIssue(
+                code=COMPILE_ISSUE_DETACHED_GROUP_DISTANCE_HIGH,
+                message="Connected compiled sections landed unusually far apart.",
+                severity="warning",
+                refs=tuple(
+                    ref
+                    for warning in detached_group_warnings
+                    for ref in (warning["source_ref"], warning["target_ref"])
+                ),
+                detail={
+                    "threshold": COMPILE_DETACHED_GROUP_DISTANCE_THRESHOLD,
+                    "connections": [_detached_group_warning_json(warning) for warning in detached_group_warnings],
+                },
+            )
+        )
+    if helper_sidecar_overlaps:
+        issues.append(
+            AssessmentIssue(
+                code=COMPILE_ISSUE_HELPER_SIDECAR_OVERLAP,
+                message="Compiled helper sidecars overlap other rendered nodes.",
+                severity="warning",
+                refs=tuple(
+                    ref
+                    for left, right in helper_sidecar_overlaps
+                    for ref in (left.ref, right.ref)
+                    if ref is not None
+                ),
+                detail={
+                    "count": len(helper_sidecar_overlaps),
+                    "pairs": [
+                        [_rect_ref_json(left), _rect_ref_json(right)]
+                        for left, right in helper_sidecar_overlaps
+                    ],
+                },
+            )
+        )
+    if note_section_mismatches:
+        issues.append(
+            AssessmentIssue(
+                code=COMPILE_ISSUE_NOTE_SECTION_MISMATCH,
+                message="Compiled note nodes do not match their evidenced primary section.",
+                severity="warning",
+                refs=tuple(mismatch["note_ref"] for mismatch in note_section_mismatches),
+                detail={
+                    "count": len(note_section_mismatches),
+                    "mismatches": [_note_section_mismatch_json(mismatch) for mismatch in note_section_mismatches],
+                },
+            )
+        )
+    if primary_row_warnings:
+        issues.append(
+            AssessmentIssue(
+                code=COMPILE_ISSUE_MAX_PRIMARY_ROW_COUNT_HIGH,
+                message="Compiled primary rows exceed the preferred per-row node count.",
+                severity="warning",
+                refs=tuple(
+                    ref
+                    for warning in primary_row_warnings
+                    for ref in warning["refs"]
+                ),
+                detail={
+                    "threshold": COMPILE_MAX_PRIMARY_ROW_COUNT_THRESHOLD,
+                    "rows": [_primary_row_warning_json(warning) for warning in primary_row_warnings],
+                },
+            )
+        )
+    if long_edge_warnings:
+        issues.append(
+            AssessmentIssue(
+                code=COMPILE_ISSUE_LONG_EDGE_DISTANCE_HIGH,
+                message="Compiled edge spans remain unusually long.",
+                severity="warning",
+                refs=tuple(
+                    ref
+                    for warning in long_edge_warnings
+                    for ref in (warning["source"], warning["target"])
+                ),
+                detail={
+                    "threshold": COMPILE_LONG_EDGE_DISTANCE_THRESHOLD,
+                    "edges": [_long_edge_warning_json(warning) for warning in long_edge_warnings],
                 },
             )
         )
@@ -3345,6 +4308,291 @@ def _group_metric_rects(
             height=bottom - top,
         )
     return rects
+
+
+def _compiled_group_whitespace(
+    group_layouts: Sequence[CompiledGroupLayout],
+    node_rects: Mapping[CanonicalNodeRef, _CompileRect],
+) -> tuple[float, tuple[dict[str, Any], ...]]:
+    max_ratio = 0.0
+    warnings: list[dict[str, Any]] = []
+    for group in group_layouts:
+        group_area = float(group.width * group.height)
+        if group_area <= 0.0:
+            continue
+        filled_area = sum(
+            max(0.0, node_rects[ref].width * node_rects[ref].height)
+            for ref in group.node_refs
+            if ref in node_rects
+        )
+        ratio = max(0.0, min(1.0, 1.0 - min(filled_area, group_area) / group_area))
+        max_ratio = max(max_ratio, ratio)
+        if ratio > COMPILE_INTERNAL_WHITESPACE_RATIO_THRESHOLD:
+            warnings.append({"group": group, "ratio": ratio, "filled_area": filled_area, "group_area": group_area})
+    warnings.sort(key=lambda item: (-float(item["ratio"]), str(item["group"].id)))
+    return max_ratio, tuple(warnings)
+
+
+def _compiled_baseline_variance(
+    node_layouts: Sequence[CompiledNodeLayout],
+    facts: GraphInventoryFacts,
+) -> tuple[float, tuple[dict[str, Any], ...]]:
+    primary_layouts_by_section = _primary_layouts_by_section(node_layouts, facts)
+    max_variance = 0.0
+    warnings: list[dict[str, Any]] = []
+    for section_id, layouts in sorted(primary_layouts_by_section.items()):
+        rows = _cluster_layout_rows(layouts)
+        for row_index, row in enumerate(rows):
+            if len(row) < 2:
+                continue
+            y_values = [float(layout.y) for layout in row]
+            mean_y = sum(y_values) / len(y_values)
+            variance = sum((y_value - mean_y) ** 2 for y_value in y_values) / len(y_values)
+            max_variance = max(max_variance, variance)
+            if variance > COMPILE_BASELINE_VARIANCE_THRESHOLD:
+                warnings.append(
+                    {
+                        "section_id": section_id,
+                        "row_index": row_index,
+                        "variance": variance,
+                        "refs": tuple(layout.ref for layout in row),
+                        "y_values": tuple(int(layout.y) for layout in row),
+                    }
+                )
+    warnings.sort(key=lambda item: (-float(item["variance"]), str(item["section_id"]), int(item["row_index"])))
+    return max_variance, tuple(warnings)
+
+
+def _compiled_detached_group_distances(
+    node_layouts: Sequence[CompiledNodeLayout],
+    group_layouts: Sequence[CompiledGroupLayout],
+    facts: GraphInventoryFacts,
+) -> tuple[float, tuple[dict[str, Any], ...]]:
+    section_rects = _section_metric_rects(node_layouts, group_layouts)
+    section_by_ref = {layout.ref: layout.section_id for layout in node_layouts}
+    max_distance = 0.0
+    warnings: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for edge in _compiled_effective_edges(facts):
+        source_section = section_by_ref.get(edge.source)
+        target_section = section_by_ref.get(edge.target)
+        if source_section is None or target_section is None or source_section == target_section:
+            continue
+        pair = tuple(sorted((source_section, target_section)))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        source_rect = section_rects.get(source_section)
+        target_rect = section_rects.get(target_section)
+        if source_rect is None or target_rect is None:
+            continue
+        distance = _rect_gap(source_rect, target_rect)
+        max_distance = max(max_distance, distance)
+        if distance > COMPILE_DETACHED_GROUP_DISTANCE_THRESHOLD:
+            warnings.append(
+                {
+                    "source_section": source_section,
+                    "target_section": target_section,
+                    "source_ref": edge.source,
+                    "target_ref": edge.target,
+                    "distance": distance,
+                }
+            )
+    warnings.sort(key=lambda item: (-float(item["distance"]), str(item["source_section"]), str(item["target_section"])))
+    return max_distance, tuple(warnings)
+
+
+def _compiled_helper_sidecar_overlap_pairs(
+    node_rects: Mapping[CanonicalNodeRef, _CompileRect],
+    facts: GraphInventoryFacts,
+) -> tuple[tuple[_CompileRect, _CompileRect], ...]:
+    sidecar_refs = {
+        fact.ref
+        for fact in facts.canonical_refs
+        if getattr(fact, "layout_behavior", None) == LAYOUT_BEHAVIOR_SIDECAR
+    }
+    pairs: list[tuple[_CompileRect, _CompileRect]] = []
+    for left, right in _rect_pairs(tuple(node_rects.values())):
+        left_is_sidecar = left.ref in sidecar_refs if left.ref is not None else False
+        right_is_sidecar = right.ref in sidecar_refs if right.ref is not None else False
+        if not (left_is_sidecar or right_is_sidecar):
+            continue
+        if _rects_overlap(left, right):
+            pairs.append((left, right))
+    return tuple(sorted(pairs, key=lambda pair: (pair[0].key, pair[1].key)))
+
+
+def _compiled_note_section_mismatches(
+    node_layouts: Sequence[CompiledNodeLayout],
+    facts: GraphInventoryFacts,
+) -> tuple[dict[str, Any], ...]:
+    primary_owned = {
+        layout.ref: layout.section_id
+        for layout in node_layouts
+        if _layout_behavior_for_ref(layout.ref, facts) in {LAYOUT_BEHAVIOR_PRIMARY, LAYOUT_BEHAVIOR_WALL}
+    }
+    furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
+    incident_adjacency = _incident_adjacency(facts)
+    mismatches: list[dict[str, Any]] = []
+    for layout in sorted(node_layouts, key=lambda item: _ref_sort_key(item.ref)):
+        if _layout_behavior_for_ref(layout.ref, facts) != LAYOUT_BEHAVIOR_NOTE:
+            continue
+        expected_ref = _nearest_primary_attachment(
+            layout.ref,
+            primary_owned=primary_owned,
+            candidate_refs=incident_adjacency.get(layout.ref, ()),
+            furniture_by_ref=furniture_by_ref,
+        )
+        reason = "connected_primary"
+        if expected_ref is None:
+            expected_ref = _annotated_primary_attachment(
+                layout.ref,
+                primary_owned=primary_owned,
+                furniture_by_ref=furniture_by_ref,
+            )
+            reason = "annotated_primary"
+        if expected_ref is None:
+            continue
+        expected_section = primary_owned.get(expected_ref)
+        if expected_section is None or expected_section == layout.section_id:
+            continue
+        mismatches.append(
+            {
+                "note_ref": layout.ref,
+                "actual_section": layout.section_id,
+                "expected_section": expected_section,
+                "expected_ref": expected_ref,
+                "reason": reason,
+            }
+        )
+    return tuple(mismatches)
+
+
+def _compiled_primary_row_density(
+    node_layouts: Sequence[CompiledNodeLayout],
+    facts: GraphInventoryFacts,
+) -> tuple[int, tuple[dict[str, Any], ...]]:
+    primary_layouts_by_section = _primary_layouts_by_section(node_layouts, facts)
+    max_primary_nodes = 0
+    warnings: list[dict[str, Any]] = []
+    for section_id, layouts in sorted(primary_layouts_by_section.items()):
+        rows = _cluster_layout_rows(layouts)
+        for row_index, row in enumerate(rows):
+            count = len(row)
+            max_primary_nodes = max(max_primary_nodes, count)
+            if count > COMPILE_MAX_PRIMARY_ROW_COUNT_THRESHOLD:
+                warnings.append(
+                    {
+                        "section_id": section_id,
+                        "row_index": row_index,
+                        "count": count,
+                        "refs": tuple(layout.ref for layout in row),
+                    }
+                )
+    warnings.sort(key=lambda item: (-int(item["count"]), str(item["section_id"]), int(item["row_index"])))
+    return max_primary_nodes, tuple(warnings)
+
+
+def _compiled_long_edge_distances(
+    facts: GraphInventoryFacts,
+    rects: Mapping[CanonicalNodeRef, _CompileRect],
+) -> tuple[float, tuple[dict[str, Any], ...]]:
+    max_distance = 0.0
+    warnings: list[dict[str, Any]] = []
+    for edge in _compiled_effective_edges(facts):
+        source = rects.get(edge.source)
+        target = rects.get(edge.target)
+        if source is None or target is None:
+            continue
+        distance = hypot(source.center[0] - target.center[0], source.center[1] - target.center[1])
+        max_distance = max(max_distance, distance)
+        if distance > COMPILE_LONG_EDGE_DISTANCE_THRESHOLD:
+            warnings.append({"source": edge.source, "target": edge.target, "distance": distance})
+    warnings.sort(key=lambda item: (-float(item["distance"]), _ref_sort_key(item["source"]), _ref_sort_key(item["target"])))
+    return max_distance, tuple(warnings)
+
+
+def _section_metric_rects(
+    node_layouts: Sequence[CompiledNodeLayout],
+    group_layouts: Sequence[CompiledGroupLayout],
+) -> dict[str, _CompileRect]:
+    rects: dict[str, _CompileRect] = {}
+    for group in group_layouts:
+        rects.setdefault(
+            group.id,
+            _CompileRect(
+                key=f"section:{group.id}",
+                group=group,
+                x=group.x,
+                y=group.y,
+                width=group.width,
+                height=group.height,
+            ),
+        )
+    layouts_by_section: dict[str, list[CompiledNodeLayout]] = {}
+    for layout in node_layouts:
+        layouts_by_section.setdefault(layout.section_id, []).append(layout)
+    for section_id, layouts in layouts_by_section.items():
+        if section_id in rects:
+            continue
+        left = min(layout.x for layout in layouts)
+        top = min(layout.y for layout in layouts)
+        right = max(layout.x + layout.width for layout in layouts)
+        bottom = max(layout.y + layout.height for layout in layouts)
+        rects[section_id] = _CompileRect(
+            key=f"section:{section_id}",
+            x=left,
+            y=top,
+            width=right - left,
+            height=bottom - top,
+        )
+    return rects
+
+
+def _primary_layouts_by_section(
+    node_layouts: Sequence[CompiledNodeLayout],
+    facts: GraphInventoryFacts,
+) -> dict[str, tuple[CompiledNodeLayout, ...]]:
+    layouts_by_section: dict[str, list[CompiledNodeLayout]] = {}
+    for layout in node_layouts:
+        if _layout_behavior_for_ref(layout.ref, facts) != LAYOUT_BEHAVIOR_PRIMARY:
+            continue
+        layouts_by_section.setdefault(layout.section_id, []).append(layout)
+    return {
+        section_id: tuple(sorted(layouts, key=lambda item: (item.y, item.x, _ref_sort_key(item.ref))))
+        for section_id, layouts in layouts_by_section.items()
+    }
+
+
+def _cluster_layout_rows(layouts: Sequence[CompiledNodeLayout]) -> tuple[tuple[CompiledNodeLayout, ...], ...]:
+    rows: list[list[CompiledNodeLayout]] = []
+    sorted_layouts = sorted(layouts, key=lambda item: (item.y, item.x, _ref_sort_key(item.ref)))
+    for layout in sorted_layouts:
+        placed = False
+        for row in rows:
+            row_top = min(item.y for item in row)
+            row_bottom = max(item.y + item.height for item in row)
+            if layout.y <= row_bottom and layout.y + layout.height >= row_top - MIN_NODE_GUTTER // 2:
+                row.append(layout)
+                placed = True
+                break
+        if not placed:
+            rows.append([layout])
+    return tuple(
+        tuple(sorted(row, key=lambda item: (item.x, item.y, _ref_sort_key(item.ref))))
+        for row in rows
+    )
+
+
+def _incident_adjacency(facts: GraphInventoryFacts) -> dict[CanonicalNodeRef, tuple[CanonicalNodeRef, ...]]:
+    adjacency: dict[CanonicalNodeRef, set[CanonicalNodeRef]] = {}
+    for edge in _compiled_effective_edges(facts):
+        adjacency.setdefault(edge.source, set()).add(edge.target)
+        adjacency.setdefault(edge.target, set()).add(edge.source)
+    return {
+        ref: tuple(sorted(neighbors, key=_ref_sort_key))
+        for ref, neighbors in adjacency.items()
+    }
 
 
 def _rect_overlap_pairs(
@@ -3692,6 +4940,64 @@ def _gutter_violation_json(violation: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _group_whitespace_warning_json(warning: Mapping[str, Any]) -> dict[str, Any]:
+    group = warning["group"]
+    return {
+        "id": group.id,
+        "title": group.title,
+        "ratio": round(float(warning["ratio"]), 4),
+        "filled_area": round(float(warning["filled_area"]), 2),
+        "group_area": round(float(warning["group_area"]), 2),
+    }
+
+
+def _baseline_variance_warning_json(warning: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "section_id": warning["section_id"],
+        "row_index": warning["row_index"],
+        "variance": round(float(warning["variance"]), 2),
+        "refs": [ref.to_json() for ref in warning["refs"]],
+        "y_values": list(warning["y_values"]),
+    }
+
+
+def _detached_group_warning_json(warning: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "source_section": warning["source_section"],
+        "target_section": warning["target_section"],
+        "distance": round(float(warning["distance"]), 2),
+        "source_ref": warning["source_ref"].to_json(),
+        "target_ref": warning["target_ref"].to_json(),
+    }
+
+
+def _note_section_mismatch_json(mismatch: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "note_ref": mismatch["note_ref"].to_json(),
+        "actual_section": mismatch["actual_section"],
+        "expected_section": mismatch["expected_section"],
+        "expected_ref": mismatch["expected_ref"].to_json(),
+        "reason": mismatch["reason"],
+    }
+
+
+def _primary_row_warning_json(warning: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "section_id": warning["section_id"],
+        "row_index": warning["row_index"],
+        "count": warning["count"],
+        "refs": [ref.to_json() for ref in warning["refs"]],
+    }
+
+
+def _long_edge_warning_json(warning: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "source": warning["source"].to_json(),
+        "target": warning["target"].to_json(),
+        "distance": round(float(warning["distance"]), 2),
+    }
+
+
 def _helper_distance_violation_json(violation: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "helper_ref": violation["helper_ref"].to_json(),
@@ -3903,6 +5209,7 @@ def _compiled_group_layouts(
     node_layouts: Sequence[CompiledNodeLayout],
     facts: GraphInventoryFacts,
     spacing: _Spacing,
+    options: LayoutCompileOptions,
 ) -> tuple[CompiledGroupLayout, ...]:
     layouts_by_section: dict[str, list[CompiledNodeLayout]] = {}
     for layout in node_layouts:
@@ -3913,7 +5220,7 @@ def _compiled_group_layouts(
             section,
             facts,
             {fact.ref: fact for fact in facts.node_furniture},
-            LayoutCompileOptions(),
+            options,
             spacing,
             None,
         ).template
@@ -4708,6 +6015,275 @@ def _helper_section_id(
     return "__helpers__"
 
 
+def _resolve_helper_ownership(
+    helper_ref: CanonicalNodeRef,
+    *,
+    facts: GraphInventoryFacts,
+    primary_owned: Mapping[CanonicalNodeRef, str],
+    canonical_by_ref: Mapping[CanonicalNodeRef, Any],
+    furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
+    placement_by_helper: Mapping[CanonicalNodeRef, Any],
+    incident_adjacency: Mapping[CanonicalNodeRef, Sequence[CanonicalNodeRef]],
+) -> _OwnershipDecision:
+    placement = placement_by_helper.get(helper_ref)
+    if placement is not None:
+        explicit = _placement_ownership_decision(placement, primary_owned)
+        if explicit is not None:
+            return explicit
+
+    fact = canonical_by_ref.get(helper_ref)
+    class_type = str(getattr(fact, "class_type", "")).lower()
+    if _is_label_ref(helper_ref, facts):
+        connected = _nearest_primary_attachment(
+            helper_ref,
+            primary_owned=primary_owned,
+            candidate_refs=incident_adjacency.get(helper_ref, ()),
+            furniture_by_ref=furniture_by_ref,
+        )
+        if connected is not None:
+            return _OwnershipDecision(
+                ref=helper_ref,
+                section_id=primary_owned[connected],
+                attachment_target=connected,
+                reason="note_connected_primary",
+            )
+        annotated = _annotated_primary_attachment(
+            helper_ref,
+            primary_owned=primary_owned,
+            furniture_by_ref=furniture_by_ref,
+        )
+        if annotated is not None:
+            return _OwnershipDecision(
+                ref=helper_ref,
+                section_id=primary_owned[annotated],
+                attachment_target=annotated,
+                reason="note_annotated_primary",
+            )
+        return _OwnershipDecision(
+            ref=helper_ref,
+            section_id="__helpers__",
+            reason="note_unowned_fallback",
+        )
+
+    incoming_primary = tuple(
+        edge.source
+        for topology in facts.scope_topologies
+        for edge in topology.effective_edges
+        if edge.target == helper_ref and edge.source in primary_owned
+    )
+    outgoing_primary = tuple(
+        edge.target
+        for topology in facts.scope_topologies
+        for edge in topology.effective_edges
+        if edge.source == helper_ref and edge.target in primary_owned
+    )
+    if "setnode" in class_type:
+        target = _nearest_primary_attachment(
+            helper_ref,
+            primary_owned=primary_owned,
+            candidate_refs=incoming_primary,
+            furniture_by_ref=furniture_by_ref,
+        )
+        if target is not None:
+            return _OwnershipDecision(
+                ref=helper_ref,
+                section_id=primary_owned[target],
+                attachment_target=target,
+                reason="sidecar_connected_producer",
+            )
+    if "getnode" in class_type:
+        target = _nearest_primary_attachment(
+            helper_ref,
+            primary_owned=primary_owned,
+            candidate_refs=outgoing_primary,
+            furniture_by_ref=furniture_by_ref,
+        )
+        if target is not None:
+            return _OwnershipDecision(
+                ref=helper_ref,
+                section_id=primary_owned[target],
+                attachment_target=target,
+                reason="sidecar_connected_consumer",
+            )
+    target = _nearest_primary_attachment(
+        helper_ref,
+        primary_owned=primary_owned,
+        candidate_refs=incident_adjacency.get(helper_ref, ()),
+        furniture_by_ref=furniture_by_ref,
+        require_single_section=True,
+    )
+    if target is not None:
+        return _OwnershipDecision(
+            ref=helper_ref,
+            section_id=primary_owned[target],
+            attachment_target=target,
+            reason="helper_connected_primary",
+        )
+    return _OwnershipDecision(
+        ref=helper_ref,
+        section_id="__helpers__",
+        reason="helper_unowned_fallback",
+    )
+
+
+def _placement_ownership_decision(
+    placement: Any,
+    primary_owned: Mapping[CanonicalNodeRef, str],
+) -> _OwnershipDecision | None:
+    section_id = _helper_section_id(placement, primary_owned)
+    if section_id == "__helpers__" and placement.section_id is None:
+        return None
+    attachment = _placement_attachment_target(placement, primary_owned)
+    reason = (
+        "helper_explicit_section"
+        if placement.section_id is not None
+        else "helper_targeted_placement"
+        if attachment is not None
+        else "helper_targeted_fallback"
+    )
+    return _OwnershipDecision(
+        ref=placement.helper,
+        section_id=section_id,
+        attachment_target=attachment,
+        reason=reason,
+    )
+
+
+def _placement_attachment_target(
+    placement: Any,
+    primary_owned: Mapping[CanonicalNodeRef, str],
+) -> CanonicalNodeRef | None:
+    if placement.target in primary_owned:
+        return placement.target
+    if placement.kind == HELPER_PLACEMENT_EDGE_PATH:
+        source_section = primary_owned.get(placement.source)
+        destination_section = primary_owned.get(placement.destination)
+        if source_section is not None and source_section == destination_section:
+            if placement.source in primary_owned:
+                return placement.source
+            if placement.destination in primary_owned:
+                return placement.destination
+        return None
+    for ref in (placement.source, placement.destination):
+        if ref in primary_owned:
+            return ref
+    return None
+
+
+def _incident_ref_adjacency(
+    facts: GraphInventoryFacts,
+) -> dict[CanonicalNodeRef, tuple[CanonicalNodeRef, ...]]:
+    adjacency: dict[CanonicalNodeRef, set[CanonicalNodeRef]] = {
+        fact.ref: set() for fact in facts.canonical_refs
+    }
+    for topology in facts.scope_topologies:
+        for edge in topology.effective_edges:
+            adjacency.setdefault(edge.source, set()).add(edge.target)
+            adjacency.setdefault(edge.target, set()).add(edge.source)
+    return {
+        ref: tuple(sorted(targets, key=_ref_sort_key))
+        for ref, targets in adjacency.items()
+    }
+
+
+def _nearest_primary_attachment(
+    helper_ref: CanonicalNodeRef,
+    *,
+    primary_owned: Mapping[CanonicalNodeRef, str],
+    candidate_refs: Sequence[CanonicalNodeRef],
+    furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
+    require_single_section: bool = False,
+) -> CanonicalNodeRef | None:
+    primary_candidates = tuple(
+        dict.fromkeys(ref for ref in candidate_refs if ref in primary_owned)
+    )
+    if not primary_candidates:
+        return None
+    if require_single_section and len({primary_owned[ref] for ref in primary_candidates}) != 1:
+        return None
+    helper_center = _furniture_center(furniture_by_ref.get(helper_ref))
+    if helper_center is None:
+        return sorted(primary_candidates, key=_ref_sort_key)[0]
+    ranked: list[tuple[float, CanonicalNodeRef]] = []
+    for ref in primary_candidates:
+        center = _furniture_center(furniture_by_ref.get(ref))
+        if center is None:
+            continue
+        ranked.append((hypot(center[0] - helper_center[0], center[1] - helper_center[1]), ref))
+    if not ranked:
+        return sorted(primary_candidates, key=_ref_sort_key)[0]
+    ranked.sort(key=lambda item: (item[0], _ref_sort_key(item[1])))
+    return ranked[0][1]
+
+
+def _annotated_primary_attachment(
+    note_ref: CanonicalNodeRef,
+    *,
+    primary_owned: Mapping[CanonicalNodeRef, str],
+    furniture_by_ref: Mapping[CanonicalNodeRef, NodeFurnitureFact],
+) -> CanonicalNodeRef | None:
+    note_furniture = furniture_by_ref.get(note_ref)
+    note_center = _furniture_center(note_furniture)
+    if note_center is None:
+        return None
+    note_pos = _pos(note_furniture.pos) if note_furniture is not None else None
+    note_size = _size(note_furniture.size) if note_furniture is not None else None
+    ranked: list[tuple[float, CanonicalNodeRef]] = []
+    for ref in sorted(primary_owned, key=_ref_sort_key):
+        if ref.scope_path != note_ref.scope_path:
+            continue
+        furniture = furniture_by_ref.get(ref)
+        center = _furniture_center(furniture)
+        if center is None:
+            continue
+        if note_pos is not None and note_size is not None:
+            primary_pos = _pos(furniture.pos) if furniture is not None else None
+            primary_size = _size(furniture.size) if furniture is not None else None
+            if primary_pos is not None and primary_size is not None and not _annotation_evidence(
+                note_pos,
+                note_size,
+                primary_pos,
+                primary_size,
+            ):
+                continue
+        ranked.append((hypot(center[0] - note_center[0], center[1] - note_center[1]), ref))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: (item[0], _ref_sort_key(item[1])))
+    if len(ranked) > 1 and abs(ranked[1][0] - ranked[0][0]) < 24.0:
+        return None
+    return ranked[0][1]
+
+
+def _annotation_evidence(
+    note_pos: tuple[int, int],
+    note_size: tuple[int, int],
+    primary_pos: tuple[int, int],
+    primary_size: tuple[int, int],
+) -> bool:
+    note_center = (note_pos[0] + note_size[0] / 2.0, note_pos[1] + note_size[1] / 2.0)
+    primary_center = (
+        primary_pos[0] + primary_size[0] / 2.0,
+        primary_pos[1] + primary_size[1] / 2.0,
+    )
+    expanded_width = primary_size[0] / 2.0 + max(120.0, note_size[0] / 2.0)
+    expanded_height = primary_size[1] / 2.0 + max(96.0, note_size[1] / 2.0)
+    return (
+        abs(note_center[0] - primary_center[0]) <= expanded_width
+        and abs(note_center[1] - primary_center[1]) <= expanded_height
+    )
+
+
+def _furniture_center(furniture: NodeFurnitureFact | None) -> tuple[float, float] | None:
+    if furniture is None:
+        return None
+    pos = _pos(furniture.pos)
+    size = _size(furniture.size)
+    if pos is None or size is None:
+        return None
+    return (pos[0] + size[0] / 2.0, pos[1] + size[1] / 2.0)
+
+
 def _can_preserve_existing_groups(options: LayoutCompileOptions) -> bool:
     return not _force_existing_regroup(options) and options.existing_group_policy not in {
         "dissolve_with_warning",
@@ -5102,8 +6678,17 @@ def _entry_key(ref: CanonicalNodeRef) -> str:
 
 
 __all__ = [
+    "COMPILE_ISSUE_BASELINE_VARIANCE_HIGH",
+    "COMPILE_ISSUE_DETACHED_GROUP_DISTANCE_HIGH",
     "COMPILE_METRIC_GROUP_LAYOUT_COUNT",
+    "COMPILE_METRIC_BASELINE_VARIANCE_MAX",
+    "COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX",
     "COMPILE_METRIC_HELPER_LAYOUT_COUNT",
+    "COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT",
+    "COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX",
+    "COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX",
+    "COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW",
+    "COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT",
     "COMPILE_METRIC_NODE_LAYOUT_COUNT",
     "COMPILE_METRIC_ORDER",
     "COMPILE_METRIC_STRUCTURAL_HASH_UNCHANGED",

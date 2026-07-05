@@ -12,6 +12,7 @@ from vibecomfy.porting.reorganise.orchestrate import (
     assess_reorganise_workflow,
     preview_reorganise_workflow,
 )
+from vibecomfy.porting.reorganise.visualize import render_layout_png
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LARGE_LTX_REQUEST = REPO_ROOT / "tests" / "fixtures" / "editor_sessions" / "327b0e1235c353a9" / "request.json"
@@ -156,8 +157,8 @@ def _build_single_reorganise_case(root: Path, scenario: str, request_path: Path)
     _write_json(root / "after_ui.json", applied.ui_json)
     _write_json(root / "preview_result.json", preview.to_json())
     _write_json(root / "layout_observation.json", summary)
-    _write_layout_png(before_ui, root / "layout_before.png")
-    _write_layout_png(applied.ui_json, root / "layout_after.png")
+    render_layout_png(before_ui, root / "layout_before.png")
+    render_layout_png(applied.ui_json, root / "layout_after.png")
     (root / "vision_prompt.txt").write_text(
         "Use the first abstract workflow image as the reference style: a tidy "
         "high-level Comfy workflow wall with small-to-medium stage groups, close "
@@ -324,76 +325,6 @@ def _group_stats(ui_json: Mapping[str, Any]) -> dict[str, float | int]:
     }
 
 
-def _write_layout_png(ui_json: Mapping[str, Any], path: Path) -> None:
-    nodes = [node for node in ui_json.get("nodes", []) if isinstance(node, Mapping)]
-    groups = [group for group in ui_json.get("groups", []) if isinstance(group, Mapping)]
-    rects = [_node_rect(node) for node in nodes]
-    rects.extend(_group_rect(group) for group in groups if _group_rect(group) is not None)
-    rects = [rect for rect in rects if rect is not None]
-    if not rects:
-        Image.new("RGB", (1200, 800), "white").save(path)
-        return
-
-    min_x = min(rect[0] for rect in rects)
-    min_y = min(rect[1] for rect in rects)
-    max_x = max(rect[0] + rect[2] for rect in rects)
-    max_y = max(rect[1] + rect[3] for rect in rects)
-    canvas_w, canvas_h = 1600, 1000
-    margin = 48
-    scale = min(
-        (canvas_w - margin * 2) / max(1.0, max_x - min_x),
-        (canvas_h - margin * 2) / max(1.0, max_y - min_y),
-    )
-
-    def tx(x: float) -> int:
-        return round((x - min_x) * scale + margin)
-
-    def ty(y: float) -> int:
-        return round((y - min_y) * scale + margin)
-
-    image = Image.new("RGB", (canvas_w, canvas_h), "#f7f7f4")
-    draw = ImageDraw.Draw(image, "RGBA")
-    font = ImageFont.load_default()
-
-    for group in groups:
-        rect = _group_rect(group)
-        if rect is None:
-            continue
-        x, y, w, h = rect
-        color = _group_color(group)
-        is_support = _is_support_group(group)
-        draw.rounded_rectangle(
-            [tx(x), ty(y), tx(x + w), ty(y + h)],
-            radius=8 if is_support else 10,
-            fill=(*color, 6 if is_support else 48),
-            outline=(*color, 38 if is_support else 220),
-            width=1 if is_support else 3,
-        )
-        draw.text(
-            (tx(x) + 8, ty(y) + 7),
-            str(group.get("title") or "Group")[:30],
-            fill=(*color, 70 if is_support else 255),
-            font=font,
-        )
-
-    for node in nodes:
-        rect = _node_rect(node)
-        if rect is None:
-            continue
-        x, y, w, h = rect
-        class_type = str(node.get("type") or node.get("class_type") or "Node")
-        color = _node_color(class_type)
-        is_support = _is_support_node(class_type)
-        draw.rectangle(
-            [tx(x), ty(y), tx(x + w), ty(y + h)],
-            fill=(*color, 36 if is_support else 190),
-            outline=(45, 45, 45, 32 if is_support else 170),
-            width=1,
-        )
-
-    image.save(path)
-
-
 def _write_contact_sheet(paths: list[Path], path: Path) -> None:
     images = [Image.open(item).convert("RGB") for item in paths]
     if not images:
@@ -446,72 +377,112 @@ def _number(value: Any, fallback: float) -> float:
         return fallback
 
 
-def _group_color(group: Mapping[str, Any]) -> tuple[int, int, int]:
-    explicit = group.get("color")
-    if isinstance(explicit, str):
-        parsed = _hex_color(explicit)
-        if parsed is not None:
-            return parsed
-    title = str(group.get("title") or "Group")
-    lowered = title.lower()
-    if _is_support_group(group):
-        return (168, 173, 180)
-    palette = {
-        "Loaders": (63, 111, 143),
-        "Conditioning": (123, 94, 167),
-        "Latent": (107, 143, 90),
-        "Sampling": (154, 106, 58),
-        "Decode": (79, 127, 114),
-        "Output": (138, 95, 104),
-        "Postprocess": (122, 117, 96),
-        "Utility": (104, 111, 120),
-        "Custom": (100, 100, 100),
-    }
-    return palette.get(title, (80, 120, 150))
-
-
-def _is_support_group(group: Mapping[str, Any]) -> bool:
-    title = str(group.get("title") or "Group").lower()
-    return "set / get" in title or "helper" in title or "label" in title or "note" in title
-
-
-def _hex_color(value: str) -> tuple[int, int, int] | None:
-    raw = value.strip()
-    if raw.startswith("#"):
-        raw = raw[1:]
-    if len(raw) != 6:
-        return None
-    try:
-        return (int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16))
-    except ValueError:
-        return None
-
-
-def _node_color(class_type: str) -> tuple[int, int, int]:
-    lowered = class_type.lower()
-    if any(token in lowered for token in ("loader", "clip", "vae", "unet", "model", "lora")):
-        return (80, 125, 165)
-    if any(token in lowered for token in ("sampler", "scheduler", "noise", "sigma")):
-        return (180, 120, 70)
-    if any(token in lowered for token in ("decode", "save", "combine", "output", "preview")):
-        return (100, 145, 120)
-    if any(token in lowered for token in ("note", "markdown", "setnode", "getnode")):
-        return (130, 130, 138)
-    return (150, 120, 165)
-
-
-def _is_support_node(class_type: str) -> bool:
-    lowered = class_type.lower()
-    return any(token in lowered for token in ("setnode", "getnode", "reroute"))
-
-
 _REORGANISE_BUILDERS = {
     "reorganise-large-messy-batch": build_reorganise_large_messy_batch_evidence,
     "reorganise-large-messy-ltx-workflow": build_reorganise_large_messy_ltx_workflow_evidence,
 }
 
+# ---------------------------------------------------------------------------
+# T13: Structural determinism and overlap/helper-group rejection tests
+# ---------------------------------------------------------------------------
+
+
+def test_structural_layout_cleanup_rejects_overlaps() -> None:
+    """The _assert_layout_cleanup function (used by the structural harness)
+    must reject scenarios where after-overlap-count > 0 by raising an
+    AssertionError.  This proves that structural expectations still
+    enforce zero overlaps."""
+    # Synthesize a summary that would fail: after overlap_count is non-zero
+    bad_summary = {
+        "structural_noop": True,
+        "before_metrics": {"overlap_count": 5, "spacing_density": 0.3,
+                           "group_signal_strength": 0.5, "group_coherence": 0.7},
+        "after_metrics": {"overlap_count": 2, "spacing_density": 0.2,
+                          "group_signal_strength": 1.0, "group_coherence": 0.7},
+        "after_wall_aspect_ratio": 2.0,
+        "after_group_stats": {
+            "max_primary_node_count": 5,
+            "setget_group_count": 0,
+            "standalone_label_group_count": 0,
+            "max_primary_width_ratio": 0.2,
+            "max_primary_area_ratio": 0.1,
+        },
+    }
+
+    try:
+        _assert_layout_cleanup(bad_summary)
+    except AssertionError:
+        pass  # expected: overlap rejection
+    else:
+        raise AssertionError(
+            "_assert_layout_cleanup must reject non-zero after-overlap-count"
+        )
+
+
+def test_structural_layout_cleanup_rejects_fake_helper_groups() -> None:
+    """The _assert_layout_cleanup function must reject scenarios where
+    fake helper/setget groups exceed the allowed count (i.e. setget_group_count
+    > 1 or standalone_label_group_count > 0).  This proves that structural
+    expectations still reject fake helper groups."""
+    # Synthesize a summary with too many setget groups
+    bad_summary = {
+        "structural_noop": True,
+        "before_metrics": {"overlap_count": 5, "spacing_density": 0.3,
+                           "group_signal_strength": 0.5, "group_coherence": 0.7},
+        "after_metrics": {"overlap_count": 0, "spacing_density": 0.1,
+                          "group_signal_strength": 1.0, "group_coherence": 0.7},
+        "after_wall_aspect_ratio": 2.0,
+        "after_group_stats": {
+            "max_primary_node_count": 5,
+            "setget_group_count": 3,  # too many -- max allowed is 1
+            "standalone_label_group_count": 2,  # must be 0
+            "max_primary_width_ratio": 0.2,
+            "max_primary_area_ratio": 0.1,
+        },
+    }
+
+    try:
+        _assert_layout_cleanup(bad_summary)
+    except AssertionError:
+        pass  # expected: fake helper group rejection
+    else:
+        raise AssertionError(
+            "_assert_layout_cleanup must reject excessive setget/standalone groups"
+        )
+
+
+def test_structural_repeated_build_produces_identical_evidence() -> None:
+    """Repeated calls to build_reorganise_large_messy_ltx_workflow_evidence
+    with the same report_dir must produce identical layout observations.
+    This proves the structural evidence builder is deterministic."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        report_dir = Path(tmpdir) / "determinism_test"
+
+        first = build_reorganise_large_messy_ltx_workflow_evidence(report_dir)
+        # Read back the observation JSON before second build overwrites
+        first_obs = json.loads(
+            (report_dir / "layout_observation.json").read_text(encoding="utf-8")
+        )
+
+        second = build_reorganise_large_messy_ltx_workflow_evidence(report_dir)
+        second_obs = json.loads(
+            (report_dir / "layout_observation.json").read_text(encoding="utf-8")
+        )
+
+        # Structural hash and metrics must be identical
+        assert first_obs["structural_hash_before"] == second_obs["structural_hash_before"]
+        assert first_obs["structural_hash_after"] == second_obs["structural_hash_after"]
+        assert first_obs["after_metrics"] == second_obs["after_metrics"]
+        assert first_obs["after_bounds"] == second_obs["after_bounds"]
+
+
 __all__ = [
     "_REORGANISE_BUILDERS",
     "build_reorganise_large_messy_batch_evidence",
     "build_reorganise_large_messy_ltx_workflow_evidence",
+    "test_structural_layout_cleanup_rejects_overlaps",
+    "test_structural_layout_cleanup_rejects_fake_helper_groups",
+    "test_structural_repeated_build_produces_identical_evidence",
 ]

@@ -15,6 +15,7 @@ from vibecomfy.porting.reorganise import (
     load_reorganise_ui_json,
     preview_reorganise_workflow,
 )
+from vibecomfy.porting.reorganise.visualize import render_layout_png
 
 _SPACING_PRESETS = ("compact", "balanced", "wide")
 _GROUPING_POLICIES = ("auto", "none", "preserve_existing", "stage", "wall")
@@ -33,6 +34,12 @@ _REPORT_ARTIFACT = "reorganisation_report.md"
 _METRICS_ARTIFACT = "reorganisation_metrics.json"
 _EVIDENCE_ARTIFACT = "structural_noop_evidence.json"
 _MANIFEST_ARTIFACT = "reorganisation_preview_manifest.json"
+_DEBUG_CANDIDATE_PATCH_ARTIFACT = "candidate.patch.json"
+_DEBUG_LAYOUT_BEFORE_ARTIFACT = "layout_before.png"
+_DEBUG_LAYOUT_AFTER_ARTIFACT = "layout_after.png"
+_DEBUG_LAYOUT_METRICS_ARTIFACT = "layout_metrics.json"
+_DEBUG_LAYOUT_TRACE_ARTIFACT = "layout_trace.json"
+_DEBUG_MANIFEST_ARTIFACT = "manifest.json"
 
 
 def _cmd_reorganise(args: argparse.Namespace) -> int:
@@ -69,15 +76,20 @@ def _cmd_reorganise(args: argparse.Namespace) -> int:
     )
     out_path = Path(args.out)
     artifact_dir = out_path.parent if out_path.parent != Path("") else Path(".")
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-
-    written = _write_preview_artifacts(
-        result=result,
-        workflow_path=workflow_path,
-        sidecar_path=sidecar_path,
-        out_path=out_path,
-        artifact_dir=artifact_dir,
-    )
+    debug_artifacts = _resolved_debug_artifacts(args)
+    try:
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        written = _write_preview_artifacts(
+            result=result,
+            workflow_path=workflow_path,
+            sidecar_path=sidecar_path,
+            out_path=out_path,
+            artifact_dir=artifact_dir,
+            debug_artifacts=debug_artifacts,
+        )
+    except OSError as exc:
+        print(f"reorganise preview failed: {exc}", file=sys.stderr)
+        return 1
     _emit_json(written)
     return 0 if result.ok and written["status"] == "ok" else 1
 
@@ -140,6 +152,19 @@ def _compile_options_from_args(args: argparse.Namespace) -> LayoutCompileOptions
         force_regroup=force_regroup,
         minimize_setget_helpers=not bool(getattr(args, "no_minimize_setget_helpers", False)),
     )
+
+
+def _resolved_debug_artifacts(args: argparse.Namespace) -> dict[str, bool]:
+    debug_layout = bool(getattr(args, "debug_layout", False))
+    visualize = debug_layout or bool(getattr(args, "visualize", False))
+    metrics = debug_layout or bool(getattr(args, "metrics", False))
+    trace_layout = debug_layout or bool(getattr(args, "trace_layout", False))
+    return {
+        "visualize": visualize,
+        "metrics": metrics,
+        "trace_layout": trace_layout,
+        "debug_layout": debug_layout,
+    }
 
 
 def _resolve_sidecar_path(workflow_path: Path, explicit: str | None) -> Path | None:
@@ -286,12 +311,19 @@ def _write_preview_artifacts(
     sidecar_path: Path | None,
     out_path: Path,
     artifact_dir: Path,
+    debug_artifacts: Mapping[str, bool],
 ) -> dict[str, Any]:
     plan_path = artifact_dir / _PLAN_ARTIFACT
     report_path = artifact_dir / _REPORT_ARTIFACT
     metrics_path = artifact_dir / _METRICS_ARTIFACT
     evidence_path = artifact_dir / _EVIDENCE_ARTIFACT
     manifest_path = artifact_dir / _MANIFEST_ARTIFACT
+    debug_manifest_path = artifact_dir / _DEBUG_MANIFEST_ARTIFACT
+    debug_patch_path = artifact_dir / _DEBUG_CANDIDATE_PATCH_ARTIFACT
+    debug_before_path = artifact_dir / _DEBUG_LAYOUT_BEFORE_ARTIFACT
+    debug_after_path = artifact_dir / _DEBUG_LAYOUT_AFTER_ARTIFACT
+    debug_metrics_path = artifact_dir / _DEBUG_LAYOUT_METRICS_ARTIFACT
+    debug_trace_path = artifact_dir / _DEBUG_LAYOUT_TRACE_ARTIFACT
 
     candidate_patch = result.candidate_patch
     patch_apply = None
@@ -299,21 +331,43 @@ def _write_preview_artifacts(
     if result.ok and candidate_patch is not None:
         patch_apply = apply_layout_candidate_patch_to_ui(workflow_path, candidate_patch)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(out_path, patch_apply.ui_json)
+        _write_json_artifact(out_path, patch_apply.ui_json)
         candidate_sha256 = _file_sha256(out_path)
 
-    _write_json(plan_path, _plan_payload(result))
+    _write_json_artifact(plan_path, _plan_payload(result))
     metrics_payload = _metrics_payload(result)
-    _write_json(metrics_path, metrics_payload)
+    _write_json_artifact(metrics_path, metrics_payload)
     evidence_payload = _evidence_payload(result, patch_apply)
-    _write_json(evidence_path, evidence_payload)
+    _write_json_artifact(evidence_path, evidence_payload)
     report_text = _render_report(
         result=result,
         candidate_filename=out_path.name,
         metrics_filename=metrics_path.name,
         evidence_filename=evidence_path.name,
     )
-    report_path.write_text(report_text, encoding="utf-8")
+    _write_text_artifact(report_path, report_text)
+
+    debug_artifact_names: dict[str, str | None] = {}
+    if any(debug_artifacts.values()):
+        if candidate_patch is not None:
+            _write_json_artifact(debug_patch_path, candidate_patch)
+            debug_artifact_names["candidate_patch_json"] = debug_patch_path.name
+        else:
+            debug_artifact_names["candidate_patch_json"] = None
+    if debug_artifacts.get("visualize"):
+        _render_png_artifact(debug_before_path, result.loaded.ui_json)
+        if patch_apply is not None:
+            _render_png_artifact(debug_after_path, patch_apply.ui_json)
+            debug_artifact_names["layout_after_png"] = debug_after_path.name
+        else:
+            debug_artifact_names["layout_after_png"] = None
+        debug_artifact_names["layout_before_png"] = debug_before_path.name
+    if debug_artifacts.get("metrics"):
+        _write_json_artifact(debug_metrics_path, metrics_payload)
+        debug_artifact_names["layout_metrics_json"] = debug_metrics_path.name
+    if debug_artifacts.get("trace_layout"):
+        _write_json_artifact(debug_trace_path, _trace_payload(result))
+        debug_artifact_names["layout_trace_json"] = debug_trace_path.name
 
     manifest = {
         "version": 1,
@@ -331,6 +385,7 @@ def _write_preview_artifacts(
             "reorganisation_report": report_path.name,
             "reorganisation_metrics": metrics_path.name,
             "structural_noop_evidence": evidence_path.name,
+            **debug_artifact_names,
         },
         "candidate_ui_sha256": candidate_sha256,
         "apply_data": result.apply_data.to_json(),
@@ -338,7 +393,11 @@ def _write_preview_artifacts(
         "plan_source": result.plan_source,
         "sanitized_report_text": report_text,
     }
-    _write_json(manifest_path, manifest)
+    if any(debug_artifacts.values()):
+        manifest["artifacts"]["manifest_json"] = debug_manifest_path.name
+    _write_json_artifact(manifest_path, manifest)
+    if any(debug_artifacts.values()):
+        _write_json_artifact(debug_manifest_path, manifest)
 
     return {
         "status": manifest["status"],
@@ -394,6 +453,24 @@ def _metrics_payload(result: Any) -> dict[str, Any]:
             "report": result.compile_result.report.to_json(),
             "node_layout_count": len(result.compile_result.node_layouts),
             "group_layout_count": len(result.compile_result.group_layouts),
+        }
+    return payload
+
+
+def _trace_payload(result: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "status": "ok" if result.ok else "failed",
+        "plan_source": result.plan_source,
+        "entries": list(getattr(result, "layout_trace", ())),
+        "compile": None,
+    }
+    if result.compile_result is not None:
+        payload["compile"] = {
+            "ok": result.compile_result.ok,
+            "diagnostics": [
+                diagnostic.to_json() for diagnostic in result.compile_diagnostics
+            ],
+            "validation_report": result.compile_result.validation_report.to_json(),
         }
     return payload
 
@@ -459,6 +536,27 @@ def _write_json(path: Path, payload: Mapping[str, Any] | list[Any]) -> None:
     )
 
 
+def _write_json_artifact(path: Path, payload: Mapping[str, Any] | list[Any]) -> None:
+    try:
+        _write_json(path, payload)
+    except OSError as exc:
+        raise OSError(f"failed to write preview artifact {path}: {exc}") from exc
+
+
+def _write_text_artifact(path: Path, text: str) -> None:
+    try:
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        raise OSError(f"failed to write preview artifact {path}: {exc}") from exc
+
+
+def _render_png_artifact(path: Path, ui_json: Mapping[str, Any]) -> None:
+    try:
+        render_layout_png(ui_json, path)
+    except Exception as exc:
+        raise OSError(f"failed to write preview artifact {path}: {exc}") from exc
+
+
 def _emit_json(payload: Mapping[str, Any]) -> None:
     print(json.dumps(_json_safe(payload), indent=2, sort_keys=True, ensure_ascii=True))
 
@@ -520,6 +618,27 @@ def register(subparsers) -> None:
             "Preview manifest JSON for --apply. Defaults to "
             "reorganisation_preview_manifest.json beside --out or the workflow."
         ),
+    )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Also emit layout_before.png and layout_after.png during --preview.",
+    )
+    parser.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Also emit layout_metrics.json during --preview.",
+    )
+    parser.add_argument(
+        "--trace-layout",
+        action="store_true",
+        dest="trace_layout",
+        help="Also emit layout_trace.json during --preview.",
+    )
+    parser.add_argument(
+        "--debug-layout",
+        action="store_true",
+        help="Equivalent to --visualize --metrics --trace-layout during --preview.",
     )
     parser.add_argument(
         "--sidecar",

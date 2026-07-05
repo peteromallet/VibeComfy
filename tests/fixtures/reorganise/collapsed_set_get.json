@@ -1,0 +1,160 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [0, 0]
+    },
+    "virtual_wires": {
+      "bus-a": {"type": "SetNode", "channel": "LATENT", "endpoints": [11, 12]},
+      "bus-b": {"type": "SetNode", "channel": "LATENT_B", "endpoints": [13, 14]}
+    },
+    "vibecomfy": {
+      "fixture": "collapsed_set_get",
+      "coverage": ["collapsed_set_get", "minimize_setget_helpers"],
+      "thresholds": {
+        "helper_count": 4,
+        "max_primary_nodes": 10,
+        "expected_layout_pressure": "large workflow forces collapsed get/set helper dimensions while keeping primary readability"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple",
+      "title": "Loader", "pos": [40, 40], "size": [300, 98],
+      "properties": {"vibecomfy_uid": "loader"},
+      "widgets_values": ["model.safetensors"],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [10]},
+        {"name": "CLIP", "type": "CLIP", "links": [11]},
+        {"name": "VAE", "type": "VAE", "links": [12]}
+      ]
+    },
+    {
+      "id": 2, "type": "CLIPTextEncode", "class_type": "CLIPTextEncode",
+      "title": "Pos Prompt", "pos": [50, 50], "size": [340, 130],
+      "properties": {"vibecomfy_uid": "positive"},
+      "widgets_values": ["beautiful landscape"],
+      "inputs": [{"name": "clip", "type": "CLIP", "link": 11}],
+      "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [20]}]
+    },
+    {
+      "id": 3, "type": "KSampler", "class_type": "KSampler",
+      "title": "Sampler A", "pos": [100, 100], "size": [260, 90],
+      "properties": {"vibecomfy_uid": "sampler_a"},
+      "widgets_values": [20, "fixed", 8, 7.0, "euler", "normal", 1.0],
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 10},
+        {"name": "positive", "type": "CONDITIONING", "link": 20}
+      ],
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [30]}]
+    },
+    {
+      "id": 4, "type": "KSampler", "class_type": "KSampler",
+      "title": "Sampler B", "pos": [100, 220], "size": [260, 90],
+      "properties": {"vibecomfy_uid": "sampler_b"},
+      "widgets_values": [25, "fixed", 8, 5.5, "dpmpp_2m", "karras", 1.0],
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 10},
+        {"name": "positive", "type": "CONDITIONING", "link": 20}
+      ],
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [31]}]
+    },
+    {
+      "id": 5, "type": "KSampler", "class_type": "KSampler",
+      "title": "Sampler C", "pos": [100, 340], "size": [260, 90],
+      "properties": {"vibecomfy_uid": "sampler_c"},
+      "widgets_values": [30, "fixed", 8, 4.0, "uni_pc", "normal", 1.0],
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 10},
+        {"name": "positive", "type": "CONDITIONING", "link": 20}
+      ],
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [32]}]
+    },
+    {
+      "id": 6, "type": "VAEDecode", "class_type": "VAEDecode",
+      "title": "Decode A", "pos": [200, 200], "size": [200, 70],
+      "properties": {"vibecomfy_uid": "decode_a"},
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 30},
+        {"name": "vae", "type": "VAE", "link": 12}
+      ],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [40]}]
+    },
+    {
+      "id": 7, "type": "VAEDecode", "class_type": "VAEDecode",
+      "title": "Decode B", "pos": [200, 290], "size": [200, 70],
+      "properties": {"vibecomfy_uid": "decode_b"},
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 31},
+        {"name": "vae", "type": "VAE", "link": 12}
+      ],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [41]}]
+    },
+    {
+      "id": 8, "type": "VAEDecode", "class_type": "VAEDecode",
+      "title": "Decode C", "pos": [200, 380], "size": [200, 70],
+      "properties": {"vibecomfy_uid": "decode_c"},
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 32},
+        {"name": "vae", "type": "VAE", "link": 12}
+      ],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [42]}]
+    },
+    {
+      "id": 9, "type": "SaveImage", "class_type": "SaveImage",
+      "title": "Save A", "pos": [300, 200], "size": [300, 80],
+      "properties": {"vibecomfy_uid": "save_a"},
+      "widgets_values": ["output/a"],
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 40}]
+    },
+    {
+      "id": 10, "type": "SaveImage", "class_type": "SaveImage",
+      "title": "Save B", "pos": [300, 290], "size": [300, 80],
+      "properties": {"vibecomfy_uid": "save_b"},
+      "widgets_values": ["output/b"],
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 41}]
+    },
+    {
+      "id": 11, "type": "SetNode", "class_type": "SetNode",
+      "title": "Set latent A", "pos": [450, 50], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "set_latent_a", "channel": "LATENT"},
+      "widgets_values": ["LATENT"],
+      "inputs": [{"name": "value", "type": "LATENT", "link": 33}]
+    },
+    {
+      "id": 12, "type": "GetNode", "class_type": "GetNode",
+      "title": "Get latent A", "pos": [10, 450], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "get_latent_a", "channel": "LATENT"},
+      "widgets_values": ["LATENT"],
+      "outputs": [{"name": "value", "type": "LATENT", "links": [33]}]
+    },
+    {
+      "id": 13, "type": "GetNode", "class_type": "GetNode",
+      "title": "Get latent B", "pos": [10, 510], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "get_latent_b", "channel": "LATENT_B"},
+      "widgets_values": ["LATENT"],
+      "outputs": [{"name": "value", "type": "LATENT", "links": [34]}]
+    },
+    {
+      "id": 14, "type": "SetNode", "class_type": "SetNode",
+      "title": "Set latent B", "pos": [450, 120], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "set_latent_b", "channel": "LATENT_B"},
+      "widgets_values": ["LATENT"],
+      "inputs": [{"name": "value", "type": "LATENT", "link": 34}]
+    }
+  ],
+  "links": [
+    [10, 1, 0, 3, 0, "MODEL"],
+    [20, 2, 0, 3, 1, "CONDITIONING"],
+    [30, 3, 0, 6, 0, "LATENT"],
+    [31, 4, 0, 7, 0, "LATENT"],
+    [32, 5, 0, 8, 0, "LATENT"],
+    [33, 12, 0, 11, 0, "LATENT"],
+    [34, 13, 0, 14, 0, "LATENT"],
+    [40, 6, 0, 9, 0, "IMAGE"],
+    [41, 7, 0, 10, 0, "IMAGE"]
+  ],
+  "groups": []
+}

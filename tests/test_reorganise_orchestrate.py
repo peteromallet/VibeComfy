@@ -84,9 +84,11 @@ def test_preview_reorganise_workflow_builds_deterministic_offline_preview() -> N
     assert result.graph_summary.to_json()["canonical_nodes"]
     assert result.assessment.to_json()["metrics"]
     assert result.candidate_patch is not None
+    assert result.layout_trace
     assert result.apply_data.layout_only_structural_noop is True
     assert result.apply_data.candidate_patch_sha256 is not None
     assert result.to_json()["candidate_patch"]["entries"]["checkpoint"]["properties"]["kept"] == "checkpoint"
+    assert result.to_json()["layout_trace"] == list(result.layout_trace)
 
 
 def test_preview_reorganise_workflow_preserves_provided_sidecar_envelope() -> None:
@@ -377,6 +379,67 @@ def test_semantic_plan_provider_output_fails_closed_on_parse_validation_and_comp
     assert compile_failed.apply_data.candidate_patch_sha256 is None
     assert compile_failed.to_json()["candidate_patch"] is None
     assert compile_failed.to_json()["compile_diagnostics"][0]["code"] == "layout_compile_failed"
+
+
+def test_preview_reorganise_workflow_layout_trace_entries_have_required_fields() -> None:
+    result = preview_reorganise_workflow(
+        _ui(),
+        options=ReorganisePreviewOptions(
+            compile_options=LayoutCompileOptions(spacing_preset="compact")
+        ),
+    )
+
+    assert result.ok is True
+    assert result.layout_trace
+
+    required_fields = {"ref", "class_type", "role_hint", "layout_behavior"}
+    optional_fields = {
+        "section_id",
+        "attachment_target",
+        "placement_choice",
+        "x",
+        "y",
+        "reason",
+    }
+
+    for entry in result.layout_trace:
+        entry_keys = set(entry.keys())
+        assert required_fields <= entry_keys, (
+            f"trace entry missing required field(s): {required_fields - entry_keys}"
+        )
+        assert isinstance(entry["ref"], list), f"ref should be a list, got {type(entry['ref'])}"
+        assert isinstance(entry["class_type"], str)
+        assert isinstance(entry["role_hint"], str)
+        assert isinstance(entry["layout_behavior"], str)
+
+
+def test_preview_reorganise_workflow_compile_result_metrics_include_extended_keys() -> None:
+    result = preview_reorganise_workflow(
+        _ui(),
+        options=ReorganisePreviewOptions(
+            compile_options=LayoutCompileOptions(spacing_preset="compact")
+        ),
+    )
+
+    assert result.ok is True
+    assert result.compile_result is not None
+    assert result.compile_result.ok
+
+    metric_names = {m.name for m in result.compile_result.metrics}
+
+    extended_keys = {
+        "compiled_node_overlap_count",
+        "compiled_group_overlap_count",
+        "compiled_internal_whitespace_ratio_max",
+        "compiled_baseline_variance_max",
+        "compiled_detached_group_distance_max",
+        "compiled_helper_sidecar_overlap_count",
+        "compiled_note_section_mismatch_count",
+        "compiled_max_primary_nodes_per_row",
+        "compiled_long_edge_distance_max",
+    }
+    missing = extended_keys - metric_names
+    assert not missing, f"compile result metrics missing extended keys: {missing}"
 
 
 def test_apply_layout_candidate_patch_to_ui_only_mutates_furniture_and_reports_noop() -> None:

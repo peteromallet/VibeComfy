@@ -13,6 +13,12 @@ from .graph_facts import (
 )
 from .plan_types import (
     HELPER_CLASS_TYPES,
+    LAYOUT_BEHAVIOR_NOTE,
+    LAYOUT_BEHAVIOR_PRIMARY,
+    LAYOUT_BEHAVIOR_SIDECAR,
+    LAYOUT_BEHAVIOR_UNKNOWN,
+    LAYOUT_BEHAVIOR_WALL,
+    LAYOUT_BEHAVIORS,
     ROLE_HINT_CONDITIONING,
     ROLE_HINT_CONTROL,
     ROLE_HINT_DECODE,
@@ -22,11 +28,14 @@ from .plan_types import (
     ROLE_HINT_OUTPUT,
     ROLE_HINT_POSTPROCESS,
     ROLE_HINT_SAMPLER,
+    ROLE_HINT_SHARED,
+    ROLE_HINT_SUBGRAPH_CONTAINER,
     ROLE_HINT_UI,
     ROLE_HINT_UNKNOWN,
     ROLE_HINT_UTILITY,
     ROLE_HINTS,
     CanonicalNodeRef,
+    LayoutBehavior,
     RoleHint,
 )
 
@@ -46,6 +55,14 @@ REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING = "simple_latent_source_to_sampling"
 REASON_UI_NODE = "ui_node"
 REASON_UNKNOWN_UNASSIGNED = "unknown_unassigned"
 REASON_VAE_DECODE_TO_OUTPUT_FOLD = "vae_decode_to_output_fold"
+
+# Layout-behavior derivation reasons (orthogonal to RoleHint stage decisions).
+REASON_LB_CLASS_NAME_OUTPUT = "lb_class_name_output"
+REASON_LB_CLASS_NAME_SIDECAR = "lb_class_name_sidecar"
+REASON_LB_HELPER_NOTE = "lb_helper_note"
+REASON_LB_HELPER_SIDECAR = "lb_helper_sidecar"
+REASON_LB_PRIMARY_PIPELINE = "lb_primary_pipeline"
+REASON_LB_WALL_OUTPUT = "lb_wall_output"
 
 OUTPUT_CLASS_TYPES: frozenset[str] = frozenset(
     {
@@ -97,6 +114,7 @@ class RoleClassificationHint:
     confidence: float
     reason_codes: tuple[str, ...]
     related_refs: tuple[CanonicalNodeRef, ...] = ()
+    layout_behavior: LayoutBehavior = LAYOUT_BEHAVIOR_UNKNOWN
     detail: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -104,6 +122,8 @@ class RoleClassificationHint:
             raise ValueError(f"unknown role hint: {self.role_hint!r}")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(f"confidence must be in [0, 1]: {self.confidence!r}")
+        if self.layout_behavior not in LAYOUT_BEHAVIORS:
+            raise ValueError(f"unknown layout behavior: {self.layout_behavior!r}")
         object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
         object.__setattr__(self, "related_refs", tuple(self.related_refs))
         object.__setattr__(self, "detail", _freeze_jsonish(self.detail))
@@ -116,6 +136,7 @@ class RoleClassificationHint:
             "confidence": self.confidence,
             "reason_codes": list(self.reason_codes),
             "related_refs": [ref.to_json() for ref in self.related_refs],
+            "layout_behavior": self.layout_behavior,
         }
         if self.detail:
             payload["detail"] = _thaw_jsonish(self.detail)
@@ -209,53 +230,68 @@ def _classify_node(
     if fact.is_helper:
         role = ROLE_HINT_UI if fact.class_type in UI_HELPER_CLASS_TYPES else ROLE_HINT_HELPER
         reason = REASON_UI_NODE if role == ROLE_HINT_UI else REASON_HELPER_NODE
+        layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=True, role_hint=role)
         return RoleClassificationHint(
             ref=fact.ref,
             class_type=fact.class_type,
             role_hint=role,
             confidence=0.99,
             reason_codes=(reason,),
+            layout_behavior=layout_behavior,
         )
 
     outgoing = topology.outgoing.get(fact.ref, ())
     branch_terminal = fact.ref in topology.branch_terminal_refs
 
     if branch_terminal and _is_decode_class(fact.class_type):
+        role = ROLE_HINT_DECODE
+        layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=False, role_hint=role)
         return _hint(
             fact,
-            ROLE_HINT_DECODE,
+            role,
             0.9,
             (REASON_BRANCH_PIPELINE_TERMINAL, REASON_CLASS_NAME_DECODE),
             sibling_refs,
             {"branch_policy": "decode_output_terminals_remain_separate"},
+            layout_behavior=layout_behavior,
         )
     if branch_terminal and _is_output_class(fact.class_type):
+        role = ROLE_HINT_OUTPUT
+        layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=False, role_hint=role)
         return _hint(
             fact,
-            ROLE_HINT_OUTPUT,
+            role,
             0.94,
             (REASON_BRANCH_PIPELINE_TERMINAL, REASON_CLASS_NAME_OUTPUT),
             sibling_refs,
             {"branch_policy": "decode_output_terminals_remain_separate"},
+            layout_behavior=layout_behavior,
         )
     if _is_vae_decode_class(fact.class_type) and _outgoing_only_to_outputs(outgoing, topology):
+        role = ROLE_HINT_OUTPUT
+        layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=False, role_hint=role)
         return _hint(
             fact,
-            ROLE_HINT_OUTPUT,
+            role,
             0.88,
             (REASON_VAE_DECODE_TO_OUTPUT_FOLD,),
             sibling_refs,
+            layout_behavior=layout_behavior,
         )
     if _is_simple_latent_source(fact, topology):
+        role = ROLE_HINT_SAMPLER
+        layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=False, role_hint=role)
         return _hint(
             fact,
-            ROLE_HINT_SAMPLER,
+            role,
             0.84,
             (REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING,),
             sibling_refs,
+            layout_behavior=layout_behavior,
         )
 
     role, confidence, reason = _class_name_role(fact.class_type)
+    layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=False, role_hint=role)
     if sibling_refs:
         confidence = max(confidence, 0.76)
         return _hint(
@@ -265,8 +301,9 @@ def _classify_node(
             (reason, REASON_EQUIVALENT_SINGLE_NODE_SIBLING_PAIR),
             sibling_refs,
             {"pair_size": len(sibling_refs) + 1},
+            layout_behavior=layout_behavior,
         )
-    return _hint(fact, role, confidence, (reason,), ())
+    return _hint(fact, role, confidence, (reason,), (), layout_behavior=layout_behavior)
 
 
 def _hint(
@@ -276,7 +313,14 @@ def _hint(
     reason_codes: Sequence[str],
     sibling_refs: Sequence[CanonicalNodeRef],
     detail: Mapping[str, Any] | None = None,
+    *,
+    layout_behavior: LayoutBehavior | None = None,
 ) -> RoleClassificationHint:
+    lb = (
+        layout_behavior
+        if layout_behavior is not None
+        else _derive_layout_behavior(fact.class_type, is_helper=fact.is_helper, role_hint=role)
+    )
     return RoleClassificationHint(
         ref=fact.ref,
         class_type=fact.class_type,
@@ -284,8 +328,76 @@ def _hint(
         confidence=round(confidence, 4),
         reason_codes=tuple(reason_codes),
         related_refs=tuple(sorted(sibling_refs, key=lambda ref: ref.to_json())),
+        layout_behavior=lb,
         detail=detail or {},
     )
+
+
+def _derive_layout_behavior(
+    class_type: str,
+    *,
+    is_helper: bool,
+    role_hint: RoleHint,
+) -> LayoutBehavior:
+    """Derive orthogonal ``LayoutBehavior`` from the already-assigned ``RoleHint``.
+
+    This function is intentionally a pure derivation: it must NOT change
+    RoleHint staging decisions, reason codes, or confidence values.
+
+    ============== =============================================================
+    Node category  ``LayoutBehavior`` mapping
+    ============== =============================================================
+    get / set      ``sidecar`` (virtual-wire helpers: ``SetNode``, ``GetNode``)
+    note           ``note``    (UI helpers: ``Note``, ``MarkdownNote``)
+    resource       ``primary`` (loaders, model selectors, etc.)
+    output         ``wall``    (save / preview terminals)
+    utility        ``primary`` (non-helper utility nodes)
+    helper         ``sidecar`` (reroutes and anonymous helpers)
+    primary        ``primary`` (samplers, conditioning, latent, decode,
+                   control, postprocess, shared, containers)
+    fallback       ``unknown`` (genuinely unrecognized nodes)
+    ============== =============================================================
+    """
+    # ----- helpers -----------------------------------------------------------
+    if is_helper:
+        if role_hint == ROLE_HINT_UI:
+            return LAYOUT_BEHAVIOR_NOTE
+        return LAYOUT_BEHAVIOR_SIDECAR
+
+    # ----- output → wall -----------------------------------------------------
+    if role_hint == ROLE_HINT_OUTPUT:
+        return LAYOUT_BEHAVIOR_WALL
+
+    # ----- core pipeline → primary -------------------------------------------
+    if role_hint in (
+        ROLE_HINT_LOADER,
+        ROLE_HINT_CONDITIONING,
+        ROLE_HINT_LATENT,
+        ROLE_HINT_SAMPLER,
+        ROLE_HINT_DECODE,
+        ROLE_HINT_CONTROL,
+        ROLE_HINT_POSTPROCESS,
+        ROLE_HINT_SHARED,
+        ROLE_HINT_SUBGRAPH_CONTAINER,
+        ROLE_HINT_UTILITY,
+    ):
+        return LAYOUT_BEHAVIOR_PRIMARY
+
+    # ----- explicit helper role → sidecar ------------------------------------
+    if role_hint == ROLE_HINT_HELPER:
+        return LAYOUT_BEHAVIOR_SIDECAR
+
+    # ----- unknown / fallback → inspect class_type ---------------------------
+    if role_hint == ROLE_HINT_UNKNOWN:
+        lower = class_type.lower()
+        if any(token in lower for token in ("save", "preview", "combine")):
+            return LAYOUT_BEHAVIOR_WALL
+        if any(token in lower for token in ("getnode", "setnode", "reroute")):
+            return LAYOUT_BEHAVIOR_SIDECAR
+        if any(token in lower for token in ("note", "markdown")):
+            return LAYOUT_BEHAVIOR_NOTE
+
+    return LAYOUT_BEHAVIOR_UNKNOWN
 
 
 def _topology_index(
@@ -455,12 +567,19 @@ __all__ = [
     "REASON_CLASS_NAME_UTILITY",
     "REASON_EQUIVALENT_SINGLE_NODE_SIBLING_PAIR",
     "REASON_HELPER_NODE",
+    "REASON_LB_CLASS_NAME_OUTPUT",
+    "REASON_LB_CLASS_NAME_SIDECAR",
+    "REASON_LB_HELPER_NOTE",
+    "REASON_LB_HELPER_SIDECAR",
+    "REASON_LB_PRIMARY_PIPELINE",
+    "REASON_LB_WALL_OUTPUT",
     "REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING",
     "REASON_UI_NODE",
     "REASON_UNKNOWN_UNASSIGNED",
     "REASON_VAE_DECODE_TO_OUTPUT_FOLD",
     "RoleClassificationHint",
     "UI_HELPER_CLASS_TYPES",
+    "_derive_layout_behavior",
     "classify_layout_facts",
     "classify_layout_from_ui",
 ]

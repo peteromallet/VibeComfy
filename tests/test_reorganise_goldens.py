@@ -52,6 +52,16 @@ GOLDEN_THRESHOLDS: dict[str, GoldenThresholds] = {
         max_helper_distance_warnings=0,
         expected_min_patch_group_count=3,
     ),
+    "collapsed_set_get.json": GoldenThresholds(
+        max_overlap_count=0,
+        max_backward_edge_ratio=0.0,
+        max_spacing_density=0.10,
+        min_group_signal_strength=1.0,
+        min_group_coherence=0.50,
+        max_helper_distance_warnings=0,
+        expected_helper_count=4,
+        expected_min_patch_group_count=6,
+    ),
     "coherent_grouped_pipeline.json": GoldenThresholds(
         max_overlap_count=0,
         max_backward_edge_ratio=0.0,
@@ -126,6 +136,15 @@ GOLDEN_THRESHOLDS: dict[str, GoldenThresholds] = {
         max_helper_distance_warnings=0,
         expected_min_patch_group_count=5,
     ),
+    "section_notes.json": GoldenThresholds(
+        max_overlap_count=0,
+        max_backward_edge_ratio=0.0,
+        max_spacing_density=0.10,
+        min_group_signal_strength=1.0,
+        min_group_coherence=0.60,
+        max_helper_distance_warnings=0,
+        expected_min_patch_group_count=3,
+    ),
     "set_get_reroute_helpers.json": GoldenThresholds(
         max_overlap_count=0,
         max_backward_edge_ratio=0.0,
@@ -134,6 +153,16 @@ GOLDEN_THRESHOLDS: dict[str, GoldenThresholds] = {
         min_group_coherence=1.0,
         max_helper_distance_warnings=0,
         expected_helper_count=3,
+        expected_min_patch_group_count=1,
+    ),
+    "sidecar_push_adjacent.json": GoldenThresholds(
+        max_overlap_count=0,
+        max_backward_edge_ratio=0.0,
+        max_spacing_density=0.12,
+        min_group_signal_strength=1.0,
+        min_group_coherence=0.70,
+        max_helper_distance_warnings=0,
+        expected_helper_count=2,
         expected_min_patch_group_count=1,
     ),
     "shared_model_vae_fanout.json": GoldenThresholds(
@@ -153,6 +182,16 @@ GOLDEN_THRESHOLDS: dict[str, GoldenThresholds] = {
         min_group_coherence=0.66,
         max_helper_distance_warnings=0,
         expected_min_patch_group_count=5,
+    ),
+    "stacked_sidecars.json": GoldenThresholds(
+        max_overlap_count=0,
+        max_backward_edge_ratio=0.0,
+        max_spacing_density=0.25,
+        min_group_signal_strength=1.0,
+        min_group_coherence=1.0,
+        max_helper_distance_warnings=0,
+        expected_helper_count=4,
+        expected_min_patch_group_count=1,
     ),
     "subgraph_scoped_pipeline.json": GoldenThresholds(
         max_overlap_count=0,
@@ -378,3 +417,129 @@ def _json_sort_key(value: Any) -> str:
 
 def _scope_group_count(facts: Any) -> int:
     return sum(len(scope.groups) for scope in facts.scope_furniture)
+
+
+# ---------------------------------------------------------------------------
+# T13: Determinism and metric tests for golden fixtures
+# ---------------------------------------------------------------------------
+
+
+def test_reorganise_golden_repeated_compiles_produce_identical_coordinates() -> None:
+    """For every golden fixture, two successive preview_reorganise_workflow
+    calls must produce compile results with identical node and group
+    coordinates.  This proves the placement path is deterministic across
+    the full fixture matrix.
+
+    Fixtures where preview.ok is False are skipped -- those are pre-existing
+    layout-plan issues outside the scope of determinism testing."""
+    for fixture_path in _fixture_paths():
+        first = preview_reorganise_workflow(fixture_path)
+        second = preview_reorganise_workflow(fixture_path)
+
+        if not first.ok or not second.ok:
+            continue  # pre-existing preview failure, not a determinism issue
+
+        assert first.compile_result is not None
+        assert second.compile_result is not None
+
+        first_nodes = {
+            layout.ref.uid: (layout.x, layout.y)
+            for layout in first.compile_result.node_layouts
+        }
+        second_nodes = {
+            layout.ref.uid: (layout.x, layout.y)
+            for layout in second.compile_result.node_layouts
+        }
+        assert first_nodes == second_nodes, \
+            f"fixture {fixture_path.name}: node coordinates differ between compiles"
+
+        first_groups = {
+            group.id: (group.x, group.y, group.width, group.height)
+            for group in first.compile_result.group_layouts
+        }
+        second_groups = {
+            group.id: (group.x, group.y, group.width, group.height)
+            for group in second.compile_result.group_layouts
+        }
+        assert first_groups == second_groups, \
+            f"fixture {fixture_path.name}: group coordinates differ between compiles"
+
+
+def test_reorganise_golden_compile_validation_metrics_present_in_every_fixture() -> None:
+    """Every golden fixture compile result must include the full set of
+    validation metrics (node overlap count, group overlap count, whitespace
+    ratio, baseline variance, detached group distance, helper sidecar
+    overlap, note section mismatch, max primary per row, long edge distance,
+    backward edge ratio, crossing proxy count, minimum gutter, helper
+    distance max, and idempotence delta).
+
+    Fixtures where preview.ok is False are skipped -- those are pre-existing
+    layout-plan issues outside the scope of metric-presence testing."""
+    required_metrics = frozenset({
+        "compiled_node_overlap_count",
+        "compiled_group_overlap_count",
+        "compiled_internal_whitespace_ratio_max",
+        "compiled_baseline_variance_max",
+        "compiled_detached_group_distance_max",
+        "compiled_helper_sidecar_overlap_count",
+        "compiled_note_section_mismatch_count",
+        "compiled_max_primary_nodes_per_row",
+        "compiled_long_edge_distance_max",
+        "compiled_backward_edge_ratio",
+        "compiled_crossing_proxy_count",
+        "compiled_minimum_gutter",
+        "compiled_helper_distance_max",
+        "compiled_idempotence_delta",
+    })
+
+    for fixture_path in _fixture_paths():
+        preview = preview_reorganise_workflow(fixture_path)
+        if not preview.ok:
+            continue  # pre-existing preview failure
+
+        assert preview.compile_result is not None
+        metric_names = {
+            metric.name for metric in preview.compile_result.metrics
+        }
+        missing = required_metrics - metric_names
+        assert not missing, \
+            f"fixture {fixture_path.name}: missing validation metrics: {sorted(missing)}"
+
+
+def test_reorganise_golden_compile_layouts_match_patch_entries_positions() -> None:
+    """For every fixture that compiles successfully, the node_layout positions
+    in the compile result must match the 'pos' values in the corresponding
+    candidate_patch entries.  This proves that validation metrics report on
+    placed positions without mutating them.
+
+    Only entries whose uid appears in both the compile node_layouts and the
+    patch entries are checked.  Scoped fixtures may use qualified uid keys
+    that differ from the compile ref uid, and those are skipped gracefully."""
+    for fixture_path in _fixture_paths():
+        preview = preview_reorganise_workflow(fixture_path)
+        if not preview.ok:
+            continue
+
+        assert preview.compile_result is not None
+        assert preview.candidate_patch is not None
+
+        entries = preview.candidate_patch["entries"]
+        compile_by_uid = {
+            layout.ref.uid: layout
+            for layout in preview.compile_result.node_layouts
+        }
+
+        # Only check the intersection -- scoped fixtures use qualified keys
+        common_uids = set(compile_by_uid) & set(entries)
+        if not common_uids:
+            continue
+
+        for uid in common_uids:
+            layout = compile_by_uid[uid]
+            patch_pos = entries[uid].get("pos")
+            assert patch_pos is not None, \
+                f"fixture {fixture_path.name}: {uid} has no pos in patch"
+            assert (layout.x, layout.y) == (patch_pos[0], patch_pos[1]), (
+                f"fixture {fixture_path.name}: {uid} coords differ: "
+                f"layout ({layout.x},{layout.y}) != patch ({patch_pos[0]},{patch_pos[1]})"
+            )

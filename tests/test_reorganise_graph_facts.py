@@ -3,6 +3,21 @@ from __future__ import annotations
 from copy import deepcopy
 
 from vibecomfy.porting.reorganise.graph_facts import extract_graph_facts
+from vibecomfy.porting.reorganise.plan_types import (
+    LAYOUT_BEHAVIOR_NOTE,
+    LAYOUT_BEHAVIOR_PRIMARY,
+    LAYOUT_BEHAVIOR_SIDECAR,
+    LAYOUT_BEHAVIOR_UNKNOWN,
+    LAYOUT_BEHAVIOR_WALL,
+    LAYOUT_BEHAVIORS,
+    ROLE_HINT_HELPER,
+    ROLE_HINT_LOADER,
+    ROLE_HINT_OUTPUT,
+    ROLE_HINT_SAMPLER,
+    ROLE_HINT_UI,
+    ROLE_HINT_UNKNOWN,
+    ROLE_HINT_UTILITY,
+)
 
 
 def _subgraph_definition() -> dict:
@@ -313,3 +328,239 @@ def test_extract_graph_facts_derives_effective_topology_with_helper_passthroughs
     assert [candidate.kind for candidate in facts.summary.sampler_relation_candidates] == [
         "parallel_sampler_branch"
     ]
+
+
+# ---------------------------------------------------------------------------
+# LayoutBehavior on canonical refs
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_refs_layout_behavior_loaders_primary() -> None:
+    """Resource loaders derive layout_behavior=primary in graph facts."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CheckpointLoaderSimple",
+                "class_type": "CheckpointLoaderSimple",
+                "properties": {"vibecomfy_uid": "ckpt"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+    assert ref_map["ckpt"].role_hint == ROLE_HINT_LOADER
+    assert ref_map["ckpt"].layout_behavior == LAYOUT_BEHAVIOR_PRIMARY
+    assert ref_map["ckpt"].is_helper is False
+
+
+def test_canonical_refs_layout_behavior_output_wall() -> None:
+    """Output nodes (SaveImage) derive layout_behavior=wall in graph facts."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+    assert ref_map["save"].role_hint == ROLE_HINT_OUTPUT
+    assert ref_map["save"].layout_behavior == LAYOUT_BEHAVIOR_WALL
+    assert ref_map["save"].is_helper is False
+
+
+def test_canonical_refs_layout_behavior_helpers() -> None:
+    """Helper nodes (SetNode, GetNode, Reroute, Note, MarkdownNote) get correct layout_behavior."""
+    ui = {
+        "nodes": [
+            {"id": 1, "type": "SetNode", "class_type": "SetNode", "properties": {"vibecomfy_uid": "set-a"}, "widgets_values": ["ch1"]},
+            {"id": 2, "type": "GetNode", "class_type": "GetNode", "properties": {"vibecomfy_uid": "get-a"}, "widgets_values": ["ch1"]},
+            {"id": 3, "type": "Reroute", "class_type": "Reroute", "properties": {"vibecomfy_uid": "rr-a"}},
+            {"id": 4, "type": "Note", "class_type": "Note", "properties": {"vibecomfy_uid": "note-a"}},
+            {"id": 5, "type": "MarkdownNote", "class_type": "MarkdownNote", "properties": {"vibecomfy_uid": "md-a"}},
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+
+    # SetNode / GetNode / Reroute → helper → sidecar
+    assert ref_map["set-a"].role_hint == ROLE_HINT_HELPER
+    assert ref_map["set-a"].layout_behavior == LAYOUT_BEHAVIOR_SIDECAR
+    assert ref_map["set-a"].is_helper is True
+
+    assert ref_map["get-a"].role_hint == ROLE_HINT_HELPER
+    assert ref_map["get-a"].layout_behavior == LAYOUT_BEHAVIOR_SIDECAR
+    assert ref_map["get-a"].is_helper is True
+
+    assert ref_map["rr-a"].role_hint == ROLE_HINT_HELPER
+    assert ref_map["rr-a"].layout_behavior == LAYOUT_BEHAVIOR_SIDECAR
+    assert ref_map["rr-a"].is_helper is True
+
+    # Note / MarkdownNote → ui → note
+    assert ref_map["note-a"].role_hint == ROLE_HINT_UI
+    assert ref_map["note-a"].layout_behavior == LAYOUT_BEHAVIOR_NOTE
+    assert ref_map["note-a"].is_helper is True
+
+    assert ref_map["md-a"].role_hint == ROLE_HINT_UI
+    assert ref_map["md-a"].layout_behavior == LAYOUT_BEHAVIOR_NOTE
+    assert ref_map["md-a"].is_helper is True
+
+
+def test_canonical_refs_layout_behavior_sampler_primary() -> None:
+    """Samplers derive layout_behavior=primary."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+    assert ref_map["sample"].role_hint == ROLE_HINT_SAMPLER
+    assert ref_map["sample"].layout_behavior == LAYOUT_BEHAVIOR_PRIMARY
+    assert ref_map["sample"].is_helper is False
+
+
+def test_canonical_refs_layout_behavior_unknown_unknown() -> None:
+    """Truly unknown class_type → unknown layout_behavior."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "TotallyUnknownNode",
+                "class_type": "TotallyUnknownNode",
+                "properties": {"vibecomfy_uid": "unk"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+    assert ref_map["unk"].role_hint == ROLE_HINT_UNKNOWN
+    assert ref_map["unk"].layout_behavior == LAYOUT_BEHAVIOR_UNKNOWN
+    assert ref_map["unk"].is_helper is False
+
+
+def test_canonical_refs_layout_behavior_preview_substring_output_wall() -> None:
+    """Class_type containing 'preview' substring → OUTPUT role, WALL layout_behavior.
+
+    In graph_facts, _role_hint catches 'preview' in class name as OUTPUT,
+    and _derive_layout_behavior maps OUTPUT→WALL.
+    """
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "MyPreviewHelper",
+                "class_type": "MyPreviewHelper",
+                "properties": {"vibecomfy_uid": "preview-helper"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+    assert ref_map["preview-helper"].role_hint == ROLE_HINT_OUTPUT
+    assert ref_map["preview-helper"].layout_behavior == LAYOUT_BEHAVIOR_WALL
+
+
+def test_canonical_refs_layout_behavior_unknown_setnode_substring_sidecar() -> None:
+    """Unknown class_type containing 'SetNode' → sidecar via class_type fallback."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CustomSetNodePlus",
+                "class_type": "CustomSetNodePlus",
+                "properties": {"vibecomfy_uid": "csp"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+    assert ref_map["csp"].role_hint == ROLE_HINT_UNKNOWN
+    assert ref_map["csp"].layout_behavior == LAYOUT_BEHAVIOR_SIDECAR
+
+
+def test_canonical_refs_layout_behavior_unknown_note_substring_note() -> None:
+    """Unknown class_type containing 'note' → note via class_type fallback."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "CustomNoteThing",
+                "class_type": "CustomNoteThing",
+                "properties": {"vibecomfy_uid": "cnt"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    ref_map = {fact.ref.uid: fact for fact in facts.canonical_refs}
+    assert ref_map["cnt"].role_hint == ROLE_HINT_UNKNOWN
+    assert ref_map["cnt"].layout_behavior == LAYOUT_BEHAVIOR_NOTE
+
+
+def test_canonical_refs_json_includes_layout_behavior() -> None:
+    """Every canonical ref JSON includes layout_behavior field."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample"},
+            },
+            {
+                "id": 2,
+                "type": "SetNode",
+                "class_type": "SetNode",
+                "properties": {"vibecomfy_uid": "set-a"},
+            },
+            {
+                "id": 3,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+            },
+            {
+                "id": 4,
+                "type": "Note",
+                "class_type": "Note",
+                "properties": {"vibecomfy_uid": "note-a"},
+            },
+            {
+                "id": 5,
+                "type": "CustomUnknown",
+                "class_type": "CustomUnknown",
+                "properties": {"vibecomfy_uid": "unk"},
+            },
+        ],
+        "links": [],
+    }
+    facts = extract_graph_facts(ui)
+    payload = facts.to_json()
+    for ref_json in payload["canonical_refs"]:
+        assert "layout_behavior" in ref_json
+        assert ref_json["layout_behavior"] in LAYOUT_BEHAVIORS
+
+    # Spot-check specific behaviors
+    by_uid = {ref["ref"][1]: ref for ref in payload["canonical_refs"]}
+    assert by_uid["sample"]["layout_behavior"] == LAYOUT_BEHAVIOR_PRIMARY
+    assert by_uid["set-a"]["layout_behavior"] == LAYOUT_BEHAVIOR_SIDECAR
+    assert by_uid["save"]["layout_behavior"] == LAYOUT_BEHAVIOR_WALL
+    assert by_uid["note-a"]["layout_behavior"] == LAYOUT_BEHAVIOR_NOTE
+    assert by_uid["unk"]["layout_behavior"] == LAYOUT_BEHAVIOR_UNKNOWN

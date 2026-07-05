@@ -470,6 +470,12 @@ class ReorganisePreviewResult:
             return None
         return self.compile_result.candidate_patch.to_json()
 
+    @property
+    def layout_trace(self) -> tuple[Mapping[str, Any], ...]:
+        if self.compile_result is None or not self.compile_result.ok:
+            return ()
+        return tuple(entry.to_json() for entry in self.compile_result.trace_entries)
+
     def to_json(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
@@ -512,6 +518,7 @@ class ReorganisePreviewResult:
                 else None
             ),
             "candidate_patch": self.candidate_patch,
+            "layout_trace": list(self.layout_trace),
             "apply_data": self.apply_data.to_json(),
         }
 

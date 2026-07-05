@@ -1,0 +1,77 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [0, 0]
+    },
+    "virtual_wires": {
+      "bus-a": {"type": "SetNode", "channel": "A", "endpoints": [2, 4]},
+      "bus-b": {"type": "SetNode", "channel": "B", "endpoints": [3, 5]}
+    },
+    "vibecomfy": {
+      "fixture": "stacked_sidecars",
+      "coverage": ["stacked_sidecars", "multiple_set_get_same_target"],
+      "thresholds": {
+        "helper_count": 4,
+        "max_primary_nodes": 1,
+        "expected_layout_pressure": "stack get/set helpers on both sides of single primary without overlap"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple",
+      "title": "Loader", "pos": [200, 120], "size": [300, 98],
+      "properties": {"vibecomfy_uid": "loader"},
+      "widgets_values": ["sd15.safetensors"],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [10, 12]},
+        {"name": "VAE", "type": "VAE", "links": []}
+      ]
+    },
+    {
+      "id": 2, "type": "SetNode", "class_type": "SetNode",
+      "title": "Set A", "pos": [600, 100], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "set_a", "channel": "A"},
+      "widgets_values": ["A"],
+      "inputs": [{"name": "value", "type": "*", "link": 10}]
+    },
+    {
+      "id": 3, "type": "SetNode", "class_type": "SetNode",
+      "title": "Set B", "pos": [600, 170], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "set_b", "channel": "B"},
+      "widgets_values": ["B"],
+      "inputs": [{"name": "value", "type": "*", "link": 12}]
+    },
+    {
+      "id": 4, "type": "GetNode", "class_type": "GetNode",
+      "title": "Get A", "pos": [10, 100], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "get_a", "channel": "A"},
+      "widgets_values": ["A"],
+      "outputs": [{"name": "value", "type": "*", "links": [11]}]
+    },
+    {
+      "id": 5, "type": "GetNode", "class_type": "GetNode",
+      "title": "Get B", "pos": [10, 170], "size": [120, 50],
+      "properties": {"vibecomfy_uid": "get_b", "channel": "B"},
+      "widgets_values": ["B"],
+      "outputs": [{"name": "value", "type": "*", "links": [13]}]
+    },
+    {
+      "id": 6, "type": "KSampler", "class_type": "KSampler",
+      "title": "Sampler", "pos": [100, 300], "size": [260, 90],
+      "properties": {"vibecomfy_uid": "sampler"},
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 11}
+      ]
+    }
+  ],
+  "links": [
+    [10, 1, 0, 2, 0, "MODEL"],
+    [11, 4, 0, 6, 0, "MODEL"],
+    [12, 1, 0, 3, 0, "MODEL"],
+    [13, 5, 0, 1, 0, "MODEL"]
+  ],
+  "groups": []
+}

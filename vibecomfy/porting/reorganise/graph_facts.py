@@ -16,6 +16,12 @@ from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
 from .diagnostics import ReorganiseDiagnostic
 from .plan_types import (
     HELPER_CLASS_TYPES,
+    LAYOUT_BEHAVIOR_NOTE,
+    LAYOUT_BEHAVIOR_PRIMARY,
+    LAYOUT_BEHAVIOR_SIDECAR,
+    LAYOUT_BEHAVIOR_UNKNOWN,
+    LAYOUT_BEHAVIOR_WALL,
+    LAYOUT_BEHAVIORS,
     ROLE_HINT_HELPER,
     ROLE_HINT_LOADER,
     ROLE_HINT_OUTPUT,
@@ -25,6 +31,7 @@ from .plan_types import (
     CanonicalNodeRef,
     CanonicalNodeSummary,
     GraphFactsSummary,
+    LayoutBehavior,
     RoleHint,
     SamplerRelationClaim,
     ScopeGraphSummary,
@@ -60,6 +67,7 @@ class CanonicalRefFact:
     title: str | None = None
     role_hint: RoleHint = ROLE_HINT_UNKNOWN
     is_helper: bool = False
+    layout_behavior: LayoutBehavior = LAYOUT_BEHAVIOR_UNKNOWN
 
     def to_json(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -69,6 +77,7 @@ class CanonicalRefFact:
             "litegraph_id": self.litegraph_id,
             "role_hint": self.role_hint,
             "is_helper": self.is_helper,
+            "layout_behavior": self.layout_behavior,
         }
         if self.title is not None:
             payload["title"] = self.title
@@ -452,6 +461,8 @@ def extract_graph_facts(
         display = display_ref(ref, class_type=class_type)
         title = node.get("title") if isinstance(node.get("title"), str) and node.get("title") else None
         is_helper = class_type in HELPER_CLASS_TYPES
+        role_hint = _role_hint(class_type, is_helper=is_helper)
+        layout_behavior = _derive_layout_behavior(class_type, is_helper=is_helper, role_hint=role_hint)
         canonical_refs.append(
             CanonicalRefFact(
                 ref=ref,
@@ -459,8 +470,9 @@ def extract_graph_facts(
                 class_type=class_type,
                 litegraph_id=node.get("id"),
                 title=title,
-                role_hint=_role_hint(class_type, is_helper=is_helper),
+                role_hint=role_hint,
                 is_helper=is_helper,
+                layout_behavior=layout_behavior,
             )
         )
         sidecar_key, sidecar_entry = _sidecar_entry_for(ledger, entries, scope_path, uid)
@@ -574,6 +586,41 @@ def _role_hint(class_type: str, *, is_helper: bool) -> RoleHint:
     if "loader" in lower or lower.startswith(("checkpoint", "unet", "clip", "vae")):
         return ROLE_HINT_LOADER
     return ROLE_HINT_UNKNOWN
+
+
+def _derive_layout_behavior(
+    class_type: str,
+    *,
+    is_helper: bool,
+    role_hint: RoleHint,
+) -> LayoutBehavior:
+    """Derive ``LayoutBehavior`` from ``role_hint`` (orthogonal placement dimension).
+
+    This mirrors :func:`vibecomfy.porting.reorganise.classify._derive_layout_behavior`
+    but uses only the pre-classification ``_role_hint`` call, so results may be
+    refined by the full classification pass later.
+    """
+    if is_helper:
+        if role_hint == ROLE_HINT_UI:
+            return LAYOUT_BEHAVIOR_NOTE
+        return LAYOUT_BEHAVIOR_SIDECAR
+
+    if role_hint == ROLE_HINT_OUTPUT:
+        return LAYOUT_BEHAVIOR_WALL
+
+    if role_hint in (ROLE_HINT_LOADER, ROLE_HINT_SAMPLER):
+        return LAYOUT_BEHAVIOR_PRIMARY
+
+    if role_hint == ROLE_HINT_UNKNOWN:
+        lower = class_type.lower()
+        if any(token in lower for token in ("save", "preview", "combine")):
+            return LAYOUT_BEHAVIOR_WALL
+        if any(token in lower for token in ("getnode", "setnode", "reroute")):
+            return LAYOUT_BEHAVIOR_SIDECAR
+        if any(token in lower for token in ("note", "markdown")):
+            return LAYOUT_BEHAVIOR_NOTE
+
+    return LAYOUT_BEHAVIOR_UNKNOWN
 
 
 def _helper_kind(class_type: str) -> str:

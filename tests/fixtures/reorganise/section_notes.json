@@ -1,0 +1,74 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [0, 0]
+    },
+    "vibecomfy": {
+      "fixture": "section_notes",
+      "coverage": ["section_notes", "note_section_membership"],
+      "thresholds": {
+        "min_primary_nodes": 4,
+        "expected_layout_pressure": "notes attach to the section of primaries they are connected or annotated to"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple",
+      "title": "Loader", "pos": [80, 80], "size": [300, 98],
+      "properties": {"vibecomfy_uid": "loader"},
+      "widgets_values": ["sd15.safetensors"],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [10]},
+        {"name": "CLIP", "type": "CLIP", "links": [11]}
+      ]
+    },
+    {
+      "id": 2, "type": "CLIPTextEncode", "class_type": "CLIPTextEncode",
+      "title": "Prompt", "pos": [120, 110], "size": [340, 130],
+      "properties": {"vibecomfy_uid": "prompt"},
+      "widgets_values": ["masterpiece"],
+      "inputs": [{"name": "clip", "type": "CLIP", "link": 11}],
+      "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [12]}]
+    },
+    {
+      "id": 3, "type": "KSampler", "class_type": "KSampler",
+      "title": "Sampler", "pos": [200, 200], "size": [260, 90],
+      "properties": {"vibecomfy_uid": "sampler"},
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 10},
+        {"name": "positive", "type": "CONDITIONING", "link": 12}
+      ],
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [14]}]
+    },
+    {
+      "id": 4, "type": "VAEDecode", "class_type": "VAEDecode",
+      "title": "Decode", "pos": [300, 300], "size": [200, 70],
+      "properties": {"vibecomfy_uid": "decode"},
+      "inputs": [{"name": "samples", "type": "LATENT", "link": 14}],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [15]}]
+    },
+    {
+      "id": 5, "type": "MarkdownNote", "class_type": "MarkdownNote",
+      "title": "Sampling Note", "pos": [500, 150], "size": [200, 80],
+      "properties": {"vibecomfy_uid": "sampling_note"},
+      "widgets_values": ["This is the sampling section"]
+    },
+    {
+      "id": 6, "type": "MarkdownNote", "class_type": "MarkdownNote",
+      "title": "Output Note", "pos": [500, 350], "size": [200, 80],
+      "properties": {"vibecomfy_uid": "output_note"},
+      "widgets_values": ["Output section"]
+    }
+  ],
+  "links": [
+    [10, 1, 0, 3, 0, "MODEL"],
+    [11, 1, 1, 2, 0, "CLIP"],
+    [12, 2, 0, 3, 1, "CONDITIONING"],
+    [14, 3, 0, 4, 0, "LATENT"],
+    [15, 4, 0, 6, 0, "IMAGE"]
+  ],
+  "groups": []
+}

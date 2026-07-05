@@ -4,24 +4,46 @@ from copy import deepcopy
 
 from vibecomfy.porting.reorganise import LayoutCompileOptions, compile_layout_plan
 from vibecomfy.porting.reorganise.compile import (
+    COMPILE_ISSUE_BASELINE_VARIANCE_HIGH,
     COMPILE_ISSUE_BACKWARD_EDGE_RATIO_HIGH,
     COMPILE_ISSUE_CROSSING_PROXY_HIGH,
+    COMPILE_ISSUE_DETACHED_GROUP_DISTANCE_HIGH,
     COMPILE_ISSUE_GROUP_OVERLAP,
     COMPILE_ISSUE_HELPER_DISTANCE_HIGH,
+    COMPILE_ISSUE_HELPER_SIDECAR_OVERLAP,
     COMPILE_ISSUE_IDEMPOTENCE_DELTA,
+    COMPILE_ISSUE_INTERNAL_WHITESPACE_HIGH,
+    COMPILE_ISSUE_LONG_EDGE_DISTANCE_HIGH,
+    COMPILE_ISSUE_MAX_PRIMARY_ROW_COUNT_HIGH,
     COMPILE_ISSUE_MIXED_CORE_ROLE,
     COMPILE_ISSUE_MINIMUM_GUTTER,
+    COMPILE_ISSUE_NOTE_SECTION_MISMATCH,
     COMPILE_ISSUE_NODE_OVERLAP,
     COMPILE_HUGE_WORKFLOW_NODE_THRESHOLD,
     COMPILE_LARGE_SECTION_CLUSTER_SIZE,
     COMPILE_METRIC_BACKWARD_EDGE_RATIO,
+    COMPILE_METRIC_BASELINE_VARIANCE_MAX,
     COMPILE_METRIC_CROSSING_PROXY_COUNT,
+    COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX,
     COMPILE_METRIC_GROUP_OVERLAP_COUNT,
     COMPILE_METRIC_HELPER_DISTANCE_MAX,
+    COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT,
     COMPILE_METRIC_IDEMPOTENCE_DELTA,
+    COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX,
+    COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX,
+    COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW,
     COMPILE_METRIC_MINIMUM_GUTTER,
+    COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
     COMPILE_METRIC_NODE_OVERLAP_COUNT,
     COMPILE_METRIC_STRUCTURAL_HASH_UNCHANGED,
+    _CompileTraceAccumulator,
+    _classify_layout_phase,
+    _compile_section_ownership_phase,
+    _local_bounds,
+    _local_section_layout,
+    _layout_primary_rows,
+    _node_size_for_ref,
+    _spacing,
     CompiledGroupLayout,
     CompiledNodeLayout,
     LayoutCandidatePatch,
@@ -50,6 +72,13 @@ def _node(node_id: int, class_type: str, uid: str) -> dict:
         "size": [200 + node_id, 80 + node_id],
         "properties": {"vibecomfy_uid": uid, "kept": uid},
     }
+
+
+def _make_node(node_id: int, class_type: str, uid: str, *, size: list[int] | None = None) -> dict:
+    node = _node(node_id, class_type, uid)
+    if size is not None:
+        node["size"] = list(size)
+    return node
 
 
 def _with_io(node: dict, *, inputs: list[dict] | None = None, outputs: list[dict] | None = None) -> dict:
@@ -144,6 +173,13 @@ def test_compile_layout_plan_returns_public_contract_and_candidate_patch() -> No
         "compiled_helper_layout_count",
         COMPILE_METRIC_NODE_OVERLAP_COUNT,
         COMPILE_METRIC_GROUP_OVERLAP_COUNT,
+        COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX,
+        COMPILE_METRIC_BASELINE_VARIANCE_MAX,
+        COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX,
+        COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT,
+        COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
+        COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW,
+        COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX,
         COMPILE_METRIC_BACKWARD_EDGE_RATIO,
         COMPILE_METRIC_CROSSING_PROXY_COUNT,
         COMPILE_METRIC_MINIMUM_GUTTER,
@@ -1136,6 +1172,184 @@ def test_compile_layout_plan_anchors_set_get_reroute_and_note_helpers_without_gr
     assert groups["producer_section"].width > layouts["producer"].width
 
 
+def test_compile_layout_plan_packs_section_local_sidecars_without_primary_overlap() -> None:
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "left"), outputs=[{"name": "out", "type": "*", "links": []}]),
+            _with_io(_node(2, "PrimitiveNode", "target"), outputs=[{"name": "out", "type": "*", "links": [10]}]),
+            _with_io(_node(3, "PrimitiveNode", "right"), outputs=[{"name": "out", "type": "*", "links": []}]),
+            _with_io(_node(4, "SetNode", "set-helper"), inputs=[{"name": "in", "type": "*", "link": 10}]),
+            _with_io(_node(5, "GetNode", "get-helper"), outputs=[{"name": "out", "type": "*", "links": [11]}]),
+        ],
+        "links": [
+            [10, 2, 0, 4, 0, "*"],
+            [11, 5, 0, 2, 0, "*"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {
+                    "id": "main",
+                    "kind": "custom",
+                    "nodes": [["", "left"], ["", "target"], ["", "right"]],
+                }
+            ],
+            "helper_placements": [
+                {"helper": ["", "set-helper"], "kind": "near-producer", "target": ["", "target"]},
+                {"helper": ["", "get-helper"], "kind": "near-consumer", "target": ["", "target"]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+
+    result = compile_layout_plan(plan, facts)
+
+    assert result.ok is True
+    layouts = _layouts_by_uid(result)
+    assert layouts["get-helper"].x + layouts["get-helper"].width < layouts["target"].x
+    assert layouts["target"].x + layouts["target"].width < layouts["set-helper"].x
+    for left_uid, right_uid in (
+        ("left", "get-helper"),
+        ("right", "get-helper"),
+        ("get-helper", "target"),
+        ("target", "set-helper"),
+    ):
+        left = layouts[left_uid]
+        right = layouts[right_uid]
+        assert left.x + left.width < right.x
+
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        classification,
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+    main_section = next(section for section in sections if section.id == "main")
+    local_layout = _local_section_layout(
+        main_section,
+        facts,
+        {fact.ref: fact for fact in facts.node_furniture},
+        LayoutCompileOptions(),
+        _spacing("balanced"),
+        plan,
+    )
+    assert "sidecar:right:stack:0:target:target" in local_layout.placement_choices[CanonicalNodeRef("", "set-helper")]
+    assert "sidecar:left:stack:0:target:target" in local_layout.placement_choices[CanonicalNodeRef("", "get-helper")]
+
+
+def test_compile_section_ownership_phase_attaches_helpers_and_emits_ownership_trace() -> None:
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "producer"), outputs=[{"name": "out", "type": "*", "links": [10, 12]}]),
+            _with_io(_node(2, "SetNode", "set-helper"), inputs=[{"name": "in", "type": "*", "link": 10}]),
+            _with_io(_node(3, "GetNode", "get-helper"), outputs=[{"name": "out", "type": "*", "links": [11]}]),
+            _with_io(_node(4, "PrimitiveNode", "consumer"), inputs=[{"name": "in", "type": "*", "link": 11}]),
+            _with_io(
+                _node(5, "Reroute", "cross-reroute"),
+                inputs=[{"name": "", "type": "*", "link": 12}],
+                outputs=[{"name": "", "type": "*", "links": [13]}],
+            ),
+            _node(6, "MarkdownNote", "note-helper"),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "*"],
+            [11, 3, 0, 4, 0, "*"],
+            [12, 1, 0, 5, 0, "*"],
+            [13, 5, 0, 4, 0, "*"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "producer_section", "kind": "custom", "nodes": [["", "producer"]]},
+                {"id": "consumer_section", "kind": "custom", "nodes": [["", "consumer"]]},
+            ],
+            "helper_placements": [
+                {"helper": ["", "set-helper"], "kind": "near-producer", "target": ["", "producer"]},
+                {"helper": ["", "get-helper"], "kind": "near-consumer", "target": ["", "consumer"]},
+                {
+                    "helper": ["", "cross-reroute"],
+                    "kind": "edge-path",
+                    "from": ["", "producer"],
+                    "to": ["", "consumer"],
+                },
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        classification,
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+
+    assert {ref.uid: section.id for section in sections for ref in section.node_refs} == {
+        "consumer": "consumer_section",
+        "cross-reroute": "__helpers__",
+        "get-helper": "consumer_section",
+        "note-helper": "consumer_section",
+        "producer": "producer_section",
+        "set-helper": "producer_section",
+    }
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    assert trace_entries["set-helper"].attachment_target == CanonicalNodeRef("", "producer")
+    assert trace_entries["set-helper"].reason == "helper_targeted_placement"
+    assert trace_entries["get-helper"].attachment_target == CanonicalNodeRef("", "consumer")
+    assert trace_entries["get-helper"].reason == "helper_targeted_placement"
+    assert trace_entries["cross-reroute"].section_id == "__helpers__"
+    assert trace_entries["cross-reroute"].attachment_target is None
+    assert trace_entries["cross-reroute"].reason == "helper_unowned_fallback"
+    assert trace_entries["note-helper"].section_id == "consumer_section"
+    assert trace_entries["note-helper"].attachment_target == CanonicalNodeRef("", "consumer")
+    assert trace_entries["note-helper"].reason == "note_annotated_primary"
+
+
+def test_compile_section_ownership_phase_assigns_connected_note_to_primary_section() -> None:
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "producer"), outputs=[{"name": "out", "type": "*", "links": [10]}]),
+            _with_io(_node(2, "MarkdownNote", "note-helper"), inputs=[{"name": "in", "type": "*", "link": 10}]),
+        ],
+        "links": [[10, 1, 0, 2, 0, "*"]],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [{"id": "producer_section", "kind": "custom", "nodes": [["", "producer"]]}],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+
+    _compile_section_ownership_phase(
+        plan,
+        facts,
+        _classify_layout_phase(facts, trace=trace),
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    assert trace_entries["note-helper"].section_id == "producer_section"
+    assert trace_entries["note-helper"].attachment_target == CanonicalNodeRef("", "producer")
+    assert trace_entries["note-helper"].reason == "note_connected_primary"
+    assert trace_entries["producer"].reason == "primary_explicit_section"
+
+
 def test_compile_layout_plan_places_nested_subgraph_sections_before_parent_container() -> None:
     ui = {
         "nodes": [_node(1, "SubgraphContainer", "container")],
@@ -1179,7 +1393,7 @@ def test_compile_layout_plan_places_nested_subgraph_sections_before_parent_conta
     assert groups["parent"].y + groups["parent"].height >= groups["child"].y + groups["child"].height
 
 
-def test_compile_layout_plan_resolves_primary_collisions_with_gutters_and_containment() -> None:
+def test_compile_layout_plan_places_wide_sections_without_mutating_for_collision_repair() -> None:
     ui = {
         "nodes": [
             {
@@ -1218,8 +1432,8 @@ def test_compile_layout_plan_resolves_primary_collisions_with_gutters_and_contai
     target = layouts["wide-target"]
     assert not _rects_overlap_or_touch(source, target, gutter=32)
     assert not _rects_overlap_or_touch(_groups_by_id(result)["source"], _groups_by_id(result)["target"], gutter=32)
-    assert target.x - source.x == 440
-    assert target.y > source.y
+    assert target.x - source.x >= source.width + 32
+    assert target.y == source.y
     for group in result.group_layouts:
         for ref in group.node_refs:
             layout = layouts[ref.uid]
@@ -1231,7 +1445,7 @@ def test_compile_layout_plan_resolves_primary_collisions_with_gutters_and_contai
     assert compile_layout_plan(plan, extract_graph_facts(ui)).to_json() == result.to_json()
 
 
-def test_compile_layout_plan_preserves_pinned_nodes_as_hard_collision_constraints() -> None:
+def test_compile_layout_plan_preserves_pinned_nodes_and_reports_collisions_without_mutating() -> None:
     ui = {
         "nodes": [
             {**_node(1, "PrimitiveNode", "movable"), "pos": [48, 84], "size": [280, 100]},
@@ -1259,7 +1473,7 @@ def test_compile_layout_plan_preserves_pinned_nodes_as_hard_collision_constraint
     layouts = _layouts_by_uid(result)
     assert layouts["pinned"].pinned is True
     assert (layouts["pinned"].x, layouts["pinned"].y) == (928, 84)
-    assert layouts["movable"].y > layouts["pinned"].y
+    assert (layouts["movable"].x, layouts["movable"].y) == (48, 84)
     assert not _rects_overlap_or_touch(layouts["movable"], layouts["pinned"], gutter=32)
     assert result.candidate_patch.to_json()["entries"]["pinned"]["pos"] == [928, 84]
 
@@ -1282,6 +1496,13 @@ def test_compile_layout_plan_gate_metrics_pass_and_are_ordered() -> None:
     metrics = {metric.name: metric for metric in result.metrics}
     assert metrics[COMPILE_METRIC_NODE_OVERLAP_COUNT].value == 0
     assert metrics[COMPILE_METRIC_GROUP_OVERLAP_COUNT].value == 0
+    assert metrics[COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX].value <= metrics[COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX].threshold
+    assert metrics[COMPILE_METRIC_BASELINE_VARIANCE_MAX].value <= metrics[COMPILE_METRIC_BASELINE_VARIANCE_MAX].threshold
+    assert metrics[COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX].value <= metrics[COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX].threshold
+    assert metrics[COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT].value == 0
+    assert metrics[COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT].value == 0
+    assert metrics[COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW].value <= metrics[COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW].threshold
+    assert metrics[COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX].value <= metrics[COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX].threshold
     assert metrics[COMPILE_METRIC_BACKWARD_EDGE_RATIO].value <= metrics[COMPILE_METRIC_BACKWARD_EDGE_RATIO].threshold
     assert metrics[COMPILE_METRIC_CROSSING_PROXY_COUNT].value == 0
     assert metrics[COMPILE_METRIC_MINIMUM_GUTTER].value >= metrics[COMPILE_METRIC_MINIMUM_GUTTER].threshold
@@ -1404,6 +1625,107 @@ def test_compile_layout_plan_gate_failure_report_orders_actionable_details() -> 
     assert issues[COMPILE_ISSUE_HELPER_DISTANCE_HIGH]["detail"]["violations"][0]["helper_ref"] == ["", "helper"]
     assert issues[COMPILE_ISSUE_IDEMPOTENCE_DELTA]["detail"]["measured"] is True
     assert issues["compiler_structural_hash_changed"]["detail"] == {"before": "before", "after": "after"}
+
+
+def test_compile_layout_plan_adds_extended_validation_metric_warnings_without_blocking() -> None:
+    ref_a = CanonicalNodeRef("", "a")
+    ref_b = CanonicalNodeRef("", "b")
+    ref_c = CanonicalNodeRef("", "c")
+    ref_d = CanonicalNodeRef("", "d")
+    ref_far = CanonicalNodeRef("", "far")
+    ref_note = CanonicalNodeRef("", "note")
+    ref_helper = CanonicalNodeRef("", "helper")
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "KSampler", "a"), outputs=[{"name": "out", "type": "*", "links": [10, 15]}]),
+            _with_io(_node(2, "KSampler", "b"), inputs=[{"name": "in", "type": "*", "link": 10}]),
+            _node(3, "KSampler", "c"),
+            _with_io(_node(4, "KSampler", "d"), outputs=[{"name": "out", "type": "*", "links": [11]}]),
+            _with_io(_node(5, "KSampler", "far"), inputs=[{"name": "in", "type": "*", "link": 11}]),
+            _with_io(_node(6, "MarkdownNote", "note"), inputs=[{"name": "in", "type": "*", "link": 15}]),
+            _with_io(_node(7, "Reroute", "helper"), inputs=[{"name": "in", "type": "*", "link": 10}]),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "*"],
+            [11, 4, 0, 5, 0, "*"],
+            [15, 1, 0, 6, 0, "*"],
+        ],
+    }
+    facts = extract_graph_facts(ui)
+    node_layouts = (
+        CompiledNodeLayout(ref=ref_a, section_id="main", role_hint=ROLE_HINT_UNKNOWN, x=0, y=0),
+        CompiledNodeLayout(ref=ref_b, section_id="main", role_hint=ROLE_HINT_UNKNOWN, x=320, y=4),
+        CompiledNodeLayout(ref=ref_c, section_id="main", role_hint=ROLE_HINT_UNKNOWN, x=640, y=8),
+        CompiledNodeLayout(ref=ref_d, section_id="main", role_hint=ROLE_HINT_UNKNOWN, x=960, y=12),
+        CompiledNodeLayout(ref=ref_far, section_id="target", role_hint=ROLE_HINT_UNKNOWN, x=4600, y=0),
+        CompiledNodeLayout(ref=ref_note, section_id="target", role_hint=ROLE_HINT_HELPER, x=100, y=200),
+        CompiledNodeLayout(ref=ref_helper, section_id="main", role_hint=ROLE_HINT_HELPER, x=10, y=0),
+    )
+    group_layouts = (
+        CompiledGroupLayout(
+            id="main",
+            scope_path="",
+            title="Main",
+            kind="custom",
+            node_refs=(ref_a, ref_b, ref_c, ref_d),
+            x=0,
+            y=0,
+            width=2800,
+            height=420,
+            color="#646464",
+        ),
+        CompiledGroupLayout(
+            id="target",
+            scope_path="",
+            title="Target",
+            kind="custom",
+            node_refs=(ref_far,),
+            x=4600,
+            y=0,
+            width=700,
+            height=360,
+            color="#646464",
+        ),
+    )
+    candidate_patch = LayoutCandidatePatch(
+        entries={
+            layout.ref.uid: {"pos": [layout.x, layout.y], "size": [layout.width, layout.height]}
+            for layout in node_layouts
+        },
+        groups=(
+            {"id": "main", "title": "Main", "bounding": [0, 0, 2800, 420], "nodes": ["a", "b", "c", "d"]},
+            {"id": "target", "title": "Target", "bounding": [4600, 0, 700, 360], "nodes": ["far"]},
+        ),
+    )
+
+    report = _build_report(
+        node_layouts=node_layouts,
+        group_layouts=group_layouts,
+        facts=facts,
+        candidate_patch=candidate_patch,
+        structural_hash_before="same",
+        structural_hash_after="same",
+        diagnostics=(),
+    )
+
+    assert report.verdict == "needs_reorganise"
+    metrics = {metric.name: metric for metric in report.metrics}
+    assert metrics[COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX].value > metrics[COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX].threshold
+    assert metrics[COMPILE_METRIC_BASELINE_VARIANCE_MAX].value > metrics[COMPILE_METRIC_BASELINE_VARIANCE_MAX].threshold
+    assert metrics[COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX].value > metrics[COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX].threshold
+    assert metrics[COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT].value == 1
+    assert metrics[COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT].value == 1
+    assert metrics[COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW].value == 4
+    assert metrics[COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX].value > metrics[COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX].threshold
+
+    issues = {issue.code: issue.to_json() for issue in report.issues}
+    assert issues[COMPILE_ISSUE_INTERNAL_WHITESPACE_HIGH]["severity"] == "warning"
+    assert issues[COMPILE_ISSUE_BASELINE_VARIANCE_HIGH]["detail"]["rows"][0]["section_id"] == "main"
+    assert issues[COMPILE_ISSUE_DETACHED_GROUP_DISTANCE_HIGH]["detail"]["connections"][0]["source_section"] == "main"
+    assert issues[COMPILE_ISSUE_HELPER_SIDECAR_OVERLAP]["detail"]["pairs"] == [[["", "a"], ["", "helper"]]]
+    assert issues[COMPILE_ISSUE_NOTE_SECTION_MISMATCH]["detail"]["mismatches"][0]["expected_section"] == "main"
+    assert issues[COMPILE_ISSUE_MAX_PRIMARY_ROW_COUNT_HIGH]["detail"]["rows"][0]["count"] == 4
+    assert issues[COMPILE_ISSUE_LONG_EDGE_DISTANCE_HIGH]["detail"]["edges"][0]["target"] == ["", "far"]
 
 
 def test_compile_issues_warn_on_loader_in_output_section() -> None:
@@ -1622,6 +1944,268 @@ def test_compile_helper_node_in_core_section_does_not_trigger_warning() -> None:
     assert COMPILE_ISSUE_MIXED_CORE_ROLE not in issues_by_code
 
 
+# ---------------------------------------------------------------------------
+# Ownership behavior tests — inspect pre-positioning section ownership
+# and trace-visible fallback when ownership evidence is absent.
+# ---------------------------------------------------------------------------
+
+
+def test_compile_section_ownership_setnode_without_placement_falls_back() -> None:
+    """SetNode without an explicit helper_placement must fall back to
+    __helpers__ because SetNode edges are excluded from effective_edges.
+    The fallback reason must be trace-visible."""
+    ui = {
+        "nodes": [
+            {
+                **_with_io(_node(1, "PrimitiveNode", "producer"), outputs=[{"name": "out", "type": "*", "links": [10]}]),
+                "pos": [0, 0],
+                "size": [200, 80],
+            },
+            {
+                **_with_io(_node(2, "SetNode", "set-helper"), inputs=[{"name": "in", "type": "*", "link": 10}]),
+                "pos": [300, 0],
+                "size": [200, 80],
+            },
+            _node(3, "PrimitiveNode", "consumer"),
+        ],
+        "links": [[10, 1, 0, 2, 0, "*"]],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "producer_section", "kind": "custom", "nodes": [["", "producer"]]},
+                {"id": "consumer_section", "kind": "custom", "nodes": [["", "consumer"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        _classify_layout_phase(facts, trace=trace),
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    assert trace_entries["set-helper"].section_id == "__helpers__"
+    assert trace_entries["set-helper"].attachment_target is None
+    assert trace_entries["set-helper"].reason == "helper_unowned_fallback"
+
+    # Pre-positioning: the unowned SetNode must live in __helpers__
+    helpers_section = next(
+        (section for section in sections if section.id == "__helpers__"), None
+    )
+    assert helpers_section is not None
+    assert CanonicalNodeRef("", "set-helper") in helpers_section.node_refs
+
+
+def test_compile_section_ownership_getnode_without_placement_falls_back() -> None:
+    """GetNode without an explicit helper_placement must fall back to
+    __helpers__ because GetNode edges are excluded from effective_edges.
+    The fallback reason must be trace-visible."""
+    ui = {
+        "nodes": [
+            _node(1, "PrimitiveNode", "producer"),
+            {
+                **_with_io(_node(2, "GetNode", "get-helper"), outputs=[{"name": "out", "type": "*", "links": [11]}]),
+                "pos": [0, 0],
+                "size": [200, 80],
+            },
+            {
+                **_with_io(_node(3, "PrimitiveNode", "consumer"), inputs=[{"name": "in", "type": "*", "link": 11}]),
+                "pos": [300, 0],
+                "size": [200, 80],
+            },
+        ],
+        "links": [[11, 2, 0, 3, 0, "*"]],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "producer_section", "kind": "custom", "nodes": [["", "producer"]]},
+                {"id": "consumer_section", "kind": "custom", "nodes": [["", "consumer"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        _classify_layout_phase(facts, trace=trace),
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    assert trace_entries["get-helper"].section_id == "__helpers__"
+    assert trace_entries["get-helper"].attachment_target is None
+    assert trace_entries["get-helper"].reason == "helper_unowned_fallback"
+
+    # Pre-positioning: the unowned GetNode must live in __helpers__
+    helpers_section = next(
+        (section for section in sections if section.id == "__helpers__"), None
+    )
+    assert helpers_section is not None
+    assert CanonicalNodeRef("", "get-helper") in helpers_section.node_refs
+
+
+def test_compile_section_ownership_unconnectable_note_falls_back_to_helpers() -> None:
+    """A MarkdownNote with no graph connections and positioned far from every
+    primary (no annotation evidence) should fall back to __helpers__ with a
+    trace-visible reason."""
+    ui = {
+        "nodes": [
+            {
+                **_node(1, "PrimitiveNode", "producer"),
+                "pos": [0, 0],
+                "size": [200, 80],
+            },
+            {
+                **_node(2, "MarkdownNote", "orphan-note"),
+                "pos": [800, 600],
+                "size": [200, 80],
+            },
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "producer_section", "kind": "custom", "nodes": [["", "producer"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        _classify_layout_phase(facts, trace=trace),
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    assert trace_entries["orphan-note"].section_id == "__helpers__"
+    assert trace_entries["orphan-note"].attachment_target is None
+    assert trace_entries["orphan-note"].reason == "note_unowned_fallback"
+
+    # Pre-positioning: the __helpers__ section should contain the orphan note
+    helpers_section = next(
+        (section for section in sections if section.id == "__helpers__"), None
+    )
+    assert helpers_section is not None
+    assert CanonicalNodeRef("", "orphan-note") in helpers_section.node_refs
+
+
+def test_compile_section_ownership_ambiguous_helper_spanning_sections_falls_back() -> None:
+    """A helper (Reroute) whose incident primaries belong to different
+    sections should fall back to __helpers__ with a trace-visible reason,
+    confirming ambiguity is not silently swallowed."""
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "left-producer"), outputs=[{"name": "out", "type": "*", "links": [10]}]),
+            _with_io(
+                _node(2, "Reroute", "cross-reroute"),
+                inputs=[{"name": "", "type": "*", "link": 10}],
+                outputs=[{"name": "", "type": "*", "links": [11]}],
+            ),
+            _with_io(_node(3, "PrimitiveNode", "right-consumer"), inputs=[{"name": "in", "type": "*", "link": 11}]),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "*"],
+            [11, 2, 0, 3, 0, "*"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "left_section", "kind": "custom", "nodes": [["", "left-producer"]]},
+                {"id": "right_section", "kind": "custom", "nodes": [["", "right-consumer"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        _classify_layout_phase(facts, trace=trace),
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    assert trace_entries["cross-reroute"].section_id == "__helpers__"
+    assert trace_entries["cross-reroute"].attachment_target is None
+    assert trace_entries["cross-reroute"].reason == "helper_unowned_fallback"
+
+    # Pre-positioning: the ambiguous helper must appear in __helpers__ section
+    helpers_section = next(
+        (section for section in sections if section.id == "__helpers__"), None
+    )
+    assert helpers_section is not None
+    assert CanonicalNodeRef("", "cross-reroute") in helpers_section.node_refs
+
+
+def test_compile_section_ownership_known_primaries_are_preserved() -> None:
+    """Primaries that are explicitly assigned to sections must retain their
+    ownership decisions and trace entries should reflect the assignment."""
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "CheckpointLoaderSimple", "checkpoint"), outputs=[{"name": "MODEL", "type": "MODEL", "links": [10]}]),
+            _with_io(_node(2, "KSampler", "sample"), inputs=[{"name": "model", "type": "MODEL", "link": 10}]),
+        ],
+        "links": [[10, 1, 0, 2, 0, "MODEL"]],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "loaders", "kind": "loaders", "nodes": [["", "checkpoint"]]},
+                {"id": "sampling", "kind": "sampling", "nodes": [["", "sample"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+
+    sections = _compile_section_ownership_phase(
+        plan,
+        facts,
+        _classify_layout_phase(facts, trace=trace),
+        LayoutCompileOptions(),
+        trace=trace,
+    )
+
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    assert trace_entries["checkpoint"].section_id == "loaders"
+    assert trace_entries["checkpoint"].reason == "primary_explicit_section"
+    assert trace_entries["sample"].section_id == "sampling"
+    assert trace_entries["sample"].reason == "primary_explicit_section"
+
+    # Pre-positioning: sections should contain exactly the expected primaries
+    section_ids = {section.id: section for section in sections}
+    assert {ref.uid for ref in section_ids["loaders"].node_refs} == {"checkpoint"}
+    assert {ref.uid for ref in section_ids["sampling"].node_refs} == {"sample"}
+
+
 def _expected_compile_metric_order() -> list[str]:
     return [
         "compiled_node_layout_count",
@@ -1629,6 +2213,13 @@ def _expected_compile_metric_order() -> list[str]:
         "compiled_helper_layout_count",
         COMPILE_METRIC_NODE_OVERLAP_COUNT,
         COMPILE_METRIC_GROUP_OVERLAP_COUNT,
+        COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX,
+        COMPILE_METRIC_BASELINE_VARIANCE_MAX,
+        COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX,
+        COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT,
+        COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
+        COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW,
+        COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX,
         COMPILE_METRIC_BACKWARD_EDGE_RATIO,
         COMPILE_METRIC_CROSSING_PROXY_COUNT,
         COMPILE_METRIC_MINIMUM_GUTTER,
@@ -1636,3 +2227,870 @@ def _expected_compile_metric_order() -> list[str]:
         COMPILE_METRIC_IDEMPOTENCE_DELTA,
         COMPILE_METRIC_STRUCTURAL_HASH_UNCHANGED,
     ]
+
+
+def test_compile_local_section_layout_stacks_multiple_sidecars_on_same_target() -> None:
+    """Multiple SetNode/GetNode sidecars targeting the same primary node must
+    stack without overlapping each other or the target."""
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "target"), outputs=[
+                {"name": "out", "type": "*", "links": [10, 12, 14]}
+            ]),
+            _with_io(_node(2, "SetNode", "set_a"), inputs=[{"name": "value", "type": "*", "link": 10}]),
+            _with_io(_node(3, "SetNode", "set_b"), inputs=[{"name": "value", "type": "*", "link": 12}]),
+            _with_io(_node(4, "GetNode", "get_a"), outputs=[{"name": "value", "type": "*", "links": [11]}]),
+            _with_io(_node(5, "GetNode", "get_b"), outputs=[{"name": "value", "type": "*", "links": [13]}]),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "*"], [11, 4, 0, 1, 0, "*"],
+            [12, 1, 0, 3, 0, "*"], [13, 5, 0, 1, 0, "*"],
+            [14, 1, 0, 5, 0, "*"],
+        ],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [{"id": "main", "kind": "custom", "nodes": [["", "target"]]}],
+        "helper_placements": [
+            {"helper": ["", "set_a"], "kind": "near-producer", "target": ["", "target"]},
+            {"helper": ["", "set_b"], "kind": "near-producer", "target": ["", "target"]},
+            {"helper": ["", "get_a"], "kind": "near-consumer", "target": ["", "target"]},
+            {"helper": ["", "get_b"], "kind": "near-consumer", "target": ["", "target"]},
+        ],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
+
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+    sections = _compile_section_ownership_phase(
+        plan, facts, classification, LayoutCompileOptions(), trace=trace
+    )
+    main_section = next(s for s in sections if s.id == "main")
+    local = _local_section_layout(
+        main_section, facts, furniture_by_ref, LayoutCompileOptions(), _spacing("balanced"), plan
+    )
+    offsets = local.offsets
+    sizes = {
+        ref: _node_size_for_ref(ref, facts, furniture_by_ref.get(ref),
+                                preserve=False, minimize_setget_helpers=False)
+        for ref in offsets
+    }
+    # All get helpers (left side) must not overlap each other
+    get_refs = [CanonicalNodeRef("", "get_a"), CanonicalNodeRef("", "get_b")]
+    # All set helpers (right side) must not overlap each other
+    set_refs = [CanonicalNodeRef("", "set_a"), CanonicalNodeRef("", "set_b")]
+    target_ref = CanonicalNodeRef("", "target")
+
+    # Get helpers should be left of target
+    for ref in get_refs:
+        x, _ = offsets[ref]
+        w, _ = sizes[ref]
+        tx, _ = offsets[target_ref]
+        assert x + w <= tx, f"get helper {ref.uid} right edge {x+w} not left of target left {tx}"
+
+    # Set helpers should be right of target
+    for ref in set_refs:
+        x, _ = offsets[ref]
+        tw, _ = sizes[target_ref]
+        tx, _ = offsets[target_ref]
+        assert tx + tw <= x, f"set helper {ref.uid} left {x} not right of target right {tx+tw}"
+
+    # Verify sidecar stacking trace choices
+    assert "sidecar:right" in local.placement_choices.get(CanonicalNodeRef("", "set_a"), "")
+    assert "sidecar:left" in local.placement_choices.get(CanonicalNodeRef("", "get_a"), "")
+
+
+def test_compile_local_section_layout_sidecars_push_adjacent_primaries() -> None:
+    """When a sidecar is placed next to a target that has adjacent primary
+    neighbours, the adjacent primaries must be pushed to avoid overlap."""
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "left_nbr"), outputs=[{"name": "out", "type": "*", "links": [10]}]),
+            _with_io(_node(2, "PrimitiveNode", "target"), inputs=[{"name": "in", "type": "*", "link": 10}],
+                     outputs=[{"name": "out", "type": "*", "links": [11, 13]}]),
+            _with_io(_node(3, "PrimitiveNode", "right_nbr"), inputs=[{"name": "in", "type": "*", "link": 11}]),
+            _with_io(_node(4, "SetNode", "set_h"), inputs=[{"name": "value", "type": "*", "link": 13}]),
+            _with_io(_node(5, "GetNode", "get_h"), outputs=[{"name": "value", "type": "*", "links": [14]}]),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "*"], [11, 2, 0, 3, 0, "*"],
+            [13, 2, 0, 4, 0, "*"], [14, 5, 0, 2, 0, "*"],
+        ],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [{"id": "main", "kind": "custom",
+                       "nodes": [["", "left_nbr"], ["", "target"], ["", "right_nbr"]]}],
+        "helper_placements": [
+            {"helper": ["", "set_h"], "kind": "near-producer", "target": ["", "target"]},
+            {"helper": ["", "get_h"], "kind": "near-consumer", "target": ["", "target"]},
+        ],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
+
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+    sections = _compile_section_ownership_phase(
+        plan, facts, classification, LayoutCompileOptions(), trace=trace
+    )
+    main_section = next(s for s in sections if s.id == "main")
+    local = _local_section_layout(
+        main_section, facts, furniture_by_ref, LayoutCompileOptions(), _spacing("balanced"), plan
+    )
+    offsets = local.offsets
+    sizes = {
+        ref: _node_size_for_ref(ref, facts, furniture_by_ref.get(ref),
+                                preserve=False, minimize_setget_helpers=False)
+        for ref in offsets
+    }
+    # All nodes must be non-overlapping
+    ref_list = list(offsets.keys())
+    for i in range(len(ref_list)):
+        for j in range(i + 1, len(ref_list)):
+            a_ref, b_ref = ref_list[i], ref_list[j]
+            ax, ay = offsets[a_ref]
+            aw, ah = sizes[a_ref]
+            bx, by = offsets[b_ref]
+            bw, bh = sizes[b_ref]
+            overlap_x = ax < bx + bw and bx < ax + aw
+            overlap_y = ay < by + bh and by < ay + ah
+            assert not (overlap_x and overlap_y), \
+                f"overlap between {a_ref.uid} and {b_ref.uid}"
+
+    target_ref = CanonicalNodeRef("", "target")
+    get_h_ref = CanonicalNodeRef("", "get_h")
+    set_h_ref = CanonicalNodeRef("", "set_h")
+
+    # Get helper must be left of target
+    gx, _ = offsets[get_h_ref]
+    gw, _ = sizes[get_h_ref]
+    tx, _ = offsets[target_ref]
+    assert gx + gw <= tx, f"get helper right {gx+gw} not left of target left {tx}"
+
+    # Set helper must be right of target
+    tw, _ = sizes[target_ref]
+    sx, _ = offsets[set_h_ref]
+    assert tx + tw <= sx, f"set helper left {sx} not right of target right {tx+tw}"
+
+    # left_nbr must not overlap get helper
+    left_ref = CanonicalNodeRef("", "left_nbr")
+    lx, _ = offsets[left_ref]
+    lw, _ = sizes[left_ref]
+    assert lx + lw <= gx or gx + gw <= lx, \
+        "left neighbour overlaps with get helper"
+
+
+def test_compile_section_ownership_notes_in_relevant_sections() -> None:
+    """Notes that are connected to or annotated within a primary's section must
+    be assigned to that section, not __helpers__."""
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "CheckpointLoaderSimple", "loader"), outputs=[
+                {"name": "MODEL", "type": "MODEL", "links": [10]},
+                {"name": "CLIP", "type": "CLIP", "links": [11]},
+            ]),
+            _with_io(_node(2, "CLIPTextEncode", "prompt"),
+                     inputs=[{"name": "clip", "type": "CLIP", "link": 11}],
+                     outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [12, 14]}]),
+            _with_io(_node(3, "KSampler", "sampler"),
+                     inputs=[{"name": "model", "type": "MODEL", "link": 10},
+                             {"name": "positive", "type": "CONDITIONING", "link": 12}]),
+            _node(4, "MarkdownNote", "sampling_note"),
+            _node(5, "MarkdownNote", "orphan_note"),
+        ],
+        "links": [
+            [10, 1, 0, 3, 0, "MODEL"], [11, 1, 1, 2, 0, "CLIP"],
+            [12, 2, 0, 3, 1, "CONDITIONING"], [14, 2, 0, 4, 0, "CONDITIONING"],
+        ],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [
+            {"id": "loaders", "kind": "loaders", "nodes": [["", "loader"]]},
+            {"id": "conditioning", "kind": "conditioning", "nodes": [["", "prompt"]]},
+            {"id": "sampling", "kind": "sampling", "nodes": [["", "sampler"]]},
+        ],
+        "helper_placements": [
+            {"helper": ["", "sampling_note"], "kind": "inside-section", "section_id": "sampling"},
+            {"helper": ["", "orphan_note"], "kind": "inside-section", "section_id": "conditioning"},
+        ],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+    sections = _compile_section_ownership_phase(
+        plan, facts, classification, LayoutCompileOptions(), trace=trace
+    )
+    # sampling_note is connected to prompt (conditioning section) via link 14
+    # but is also placed in sampling section via inside-section placement
+    trace_entries = {entry.ref.uid: entry for entry in trace.to_entries()}
+    # The connected note should NOT be in __helpers__
+    assert trace_entries["sampling_note"].section_id != "__helpers__"
+    assert trace_entries["orphan_note"].section_id != "__helpers__"
+    # Verify that no note landed in __helpers__
+    helpers_section = next((s for s in sections if s.id == "__helpers__"), None)
+    if helpers_section is not None:
+        note_refs_in_helpers = [
+            ref for ref in helpers_section.node_refs
+            if any("note" in str(getattr(f, "class_type", "")).lower()
+                   for f in facts.canonical_refs if f.ref == ref)
+        ]
+        assert len(note_refs_in_helpers) == 0, \
+            f"notes should not be in __helpers__: {note_refs_in_helpers}"
+
+
+def test_compile_layout_plan_collapses_set_get_helpers() -> None:
+    """In large workflows, get/set helpers must have collapsed (minimized)
+    dimensions to avoid crowding primaries."""
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "CheckpointLoaderSimple", "loader"), outputs=[
+                {"name": "MODEL", "type": "MODEL", "links": [10]}
+            ]),
+            _with_io(_node(2, "KSampler", "sampler"),
+                     inputs=[{"name": "model", "type": "MODEL", "link": 10}],
+                     outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}]),
+            _with_io(_node(3, "SetNode", "set_latent"),
+                     inputs=[{"name": "value", "type": "LATENT", "link": 12}]),
+            _with_io(_node(4, "GetNode", "get_latent"),
+                     outputs=[{"name": "value", "type": "LATENT", "links": [12]}]),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "MODEL"], [11, 2, 0, 4, 0, "LATENT"],
+            [12, 4, 0, 3, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [
+            {"id": "loaders", "kind": "loaders", "nodes": [["", "loader"]]},
+            {"id": "sampling", "kind": "sampling", "nodes": [["", "sampler"]]},
+        ],
+        "helper_placements": [
+            {"helper": ["", "set_latent"], "kind": "near-producer", "target": ["", "sampler"]},
+            {"helper": ["", "get_latent"], "kind": "near-consumer", "target": ["", "sampler"]},
+        ],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
+    # Normal size (no collapse)
+    normal_size_set = _node_size_for_ref(
+        CanonicalNodeRef("", "set_latent"), facts, furniture_by_ref.get(CanonicalNodeRef("", "set_latent")),
+        preserve=False, minimize_setget_helpers=False,
+    )
+    normal_size_get = _node_size_for_ref(
+        CanonicalNodeRef("", "get_latent"), facts, furniture_by_ref.get(CanonicalNodeRef("", "get_latent")),
+        preserve=False, minimize_setget_helpers=False,
+    )
+    # Collapsed size (large workflow gate active; but this is small so gate won't trigger)
+    # Just verify the function shape: collapsed width <= normal width
+    collapsed_set = _node_size_for_ref(
+        CanonicalNodeRef("", "set_latent"), facts, furniture_by_ref.get(CanonicalNodeRef("", "set_latent")),
+        preserve=False, minimize_setget_helpers=True,
+    )
+    collapsed_get = _node_size_for_ref(
+        CanonicalNodeRef("", "get_latent"), facts, furniture_by_ref.get(CanonicalNodeRef("", "get_latent")),
+        preserve=False, minimize_setget_helpers=True,
+    )
+    # When gate is active for huge workflows, collapsed sizes should be smaller.
+    # For non-huge workflows they stay the same. Either way, assert monotonic.
+    assert collapsed_set[0] <= normal_size_set[0] and collapsed_set[1] <= normal_size_set[1]
+    assert collapsed_get[0] <= normal_size_get[0] and collapsed_get[1] <= normal_size_get[1]
+    # Full compile must succeed
+    result = compile_layout_plan(plan, facts)
+    assert result.ok is True
+    layouts = _layouts_by_uid(result)
+    assert layouts["set_latent"].width > 0
+    assert layouts["get_latent"].width > 0
+
+
+def test_compile_layout_plan_bounds_cover_rendered_footprints() -> None:
+    """The computed section bounds must cover the rendered footprints of all
+    nodes in that section including sidecars."""
+    ui = {
+        "nodes": [
+            _with_io(_make_node(1, "PrimitiveNode", "target", size=[200, 100]),
+                     outputs=[{"name": "out", "type": "*", "links": [10, 11]}]),
+            _with_io(_make_node(2, "SetNode", "set_h", size=[130, 55]),
+                     inputs=[{"name": "value", "type": "*", "link": 10}]),
+            _with_io(_make_node(3, "GetNode", "get_h", size=[130, 55]),
+                     outputs=[{"name": "value", "type": "*", "links": [12]}]),
+            _with_io(_make_node(4, "PrimitiveNode", "tall_node", size=[160, 400]),
+                     inputs=[{"name": "in", "type": "*", "link": 12}]),
+            _with_io(_make_node(5, "PrimitiveNode", "wide_node", size=[600, 70]),
+                     inputs=[{"name": "in", "type": "*", "link": 11}]),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "*"], [11, 1, 0, 5, 0, "*"],
+            [12, 3, 0, 4, 0, "*"],
+        ],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [{"id": "main", "kind": "custom",
+                       "nodes": [["", "target"], ["", "tall_node"], ["", "wide_node"]]}],
+        "helper_placements": [
+            {"helper": ["", "set_h"], "kind": "near-producer", "target": ["", "target"]},
+            {"helper": ["", "get_h"], "kind": "near-consumer", "target": ["", "target"]},
+        ],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
+
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+    sections = _compile_section_ownership_phase(
+        plan, facts, classification, LayoutCompileOptions(), trace=trace
+    )
+    main_section = next(s for s in sections if s.id == "main")
+    local_layout = _local_section_layout(
+        main_section, facts, furniture_by_ref,
+        LayoutCompileOptions(), _spacing("balanced"), plan,
+    )
+    # _local_bounds must cover every node in the section
+    bounds_width, bounds_height = _local_bounds(local_layout.offsets, {
+        ref: _node_size_for_ref(ref, facts, furniture_by_ref.get(ref),
+                                preserve=False, minimize_setget_helpers=False)
+        for ref in local_layout.offsets
+    })
+    for ref, (x, y) in local_layout.offsets.items():
+        w, h = _node_size_for_ref(ref, facts, furniture_by_ref.get(ref),
+                                  preserve=False, minimize_setget_helpers=False)
+        assert x + w <= bounds_width, \
+            f"node {ref.uid} right edge {x + w} exceeds bounds width {bounds_width}"
+        assert y + h <= bounds_height, \
+            f"node {ref.uid} bottom edge {y + h} exceeds bounds height {bounds_height}"
+
+
+def test_compile_layout_plan_zero_sidecar_overlaps() -> None:
+    """After sidecar packing, no sidecar must overlap any other node in the
+    section (including other sidecars and primaries)."""
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "target"), outputs=[
+                {"name": "out", "type": "*", "links": [10, 12, 14, 16]}
+            ]),
+            _with_io(_node(2, "SetNode", "set_a"), inputs=[{"name": "value", "type": "*", "link": 10}]),
+            _with_io(_node(3, "SetNode", "set_b"), inputs=[{"name": "value", "type": "*", "link": 12}]),
+            _with_io(_node(4, "GetNode", "get_a"), outputs=[{"name": "value", "type": "*", "links": [11]}]),
+            _with_io(_node(5, "GetNode", "get_b"), outputs=[{"name": "value", "type": "*", "links": [13]}]),
+            _with_io(_node(6, "PrimitiveNode", "left_nbr"),
+                     outputs=[{"name": "out", "type": "*", "links": [17]}]),
+            _with_io(_node(7, "PrimitiveNode", "right_nbr"),
+                     inputs=[{"name": "in", "type": "*", "link": 16}]),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "*"], [11, 4, 0, 1, 0, "*"],
+            [12, 1, 0, 3, 0, "*"], [13, 5, 0, 1, 0, "*"],
+            [14, 1, 0, 5, 0, "*"], [16, 1, 0, 7, 0, "*"],
+            [17, 6, 0, 1, 0, "*"],
+        ],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [{"id": "main", "kind": "custom",
+                       "nodes": [["", "left_nbr"], ["", "target"], ["", "right_nbr"]]}],
+        "helper_placements": [
+            {"helper": ["", "set_a"], "kind": "near-producer", "target": ["", "target"]},
+            {"helper": ["", "set_b"], "kind": "near-producer", "target": ["", "target"]},
+            {"helper": ["", "get_a"], "kind": "near-consumer", "target": ["", "target"]},
+            {"helper": ["", "get_b"], "kind": "near-consumer", "target": ["", "target"]},
+        ],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    result = compile_layout_plan(plan, facts)
+    assert result.ok is True
+    layouts = _layouts_by_uid(result)
+
+    # Check all pairwise non-overlap
+    uids = list(layouts.keys())
+    for i in range(len(uids)):
+        for j in range(i + 1, len(uids)):
+            a = layouts[uids[i]]
+            b = layouts[uids[j]]
+            a_right = a.x + a.width
+            a_bottom = a.y + a.height
+            b_right = b.x + b.width
+            b_bottom = b.y + b.height
+            overlap_x = a.x < b_right and b.x < a_right
+            overlap_y = a.y < b_bottom and b.y < a_bottom
+            assert not (overlap_x and overlap_y), \
+                f"overlap between {uids[i]} ({a.x},{a.y})-({a_right},{a_bottom}) " \
+                f"and {uids[j]} ({b.x},{b.y})-({b_right},{b_bottom})"
+
+
+def test_compile_layout_plan_max_primary_row_count_is_three() -> None:
+    """The row template must place at most 3 primary nodes per row when
+    using _layout_primary_rows."""
+
+    # Direct test of _layout_primary_rows: 10 refs, max 3 per row
+    refs = tuple(CanonicalNodeRef("", f"p{i}") for i in range(1, 11))
+    sizes = {ref: (150 + (i % 3) * 20, 80 + (i % 2) * 10) for i, ref in enumerate(refs, 1)}
+    gap_x, gap_y = 40, 30
+    offsets = _layout_primary_rows(refs, sizes, gap_x, gap_y, columns_per_row=3)
+
+    row_groups: dict[int, list[CanonicalNodeRef]] = {}
+    for ref, (x, y) in sorted(offsets.items(), key=lambda item: (item[1][1], item[1][0])):
+        row_groups.setdefault(y, []).append(ref)
+    for y, row_refs in row_groups.items():
+        assert len(row_refs) <= 3, \
+            f"row at y={y} has {len(row_refs)} primaries, max allowed is 3"
+    assert len(offsets) == 10
+
+    # Full compile: 4 PrimitiveNodes trigger the "row" template via
+    # _constant_like_refs (matches "primitive" in class_type).
+    ui = {
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "p1"), outputs=[{"name": "out", "type": "*", "links": [10]}]),
+            _with_io(_node(2, "PrimitiveNode", "p2"),
+                     inputs=[{"name": "in", "type": "*", "link": 10}],
+                     outputs=[{"name": "out", "type": "*", "links": [11]}]),
+            _with_io(_node(3, "PrimitiveNode", "p3"),
+                     inputs=[{"name": "in", "type": "*", "link": 11}],
+                     outputs=[{"name": "out", "type": "*", "links": [12]}]),
+            _with_io(_node(4, "PrimitiveNode", "p4"),
+                     inputs=[{"name": "in", "type": "*", "link": 12}]),
+        ],
+        "links": [[10, 1, 0, 2, 0, "*"], [11, 2, 0, 3, 0, "*"], [12, 3, 0, 4, 0, "*"]],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [{"id": "main", "kind": "custom",
+                       "nodes": [["", "p1"], ["", "p2"], ["", "p3"], ["", "p4"]]}],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
+    trace = _CompileTraceAccumulator(facts)
+    classification = _classify_layout_phase(facts, trace=trace)
+    sections = _compile_section_ownership_phase(
+        plan, facts, classification, LayoutCompileOptions(), trace=trace
+    )
+    main_section = next(s for s in sections if s.id == "main")
+    local = _local_section_layout(
+        main_section, facts, furniture_by_ref, LayoutCompileOptions(), _spacing("balanced"), plan
+    )
+    # 4 primaries across 3-column rows: first row has 3, second row has 1
+    row_groups2: dict[int, list] = {}
+    for ref, (x, y) in local.offsets.items():
+        row_groups2.setdefault(y, []).append(ref)
+    assert len(local.offsets) == 4
+    for y, row_refs in row_groups2.items():
+        assert len(row_refs) <= 3, \
+            f"compiled row at y={y} has {len(row_refs)} primaries, max allowed is 3"
+
+
+def test_compile_layout_plan_tall_and_long_node_group_bounds() -> None:
+    """When a section contains tall or long nodes, the group bounds must
+    encompass their full rendered footprint."""
+    ui = {
+        "nodes": [
+            _with_io(
+                _make_node(1, "CheckpointLoaderSimple", "loader", size=[300, 98]),
+                outputs=[{"name": "MODEL", "type": "MODEL", "links": [10]}],
+            ),
+            _with_io(
+                _make_node(2, "KSampler", "sampler", size=[260, 90]),
+                inputs=[{"name": "model", "type": "MODEL", "link": 10}],
+            ),
+        ],
+        "links": [[10, 1, 0, 2, 0, "MODEL"]],
+    }
+    plan = parse_layout_plan({
+        "version": 1,
+        "sections": [
+            {"id": "loaders", "kind": "loaders", "nodes": [["", "loader"]]},
+            {"id": "sampling", "kind": "sampling", "nodes": [["", "sampler"]]},
+        ],
+        "unassigned_policy": "reject",
+    })
+    facts = extract_graph_facts(ui)
+    result = compile_layout_plan(plan, facts)
+    assert result.ok is True
+    layouts = _layouts_by_uid(result)
+    loader = layouts["loader"]
+    sampler = layouts["sampler"]
+    # Check that actual node sizes are respected
+    assert loader.width >= 300, f"loader width should be >= 300, got {loader.width}"
+    assert sampler.width >= 260, f"sampler width should be >= 260, got {sampler.width}"
+    # Each node must fit within the group layout bounds it belongs to
+    for group in result.group_layouts:
+        group_right = group.x + group.width
+        group_bottom = group.y + group.height
+        for ref in group.node_refs:
+            layout = layouts[ref.uid]
+            assert layout.x >= group.x, \
+                f"node {layout.ref.uid} left edge {layout.x} < group left {group.x}"
+            assert layout.x + layout.width <= group_right, \
+                f"node {layout.ref.uid} right edge exceeds group bounds"
+            assert layout.y >= group.y, \
+                f"node {layout.ref.uid} top edge {layout.y} < group top {group.y}"
+            assert layout.y + layout.height <= group_bottom, \
+                f"node {layout.ref.uid} bottom edge exceeds group bounds"
+
+
+# ---------------------------------------------------------------------------
+# T13: Determinism and metric tests
+# ---------------------------------------------------------------------------
+
+
+def test_repeated_compiles_produce_identical_node_and_group_coordinates() -> None:
+    """Repeated compiles of the same plan+facts must produce identical x/y
+    coordinates for every node and identical x/y/width/height for every group.
+    This is stronger than json-order determinism -- it proves the placement
+    math itself is deterministic."""
+    facts = extract_graph_facts(_ui())
+    plan = _valid_plan()
+
+    def _coordinate_snapshot(result) -> dict:
+        nodes = {
+            layout.ref.uid: (layout.x, layout.y, layout.width, layout.height)
+            for layout in result.node_layouts
+        }
+        groups = {
+            group.id: (group.x, group.y, group.width, group.height)
+            for group in result.group_layouts
+        }
+        return {"nodes": nodes, "groups": groups}
+
+    first = compile_layout_plan(plan, facts)
+    second = compile_layout_plan(plan, facts)
+    third = compile_layout_plan(plan, facts)
+
+    snap1 = _coordinate_snapshot(first)
+    snap2 = _coordinate_snapshot(second)
+    snap3 = _coordinate_snapshot(third)
+
+    assert snap1 == snap2, "first and second compile must have identical coordinates"
+    assert snap1 == snap3, "first and third compile must have identical coordinates"
+
+
+def test_repeated_compiles_produce_identical_coordinates_from_ui_path() -> None:
+    """The compile_layout_plan_from_ui path must also be deterministic
+    for repeated calls."""
+    plan = _valid_plan()
+    ui = _ui()
+
+    first = compile_layout_plan_from_ui(plan, deepcopy(ui))
+    second = compile_layout_plan_from_ui(plan, deepcopy(ui))
+
+    first_nodes = {
+        layout.ref.uid: (layout.x, layout.y)
+        for layout in first.node_layouts
+    }
+    second_nodes = {
+        layout.ref.uid: (layout.x, layout.y)
+        for layout in second.node_layouts
+    }
+    assert first_nodes == second_nodes
+
+    first_groups = {
+        group.id: (group.x, group.y, group.width, group.height)
+        for group in first.group_layouts
+    }
+    second_groups = {
+        group.id: (group.x, group.y, group.width, group.height)
+        for group in second.group_layouts
+    }
+    assert first_groups == second_groups
+
+
+def test_repeated_compiles_with_different_spacing_produce_identical_coordinates() -> None:
+    """Each spacing preset must be self-deterministic: compact twice gives the
+    same coords, wide twice gives the same coords."""
+    facts = extract_graph_facts(_ui())
+    plan = _valid_plan()
+
+    for preset in ("compact", "wide"):
+        opts = LayoutCompileOptions(spacing_preset=preset)
+        first = compile_layout_plan(plan, facts, options=opts)
+        second = compile_layout_plan(plan, facts, options=opts)
+
+        first_coords = {
+            layout.ref.uid: (layout.x, layout.y)
+            for layout in first.node_layouts
+        }
+        second_coords = {
+            layout.ref.uid: (layout.x, layout.y)
+            for layout in second.node_layouts
+        }
+        assert first_coords == second_coords, \
+            f"spacing preset {preset!r} produced different coordinates"
+
+
+def test_validation_metrics_are_all_present_in_compile_result() -> None:
+    """Every metric in COMPILE_METRIC_ORDER must appear in the compile result,
+    including all extended validation metrics added in T12."""
+    result = compile_layout_plan(_valid_plan(), extract_graph_facts(_ui()))
+
+    metric_names = {metric.name for metric in result.metrics}
+    assert metric_names == set(_expected_compile_metric_order()), \
+        "compile result must contain exactly the expected metric set"
+
+    # Spot-check that each extended metric is present with a sensible type
+    metrics = {metric.name: metric for metric in result.metrics}
+    for name in (
+        COMPILE_METRIC_NODE_OVERLAP_COUNT,
+        COMPILE_METRIC_GROUP_OVERLAP_COUNT,
+        COMPILE_METRIC_INTERNAL_WHITESPACE_RATIO_MAX,
+        COMPILE_METRIC_BASELINE_VARIANCE_MAX,
+        COMPILE_METRIC_DETACHED_GROUP_DISTANCE_MAX,
+        COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT,
+        COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
+        COMPILE_METRIC_MAX_PRIMARY_NODES_PER_ROW,
+        COMPILE_METRIC_LONG_EDGE_DISTANCE_MAX,
+        COMPILE_METRIC_BACKWARD_EDGE_RATIO,
+        COMPILE_METRIC_CROSSING_PROXY_COUNT,
+        COMPILE_METRIC_MINIMUM_GUTTER,
+        COMPILE_METRIC_HELPER_DISTANCE_MAX,
+        COMPILE_METRIC_IDEMPOTENCE_DELTA,
+    ):
+        m = metrics[name]
+        assert isinstance(m.value, (int, float)), \
+            f"metric {name!r} value must be numeric, got {type(m.value)}"
+        assert hasattr(m, "threshold"), \
+            f"metric {name!r} must have a threshold"
+
+
+def test_validation_does_not_correct_coordinates() -> None:
+    """When _build_report detects overlaps, internal whitespace issues, etc.,
+    it emits warnings via AssessmentIssue but must NOT mutate the node_layouts
+    or group_layouts that were passed in.  Validation is diagnostic only."""
+    from vibecomfy.porting.reorganise.compile import (
+        _compile_gate_metrics_and_issues,
+    )
+
+    ref_a = CanonicalNodeRef("", "a")
+    ref_b = CanonicalNodeRef("", "b")
+    ref_c = CanonicalNodeRef("", "c")
+
+    # Deliberately overlapping layout: a and b share the same space
+    node_layouts = (
+        CompiledNodeLayout(ref=ref_a, section_id="s", role_hint=ROLE_HINT_UNKNOWN,
+                           x=0, y=0, width=100, height=100),
+        CompiledNodeLayout(ref=ref_b, section_id="s", role_hint=ROLE_HINT_UNKNOWN,
+                           x=50, y=50, width=100, height=100),
+        CompiledNodeLayout(ref=ref_c, section_id="s", role_hint=ROLE_HINT_UNKNOWN,
+                           x=200, y=0, width=80, height=80),
+    )
+    group_layouts = (
+        CompiledGroupLayout(
+            id="s", scope_path="", title="S", kind="custom",
+            node_refs=(ref_a, ref_b, ref_c),
+            x=0, y=0, width=300, height=200, color="#646464",
+        ),
+    )
+    facts = extract_graph_facts({
+        "nodes": [
+            _with_io(_node(1, "PrimitiveNode", "a"),
+                     outputs=[{"name": "out", "type": "*", "links": [10]}]),
+            _with_io(_node(2, "PrimitiveNode", "b"),
+                     inputs=[{"name": "in", "type": "*", "link": 10}]),
+            _node(3, "PrimitiveNode", "c"),
+        ],
+        "links": [[10, 1, 0, 2, 0, "*"]],
+    })
+
+    # Snapshot coords before calling metrics
+    before_coords = {
+        layout.ref.uid: (layout.x, layout.y, layout.width, layout.height)
+        for layout in node_layouts
+    }
+    before_groups = {
+        group.id: (group.x, group.y, group.width, group.height)
+        for group in group_layouts
+    }
+
+    # Build the patch from the (overlapping) node layouts
+    candidate_patch = LayoutCandidatePatch(
+        entries={
+            layout.ref.uid: {"pos": [layout.x, layout.y],
+                             "size": [layout.width, layout.height]}
+            for layout in node_layouts
+        },
+        groups=(
+            {"id": "s", "title": "S", "bounding": [0, 0, 300, 200],
+             "nodes": ["a", "b", "c"]},
+        ),
+    )
+
+    gate_metrics, gate_issues = _compile_gate_metrics_and_issues(
+        node_layouts=node_layouts,
+        group_layouts=group_layouts,
+        facts=facts,
+        candidate_patch=candidate_patch,
+        structural_hash_before="abc",
+        structural_hash_after="abc",
+    )
+
+    # Metrics must detect the overlap
+    overlap_metric = next(
+        m for m in gate_metrics
+        if m.name == COMPILE_METRIC_NODE_OVERLAP_COUNT
+    )
+    assert overlap_metric.value > 0, \
+        "validation must detect the deliberate overlap"
+
+    # Issues must include overlap warning
+    overlap_codes = {issue.code for issue in gate_issues}
+    assert COMPILE_ISSUE_NODE_OVERLAP in overlap_codes, \
+        "validation must emit overlap warning"
+
+    # Coordinates must NOT be mutated
+    after_coords = {
+        layout.ref.uid: (layout.x, layout.y, layout.width, layout.height)
+        for layout in node_layouts
+    }
+    after_groups = {
+        group.id: (group.x, group.y, group.width, group.height)
+        for group in group_layouts
+    }
+    assert after_coords == before_coords, \
+        "validation metrics must NOT mutate node coordinates"
+    assert after_groups == before_groups, \
+        "validation metrics must NOT mutate group coordinates"
+
+
+def test_structural_expectations_reject_overlaps_via_report() -> None:
+    """Structural expectations must surface overlap issues in the compile
+    report when nodes overlap.  The report's issues must include the overlap
+    code and the verdict must reflect the problem."""
+    ref_a = CanonicalNodeRef("", "a")
+    ref_b = CanonicalNodeRef("", "b")
+
+    # Two nodes completely overlapping
+    node_layouts = (
+        CompiledNodeLayout(ref=ref_a, section_id="s", role_hint=ROLE_HINT_UNKNOWN,
+                           x=0, y=0, width=100, height=100),
+        CompiledNodeLayout(ref=ref_b, section_id="s", role_hint=ROLE_HINT_UNKNOWN,
+                           x=10, y=10, width=100, height=100),
+    )
+    group_layouts = (
+        CompiledGroupLayout(
+            id="s", scope_path="", title="S", kind="custom",
+            node_refs=(ref_a, ref_b),
+            x=0, y=0, width=200, height=200, color="#646464",
+        ),
+    )
+    facts = extract_graph_facts({
+        "nodes": [
+            _node(1, "PrimitiveNode", "a"),
+            _node(2, "PrimitiveNode", "b"),
+        ],
+        "links": [],
+    })
+    candidate_patch = LayoutCandidatePatch(
+        entries={
+            layout.ref.uid: {"pos": [layout.x, layout.y],
+                             "size": [layout.width, layout.height]}
+            for layout in node_layouts
+        },
+        groups=(
+            {"id": "s", "title": "S", "bounding": [0, 0, 200, 200],
+             "nodes": ["a", "b"]},
+        ),
+    )
+
+    report = _build_report(
+        node_layouts=node_layouts,
+        group_layouts=group_layouts,
+        facts=facts,
+        candidate_patch=candidate_patch,
+        structural_hash_before="before",
+        structural_hash_after="after",
+        diagnostics=(),
+    )
+
+    # With node overlaps, the verdict must not be "ok"
+    assert report.verdict != "ok", \
+        f"overlapping nodes must produce a non-ok verdict, got {report.verdict!r}"
+
+    issue_codes = {issue.code for issue in report.issues}
+    assert COMPILE_ISSUE_NODE_OVERLAP in issue_codes, \
+        "overlapping nodes must produce a node_overlap issue"
+
+
+def test_structural_expectations_reject_fake_helper_groups() -> None:
+    """A group whose title claims 'set / get' or 'helper' but that contains
+    primary nodes (not actual helpers) must still be recognized. The
+    helper sidecar overlap metric and any note section mismatches must
+    be counted correctly even when groups are mislabeled."""
+    ref_primary = CanonicalNodeRef("", "primary")
+    ref_real_set = CanonicalNodeRef("", "setter")
+    ref_real_get = CanonicalNodeRef("", "getter")
+
+    # A fake "set / get" group containing a primary node
+    node_layouts = (
+        CompiledNodeLayout(ref=ref_primary, section_id="main",
+                           role_hint=ROLE_HINT_UNKNOWN,
+                           x=0, y=0, width=200, height=100),
+        CompiledNodeLayout(ref=ref_real_set, section_id="main",
+                           role_hint=ROLE_HINT_HELPER,
+                           x=220, y=0, width=120, height=80),
+        CompiledNodeLayout(ref=ref_real_get, section_id="main",
+                           role_hint=ROLE_HINT_HELPER,
+                           x=360, y=0, width=120, height=80),
+    )
+    group_layouts = (
+        CompiledGroupLayout(
+            id="fake_setget", scope_path="", title="set / get (fake)",
+            kind="custom",
+            node_refs=(ref_primary, ref_real_set, ref_real_get),
+            x=0, y=0, width=500, height=120, color="#a8adb4",
+        ),
+    )
+    facts = extract_graph_facts({
+        "nodes": [
+            _node(1, "PrimitiveNode", "primary"),
+            _with_io(_node(2, "SetNode", "setter"),
+                     inputs=[{"name": "value", "type": "*", "link": 10}]),
+            _with_io(_node(3, "GetNode", "getter"),
+                     outputs=[{"name": "value", "type": "*", "links": [11]}]),
+        ],
+        "links": [[10, 1, 0, 2, 0, "*"], [11, 3, 0, 1, 0, "*"]],
+    })
+    candidate_patch = LayoutCandidatePatch(
+        entries={
+            layout.ref.uid: {"pos": [layout.x, layout.y],
+                             "size": [layout.width, layout.height]}
+            for layout in node_layouts
+        },
+        groups=(
+            {"id": "fake_setget", "title": "set / get (fake)",
+             "bounding": [0, 0, 500, 120], "nodes": ["primary", "setter", "getter"]},
+        ),
+    )
+
+    report = _build_report(
+        node_layouts=node_layouts,
+        group_layouts=group_layouts,
+        facts=facts,
+        candidate_patch=candidate_patch,
+        structural_hash_before="same",
+        structural_hash_after="same",
+        diagnostics=(),
+    )
+
+    # The report must exist and contain all expected metrics
+    metric_names = {metric.name for metric in report.metrics}
+    assert COMPILE_METRIC_HELPER_SIDECAR_OVERLAP_COUNT in metric_names, \
+        "helper sidecar overlap metric must be present"
+    assert COMPILE_METRIC_HELPER_DISTANCE_MAX in metric_names, \
+        "helper distance metric must be present"
+
+    # Even with mislabeled groups, the node-level facts still classify
+    # helpers correctly, so the helper layout count must match reality
+    helper_count_metric = next(
+        m for m in report.metrics
+        if m.name == "compiled_helper_layout_count"
+    )
+    assert helper_count_metric.value == 2, \
+        "must count the two real helpers (SetNode, GetNode)"

@@ -126,6 +126,22 @@ ROLE_HINTS: frozenset[RoleHint] = frozenset(
     }
 )
 
+LayoutBehavior = Literal["primary", "sidecar", "wall", "note", "unknown"]
+LAYOUT_BEHAVIOR_PRIMARY: LayoutBehavior = "primary"
+LAYOUT_BEHAVIOR_SIDECAR: LayoutBehavior = "sidecar"
+LAYOUT_BEHAVIOR_WALL: LayoutBehavior = "wall"
+LAYOUT_BEHAVIOR_NOTE: LayoutBehavior = "note"
+LAYOUT_BEHAVIOR_UNKNOWN: LayoutBehavior = "unknown"
+LAYOUT_BEHAVIORS: frozenset[LayoutBehavior] = frozenset(
+    {
+        LAYOUT_BEHAVIOR_PRIMARY,
+        LAYOUT_BEHAVIOR_SIDECAR,
+        LAYOUT_BEHAVIOR_WALL,
+        LAYOUT_BEHAVIOR_NOTE,
+        LAYOUT_BEHAVIOR_UNKNOWN,
+    }
+)
+
 SamplerRelationKind = Literal[
     "same_sampler_pair",
     "parallel_sampler_branch",
@@ -330,6 +346,53 @@ class CanonicalNodeSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class LayoutTraceEntry:
+    """Per-node placement trace entry for ``layout_trace.json`` artifact.
+
+    Captures classification and placement decisions for a single node
+    across the compile phases.
+    """
+
+    ref: CanonicalNodeRef
+    class_type: str
+    role_hint: RoleHint = ROLE_HINT_UNKNOWN
+    layout_behavior: LayoutBehavior = "unknown"
+    section_id: str | None = None
+    attachment_target: CanonicalNodeRef | None = None
+    placement_choice: str | None = None
+    x: float | None = None
+    y: float | None = None
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.role_hint not in ROLE_HINTS:
+            raise ValueError(f"unknown role hint: {self.role_hint!r}")
+        if self.layout_behavior not in LAYOUT_BEHAVIORS:
+            raise ValueError(f"unknown layout behavior: {self.layout_behavior!r}")
+
+    def to_json(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "ref": self.ref.to_json(),
+            "class_type": self.class_type,
+            "role_hint": self.role_hint,
+            "layout_behavior": self.layout_behavior,
+        }
+        if self.section_id is not None:
+            payload["section_id"] = self.section_id
+        if self.attachment_target is not None:
+            payload["attachment_target"] = self.attachment_target.to_json()
+        if self.placement_choice is not None:
+            payload["placement_choice"] = self.placement_choice
+        if self.x is not None:
+            payload["x"] = self.x
+        if self.y is not None:
+            payload["y"] = self.y
+        if self.reason is not None:
+            payload["reason"] = self.reason
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class ScopeGraphSummary:
     scope_path: str
     node_count: int
@@ -493,6 +556,12 @@ __all__ = [
     "HELPER_PLACEMENT_KINDS",
     "HELPER_PLACEMENT_NEAR_CONSUMER",
     "HELPER_PLACEMENT_NEAR_PRODUCER",
+    "LAYOUT_BEHAVIOR_NOTE",
+    "LAYOUT_BEHAVIOR_PRIMARY",
+    "LAYOUT_BEHAVIOR_SIDECAR",
+    "LAYOUT_BEHAVIOR_UNKNOWN",
+    "LAYOUT_BEHAVIOR_WALL",
+    "LAYOUT_BEHAVIORS",
     "LAYOUT_PLAN_VERSION",
     "ROLE_HINTS",
     "ROLE_HINT_CONDITIONING",
@@ -534,8 +603,10 @@ __all__ = [
     "GraphFactsSummary",
     "HelperPlacement",
     "HelperPlacementKind",
+    "LayoutBehavior",
     "LayoutPlanV1",
     "LayoutSection",
+    "LayoutTraceEntry",
     "RoleHint",
     "SamplerRelationClaim",
     "SamplerRelationKind",

@@ -1,0 +1,72 @@
+{
+  "lastRerouteId": 0,
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [0, 0]
+    },
+    "virtual_wires": {
+      "bus-latent": {"type": "SetNode", "channel": "LATENT", "endpoints": [5, 6]}
+    },
+    "vibecomfy": {
+      "fixture": "sidecar_push_adjacent",
+      "coverage": ["sidecar_push_adjacent", "sidecar_adjacent_primary_collision"],
+      "thresholds": {
+        "helper_count": 2,
+        "max_primary_nodes": 4,
+        "expected_layout_pressure": "sidecars attach left/right of target and adjacent primaries shift to preserve gutters"
+      }
+    }
+  },
+  "nodes": [
+    {
+      "id": 1, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple",
+      "title": "Load A", "pos": [10, 120], "size": [300, 98],
+      "properties": {"vibecomfy_uid": "load_a"},
+      "widgets_values": ["model.safetensors"],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [10]}]
+    },
+    {
+      "id": 2, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple",
+      "title": "Load B", "pos": [340, 120], "size": [300, 98],
+      "properties": {"vibecomfy_uid": "load_b"},
+      "widgets_values": ["model2.safetensors"],
+      "inputs": [{"name": "in", "type": "MODEL", "link": 10}],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [11]}]
+    },
+    {
+      "id": 3, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple",
+      "title": "Load C", "pos": [670, 120], "size": [300, 98],
+      "properties": {"vibecomfy_uid": "load_c"},
+      "widgets_values": ["model3.safetensors"],
+      "inputs": [{"name": "in", "type": "MODEL", "link": 11}]
+    },
+    {
+      "id": 4, "type": "CheckpointLoaderSimple", "class_type": "CheckpointLoaderSimple",
+      "title": "Load D", "pos": [1000, 120], "size": [300, 98],
+      "properties": {"vibecomfy_uid": "load_d"},
+      "widgets_values": ["model4.safetensors"],
+      "inputs": [{"name": "in", "type": "MODEL", "link": 12}]
+    },
+    {
+      "id": 5, "type": "SetNode", "class_type": "SetNode",
+      "title": "Set helper", "pos": [600, 220], "size": [130, 52],
+      "properties": {"vibecomfy_uid": "set_helper", "channel": "LATENT"},
+      "widgets_values": ["LATENT"],
+      "inputs": [{"name": "value", "type": "MODEL", "link": 11}]
+    },
+    {
+      "id": 6, "type": "GetNode", "class_type": "GetNode",
+      "title": "Get helper", "pos": [5, 220], "size": [130, 52],
+      "properties": {"vibecomfy_uid": "get_helper", "channel": "LATENT"},
+      "widgets_values": ["LATENT"],
+      "outputs": [{"name": "value", "type": "MODEL", "links": [12]}]
+    }
+  ],
+  "links": [
+    [10, 1, 0, 2, 0, "MODEL"],
+    [11, 2, 0, 3, 0, "MODEL"],
+    [12, 6, 0, 4, 0, "MODEL"]
+  ],
+  "groups": []
+}
