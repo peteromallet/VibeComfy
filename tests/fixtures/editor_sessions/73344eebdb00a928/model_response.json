@@ -1,0 +1,67 @@
+{
+  "turns": [
+    {
+      "batch_result": {
+        "batch": "previewimage = PreviewImage(images=vaedecode.IMAGE, near=vaedecode)\ndone()",
+        "batch_ok": true,
+        "diagnostics": [],
+        "landed_op_count": 1,
+        "message": "I'll add a PreviewImage node for quick visual feedback.",
+        "model": "agent-edit",
+        "provider_metadata": {
+          "credential_presence": "<REDACTED>",
+          "provider": "arnold",
+          "requested_route": "deepseek",
+          "response_contract": "batch_repl"
+        },
+        "report": "Batch summary: 1 landed, 0 failed.\n\u2713 Statement 1: node_call \u2014 landed (touched uids: [n3])",
+        "route": "deepseek",
+        "statement_count": 2,
+        "statements": [
+          {
+            "dependency_cause": null,
+            "detail": {
+              "edit_op": "AddNodeOp(op='add_node', scope_path='', class_type='PreviewImage', uid='n3', node_id='previewimage_1', fields={}, inputs={'images': {'scope_path': '', 'uid': '8', 'output_slot': 'IMAGE'}}, anchor={'relation': 'near', 'near': {'scope_path': '', 'uid': '8'}})",
+              "minted_uid": "n3",
+              "minted_node_id": "previewimage_1",
+              "resolved_add_node": "_ResolvedAddNodeCall(target_name='previewimage', scope_path='', class_type='PreviewImage', uid='n3', node_id='previewimage_1', fields={}, inputs={'images': {'scope_path': '', 'uid': '8', 'output_slot': 'IMAGE'}}, anchor={'relation': 'near', 'near': {'scope_path': '', 'uid': '8'}})",
+              "target_name": "previewimage"
+            },
+            "diagnostics": [],
+            "landed": true,
+            "ok": true,
+            "op_kind": "node_call",
+            "source": "previewimage = PreviewImage(images=vaedecode.IMAGE, near=vaedecode)",
+            "statement_index": 1,
+            "touched_uids": ["n3"]
+          },
+          {
+            "dependency_cause": null,
+            "detail": {},
+            "diagnostics": [],
+            "landed": false,
+            "ok": true,
+            "op_kind": "done",
+            "source": "done()",
+            "statement_index": 2,
+            "touched_uids": []
+          }
+        ],
+        "turn_number": 0
+      },
+      "response": {
+        "audit_metadata": {
+          "credential_presence": "<REDACTED>",
+          "provider": "arnold",
+          "requested_route": "deepseek",
+          "response_contract": "batch_repl"
+        },
+        "batch": "previewimage = PreviewImage(images=vaedecode.IMAGE, near=vaedecode)\ndone()",
+        "message": "I'll add a PreviewImage node for quick visual feedback.",
+        "model": "agent-edit",
+        "route": "deepseek"
+      },
+      "turn_number": 0
+    }
+  ]
+}

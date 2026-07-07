@@ -872,7 +872,7 @@ function verifyCandidateGraphConsistency(candidateGraph, deltaOps) {
   }
 }
 
-function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, options = {}) {
+export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, options = {}) {
   if (!Array.isArray(deltaOps)) {
     throw new Error("deltaOps must be an array.");
   }

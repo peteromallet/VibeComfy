@@ -1,0 +1,10 @@
+{
+  "content": "I'll set the sampler seed to 42 and steps to 20, then bypass a node.\n```batch\nksampler.seed = 42\nksampler.steps = 20\nsaveimage.mode = \"bypassed\"\ndone()\n```",
+  "_meta": {
+    "session": "replay_preview_apply_1",
+    "turn": "0001",
+    "key": "9a30ba0715a88eed",
+    "task_hash": "9a30ba0715a88eed",
+    "synthetic": "Generated synthetic fixture for T17 replay testing. Encodes set_node_field and set_mode operations for preview/apply parity validation."
+  }
+}

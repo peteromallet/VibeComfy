@@ -12,7 +12,8 @@ function overlayDrawCacheKey(diff, candidateGraph, deps = {}) {
     || currentAgentPanel()?.state?.candidateGraphHash
     || `inline:${graphNodeCount(candidateGraph)}:${Array.isArray(candidateGraph?.links) ? candidateGraph.links.length : 0}`;
   const liveRevision = captureLiveCanvasRevision();
-  return `${candidateHash}:${liveRevision == null ? "unknown" : liveRevision}`;
+  const deltaDerivedTag = diff?._deltaOpsDerived ? ":delta" : ":graph";
+  return `${candidateHash}:${liveRevision == null ? "unknown" : liveRevision}${deltaDerivedTag}`;
 }
 
 const FORBIDDEN_PREVIEW_OVERLAY_TEXT_PATTERNS = [

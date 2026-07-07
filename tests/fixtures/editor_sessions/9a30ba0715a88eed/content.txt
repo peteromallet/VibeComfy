@@ -1,0 +1,7 @@
+I'll set the sampler seed to 42 and steps to 20, then bypass a node.
+```batch
+ksampler.seed = 42
+ksampler.steps = 20
+saveimage.mode = "bypassed"
+done()
+```

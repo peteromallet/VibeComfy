@@ -1,0 +1,10 @@
+{
+  "content": "I'll add a new SaveImage node after the VAE decode and wire the decoded images to it.\n```batch\nsaveimage_2 = SaveImage(images=vaedecode.image, filename_prefix='canonical_test', near=vaedecode)\ndone()\n```",
+  "_meta": {
+    "session": "replay_canonical_uid_1",
+    "turn": "0001",
+    "key": "027438a220843baa",
+    "task_hash": "027438a220843baa",
+    "synthetic": "Generated synthetic fixture for T17 replay testing. Real artifact db7f198093e34a679ee92ecd8e11e00b/0001 was not found in the repository."
+  }
+}

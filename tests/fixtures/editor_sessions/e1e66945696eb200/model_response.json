@@ -1,0 +1,84 @@
+{
+  "turns": [
+    {
+      "batch_result": {
+        "batch": "midas_depthmappreprocessor = MiDaS-DepthMapPreprocessor(a=6.283185307179586, bg_threshold=0.1, resolution=512, image=loadimage.image, near=loadimage)\nwanvideocontrolnet.depth = midas_depthmappreprocessor.out(0)\ndone()",
+        "batch_ok": true,
+        "diagnostics": [],
+        "diff": "--- before.py\n+++ after.py\n@@ -1,5 +1,11 @@\n loadimage = LoadImage(\n     image='example.png',\n )  # uid:167\n+\n+midas_depthmappreprocessor = MiDaS-DepthMapPreprocessor(\n+    a=6.283185307179586,\n+    bg_threshold=0.1,\n+    resolution=512,\n+    image=loadimage.image,\n+)  # uid:midas_n1 placed (1181.50, 4238.30) slots out(0)='IMAGE'\n\n checkpointloadersimple = CheckpointLoaderSimple(\n     ckpt_name='sd_xl_base_1.0.safetensors',\n )  # uid:1\n@@ -6,7 +12,7 @@\n loadwanvideot5textencoder = LoadWanVideoT5TextEncoder(\n     model_name='umt5-xxl-enc-bf16.safetensors',\n )  # uid:11\n\n wanvideocontrolnet = WanVideoControlnet(\n     control_weight=1.0,\n-    mask_weight=1.0,\n+    mask_weight=1.0,\n+    depth=midas_depthmappreprocessor.out(0),\n )  # uid:105\n\n vhs_videocombine = VHS_VideoCombine(",
+        "landed_op_count": 2,
+        "message": "I'll add a MiDaS-DepthMapPreprocessor depth node after the image loader and wire it to the controlnet.",
+        "model": "agent-edit",
+        "provider_metadata": {
+          "credential_presence": "<REDACTED>",
+          "legacy_deepseek_fallback_enabled": false,
+          "provider": "arnold",
+          "requested_route": "deepseek",
+          "response_contract": "batch_repl",
+          "route_metadata": {}
+        },
+        "report": "Batch summary: 2 landed, 0 failed.\n\u2713 Statement 1: node_call \u2014 landed (touched uids: [midas_n1])\n\u2713 Statement 2: upsert_link \u2014 landed (touched uids: [midas_n1, 105])\n\u2713 Statement 3: done \u2014 not landed",
+        "route": "deepseek",
+        "statement_count": 3,
+        "statements": [
+          {
+            "dependency_cause": null,
+            "detail": {
+              "edit_op": "AddNodeOp(op='add_node', scope_path='', class_type='MiDaS-DepthMapPreprocessor', uid='midas_n1', node_id='midas_depthmappreprocessor_0', fields={'a': 6.283185307179586, 'bg_threshold': 0.1, 'resolution': 512}, inputs={'image': {'scope_path': '', 'uid': '167', 'output_slot': 'image'}}, anchor={'relation': 'near', 'near': {'scope_path': '', 'uid': '167'}})",
+              "minted_uid": "midas_n1",
+              "resolved_add_node": "_ResolvedAddNodeCall(target_name='midas_depthmappreprocessor', scope_path='', class_type='MiDaS-DepthMapPreprocessor', uid='midas_n1', node_id='midas_depthmappreprocessor_0', fields={'a': 6.283185307179586, 'bg_threshold': 0.1, 'resolution': 512}, inputs={'image': {'scope_path': '', 'uid': '167', 'output_slot': 'image'}}, anchor={'relation': 'near', 'near': {'scope_path': '', 'uid': '167'}})",
+              "target_name": "midas_depthmappreprocessor"
+            },
+            "diagnostics": [],
+            "landed": true,
+            "ok": true,
+            "op_kind": "node_call",
+            "source": "midas_depthmappreprocessor = MiDaS-DepthMapPreprocessor(a=6.283185307179586, bg_threshold=0.1, resolution=512, image=loadimage.image, near=loadimage)",
+            "statement_index": 1,
+            "touched_uids": ["midas_n1"]
+          },
+          {
+            "dependency_cause": null,
+            "detail": {
+              "edit_op": "UpsertLinkOp(op='upsert_link', source={'scope_path': '', 'uid': 'midas_n1', 'output_slot': 'IMAGE'}, target={'scope_path': '', 'uid': '105', 'input_field': 'depth'})"
+            },
+            "diagnostics": [],
+            "landed": true,
+            "ok": true,
+            "op_kind": "upsert_link",
+            "source": "wanvideocontrolnet.depth = midas_depthmappreprocessor.out(0)",
+            "statement_index": 2,
+            "touched_uids": ["midas_n1", "105"]
+          },
+          {
+            "dependency_cause": null,
+            "detail": {},
+            "diagnostics": [],
+            "landed": false,
+            "ok": true,
+            "op_kind": "done",
+            "source": "done()",
+            "statement_index": 3,
+            "touched_uids": []
+          }
+        ],
+        "turn_number": 0
+      },
+      "response": {
+        "audit_metadata": {
+          "credential_presence": "<REDACTED>",
+          "legacy_deepseek_fallback_enabled": false,
+          "provider": "arnold",
+          "requested_route": "deepseek",
+          "response_contract": "batch_repl",
+          "route_metadata": {}
+        },
+        "batch": "midas_depthmappreprocessor = MiDaS-DepthMapPreprocessor(a=6.283185307179586, bg_threshold=0.1, resolution=512, image=loadimage.image, near=loadimage)\nwanvideocontrolnet.depth = midas_depthmappreprocessor.out(0)\ndone()",
+        "message": "I'll add a MiDaS-DepthMapPreprocessor depth node after the image loader and wire it to the controlnet.",
+        "model": "agent-edit",
+        "route": "deepseek"
+      },
+      "turn_number": 0
+    }
+  ]
+}

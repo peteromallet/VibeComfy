@@ -1,0 +1,10 @@
+{
+  "content": "I'll add a MiDaS-DepthMapPreprocessor depth node after the image loader and wire it to the controlnet.\n```batch\nmidas_depthmappreprocessor = MiDaS-DepthMapPreprocessor(a=6.283185307179586, bg_threshold=0.1, resolution=512, image=loadimage.image, near=loadimage)\nwanvideocontrolnet.depth = midas_depthmappreprocessor.out(0)\ndone()\n```",
+  "_meta": {
+    "session": "replay_alias_depth_1",
+    "turn": "0001",
+    "key": "e1e66945696eb200",
+    "task_hash": "e1e66945696eb200",
+    "synthetic": "Generated synthetic fixture for T17 replay testing. Real artifact 68f652ca1eb64374aa99737ea21ec015/0001 was not found in the repository."
+  }
+}

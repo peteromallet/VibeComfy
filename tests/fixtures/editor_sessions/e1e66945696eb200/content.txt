@@ -1,0 +1,6 @@
+I'll add a MiDaS-DepthMapPreprocessor depth node after the image loader and wire it to the controlnet.
+```batch
+midas_depthmappreprocessor = MiDaS-DepthMapPreprocessor(a=6.283185307179586, bg_threshold=0.1, resolution=512, image=loadimage.image, near=loadimage)
+wanvideocontrolnet.depth = midas_depthmappreprocessor.out(0)
+done()
+```

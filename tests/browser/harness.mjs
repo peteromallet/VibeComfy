@@ -27,6 +27,7 @@ const SCOPED_SESSION_STORAGE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_n
 const MARKDOWN_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "markdown.js");
 const PREVIEW_PICKER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "preview_picker.js");
 const AGENTIC_REPLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agentic_replay.js");
+const CANONICAL_DELTA_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_delta.js");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -824,6 +825,7 @@ export async function createBrowserHarness({
   await writeFile(path.join(webRoot, "markdown.js"), await readFile(MARKDOWN_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "preview_picker.js"), await readFile(PREVIEW_PICKER_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agentic_replay.js"), await readFile(AGENTIC_REPLAY_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "canonical_delta.js"), await readFile(CANONICAL_DELTA_SOURCE, "utf8"));
 
   const apiEventListeners = {};
   const mockApi = {

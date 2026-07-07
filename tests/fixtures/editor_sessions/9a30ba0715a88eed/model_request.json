@@ -1,0 +1,19 @@
+{
+  "response_contract": "batch_repl",
+  "turns": [
+    {
+      "budget_remaining": 6,
+      "messages": [
+        {
+          "content": "You edit a VibeComfy ComfyUI canvas as a Python-native dataflow program.",
+          "role": "system"
+        },
+        {
+          "content": "User request:\nset the sampler seed to 42 and the steps to 20 with preview apply parity\n\nCurrent scratchpad:\n```python\nksampler = KSampler(seed=0, steps=10, cfg=7.0, sampler_name='euler', scheduler='normal', denoise=1.0, model=checkpointloadersimple.MODEL, positive=cliptextencodepositive.CONDITIONING, negative=cliptextencodenegative.CONDITIONING, latent_image=emptylatentimage.LATENT)  # uid:3\n\nvaedecode = VAEDecode(samples=ksampler.LATENT, vae=checkpointloadersimple.VAE)  # uid:8\n\nsaveimage = SaveImage(images=vaedecode.IMAGE, filename_prefix='output')  # uid:9\n```",
+          "role": "user"
+        }
+      ],
+      "turn_number": 0
+    }
+  ]
+}

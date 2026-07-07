@@ -1,0 +1,19 @@
+{
+  "response_contract": "batch_repl",
+  "turns": [
+    {
+      "budget_remaining": 6,
+      "messages": [
+        {
+          "content": "You edit a VibeComfy ComfyUI canvas as a Python-native dataflow program.\n\nMental model:\n- The canvas is shown as Python. Each node is a variable, for example `loadimage  # uid:167`.\n- A node's inputs are keyword arguments or assignable fields. Wiring is reading another node's output slot.\n- You edit by writing the same Python dataflow syntax you read.\n\nBatch statement grammar:\n- Construct/add a node: `new_var = ClassType(field=value, input_kwarg=other_var.OUTPUT_SLOT, near=anchor_var)`.\n- Rewire an input: `target_var.input_field = source_var.OUTPUT_SLOT`.\n- Set a widget or literal field: `node_var.field_name = literal`.\n- Remove a node: `del node_var`.\n- Commit after the final successful edit: `done()`.\n\nNode types available include MiDaS-DepthMapPreprocessor (hyphenated class, Python alias midas_depthmappreprocessor).",
+          "role": "system"
+        },
+        {
+          "content": "User request:\nAdd a MiDaS-DepthMapPreprocessor depth preprocessor node after the image loader and wire it\n\nCurrent scratchpad Python (full render):\n```python\n# vibecomfy: agent-edit\nloadimage = LoadImage(\n    image='example.png',\n)  # uid:167\n\ncheckpointloadersimple = CheckpointLoaderSimple(\n    ckpt_name='sd_xl_base_1.0.safetensors',\n)  # uid:1\n\nloadwanvideot5textencoder = LoadWanVideoT5TextEncoder(\n    model_name='umt5-xxl-enc-bf16.safetensors',\n)  # uid:11\n\nwanvideocontrolnet = WanVideoControlnet(\n    control_weight=1.0,\n    mask_weight=1.0,\n)  # uid:105\n\nvhs_videocombine = VHS_VideoCombine(\n    images=vaedecodetiled.image,\n    filename_prefix='output',\n)  # uid:140\n```",
+          "role": "user"
+        }
+      ],
+      "turn_number": 0
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "response_contract": "batch_repl",
+  "turns": [
+    {
+      "budget_remaining": 6,
+      "messages": [
+        {
+          "content": "You edit a VibeComfy ComfyUI canvas as a Python-native dataflow program.",
+          "role": "system"
+        },
+        {
+          "content": "User request:\napply operations with a malformed add_node missing uid and node_id\n\nCurrent scratchpad:\n```python\nksampler = KSampler(seed=0, steps=20, cfg=7.0)  # uid:3\nvaedecode = VAEDecode(samples=ksampler.LATENT, vae=checkpointloadersimple.VAE)  # uid:8\n```",
+          "role": "user"
+        }
+      ],
+      "turn_number": 0
+    }
+  ]
+}

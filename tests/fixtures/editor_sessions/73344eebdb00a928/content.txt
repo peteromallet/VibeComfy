@@ -1,0 +1,5 @@
+I'll add a PreviewImage node for quick visual feedback.
+```batch
+previewimage = PreviewImage(images=vaedecode.IMAGE, near=vaedecode)
+done()
+```

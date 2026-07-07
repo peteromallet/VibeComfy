@@ -1,0 +1,110 @@
+{
+  "graph": {
+    "config": {},
+    "extra": {
+      "ds": {
+        "offset": [0, 0],
+        "scale": 1.0
+      }
+    },
+    "groups": [],
+    "last_link_id": 20,
+    "last_node_id": 200,
+    "links": [
+      [1, 167, 0, 105, 1, "IMAGE"],
+      [2, 1, 0, 140, 1, "MODEL"],
+      [3, 1, 1, 140, 2, "CLIP"],
+      [4, 1, 2, 140, 3, "VAE"]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "type": "CheckpointLoaderSimple",
+        "pos": [0, 0],
+        "size": [300, 100],
+        "flags": {},
+        "order": 0,
+        "mode": 0,
+        "inputs": [
+          {"name": "ckpt_name", "type": "STRING", "widget": {"name": "ckpt_name"}, "link": null}
+        ],
+        "outputs": [
+          {"name": "MODEL", "type": "MODEL", "links": [2], "slot_index": 0},
+          {"name": "CLIP", "type": "CLIP", "links": [3], "slot_index": 1},
+          {"name": "VAE", "type": "VAE", "links": [4], "slot_index": 2}
+        ],
+        "properties": {"vibecomfy_uid": "1", "Node name for S&R": "CheckpointLoaderSimple"},
+        "widgets_values": ["sd_xl_base_1.0.safetensors"]
+      },
+      {
+        "id": 11,
+        "type": "LoadWanVideoT5TextEncoder",
+        "pos": [400, 0],
+        "size": [300, 100],
+        "flags": {},
+        "order": 1,
+        "mode": 0,
+        "inputs": [
+          {"name": "model_name", "type": "STRING", "widget": {"name": "model_name"}, "link": null}
+        ],
+        "outputs": [],
+        "properties": {"vibecomfy_uid": "11"},
+        "widgets_values": ["umt5-xxl-enc-bf16.safetensors"]
+      },
+      {
+        "id": 105,
+        "type": "WanVideoControlnet",
+        "pos": [800, 100],
+        "size": [300, 180],
+        "flags": {},
+        "order": 2,
+        "mode": 0,
+        "inputs": [
+          {"name": "depth", "type": "IMAGE", "link": null},
+          {"name": "control_weight", "type": "FLOAT", "widget": {"name": "control_weight"}, "link": null},
+          {"name": "mask_weight", "type": "FLOAT", "widget": {"name": "mask_weight"}, "link": null}
+        ],
+        "outputs": [],
+        "properties": {"vibecomfy_uid": "105"},
+        "widgets_values": [1.0, 1.0]
+      },
+      {
+        "id": 140,
+        "type": "VHS_VideoCombine",
+        "pos": [1200, 0],
+        "size": [400, 200],
+        "flags": {},
+        "order": 3,
+        "mode": 0,
+        "inputs": [
+          {"name": "images", "type": "IMAGE", "link": null},
+          {"name": "model", "type": "MODEL", "link": null},
+          {"name": "clip", "type": "CLIP", "link": null},
+          {"name": "vae", "type": "VAE", "link": null}
+        ],
+        "outputs": [],
+        "properties": {"vibecomfy_uid": "140"},
+        "widgets_values": [24, 0, "output"]
+      },
+      {
+        "id": 167,
+        "type": "LoadImage",
+        "pos": [-400, 0],
+        "size": [300, 100],
+        "flags": {},
+        "order": 4,
+        "mode": 0,
+        "inputs": [
+          {"name": "image", "type": "STRING", "widget": {"name": "image"}, "link": null}
+        ],
+        "outputs": [
+          {"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0},
+          {"name": "MASK", "type": "MASK", "links": null, "slot_index": 1}
+        ],
+        "properties": {"vibecomfy_uid": "167"},
+        "widgets_values": ["example.png"]
+      }
+    ],
+    "version": 0.4
+  }
+}

@@ -60,6 +60,7 @@ import {
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
   installQueueGuard as installQueueGuardAdapter,
+  preflightDeltaPlan,
   repaintGraph,
 } from "./comfy_adapter.js";
 import {
@@ -7000,13 +7001,17 @@ function clearCandidateInvalidationSideEffects(repaint = true) {
   }
 }
 
-export function computePreviewDiff(candidateGraph, candidateReport) {
+export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = null) {
   try {
     const panel = currentAgentPanel();
     const candidateGraphHash = panel?.state?.candidateGraphHash;
+    // Include delta ops presence in the cache key so we don't serve a
+    // graph-diff-derived cache when delta ops are now available (or vice versa).
+    const deltaOpsCacheTag = Array.isArray(deltaOps) && deltaOps.length > 0 ? `delta:${deltaOps.length}` : "graph";
     if (
       candidateGraphHash
       && panel.state._previewDiffGraphHash === candidateGraphHash
+      && panel.state._previewDiffCacheTag === deltaOpsCacheTag
       && panel.state._previewDiff
       && Array.isArray(panel.state._previewDiff.added_links)
       && Array.isArray(panel.state._previewDiff.removed_links)
@@ -7016,9 +7021,194 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
       return panel.state._previewDiff;
     }
 
+    // ── Primary path: derive highlights from normalized delta ops ──────────
+    // When canonical deltaOps are available, use preflightDeltaPlan to produce
+    // a plan that mirrors the apply path, then convert plan entries to the
+    // diff structure consumed by the preview overlay.  This ensures preview
+    // and apply are driven by the same normalized mutation planning surface.
+    const useDeltaOps = Array.isArray(deltaOps) && deltaOps.length > 0;
+
     const previewCandidateGraph = prepareCandidateGraphForPanel(candidateGraph);
     const liveNodes = getLiveGraphNodes(getLiveGraph());
     const candidateNodes = Array.isArray(previewCandidateGraph?.nodes) ? previewCandidateGraph.nodes : [];
+
+    // ── Delta-ops-derived diff entries (built before the graph-diff fallback) ──
+    let deltaDerivedEdited = null;
+    let deltaDerivedAdded = null;
+    let deltaDerivedRemoved = null;
+    let deltaDerivedAddedLinks = null;
+    let deltaDerivedRemovedLinks = null;
+
+    if (useDeltaOps) {
+      try {
+        const liveGraph = getLiveGraph();
+        const liveSnapshot = (liveGraph && typeof liveGraph.serialize === "function")
+          ? liveGraph.serialize()
+          : { nodes: [], links: [] };
+
+        // Run the same planning surface used by applyGraphDeltaInPlace.
+        const { plan } = preflightDeltaPlan(liveSnapshot, previewCandidateGraph, deltaOps, {});
+
+        // Convert plan entries to diff items.
+        const planEditedMap = new Map();   // uidOrId -> Set<widgetIndex>
+        const planAdded = [];
+        const planRemoved = [];
+        const planAddedLinks = [];
+        const planRemovedLinks = [];
+
+        // Build lookup maps for link normalization.
+        const liveUidById = new Map();
+        for (const node of liveNodes) {
+          const uid = getUid(node);
+          if (uid && node.id != null) {
+            liveUidById.set(String(node.id), uid);
+          }
+        }
+        const candidateUidById = new Map();
+        const candidateById = new Map();
+        for (const node of candidateNodes) {
+          const uid = getUid(node);
+          if (uid) {
+            if (node.id != null) candidateUidById.set(String(node.id), uid);
+          }
+          if (node.id != null) candidateById.set(String(node.id), node);
+        }
+
+        // Resolve uid-or-id to uid.
+        const resolveUid = (uidOrId) => {
+          if (liveUidById.has(String(uidOrId))) return liveUidById.get(String(uidOrId));
+          if (candidateUidById.has(String(uidOrId))) return candidateUidById.get(String(uidOrId));
+          return String(uidOrId);
+        };
+
+        // Normalize a link object to the canonical link key used by the diff.
+        const normalizeLinkKey = (link) => {
+          if (!link || typeof link !== "object") return null;
+          const originId = link.origin_id;
+          const targetId = link.target_id;
+          const originUid = resolveUid(originId);
+          const targetUid = resolveUid(targetId);
+          if (!originUid || !targetUid) return null;
+          const fromNode = candidateById.get(String(originId));
+          const toNode = candidateById.get(String(targetId));
+          const fromPortName = Array.isArray(fromNode?.outputs) && fromNode.outputs[link.origin_slot]
+            ? (fromNode.outputs[link.origin_slot].name || String(link.origin_slot))
+            : String(link.origin_slot);
+          const toPortName = Array.isArray(toNode?.inputs) && toNode.inputs[link.target_slot]
+            ? (toNode.inputs[link.target_slot].name || String(link.target_slot))
+            : String(link.target_slot);
+          return `${originUid}::${fromPortName}->${targetUid}::${toPortName}`;
+        };
+
+        // Resolve widget index from field path array.
+        const widgetIndexFromFieldPath = (fieldPath) => {
+          if (!Array.isArray(fieldPath)) return null;
+          for (let i = 0; i < fieldPath.length - 1; i++) {
+            if (
+              (fieldPath[i] === "widgets_values" || fieldPath[i] === "widgets")
+              && typeof fieldPath[i + 1] === "number"
+            ) {
+              return fieldPath[i + 1];
+            }
+          }
+          return null;
+        };
+
+        for (const step of plan) {
+          if (step.op === "set_node_field") {
+            const uid = resolveUid(step.uidOrId);
+            const widgetIdx = widgetIndexFromFieldPath(step.fieldPath);
+            let entry = planEditedMap.get(uid);
+            if (!entry) {
+              entry = { uid, changedWidgetIndices: [] };
+              planEditedMap.set(uid, entry);
+            }
+            if (widgetIdx != null && !entry.changedWidgetIndices.includes(widgetIdx)) {
+              entry.changedWidgetIndices.push(widgetIdx);
+            }
+          } else if (step.op === "set_mode") {
+            const uid = resolveUid(step.uidOrId);
+            let entry = planEditedMap.get(uid);
+            if (!entry) {
+              entry = { uid, changedWidgetIndices: [] };
+              planEditedMap.set(uid, entry);
+            }
+            // Mode change doesn't map to a specific widget; the node is still "edited".
+          } else if (step.op === "add_node") {
+            const nodePayload = step.nodePayload;
+            const uid = nodePayload?.properties?.vibecomfy_uid
+              || (nodePayload?.id != null ? candidateUidById.get(String(nodePayload.id)) : null)
+              || null;
+            const classType = nodePayload?.type || nodePayload?.class_type || null;
+            const unwiredRequiredInputs = (Array.isArray(nodePayload?.inputs) ? nodePayload.inputs : [])
+              .filter((input) => !input?.link && !input?.widget)
+              .map((input) => input?.name || null)
+              .filter(Boolean);
+            planAdded.push({ uid, class_type: classType, unwiredRequiredInputs });
+          } else if (step.op === "remove_node") {
+            const uid = resolveUid(step.uidOrId);
+            // Look up class_type from live graph.
+            let classType = null;
+            for (const node of liveNodes) {
+              if (getUid(node) === uid || String(node.id) === String(step.uidOrId)) {
+                classType = node.type || node.comfyClass || null;
+                break;
+              }
+            }
+            planRemoved.push({ uid, class_type: classType });
+          } else if (step.op === "upsert_link") {
+            const key = normalizeLinkKey(step.link);
+            if (key) planAddedLinks.push(key);
+          } else if (step.op === "remove_link") {
+            if (step.alreadyAbsent) continue;
+            // Build a synthetic link key from the target information.
+            const targetUid = step.targetUidOrId ? resolveUid(step.targetUidOrId) : null;
+            const targetSlot = step.targetSlot;
+            if (targetUid && targetSlot != null) {
+              // We need the source uid. Look up the existing link on the live graph.
+              // Since we only have target info, reconstruct from live graph.
+              let foundKey = null;
+              const liveGraph = getLiveGraph();
+              const liveLinks = liveGraph?.links;
+              const linkEntries = (() => {
+                if (!liveLinks) return [];
+                if (typeof liveLinks !== "object") return [];
+                return Array.isArray(liveLinks) ? liveLinks : Object.values(liveLinks);
+              })();
+              for (const link of linkEntries) {
+                if (!link) continue;
+                const hasLeadingLinkId = Array.isArray(link) && link.length >= 6;
+                const tId = Array.isArray(link) ? link[hasLeadingLinkId ? 3 : 2] : link?.target_id;
+                const tSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 4 : 3] : link?.target_slot;
+                const tUid = resolveUid(tId);
+                if (tUid === targetUid && Number(tSlot) === Number(targetSlot)) {
+                  foundKey = normalizeLinkKey(
+                    Array.isArray(link)
+                      ? { origin_id: link[hasLeadingLinkId ? 1 : 0], origin_slot: link[hasLeadingLinkId ? 2 : 1], target_id: tId, target_slot: tSlot }
+                      : link,
+                  );
+                  break;
+                }
+              }
+              if (foundKey) planRemovedLinks.push(foundKey);
+            }
+          }
+        }
+
+        deltaDerivedEdited = Array.from(planEditedMap.values());
+        deltaDerivedAdded = planAdded;
+        deltaDerivedRemoved = planRemoved;
+        deltaDerivedAddedLinks = planAddedLinks;
+        deltaDerivedRemovedLinks = planRemovedLinks;
+      } catch (planErr) {
+        // If preflight fails (e.g., candidate graph inconsistency), log and
+        // fall through to the legacy graph-diff path below.  The preview will
+        // still be populated via the live-vs-candidate comparison.
+        console.warn("[vibecomfy] computePreviewDiff — preflightDeltaPlan failed, falling back to graph diff:", safePreviewLogDetail(planErr));
+      }
+    }
+
+    // ── Index by uid (used by both delta-derived and graph-diff paths) ─────
 
     // ── Index by uid ──────────────────────────────────────────────────────
     // The candidate (server round-trip) stamps vibecomfy_uid on every node, but a
@@ -7045,59 +7235,67 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
       }
     }
 
-    // ── Edited: nodes present in both whose widget values differ ──────────
-    const edited = [];
-    for (const [uid, liveNode] of liveByUid) {
-      const candidateNode = candidateByUid.get(uid);
-      if (!candidateNode) {
-        continue;
-      }
-      const liveValues = readWidgetValues(liveNode);
-      const candidateValues = readWidgetValues(candidateNode);
-      const maxLen = Math.max(liveValues.length, candidateValues.length);
-      const changedWidgetIndices = [];
-      for (let i = 0; i < maxLen; i += 1) {
-        const a = liveValues[i];
-        const b = candidateValues[i];
-        if (!Object.is(a, b) && JSON.stringify(a) !== JSON.stringify(b)) {
-          changedWidgetIndices.push(i);
-        }
-      }
-      if (changedWidgetIndices.length > 0) {
-        edited.push({
-          uid,
-          changedWidgetIndices,
-        });
-      }
-    }
+    // ── Edited: from delta ops or live-vs-candidate graph diff ──────────
+    const edited = deltaDerivedEdited
+      ? deltaDerivedEdited
+      : (() => {
+          const result = [];
+          for (const [uid, liveNode] of liveByUid) {
+            const candidateNode = candidateByUid.get(uid);
+            if (!candidateNode) continue;
+            const liveValues = readWidgetValues(liveNode);
+            const candidateValues = readWidgetValues(candidateNode);
+            const maxLen = Math.max(liveValues.length, candidateValues.length);
+            const changedWidgetIndices = [];
+            for (let i = 0; i < maxLen; i += 1) {
+              const a = liveValues[i];
+              const b = candidateValues[i];
+              if (!Object.is(a, b) && JSON.stringify(a) !== JSON.stringify(b)) {
+                changedWidgetIndices.push(i);
+              }
+            }
+            if (changedWidgetIndices.length > 0) {
+              result.push({ uid, changedWidgetIndices });
+            }
+          }
+          return result;
+        })();
 
-    // ── Added: candidate-only nodes with unwired required inputs ──────────
-    const added = [];
-    for (const [uid, candidateNode] of candidateByUid) {
-      if (liveByUid.has(uid)) {
-        continue;
-      }
-      const unwiredRequiredInputs = (Array.isArray(candidateNode.inputs) ? candidateNode.inputs : [])
-        .filter((input) => !input?.link && !input?.widget)
-        .map((input) => input?.name || null)
-        .filter(Boolean);
-      added.push({
-        uid,
-        class_type: candidateNode.type || candidateNode.class_type || null,
-        unwiredRequiredInputs,
-      });
-    }
+    // ── Added: from delta ops or live-vs-candidate graph diff ──────────
+    const added = deltaDerivedAdded
+      ? deltaDerivedAdded
+      : (() => {
+          const result = [];
+          for (const [uid, candidateNode] of candidateByUid) {
+            if (liveByUid.has(uid)) continue;
+            const unwiredRequiredInputs = (Array.isArray(candidateNode.inputs) ? candidateNode.inputs : [])
+              .filter((input) => !input?.link && !input?.widget)
+              .map((input) => input?.name || null)
+              .filter(Boolean);
+            result.push({
+              uid,
+              class_type: candidateNode.type || candidateNode.class_type || null,
+              unwiredRequiredInputs,
+            });
+          }
+          return result;
+        })();
 
-    // ── Removed: live-only nodes (by uid) ─────────────────────────────────
-    const removed = [];
-    for (const [uid, liveNode] of liveByUid) {
-      if (!candidateByUid.has(uid)) {
-        removed.push({
-          uid,
-          class_type: liveNode.type || liveNode.comfyClass || null,
-        });
-      }
-    }
+    // ── Removed: from delta ops or live-vs-candidate graph diff ──────────
+    const removed = deltaDerivedRemoved
+      ? deltaDerivedRemoved
+      : (() => {
+          const result = [];
+          for (const [uid, liveNode] of liveByUid) {
+            if (!candidateByUid.has(uid)) {
+              result.push({
+                uid,
+                class_type: liveNode.type || liveNode.comfyClass || null,
+              });
+            }
+          }
+          return result;
+        })();
 
     // ── Removed named: from the backend report ────────────────────────────
     const removedNamed = (
@@ -7304,87 +7502,98 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
       candidateNodesById,
     );
 
-    const added_links = [];
-    for (const key of candidateLinkKeys) {
-      if (!liveLinkKeys.has(key)) {
-        added_links.push(key);
-      }
-    }
-    const removed_links = [];
-    for (const key of liveLinkKeys) {
-      if (!candidateLinkKeys.has(key)) {
-        removed_links.push(key);
-      }
-    }
+    // ── Link diff: from delta ops or live-vs-candidate comparison ──────
+    const added_links = deltaDerivedAddedLinks
+      ? deltaDerivedAddedLinks
+      : (() => {
+          const result = [];
+          for (const key of candidateLinkKeys) {
+            if (!liveLinkKeys.has(key)) result.push(key);
+          }
+          return result;
+        })();
+    const removed_links = deltaDerivedRemovedLinks
+      ? deltaDerivedRemovedLinks
+      : (() => {
+          const result = [];
+          for (const key of liveLinkKeys) {
+            if (!candidateLinkKeys.has(key)) result.push(key);
+          }
+          return result;
+        })();
 
-    const linkEditedUids = new Set();
-    const _parseLinkKey = (key) => {
-      const text = String(key || "");
-      const arrowIndex = text.indexOf("->");
-      if (arrowIndex < 0) return null;
-      const sourceText = text.slice(0, arrowIndex);
-      const targetText = text.slice(arrowIndex + 2);
-      const sourceSep = sourceText.indexOf("::");
-      const targetSep = targetText.indexOf("::");
-      if (sourceSep < 0 || targetSep < 0) return null;
-      const fromUid = sourceText.slice(0, sourceSep);
-      const fromPort = sourceText.slice(sourceSep + 2);
-      const toUid = targetText.slice(0, targetSep);
-      const toPort = targetText.slice(targetSep + 2);
-      if (!fromUid || !toUid) return null;
-      return {
-        fromUid,
-        fromPort,
-        toUid,
-        toPort,
-        sourceKey: `${fromUid}::${fromPort}`,
-        targetKey: `${toUid}::${toPort}`,
+    // ── Link-edited uids: only derived from graph diff; delta ops already ──
+    // capture every node change explicitly in the plan.
+    if (!deltaDerivedEdited) {
+      const linkEditedUids = new Set();
+      const _parseLinkKey = (key) => {
+        const text = String(key || "");
+        const arrowIndex = text.indexOf("->");
+        if (arrowIndex < 0) return null;
+        const sourceText = text.slice(0, arrowIndex);
+        const targetText = text.slice(arrowIndex + 2);
+        const sourceSep = sourceText.indexOf("::");
+        const targetSep = targetText.indexOf("::");
+        if (sourceSep < 0 || targetSep < 0) return null;
+        const fromUid = sourceText.slice(0, sourceSep);
+        const fromPort = sourceText.slice(sourceSep + 2);
+        const toUid = targetText.slice(0, targetSep);
+        const toPort = targetText.slice(targetSep + 2);
+        if (!fromUid || !toUid) return null;
+        return {
+          fromUid,
+          fromPort,
+          toUid,
+          toPort,
+          sourceKey: `${fromUid}::${fromPort}`,
+          targetKey: `${toUid}::${toPort}`,
+        };
       };
-    };
-    const _sourcesByTarget = (keys) => {
-      const grouped = new Map();
-      for (const key of keys) {
-        const parsed = _parseLinkKey(key);
-        if (!parsed) continue;
-        if (!grouped.has(parsed.targetKey)) {
-          grouped.set(parsed.targetKey, { uid: parsed.toUid, sources: new Set() });
+      const _sourcesByTarget = (keys) => {
+        const grouped = new Map();
+        for (const key of keys) {
+          const parsed = _parseLinkKey(key);
+          if (!parsed) continue;
+          if (!grouped.has(parsed.targetKey)) {
+            grouped.set(parsed.targetKey, { uid: parsed.toUid, sources: new Set() });
+          }
+          grouped.get(parsed.targetKey).sources.add(parsed.sourceKey);
         }
-        grouped.get(parsed.targetKey).sources.add(parsed.sourceKey);
+        return grouped;
+      };
+      const _sameSet = (left, right) => {
+        if (left.size !== right.size) return false;
+        for (const value of left) {
+          if (!right.has(value)) return false;
+        }
+        return true;
+      };
+      const addedSourcesByTarget = _sourcesByTarget(added_links);
+      const removedSourcesByTarget = _sourcesByTarget(removed_links);
+      const changedTargetKeys = new Set([
+        ...addedSourcesByTarget.keys(),
+        ...removedSourcesByTarget.keys(),
+      ]);
+      for (const targetKey of changedTargetKeys) {
+        const addedTarget = addedSourcesByTarget.get(targetKey);
+        const removedTarget = removedSourcesByTarget.get(targetKey);
+        const uid = addedTarget?.uid || removedTarget?.uid || null;
+        if (!uid || !liveByUid.has(uid) || !candidateByUid.has(uid)) {
+          continue;
+        }
+        const addedSources = addedTarget?.sources || new Set();
+        const removedSources = removedTarget?.sources || new Set();
+        if (!_sameSet(addedSources, removedSources)) {
+          linkEditedUids.add(uid);
+        }
       }
-      return grouped;
-    };
-    const _sameSet = (left, right) => {
-      if (left.size !== right.size) return false;
-      for (const value of left) {
-        if (!right.has(value)) return false;
-      }
-      return true;
-    };
-    const addedSourcesByTarget = _sourcesByTarget(added_links);
-    const removedSourcesByTarget = _sourcesByTarget(removed_links);
-    const changedTargetKeys = new Set([
-      ...addedSourcesByTarget.keys(),
-      ...removedSourcesByTarget.keys(),
-    ]);
-    for (const targetKey of changedTargetKeys) {
-      const addedTarget = addedSourcesByTarget.get(targetKey);
-      const removedTarget = removedSourcesByTarget.get(targetKey);
-      const uid = addedTarget?.uid || removedTarget?.uid || null;
-      if (!uid || !liveByUid.has(uid) || !candidateByUid.has(uid)) {
-        continue;
-      }
-      const addedSources = addedTarget?.sources || new Set();
-      const removedSources = removedTarget?.sources || new Set();
-      if (!_sameSet(addedSources, removedSources)) {
-        linkEditedUids.add(uid);
-      }
-    }
-    const editedByUid = new Map(edited.map((entry) => [entry.uid, entry]));
-    for (const uid of linkEditedUids) {
-      if (!editedByUid.has(uid)) {
-        const entry = { uid, changedWidgetIndices: [] };
-        editedByUid.set(uid, entry);
-        edited.push(entry);
+      const editedByUid = new Map(edited.map((entry) => [entry.uid, entry]));
+      for (const uid of linkEditedUids) {
+        if (!editedByUid.has(uid)) {
+          const entry = { uid, changedWidgetIndices: [] };
+          editedByUid.set(uid, entry);
+          edited.push(entry);
+        }
       }
     }
 
@@ -7405,12 +7614,14 @@ export function computePreviewDiff(candidateGraph, candidateReport) {
       removed_links,
       _candidateGraph: previewCandidateGraph,
       _candidateGraphHash: candidateGraphHash || null,
+      _deltaOpsDerived: useDeltaOps && deltaDerivedEdited !== null,
     };
 
     // ── Cache on panel state ──────────────────────────────────────────────
     if (panel && candidateGraphHash) {
       panel.state._previewDiff = diff;
       panel.state._previewDiffGraphHash = candidateGraphHash;
+      panel.state._previewDiffCacheTag = deltaOpsCacheTag;
     }
 
     return diff;
@@ -7440,10 +7651,13 @@ function getOrBuildPreviewDiff() {
   if (!candidateGraph) {
     return null;
   }
+  const deltaOps = Array.isArray(panel.state.deltaOps) ? panel.state.deltaOps : null;
+  const deltaOpsCacheTag = deltaOps && deltaOps.length > 0 ? `delta:${deltaOps.length}` : "graph";
   const candidateGraphHash = panel.state.candidateGraphHash;
   if (
     panel.state._previewDiff &&
     panel.state._previewDiffGraphHash === candidateGraphHash &&
+    panel.state._previewDiffCacheTag === deltaOpsCacheTag &&
     Array.isArray(panel.state._previewDiff.added_links) &&
     Array.isArray(panel.state._previewDiff.removed_links) &&
     Array.isArray(panel.state._previewDiff.edited_fields) &&
@@ -7451,7 +7665,7 @@ function getOrBuildPreviewDiff() {
   ) {
     return panel.state._previewDiff;
   }
-  return computePreviewDiff(candidateGraph, candidateReport);
+  return computePreviewDiff(candidateGraph, candidateReport, deltaOps);
 }
 
 function _graphNodeCount(graph) {

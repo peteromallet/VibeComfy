@@ -83,5 +83,25 @@
     "session": "402eda6756814a8b8186117d3bb8935b",
     "task_preview": "switch to SDXL",
     "turn": "0003"
+  },
+  "e1e66945696eb200": {
+    "session": "replay_alias_depth_1",
+    "task_preview": "Add a MiDaS-DepthMapPreprocessor depth preprocessor node after the image loader and wire it",
+    "turn": "0001"
+  },
+  "027438a220843baa": {
+    "session": "replay_canonical_uid_1",
+    "task_preview": "add a new SaveImage node after the VAE decode and wire it with canonical uid and node_id identity",
+    "turn": "0001"
+  },
+  "73344eebdb00a928": {
+    "session": "replay_malformed_delta_1",
+    "task_preview": "apply operations with a malformed add_node missing uid and node_id",
+    "turn": "0001"
+  },
+  "9a30ba0715a88eed": {
+    "session": "replay_preview_apply_1",
+    "task_preview": "set the sampler seed to 42 and the steps to 20 with preview apply parity",
+    "turn": "0001"
   }
 }

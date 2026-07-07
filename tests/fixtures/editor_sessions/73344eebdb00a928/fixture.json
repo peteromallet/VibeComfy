@@ -1,0 +1,10 @@
+{
+  "content": "I'll add a PreviewImage node for quick visual feedback.\n```batch\npreviewimage = PreviewImage(images=vaedecode.IMAGE, near=vaedecode)\ndone()\n```",
+  "_meta": {
+    "session": "replay_malformed_delta_1",
+    "turn": "0001",
+    "key": "73344eebdb00a928",
+    "task_hash": "73344eebdb00a928",
+    "synthetic": "Generated synthetic fixture for T17 replay testing. Provides graph context for malformed delta rejection tests — the test constructs malformed variants from this baseline."
+  }
+}

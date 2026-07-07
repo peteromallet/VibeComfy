@@ -1,0 +1,68 @@
+{
+  "turns": [
+    {
+      "batch_result": {
+        "batch": "saveimage_2 = SaveImage(images=vaedecode.image, filename_prefix='canonical_test', near=vaedecode)\ndone()",
+        "batch_ok": true,
+        "diagnostics": [],
+        "diff": "--- before.py\n+++ after.py\n@@ -9,3 +9,8 @@\n     images=vaedecode.IMAGE,\n     filename_prefix='output',\n )  # uid:9\n+\n+saveimage_2 = SaveImage(\n+    images=vaedecode.IMAGE,\n+    filename_prefix='canonical_test',\n+)  # uid:n2 placed (1400.0, 0.0) slots images='IMAGE'",
+        "landed_op_count": 1,
+        "message": "I'll add a new SaveImage node after the VAE decode and wire the decoded images to it.",
+        "model": "agent-edit",
+        "provider_metadata": {
+          "credential_presence": "<REDACTED>",
+          "provider": "arnold",
+          "requested_route": "deepseek",
+          "response_contract": "batch_repl"
+        },
+        "report": "Batch summary: 1 landed, 0 failed.\n\u2713 Statement 1: node_call \u2014 landed (touched uids: [n2])\n\u2713 Statement 2: done \u2014 not landed",
+        "route": "deepseek",
+        "statement_count": 2,
+        "statements": [
+          {
+            "dependency_cause": null,
+            "detail": {
+              "edit_op": "AddNodeOp(op='add_node', scope_path='', class_type='SaveImage', uid='n2', node_id='saveimage_2_1', fields={'filename_prefix': 'canonical_test'}, inputs={'images': {'scope_path': '', 'uid': '8', 'output_slot': 'IMAGE'}}, anchor={'relation': 'near', 'near': {'scope_path': '', 'uid': '8'}})",
+              "minted_uid": "n2",
+              "minted_node_id": "saveimage_2_1",
+              "resolved_add_node": "_ResolvedAddNodeCall(target_name='saveimage_2', scope_path='', class_type='SaveImage', uid='n2', node_id='saveimage_2_1', fields={'filename_prefix': 'canonical_test'}, inputs={'images': {'scope_path': '', 'uid': '8', 'output_slot': 'IMAGE'}}, anchor={'relation': 'near', 'near': {'scope_path': '', 'uid': '8'}})",
+              "target_name": "saveimage_2"
+            },
+            "diagnostics": [],
+            "landed": true,
+            "ok": true,
+            "op_kind": "node_call",
+            "source": "saveimage_2 = SaveImage(images=vaedecode.image, filename_prefix='canonical_test', near=vaedecode)",
+            "statement_index": 1,
+            "touched_uids": ["n2"]
+          },
+          {
+            "dependency_cause": null,
+            "detail": {},
+            "diagnostics": [],
+            "landed": false,
+            "ok": true,
+            "op_kind": "done",
+            "source": "done()",
+            "statement_index": 2,
+            "touched_uids": []
+          }
+        ],
+        "turn_number": 0
+      },
+      "response": {
+        "audit_metadata": {
+          "credential_presence": "<REDACTED>",
+          "provider": "arnold",
+          "requested_route": "deepseek",
+          "response_contract": "batch_repl"
+        },
+        "batch": "saveimage_2 = SaveImage(images=vaedecode.image, filename_prefix='canonical_test', near=vaedecode)\ndone()",
+        "message": "I'll add a new SaveImage node after the VAE decode and wire the decoded images to it.",
+        "model": "agent-edit",
+        "route": "deepseek"
+      },
+      "turn_number": 0
+    }
+  ]
+}

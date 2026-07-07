@@ -1034,6 +1034,7 @@ function _handleInvalidateCandidate(panel, payload) {
   // invalidation logically invalidates any preview derived from it).
   delete panel.state._previewDiff;
   delete panel.state._previewDiffGraphHash;
+  delete panel.state._previewDiffCacheTag;
 
   return { render: repaint };
 }

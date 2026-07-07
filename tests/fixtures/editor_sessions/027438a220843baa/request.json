@@ -1,0 +1,97 @@
+{
+  "graph": {
+    "config": {},
+    "extra": {},
+    "groups": [],
+    "last_link_id": 10,
+    "last_node_id": 10,
+    "links": [
+      [1, 1, 0, 3, 0, "MODEL"],
+      [2, 1, 2, 8, 0, "VAE"],
+      [3, 3, 0, 8, 0, "LATENT"],
+      [4, 8, 0, 9, 0, "IMAGE"]
+    ],
+    "nodes": [
+      {
+        "id": 1,
+        "type": "CheckpointLoaderSimple",
+        "pos": [0, 0],
+        "size": [300, 100],
+        "flags": {},
+        "order": 0,
+        "mode": 0,
+        "inputs": [
+          {"name": "ckpt_name", "type": "STRING", "widget": {"name": "ckpt_name"}, "link": null}
+        ],
+        "outputs": [
+          {"name": "MODEL", "type": "MODEL", "links": [1], "slot_index": 0},
+          {"name": "CLIP", "type": "CLIP", "links": null, "slot_index": 1},
+          {"name": "VAE", "type": "VAE", "links": [2], "slot_index": 2}
+        ],
+        "properties": {"vibecomfy_uid": "1"},
+        "widgets_values": ["sd_xl_base_1.0.safetensors"]
+      },
+      {
+        "id": 3,
+        "type": "KSampler",
+        "pos": [400, 0],
+        "size": [300, 300],
+        "flags": {},
+        "order": 1,
+        "mode": 0,
+        "inputs": [
+          {"name": "model", "type": "MODEL", "link": 1},
+          {"name": "positive", "type": "CONDITIONING", "link": null},
+          {"name": "negative", "type": "CONDITIONING", "link": null},
+          {"name": "latent_image", "type": "LATENT", "link": null},
+          {"name": "seed", "type": "INT", "widget": {"name": "seed"}, "link": null},
+          {"name": "steps", "type": "INT", "widget": {"name": "steps"}, "link": null},
+          {"name": "cfg", "type": "FLOAT", "widget": {"name": "cfg"}, "link": null},
+          {"name": "sampler_name", "type": "STRING", "widget": {"name": "sampler_name"}, "link": null},
+          {"name": "scheduler", "type": "STRING", "widget": {"name": "scheduler"}, "link": null},
+          {"name": "denoise", "type": "FLOAT", "widget": {"name": "denoise"}, "link": null}
+        ],
+        "outputs": [
+          {"name": "LATENT", "type": "LATENT", "links": [3], "slot_index": 0}
+        ],
+        "properties": {"vibecomfy_uid": "3"},
+        "widgets_values": [42, 20, 7.0, "euler", "normal", 1.0]
+      },
+      {
+        "id": 8,
+        "type": "VAEDecode",
+        "pos": [800, 0],
+        "size": [300, 100],
+        "flags": {},
+        "order": 2,
+        "mode": 0,
+        "inputs": [
+          {"name": "samples", "type": "LATENT", "link": 3},
+          {"name": "vae", "type": "VAE", "link": 2}
+        ],
+        "outputs": [
+          {"name": "IMAGE", "type": "IMAGE", "links": [4], "slot_index": 0}
+        ],
+        "properties": {"vibecomfy_uid": "8"},
+        "widgets_values": []
+      },
+      {
+        "id": 9,
+        "type": "SaveImage",
+        "pos": [1200, 0],
+        "size": [300, 100],
+        "flags": {},
+        "order": 3,
+        "mode": 0,
+        "inputs": [
+          {"name": "images", "type": "IMAGE", "link": 4},
+          {"name": "filename_prefix", "type": "STRING", "widget": {"name": "filename_prefix"}, "link": null}
+        ],
+        "outputs": [],
+        "properties": {"vibecomfy_uid": "9"},
+        "widgets_values": ["output"]
+      }
+    ],
+    "version": 0.4
+  }
+}
