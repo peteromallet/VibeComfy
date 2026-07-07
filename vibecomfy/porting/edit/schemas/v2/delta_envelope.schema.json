@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/delta-envelope.schema.json",
+  "title": "VibeComfy Canonical Delta Envelope V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "ops"],
+  "properties": {
+    "schema_version": {
+      "const": "2.0.0"
+    },
+    "ops": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "./set_node_field.schema.json" },
+          { "$ref": "./set_mode.schema.json" },
+          { "$ref": "./add_node.schema.json" },
+          { "$ref": "./upsert_link.schema.json" },
+          { "$ref": "./remove_node.schema.json" },
+          { "$ref": "./remove_link.schema.json" }
+        ]
+      }
+    }
+  }
+}

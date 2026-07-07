@@ -49,6 +49,7 @@ from vibecomfy.porting.edit._ir_utils import (
     _normalize_ir_type,
     _output_slot_name,
     _output_specs,
+    _resolve_class_type_from_alias,
     _socket_type_from_widget_value,
     _widget_value_for_field,
 )
@@ -1071,6 +1072,11 @@ class _ResolveMixin:
                     "Editor-only vibecomfy.* intent classes cannot be constructed from the Python edit surface. Use vibecomfy.exec for executable Python code nodes.",
                 )
             ]
+
+        # Reverse-resolve authoring alias (e.g. `checkpointloader_simple` → `CheckpointLoader-Simple`)
+        resolved_class_type = _resolve_class_type_from_alias(class_type, self.schema_provider)
+        if resolved_class_type is not None and resolved_class_type != class_type:
+            class_type = resolved_class_type
 
         schema = schema_for(self.schema_provider, class_type)
         schema_inputs = getattr(schema, "inputs", {}) or {}

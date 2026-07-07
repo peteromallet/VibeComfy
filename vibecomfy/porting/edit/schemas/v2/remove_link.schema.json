@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/remove-link.schema.json",
+  "title": "remove_link",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "id"],
+      "properties": {
+        "op": {
+          "const": "remove_link"
+        },
+        "id": {
+          "type": "integer"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "to"],
+      "properties": {
+        "op": {
+          "const": "remove_link"
+        },
+        "to": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "type": "string" },
+            { "type": "string", "minLength": 1 },
+            { "type": "string", "minLength": 1 }
+          ]
+        }
+      }
+    }
+  ]
+}

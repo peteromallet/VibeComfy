@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/remove-node.schema.json",
+  "title": "remove_node",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["op", "target"],
+  "properties": {
+    "op": {
+      "const": "remove_node"
+    },
+    "target": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "type": "string" },
+        { "type": "string", "minLength": 1 }
+      ]
+    }
+  }
+}

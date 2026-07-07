@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/set-mode.schema.json",
+  "title": "set_mode",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["op", "target", "mode"],
+  "properties": {
+    "op": {
+      "const": "set_mode"
+    },
+    "target": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "type": "string" },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "mode": {
+      "enum": [0, 2, 4]
+    }
+  }
+}

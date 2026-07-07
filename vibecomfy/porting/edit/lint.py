@@ -880,6 +880,8 @@ def _lint_add_node(
                     fields=canonical_fields,
                     inputs=canonical_inputs,
                     anchor=op.anchor,
+                    uid=op.uid,
+                    node_id=op.node_id,
                 )
 
         if op.inputs:

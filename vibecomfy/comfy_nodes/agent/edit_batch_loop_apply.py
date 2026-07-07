@@ -193,6 +193,7 @@ SOURCE = r'''
         lint_dropped_op_ids: frozenset[tuple[str, str]] | None = None
         lint_dropped_count = 0
         lint_diag_dicts: tuple[dict[str, Any], ...] = ()
+        persisted_landed_ops = batch_result.landed_ops
         if (
             _edit_lint_enabled()
             and batch_result.landed_ops
@@ -270,12 +271,29 @@ SOURCE = r'''
             lint_diag_dicts = tuple(
                 _lint_issue_to_dict(issue) for issue in lint_issues
             )
+            persisted_landed_ops = lint_result.surviving
 
         raw_landed = len(batch_result.landed_ops)
         effective_landed = raw_landed - lint_dropped_count
         landed_count = effective_landed
         total_landed += effective_landed
         last_landed_count = effective_landed
+        if batch_result.landed_ops:
+            from vibecomfy.porting.edit.ops import (
+                DELTA_SCHEMA_VERSION,
+                ensure_root_scoped_delta_envelope,
+                op_to_dict,
+            )
+
+            delta_envelope_payload = ensure_root_scoped_delta_envelope(
+                {
+                    "schema_version": DELTA_SCHEMA_VERSION,
+                    "ops": [op_to_dict(op) for op in persisted_landed_ops],
+                },
+                strict=True,
+            ).to_dict()
+        else:
+            delta_envelope_payload = None
         turn_is_read_only = effective_landed == 0 and all(
             str(item.op_kind or "") in {"query", "done", "clarify"}
             for item in batch_result.statements
@@ -349,6 +367,9 @@ SOURCE = r'''
         }
         if execution_plan_status:
             turn_record["execution_plan_status"] = execution_plan_status
+        if delta_envelope_payload is not None:
+            turn_record["delta_ops_envelope"] = delta_envelope_payload
+            turn_record["delta_ops"] = list(delta_envelope_payload["ops"])
         if noop_field_changes:
             turn_record["noop_field_changes"] = _field_changes_payload(noop_field_changes)
         if clarify_message is not None:

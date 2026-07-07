@@ -1380,8 +1380,9 @@ class TestAvailableNodeSignatures:
         ]
 
         text = format_signature_rows(rows)
-        assert "def KSampler(model: MODEL, seed: INT = ...) -> latent:LATENT:" in text
         assert "# authoring: literal fields: seed; socket inputs: model" in text
+        assert "# raw class: KSampler" in text
+        assert "def ksampler(model: MODEL, seed: INT = ...) -> latent:LATENT:" in text
 
     def test_format_signature_rows_no_outputs(self) -> None:
         from vibecomfy.porting.emitter import (
@@ -1401,7 +1402,8 @@ class TestAvailableNodeSignatures:
         ]
 
         text = format_signature_rows(rows)
-        assert "def SaveImage(images: IMAGE) -> None:" in text
+        assert "# raw class: SaveImage" in text
+        assert "def saveimage(images: IMAGE) -> None:" in text
 
     def test_format_signature_rows_show_pack(self) -> None:
         from vibecomfy.porting.emitter import (
@@ -1421,7 +1423,7 @@ class TestAvailableNodeSignatures:
 
         text = format_signature_rows(rows, show_pack=True)
         assert "# pack: comfy_custom" in text
-        assert "def Foo() -> None:" in text
+        assert "def foo() -> None:" in text
 
     def test_format_signature_rows_show_confidence(self) -> None:
         from vibecomfy.porting.emitter import (
@@ -1451,8 +1453,8 @@ class TestAvailableNodeSignatures:
         # High confidence (1.0) should NOT show annotation
         assert "confidence: 1.00" not in text
         # Both class types should still appear
-        assert "def HighConf() -> None:" in text
-        assert "def LowConf() -> None:" in text
+        assert "def highconf() -> None:" in text
+        assert "def lowconf() -> None:" in text
 
     def test_format_signature_rows_deterministic(self) -> None:
         from vibecomfy.porting.emitter import (
@@ -1472,7 +1474,7 @@ class TestAvailableNodeSignatures:
         assert text1 == text2
         # Should be sorted A, M, Z
         lines = [line for line in text1.split("\n") if line.startswith("def ")]
-        assert lines == ["def A() -> None:", "def M() -> None:", "def Z() -> None:"]
+        assert lines == ["def a() -> None:", "def m() -> None:", "def z() -> None:"]
 
     def test_format_signature_rows_slot_name_codec(self) -> None:
         from vibecomfy.porting.emitter import (
@@ -1494,7 +1496,44 @@ class TestAvailableNodeSignatures:
 
         text = format_signature_rows(rows)
         # 'in' → 'in_', 'class' → 'class_'
-        assert "def KwargsNode(in_: IMAGE, class_: STRING = ...) -> None:" in text
+        assert "def kwargsnode(in_: IMAGE, class_: STRING = ...) -> None:" in text
+
+    def test_format_signature_rows_uses_python_identifier_alias_for_class_type(self) -> None:
+        from vibecomfy.porting.emitter import (
+            NodeSignatureRow,
+            format_signature_rows,
+        )
+
+        rows = [
+            NodeSignatureRow(
+                class_type="MiDaS-DepthMapPreprocessor",
+                inputs=[],
+                outputs=[],
+            ),
+        ]
+
+        text = format_signature_rows(rows)
+        assert "# raw class: MiDaS-DepthMapPreprocessor" in text
+        assert "def midas_depthmappreprocessor() -> None:" in text
+
+    def test_format_signature_rows_omits_raw_class_comment_when_alias_matches(self) -> None:
+        from vibecomfy.porting.emitter import (
+            NodeSignatureRow,
+            format_signature_rows,
+        )
+
+        rows = [
+            NodeSignatureRow(
+                class_type="CheckpointLoaderSimple",
+                inputs=[],
+                outputs=[],
+            ),
+        ]
+
+        text = format_signature_rows(rows)
+        # CheckpointLoaderSimple → checkpointloadersimple (alias differs)
+        assert "# raw class: CheckpointLoaderSimple" in text
+        assert "def checkpointloadersimple() -> None:" in text
 
     def test_node_signature_row_frozen(self) -> None:
         from vibecomfy.porting.emitter import (
@@ -1587,7 +1626,7 @@ class TestAvailableNodeSignatures:
         ]
         text = format_signature_rows(rows)
         assert (
-            'def VAELoader(vae_name: COMBO["ae.safetensors", "flux_vae.safetensors"]) -> None:'
+            'def vaeloader(vae_name: COMBO["ae.safetensors", "flux_vae.safetensors"]) -> None:'
             in text
         )
 
@@ -1640,7 +1679,7 @@ class TestAvailableNodeSignatures:
             ),
         ]
         text = format_signature_rows(rows)
-        assert "def SamplerCustomAdvanced() -> output:LATENT, denoised_output:LATENT:" in text
+        assert "def samplercustomadvanced() -> output:LATENT, denoised_output:LATENT:" in text
 
     def test_output_name_equals_type_renders_addressable_name(self) -> None:
         from vibecomfy.porting.emitter import (
@@ -1661,7 +1700,7 @@ class TestAvailableNodeSignatures:
             ),
         ]
         text = format_signature_rows(rows)
-        assert "def VAEDecode(samples: LATENT, vae: VAE) -> image:IMAGE:" in text
+        assert "def vaedecode(samples: LATENT, vae: VAE) -> image:IMAGE:" in text
         assert "-> IMAGE:IMAGE:" not in text
 
 
@@ -5340,3 +5379,167 @@ class TestBatchResultRenderDiffWithFieldChanges:
         assert "--- landed operations ---" in result
         assert "@@" not in result
         assert "set_node_field" in result
+
+
+# ── T6: Legacy-boundary classification tests ────────────────────────────────
+
+
+class TestLegacyDeltaBoundary:
+    """Prove that legacy wrapped delta shapes are classified as
+    ``legacy_delta_shape`` rather than falling through to V1 stale-canvas
+    fallback, and that add-node identity grouping uses explicit uid/node_id."""
+
+    def test_legacy_wrapped_delta_ops_detected_as_legacy_delta_shape_not_v1(
+        self,
+    ) -> None:
+        """The ops module must classify legacy wrapped mappings (a dict with
+        legacy keys like ``delta``, ``diagnostics`` under ``delta_ops``) as
+        ``legacy_delta_shape``, not as malformed V2 or a V1 stale-canvas
+        fallback."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+            EditOpParseError,
+            normalize_delta_envelope,
+        )
+
+        # A legacy wrapped payload: a dict under delta_ops with old keys.
+        legacy_wrapped = {
+            "delta_ops": {
+                "delta": [{"op": "set_node_field", "target": ["nodes", "n1", "text"], "value": "old"}],
+                "diagnostics": [],
+                "guard_result": {},
+            },
+        }
+
+        # normalize_delta_envelope must raise EditOpParseError with
+        # DELTA_DIAGNOSTIC_LEGACY_SHAPE code, NOT a generic malformed code.
+        with pytest.raises(EditOpParseError) as exc_info:
+            normalize_delta_envelope(legacy_wrapped)
+        assert exc_info.value.code == DELTA_DIAGNOSTIC_LEGACY_SHAPE, (
+            f"Expected DELTA_DIAGNOSTIC_LEGACY_SHAPE ({DELTA_DIAGNOSTIC_LEGACY_SHAPE!r}), "
+            f"got {exc_info.value.code!r}"
+        )
+
+        # The error message must mention legacy.
+        assert "legacy" in str(exc_info.value).lower(), (
+            f"Expected legacy mention in error, got: {exc_info.value}"
+        )
+
+    def test_non_strict_normalize_accepts_legacy_flat_for_bridge_only(
+        self,
+    ) -> None:
+        """Non-strict normalization (used pre-apply) must accept legacy flat
+        delta_ops lists for backward compatibility but must classify them as
+        derived bridge data, not canonical."""
+        from vibecomfy.porting.edit.ops import normalize_delta_envelope
+
+        # Legacy flat list — use allow_legacy_list=True for the bridge path.
+        # We use strict=False so canonical_op_to_dict is not called (which
+        # would reject ops that lack explicit uid/node_id).
+        legacy_flat = [
+            {"op": "set_node_field", "target": ["", "n1", "text"], "value": "bridge"},
+        ]
+        envelope = normalize_delta_envelope(
+            legacy_flat, allow_legacy_list=True, strict=False,
+        )
+        assert envelope.schema_version == "2.0.0"
+        assert len(envelope.ops) == 1
+        assert envelope.ops[0].op == "set_node_field"
+
+    def test_legacy_wrapped_rejected_even_non_strict(self) -> None:
+        """Even non-strict/allowed-legacy-list normalization must reject
+        legacy wrapped mappings that have neither ``schema_version`` nor
+        ``ops`` keys, since they cannot be mechanically converted."""
+        from vibecomfy.porting.edit.ops import (
+            EditOpParseError,
+            normalize_delta_envelope,
+        )
+
+        # A bare legacy wrapped dict with keys like delta/diagnostics
+        # but no schema_version or ops → malformed_delta.
+        legacy_wrapped = {
+            "delta": [{"op": "set_node_field", "target": ["", "n1", "text"], "value": "old"}],
+            "diagnostics": [],
+        }
+
+        with pytest.raises(EditOpParseError) as exc_info:
+            normalize_delta_envelope(legacy_wrapped, allow_legacy_list=True)
+        # This shape is classified as malformed_delta because it has neither
+        # schema_version/ops nor the ``delta_ops`` wrapper key.
+        assert exc_info.value.code in ("malformed_delta", "legacy_delta_shape"), (
+            f"Expected malformed_delta or legacy_delta_shape, got {exc_info.value.code!r}"
+        )
+
+    def test_canonical_add_node_roundtrip_preserves_uid_and_node_id(
+        self,
+    ) -> None:
+        """A canonical add_node with explicit uid/node_id must survive
+        parse→normalize→serialize roundtrip with identity intact."""
+        from vibecomfy.porting.edit.ops import (
+            canonical_op_to_dict,
+            normalize_delta_envelope,
+            parse_edit_delta,
+        )
+
+        canonical_add = {
+            "op": "add_node",
+            "scope_path": "",
+            "uid": "preserved-uid",
+            "node_id": "42",
+            "class_type": "PreviewImage",
+            "fields": {"filename_prefix": "test"},
+            "inputs": {"images": ["", "src-node", "IMAGE"]},
+        }
+
+        # Parse (expects a list of op dicts).
+        ops = parse_edit_delta([canonical_add])
+        assert len(ops) == 1
+
+        # Normalize (use the canonical envelope shape directly).
+        envelope = normalize_delta_envelope(
+            {"schema_version": "2.0.0", "ops": [canonical_op_to_dict(ops[0])]},
+        )
+        assert envelope.schema_version == "2.0.0"
+        normalized_op = envelope.ops[0]
+        assert normalized_op.op == "add_node"
+        assert normalized_op.uid == "preserved-uid"
+        assert normalized_op.node_id == "42"
+
+        # Serialize back to dict
+        serialized = canonical_op_to_dict(normalized_op)
+        assert serialized["op"] == "add_node"
+        assert serialized.get("uid") == "preserved-uid"
+        assert serialized.get("node_id") == "42"
+
+    def test_canonicalize_rejects_add_node_missing_uid_in_strict_normalization(
+        self,
+    ) -> None:
+        """Strict normalization must reject add_node ops that lack explicit
+        uid when canonical_op_to_dict is called on them."""
+        from vibecomfy.porting.edit.ops import (
+            EditOpParseError,
+            canonical_op_to_dict,
+            normalize_delta_envelope,
+            parse_edit_delta,
+        )
+
+        missing_uid = {
+            "op": "add_node",
+            "scope_path": "some-path",
+            "node_id": "99",
+            "class_type": "PreviewImage",
+            "fields": {},
+            "inputs": {},
+        }
+
+        # Parse succeeds (parse is lenient).
+        ops = parse_edit_delta([missing_uid])
+        assert len(ops) == 1
+
+        # But strict canonicalization (which normalize_delta_envelope applies
+        # in strict mode) must reject the missing uid.
+        with pytest.raises(EditOpParseError) as exc_info:
+            canonical_op_to_dict(ops[0])
+        assert "uid" in str(exc_info.value).lower(), (
+            f"Expected uid-related error, got: {exc_info.value}"
+        )

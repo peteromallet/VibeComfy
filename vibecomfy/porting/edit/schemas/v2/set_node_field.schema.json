@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/set-node-field.schema.json",
+  "title": "set_node_field",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["op", "target", "value"],
+  "properties": {
+    "op": {
+      "const": "set_node_field"
+    },
+    "target": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "type": "string" },
+        { "type": "string", "minLength": 1 },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "value": true
+  }
+}

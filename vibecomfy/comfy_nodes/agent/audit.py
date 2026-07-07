@@ -250,18 +250,35 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
                 if isinstance(change, Mapping)
             ]
 
-    # ── legacy delta_ops ──────────────────────────────────────────────────
-    delta_ops = payload.get("delta_ops")
-    delta_ops_mapping = dict(delta_ops) if isinstance(delta_ops, Mapping) else {}
-    diagnostics = delta_ops_mapping.get("diagnostics")
-    automatic_link_removals = delta_ops_mapping.get("automatic_link_removals")
-    re_stitches = delta_ops_mapping.get("re_stitches")
-    guard_result = delta_ops_mapping.get("guard_result")
-    normalize = delta_ops_mapping.get("normalize")
-    ops = delta_ops_mapping.get("ops")
+    # ── canonical envelope + audit split (with legacy bridge support) ─────
+    delta_envelope = payload.get("delta_ops_envelope")
+    legacy_delta_ops = payload.get("delta_ops")
+    legacy_delta_ops_mapping = dict(legacy_delta_ops) if isinstance(legacy_delta_ops, Mapping) else {}
+    audit_payload = payload.get("delta_audit")
+    delta_audit_mapping = dict(audit_payload) if isinstance(audit_payload, Mapping) else legacy_delta_ops_mapping
 
-    normalized_delta_ops = {
-        "ops": list(ops) if isinstance(ops, list) else [],
+    normalized_delta_envelope: dict[str, Any] | None = None
+    if isinstance(delta_envelope, Mapping):
+        raw_ops = delta_envelope.get("ops")
+        normalized_delta_envelope = {
+            "schema_version": str(delta_envelope.get("schema_version") or "2.0.0"),
+            "ops": list(raw_ops) if isinstance(raw_ops, list) else [],
+        }
+    else:
+        raw_ops = legacy_delta_ops_mapping.get("ops")
+        if isinstance(raw_ops, list):
+            normalized_delta_envelope = {
+                "schema_version": "2.0.0",
+                "ops": list(raw_ops),
+            }
+
+    diagnostics = delta_audit_mapping.get("diagnostics")
+    automatic_link_removals = delta_audit_mapping.get("automatic_link_removals")
+    re_stitches = delta_audit_mapping.get("re_stitches")
+    guard_result = delta_audit_mapping.get("guard_result")
+    normalize = delta_audit_mapping.get("normalize")
+
+    normalized_delta_audit = {
         "diagnostics": list(diagnostics) if isinstance(diagnostics, list) else [],
         "automatic_link_removals": (
             list(automatic_link_removals) if isinstance(automatic_link_removals, list) else []
@@ -279,21 +296,23 @@ def normalize_agent_edit_v2_metadata(value: Mapping[str, Any] | None) -> dict[st
     }
     op_count = payload.get("op_count")
     if not isinstance(op_count, int):
-        op_count = len(normalized_delta_ops["ops"])
+        op_count = len(normalized_delta_envelope["ops"]) if normalized_delta_envelope is not None else 0
 
     result: dict[str, Any] = {
         "enabled": bool(payload.get("enabled")),
         "op_count": op_count,
-        "delta_ops": normalized_delta_ops,
+        "delta_ops_envelope": normalized_delta_envelope,
+        "delta_audit": normalized_delta_audit,
     }
 
     # ── surface typed outcome.changes when present ────────────────────────
     if outcome_changes:
         result["outcome_changes"] = outcome_changes
 
-    # ── skip cleanly when delta data is absent (no delta_ops key) ─────────
-    if not isinstance(delta_ops, Mapping) and not outcome_changes:
-        result.pop("delta_ops", None)
+    # ── skip cleanly when delta data is absent ────────────────────────────
+    if normalized_delta_envelope is None and not outcome_changes:
+        result.pop("delta_ops_envelope", None)
+        result.pop("delta_audit", None)
         result.pop("op_count", None)
 
     return result

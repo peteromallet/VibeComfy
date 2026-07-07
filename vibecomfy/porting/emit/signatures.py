@@ -333,7 +333,10 @@ def format_signature_rows(
 
         params = ", ".join(param_parts)
         returns = ", ".join(return_parts) if return_parts else "None"
-        sig = f"def {row.class_type}({params}) -> {returns}:"
+        class_ident = to_python_identifier(row.class_type)
+        if class_ident != row.class_type:
+            prefix_parts.append(f"# raw class: {row.class_type}")
+        sig = f"def {class_ident}({params}) -> {returns}:"
 
         comment_parts = prefix_parts + suffix_parts
         if comment_parts:

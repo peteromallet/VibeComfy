@@ -6,6 +6,43 @@
 // Backend contract authority: vibecomfy/comfy_nodes/agent_contracts.py.
 // Harness profiles describe the shape of the mock app/canvas/graph needed
 // for browser tests to match supported / degraded / missing-hook ComfyUI builds.
+//
+// Canonical delta contract: This module now requires that delta ops passed to
+// preflightDeltaPlan() and applyGraphDeltaInPlace() are normalized canonical
+// ops (the six supported op types in CANONICAL_DELTA_OP_NAMES).  Non-root scoped
+// apply is classified as unsupported_scoped_apply.  Added nodes are materialized
+// from explicit uid/node_id rather than inferred from scope_path.
+
+// ── Canonical delta constants (aligned with canonical_delta.js) ─────────────
+
+/** Canonical V2 delta schema version. */
+const DELTA_SCHEMA_VERSION = "2.0.0";
+
+/** Diagnostic code: non-root scoped apply is unsupported in the browser adapter. */
+const DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY = "unsupported_scoped_apply";
+
+/** The six canonical delta op types. */
+const CANONICAL_DELTA_OP_NAMES = Object.freeze([
+  "set_node_field",
+  "set_mode",
+  "add_node",
+  "upsert_link",
+  "remove_node",
+  "remove_link",
+]);
+
+/**
+ * Structured diagnostic error for delta contract violations.
+ * Mirrors the DeltaDiagnosticError in canonical_delta.js.
+ */
+class DeltaDiagnosticError extends Error {
+  constructor(message, code, detail = {}) {
+    super(message);
+    this.name = "DeltaDiagnosticError";
+    this.code = code || "malformed_delta";
+    this.detail = detail || {};
+  }
+}
 
 // ── Supported frontend version ─────────────────────────────────────────────
 const SUPPORTED_FRONTEND = "1.39.x";
@@ -259,7 +296,11 @@ function parseNodeTarget(target) {
 
 function requireRootScope(parsed, opKind) {
   if (parsed.scopePath.length > 0) {
-    throw new Error(`${opKind} only supports root-scope graph edits in the browser adapter.`);
+    throw new DeltaDiagnosticError(
+      `${opKind} only supports root-scope graph edits in the browser adapter.`,
+      DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
+      { op: opKind, scope_path: parsed.scopePath },
+    );
   }
 }
 
@@ -378,6 +419,21 @@ function setNodeFieldValue(node, path, value) {
   cursor[segments[segments.length - 1]] = cloneJson(value);
 }
 
+/**
+ * Centralized transitional link key mapping.
+ *
+ * LiteGraph serialized links can appear in two shapes:
+ *   - Legacy array:  [id, origin_id, origin_slot, target_id, target_slot, type]
+ *   - Object/map:    {id, origin_id, origin_slot, target_id, target_slot, type}
+ *
+ * This function normalizes either shape into a consistent object form.
+ * All link-consuming code paths (iterateLinkRecords, findCandidateLinkForOp,
+ * findExistingLinkByTarget, upsertLinkInSerializedGraph, removeLinkFromSerializedGraph,
+ * removeLiveLink, upsertLiveLink) go through this single normalization entry point.
+ *
+ * @param {Array|object|null} raw
+ * @returns {{id, origin_id, origin_slot, target_id, target_slot, type, raw}|null}
+ */
 function normalizeLinkRecord(raw) {
   if (Array.isArray(raw)) {
     return {
@@ -608,14 +664,30 @@ function reorderByNames(items, names, key = "name") {
 }
 
 function materializeAddNodePayload(candidateGraph, op) {
-  const targetRef = op?.target
-    ?? [Array.isArray(op?.scope_path) ? op.scope_path : "", op?.uid ?? op?.id ?? op?.scope_path ?? ""];
-  const parsed = parseNodeTarget(targetRef);
+  // Prefer explicit uid / node_id from canonical add_node ops.
+  // Fall back to scope_path for legacy flat op shapes that lack explicit identity.
+  const explicitUid = typeof op?.uid === "string" && op.uid ? op.uid : null;
+  const explicitNodeId = typeof op?.node_id === "string" && op.node_id ? op.node_id : null;
+  const scopePath =
+    op?.scope_path !== null && op?.scope_path !== undefined ? String(op.scope_path) : "";
+
+  const parsed = parseNodeTarget(
+    op?.target
+      ?? [Array.isArray(op?.scope_path) ? op.scope_path : "", explicitUid ?? explicitNodeId ?? scopePath],
+  );
   requireRootScope(parsed, "add_node");
-  const uidOrId = parsed.uidOrId || (op?.scope_path !== null && op?.scope_path !== undefined ? String(op.scope_path) : null);
-  const candidateNode = resolveNodeFromGraph(candidateGraph, uidOrId);
+
+  // Prefer explicit uid, then explicit node_id, then scope_path / parsed fallback.
+  const lookupKey = explicitUid || explicitNodeId || scopePath || parsed.uidOrId || null;
+  if (!lookupKey) {
+    throw new Error(
+      "Cannot materialize added node: add_node op must provide explicit uid or node_id.",
+    );
+  }
+
+  const candidateNode = resolveNodeFromGraph(candidateGraph, lookupKey);
   if (!candidateNode) {
-    throw new Error(`Could not materialize added node ${String(uidOrId)} from candidateGraph.`);
+    throw new Error(`Could not materialize added node ${String(lookupKey)} from candidateGraph.`);
   }
   return cloneJson(candidateNode);
 }
@@ -737,6 +809,69 @@ function decorateLiveNode(options, liveNode, context) {
   }
 }
 
+/**
+ * Verify that the candidate graph is consistent with the delta ops before
+ * preflighting.  Checks that nodes referenced by add_node ops can be found in
+ * the candidate graph and that link endpoints are resolvable.
+ *
+ * @param {object} candidateGraph
+ * @param {Array<object>} deltaOps — normalized canonical ops
+ * @throws {DeltaDiagnosticError|Error} on consistency violations
+ */
+function verifyCandidateGraphConsistency(candidateGraph, deltaOps) {
+  const candidateIndex = buildGraphIndex(candidateGraph);
+
+  for (let i = 0; i < deltaOps.length; i++) {
+    const op = deltaOps[i];
+    const opKind = op.op;
+
+    if (opKind === "add_node") {
+      const uid = typeof op.uid === "string" && op.uid ? op.uid : null;
+      const nodeId = typeof op.node_id === "string" && op.node_id ? op.node_id : null;
+      const lookupKey = uid || nodeId || null;
+      if (!lookupKey) {
+        continue; // identity will be resolved at apply time
+      }
+      const candidateNode = resolveNodeFromIndex(candidateIndex, lookupKey);
+      if (!candidateNode) {
+        throw new Error(
+          `Candidate graph consistency failure: add_node op at index ${i} references ` +
+          `node "${lookupKey}" which is absent from the candidate graph.`,
+        );
+      }
+    }
+
+    if (opKind === "upsert_link") {
+      const fromRef = op.from;
+      const toRef = op.to;
+      if (Array.isArray(fromRef) && fromRef.length >= 2) {
+        const fromParsed = parseNodeTarget(fromRef.slice(0, 2));
+        if (fromParsed.uidOrId) {
+          const fromNode = resolveNodeFromIndex(candidateIndex, fromParsed.uidOrId);
+          if (!fromNode) {
+            throw new Error(
+              `Candidate graph consistency failure: upsert_link at index ${i} ` +
+              `references source node "${fromParsed.uidOrId}" absent from candidate graph.`,
+            );
+          }
+        }
+      }
+      if (Array.isArray(toRef) && toRef.length >= 2) {
+        const toParsed = parseNodeTarget(toRef.slice(0, 2));
+        if (toParsed.uidOrId) {
+          const toNode = resolveNodeFromIndex(candidateIndex, toParsed.uidOrId);
+          if (!toNode) {
+            throw new Error(
+              `Candidate graph consistency failure: upsert_link at index ${i} ` +
+              `references target node "${toParsed.uidOrId}" absent from candidate graph.`,
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
 function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, options = {}) {
   if (!Array.isArray(deltaOps)) {
     throw new Error("deltaOps must be an array.");
@@ -744,12 +879,25 @@ function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, options
   if (!candidateGraph || typeof candidateGraph !== "object") {
     throw new Error("candidateGraph must be an object.");
   }
-  const workingGraph = cloneJson(liveGraphSnapshot) || { nodes: [], links: [] };
-  const plan = [];
-  for (const op of deltaOps) {
+
+  // Validate that all ops are canonical before preflighting.
+  for (let i = 0; i < deltaOps.length; i++) {
+    const op = deltaOps[i];
     if (!op || typeof op !== "object" || typeof op.op !== "string") {
       throw new Error("deltaOps contains an invalid operation entry.");
     }
+    if (!CANONICAL_DELTA_OP_NAMES.includes(op.op)) {
+      throw new DeltaDiagnosticError(
+        `Unsupported delta op kind ${op.op} at index ${i}. Expected one of: ${CANONICAL_DELTA_OP_NAMES.join(", ")}.`,
+        "malformed_delta",
+        { index: i, op: op.op },
+      );
+    }
+  }
+
+  const workingGraph = cloneJson(liveGraphSnapshot) || { nodes: [], links: [] };
+  const plan = [];
+  for (const op of deltaOps) {
     const opKind = op.op;
     if (opKind === "set_node_field") {
       const parsed = parseNodeTarget(op.target);
@@ -774,34 +922,6 @@ function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, options
       }
       node.mode = candidateNode.mode ?? op.mode ?? op.value;
       plan.push({ op: opKind, uidOrId: parsed.uidOrId, mode: node.mode });
-      continue;
-    }
-    if (opKind === "reorder") {
-      const parsed = parseNodeTarget(op.target);
-      requireRootScope(parsed, opKind);
-      const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
-      if (!node) {
-        throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for reorder.`);
-      }
-      if (op.axis === "widgets") {
-        const widgetNames = Array.isArray(op.order) ? op.order : [];
-        const originalWidgets = Array.isArray(node.widgets) ? node.widgets.slice() : [];
-        const originalValues = Array.isArray(node.widgets_values) ? node.widgets_values.slice() : [];
-        const reorderedWidgets = reorderByNames(originalWidgets, widgetNames, "name");
-        const reorderedValues = reorderedWidgets.map((widget) => {
-          const index = originalWidgets.indexOf(widget);
-          return index >= 0 ? originalValues[index] : undefined;
-        });
-        node.widgets = reorderedWidgets;
-        if (Array.isArray(node.widgets_values)) {
-          node.widgets_values = reorderedValues;
-        }
-      } else if (op.axis === "inputs" || op.axis === "outputs") {
-        node[op.axis] = reorderByNames(node[op.axis], op.order, "name");
-      } else {
-        throw new Error(`Unsupported reorder axis ${String(op.axis)}.`);
-      }
-      plan.push({ op: opKind, uidOrId: parsed.uidOrId, axis: op.axis, order: cloneJson(op.order) });
       continue;
     }
     if (opKind === "upsert_link") {
@@ -856,6 +976,10 @@ function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, options
     }
     throw new Error(`Unsupported delta op kind ${opKind}.`);
   }
+
+  // Verify candidate graph consistency with the delta ops after planning.
+  verifyCandidateGraphConsistency(candidateGraph, deltaOps);
+
   return { plan, nextGraph: workingGraph };
 }
 
@@ -881,28 +1005,6 @@ function applyPreflightPlanLive(app, capability, plan, options = {}) {
         throw new Error(`Could not resolve live node ${String(step.uidOrId)}.`);
       }
       liveNode.mode = step.mode;
-      decorateLiveNode(options, liveNode, { op: step });
-      continue;
-    }
-    if (step.op === "reorder") {
-      const liveNode = resolveLiveNode(graph, step.uidOrId);
-      if (!liveNode) {
-        throw new Error(`Could not resolve live node ${String(step.uidOrId)}.`);
-      }
-      if (step.axis === "widgets") {
-        const originalWidgets = Array.isArray(liveNode.widgets) ? liveNode.widgets.slice() : [];
-        const originalValues = Array.isArray(liveNode.widgets_values) ? liveNode.widgets_values.slice() : [];
-        const reorderedWidgets = reorderByNames(originalWidgets, step.order, "name");
-        liveNode.widgets = reorderedWidgets;
-        if (Array.isArray(liveNode.widgets_values)) {
-          liveNode.widgets_values = reorderedWidgets.map((widget) => {
-            const index = originalWidgets.indexOf(widget);
-            return index >= 0 ? originalValues[index] : undefined;
-          });
-        }
-      } else {
-        liveNode[step.axis] = reorderByNames(liveNode[step.axis], step.order, "name");
-      }
       decorateLiveNode(options, liveNode, { op: step });
       continue;
     }
@@ -1018,6 +1120,32 @@ export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, option
     error.code = "GRAPH_DELTA_APPLY_UNAVAILABLE";
     error.capability = capability;
     throw error;
+  }
+
+  // Require normalized canonical ops before proceeding.
+  if (!Array.isArray(deltaOps)) {
+    throw new DeltaDiagnosticError(
+      "applyGraphDeltaInPlace requires a normalized deltaOps array.",
+      "malformed_delta",
+      {},
+    );
+  }
+  for (let i = 0; i < deltaOps.length; i++) {
+    const op = deltaOps[i];
+    if (!op || typeof op !== "object" || typeof op.op !== "string") {
+      throw new DeltaDiagnosticError(
+        "deltaOps contains an invalid operation entry.",
+        "malformed_delta",
+        { index: i },
+      );
+    }
+    if (!CANONICAL_DELTA_OP_NAMES.includes(op.op)) {
+      throw new DeltaDiagnosticError(
+        `Unsupported delta op kind ${op.op} at index ${i}. Expected one of: ${CANONICAL_DELTA_OP_NAMES.join(", ")}.`,
+        "malformed_delta",
+        { index: i, op: op.op },
+      );
+    }
   }
 
   const liveSnapshot = typeof graph.serialize === "function"

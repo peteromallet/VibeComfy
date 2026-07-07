@@ -250,9 +250,29 @@ class _ParseExecuteMixin:
 
             self.working_ui = deepcopy(applied.candidate)
             self.ledger = EditLedger.ingest(self.working_ui)
-            self.landed_ops.append(op)
-            landed_ops.append(op)
-            touched_uids, touched_node_ids = self._collect_touched_nodes((op,))
+
+            # Propagate assigned uid/node_id back into AddNodeOp for canonical
+            # persistence downstream.
+            landed_op = op
+            if isinstance(op, AddNodeOp):
+                resolved = applied.resolved_ops[0][1] if applied.resolved_ops else None
+                minted_uid = getattr(resolved, "uid", None)
+                minted_node_id = getattr(resolved, "node_id", None)
+                if isinstance(minted_uid, str) and minted_node_id is not None:
+                    landed_op = AddNodeOp(
+                        op=op.op,
+                        scope_path=op.scope_path,
+                        class_type=op.class_type,
+                        fields=dict(op.fields),
+                        inputs=dict(op.inputs),
+                        anchor=op.anchor,
+                        uid=minted_uid,
+                        node_id=str(minted_node_id),
+                    )
+
+            self.landed_ops.append(landed_op)
+            landed_ops.append(landed_op)
+            touched_uids, touched_node_ids = self._collect_touched_nodes((landed_op,))
             self.touched_uids.update(touched_uids)
             self.touched_node_ids.update(touched_node_ids)
 
@@ -316,6 +336,8 @@ class _ParseExecuteMixin:
                     fields=dict(resolved_call.fields),
                     inputs=dict(resolved_call.inputs),
                     anchor=resolved_call.anchor,
+                    uid=getattr(resolved_call, "uid", None),
+                    node_id=getattr(resolved_call, "node_id", None),
                 ),
                 (),
             )

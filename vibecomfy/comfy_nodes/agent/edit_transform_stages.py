@@ -122,6 +122,45 @@ def _stage_emit(state: AgentEditState, _context: TurnContext) -> StageResult:
     )
 
 
+def _ensure_canonical_delta_ops(
+    delta_ops: tuple[Any, ...],
+    *,
+    strict: bool = False,
+) -> tuple[Any, ...]:
+    from vibecomfy.porting.edit.ops import (
+        DELTA_SCHEMA_VERSION,
+        ensure_root_scoped_delta_envelope,
+        op_to_dict,
+    )
+
+    envelope = ensure_root_scoped_delta_envelope(
+        {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [op_to_dict(op) for op in delta_ops],
+        },
+        strict=strict,
+    )
+    return envelope.ops
+
+
+def _canonical_delta_ops_envelope_payload(
+    delta_ops: tuple[Any, ...],
+) -> dict[str, Any]:
+    from vibecomfy.porting.edit.ops import (
+        DELTA_SCHEMA_VERSION,
+        ensure_root_scoped_delta_envelope,
+        op_to_dict,
+    )
+
+    return ensure_root_scoped_delta_envelope(
+        {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [op_to_dict(op) for op in delta_ops],
+        },
+        strict=True,
+    ).to_dict()
+
+
 def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageResult:
     from vibecomfy.porting.edit.apply import apply_delta
     from vibecomfy.porting.edit.apply import (
@@ -129,7 +168,7 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
         ResolvedFieldRef,
         ResolvedRemoveNodePlan,
     )
-    from vibecomfy.porting.edit.ops import op_to_dict
+    from vibecomfy.porting.edit.ops import EditOpParseError
 
     def _build_delta_audit(result: Any) -> dict[str, Any]:
         automatic_link_removals: list[dict[str, Any]] = []
@@ -176,7 +215,6 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
             "allow_list_used": bool(getattr(guard, "normalize_allow_list_used", False)),
         }
         return {
-            "ops": [op_to_dict(op) for op in state.delta_ops],
             "diagnostics": [_port_issue_to_dict(issue) for issue in result.diagnostics],
             "automatic_link_removals": automatic_link_removals,
             "re_stitches": re_stitches,
@@ -185,6 +223,31 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
         }
 
     start = time.monotonic()
+    state.delta_audit = None
+
+    try:
+        state.delta_ops = _ensure_canonical_delta_ops(state.delta_ops)
+    except EditOpParseError as exc:
+        issue = {
+            "code": exc.code,
+            "message": str(exc),
+            "severity": "error",
+        }
+        if isinstance(exc.detail, Mapping) and exc.detail:
+            issue["detail"] = _json_safe(dict(exc.detail))
+        state.delta_diagnostics = [dict(issue)]
+        return StageResult(
+            stage="apply_delta",
+            ok=False,
+            blocking=True,
+            duration_ms=_duration_ms(start),
+            issues=(issue,),
+            value={
+                "failure_kind": FailureKind.VALIDATION_ERROR.value,
+                "mutation_started": 0,
+                "op_count": len(state.delta_ops),
+            },
+        )
 
     # ── lint gate (VIBECOMFY_AGENT_EDIT_LINT defaults ON) ──────────────────
     original_ui = state.guard_original_ui or state.graph
@@ -233,10 +296,19 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
 
         # All ops dropped as no-ops → clean no-op turn
         if lint_result.passed_count == 0:
+            state.delta_ops = lint_result.surviving
             state.ui_payload = original_ui
             state.delta_diagnostics = [
                 dict(d) for d in lint_issue_dicts
             ]
+            delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
+            state.delta_audit = {
+                "diagnostics": [dict(d) for d in lint_issue_dicts],
+                "automatic_link_removals": [],
+                "re_stitches": [],
+                "guard_result": {"ok": True, "diagnostics": []},
+                "normalize": {"fallback_used": False, "allow_list_used": False},
+            }
             # Collect human-readable no-op messages for user-facing display
             _noop_msgs: list[str] = []
             for norm in lint_result.normalizations:
@@ -247,7 +319,8 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
                 "change": {
                     "mode": "agent_edit_v2_delta",
                     "op_count": len(state.delta_ops),
-                    "ops": [],
+                    "delta_ops_envelope": delta_envelope,
+                    "ops": list(delta_envelope["ops"]),
                     "mutation_started": 0,
                     "lint_noop": True,
                 },
@@ -310,7 +383,37 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
 
     state.ui_payload = result.candidate
     candidate_ui_ref = write_json_artifact(state.candidate_ui_path, state.ui_payload)
-    ops = [op_to_dict(op) for op in state.delta_ops]
+
+    # Populate add_node ops with assigned uid/node_id from the resolved ops.
+    from vibecomfy.porting.edit.ops import AddNodeOp as _AddNodeOp
+    from vibecomfy.porting.edit.apply_types import AppliedAddNodeSpec as _AppliedAddNodeSpec
+
+    _updated_ops: list[Any] = []
+    _uid_node_id_by_index: dict[int, tuple[str, str]] = {}
+    for _idx, (_op, _resolved) in enumerate(result.resolved_ops):
+        if isinstance(_op, _AddNodeOp) and isinstance(_resolved, _AppliedAddNodeSpec):
+            _uid_node_id_by_index[_idx] = (_resolved.uid, str(_resolved.node_id))
+    _add_node_idx = 0
+    for _op in state.delta_ops:
+        if isinstance(_op, _AddNodeOp):
+            _uid, _nid = _uid_node_id_by_index.get(_add_node_idx, (None, None))
+            if _uid is not None and _nid is not None:
+                _op = _AddNodeOp(
+                    op=_op.op,
+                    scope_path=_op.scope_path,
+                    class_type=_op.class_type,
+                    fields=dict(_op.fields),
+                    inputs=dict(_op.inputs),
+                    anchor=_op.anchor,
+                    uid=_uid,
+                    node_id=_nid,
+                )
+            _add_node_idx += 1
+        _updated_ops.append(_op)
+    state.delta_ops = tuple(_updated_ops)
+
+    delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
+    ops = list(delta_envelope["ops"])
     state.delta_diagnostics = [_port_issue_to_dict(issue) for issue in result.diagnostics]
     state.guard_result = {
         "ok": bool(result.guard_result.ok) if result.guard_result is not None else True,
@@ -328,6 +431,7 @@ def _stage_apply_delta(state: AgentEditState, _context: TurnContext) -> StageRes
         "change": {
             "mode": "agent_edit_v2_delta",
             "op_count": len(ops),
+            "delta_ops_envelope": delta_envelope,
             "ops": ops,
             "mutation_started": result.mutation_started,
         },
@@ -951,7 +1055,8 @@ def _stage_audit(
             {
                 "enabled": True,
                 "op_count": len(state.delta_ops),
-                "delta_ops": state.delta_audit or {},
+                "delta_ops_envelope": _canonical_delta_ops_envelope_payload(state.delta_ops),
+                "delta_audit": state.delta_audit or {},
             }
         )
     if _agent_edit_batch_repl_enabled():

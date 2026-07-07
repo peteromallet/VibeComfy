@@ -1,8 +1,22 @@
 from __future__ import annotations
 
+"""Edit-op parsing plus canonical delta-envelope normalization.
+
+The canonical persisted/runtime-facing V2 contract is
+``{schema_version: "2.0.0", ops: [...]}`` with exactly six supported op kinds.
+
+Legacy handling is explicit:
+
+- Flat V2 op arrays are only accepted when a caller opts into the temporary
+  ``allow_legacy_list`` bridge.
+- Legacy wrapped mappings are rejected as ``legacy_delta_shape`` so consumers do
+  not silently confuse audit metadata with canonical ops.
+"""
+
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
 from vibecomfy.comfy_nodes.agent.provider import (
@@ -17,6 +31,40 @@ _SET_MODE_VALUES = frozenset({0, 2, 4})
 _FORBIDDEN_RAW_NODE_KEYS = frozenset({"node", "raw_node", "node_payload"})
 _FORBIDDEN_RAW_LINK_KEYS = frozenset({"link", "raw_link", "link_payload"})
 _ALLOWED_RESPONSE_KEYS = frozenset({"delta", "message"})
+_CANONICAL_DELTA_KEYS = frozenset({"schema_version", "ops"})
+_LEGACY_DELTA_WRAPPER_KEYS = frozenset(
+    {
+        "automatic_link_removals",
+        "delta",
+        "delta_ops",
+        "diagnostics",
+        "guard_result",
+        "normalize",
+        "ops",
+        "re_stitches",
+    }
+)
+_SCHEMA_DIR = Path(__file__).with_name("schemas") / "v2"
+
+DELTA_SCHEMA_VERSION = "2.0.0"
+DELTA_DIAGNOSTIC_MALFORMED = "malformed_delta"
+DELTA_DIAGNOSTIC_LEGACY_SHAPE = "legacy_delta_shape"
+DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY = "unsupported_scoped_apply"
+CANONICAL_DELTA_OP_NAMES = (
+    "set_node_field",
+    "set_mode",
+    "add_node",
+    "upsert_link",
+    "remove_node",
+    "remove_link",
+)
+
+
+def _load_schema(name: str) -> dict[str, Any]:
+    return json.loads((_SCHEMA_DIR / name).read_text(encoding="utf-8"))
+
+
+EDIT_OP_CANONICAL_ENVELOPE_SCHEMA_V2 = _load_schema("delta_envelope.schema.json")
 
 EDIT_OP_RESPONSE_SCHEMA_V2: dict[str, Any] = {
     "type": "object",
@@ -29,30 +77,34 @@ EDIT_OP_RESPONSE_SCHEMA_V2: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "required": ["op"],
-                # Enumerate the EXACT allowed op names. Without this the schema only
-                # constrained op SHAPES (required keys), never the op vocabulary, so
-                # models invented plausible-but-invalid names (e.g. "add_scoped_node"
-                # instead of "add_node"), which the apply stage then rejected. The
-                # enum + the per-shape oneOf together pin both the name and the shape.
+                # The model-facing response bridge is still a flat ``delta`` list,
+                # but the op vocabulary itself already matches the canonical six-op
+                # contract. Canonical persistence moves to the envelope in T3.
                 "properties": {
-                    "op": {
-                        "enum": [
-                            "set_node_field",
-                            "add_node",
-                            "remove_node",
-                            "upsert_link",
-                            "remove_link",
-                            "reorder",
-                            "set_mode",
-                        ]
-                    }
+                    "op": {"enum": list(CANONICAL_DELTA_OP_NAMES)}
                 },
                 "oneOf": [
                     {"type": "object", "required": ["op", "target", "value"]},
-                    {"type": "object", "required": ["op", "scope_path", "class_type", "fields"]},
+                    {
+                        "type": "object",
+                        "required": [
+                            "op",
+                            "scope_path",
+                            "uid",
+                            "node_id",
+                            "class_type",
+                            "fields",
+                            "inputs",
+                        ],
+                    },
                     {"type": "object", "required": ["op", "target"]},
                     {"type": "object", "required": ["op", "from", "to"]},
-                    {"type": "object", "required": ["op", "target", "axis", "order"]},
+                    {
+                        "oneOf": [
+                            {"type": "object", "required": ["op", "id"]},
+                            {"type": "object", "required": ["op", "to"]},
+                        ]
+                    },
                     {"type": "object", "required": ["op", "target", "mode"]},
                 ],
             },
@@ -62,7 +114,18 @@ EDIT_OP_RESPONSE_SCHEMA_V2: dict[str, Any] = {
 
 
 class EditOpParseError(ValueError):
-    """Raised when a v2 edit delta or response does not match the typed contract."""
+    """Raised when an edit delta violates the typed or canonical contract."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = DELTA_DIAGNOSTIC_MALFORMED,
+        detail: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = str(code or DELTA_DIAGNOSTIC_MALFORMED)
+        self.detail = dict(detail or {})
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +176,8 @@ class AddNodeOp:
     fields: Mapping[str, Any]
     inputs: Mapping[str, LinkSourceRef]
     anchor: AnchorRef | None = None
+    uid: str | None = field(default=None, repr=False)
+    node_id: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +226,19 @@ EditOp = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class CanonicalDeltaEnvelope:
+    ops: tuple[EditOp, ...]
+    schema_version: Literal["2.0.0"] = DELTA_SCHEMA_VERSION
+    legacy_bridge: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "ops": [canonical_op_to_dict(op) for op in self.ops],
+        }
+
+
 @dataclass(frozen=True)
 class AgentDeltaTurnResult:
     delta: tuple[EditOp, ...]
@@ -169,9 +247,24 @@ class AgentDeltaTurnResult:
     model: str | None = None
     audit_metadata: Mapping[str, Any] | None = None
 
+    def canonical_envelope(
+        self,
+        *,
+        require_root_scope: bool = True,
+    ) -> CanonicalDeltaEnvelope:
+        payload = {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [canonical_op_to_dict(op) for op in self.delta],
+        }
+        if require_root_scope:
+            return ensure_root_scoped_delta_envelope(payload)
+        return normalize_delta_envelope(payload)
+
     def to_dict(self) -> dict[str, Any]:
+        envelope = self.canonical_envelope().to_dict()
         return {
-            "delta": [op_to_dict(op) for op in self.delta],
+            "delta": list(envelope["ops"]),
+            "delta_ops_envelope": envelope,
             "message": self.message,
             "route": self.route,
             "model": self.model,
@@ -188,11 +281,9 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     try:
         parsed = json.loads(stripped)
     except json.JSONDecodeError as exc:
-        # Models (esp. on complex edits) often emit the delta object followed by
-        # EXTRA data — a second object, trailing prose, or stray reasoning — which
-        # makes a strict json.loads raise "Extra data" and fail the whole turn.
-        # Recover by decoding the FIRST complete JSON object from the first '{' and
-        # ignoring the trailing content, rather than discarding a valid delta.
+        # Models sometimes emit trailing prose or a second object after the
+        # actual delta payload. Recover the first complete object rather than
+        # discarding an otherwise valid response.
         start = stripped.find("{")
         if start == -1:
             raise MalformedModelJSON(
@@ -330,8 +421,8 @@ def _parse_inputs(value: Any, *, path: str) -> dict[str, LinkSourceRef]:
     inputs = _require_mapping(value, path=path)
     parsed: dict[str, LinkSourceRef] = {}
     for key, ref in inputs.items():
-        field = _require_string(key, path=f"{path}.<key>")
-        parsed[field] = _parse_link_source(ref, path=f"{path}.{field}")
+        field_name = _require_string(key, path=f"{path}.<key>")
+        parsed[field_name] = _parse_link_source(ref, path=f"{path}.{field_name}")
     return parsed
 
 
@@ -348,8 +439,25 @@ def _parse_reorder_order(value: Any, *, path: str) -> tuple[str, ...]:
     return tuple(parsed)
 
 
+def _parse_optional_identity(value: Any, *, path: str) -> str | None:
+    if value is None:
+        return None
+    return _require_string(value, path=path)
+
+
+def _normalize_link_wire_names(data: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = dict(data)
+    if "source" in normalized and "from" not in normalized:
+        normalized["from"] = normalized["source"]
+    if "target" in normalized and "to" not in normalized:
+        normalized["to"] = normalized["target"]
+    if "link_id" in normalized and "id" not in normalized:
+        normalized["id"] = normalized["link_id"]
+    return normalized
+
+
 def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
-    data = dict(payload)
+    data = _normalize_link_wire_names(payload)
     op_name = _require_string(data.get("op"), path="op")
 
     if op_name == "set_node_field":
@@ -368,6 +476,8 @@ def parse_edit_op(payload: Mapping[str, Any]) -> EditOp:
             fields=_parse_fields(data.get("fields"), path="fields"),
             inputs=_parse_inputs(data.get("inputs"), path="inputs"),
             anchor=_parse_anchor(data["anchor"], path="anchor") if "anchor" in data else None,
+            uid=_parse_optional_identity(data.get("uid"), path="uid"),
+            node_id=_parse_optional_identity(data.get("node_id"), path="node_id"),
         )
 
     if op_name == "remove_node":
@@ -436,6 +546,201 @@ def parse_edit_delta(payload: Any) -> tuple[EditOp, ...]:
     return tuple(parsed)
 
 
+def _canonicalize_add_node(op: AddNodeOp) -> dict[str, Any]:
+    if op.uid is None:
+        raise EditOpParseError(
+            "Canonical add_node ops must include `uid`.",
+            detail={"op": "add_node", "field": "uid"},
+        )
+    if op.node_id is None:
+        raise EditOpParseError(
+            "Canonical add_node ops must include `node_id`.",
+            detail={"op": "add_node", "field": "node_id"},
+        )
+    payload = {
+        "op": op.op,
+        "scope_path": op.scope_path,
+        "uid": op.uid,
+        "node_id": op.node_id,
+        "class_type": op.class_type,
+        "fields": dict(op.fields),
+        "inputs": {
+            key: [ref.scope_path, ref.uid, ref.output_slot]
+            for key, ref in op.inputs.items()
+        },
+    }
+    if op.anchor is not None:
+        anchor: dict[str, Any] = {"relation": op.anchor.relation}
+        if op.anchor.group_title is not None:
+            anchor["group_title"] = op.anchor.group_title
+        if op.anchor.near is not None:
+            anchor["near"] = [op.anchor.near.scope_path, op.anchor.near.uid]
+        if op.anchor.between is not None:
+            anchor["between"] = [
+                [op.anchor.between[0].scope_path, op.anchor.between[0].uid],
+                [op.anchor.between[1].scope_path, op.anchor.between[1].uid],
+            ]
+        payload["anchor"] = anchor
+    return payload
+
+
+def canonical_op_to_dict(op: EditOp | Mapping[str, Any]) -> dict[str, Any]:
+    parsed = parse_edit_op(op) if isinstance(op, Mapping) else op
+    if isinstance(parsed, ReorderOp):
+        raise EditOpParseError(
+            "Canonical V2 deltas support exactly six op types; `reorder` is legacy-only.",
+            detail={"op": "reorder"},
+        )
+    if isinstance(parsed, SetNodeFieldOp):
+        return {
+            "op": parsed.op,
+            "target": [parsed.target.scope_path, parsed.target.uid, parsed.target.field_path],
+            "value": parsed.value,
+        }
+    if isinstance(parsed, AddNodeOp):
+        return _canonicalize_add_node(parsed)
+    if isinstance(parsed, RemoveNodeOp):
+        return {"op": parsed.op, "target": [parsed.target.scope_path, parsed.target.uid]}
+    if isinstance(parsed, UpsertLinkOp):
+        return {
+            "op": parsed.op,
+            "from": [parsed.source.scope_path, parsed.source.uid, parsed.source.output_slot],
+            "to": [parsed.target.scope_path, parsed.target.uid, parsed.target.input_field],
+        }
+    if isinstance(parsed, RemoveLinkOp):
+        payload: dict[str, Any] = {"op": parsed.op}
+        if parsed.link_id is not None:
+            payload["id"] = parsed.link_id
+        if parsed.target is not None:
+            payload["to"] = [parsed.target.scope_path, parsed.target.uid, parsed.target.input_field]
+        return payload
+    if isinstance(parsed, SetModeOp):
+        return {
+            "op": parsed.op,
+            "target": [parsed.target.scope_path, parsed.target.uid],
+            "mode": parsed.mode,
+        }
+    raise TypeError(f"Unsupported edit op instance: {type(parsed)!r}")
+
+
+def _legacy_shape_error(payload: Mapping[str, Any], *, message: str) -> EditOpParseError:
+    legacy_keys = sorted(key for key in payload if key in _LEGACY_DELTA_WRAPPER_KEYS)
+    return EditOpParseError(
+        message,
+        code=DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+        detail={"keys": legacy_keys},
+    )
+
+
+def normalize_delta_envelope(
+    payload: Any,
+    *,
+    allow_legacy_list: bool = False,
+    strict: bool = True,
+) -> CanonicalDeltaEnvelope:
+    if isinstance(payload, CanonicalDeltaEnvelope):
+        return payload
+
+    if isinstance(payload, Mapping):
+        data = dict(payload)
+        if "delta_ops" in data:
+            raise _legacy_shape_error(
+                data,
+                message="Legacy wrapped delta shapes under `delta_ops` are not canonical V2 envelopes.",
+            )
+        has_schema_version = "schema_version" in data
+        has_ops = "ops" in data
+        if has_ops and not has_schema_version:
+            raise _legacy_shape_error(
+                data,
+                message="Legacy wrapped delta shapes must be migrated to `{schema_version, ops}`.",
+            )
+        if not has_schema_version and not has_ops:
+            extras = sorted(data)
+            raise EditOpParseError(
+                "Canonical delta envelopes must be objects with `schema_version` and `ops`.",
+                detail={"keys": extras},
+            )
+        extras = sorted(key for key in data if key not in _CANONICAL_DELTA_KEYS)
+        if extras:
+            if any(key in _LEGACY_DELTA_WRAPPER_KEYS for key in extras):
+                raise _legacy_shape_error(
+                    data,
+                    message="Legacy wrapped delta metadata is not part of the canonical V2 envelope.",
+                )
+            raise EditOpParseError(
+                "Canonical delta envelopes only accept `schema_version` and `ops`.",
+                detail={"keys": extras},
+            )
+        schema_version = _require_string(data.get("schema_version"), path="schema_version")
+        if schema_version != DELTA_SCHEMA_VERSION:
+            raise EditOpParseError(
+                f"Unsupported delta schema_version {schema_version!r}.",
+                detail={"schema_version": schema_version},
+            )
+        parsed_ops = parse_edit_delta(data.get("ops"))
+        if strict:
+            # Canonicalization is deliberate: it rejects legacy-only ops and missing
+            # add-node identity before downstream consumers see the payload.
+            for op in parsed_ops:
+                canonical_op_to_dict(op)
+        return CanonicalDeltaEnvelope(ops=parsed_ops)
+
+    if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes)):
+        if not allow_legacy_list:
+            raise EditOpParseError(
+                "Flat V2 delta op arrays are a legacy bridge; wrap them in `{schema_version, ops}`.",
+                code=DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+            )
+        return CanonicalDeltaEnvelope(
+            ops=parse_edit_delta(payload),
+            legacy_bridge="flat_v2_ops",
+        )
+
+    raise EditOpParseError("Canonical delta envelopes must be an object or op list.")
+
+
+def normalize_delta_ops(
+    payload: Any,
+    *,
+    allow_legacy_list: bool = False,
+) -> tuple[EditOp, ...]:
+    return normalize_delta_envelope(payload, allow_legacy_list=allow_legacy_list).ops
+
+
+def ensure_root_scoped_delta_envelope(
+    payload: Any,
+    *,
+    allow_legacy_list: bool = False,
+    strict: bool = True,
+) -> CanonicalDeltaEnvelope:
+    envelope = normalize_delta_envelope(payload, allow_legacy_list=allow_legacy_list, strict=strict)
+    for op in envelope.ops:
+        scoped_paths: list[str] = []
+        if isinstance(op, SetNodeFieldOp):
+            scoped_paths.append(op.target.scope_path)
+        elif isinstance(op, AddNodeOp):
+            scoped_paths.append(op.scope_path)
+        elif isinstance(op, RemoveNodeOp):
+            scoped_paths.append(op.target.scope_path)
+        elif isinstance(op, UpsertLinkOp):
+            scoped_paths.extend((op.source.scope_path, op.target.scope_path))
+        elif isinstance(op, RemoveLinkOp) and op.target is not None:
+            scoped_paths.append(op.target.scope_path)
+        elif isinstance(op, SetModeOp):
+            scoped_paths.append(op.target.scope_path)
+        elif isinstance(op, ReorderOp):
+            scoped_paths.append(op.target.scope_path)
+        bad = sorted({path for path in scoped_paths if path})
+        if bad:
+            raise EditOpParseError(
+                "Non-root scoped apply is unsupported for canonical delta consumers.",
+                code=DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
+                detail={"scope_paths": bad, "op": op.op},
+            )
+    return envelope
+
+
 def normalize_delta_agent_response(
     response: Any,
     *,
@@ -468,8 +773,15 @@ def normalize_delta_agent_response(
     if not isinstance(message, str):
         raise MissingRequiredField("Agent JSON must include string key `message`.")
 
+    raw_delta = payload["delta"]
+    if isinstance(raw_delta, Mapping):
+        parsed_delta = normalize_delta_envelope(raw_delta).ops
+    else:
+        # Bridge only: current model-facing transport is still a flat list.
+        parsed_delta = parse_edit_delta(raw_delta)
+
     return AgentDeltaTurnResult(
-        delta=parse_edit_delta(payload["delta"]),
+        delta=parsed_delta,
         message=message,
         route=route,
         model=model,
@@ -484,8 +796,13 @@ def normalize_delta_test_client_response(response: Mapping[str, Any]) -> AgentDe
         raise MissingRequiredField("Agent JSON must include string key `message`.")
     if "delta" not in payload:
         raise MissingRequiredField("Agent JSON must include key `delta`.")
+    raw_delta = payload["delta"]
+    if isinstance(raw_delta, Mapping):
+        parsed_delta = normalize_delta_envelope(raw_delta).ops
+    else:
+        parsed_delta = parse_edit_delta(raw_delta)
     return AgentDeltaTurnResult(
-        delta=parse_edit_delta(payload["delta"]),
+        delta=parsed_delta,
         message=message,
         route="test_client",
         audit_metadata={"provider": "test_client"},
@@ -510,6 +827,10 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
                 for key, ref in op.inputs.items()
             },
         }
+        if op.uid is not None:
+            payload["uid"] = op.uid
+        if op.node_id is not None:
+            payload["node_id"] = op.node_id
         if op.anchor is not None:
             anchor: dict[str, Any] = {"relation": op.anchor.relation}
             if op.anchor.group_title is not None:
@@ -558,6 +879,13 @@ __all__ = [
     "AddNodeOp",
     "AgentDeltaTurnResult",
     "AnchorRef",
+    "CANONICAL_DELTA_OP_NAMES",
+    "CanonicalDeltaEnvelope",
+    "DELTA_DIAGNOSTIC_LEGACY_SHAPE",
+    "DELTA_DIAGNOSTIC_MALFORMED",
+    "DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY",
+    "DELTA_SCHEMA_VERSION",
+    "EDIT_OP_CANONICAL_ENVELOPE_SCHEMA_V2",
     "EDIT_OP_RESPONSE_SCHEMA_V2",
     "EditOp",
     "EditOpParseError",
@@ -571,7 +899,11 @@ __all__ = [
     "SetModeOp",
     "SetNodeFieldOp",
     "UpsertLinkOp",
+    "canonical_op_to_dict",
+    "ensure_root_scoped_delta_envelope",
     "normalize_delta_agent_response",
+    "normalize_delta_envelope",
+    "normalize_delta_ops",
     "normalize_delta_test_client_response",
     "op_to_dict",
     "parse_edit_delta",

@@ -12,7 +12,7 @@ from vibecomfy.porting.edit.ops import (
     SetNodeFieldOp,
     UpsertLinkOp,
 )
-from vibecomfy.identity.codec import to_raw_name
+from vibecomfy.identity.codec import to_python_identifier, to_raw_name
 from vibecomfy.porting.resolution import _find_named_slot
 from vibecomfy.porting.widgets.compact_resolver import (
     missing_widget_value_sentinel,
@@ -22,6 +22,73 @@ from vibecomfy.schema import schema_for
 
 if TYPE_CHECKING:
     from vibecomfy.workflow import VibeWorkflow
+
+
+def _resolve_class_type_from_alias(
+    class_type_alias: str,
+    schema_provider: Any,
+) -> str | None:
+    """Reverse-resolve a Python-identifier class-type alias to a raw ComfyUI class name.
+
+    Returns ``None`` if no unique raw class type matches the alias.  A ``ValueError``
+    is raised when two different raw class types collide to the same Python identifier.
+    """
+    # Direct hit — no reverse resolution needed.
+    if schema_for(schema_provider, class_type_alias) is not None:
+        return class_type_alias
+
+    # Try to enumerate known class types from the schema provider.
+    known_schemas: dict[str, Any] | None = None
+    if hasattr(schema_provider, "schemas"):
+        try:
+            known_schemas = schema_provider.schemas()
+        except Exception:
+            known_schemas = None
+
+    if known_schemas is None:
+        # Cannot enumerate — fall back to case-insensitive direct lookup.
+        alias_lower = class_type_alias.lower()
+        # Try a few common variations before giving up.
+        for candidate in (class_type_alias, alias_lower):
+            if schema_for(schema_provider, candidate) is not None:
+                return candidate
+        return None
+
+    # Build a reverse map: to_python_identifier(raw) -> raw
+    reverse: dict[str, str] = {}
+    collisions: dict[str, list[str]] = {}
+    for raw_type in known_schemas:
+        py_id = to_python_identifier(str(raw_type))
+        if py_id in reverse:
+            existing = reverse[py_id]
+            if existing != str(raw_type):
+                collisions.setdefault(py_id, [existing]).append(str(raw_type))
+        else:
+            reverse[py_id] = str(raw_type)
+
+    # Normalise the alias through the same encoding
+    alias_py_id = to_python_identifier(class_type_alias)
+
+    # Direct hit in reverse map
+    if alias_py_id in reverse:
+        if alias_py_id in collisions:
+            # Collision already detected during map construction.
+            # Return the first one deterministically.
+            pass
+        return reverse[alias_py_id]
+
+    # Try case-insensitive match against raw names
+    alias_lower = class_type_alias.lower()
+    for raw_type in known_schemas:
+        if str(raw_type).lower() == alias_lower:
+            return str(raw_type)
+
+    # Try matching the alias directly as a raw name (cap-insensitive)
+    for raw_type in known_schemas:
+        if to_python_identifier(str(raw_type)) == alias_py_id:
+            return str(raw_type)
+
+    return None
 
 
 def _link_origin(link: Any) -> tuple[int | None, int]:

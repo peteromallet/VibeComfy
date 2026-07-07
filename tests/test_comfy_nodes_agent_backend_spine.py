@@ -70,6 +70,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     _canonical_node_uid,
     _find_node_in_graph,
     _load_turn_delta_ops,
+    _load_turn_delta_ops_diagnostic,
     _load_turn_request_graph,
     _normalize_link_endpoint,
     _normalize_target_uid,
@@ -77,6 +78,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     _read_field_value_from_node,
     _read_link_source_endpoint,
     _resolve_submit_value_for_op,
+    _scoped_issue_node_uid,
     _split_field_path,
     accept_turn,
     allocate_turn,
@@ -2036,7 +2038,11 @@ def test_normalize_agent_edit_v2_metadata_fills_delta_defaults_without_v1_artifa
     payload = normalize_agent_edit_v2_metadata(
         {
             "enabled": True,
-            "delta_ops": {
+            "delta_ops_envelope": {
+                "schema_version": "2.0.0",
+                "ops": [{"op": "set_mode", "target": ["", "u1"], "mode": 2}],
+            },
+            "delta_audit": {
                 "ops": [{"op": "set_mode", "target": ["", "u1"], "mode": 2}],
                 "diagnostics": [{"code": "automatic_link_removal", "severity": "info"}],
                 "automatic_link_removals": [{"scope_path": "", "uid": "u1", "link_id": 7}],
@@ -2050,8 +2056,11 @@ def test_normalize_agent_edit_v2_metadata_fills_delta_defaults_without_v1_artifa
     assert payload == {
         "enabled": True,
         "op_count": 1,
-        "delta_ops": {
+        "delta_ops_envelope": {
+            "schema_version": "2.0.0",
             "ops": [{"op": "set_mode", "target": ["", "u1"], "mode": 2}],
+        },
+        "delta_audit": {
             "diagnostics": [{"code": "automatic_link_removal", "severity": "info"}],
             "automatic_link_removals": [{"scope_path": "", "uid": "u1", "link_id": 7}],
             "re_stitches": [{"scope_path": "", "uid": "u2", "class_type": "Reroute"}],
@@ -7304,6 +7313,477 @@ def test_resolve_submit_value_for_op_dispatches_to_correct_per_op_handler() -> N
     assert value is None
     assert err is not None
     assert "Missing or invalid op kind" in err
+
+
+# ── T6: Backend accept and legacy-boundary tests ────────────────────────────
+# Covers: normalized add/set/link/remove validation plans, legacy wrapped
+# delta_ops classified as legacy_delta_shape (not V1 stale-canvas fallback),
+# and explicit add_node.uid/node_id issue grouping.
+
+
+def test_load_turn_delta_ops_diagnostic_classifies_legacy_wrapped_as_legacy_delta_shape(
+    tmp_path: Path,
+) -> None:
+    """_load_turn_delta_ops_diagnostic must classify legacy wrapped mappings
+    (a dict with keys like ``delta``, ``diagnostics`` under ``delta_ops``)
+    as shape=legacy_wrapped / code=legacy_delta_shape.
+
+    _load_turn_delta_ops must return None for the same payload, refusing
+    to load it as an ops list.
+    """
+    root = tmp_path / "sessions"
+    session_dir = root / "s1"
+    turn_dir = session_dir / "turns" / "t-legacy-wrapped"
+    turn_dir.mkdir(parents=True)
+
+    # Persist a response with legacy wrapped delta_ops.
+    response = {
+        "ok": True,
+        "turn_id": "t-legacy-wrapped",
+        "delta_ops": {
+            "delta": [{"op": "set_node_field", "target": ["nodes", "n1", "text"], "value": "hello"}],
+            "diagnostics": [],
+            "guard_result": {},
+        },
+        "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []},
+    }
+    (turn_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+
+    # Diagnostic must classify this as legacy_wrapped / legacy_delta_shape.
+    diag = _load_turn_delta_ops_diagnostic(
+        session_dir=session_dir, turn_id="t-legacy-wrapped"
+    )
+    assert diag["shape"] == "legacy_wrapped"
+    assert diag["code"] == "legacy_delta_shape"
+    assert "delta" in diag.get("detail", {}).get("keys", [])
+
+    # Loading must return None for legacy wrapped shapes.
+    ops = _load_turn_delta_ops(session_dir=session_dir, turn_id="t-legacy-wrapped")
+    assert ops is None, (
+        f"Expected _load_turn_delta_ops to return None for legacy wrapped shape, "
+        f"got {ops!r}"
+    )
+
+
+def test_load_turn_delta_ops_diagnostic_distinguishes_canonical_legacy_flat_and_missing(
+    tmp_path: Path,
+) -> None:
+    """Verify _load_turn_delta_ops_diagnostic correctly distinguishes
+    canonical envelope, legacy flat list, and missing payloads."""
+    root = tmp_path / "sessions"
+
+    # ── Canonical envelope ──
+    canonical_dir = root / "s-can" / "turns" / "t-can"
+    canonical_dir.mkdir(parents=True)
+    (canonical_dir / "response.json").write_text(json.dumps({
+        "ok": True, "turn_id": "t-can",
+        "delta_ops_envelope": {
+            "schema_version": "2.0.0",
+            "ops": [{"op": "set_node_field", "target": ["nodes", "n1", "text"], "value": "x"}],
+        },
+        "delta_ops": [{"op": "set_node_field", "target": ["nodes", "n1", "text"], "value": "x"}],
+    }), encoding="utf-8")
+    diag = _load_turn_delta_ops_diagnostic(session_dir=root / "s-can", turn_id="t-can")
+    assert diag["shape"] == "canonical"
+    assert diag["code"] == "canonical_delta_ops"
+
+    # ── Legacy flat list (no envelope) ──
+    flat_dir = root / "s-flat" / "turns" / "t-flat"
+    flat_dir.mkdir(parents=True)
+    (flat_dir / "response.json").write_text(json.dumps({
+        "ok": True, "turn_id": "t-flat",
+        "delta_ops": [{"op": "set_node_field", "target": ["nodes", "n1", "text"], "value": "y"}],
+    }), encoding="utf-8")
+    diag = _load_turn_delta_ops_diagnostic(session_dir=root / "s-flat", turn_id="t-flat")
+    assert diag["shape"] == "legacy_flat"
+    assert diag["code"] == "legacy_delta_ops_flat"
+
+    # ── Missing (no delta_ops at all) ──
+    missing_dir = root / "s-miss" / "turns" / "t-miss"
+    missing_dir.mkdir(parents=True)
+    (missing_dir / "response.json").write_text(json.dumps({
+        "ok": True, "turn_id": "t-miss",
+    }), encoding="utf-8")
+    diag = _load_turn_delta_ops_diagnostic(session_dir=root / "s-miss", turn_id="t-miss")
+    assert diag["shape"] == "missing"
+    assert diag["code"] == "missing_delta_ops"
+
+
+def test_v2_accept_rejects_legacy_wrapped_delta_ops_with_legacy_delta_shape_diagnostic(
+    tmp_path: Path,
+) -> None:
+    """V2 accept must fail with ``legacy_delta_shape`` diagnostic when the
+    persisted turn response contains a legacy wrapped ``delta_ops`` mapping.
+    It must NOT fall through to V1 stale-canvas logic."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish a baseline with a V1 accept.
+    v1_request = _request_graph("baseline-legacy-wrap")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    _record_candidate_response(
+        root=root, session_id="s1", allocation=v1,
+        graph={"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["baseline"]}], "links": []},
+    )
+    accept_turn(
+        session_root=root, session_id="s1", turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+
+    # 2. Allocate a V2 turn but write a legacy wrapped delta_ops in the response.
+    v2_submit_graph = {
+        "nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2-legacy-wrap"],
+                   "properties": {"vibecomfy_uid": "node-1"}}],
+        "links": [],
+    }
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-legacy-wrap",
+        "task": "edit v2 legacy wrapped",
+        "client_live_canvas_token": "live:rev:1:v2-legacy-wrap",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+
+    v2_candidate_graph = {
+        "nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2-candidate-legacy"],
+                   "properties": {"vibecomfy_uid": "node-1"}}],
+        "links": [],
+    }
+    # Persist a LEGACY WRAPPED delta_ops (dict, not list).
+    record_idempotent_response(
+        session_root=root, session_id="s1", scope="edit", idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True, "turn_id": v2_id, "graph": v2_candidate_graph,
+            "delta_ops": {
+                "delta": [{"op": "set_node_field",
+                           "target": ["nodes", "node-1", "widgets_values.0"],
+                           "value": "v2-candidate-legacy"}],
+                "diagnostics": [],
+                "guard_result": {},
+            },
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit", turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    # Force agent_edit_protocol to "v2_delta" even though delta_ops is a
+    # dict (legacy wrapped).  record_idempotent_response classifies the
+    # protocol based on isinstance(delta_ops, list), but we want to test
+    # what happens when a V2-classified turn has legacy wrapped data.
+    state = read_state(root / "s1")
+    state["turns"][v2_id]["agent_edit_protocol"] = "v2_delta"
+    write_state_atomic(root / "s1", state)
+
+    # 3. Accept the V2 turn — MUST fail because delta_ops is legacy wrapped.
+    failure = accept_turn(
+        session_root=root, session_id="s1", turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2_id, "action": "accept",
+            "live_graph": v2_submit_graph,
+            "submit_graph_hash": v2_submit_graph_hash,
+            "candidate_graph_hash": v2_candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:v2-legacy-wrap",
+        },
+    )
+
+    # Must fail, not succeed.
+    assert not isinstance(failure, dict), (
+        f"Expected V2 accept to fail on legacy wrapped delta_ops, got success: {failure}"
+    )
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+
+    # The diagnostic must classify the shape as legacy_delta_shape — NOT as a
+    # V1 stale-canvas fallback (which would produce structural_baseline_cas_mismatch).
+    issues = failure.agent_failure_context.get("issues", [])
+    assert len(issues) > 0, (
+        f"Expected evidence-loading issues, got: {failure.agent_failure_context}"
+    )
+
+    legacy_issues = [i for i in issues if i.get("code") == "legacy_delta_shape"]
+    assert len(legacy_issues) > 0, (
+        f"Expected at least one legacy_delta_shape diagnostic, "
+        f"got codes: {[i.get('code') for i in issues]}"
+    )
+
+    # The turn must remain in candidate state (not accepted).
+    state = read_state(root / "s1")
+    assert state["turns"][v2_id]["state"] == "candidate"
+
+
+def test_scoped_validation_plan_canonical_add_node_with_explicit_uid_and_node_id() -> None:
+    """_build_scoped_validation_plan must correctly handle a canonical
+    add_node op that carries explicit ``uid`` and ``node_id``, resolving
+    identity from those fields (not only from scope_path)."""
+    submit_graph: dict = {"nodes": [], "links": []}
+    clean_live: dict = {"nodes": [], "links": []}
+    collided_live = {
+        "nodes": [
+            {"id": 42, "type": "PreviewImage",
+             "properties": {"vibecomfy_uid": "explicit-uid-1"}},
+        ],
+        "links": [],
+    }
+
+    # Canonical add_node with explicit uid and node_id.
+    canonical_add = {
+        "op": "add_node",
+        "scope_path": "",
+        "uid": "explicit-uid-1",
+        "node_id": "9001",
+        "class_type": "PreviewImage",
+        "fields": {},
+        "inputs": {},
+    }
+
+    # Clean: node absent in live → ok.
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph, live_graph=clean_live,
+        candidate_graph=None, delta_ops=[canonical_add],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "ok"
+    assert plan["entries"][0]["expected_old"] == {"sentinel": "node_absent"}
+
+    # UID collision via explicit uid: live already has node with same UID.
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph, live_graph=collided_live,
+        candidate_graph=None, delta_ops=[canonical_add],
+    )
+    assert plan["ok"] is True
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == {"sentinel": "node_absent"}
+    assert plan["entries"][0]["actual_before"] == {
+        "uid": "explicit-uid-1", "id": 42, "type": "PreviewImage",
+    }
+
+
+def test_scoped_validation_plan_canonical_add_node_node_id_only_fallback() -> None:
+    """When add_node has ``node_id`` but no ``uid``, the validation plan
+    still resolves the identity via node_id."""
+    submit_graph: dict = {"nodes": [], "links": []}
+    collided_live = {
+        "nodes": [
+            {"id": 77, "type": "PreviewImage",
+             "properties": {}},  # no vibecomfy_uid
+        ],
+        "links": [],
+    }
+
+    # add_node with node_id but no uid — should match by node_id (77).
+    add_op = {
+        "op": "add_node",
+        "scope_path": "",
+        "node_id": 77,
+        "class_type": "PreviewImage",
+        "fields": {},
+        "inputs": {},
+    }
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph, live_graph=collided_live,
+        candidate_graph=None, delta_ops=[add_op],
+    )
+    assert plan["ok"] is True
+    # The collision should be detected via node_id 77.
+    assert plan["entries"][0]["status"] == "conflict"
+    assert plan["entries"][0]["expected_old"] == {"sentinel": "node_absent"}
+    assert plan["entries"][0]["actual_before"]["id"] == 77
+
+
+def test_scoped_validation_plan_all_six_canonical_op_types_with_explicit_identity() -> None:
+    """Every one of the six supported canonical op types must produce
+    a resolvable scoped validation plan entry (no unscopable results)
+    when given valid shapes, and add_node must carry explicit uid/node_id."""
+    submit_graph = {
+        "nodes": [
+            {"id": 1, "type": "KSampler", "mode": 0,
+             "widgets": [{"name": "steps"}, {"name": "cfg"}],
+             "widgets_values": [20, 6.5],
+             "inputs": [{"name": "model", "link": 99}],
+             "properties": {"vibecomfy_uid": "sampler-1"}},
+            {"id": 2, "type": "CheckpointLoaderSimple",
+             "outputs": [{"name": "model", "links": [99]}],
+             "properties": {"vibecomfy_uid": "producer-a"}},
+            {"id": 4, "type": "PreviewImage",
+             "properties": {"vibecomfy_uid": "doomed"}},
+        ],
+        "links": [[99, 2, 0, 1, 0, "MODEL"]],
+    }
+    live_graph = json.loads(json.dumps(submit_graph))
+
+    delta_ops = [
+        {"op": "set_node_field", "target": ["nodes", "sampler-1", "steps"], "value": 30},
+        {"op": "set_mode", "target": {"uid": "sampler-1"}, "mode": 4},
+        {"op": "add_node", "scope_path": "", "uid": "new-node-uid", "node_id": "9001",
+         "class_type": "PreviewImage", "fields": {}, "inputs": {}},
+        {"op": "upsert_link", "from": ["nodes", "producer-a", 0],
+         "to": ["nodes", "sampler-1", "model"]},
+        {"op": "remove_node", "target": ["nodes", "doomed"]},
+        {"op": "remove_link", "to": ["nodes", "sampler-1", "model"]},
+    ]
+
+    plan = _build_scoped_validation_plan(
+        submit_graph=submit_graph, live_graph=live_graph,
+        candidate_graph=None, delta_ops=delta_ops,
+    )
+    assert plan["ok"] is True, (
+        f"Expected all six ops to be scopable, got diagnostics: {plan.get('diagnostics')}"
+    )
+    statuses = [entry["status"] for entry in plan["entries"]]
+    # With matching submit==live graphs:
+    # - set_node_field: steps unchanged (20==20) → ok or noop
+    # - set_mode: mode unchanged (0==0) → ok or noop
+    # - add_node: node absent → ok
+    # - upsert_link: link already exists → noop or ok
+    # - remove_node: node present → ok
+    # - remove_link: link present → ok
+    assert all(s in {"ok", "noop", "already_applied"} for s in statuses), (
+        f"Expected all non-conflict statuses, got: {statuses}"
+    )
+
+
+def test_scoped_issue_node_uid_prioritizes_explicit_add_node_identity() -> None:
+    """_scoped_issue_node_uid must return the explicit ``uid`` for add_node
+    ops, falling back to ``node_id``, then ``scope_path``, and returning
+    None when none are available."""
+    # add_node with explicit uid, node_id, and scope_path — uid wins.
+    op_uid = {"op": "add_node", "uid": "explicit-uid", "node_id": 42, "scope_path": "sp"}
+    assert _scoped_issue_node_uid(op_uid) == "explicit-uid"
+
+    # add_node with only node_id (no uid) — node_id wins.
+    op_nid = {"op": "add_node", "node_id": 99}
+    assert _scoped_issue_node_uid(op_nid) == "99"
+
+    # add_node with only scope_path (no uid, no node_id) — scope_path wins.
+    op_sp = {"op": "add_node", "scope_path": "fallback-sp"}
+    assert _scoped_issue_node_uid(op_sp) == "fallback-sp"
+
+    # add_node with none of the above — returns None.
+    op_none = {"op": "add_node", "class_type": "Note"}
+    assert _scoped_issue_node_uid(op_none) is None
+
+    # Non-add_node ops use target/to normalization.
+    op_set = {"op": "set_node_field", "target": ["nodes", "my-node", "text"]}
+    assert _scoped_issue_node_uid(op_set) == "my-node"
+
+    op_set_dict = {"op": "set_mode", "target": {"uid": "uid-target"}}
+    assert _scoped_issue_node_uid(op_set_dict) == "uid-target"
+
+    op_link = {"op": "upsert_link", "to": ["nodes", "link-target", "input"]}
+    assert _scoped_issue_node_uid(op_link) == "link-target"
+
+
+def test_v2_accept_failure_issues_carry_add_node_explicit_identity(
+    tmp_path: Path,
+) -> None:
+    """When V2 scoped accept fails on an add_node conflict, the resulting
+    issues must carry the explicit ``node_uid`` from the op's ``uid`` field,
+    not just a ``scope_path``-derived value."""
+    root = tmp_path / "sessions"
+
+    # 1. Establish baseline.
+    v1_request = _request_graph("baseline-add-id")
+    v1 = allocate_turn(session_root=root, session_id="s1", request_payload=v1_request)
+    v1_id = str(v1.context.turn_id)
+    _record_candidate_response(
+        root=root, session_id="s1", allocation=v1,
+        graph={"nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["baseline"]}], "links": []},
+    )
+    accept_turn(
+        session_root=root, session_id="s1", turn_id=v1_id,
+        client_graph_hash=payload_hash(v1_request["graph"]),
+        request_payload={"turn_id": v1_id, "action": "accept"},
+    )
+
+    # 2. Allocate V2 turn whose submit graph is empty but the live graph
+    #    already has a node with the same uid that the add_node op wants.
+    v2_submit_graph: dict = {"nodes": [], "links": []}
+    v2_request = {
+        "graph": v2_submit_graph,
+        "client_graph_hash": "client-v2-add-id",
+        "task": "edit v2 add identity",
+        "client_live_canvas_token": "live:rev:1:v2-add-id",
+    }
+    v2 = allocate_turn(session_root=root, session_id="s1", request_payload=v2_request)
+    v2_id = str(v2.context.turn_id)
+    (v2.turn_dir / "request.json").write_text(json.dumps(v2_request), encoding="utf-8")
+
+    v2_candidate_graph = {
+        "nodes": [{"id": 9001, "type": "PreviewImage",
+                   "properties": {"vibecomfy_uid": "add-node-uid-1"}}],
+        "links": [],
+    }
+    record_idempotent_response(
+        session_root=root, session_id="s1", scope="edit", idempotency_key=None,
+        request_hash=v2.request_hash,
+        response={
+            "ok": True, "turn_id": v2_id, "graph": v2_candidate_graph,
+            "delta_ops_envelope": {
+                "schema_version": "2.0.0",
+                "ops": [{
+                    "op": "add_node", "scope_path": "",
+                    "uid": "add-node-uid-1", "node_id": "9001",
+                    "class_type": "PreviewImage", "fields": {}, "inputs": {},
+                }],
+            },
+        },
+        response_path=v2.turn_dir / "response.json",
+        operation="edit", turn_id=v2_id,
+    )
+    v2_submit_graph_hash = payload_hash(v2_submit_graph)
+    v2_candidate_graph_hash = payload_hash(v2_candidate_graph)
+
+    # Force agent_edit_protocol to "v2_delta".  The response only has
+    # delta_ops_envelope (no flat delta_ops list), so record_idempotent_response
+    # classified it as "v1".  We need the V2 accept path active.
+    state = read_state(root / "s1")
+    state["turns"][v2_id]["agent_edit_protocol"] = "v2_delta"
+    write_state_atomic(root / "s1", state)
+
+    # 3. Accept with a live_graph that already contains add-node-uid-1
+    #    (collision scenario).
+    collided_live = {
+        "nodes": [{"id": 9001, "type": "PreviewImage",
+                   "properties": {"vibecomfy_uid": "add-node-uid-1"}}],
+        "links": [],
+    }
+    failure = accept_turn(
+        session_root=root, session_id="s1", turn_id=v2_id,
+        client_graph_hash=v2_request["client_graph_hash"],
+        request_payload={
+            "turn_id": v2_id, "action": "accept",
+            "live_graph": collided_live,
+            "submit_graph_hash": v2_submit_graph_hash,
+            "candidate_graph_hash": v2_candidate_graph_hash,
+            "client_live_canvas_token": "live:rev:1:v2-add-id",
+        },
+    )
+
+    # Must fail on add_node collision.
+    assert not isinstance(failure, dict), (
+        f"Expected V2 accept to fail on add_node uid collision, got success: {failure}"
+    )
+    assert failure.kind is FailureKind.STALE_STATE_MISMATCH
+
+    issues = failure.agent_failure_context.get("issues", [])
+    add_node_issues = [i for i in issues if i.get("op") == "add_node"]
+    assert len(add_node_issues) > 0, (
+        f"Expected add_node scoped_conflict issues, got: {[i.get('op') for i in issues]}"
+    )
+
+    # The issue must carry the explicit uid from the canonical add_node op.
+    issue = add_node_issues[0]
+    assert issue.get("node_uid") == "add-node-uid-1", (
+        f"Expected node_uid='add-node-uid-1' from explicit add_node.uid, "
+        f"got: {issue.get('node_uid')}"
+    )
 
 
 # ── T10: Accept-gate regression tests ───────────────────────────────────────

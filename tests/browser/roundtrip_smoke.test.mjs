@@ -13370,6 +13370,438 @@ test("VibeComfy comfy_adapter delta apply preserves unrelated node positions, si
   }
 });
 
+// ── T10: Canonical delta browser apply/preflight tests ─────────────────────
+
+test("VibeComfy comfy_adapter canonical add_node materializes payload from explicit uid and node_id", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "saver", marker: "from-candidate" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        {
+          op: "add_node",
+          uid: "saver",
+          node_id: "2",
+          class_type: "SaveImage",
+          fields: {},
+          inputs: {},
+        },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.capability.strategy, "live-litegraph-mutate");
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "add_node");
+
+    // graph.add should have been called
+    assert.ok(harness.graphAddCalls.length >= 1, "graph.add should be called for add_node");
+    assert.equal(harness.graphClearCalls.length, 0, "graph.clear should not be called");
+    assert.equal(harness.graphConfigureCalls.length, 0, "graph.configure should not be called");
+
+    // Existing node preserved
+    const liveNodes = harness.getLiveNodes();
+    const loaderNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "loader");
+    assert.ok(loaderNode, "existing node should be preserved");
+    assert.deepEqual(loaderNode.pos, [100, 200], "existing node position should be preserved");
+
+    // Added node should carry the candidate marker
+    const addedNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "saver");
+    assert.ok(addedNode, "added node should be present in live graph");
+    assert.equal(addedNode.properties.marker, "from-candidate", "added node should copy payload from candidate");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter canonical add_node missing identity rejects before any graph mutation", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "saver" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          {
+            op: "add_node",
+            class_type: "SaveImage",
+            fields: {},
+            inputs: {},
+          },
+        ],
+        candidateGraph,
+      }),
+      /must provide explicit uid or node_id/,
+    );
+
+    // Verify no mutation occurred — graph unchanged and no add calls
+    assert.equal(harness.graphAddCalls.length, 0, "graph.add must not be called when identity is missing");
+    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphConfigureCalls.length, 0);
+    assert.deepEqual(harness.getCurrentGraph(), graph, "graph should be unchanged after identity rejection");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter add_node with only node_id (no uid) materializes identity correctly", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: "2",
+        type: "SaveImage",
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "saver-by-id" },
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const result = adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [
+        {
+          op: "add_node",
+          node_id: "2",
+          class_type: "SaveImage",
+          fields: {},
+          inputs: {},
+        },
+      ],
+      candidateGraph,
+    });
+
+    assert.equal(result.plan.length, 1);
+    assert.equal(result.plan[0].op, "add_node");
+
+    const liveNodes = harness.getLiveNodes();
+    const addedNode = liveNodes.find((n) => n.properties?.vibecomfy_uid === "saver-by-id");
+    assert.ok(addedNode, "added node should be resolved by explicit node_id");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter non-root scoped set_node_field throws DeltaDiagnosticError with unsupported_scoped_apply", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "TextNode",
+        widgets: [{ name: "prompt" }],
+        widgets_values: ["old"],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "text-1" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = JSON.parse(JSON.stringify(graph));
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    let caught = null;
+    try {
+      adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "set_node_field", target: ["group", "g1", "nodes", "text-1", "widgets_values", 0], value: "new" },
+        ],
+        candidateGraph,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    assert.ok(caught, "should throw for non-root scoped apply");
+    assert.equal(caught.name, "DeltaDiagnosticError", "should be a DeltaDiagnosticError");
+    assert.equal(caught.code, "unsupported_scoped_apply", "diagnostic code should be unsupported_scoped_apply");
+    assert.match(caught.message, /only supports root-scope/);
+
+    // No mutation occurred
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter non-root scoped upsert_link throws DeltaDiagnosticError with unsupported_scoped_apply", async () => {
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [] }],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        inputs: [{ name: "images", link: null }],
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "saver" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [10] }],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        inputs: [{ name: "images", link: 10 }],
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "saver" },
+      },
+    ],
+    links: [[10, 1, 0, 2, 0, "IMAGE"]],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    let caught = null;
+    try {
+      adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "upsert_link", from: ["group", "g1", "nodes", "loader", "image"], to: ["nodes", "saver", "images"] },
+        ],
+        candidateGraph,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    assert.ok(caught, "should throw for non-root scoped upsert_link");
+    assert.equal(caught.name, "DeltaDiagnosticError");
+    assert.equal(caught.code, "unsupported_scoped_apply");
+    assert.match(caught.message, /only supports root-scope/);
+
+    // No mutation
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter upsert_link and remove_link share centralized endpoint resolution", async () => {
+  // Prove that both upsert_link and remove_link use the same resolveEndpoint
+  // path for canonical key handling. They should produce consistent errors
+  // when the target cannot be resolved, confirming a single code path.
+  const graph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [] }],
+        pos: [100, 200],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        inputs: [{ name: "images", link: null }],
+        pos: [400, 200],
+        properties: { vibecomfy_uid: "saver" },
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 1,
+        type: "LoadImage",
+        outputs: [{ name: "image", links: [10] }],
+        properties: { vibecomfy_uid: "loader" },
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        inputs: [{ name: "images", link: 10 }],
+        properties: { vibecomfy_uid: "saver" },
+      },
+    ],
+    links: [[10, 1, 0, 2, 0, "IMAGE"]],
+  };
+
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+
+    // upsert_link with a missing from-node should throw from resolveEndpoint
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "upsert_link", from: ["nodes", "ghost-node", "image"], to: ["nodes", "saver", "images"] },
+        ],
+        candidateGraph,
+      }),
+      /resolve from endpoint node/,
+      "upsert_link should use resolveEndpoint for canonical from-key resolution",
+    );
+
+    // Reset harness state
+    harness.graphClearCalls.length = 0;
+
+    // remove_link with a missing target-node should also throw from resolveEndpoint
+    assert.throws(
+      () => adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [
+          { op: "remove_link", to: ["nodes", "ghost-node", "images"] },
+        ],
+        candidateGraph,
+      }),
+      /resolve to endpoint node/,
+      "remove_link should use resolveEndpoint for canonical to-key resolution",
+    );
+
+    // Both ops produce errors from the same centralized path
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter applyGraphDeltaInPlace rejects non-array deltaOps with DeltaDiagnosticError", async () => {
+  const graph = {
+    nodes: [{ id: 1, type: "Empty", properties: { vibecomfy_uid: "node-1" } }],
+    links: [],
+  };
+  const candidateGraph = JSON.parse(JSON.stringify(graph));
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    let caught = null;
+    try {
+      adapter.applyGraphDeltaInPlace(harness.app, { deltaOps: null, candidateGraph });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught, "should throw for null deltaOps");
+    assert.equal(caught.name, "DeltaDiagnosticError");
+    assert.equal(caught.code, "malformed_delta");
+    assert.match(caught.message, /normalized deltaOps array/);
+
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter applyGraphDeltaInPlace rejects invalid op entries with DeltaDiagnosticError", async () => {
+  const graph = {
+    nodes: [{ id: 1, type: "Empty", properties: { vibecomfy_uid: "node-1" } }],
+    links: [],
+  };
+  const candidateGraph = JSON.parse(JSON.stringify(graph));
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    let caught = null;
+    try {
+      adapter.applyGraphDeltaInPlace(harness.app, {
+        deltaOps: [{ not_an_op: true }],
+        candidateGraph,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    assert.ok(caught, "should throw for invalid op entry");
+    assert.equal(caught.name, "DeltaDiagnosticError");
+    assert.equal(caught.code, "malformed_delta");
+    assert.match(caught.message, /invalid operation entry/);
+
+    assert.deepEqual(harness.getCurrentGraph(), graph);
+    assert.equal(harness.graphClearCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy comfy_adapter installs preview overlay via direct interceptor without polling and preserves later canvas reassignments", async () => {
   const harness = await createBrowserHarness();
 

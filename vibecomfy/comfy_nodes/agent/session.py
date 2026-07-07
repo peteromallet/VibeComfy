@@ -1517,17 +1517,100 @@ def _load_turn_candidate_graph(
 def _load_turn_delta_ops(
     *, session_dir: Path, turn_id: str
 ) -> tuple[dict[str, Any], ...] | None:
-    """Load ``delta_ops`` from the persisted turn response.
+    """Load canonical ``delta_ops`` from the persisted turn response.
 
-    Returns None if the response does not contain a valid ``delta_ops`` list.
+    Prefers the ``delta_ops_envelope`` (``{schema_version: "2.0.0", ops: [...]}``)
+    over the legacy flat ``delta_ops`` list.  Returns None if the response does
+    not contain a valid ops list.
     """
     response = _load_turn_response_payload(session_dir=session_dir, turn_id=turn_id)
     if response is None:
         return None
+
+    # Canonical path: delta_ops_envelope with {schema_version, ops}
+    envelope = response.get("delta_ops_envelope")
+    if isinstance(envelope, Mapping):
+        ops = envelope.get("ops")
+        if isinstance(ops, list) and all(isinstance(op, Mapping) for op in ops):
+            return tuple(dict(op) for op in ops)
+        # Envelope present but ops is malformed — fall through to delta_ops.
+        # We record the shape for diagnostics in _build_v2_accept_evidence.
+
+    # Legacy bridge: flat delta_ops list
     delta_ops = response.get("delta_ops")
     if isinstance(delta_ops, list) and all(isinstance(op, Mapping) for op in delta_ops):
         return tuple(dict(op) for op in delta_ops)
+
+    # Legacy wrapped shape: a dict under delta_ops that is NOT a list
+    # (e.g. {"delta_ops": {...}, "diagnostics": [...]}) — reject.
+    if isinstance(delta_ops, Mapping):
+        return None
+
     return None
+
+
+def _load_turn_delta_ops_diagnostic(
+    *, session_dir: Path, turn_id: str
+) -> dict[str, Any]:
+    """Inspect the persisted turn response and return a diagnostic classifying
+    the delta shape, without attempting to normalise.
+
+    Returns a dict with:
+      * ``shape`` — one of ``canonical``, ``legacy_flat``, ``legacy_wrapped``,
+        ``missing``
+      * ``code`` — stable diagnostic code
+      * ``detail`` — shape-specific evidence
+    """
+    response = _load_turn_response_payload(session_dir=session_dir, turn_id=turn_id)
+    if response is None:
+        return {
+            "shape": "missing",
+            "code": "missing_turn_response",
+            "detail": {},
+        }
+
+    envelope = response.get("delta_ops_envelope")
+    if isinstance(envelope, Mapping):
+        ops = envelope.get("ops")
+        if isinstance(ops, list):
+            return {
+                "shape": "canonical",
+                "code": "canonical_delta_ops",
+                "detail": {"schema_version": envelope.get("schema_version")},
+            }
+        return {
+            "shape": "canonical",
+            "code": "canonical_envelope_malformed_ops",
+            "detail": {"ops_type": type(ops).__name__},
+        }
+
+    delta_ops = response.get("delta_ops")
+    if isinstance(delta_ops, list):
+        return {
+            "shape": "legacy_flat",
+            "code": "legacy_delta_ops_flat",
+            "detail": {},
+        }
+    if isinstance(delta_ops, Mapping):
+        legacy_keys = sorted(
+            k for k in delta_ops
+            if k in (
+                "delta", "delta_ops", "diagnostics", "guard_result",
+                "automatic_link_removals", "re_stitches", "normalize",
+                "ops",
+            )
+        )
+        return {
+            "shape": "legacy_wrapped",
+            "code": "legacy_delta_shape",
+            "detail": {"keys": legacy_keys},
+        }
+
+    return {
+        "shape": "missing",
+        "code": "missing_delta_ops",
+        "detail": {},
+    }
 
 
 def _scoped_sentinel_payload(value: Any) -> Any:
@@ -1817,12 +1900,19 @@ def _resolve_candidate_value_for_op(
     if op_kind == "remove_link":
         return (_SENTINEL_LINK_ABSENT, None)
     if op_kind == "add_node":
-        uid = (
-            str(op.get("scope_path"))
-            if isinstance(op.get("scope_path"), (str, int)) and str(op.get("scope_path"))
-            else None
-        )
-        if candidate_index is not None and uid is not None:
+        # Canonical: prefer explicit uid, then node_id, then scope_path
+        uid = op.get("uid")
+        if not (isinstance(uid, str) and uid):
+            node_id = op.get("node_id")
+            if isinstance(node_id, (int, str)) and str(node_id):
+                uid = str(node_id)
+            else:
+                scope_path = op.get("scope_path")
+                if isinstance(scope_path, (str, int)) and str(scope_path):
+                    uid = str(scope_path)
+                else:
+                    uid = None
+        if candidate_index is not None and isinstance(uid, str) and uid:
             node = _find_node_in_index(candidate_index, uid)
             if node is not None:
                 return (
@@ -1967,28 +2057,20 @@ def _resolve_submit_value_for_add_node(
     """Derive expected_old for an ``add_node`` op -- expected absence.
 
     Checks whether any node in the submit graph already claims the UID or
-    LiteGraph id implied by the op payload.  Returns ``_SENTINEL_NO_VALUE``
-    (absent) on success, or ``(existing_node_summary, None)`` if a collision
-    is detected (callers treat a non-sentinel value as a conflict signal).
+    LiteGraph id carried by the op payload.  Prefers the canonical ``uid``
+    and ``node_id`` fields; only falls back to ``scope_path`` when neither
+    explicit identity field is present (legacy flat bridge).
+
+    Returns ``_SENTINEL_NODE_ABSENT`` (absent) on success, or
+    ``(existing_node_summary, None)`` if a collision is detected (callers
+    treat a non-sentinel value as a conflict signal).
     """
-    scope_path = op.get("scope_path")
-    if not isinstance(scope_path, (str, int)) or not str(scope_path):
-        return (None, "Missing scope_path in add_node op")
-    uid = str(scope_path)
-    existing = _find_node_in_graph(submit_graph, uid)
-    if existing is not None:
-        return (
-            {
-                "uid": _canonical_node_uid(existing),
-                "id": existing.get("id"),
-                "type": existing.get("type"),
-            },
-            None,
-        )
-    # Also check by LiteGraph id if the op carries a separate node id.
-    nid = op.get("id")
-    if isinstance(nid, (int, str)):
-        existing = _find_node_in_graph(submit_graph, str(nid))
+    # Canonical path: explicit uid and node_id take priority over scope_path
+    explicit_uid = op.get("uid")
+    explicit_node_id = op.get("node_id")
+
+    if isinstance(explicit_uid, str) and explicit_uid:
+        existing = _find_node_in_graph(submit_graph, explicit_uid)
         if existing is not None:
             return (
                 {
@@ -1998,7 +2080,50 @@ def _resolve_submit_value_for_add_node(
                 },
                 None,
             )
-    return (_SENTINEL_NODE_ABSENT, None)
+        # Explicit uid was supplied and no collision was found — expected
+        # absence for add_node.
+        return (_SENTINEL_NODE_ABSENT, None)
+
+    if isinstance(explicit_node_id, (int, str)) and str(explicit_node_id):
+        existing = _find_node_in_graph(submit_graph, str(explicit_node_id))
+        if existing is not None:
+            return (
+                {
+                    "uid": _canonical_node_uid(existing),
+                    "id": existing.get("id"),
+                    "type": existing.get("type"),
+                },
+                None,
+            )
+        # Explicit node_id was supplied and no collision was found — expected
+        # absence for add_node.
+        return (_SENTINEL_NODE_ABSENT, None)
+
+    # Legacy fallback: infer identity from scope_path when neither uid nor
+    # node_id is present.  This path exists only for pre-canonical flat
+    # delta_ops that have not been re-persisted with explicit identity.
+    scope_path = op.get("scope_path")
+    if isinstance(scope_path, (str, int)) and str(scope_path):
+        uid = str(scope_path)
+        existing = _find_node_in_graph(submit_graph, uid)
+        if existing is not None:
+            return (
+                {
+                    "uid": _canonical_node_uid(existing),
+                    "id": existing.get("id"),
+                    "type": existing.get("type"),
+                },
+                None,
+            )
+        # Valid scope_path, node not found — expected absence for add_node.
+        return (_SENTINEL_NODE_ABSENT, None)
+
+    # A canonical add_node must carry at least one of uid, node_id, or
+    # scope_path.  If none are present the op is malformed.
+    return (
+        None,
+        "Missing add_node identity: need uid, node_id, or scope_path.",
+    )
 
 
 def _resolve_submit_value_for_remove_node(
@@ -2184,6 +2309,14 @@ def _scoped_accept_recovery_payload(
 def _scoped_issue_node_uid(op: Mapping[str, Any]) -> str | None:
     op_kind = op.get("op")
     if op_kind == "add_node":
+        # Canonical: explicit uid takes priority; fall back to scope_path
+        # only for legacy flat delta_ops that lack explicit identity.
+        uid = op.get("uid")
+        if isinstance(uid, str) and uid:
+            return uid
+        node_id = op.get("node_id")
+        if isinstance(node_id, (int, str)) and str(node_id):
+            return str(node_id)
         scope_path = op.get("scope_path")
         if isinstance(scope_path, (int, str)) and str(scope_path):
             return str(scope_path)
@@ -2286,17 +2419,23 @@ def _build_v2_accept_evidence(
     Returns a dict with keys:
       * ``submit_graph`` -- the submit-time graph loaded from ``request.json``
       * ``candidate_graph`` -- the candidate graph loaded from ``response.json``
-      * ``delta_ops`` -- authoritative mutation-intent list from ``response.json``
+      * ``delta_ops`` -- authoritative mutation-intent list from the canonical
+        envelope (preferred) or legacy flat bridge
+      * ``delta_shape_diagnostic`` -- classification of the delta payload shape
       * ``submit_graph_hash`` -- hash of the loaded submit graph
       * ``candidate_graph_hash`` -- from the turn record
       * ``protocol`` -- ``"v2_delta"``
       * ``loaded_ok`` -- ``True`` iff required evidence was loaded
-      * ``diagnostics`` -- list of evidence-loading issues
+      * ``diagnostics`` -- list of evidence-loading issues, classified into
+        distinct buckets: *malformed_delta*, *legacy_delta_shape*,
+        *unsupported_scoped_apply*, *missing_submit_graph*,
+        *missing_candidate_graph*
     """
     evidence: dict[str, Any] = {
         "submit_graph": None,
         "candidate_graph": None,
         "delta_ops": None,
+        "delta_shape_diagnostic": None,
         "submit_graph_hash": None,
         "candidate_graph_hash": None,
         "protocol": "v2_delta",
@@ -2318,16 +2457,59 @@ def _build_v2_accept_evidence(
             }
         )
 
+    # Classify the delta shape before loading so we can surface legacy /
+    # malformed shapes in distinct evidence buckets.
+    shape_diag = _load_turn_delta_ops_diagnostic(
+        session_dir=session_dir, turn_id=turn_id
+    )
+    evidence["delta_shape_diagnostic"] = shape_diag
+
     delta_ops = _load_turn_delta_ops(session_dir=session_dir, turn_id=turn_id)
     if delta_ops is not None:
         evidence["delta_ops"] = delta_ops
+        # Optional: surface legacy flat bridge use as an info diagnostic.
+        if shape_diag.get("code") == "legacy_delta_ops_flat":
+            evidence["diagnostics"].append(
+                {
+                    "code": "legacy_delta_shape",
+                    "severity": "info",
+                    "message": (
+                        "Delta loaded from legacy flat delta_ops list; "
+                        "canonical consumers should migrate to "
+                        "delta_ops_envelope."
+                    ),
+                    "detail": shape_diag.get("detail", {}),
+                }
+            )
     else:
         evidence["loaded_ok"] = False
+        diag_code = shape_diag.get("code", "missing_delta_ops")
+        diag_message: str
+        if diag_code == "legacy_delta_shape":
+            diag_message = (
+                "Persisted delta uses a legacy wrapped shape that is not a "
+                "canonical V2 envelope; re-persist the turn with a canonical "
+                "delta_ops_envelope."
+            )
+            evidence["delta_ops"] = ()
+        elif diag_code == "canonical_envelope_malformed_ops":
+            diag_code = "malformed_delta"
+            diag_message = (
+                "Canonical delta_ops_envelope is present but its `ops` field "
+                "is malformed."
+            )
+        elif diag_code == "missing_turn_response":
+            diag_message = "Could not load the persisted turn response."
+        else:
+            diag_message = (
+                "Could not load delta_ops from persisted turn response."
+            )
         evidence["diagnostics"].append(
             {
-                "code": "missing_delta_ops",
+                "code": diag_code,
                 "severity": "error",
-                "message": "Could not load delta_ops from persisted turn response.",
+                "message": diag_message,
+                "detail": shape_diag.get("detail", {}),
             }
         )
 

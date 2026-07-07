@@ -302,8 +302,12 @@ def _stage_agent_delta(
     model: str | None = None,
 ) -> StageResult:
     from vibecomfy.porting.edit.ops import (
+        DELTA_SCHEMA_VERSION,
         EDIT_OP_RESPONSE_SCHEMA_V2,
+        EditOpParseError,
+        ensure_root_scoped_delta_envelope,
         normalize_delta_test_client_response,
+        op_to_dict,
     )
 
     start = time.monotonic()
@@ -326,12 +330,61 @@ def _stage_agent_delta(
             route=route,
             model=model,
         )
-    state.delta_ops = agent_result.delta
     state.user_message = agent_result.message
     state.provider_metadata = dict(agent_result.audit_metadata or {})
+    try:
+        delta_envelope = ensure_root_scoped_delta_envelope(
+            {
+                "schema_version": DELTA_SCHEMA_VERSION,
+                "ops": [op_to_dict(op) for op in agent_result.delta],
+            },
+            strict=False,
+        )
+    except EditOpParseError as exc:
+        issue = {
+            "code": exc.code,
+            "message": str(exc),
+            "severity": "error",
+        }
+        if isinstance(exc.detail, Mapping) and exc.detail:
+            issue["detail"] = dict(exc.detail)
+        model_response_ref = write_json_artifact(
+            state.model_response_path,
+            {
+                "message": agent_result.message,
+                "route": agent_result.route,
+                "model": agent_result.model,
+                "audit_metadata": state.provider_metadata,
+                "delta_error": issue,
+            },
+        )
+        state.delta_diagnostics = [dict(issue)]
+        return StageResult(
+            stage="agent_delta",
+            ok=False,
+            blocking=True,
+            duration_ms=_duration_ms(start),
+            artifacts=(_artifact(state.model_request_path), model_response_ref),
+            issues=(issue,),
+            value={
+                "failure_kind": FailureKind.VALIDATION_ERROR.value,
+                "op_count": len(agent_result.delta),
+                "provider_metadata": state.provider_metadata,
+            },
+        )
+
+    state.delta_ops = delta_envelope.ops
+    delta_payload = delta_envelope.to_dict()
     model_response_ref = write_json_artifact(
         state.model_response_path,
-        agent_result.to_dict(),
+        {
+            "delta": list(delta_payload["ops"]),
+            "delta_ops_envelope": delta_payload,
+            "message": agent_result.message,
+            "route": agent_result.route,
+            "model": agent_result.model,
+            "audit_metadata": state.provider_metadata,
+        },
     )
     return StageResult(
         stage="agent_delta",

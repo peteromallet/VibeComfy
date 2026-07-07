@@ -44,6 +44,22 @@ def _validated_agent_edit_response(
         return ensure_agent_edit_response_contract(fallback, stage=stage)
 
 
+def _canonical_delta_ops_envelope_payload(delta_ops: tuple[Any, ...]) -> dict[str, Any]:
+    from vibecomfy.porting.edit.ops import (
+        DELTA_SCHEMA_VERSION,
+        ensure_root_scoped_delta_envelope,
+        op_to_dict,
+    )
+
+    return ensure_root_scoped_delta_envelope(
+        {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [op_to_dict(op) for op in delta_ops],
+        },
+        strict=True,
+    ).to_dict()
+
+
 def _product_failure_response(failure: AgentError) -> dict[str, Any]:
     response = failure.to_dict()
     response.update(product_failure_envelope_fields(failure))
@@ -1031,9 +1047,9 @@ def _build_dev_success_response(
             dict(state.post_edit_reorganisation_advisory)
         )
     if contract == "delta":
-        from vibecomfy.porting.edit.ops import op_to_dict
-
-        response["delta_ops"] = [op_to_dict(op) for op in state.delta_ops]
+        delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
+        response["delta_ops_envelope"] = delta_envelope
+        response["delta_ops"] = list(delta_envelope["ops"])
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)

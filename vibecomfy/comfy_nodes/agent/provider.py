@@ -1157,7 +1157,7 @@ def run_agent_turn_delta(
             },
         )
     except EditOpParseError as exc:
-        raise MalformedModelJSON(str(exc)) from exc
+        raise MalformedModelJSON(str(exc), parse_reason=exc.code) from exc
 
 
 def _normalize_batch_response(

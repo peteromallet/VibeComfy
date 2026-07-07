@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/add-node.schema.json",
+  "title": "add_node",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["op", "scope_path", "uid", "node_id", "class_type", "fields", "inputs"],
+  "properties": {
+    "op": {
+      "const": "add_node"
+    },
+    "scope_path": {
+      "type": "string"
+    },
+    "uid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "node_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "class_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "prefixItems": [
+          { "type": "string" },
+          { "type": "string", "minLength": 1 },
+          {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "integer" }
+            ]
+          }
+        ]
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

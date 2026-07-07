@@ -5,8 +5,13 @@ import pytest
 from vibecomfy.comfy_nodes.agent import provider as agent_provider
 from vibecomfy.porting.edit.ops import (
     AgentDeltaTurnResult,
+    DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+    DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
     EditOpParseError,
+    canonical_op_to_dict,
+    ensure_root_scoped_delta_envelope,
     normalize_delta_agent_response,
+    normalize_delta_envelope,
     normalize_delta_test_client_response,
     parse_edit_delta,
 )
@@ -67,6 +72,135 @@ def test_normalize_delta_test_client_response_requires_typed_delta() -> None:
 
     assert result.route == "test_client"
     assert len(result.delta) == 1
+
+
+def test_agent_delta_turn_result_to_dict_emits_canonical_envelope_and_bridge() -> None:
+    result = AgentDeltaTurnResult(
+        delta=parse_edit_delta(
+            [
+                {
+                    "op": "add_node",
+                    "scope_path": "",
+                    "uid": "preview-uid",
+                    "node_id": "77",
+                    "class_type": "PreviewImage",
+                    "fields": {},
+                    "inputs": {"images": ["", "seed-node", "IMAGE"]},
+                }
+            ]
+        ),
+        message="added preview node",
+        route="deepseek",
+        model="agent-edit-v2",
+        audit_metadata={"response_contract": "delta"},
+    )
+
+    payload = result.to_dict()
+
+    assert payload["delta"] == payload["delta_ops_envelope"]["ops"]
+    assert payload["delta_ops_envelope"] == {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "add_node",
+                "scope_path": "",
+                "uid": "preview-uid",
+                "node_id": "77",
+                "class_type": "PreviewImage",
+                "fields": {},
+                "inputs": {"images": ["", "seed-node", "IMAGE"]},
+            }
+        ],
+    }
+
+
+def test_normalize_delta_envelope_roundtrips_canonical_v2_ops() -> None:
+    payload = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "seed-node", "inputs.seed"],
+                "value": 7,
+            },
+            {
+                "op": "set_mode",
+                "target": ["", "mute-node"],
+                "mode": 4,
+            },
+            {
+                "op": "add_node",
+                "scope_path": "",
+                "uid": "new-uid",
+                "node_id": "9001",
+                "class_type": "PreviewImage",
+                "fields": {"filename_prefix": "after"},
+                "inputs": {"images": ["", "seed-node", "IMAGE"]},
+            },
+            {
+                "op": "upsert_link",
+                "from": ["", "seed-node", "IMAGE"],
+                "to": ["", "preview-node", "images"],
+            },
+            {
+                "op": "remove_node",
+                "target": ["", "old-node"],
+            },
+            {
+                "op": "remove_link",
+                "to": ["", "preview-node", "images"],
+            },
+        ],
+    }
+
+    envelope = normalize_delta_envelope(payload)
+
+    assert envelope.schema_version == "2.0.0"
+    assert [canonical_op_to_dict(op) for op in envelope.ops] == payload["ops"]
+    assert envelope.to_dict() == payload
+
+
+def test_normalize_delta_envelope_rejects_legacy_wrapped_mapping() -> None:
+    with pytest.raises(EditOpParseError, match="Legacy"):
+        normalize_delta_envelope(
+            {
+                "ops": [],
+                "diagnostics": [],
+            }
+        )
+
+    exc = pytest.raises(
+        EditOpParseError,
+        normalize_delta_envelope,
+        {"delta_ops": {"ops": []}},
+    )
+    assert exc.value.code == DELTA_DIAGNOSTIC_LEGACY_SHAPE
+
+
+def test_ensure_root_scoped_delta_envelope_rejects_non_root_scope() -> None:
+    with pytest.raises(EditOpParseError, match="Non-root scoped apply"):
+        ensure_root_scoped_delta_envelope(
+            {
+                "schema_version": "2.0.0",
+                "ops": [
+                    {
+                        "op": "set_mode",
+                        "target": ["sg:nested", "node-1"],
+                        "mode": 2,
+                    }
+                ],
+            }
+        )
+
+    exc = pytest.raises(
+        EditOpParseError,
+        ensure_root_scoped_delta_envelope,
+        {
+            "schema_version": "2.0.0",
+            "ops": [{"op": "remove_node", "target": ["sg:nested", "node-1"]}],
+        },
+    )
+    assert exc.value.code == DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY
 
 
 @pytest.mark.parametrize(

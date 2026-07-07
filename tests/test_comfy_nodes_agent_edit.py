@@ -2147,6 +2147,8 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
             "value": "after",
         }
     ]
+    assert result["report"]["change"]["delta_ops_envelope"] == result["delta_ops_envelope"]
+    assert result["report"]["change"]["ops"] == result["delta_ops"]
     assert Path(result["artifacts"]["projection"]).name == "projection.txt"
     assert result["graph"]["nodes"][1]["widgets_values"] == ["after"]
     assert stage_order == [
@@ -2161,8 +2163,12 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
     assert {"convert", "agent", "load_python", "lower", "validate", "emit"}.isdisjoint(stage_order)
 
     request = json.loads(Path(result["artifacts"]["model_request"]).read_text(encoding="utf-8"))
+    model_response = json.loads(Path(result["artifacts"]["model_response"]).read_text(encoding="utf-8"))
     assert request["response_contract"] == "delta"
     assert "Return only JSON with keys `delta` and `message`." in request["messages"][0]["content"]
+    assert model_response["delta_ops_envelope"] == result["delta_ops_envelope"]
+    assert model_response["delta"] == result["delta_ops"]
+    assert set(model_response["delta_ops_envelope"]) == {"schema_version", "ops"}
     audit = json.loads(Path(result["audit_ref"]["path"]).read_text(encoding="utf-8"))
     assert set(audit["artifacts"]) == {
         "request",
@@ -2175,15 +2181,16 @@ def test_handle_agent_edit_dev_delta_uses_delta_stage_sequence_without_authoring
     }
     assert audit["metadata"]["agent_edit_v2"]["enabled"] is True
     assert audit["metadata"]["agent_edit_v2"]["op_count"] == 1
-    assert audit["metadata"]["agent_edit_v2"]["delta_ops"]["ops"] == result["delta_ops"]
-    assert audit["metadata"]["agent_edit_v2"]["delta_ops"]["automatic_link_removals"] == []
-    assert audit["metadata"]["agent_edit_v2"]["delta_ops"]["re_stitches"] == []
-    assert audit["metadata"]["agent_edit_v2"]["delta_ops"]["guard_result"]["ok"] is True
+    assert audit["metadata"]["agent_edit_v2"]["delta_ops_envelope"] == result["delta_ops_envelope"]
+    assert audit["metadata"]["agent_edit_v2"]["delta_audit"]["automatic_link_removals"] == []
+    assert audit["metadata"]["agent_edit_v2"]["delta_audit"]["re_stitches"] == []
+    assert audit["metadata"]["agent_edit_v2"]["delta_audit"]["guard_result"]["ok"] is True
+    assert "ops" not in audit["metadata"]["agent_edit_v2"]["delta_audit"]
     # normalize availability depends on the environment (e.g. ComfyUI/litegraph
     # may not be importable in dev/test), so only assert the important invariant:
     # the allow-list must never be used for a simple set_node_field edit.
-    assert audit["metadata"]["agent_edit_v2"]["delta_ops"]["normalize"]["allow_list_used"] is False
-    assert isinstance(audit["metadata"]["agent_edit_v2"]["delta_ops"]["normalize"]["fallback_used"], bool)
+    assert audit["metadata"]["agent_edit_v2"]["delta_audit"]["normalize"]["allow_list_used"] is False
+    assert isinstance(audit["metadata"]["agent_edit_v2"]["delta_audit"]["normalize"]["fallback_used"], bool)
 
 
 def test_agent_edit_render_resolves_primitive_float_helpers_before_emission() -> None:
@@ -2755,6 +2762,11 @@ def test_handle_agent_edit_batch_repl_runs_bounded_loop_with_turn0_render_then_d
     assert len(request_turns) == 2
     assert len(response_turns) == 2
     assert response_turns[0]["batch_result"]["landed_op_count"] == 1
+    assert (
+        response_turns[0]["batch_result"]["delta_ops"]
+        == response_turns[0]["batch_result"]["delta_ops_envelope"]["ops"]
+    )
+    assert set(response_turns[0]["batch_result"]["delta_ops_envelope"]) == {"schema_version", "ops"}
     assert response_turns[1]["batch_result"]["batch_ok"] is False
 
 
@@ -6561,6 +6573,11 @@ def test_handle_agent_edit_batch_repl_done_commits_and_exposes_gate_c_summary(
             "new": "after",
         }
     ]
+    assert (
+        result["batch_turns"][0]["delta_ops"]
+        == result["batch_turns"][0]["delta_ops_envelope"]["ops"]
+    )
+    assert set(result["batch_turns"][0]["delta_ops_envelope"]) == {"schema_version", "ops"}
     assert result["batch_turns"][0]["diff"]
     assert result["batch_turns"][0]["report"]
     assert result["batch_turns"][1]["turn_number"] == 1

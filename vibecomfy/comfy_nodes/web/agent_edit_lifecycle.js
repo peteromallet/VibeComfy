@@ -28,6 +28,15 @@ import {
   restoreScopeSnapshot,
 } from "./panel_runtime.js";
 
+// ── T7: Canonical delta normalization ────────────────────────────────────
+import {
+  DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+  DELTA_DIAGNOSTIC_MALFORMED,
+  DeltaDiagnosticError,
+  classifyDeltaShape,
+  normalizeDeltaOpsFromSubmitPayload,
+} from "./canonical_delta.js";
+
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
   IDLE: "IDLE",
@@ -604,43 +613,73 @@ function _obligations({ render = false, dirtySections, ...extras } = {}) {
 }
 
 // ── normalizeDeltaOpsFromSubmit ────────────────────────────────────────────
-// Extracts and normalizes ``delta_ops`` from a V2 submit response.
-// Returns a stable plain array of normalized delta-op objects (shallow-cloned,
-// keys sorted), or ``null`` when absent/invalid.
+// Extracts and normalizes delta ops from a V2 submit response.
 //
-// The backend places ``delta_ops`` as a top-level JSON array in the V2
-// submit response when ``agent_edit_protocol == "v2_delta"``.  Each entry is
-// a plain dict with at least ``op`` and ``target`` string keys.
+// Canonical path (preferred): consumes ``delta_ops_envelope``
+// (``{schema_version: "2.0.0", ops: [...]}``) produced by the backend
+// persistence layer.  Each op is validated against the canonical contract
+// (exactly six op types, add_node must carry ``uid`` and ``node_id``).
+//
+// Legacy bridge: falls back to ``delta_ops`` as a flat V2 array when the
+// canonical envelope is absent.  Legacy wrapped mappings are rejected as
+// ``legacy_delta_shape`` so consumers do not silently confuse audit metadata
+// with canonical ops.
+//
+// Diagnostic codes are aligned with the Python backend:
+//   - ``malformed_delta`` — structurally invalid envelope or op
+//   - ``legacy_delta_shape`` — legacy wrapped mapping, must migrate
+//   - ``missing_delta_ops`` — no delta payload present
+//
+// Returns a stable plain array of normalized delta-op objects (shallow-cloned,
+// keys sorted), or ``null`` when absent/invalid.  When ``null`` is returned,
+// a ``_deltaDiagnostic`` property is set on the result object (if mutable)
+// so callers can surface the diagnostic code in the UI.
+//
+// This function is the single browser-side gate for delta ops before they
+// reach preview, apply, and accept state.
 export function normalizeDeltaOpsFromSubmit(result) {
   if (!result || typeof result !== "object") {
     return null;
   }
 
-  const raw = result.delta_ops;
-  if (!Array.isArray(raw)) {
+  // ── Canonical path: delta_ops_envelope with {schema_version, ops} ────
+  try {
+    const ops = normalizeDeltaOpsFromSubmitPayload(result);
+    // Successfully normalized — clear any previous diagnostic.
+    if (result && typeof result === "object") {
+      delete result._deltaDiagnostic;
+    }
+    if (ops.length === 0) {
+      // Backward compat: an empty legacy flat delta_ops array (length 0)
+      // returns []; all-invalid entries after filtering returns null.
+      const rawDeltaOps = result.delta_ops;
+      if (Array.isArray(rawDeltaOps) && rawDeltaOps.length === 0) {
+        return [];
+      }
+      return null;
+    }
+    return ops;
+  } catch (err) {
+    // Surface the diagnostic code on the result for UI consumers.
+    if (err instanceof DeltaDiagnosticError) {
+      if (result && typeof result === "object") {
+        result._deltaDiagnostic = {
+          code: err.code,
+          message: err.message,
+          detail: err.detail || {},
+        };
+      }
+    } else {
+      if (result && typeof result === "object") {
+        result._deltaDiagnostic = {
+          code: DELTA_DIAGNOSTIC_MALFORMED,
+          message: err.message || "Unknown delta normalization error.",
+          detail: {},
+        };
+      }
+    }
     return null;
   }
-
-  if (raw.length === 0) {
-    return [];
-  }
-
-  const normalized = [];
-  for (let i = 0; i < raw.length; i++) {
-    const entry = raw[i];
-    if (!entry || typeof entry !== "object" || typeof entry.op !== "string" || !entry.op) {
-      continue;
-    }
-    // Shallow-clone with sorted keys for deterministic shape.
-    const keys = Object.keys(entry).sort();
-    const clone = {};
-    for (const k of keys) {
-      clone[k] = entry[k];
-    }
-    normalized.push(clone);
-  }
-
-  return normalized.length > 0 ? normalized : null;
 }
 
 // ── T10: Scope-aware event routing guard ───────────────────────────────────

@@ -153,6 +153,8 @@ class _ResolvedAddNodeCall:
     fields: Mapping[str, Any]
     inputs: Mapping[str, LinkSourceRef]
     anchor: AnchorRef | None
+    uid: str | None = None
+    node_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

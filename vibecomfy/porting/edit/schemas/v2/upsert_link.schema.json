@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/upsert-link.schema.json",
+  "title": "upsert_link",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["op", "from", "to"],
+  "properties": {
+    "op": {
+      "const": "upsert_link"
+    },
+    "from": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "type": "string" },
+        { "type": "string", "minLength": 1 },
+        {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "integer" }
+          ]
+        }
+      ]
+    },
+    "to": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        { "type": "string" },
+        { "type": "string", "minLength": 1 },
+        { "type": "string", "minLength": 1 }
+      ]
+    }
+  }
+}

@@ -92,6 +92,8 @@ def _resolve_add_node(
             fields=fields,
             inputs=inputs,
             anchor=op.anchor,
+            uid=op.uid,
+            node_id=op.node_id,
         )
     issues = list(alias_issues)
     for input_name, spec in schema_inputs.items():
