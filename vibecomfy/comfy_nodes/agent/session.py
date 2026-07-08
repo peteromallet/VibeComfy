@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Literal
 
 from .contracts import DiagnosticRecord, FailureEnvelope, FailureKind, TurnContext, failure_envelope
+from vibecomfy.porting.edit.ops import parse_edit_delta
 
 STATE_FILE_NAME = "session_state.json"
 LOCK_FILE_NAME = ".session_state.lock"
@@ -1532,6 +1533,14 @@ def _load_turn_delta_ops(
     if isinstance(envelope, Mapping):
         ops = envelope.get("ops")
         if isinstance(ops, list) and all(isinstance(op, Mapping) for op in ops):
+            # Validate each op through the backend normaliser so that
+            # malformed ops (unknown op kind, missing required fields,
+            # etc.) inside a syntactically-valid envelope are rejected
+            # before downstream accept verification consumes them.
+            try:
+                parse_edit_delta(ops)
+            except ValueError:
+                return None
             return tuple(dict(op) for op in ops)
         # Envelope present but ops is malformed — fall through to delta_ops.
         # We record the shape for diagnostics in _build_v2_accept_evidence.
@@ -1573,6 +1582,20 @@ def _load_turn_delta_ops_diagnostic(
     if isinstance(envelope, Mapping):
         ops = envelope.get("ops")
         if isinstance(ops, list):
+            # Validate each op through the backend normaliser so that
+            # malformed entries (unknown op kind, missing required fields,
+            # etc.) are classified as malformed rather than canonical.
+            try:
+                parse_edit_delta(ops)
+            except ValueError:
+                return {
+                    "shape": "canonical",
+                    "code": "canonical_envelope_malformed_ops",
+                    "detail": {
+                        "schema_version": envelope.get("schema_version"),
+                        "reason": "ops list present but entries failed parse_edit_delta validation",
+                    },
+                }
             return {
                 "shape": "canonical",
                 "code": "canonical_delta_ops",
