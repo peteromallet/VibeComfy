@@ -184,6 +184,12 @@ function currentPreviewApp(app = null) {
   if (app) {
     return app;
   }
+  if (typeof globalThis !== "undefined" && globalThis.__VIBECOMFY_BROWSER_APP__) {
+    return globalThis.__VIBECOMFY_BROWSER_APP__;
+  }
+  if (typeof window !== "undefined" && window.comfyAPI?.app?.app) {
+    return window.comfyAPI.app.app;
+  }
   if (typeof window !== "undefined" && window.app) {
     return window.app;
   }
