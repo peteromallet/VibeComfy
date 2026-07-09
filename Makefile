@@ -36,6 +36,21 @@ STRICT_READY_PYTEST := \
 	tests/test_plugin_discovery.py \
 	tests/test_agent_acceptance.py
 
+BROWSER_CONTRACT_TESTS := \
+	tests/browser/ownership_contract.test.mjs \
+	tests/browser/lifecycle_ownership_static.test.mjs \
+	tests/browser/preview_overlay_ownership_static.test.mjs \
+	tests/browser/frontend_ownership_regression.test.mjs \
+	tests/browser/payload_contracts.test.mjs \
+	tests/browser/agent_edit_response_contract.test.mjs \
+	tests/browser/canonical_delta.test.mjs \
+	tests/browser/agent_lifecycle_commit.test.mjs \
+	tests/browser/agent_lifecycle_parity.test.mjs \
+	tests/browser/render_section_safety.test.mjs
+
+E2E_PREVIEW_SPECS := \
+	tests/e2e/specs/agent_panel_overlay.spec.mjs
+
 ROOT_ALLOWLIST := \
 	.env.example \
 	.gitattributes \
@@ -80,11 +95,11 @@ ROOT_BANNED := \
 	version_matrix.json \
 	workflow_corpus
 
-.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast snapshots oracle browser-smoke parity e2e-browser clean clean-artifacts
+.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast snapshots oracle browser-contracts browser-smoke parity e2e-browser e2e-preview clean clean-artifacts
 
 all: check
 
-check: root-clean docs template-index templates strict-ready fast snapshots oracle browser-smoke parity post-root-clean
+check: root-clean docs template-index templates strict-ready fast snapshots oracle browser-contracts browser-smoke parity post-root-clean
 
 ci: check
 
@@ -152,12 +167,20 @@ oracle:
 browser-smoke:
 	$(NODE) --test tests/browser/*.mjs
 
+# Keep this subset in `make check`; it is pure Node/browser-contract coverage without Playwright or ComfyUI prerequisites.
+browser-contracts:
+	$(NODE) --test $(BROWSER_CONTRACT_TESTS)
+
 parity:
 	$(PYTHON) -m tools.check_canonical_parity --all
 
 e2e-browser:
 	cd tests/e2e && npm install
 	$(NODE) tests/e2e/run.mjs
+
+# Keep preview e2e explicit because it assumes the heavier browser + ComfyUI test environment.
+e2e-preview:
+	$(NODE) tests/e2e/run.mjs -- --config tests/e2e/playwright.config.mjs $(E2E_PREVIEW_SPECS)
 
 clean-artifacts:
 	rm -rf .coverage coverage.xml .pytest_cache .hypothesis out temp test-results

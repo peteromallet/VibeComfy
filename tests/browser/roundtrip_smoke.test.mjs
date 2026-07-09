@@ -5613,6 +5613,85 @@ test("VibeComfy settings live in a toggled popover and keep route-status guidanc
   }
 });
 
+test("VibeComfy developer diagnostics fetch runtime identity even when route status is unavailable", async () => {
+  let statusCalls = 0;
+  let infoCalls = 0;
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/settings": {
+        status: 200,
+        body: { ok: true, research_contribution_enabled: false },
+      },
+      "/vibecomfy/agent/status?route=auto": async () => {
+        statusCalls += 1;
+        return {
+          status: 503,
+          body: {
+            error: "backend offline",
+          },
+        };
+      },
+      "/vibecomfy/info": async () => {
+        infoCalls += 1;
+        return {
+          status: 200,
+          body: {
+            start_time_utc: "2026-07-09T16:10:00Z",
+            uptime_seconds: 42.5,
+            WEB_DIRECTORY: "/workspace/vibecomfy/comfy_nodes/web",
+            web_source_hash: "feedface",
+            served_web_path: "/tmp/vibecomfy-served/web",
+            launch_flags: {
+              VIBECOMFY_HEADLESS: "0",
+            },
+            git_sha: "abc123",
+            git_branch: "main",
+            git_dirty: true,
+            git_diagnostic: null,
+          },
+        };
+      },
+    },
+    withQueuePrompt: false,
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => statusCalls === 1);
+
+    const settingsGear = harness.document.body.querySelectorAll(
+      (node) => node.title === "Settings",
+    )[0];
+    const settingsStatus = harness.document.getElementById("vibecomfy-agent-panel-settings-status");
+    const developerRegion = harness.document.getElementById("vibecomfy-agent-panel-region-developer");
+    const developerToggle = harness.document.getElementById("vibecomfy-agent-panel-developer-toggle");
+
+    settingsGear.click();
+    await waitFor(() => infoCalls === 1);
+    developerToggle.click();
+
+    await waitFor(() => /gitSha: abc123 \(dirty\)/.test(developerRegion.textContent));
+    assert.match(settingsStatus.textContent, /Status unavailable/);
+    assert.match(developerRegion.textContent, /infoRoute: ready/);
+    assert.match(developerRegion.textContent, /gitBranch: main/);
+    assert.match(developerRegion.textContent, /webSourceHash: feedface/);
+    assert.match(developerRegion.textContent, /servedWebPath: \/tmp\/vibecomfy-served\/web/);
+    assert.equal(
+      harness.requests.some((entry) => entry.url === "/vibecomfy/info"),
+      true,
+      "runtime info should be fetched even while route status is unavailable",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy settings toggle saves and triggers research contribution", async () => {
   globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
   globalThis.localStorage?.removeItem("vibecomfy_research_contribution_enabled");
@@ -7873,6 +7952,105 @@ test("VibeComfy edited canvas widget field values render on their widget rows", 
       .map((op) => op.args[0])
       .filter((text) => text === "seed: 5" || text === "steps: 24");
     assert.deepEqual(oldCornerChipTexts, [], "widget fields must not render stacked corner chips");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy widget value overlays derive fallback bounds and clamp long text inside the visible preview", async () => {
+  const CANDIDATE_POS = [140, 240];
+  const CANDIDATE_SIZE = [180, 70];
+  const candidateGraph = {
+    nodes: [
+      {
+        id: 12,
+        type: "KSampler",
+        pos: [...CANDIDATE_POS],
+        size: [...CANDIDATE_SIZE],
+        properties: { vibecomfy_uid: "uid-invalid-widget-bounds" },
+        inputs: [{ name: "model" }],
+        outputs: [{ name: "LATENT" }],
+        widgets_values: ["new preview value"],
+      },
+    ],
+    links: [],
+  };
+  const liveGraph = {
+    nodes: [
+      {
+        id: 12,
+        type: "KSampler",
+        pos: [0, 0],
+        size: [0, 0],
+        properties: { vibecomfy_uid: "uid-invalid-widget-bounds" },
+        inputs: [{ name: "model" }],
+        outputs: [{ name: "LATENT" }],
+        widgets_values: ["old preview value"],
+      },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    const longValue = "replacement preview value with enough wrapped words to require clamped multiline overlay text near the canvas edge";
+    const liveNode = harness.getLiveNodes()[0];
+    liveNode.widgets = [
+      { name: "cfg", value: "old preview value", last_y: 0, computeSize: () => [0, 0] },
+    ];
+    harness.app.canvas.canvas = {
+      ownerDocument: harness.document,
+      width: 320,
+      height: 300,
+      clientWidth: 320,
+      clientHeight: 300,
+      getBoundingClientRect() {
+        return { left: 0, top: 0, width: 320, height: 300 };
+      },
+    };
+    harness.app.canvas.ds = { scale: 1, offset: [0, 0] };
+    const ctx = createMockCanvasContext();
+    drawPanelOverlayPreviewOverlay(
+      ctx,
+      {
+        edited: [{ uid: "uid-invalid-widget-bounds", class_type: "KSampler", changedWidgetIndices: [0] }],
+        edited_fields: [{ uid: "uid-invalid-widget-bounds", field_path: "widgets_values.0", new_value: longValue }],
+        added: [],
+        removed: [],
+        removed_named: [],
+        added_links: [],
+        removed_links: [],
+        _candidateGraph: candidateGraph,
+        _candidateGraphHash: "candidate-invalid-widget-bounds",
+      },
+      makePanelOverlayDeps({ nodes: harness.getLiveNodes(), links: [] }),
+    );
+
+    const drawOps = ctx._getOperations();
+    const panel = drawOps.find((op) => op.kind === "roundRect");
+    assert.ok(panel, "widget preview overlay panel should be drawn");
+    assert.ok(panel.args[0] >= CANDIDATE_POS[0], "overlay should derive the candidate node x instead of floating at the origin");
+    assert.ok(panel.args[1] >= CANDIDATE_POS[1], "overlay should derive the candidate node y instead of floating at the origin");
+    assert.ok(panel.args[2] <= CANDIDATE_SIZE[0], "overlay width should stay within the candidate node width");
+    assert.ok(panel.args[3] > 20, "long overlay text should expand the panel height beyond the collapsed widget row");
+    assert.ok(panel.args[0] + panel.args[2] <= 320, "overlay panel should stay inside the visible preview width");
+    assert.ok(panel.args[1] + panel.args[3] <= 300, "overlay panel should stay inside the visible preview height");
+
+    const textOps = drawOps.filter((op) => op.kind === "fillText");
+    assert.ok(textOps.length >= 2, "long overlay text should wrap across multiple lines");
+    for (const op of textOps) {
+      assert.ok(op.args[1] > 20, "overlay text x should stay away from the canvas origin");
+      assert.ok(op.args[2] > 20, "overlay text y should stay away from the canvas origin");
+      assert.ok(op.args[1] <= panel.args[0] + panel.args[2], "overlay text should stay inside the panel width");
+      assert.ok(op.args[2] <= panel.args[1] + panel.args[3], "overlay text should stay inside the panel height");
+    }
   } finally {
     await harness.dispose();
   }
@@ -16521,6 +16699,445 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
     await harness.clickButton("Undo Last Apply");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display === "none");
   } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy submit watchdog times out stalled submits with diagnostics and allows a later submit", async () => {
+  const candidateGraph = {
+    nodes: [{ id: 1, type: "SaveImage", properties: { vibecomfy_uid: "uid-timeout" } }],
+    links: [],
+  };
+  let submitMode = "stall";
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      "/vibecomfy/agent-executor": async () => {
+        if (submitMode === "stall") {
+          return new Promise(() => {});
+        }
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            session_id: "session-timeout",
+            turn_id: "0008",
+            baseline_turn_id: "0007",
+            candidate: { graph: candidateGraph },
+            eligibility: {
+              applyable: true,
+              reason: "applyable",
+              message: "Ready to apply.",
+            },
+            canvas_apply_allowed: true,
+            apply_allowed: true,
+            queue_allowed: true,
+            message: "Candidate ready after timeout.",
+          },
+        };
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    extensionModule.configureSubmitWatchdogDeps({ submitDeadlineMs: 10 });
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.sessionId = "session-timeout";
+    panel.state.turnId = "0007";
+
+    const prompt = harness.document.getElementById("vibecomfy-agent-panel-prompt");
+    prompt.value = "stalled request";
+    await harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "ERROR");
+
+    assert.equal(panel.state.inFlightSubmit, null);
+    assert.equal(panel.state.submitAbortController, null);
+    assert.equal(panel.state.submitStartedAtMs, null);
+    assert.equal(panel.state.submitDeadlineMs, null);
+    assert.equal(panel.state.failure?.kind, "TimeoutError");
+    assert.equal(panel.state.failure?.session_id, "session-timeout");
+    assert.equal(panel.state.failure?.turn_id, "0007");
+    assert.equal(panel.state.failure?.route, "auto");
+    assert.equal(panel.state.failure?.url, "/vibecomfy/agent-executor");
+    assert.equal(panel.state.failure?.timeout_ms, 10);
+    assert.match(panel.state.failure?.next_action || "", /Submit again/i);
+    assert.equal(prompt.value, "stalled request");
+
+    submitMode = "success";
+    prompt.value = "successful retry";
+    await harness.clickButton("Submit");
+    await waitFor(() => /Candidate ready after timeout\./.test(harness.textDump()));
+
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length,
+      2,
+      "submit should be retryable after the timeout watchdog fires",
+    );
+    assert.equal(panel.state.phase, "AWAITING_REVIEW");
+    assert.equal(panel.state.failure, null);
+  } finally {
+    try {
+      (await harness.loadExtension()).resetSubmitWatchdogDeps();
+    } catch (_error) {
+      // Best-effort test cleanup only.
+    }
+    await harness.dispose();
+  }
+});
+
+function makeSubmitRetryHarness(agentExecutorHandler) {
+  return createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      "/vibecomfy/agent-executor": agentExecutorHandler,
+    },
+  });
+}
+
+test("VibeComfy submit auto-retries exactly once for retryable backend failures and preserves request context", async () => {
+  const candidateGraph = {
+    nodes: [{ id: 1, type: "PreviewImage", properties: { vibecomfy_uid: "uid-submit-retry" } }],
+    links: [],
+  };
+  const submitBodies = [];
+  const harness = await makeSubmitRetryHarness(async ({ options }) => {
+    const body = JSON.parse(options.body);
+    submitBodies.push(body);
+    if (submitBodies.length === 1) {
+      return {
+        status: 503,
+        body: {
+          ok: false,
+          kind: "ProviderError",
+          stage: "agent-executor",
+          retryable: true,
+          graph_unchanged: true,
+          user_facing_message: "Temporary provider outage.",
+          next_action: "Retry automatically.",
+          session_id: "session-submit-retry",
+          turn_id: "0009",
+          baseline_turn_id: "0008",
+        },
+      };
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        session_id: "session-submit-retry",
+        turn_id: "0009",
+        baseline_turn_id: "0008",
+        candidate: { graph: candidateGraph },
+        eligibility: {
+          applyable: true,
+          reason: "applyable",
+          message: "Ready to apply.",
+        },
+        canvas_apply_allowed: true,
+        apply_allowed: true,
+        queue_allowed: true,
+        message: "Candidate ready after automatic retry.",
+      },
+    };
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    const prompt = harness.document.getElementById("vibecomfy-agent-panel-prompt");
+    prompt.value = "retry the edit automatically";
+    await harness.clickButton("Submit");
+    await waitFor(() => /Candidate ready after automatic retry\./.test(harness.textDump()));
+
+    assert.equal(submitBodies.length, 2, "retryable backend submit failures should retry once");
+    assert.equal(typeof submitBodies[0].idempotency_key, "string");
+    assert.equal(Boolean(submitBodies[0].idempotency_key), true);
+    assert.equal(submitBodies[1].idempotency_key, submitBodies[0].idempotency_key);
+    assert.equal(submitBodies[0].session_id, undefined);
+    assert.equal(submitBodies[1].session_id, "session-submit-retry");
+    assert.equal(panel.state.phase, "AWAITING_REVIEW");
+    assert.equal(panel.state.failure, null);
+    assert.equal(panel.state.sessionId, "session-submit-retry");
+    assert.equal(panel.state.turnId, "0009");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy submit does not auto-retry retryable false backend failures", async () => {
+  const harness = await makeSubmitRetryHarness(() => ({
+    status: 503,
+    body: {
+      ok: false,
+      kind: "ProviderError",
+      stage: "agent-executor",
+      retryable: false,
+      graph_unchanged: true,
+      user_facing_message: "Backend refused retry.",
+      next_action: "Wait for the backend to recover.",
+      session_id: "session-no-retry",
+      turn_id: "0010",
+      baseline_turn_id: "0009",
+    },
+  }));
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    const prompt = harness.document.getElementById("vibecomfy-agent-panel-prompt");
+    prompt.value = "do not retry this failure";
+    await harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "ERROR");
+
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length,
+      1,
+      "retryable false failures should surface immediately",
+    );
+    assert.equal(panel.state.failure?.kind, "ProviderError");
+    assert.equal(panel.state.failure?.retryable, false);
+    assert.equal(prompt.value, "do not retry this failure");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy submit does not auto-retry validation failures even when marked retryable", async () => {
+  const harness = await makeSubmitRetryHarness(() => ({
+    status: 400,
+    body: {
+      ok: false,
+      error: "validation",
+      kind: "ValidationError",
+      stage: "agent-executor",
+      retryable: true,
+      graph_unchanged: true,
+      user_facing_message: "Server validation blocked the submit.",
+      next_action: "Fix the request and submit again.",
+      session_id: "session-validation-submit",
+      turn_id: "0011",
+      baseline_turn_id: "0010",
+    },
+  }));
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "validation should not retry";
+    await harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "ERROR");
+
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length,
+      1,
+      "validation failures should not auto-retry",
+    );
+    assert.equal(panel.state.failure?.kind, "ValidationError");
+    assert.equal(panel.state.failure?.error, "validation");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy submit surfaces the exhausted retry failure after one automatic retry", async () => {
+  const submitBodies = [];
+  const harness = await makeSubmitRetryHarness(async ({ options }) => {
+    const body = JSON.parse(options.body);
+    submitBodies.push(body);
+    if (submitBodies.length === 1) {
+      return {
+        status: 502,
+        body: {
+          ok: false,
+          kind: "ProviderError",
+          stage: "agent-executor",
+          retryable: true,
+          graph_unchanged: true,
+          user_facing_message: "First backend failure.",
+          next_action: "Retry automatically.",
+          session_id: "session-retry-exhausted",
+          turn_id: "0012",
+          baseline_turn_id: "0011",
+        },
+      };
+    }
+    return {
+      status: 502,
+      body: {
+        ok: false,
+        kind: "ProviderError",
+        stage: "agent-executor",
+        retryable: true,
+        graph_unchanged: true,
+        user_facing_message: "Second backend failure.",
+        next_action: "Surface the failure after one retry.",
+      },
+    };
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    const prompt = harness.document.getElementById("vibecomfy-agent-panel-prompt");
+    prompt.value = "retry only once";
+    await harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "ERROR");
+
+    assert.equal(submitBodies.length, 2, "automatic retry should stop after one retry");
+    assert.equal(submitBodies[1].session_id, "session-retry-exhausted");
+    assert.equal(panel.state.failure?.kind, "ProviderError");
+    assert.equal(panel.state.failure?.session_id, "session-retry-exhausted");
+    assert.equal(panel.state.failure?.turn_id, "0012");
+    assert.equal(prompt.value, "retry only once");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy stale inFlightSubmit metadata is recovered before promise reuse", async () => {
+  let staleAbortCount = 0;
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: "session-recover",
+          turn_id: "0005",
+          baseline_turn_id: "0004",
+          candidate: {
+            graph: {
+              nodes: [{ id: 1, type: "PreviewImage", properties: { vibecomfy_uid: "uid-recover" } }],
+              links: [],
+            },
+          },
+          eligibility: {
+            applyable: true,
+            reason: "applyable",
+            message: "Ready to apply.",
+          },
+          canvas_apply_allowed: true,
+          apply_allowed: true,
+          queue_allowed: true,
+          message: "Recovered candidate ready.",
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    extensionModule.configureSubmitWatchdogDeps({
+      submitDeadlineMs: 1000,
+      nowMs: () => 50,
+    });
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.phase = "SUBMITTING";
+    panel.state.submitEpoch = 4;
+    panel.state.inFlightSubmit = new Promise(() => {});
+    panel.state.submitAbortController = {
+      abort() {
+        staleAbortCount += 1;
+      },
+    };
+    panel.state.submitStartedAtMs = 0;
+    panel.state.submitDeadlineMs = 5;
+    panel.state.lastSubmit = { task: "stale request", route: "auto" };
+
+    const prompt = harness.document.getElementById("vibecomfy-agent-panel-prompt");
+    prompt.value = "fresh request";
+    await harness.clickButton("Submit");
+    await waitFor(() => /Recovered candidate ready\./.test(harness.textDump()));
+
+    assert.equal(staleAbortCount, 1, "stale submit should be aborted before reuse");
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-executor").length,
+      1,
+      "fresh submit should dispatch after stale recovery",
+    );
+    assert.equal(panel.state.phase, "AWAITING_REVIEW");
+    assert.equal(panel.state.failure, null);
+    assert.equal(panel.state.submitEpoch > 4, true);
+  } finally {
+    try {
+      (await harness.loadExtension()).resetSubmitWatchdogDeps();
+    } catch (_error) {
+      // Best-effort test cleanup only.
+    }
     await harness.dispose();
   }
 });

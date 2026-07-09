@@ -2094,6 +2094,63 @@ def test_redaction_closed_set_values_are_exact() -> None:
     assert redacted.value["ordinary"] == REDACTED
 
 
+def test_redaction_closed_set_redacts_common_provider_key_names_without_leaking_values() -> None:
+    provider_secrets = {
+        "OPENROUTER_API_KEY": "openrouter-secret-value",
+        "ANTHROPIC_API_KEY": "anthropic-secret-value",
+        "GEMINI_API_KEY": "gemini-secret-value",
+        "GOOGLE_API_KEY": "google-secret-value",
+        "DEEPSEEK_API_KEY": "deepseek-secret-value",
+        "AWS_SECRET_ACCESS_KEY": "aws-secret-access-value",
+    }
+
+    redacted = redact_closed_set({"providers": provider_secrets})
+    if set(redacted.categories) != {"api_key", "provider_secret"}:
+        pytest.fail("expected provider API key and secret categories to be recorded")
+
+    redacted_providers = redacted.value["providers"]
+    for key in provider_secrets:
+        if redacted_providers.get(key) != REDACTED:
+            pytest.fail(f"{key} should be redacted")
+
+    serialized = json.dumps(redacted.value, sort_keys=True)
+    for secret_value in provider_secrets.values():
+        if secret_value in serialized:
+            pytest.fail("redacted provider payload leaked raw secret material")
+
+
+def test_redaction_closed_set_redacts_bearer_token_strings_without_leaking_values() -> None:
+    bearer_values = (
+        "Bearer token-value-one",
+        "BEARER token-value-two",
+        "bEaReR token-value-three",
+    )
+
+    redacted = redact_closed_set(
+        {
+            "headers": list(bearer_values),
+            "nested": {"value": bearer_values[2]},
+            "ordinary": "keep-me",
+        }
+    )
+    if set(redacted.categories) != {"bearer_token"}:
+        pytest.fail("expected bearer token category to be recorded")
+
+    headers = redacted.value["headers"]
+    for index, _ in enumerate(bearer_values[:2]):
+        if headers[index] != REDACTED:
+            pytest.fail(f"headers[{index}] should be redacted")
+    if redacted.value["nested"]["value"] != REDACTED:
+        pytest.fail("nested bearer token string should be redacted")
+    if redacted.value["ordinary"] != "keep-me":
+        pytest.fail("ordinary non-secret strings should be preserved")
+
+    serialized = json.dumps(redacted.value, sort_keys=True)
+    for secret_value in bearer_values:
+        if secret_value in serialized:
+            pytest.fail("redacted bearer payload leaked raw token material")
+
+
 def test_validate_stage_diagnostics_reuses_existing_validation_sources() -> None:
     workflow = VibeWorkflow("validate", WorkflowSource("validate"))
     workflow.nodes["1"] = VibeNode("1", "SaveImage", inputs={})

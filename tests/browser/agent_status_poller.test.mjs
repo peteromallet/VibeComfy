@@ -17,6 +17,7 @@ import {
   getPersistedAgentProvider,
   setPersistedAgentProvider,
   buildStatusUrl,
+  buildVibeComfyInfoUrl,
   routeStatusState,
   routeOptionsFromStatus,
   getRouteOptions,
@@ -27,6 +28,7 @@ import {
   scheduleAgentStatusRetry,
   populateRouteSelect,
   refreshAgentStatus,
+  refreshVibeComfyInfo,
   syncChooseEngineGate,
   storeOpenRouterCredential,
   persistAgentSettings,
@@ -216,6 +218,10 @@ function makePanel(overrides = {}) {
     settingsMessage: "",
     settingsMessageKind: "success",
     lastAgentStatusDiagnostic: null,
+    vibeComfyInfoSnapshot: null,
+    vibeComfyInfoStatus: { kind: "loading" },
+    vibeComfyInfoRequestEpoch: 0,
+    lastVibeComfyInfoDiagnostic: null,
     providerTestInFlight: false,
     lastAutoSavedOpenRouterKey: null,
     chatMessages: [],
@@ -256,6 +262,10 @@ test("buildStatusUrl — constructs URL with route and model", () => {
   assert.equal(buildStatusUrl("", ""), "/vibecomfy/agent/status");
   assert.equal(buildStatusUrl("anthropic", ""), "/vibecomfy/agent/status?route=anthropic");
   assert.equal(buildStatusUrl("", "claude-3"), "/vibecomfy/agent/status?model=claude-3");
+});
+
+test("buildVibeComfyInfoUrl — constructs the runtime identity endpoint URL", () => {
+  assert.equal(buildVibeComfyInfoUrl(), "/vibecomfy/info");
 });
 
 test("routeStatusState — reads panel.routeStatus", () => {
@@ -1295,10 +1305,10 @@ test("configureAgentStatusDeps — returns all expected keys", () => {
   const configured = configureAgentStatusDeps(makeDeps());
 
   const expected = [
-    "refreshAgentStatus", "routeStatusState", "populateRouteSelect",
+    "refreshAgentStatus", "refreshVibeComfyInfo", "routeStatusState", "populateRouteSelect",
     "persistAgentSettings", "storeOpenRouterCredential", "testAgentSettings",
     "syncChooseEngineGate", "scheduleAgentStatusRetry", "clearAgentStatusRetry",
-    "buildStatusUrl", "routeOptionsFromStatus", "getRouteOptions", "getRouteDescriptor", "ROUTE_STATUS_KIND",
+    "buildStatusUrl", "buildVibeComfyInfoUrl", "routeOptionsFromStatus", "getRouteOptions", "getRouteDescriptor", "ROUTE_STATUS_KIND",
     "getPersistedAgentProvider", "setPersistedAgentProvider",
   ];
 
@@ -1306,6 +1316,7 @@ test("configureAgentStatusDeps — returns all expected keys", () => {
     assert.ok(key in configured, `missing key: "${key}"`);
   }
   assert.equal(typeof configured.refreshAgentStatus, "function");
+  assert.equal(typeof configured.refreshVibeComfyInfo, "function");
   assert.equal(configured.ROUTE_STATUS_KIND, ROUTE_STATUS_KIND);
 });
 
@@ -1721,5 +1732,82 @@ test("refreshAgentStatus — unavailable status text propagated to settingsMessa
   assert.ok(
     panel.state.settingsMessage.includes("All providers exhausted"),
     `settingsMessage should carry the reason, got: ${panel.state.settingsMessage}`,
+  );
+});
+
+test("refreshVibeComfyInfo — fetches runtime identity independently of route status and rerenders developer diagnostics", async () => {
+  const markCalls = [];
+  mockFetch((url) => {
+    if (url === "/vibecomfy/info") {
+      return makeFetchResponse({
+        git_sha: "abc123",
+        git_branch: "main",
+        git_dirty: true,
+        web_source_hash: "feedface",
+        served_web_path: "/srv/vibecomfy/web",
+        start_time_utc: "2026-07-09T16:10:00Z",
+        uptime_seconds: 42.5,
+      });
+    }
+    return makeFetchResponse({ error: "unexpected" }, { status: 404 });
+  });
+
+  const panel = makePanel({
+    state: {
+      routeStatus: { kind: ROUTE_STATUS_KIND.UNAVAILABLE, requestedRoute: "auto", model: null },
+      settingsMessage: "Status unavailable: Error: backend down",
+    },
+  });
+
+  await refreshVibeComfyInfo(panel, makeDeps({
+    markAgentPanelDirtyAfterCommit: (_panel, sections, commitKind) => {
+      markCalls.push({ sections, commitKind });
+    },
+  }));
+
+  assert.equal(panel.state.vibeComfyInfoStatus.kind, "ready");
+  assert.equal(panel.state.vibeComfyInfoSnapshot.git_sha, "abc123");
+  assert.equal(panel.state.vibeComfyInfoSnapshot.web_source_hash, "feedface");
+  assert.equal(panel.state.settingsMessage, "Status unavailable: Error: backend down");
+  assert.deepEqual(markCalls, [{
+    sections: [RENDER_SECTIONS.DEVELOPER],
+    commitKind: "info",
+  }]);
+});
+
+test("refreshVibeComfyInfo — malformed payload stores diagnostic and clears the snapshot", async () => {
+  mockFetch((url) => {
+    if (url === "/vibecomfy/info") {
+      return makeFetchResponse("not-an-object");
+    }
+    return makeFetchResponse({ error: "unexpected" }, { status: 404 });
+  });
+
+  const panel = makePanel();
+  await refreshVibeComfyInfo(panel, makeDeps());
+
+  assert.equal(panel.state.vibeComfyInfoStatus.kind, "malformed");
+  assert.equal(panel.state.vibeComfyInfoSnapshot, null);
+  assert.ok(panel.state.lastVibeComfyInfoDiagnostic, "should capture info diagnostic");
+  assert.ok(
+    panel.state.lastVibeComfyInfoDiagnostic.error.includes("expected JSON object"),
+    `got: ${panel.state.lastVibeComfyInfoDiagnostic.error}`,
+  );
+});
+
+test("refreshVibeComfyInfo — unavailable responses keep an error diagnostic on the owned state surface", async () => {
+  mockFetch(() => {
+    throw new Error("Connection refused");
+  });
+
+  const panel = makePanel();
+  await refreshVibeComfyInfo(panel, makeDeps());
+
+  assert.equal(panel.state.vibeComfyInfoStatus.kind, "unavailable");
+  assert.equal(panel.state.vibeComfyInfoSnapshot, null);
+  assert.ok(panel.state.lastVibeComfyInfoDiagnostic, "should capture info diagnostic");
+  assert.ok(
+    panel.state.lastVibeComfyInfoDiagnostic.error.includes("Connection refused"),
+    `got: ${panel.state.lastVibeComfyInfoDiagnostic.error}`,
   );
 });

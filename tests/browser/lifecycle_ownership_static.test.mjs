@@ -36,7 +36,7 @@ const FORBIDDEN_PATTERNS = [
   },
   {
     name: "direct .state. assignment on lifecycle fields",
-    pattern: /\.state\.(phase|sessionId|turnId|baselineTurnId|baselineGraphHash|candidateGraph|candidateBaselineGraph|candidateGraphHash|candidateReport|candidateScopeId|serverSubmitGraphHash|customNodeResolution|applyAllowed|applyEligibility|applyEligibilityWarning|applyEligibilityWarningKey|queueAllowed|canvasApplyAllowed|message|failure|clarification|lastSubmit|lastAppliedChanges|lastSubmitFieldChanges|changeDetails|deltaOps|transcriptMessages|responseDetails|executionEvents|auditArtifacts|debugDiagnostics|compartmentIndexes|chatRehydrateEpoch|chatRehydrateCommittedEpoch|syntheticAgentMessage|inFlightSubmit|submitAbortController|submitEpoch|inFlightApply|inFlightRebaseline|rebaselinePending|rebaselineRecovery|auditRef|debugPayload|nodePackInstallStates|chatScopeId|chatScopeFingerprint|submittingScopeId|baselineGraphHashKind|baselineGraphHashVersion|baselineSource|baselineRebaselineId|baselineGraphSourcePath)\s*=/,
+    pattern: /\.state\.(phase|sessionId|turnId|baselineTurnId|baselineGraphHash|candidateGraph|candidateBaselineGraph|candidateGraphHash|candidateReport|candidateScopeId|serverSubmitGraphHash|customNodeResolution|applyAllowed|applyEligibility|applyEligibilityWarning|applyEligibilityWarningKey|queueAllowed|canvasApplyAllowed|message|failure|clarification|lastSubmit|lastAppliedChanges|lastSubmitFieldChanges|changeDetails|deltaOps|transcriptMessages|responseDetails|executionEvents|auditArtifacts|debugDiagnostics|compartmentIndexes|chatRehydrateEpoch|chatRehydrateCommittedEpoch|syntheticAgentMessage|inFlightSubmit|submitAbortController|submitEpoch|submitStartedAtMs|submitDeadlineMs|inFlightApply|inFlightRebaseline|rebaselinePending|rebaselineRecovery|auditRef|debugPayload|nodePackInstallStates|chatScopeId|chatScopeFingerprint|submittingScopeId|baselineGraphHashKind|baselineGraphHashVersion|baselineSource|baselineRebaselineId|baselineGraphSourcePath)\s*=/,
     message: "must not directly assign to lifecycle-owned state fields",
   },
 ];
@@ -53,7 +53,7 @@ const LIFECYCLE_OWNED_FIELDS = [
   "applyAllowed", "applyEligibility", "applyEligibilityWarning", "applyEligibilityWarningKey",
   "queueAllowed", "canvasApplyAllowed",
   "auditRef", "debugPayload",
-  "inFlightSubmit", "submitAbortController", "submitEpoch",
+  "inFlightSubmit", "submitAbortController", "submitEpoch", "submitStartedAtMs", "submitDeadlineMs",
   "inFlightApply", "inFlightRebaseline",
   "rebaselinePending", "rebaselineRecovery",
   "lastSubmit", "lastAppliedChanges", "lastSubmitFieldChanges", "changeDetails",

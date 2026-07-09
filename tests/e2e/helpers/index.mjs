@@ -36,6 +36,9 @@ export {
 
 export {
   probeCanvasGraph,
+  installCanvas2DRecorder,
+  clearCanvas2DRecorder,
+  readCanvas2DRecorder,
   probePanelDebug,
   waitForPanelPhase,
   waitForPanelReadiness,

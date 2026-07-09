@@ -172,6 +172,45 @@ def test_unrestricted_with_ack_executes() -> None:
     assert result == {"result": 42}
 
 
+def test_unrestricted_drops_parent_secrets_but_keeps_safe_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """unrestricted mode strips known secret env vars but preserves ordinary runtime values."""
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
+    monkeypatch.setenv("DATABASE_URL", "postgres://db-secret")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "openrouter-secret")
+    monkeypatch.setenv("VIBECOMFY_RUNTIME_SAFE_FLAG", "safe-value")
+
+    source = (
+        "import os\n"
+        "outputs['aws'] = os.environ.get('AWS_SECRET_ACCESS_KEY')\n"
+        "outputs['database'] = os.environ.get('DATABASE_URL')\n"
+        "outputs['openrouter'] = os.environ.get('OPENROUTER_API_KEY')\n"
+        "outputs['safe'] = os.environ.get('VIBECOMFY_RUNTIME_SAFE_FLAG')\n"
+    )
+    result = execute_runtime_code_dynamic(
+        named_inputs={},
+        vibecomfy_props=_props(
+            source,
+            EXECUTION_MODE_UNRESTRICTED,
+            ack=True,
+            outputs=[
+                ["aws", "STRING"],
+                ["database", "STRING"],
+                ["openrouter", "STRING"],
+                ["safe", "STRING"],
+            ],
+        ),
+    )
+
+    assert result == {
+        "aws": None,
+        "database": None,
+        "openrouter": None,
+        "safe": "safe-value",
+    }
+
+
 # ── agent prompt (_code_mode_clause / build_messages) ───────────────────────
 
 def test_code_mode_clause_raises_for_unrestricted() -> None:

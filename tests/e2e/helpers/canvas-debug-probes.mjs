@@ -54,6 +54,27 @@
  * @property {OverlayProbe} overlay
  */
 
+/**
+ * @typedef {Object} Canvas2DRecord
+ * @property {string} kind
+ * @property {{id: string|null, width: number|null, height: number|null}} canvas
+ * @property {number|null} x
+ * @property {number|null} y
+ * @property {number|null} w
+ * @property {number|null} h
+ * @property {number|null} radius
+ * @property {string|null} text
+ * @property {number|null} maxWidth
+ * @property {number|null} measuredWidth
+ * @property {string|null} font
+ * @property {string|null} textAlign
+ * @property {string|null} textBaseline
+ * @property {string|null} fillStyle
+ * @property {string|null} strokeStyle
+ * @property {number|null} lineWidth
+ * @property {number} sequence
+ */
+
 // ── Graph probes ───────────────────────────────────────────────────────────
 
 /**
@@ -272,6 +293,246 @@ export async function probeOverlayState(page) {
       overlayDrawModelCacheKey: overlayKey,
     };
   });
+}
+
+// ── Canvas2D draw-call recorder ────────────────────────────────────────────
+
+/**
+ * Install an opt-in Canvas2D recorder on the page and clear existing records.
+ *
+ * @param {import("@playwright/test").Page} page
+ * @param {{ canvasId?: string|null }} [options]
+ */
+export async function installCanvas2DRecorder(page, { canvasId = "graph-canvas" } = {}) {
+  return page.evaluate(({ canvasId: requestedCanvasId }) => {
+    const proto = window.CanvasRenderingContext2D?.prototype;
+    if (!proto) {
+      return {
+        installed: false,
+        reason: "CanvasRenderingContext2D is unavailable.",
+      };
+    }
+
+    const toFiniteNumber = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
+
+    const toStyleString = (value) => {
+      if (value == null) return null;
+      if (typeof value === "string") return value;
+      try {
+        return String(value);
+      } catch (_error) {
+        return null;
+      }
+    };
+
+    let recorder = window.__vibecomfyCanvas2DRecorder;
+    if (!recorder || recorder.installed !== true) {
+      recorder = {
+        installed: true,
+        enabled: false,
+        canvasId: null,
+        maxRecords: 2_000,
+        records: [],
+        sequence: 0,
+        originals: {},
+      };
+
+      const shouldRecord = (ctx) => {
+        if (!recorder.enabled) {
+          return false;
+        }
+        const canvas = ctx?.canvas || null;
+        if (!canvas) {
+          return false;
+        }
+        if (typeof recorder.canvasId === "string" && recorder.canvasId) {
+          return (canvas.id || null) === recorder.canvasId;
+        }
+        return true;
+      };
+
+      const canvasSnapshot = (ctx) => {
+        const canvas = ctx?.canvas || null;
+        return {
+          id: canvas?.id || null,
+          width: toFiniteNumber(canvas?.width),
+          height: toFiniteNumber(canvas?.height),
+        };
+      };
+
+      const pushRecord = (ctx, kind, payload) => {
+        if (!shouldRecord(ctx)) {
+          return;
+        }
+        recorder.sequence += 1;
+        recorder.records.push({
+          kind,
+          canvas: canvasSnapshot(ctx),
+          x: toFiniteNumber(payload?.x),
+          y: toFiniteNumber(payload?.y),
+          w: toFiniteNumber(payload?.w),
+          h: toFiniteNumber(payload?.h),
+          radius: toFiniteNumber(payload?.radius),
+          text: typeof payload?.text === "string" ? payload.text : null,
+          maxWidth: toFiniteNumber(payload?.maxWidth),
+          measuredWidth: toFiniteNumber(payload?.measuredWidth),
+          font: typeof payload?.font === "string" ? payload.font : null,
+          textAlign: typeof payload?.textAlign === "string" ? payload.textAlign : null,
+          textBaseline: typeof payload?.textBaseline === "string" ? payload.textBaseline : null,
+          fillStyle: toStyleString(payload?.fillStyle),
+          strokeStyle: toStyleString(payload?.strokeStyle),
+          lineWidth: toFiniteNumber(payload?.lineWidth),
+          sequence: recorder.sequence,
+        });
+        if (recorder.records.length > recorder.maxRecords) {
+          recorder.records.splice(0, recorder.records.length - recorder.maxRecords);
+        }
+      };
+
+      const wrap = (name, factory) => {
+        if (typeof proto[name] !== "function") {
+          return;
+        }
+        recorder.originals[name] = proto[name];
+        proto[name] = factory(proto[name]);
+      };
+
+      wrap("measureText", (original) => function measureTextRecorder(...args) {
+        const result = original.apply(this, args);
+        pushRecord(this, "measureText", {
+          text: String(args[0] ?? ""),
+          measuredWidth: result?.width,
+          font: this.font || null,
+          textAlign: this.textAlign || null,
+          textBaseline: this.textBaseline || null,
+        });
+        return result;
+      });
+
+      const wrapText = (name) => {
+        wrap(name, (original) => function textRecorder(...args) {
+          const text = String(args[0] ?? "");
+          let measuredWidth = null;
+          const measureTextOriginal = recorder.originals.measureText;
+          if (typeof measureTextOriginal === "function") {
+            try {
+              measuredWidth = measureTextOriginal.call(this, text)?.width ?? null;
+            } catch (_error) {
+              measuredWidth = null;
+            }
+          }
+          pushRecord(this, name, {
+            text,
+            x: args[1],
+            y: args[2],
+            maxWidth: args.length > 3 ? args[3] : null,
+            measuredWidth,
+            font: this.font || null,
+            textAlign: this.textAlign || null,
+            textBaseline: this.textBaseline || null,
+            fillStyle: this.fillStyle,
+            strokeStyle: this.strokeStyle,
+            lineWidth: this.lineWidth,
+          });
+          return original.apply(this, args);
+        });
+      };
+
+      wrapText("fillText");
+      wrapText("strokeText");
+
+      const wrapRect = (name) => {
+        wrap(name, (original) => function rectRecorder(...args) {
+          pushRecord(this, name, {
+            x: args[0],
+            y: args[1],
+            w: args[2],
+            h: args[3],
+            radius: name === "roundRect" ? args[4] : null,
+            fillStyle: this.fillStyle,
+            strokeStyle: this.strokeStyle,
+            lineWidth: this.lineWidth,
+          });
+          return original.apply(this, args);
+        });
+      };
+
+      wrapRect("fillRect");
+      wrapRect("strokeRect");
+      wrapRect("rect");
+      wrapRect("roundRect");
+
+      window.__vibecomfyCanvas2DRecorder = recorder;
+    }
+
+    recorder.canvasId =
+      typeof requestedCanvasId === "string" && requestedCanvasId
+        ? requestedCanvasId
+        : null;
+    recorder.enabled = true;
+    recorder.sequence = 0;
+    recorder.records.length = 0;
+
+    return {
+      installed: true,
+      enabled: recorder.enabled,
+      canvasId: recorder.canvasId,
+      maxRecords: recorder.maxRecords,
+    };
+  }, { canvasId: canvasId ?? null });
+}
+
+/**
+ * Clear all recorded Canvas2D draw calls.
+ *
+ * @param {import("@playwright/test").Page} page
+ */
+export async function clearCanvas2DRecorder(page) {
+  await page.evaluate(() => {
+    const recorder = window.__vibecomfyCanvas2DRecorder;
+    if (recorder?.records) {
+      recorder.records.length = 0;
+      recorder.sequence = 0;
+    }
+  });
+}
+
+/**
+ * Read recorded Canvas2D draw calls from the page.
+ *
+ * @param {import("@playwright/test").Page} page
+ * @param {{ clear?: boolean }} [options]
+ * @returns {Promise<{installed: boolean, enabled?: boolean, canvasId?: string|null, recordCount: number, records: Canvas2DRecord[]}>}
+ */
+export async function readCanvas2DRecorder(page, { clear = false } = {}) {
+  return page.evaluate(({ shouldClear }) => {
+    const recorder = window.__vibecomfyCanvas2DRecorder;
+    if (!recorder || recorder.installed !== true) {
+      return {
+        installed: false,
+        recordCount: 0,
+        records: [],
+      };
+    }
+    const records = recorder.records.map((record) => ({
+      ...record,
+      canvas: record?.canvas ? { ...record.canvas } : null,
+    }));
+    if (shouldClear) {
+      recorder.records.length = 0;
+      recorder.sequence = 0;
+    }
+    return {
+      installed: true,
+      enabled: recorder.enabled === true,
+      canvasId: recorder.canvasId || null,
+      recordCount: records.length,
+      records,
+    };
+  }, { shouldClear: clear === true });
 }
 
 // ── App-level probes ───────────────────────────────────────────────────────

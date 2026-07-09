@@ -151,6 +151,7 @@ import {
   persistAgentSettings,
   populateRouteSelect as pollerPopulateRouteSelect,
   refreshAgentStatus as pollerRefreshAgentStatus,
+  refreshVibeComfyInfo as pollerRefreshVibeComfyInfo,
   refreshResearchContributionSetting as pollerRefreshResearchContributionSetting,
   routeStatusState,
   saveResearchContributionSetting as pollerSaveResearchContributionSetting,
@@ -327,6 +328,31 @@ console.log("[vibecomfy] vibecomfy_roundtrip_main.mjs module evaluated");
 // matching FailureKind.
 
 const SUPPORTED_FRONTEND = "1.39.x";
+export const DEFAULT_SUBMIT_DEADLINE_MS = 30000;
+export const DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT = 1;
+
+const DEFAULT_SUBMIT_WATCHDOG_DEPS = Object.freeze({
+  nowMs() {
+    if (typeof globalThis.performance?.now === "function") {
+      return globalThis.performance.now();
+    }
+    return Date.now();
+  },
+  setTimeoutFn(handler, delayMs) {
+    return globalThis.setTimeout(handler, delayMs);
+  },
+  clearTimeoutFn(timeoutId) {
+    if (timeoutId != null) {
+      globalThis.clearTimeout(timeoutId);
+    }
+  },
+  submitDeadlineMs: DEFAULT_SUBMIT_DEADLINE_MS,
+  submitAutomaticRetryCount: DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,
+});
+
+const submitWatchdogDepsState = {
+  ...DEFAULT_SUBMIT_WATCHDOG_DEPS,
+};
 
 const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
@@ -449,6 +475,37 @@ export {
   assertPanelScopeMatchesActiveCanvas,
   assertApplyScopeConsistency,
 };
+
+export function configureSubmitWatchdogDeps(overrides = {}) {
+  if (!overrides || typeof overrides !== "object") {
+    return { ...submitWatchdogDepsState };
+  }
+  if (typeof overrides.nowMs === "function") {
+    submitWatchdogDepsState.nowMs = overrides.nowMs;
+  }
+  if (typeof overrides.setTimeoutFn === "function") {
+    submitWatchdogDepsState.setTimeoutFn = overrides.setTimeoutFn;
+  }
+  if (typeof overrides.clearTimeoutFn === "function") {
+    submitWatchdogDepsState.clearTimeoutFn = overrides.clearTimeoutFn;
+  }
+  if (Number.isFinite(overrides.submitDeadlineMs) && Number(overrides.submitDeadlineMs) > 0) {
+    submitWatchdogDepsState.submitDeadlineMs = Number(overrides.submitDeadlineMs);
+  }
+  if (Number.isFinite(overrides.submitAutomaticRetryCount) && Number(overrides.submitAutomaticRetryCount) >= 0) {
+    submitWatchdogDepsState.submitAutomaticRetryCount = Number(overrides.submitAutomaticRetryCount);
+  }
+  return { ...submitWatchdogDepsState };
+}
+
+export function resetSubmitWatchdogDeps() {
+  submitWatchdogDepsState.nowMs = DEFAULT_SUBMIT_WATCHDOG_DEPS.nowMs;
+  submitWatchdogDepsState.setTimeoutFn = DEFAULT_SUBMIT_WATCHDOG_DEPS.setTimeoutFn;
+  submitWatchdogDepsState.clearTimeoutFn = DEFAULT_SUBMIT_WATCHDOG_DEPS.clearTimeoutFn;
+  submitWatchdogDepsState.submitDeadlineMs = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitDeadlineMs;
+  submitWatchdogDepsState.submitAutomaticRetryCount = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitAutomaticRetryCount;
+  return { ...submitWatchdogDepsState };
+}
 
 function getPersistedResearchContributionEnabled() {
   return _lsGet(LS_RESEARCH_CONTRIBUTION_KEY) === "1";
@@ -3699,6 +3756,9 @@ function createAgentPanelShell() {
           renderAgentPanel(panel, { dirtySections: [RENDER_SECTIONS.SETTINGS, RENDER_SECTIONS.DEVELOPER] });
         }
         popover.style.display = isOpen ? "none" : "block";
+        if (!isOpen) {
+          void pollerRefreshVibeComfyInfo(panel, agentStatusDeps());
+        }
       }
     }
   });
@@ -4259,13 +4319,17 @@ function createAgentPanelShell() {
       providerTestInFlight: false,
       developerExpanded: false,
       statusSnapshot: null,
+      vibeComfyInfoSnapshot: null,
       statusRetry: null,
       statusRequestEpoch: 0,
+      vibeComfyInfoRequestEpoch: 0,
+      vibeComfyInfoStatus: { kind: "loading" },
       routeStatus: {
         kind: ROUTE_STATUS_KIND.LOADING,
         requestedRoute: "auto",
         model: null,
       },
+      lastVibeComfyInfoDiagnostic: null,
       executorProgress: createExecutorProgressSnapshot(),
       queueGuard: getQueueGuardStateForPanel(),
       previewEnabled: false,
@@ -8729,13 +8793,17 @@ function _capturePromptDraft(panel) {
 // ── Submit helpers (extracted from submitAgentEdit; pure data transformations) ──
 
 /** Build the POST body for /vibecomfy/agent-executor. */
-function buildSubmitBody(snapshot, task, panel) {
+function buildSubmitBody(snapshot, task, panel, options = {}) {
+  const sessionIdOverride =
+    typeof options.sessionIdOverride === "string" && options.sessionIdOverride
+      ? options.sessionIdOverride
+      : null;
   return {
     graph: snapshot.graph,
     task,
     route: snapshot.route,
     model: snapshot.model || undefined,
-    session_id: panel.state.sessionId || undefined,
+    session_id: sessionIdOverride || panel.state.sessionId || undefined,
     client_id: api?.clientId || undefined,
     client_graph_hash: snapshot.graphHash,
     client_structural_graph_hash: snapshot.structuralHash,
@@ -8744,15 +8812,204 @@ function buildSubmitBody(snapshot, task, panel) {
   };
 }
 
+function currentSubmitDeadlineMs(panel = null) {
+  const stateDeadlineMs = Number(panel?.state?.submitDeadlineMs);
+  if (Number.isFinite(stateDeadlineMs) && stateDeadlineMs > 0) {
+    return stateDeadlineMs;
+  }
+  const configuredDeadlineMs = Number(submitWatchdogDepsState.submitDeadlineMs);
+  if (Number.isFinite(configuredDeadlineMs) && configuredDeadlineMs > 0) {
+    return configuredDeadlineMs;
+  }
+  return DEFAULT_SUBMIT_DEADLINE_MS;
+}
+
+function currentSubmitAutomaticRetryCount() {
+  const configuredRetryCount = Number(submitWatchdogDepsState.submitAutomaticRetryCount);
+  if (Number.isFinite(configuredRetryCount) && configuredRetryCount >= 0) {
+    return Math.max(0, Math.floor(configuredRetryCount));
+  }
+  return DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT;
+}
+
+function currentSubmitNowMs() {
+  return Number(submitWatchdogDepsState.nowMs());
+}
+
+function readSubmitFailureMessage(error) {
+  if (typeof error?.user_facing_message === "string" && error.user_facing_message.trim()) {
+    return error.user_facing_message.trim();
+  }
+  if (typeof error?.message === "string" && error.message.trim()) {
+    return error.message.trim();
+  }
+  return String(error);
+}
+
+function buildSubmitFailureContext(panel, snapshot = null, extras = {}) {
+  const route = typeof extras.route === "string" && extras.route
+    ? extras.route
+    : typeof snapshot?.route === "string" && snapshot.route
+      ? snapshot.route
+      : typeof panel?.state?.lastSubmit?.route === "string" && panel.state.lastSubmit.route
+        ? panel.state.lastSubmit.route
+        : normalizeRoutePreference(panel?.fields?.route?.value);
+  const context = {
+    session_id: extras.sessionId ?? panel?.state?.sessionId ?? null,
+    turn_id: extras.turnId ?? panel?.state?.turnId ?? null,
+    route: route || null,
+    url: "/vibecomfy/agent-executor",
+    timeout_ms: Number.isFinite(extras.timeoutMs) ? Number(extras.timeoutMs) : currentSubmitDeadlineMs(panel),
+  };
+  const httpStatus = Number.isFinite(extras.httpStatus) ? Number(extras.httpStatus) : null;
+  if (httpStatus !== null) {
+    context.http_status = httpStatus;
+  }
+  if (typeof extras.nextAction === "string" && extras.nextAction.trim()) {
+    context.next_action = extras.nextAction.trim();
+  }
+  return context;
+}
+
+function mergeSubmitFailureContext(error, diagnosticContext = {}) {
+  const merged = {
+    ...diagnosticContext,
+    ...(error && typeof error === "object" ? error : {}),
+  };
+  if (merged.http_status == null && Number.isFinite(merged.status)) {
+    merged.http_status = Number(merged.status);
+  }
+  if (merged.timeout_ms == null && diagnosticContext.timeout_ms != null) {
+    merged.timeout_ms = diagnosticContext.timeout_ms;
+  }
+  if (merged.next_action == null && diagnosticContext.next_action != null) {
+    merged.next_action = diagnosticContext.next_action;
+  }
+  if (merged.route == null && diagnosticContext.route != null) {
+    merged.route = diagnosticContext.route;
+  }
+  if (merged.url == null && diagnosticContext.url != null) {
+    merged.url = diagnosticContext.url;
+  }
+  if (merged.session_id == null && diagnosticContext.session_id != null) {
+    merged.session_id = diagnosticContext.session_id;
+  }
+  if (merged.turn_id == null && diagnosticContext.turn_id != null) {
+    merged.turn_id = diagnosticContext.turn_id;
+  }
+  return merged;
+}
+
+function buildSubmitTimeoutFailure(panel, snapshot, deadlineMs) {
+  return agentPanelFailure(
+    "TimeoutError",
+    "The submit request timed out before the backend responded.",
+    {
+      stage: "agent-executor",
+      retryable: true,
+      graph_unchanged: true,
+      ...buildSubmitFailureContext(panel, snapshot, {
+        timeoutMs: deadlineMs,
+        nextAction: "Submit again. If it keeps timing out, inspect the route status and backend logs.",
+      }),
+    },
+  );
+}
+
+function runSubmitFetchWithDeadline(fetchPromise, { panel, snapshot, submitAbortController, deadlineMs }) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finalize = () => {
+      if (timeoutId != null) {
+        submitWatchdogDepsState.clearTimeoutFn(timeoutId);
+      }
+    };
+    const settle = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      finalize();
+      callback(value);
+    };
+    const timeoutId = submitWatchdogDepsState.setTimeoutFn(() => {
+      try {
+        submitAbortController?.abort();
+      } catch (_error) {
+        // Best-effort abort only.
+      }
+      settle(reject, buildSubmitTimeoutFailure(panel, snapshot, deadlineMs));
+    }, deadlineMs);
+    Promise.resolve(fetchPromise).then(
+      (value) => settle(resolve, value),
+      (error) => settle(reject, error),
+    );
+  });
+}
+
 /** Normalize a caught error into a failure envelope that submitAgentEdit can store. */
-function normalizeSubmitFailure(error) {
+function normalizeSubmitFailure(error, diagnosticContext = {}) {
   if (error?.ok === false) {
+    return mergeSubmitFailureContext(error, diagnosticContext);
+  }
+  return agentPanelFailure("NetworkError", readSubmitFailureMessage(error), {
+    retryable: true,
+    ...mergeSubmitFailureContext({
+      next_action: "Retry once the local ComfyUI backend responds again.",
+    }, diagnosticContext),
+  });
+}
+
+function isValidationSubmitFailure(failure) {
+  const kind = typeof failure?.kind === "string" ? failure.kind : "";
+  const errorCode = typeof failure?.error === "string" ? failure.error : "";
+  return kind === "ValidationError" || errorCode === "validation";
+}
+
+function isStaleSubmitFailure(failure) {
+  const kind = typeof failure?.kind === "string" ? failure.kind : "";
+  return kind === "StaleStateMismatch" || Boolean(failure?.rebaseline_recovery || failure?.rebaselineRecovery);
+}
+
+function markBackendSubmitFailure(error, metadata = {}) {
+  if (!error || typeof error !== "object") {
     return error;
   }
-  return agentPanelFailure("NetworkError", String(error), {
-    retryable: true,
-    next_action: "Retry once the local ComfyUI backend responds again.",
-  });
+  return {
+    ...error,
+    ok: false,
+    failure_source: "backend",
+    ...metadata,
+  };
+}
+
+function shouldAutoRetrySubmitFailure(error, failure, { attemptIndex, maxAutomaticRetryCount } = {}) {
+  if (!failure || typeof failure !== "object") {
+    return false;
+  }
+  if (failure.failure_source !== "backend") {
+    return false;
+  }
+  if (failure.retryable !== true) {
+    return false;
+  }
+  if (isValidationSubmitFailure(failure)) {
+    return false;
+  }
+  if (isStaleSubmitFailure(failure)) {
+    return false;
+  }
+  const normalizedAttemptIndex = Number.isFinite(attemptIndex) ? Number(attemptIndex) : 0;
+  const normalizedRetryBudget = Number.isFinite(maxAutomaticRetryCount)
+    ? Math.max(0, Number(maxAutomaticRetryCount))
+    : 0;
+  if (normalizedAttemptIndex >= normalizedRetryBudget) {
+    return false;
+  }
+  if (error?.name === "AbortError") {
+    return false;
+  }
+  return true;
 }
 
 /** Validate that a result payload is a usable success envelope (clarify or candidate). */
@@ -8979,11 +9236,41 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     return panel.state.inFlightRebaseline || undefined;
   }
   if (panel.state.inFlightSubmit) {
-    return panel.state.inFlightSubmit;
+    const submitStartedAtMs = Number(panel?.state?.submitStartedAtMs);
+    const submitDeadlineMs = currentSubmitDeadlineMs(panel);
+    const submitAgeMs = currentSubmitNowMs() - submitStartedAtMs;
+    if (
+      Number.isFinite(submitStartedAtMs)
+      && Number.isFinite(submitDeadlineMs)
+      && submitDeadlineMs > 0
+      && submitAgeMs >= submitDeadlineMs
+    ) {
+      const staleAbortController = panel.state.submitAbortController;
+      const recoveryObligations = transition(panel, "SUBMIT_STALE_IN_FLIGHT_RECOVERY", {
+        debugPayload: {
+          stale_in_flight_submit: true,
+          submit_age_ms: submitAgeMs,
+          submit_deadline_ms: submitDeadlineMs,
+          ...(panel?.state?.lastSubmit && typeof panel.state.lastSubmit === "object"
+            ? { last_submit: clonePlainData(panel.state.lastSubmit) }
+            : {}),
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, recoveryObligations);
+      try {
+        staleAbortController?.abort();
+      } catch (_error) {
+        // Best-effort stale cleanup only.
+      }
+    } else {
+      return panel.state.inFlightSubmit;
+    }
   }
   const submitPromise = (async () => {
     let submitEpoch = null;
     let submitAbortController = null;
+    let submitHttpStatus = null;
+    let submitDeadlineMs = currentSubmitDeadlineMs(panel);
     const isCurrentSubmit = () => panel?.state?.submitEpoch === submitEpoch;
     // Re-resolve the prompt element from the live DOM at submit time: a durable
     // panel re-render can replace the textarea, leaving panel.fields.prompt as a
@@ -9155,7 +9442,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       return;
     }
 
-    const submitStartObligations = commitOptimisticSubmit(panel, {
+    submitDeadlineMs = currentSubmitDeadlineMs(panel);
+    const submitStartObligations = transition(panel, "SUBMIT_START", {
       submitEpoch,
       lastSubmit: {
         task,
@@ -9175,6 +9463,8 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         client_live_canvas_token: snapshot.liveCanvasToken,
         idempotency_key: snapshot.idempotencyKey,
       },
+      submitStartedAtMs: currentSubmitNowMs(),
+      submitDeadlineMs,
     });
     fulfillLifecycleTransitionObligations(panel, submitStartObligations);
     // Preserve the epoch allocated before serialization; SUBMIT_START above
@@ -9216,63 +9506,147 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     renderLifecycleTransition(panel, submitStartObligations);
 
     let result;
+    const automaticRetryCount = currentSubmitAutomaticRetryCount();
+    const retryContext = {
+      sessionId: panel.state.sessionId || null,
+      turnId: panel.state.turnId || null,
+    };
     try {
-      submitAbortController = new AbortController();
-      transition(panel, "SUBMIT_ABORT_CONTROLLER", { controller: submitAbortController });
-      const body = buildSubmitBody(snapshot, task, panel);
-      const res = await fetch("/vibecomfy/agent-executor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: submitAbortController.signal,
-      });
-      if (!isCurrentSubmit()) {
-        clearPendingResponseMessages(panel);
-        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
-        return;
-      }
-      const rawResult = await res.json();
-      try {
-        result = normalizeAgentEditResponse(rawResult, { endpoint: "submit", allowLegacy: true });
-      } catch (error) {
-        if (res.ok) {
-          throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
-            stage: rawResult?.stage || "agent-executor",
-            retryable: true,
-            graph_unchanged: true,
-            next_action: "Retry the request or inspect the raw response in the debug panel.",
-            raw_response: rawResult,
-            cause: String(error),
-          });
-        }
-        throw error;
-      }
-      if (!isCurrentSubmit()) {
-        clearPendingResponseMessages(panel);
-        transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
-        return;
-      }
-      const submitIdentity = readRoundtripTurnIdentity(result, { endpoint: "submit:identity" });
-      if (typeof submitIdentity?.sessionId === "string" && submitIdentity.sessionId) {
-        // Persisting the value remains a side effect, but sessionId itself is
-        // committed through the terminal submit transition below.
-        _persistActiveSession(submitIdentity.sessionId, panel?.state?.chatScopeId || null);
-      }
-      commitSessionArtifactPathsFromResponse(panel, result);
-      if (!res.ok || result?.ok === false || result.raw?.error) {
-        throw result.raw || { kind: "RequestError", message: res.statusText };
-      }
-      const outcome = result.outcome;
-      const submitCandidate = readRoundtripApplyCandidate(result, { endpoint: "submit:candidate" });
-      const candidateGraph = prepareCandidateGraphForPanel(submitCandidate?.graph || null);
-      if (!isSubmitResponseValid(outcome, candidateGraph)) {
-        throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
-          stage: result.raw?.stage || "agent-executor",
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Retry the request or inspect the raw response in the debug panel.",
-          raw_response: result.raw,
+      for (let attemptIndex = 0; attemptIndex <= automaticRetryCount; attemptIndex += 1) {
+        submitAbortController = new AbortController();
+        submitHttpStatus = null;
+        transition(panel, "SUBMIT_ABORT_CONTROLLER", { controller: submitAbortController });
+        const failureContextForAttempt = (extras = {}) => buildSubmitFailureContext(panel, snapshot, {
+          sessionId: retryContext.sessionId,
+          turnId: retryContext.turnId,
+          ...extras,
         });
+        try {
+          const body = buildSubmitBody(snapshot, task, panel, {
+            sessionIdOverride: retryContext.sessionId,
+          });
+          const res = await runSubmitFetchWithDeadline(
+            fetch("/vibecomfy/agent-executor", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+              signal: submitAbortController.signal,
+            }),
+            {
+              panel,
+              snapshot,
+              submitAbortController,
+              deadlineMs: submitDeadlineMs,
+            },
+          );
+          submitHttpStatus = Number.isFinite(res?.status) ? Number(res.status) : null;
+          if (!isCurrentSubmit()) {
+            clearPendingResponseMessages(panel);
+            transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
+            return;
+          }
+          const rawResult = await res.json();
+          try {
+            result = normalizeAgentEditResponse(rawResult, { endpoint: "submit", allowLegacy: true });
+          } catch (error) {
+            if (res.ok) {
+              throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
+                stage: rawResult?.stage || "agent-executor",
+                retryable: true,
+                graph_unchanged: true,
+                next_action: "Retry the request or inspect the raw response in the debug panel.",
+                raw_response: rawResult,
+                cause: String(error),
+                ...failureContextForAttempt({
+                  httpStatus: submitHttpStatus,
+                  timeoutMs: submitDeadlineMs,
+                }),
+              });
+            }
+            throw error;
+          }
+          if (!isCurrentSubmit()) {
+            clearPendingResponseMessages(panel);
+            transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
+            return;
+          }
+          const submitIdentity = readRoundtripTurnIdentity(result, { endpoint: "submit:identity" });
+          if (typeof submitIdentity?.sessionId === "string" && submitIdentity.sessionId) {
+            retryContext.sessionId = submitIdentity.sessionId;
+            // Persisting the value remains a side effect, but sessionId itself is
+            // committed through the terminal submit transition below.
+            _persistActiveSession(submitIdentity.sessionId, panel?.state?.chatScopeId || null);
+          }
+          if (typeof submitIdentity?.turnId === "string" && submitIdentity.turnId) {
+            retryContext.turnId = submitIdentity.turnId;
+          }
+          commitSessionArtifactPathsFromResponse(panel, result);
+          if (!res.ok || result?.ok === false || result.raw?.error) {
+            const backendFailure = result.raw && typeof result.raw === "object"
+              ? markBackendSubmitFailure(
+                  mergeSubmitFailureContext(
+                    result.raw,
+                    failureContextForAttempt({
+                      httpStatus: submitHttpStatus,
+                      timeoutMs: submitDeadlineMs,
+                    }),
+                  ),
+                )
+              : markBackendSubmitFailure(
+                  mergeSubmitFailureContext(
+                    {
+                      kind: "RequestError",
+                      message: res.statusText,
+                    },
+                    failureContextForAttempt({
+                      httpStatus: submitHttpStatus,
+                      timeoutMs: submitDeadlineMs,
+                    }),
+                  ),
+                );
+            throw backendFailure;
+          }
+          const outcome = result.outcome;
+          const submitCandidate = readRoundtripApplyCandidate(result, { endpoint: "submit:candidate" });
+          const candidateGraph = prepareCandidateGraphForPanel(submitCandidate?.graph || null);
+          if (!isSubmitResponseValid(outcome, candidateGraph)) {
+            throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete candidate envelope.", {
+              stage: result.raw?.stage || "agent-executor",
+              retryable: true,
+              graph_unchanged: true,
+              next_action: "Retry the request or inspect the raw response in the debug panel.",
+              raw_response: result.raw,
+              ...failureContextForAttempt({
+                httpStatus: submitHttpStatus,
+                timeoutMs: submitDeadlineMs,
+              }),
+            });
+          }
+          break;
+        } catch (error) {
+          if (!isCurrentSubmit()) {
+            clearPendingResponseMessages(panel);
+            transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
+            return;
+          }
+          const failure = normalizeSubmitFailure(
+            error,
+            failureContextForAttempt({
+              httpStatus: submitHttpStatus,
+              timeoutMs: submitDeadlineMs,
+            }),
+          );
+          if (typeof failure?.session_id === "string" && failure.session_id) {
+            retryContext.sessionId = failure.session_id;
+          }
+          if (typeof failure?.turn_id === "string" && failure.turn_id) {
+            retryContext.turnId = failure.turn_id;
+          }
+          if (shouldAutoRetrySubmitFailure(error, failure, { attemptIndex, maxAutomaticRetryCount: automaticRetryCount })) {
+            continue;
+          }
+          throw failure;
+        }
       }
     } catch (e) {
       if (!isCurrentSubmit()) {
@@ -9316,7 +9690,13 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         renderLifecycleTransition(panel, obligations);
         return;
       }
-      const failure = normalizeSubmitFailure(e);
+      const failure = normalizeSubmitFailure(
+        e,
+        buildSubmitFailureContext(panel, snapshot, {
+          httpStatus: submitHttpStatus,
+          timeoutMs: submitDeadlineMs,
+        }),
+      );
       clearPendingResponseMessages(panel);
       const obligations = commitTerminalResponse(panel, {
         failure,
@@ -9347,6 +9727,12 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       transition(panel, "SUBMIT_FINALLY", {
         clearAbortController: isCurrentSubmit() || panel.state.submitAbortController === submitAbortController,
         clearInFlightSubmit: isCurrentSubmit() || panel.state.inFlightSubmit === submitPromise,
+        clearSubmitWatchdogState:
+          isCurrentSubmit()
+          || (
+            Number.isFinite(submitEpoch)
+            && Number(panel.state.submitEpoch) === Number(submitEpoch)
+          ),
       });
     }
 

@@ -112,6 +112,10 @@ export function buildStatusUrl(route, model) {
   return query ? `/vibecomfy/agent/status?${query}` : "/vibecomfy/agent/status";
 }
 
+export function buildVibeComfyInfoUrl() {
+  return "/vibecomfy/info";
+}
+
 export function routeStatusState(panel) {
   return panel?.state?.routeStatus || { kind: ROUTE_STATUS_KIND.LOADING };
 }
@@ -285,6 +289,16 @@ function recordAgentStatusDiagnostic(panel, diagnostic) {
     return;
   }
   panel.state.lastAgentStatusDiagnostic = {
+    at: new Date().toISOString(),
+    ...diagnostic,
+  };
+}
+
+function recordVibeComfyInfoDiagnostic(panel, diagnostic) {
+  if (!panel?.state || !diagnostic || typeof diagnostic !== "object") {
+    return;
+  }
+  panel.state.lastVibeComfyInfoDiagnostic = {
     at: new Date().toISOString(),
     ...diagnostic,
   };
@@ -608,6 +622,103 @@ export async function refreshAgentStatus(panel, { quiet = false } = {}, deps = {
   }
 }
 
+export async function refreshVibeComfyInfo(panel, deps = {}) {
+  const {
+    markAgentPanelDirtyAfterCommit,
+    RENDER_SECTIONS,
+  } = deps;
+
+  if (!panel?.state) {
+    return;
+  }
+
+  const requestEpoch =
+    (Number.isFinite(panel.state.vibeComfyInfoRequestEpoch) ? panel.state.vibeComfyInfoRequestEpoch : 0) + 1;
+  panel.state.vibeComfyInfoRequestEpoch = requestEpoch;
+  panel.state.vibeComfyInfoStatus = { kind: "loading" };
+
+  try {
+    const infoUrl = buildVibeComfyInfoUrl();
+    const res = await fetch(infoUrl);
+    let info = null;
+    try {
+      info = await res.json();
+      recordVibeComfyInfoDiagnostic(panel, {
+        url: infoUrl,
+        ok: res.ok,
+        httpStatus: res.status,
+        payload: scrubDebugPayload(info),
+      });
+    } catch (error) {
+      if (Number.isFinite(requestEpoch) && panel.state.vibeComfyInfoRequestEpoch !== requestEpoch) {
+        return;
+      }
+      recordVibeComfyInfoDiagnostic(panel, {
+        url: infoUrl,
+        ok: false,
+        httpStatus: res.status,
+        error: `Malformed JSON: ${String(error?.message || error)}`,
+      });
+      panel.state.vibeComfyInfoSnapshot = null;
+      panel.state.vibeComfyInfoStatus = {
+        kind: "malformed",
+        detail: String(error),
+      };
+      return;
+    }
+
+    if (Number.isFinite(requestEpoch) && panel.state.vibeComfyInfoRequestEpoch !== requestEpoch) {
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    if (!info || typeof info !== "object" || Array.isArray(info)) {
+      recordVibeComfyInfoDiagnostic(panel, {
+        url: infoUrl,
+        ok: false,
+        httpStatus: res.status,
+        error: "Malformed payload: expected JSON object",
+        payload: scrubDebugPayload(info),
+      });
+      panel.state.vibeComfyInfoSnapshot = null;
+      panel.state.vibeComfyInfoStatus = {
+        kind: "malformed",
+        detail: "expected JSON object",
+      };
+      return;
+    }
+    panel.state.vibeComfyInfoSnapshot = info;
+    panel.state.vibeComfyInfoStatus = { kind: "ready" };
+  } catch (error) {
+    if (Number.isFinite(requestEpoch) && panel.state.vibeComfyInfoRequestEpoch !== requestEpoch) {
+      return;
+    }
+    const priorDiagnostic = panel.state.lastVibeComfyInfoDiagnostic || null;
+    recordVibeComfyInfoDiagnostic(panel, {
+      url: buildVibeComfyInfoUrl(),
+      ok: false,
+      httpStatus: priorDiagnostic?.httpStatus ?? null,
+      error: String(error?.message || error),
+      payload: priorDiagnostic?.payload || null,
+    });
+    panel.state.vibeComfyInfoSnapshot = null;
+    panel.state.vibeComfyInfoStatus = {
+      kind: "unavailable",
+      detail: String(error),
+    };
+  } finally {
+    if (
+      typeof document !== "undefined"
+      && typeof markAgentPanelDirtyAfterCommit === "function"
+      && RENDER_SECTIONS?.DEVELOPER
+      && panel.state.vibeComfyInfoRequestEpoch === requestEpoch
+    ) {
+      markAgentPanelDirtyAfterCommit(panel, [RENDER_SECTIONS.DEVELOPER], "info");
+    }
+  }
+}
+
 // ── syncChooseEngineGate ────────────────────────────────────────────────────
 
 export function syncChooseEngineGate(panel, deps = {}) {
@@ -893,6 +1004,7 @@ export async function testAgentSettings(panel, deps = {}) {
 export function configureAgentStatusDeps(deps) {
   return {
     refreshAgentStatus: (panel, opts) => refreshAgentStatus(panel, opts, deps),
+    refreshVibeComfyInfo: (panel) => refreshVibeComfyInfo(panel, deps),
     routeStatusState,
     populateRouteSelect: (selectNode, routeOptions, opts) => populateRouteSelect(selectNode, routeOptions, opts, deps),
     persistAgentSettings: (panel, opts) => persistAgentSettings(panel, opts, deps),
@@ -902,6 +1014,7 @@ export function configureAgentStatusDeps(deps) {
     scheduleAgentStatusRetry: (panel, route, model, opts) => scheduleAgentStatusRetry(panel, route, model, opts, deps),
     clearAgentStatusRetry,
     buildStatusUrl,
+    buildVibeComfyInfoUrl,
     routeOptionsFromStatus,
     getRouteOptions,
     getRouteDescriptor,

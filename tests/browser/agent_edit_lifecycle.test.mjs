@@ -234,9 +234,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 53 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 55 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 53);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 55);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -264,6 +264,8 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 53 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("canvasApplyAllowed"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("inFlightSubmit"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("submitEpoch"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("submitStartedAtMs"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("submitDeadlineMs"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("inFlightApply"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("rebaselinePending"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lastSubmit"));
@@ -282,12 +284,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 53 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 53);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 55);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 53 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 55 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -298,9 +300,9 @@ test("createAgentEditState initializes all 53 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 53 fields
+  // No extra own keys beyond the 55 fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 53);
+  assert.equal(ownKeys.length, 55);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -339,6 +341,8 @@ test("createAgentEditState initializes all 53 lifecycle fields to defaults", () 
   assert.equal(state.inFlightSubmit, null);
   assert.equal(state.submitAbortController, null);
   assert.equal(state.submitEpoch, 0);
+  assert.equal(state.submitStartedAtMs, null);
+  assert.equal(state.submitDeadlineMs, null);
   assert.equal(state.inFlightApply, null);
   assert.equal(state.inFlightRebaseline, null);
 
@@ -2610,6 +2614,8 @@ test("SUBMIT_START emits deterministic status dirty sections and invalidates vis
   assert.equal(panel.state.submitEpoch, 9);
   assert.equal(panel.state.failure, null);
   assert.equal(panel.state.clarification, null);
+  assert.equal(panel.state.submitStartedAtMs, null);
+  assert.equal(panel.state.submitDeadlineMs, null);
   assert.equal(panel.state.syntheticAgentMessage, null);
   assert.equal(panel.state.lastAppliedChanges, null);
   assert.equal(panel.state.lastSubmitFieldChanges, null);
@@ -2618,6 +2624,25 @@ test("SUBMIT_START emits deterministic status dirty sections and invalidates vis
   assertCandidateDefaults(panel.state);
   assert.equal(panel.state._previewDiff, undefined);
   assert.equal(panel.state._previewDiffGraphHash, undefined);
+});
+
+test("SUBMIT_START records submit watchdog metadata when provided", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.IDLE,
+    submitEpoch: 2,
+  });
+
+  transition(panel, "SUBMIT_START", {
+    submitEpoch: 7,
+    lastSubmit: { task: "replace node" },
+    submitStartedAtMs: 1234,
+    submitDeadlineMs: 30000,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.SUBMITTING);
+  assert.equal(panel.state.submitEpoch, 7);
+  assert.equal(panel.state.submitStartedAtMs, 1234);
+  assert.equal(panel.state.submitDeadlineMs, 30000);
 });
 
 test("Submit response transitions return deterministic dirty sections and invalidation obligations", () => {
@@ -2784,6 +2809,8 @@ test("STOP_ABORT increments submitEpoch and clears in-flight submit state while 
   assert.equal(panel.state.submitEpoch, 5);
   assert.equal(panel.state.submitAbortController, null);
   assert.equal(panel.state.inFlightSubmit, null);
+  assert.equal(panel.state.submitStartedAtMs, null);
+  assert.equal(panel.state.submitDeadlineMs, null);
   assert.equal(panel.state.phase, PANEL_STATE.IDLE);
   assert.equal(panel.state.failure, null);
   assert.equal(panel.state.message, "Request cancelled.");
@@ -2794,6 +2821,75 @@ test("STOP_ABORT increments submitEpoch and clears in-flight submit state while 
   assert.equal(panel.state.syntheticAgentMessage?.session_id, "sess-1");
   assert.equal(panel.state.debugPayload?.cancelled, true);
   assert.deepEqual(panel.state.debugPayload?.last_submit, { task: "replace node" });
+});
+
+test("SUBMIT_STALE_IN_FLIGHT_RECOVERY increments submitEpoch and clears only stale submit guards", () => {
+  const promise = Promise.resolve();
+  const controller = { aborted: false };
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-recover",
+    turnId: "0004",
+    submitEpoch: 9,
+    inFlightSubmit: promise,
+    submitAbortController: controller,
+    submitStartedAtMs: 10,
+    submitDeadlineMs: 20,
+    lastSubmit: { task: "stalled request" },
+  });
+
+  const obligations = transition(panel, "SUBMIT_STALE_IN_FLIGHT_RECOVERY", {
+    debugPayload: { stale_in_flight_submit: true },
+  });
+
+  assert.deepEqual(obligations, { render: false, recovered: true });
+  assert.equal(panel.state.submitEpoch, 10);
+  assert.equal(panel.state.inFlightSubmit, null);
+  assert.equal(panel.state.submitAbortController, null);
+  assert.equal(panel.state.submitStartedAtMs, null);
+  assert.equal(panel.state.submitDeadlineMs, null);
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(panel.state.sessionId, "sess-recover");
+  assert.equal(panel.state.turnId, "0004");
+  assert.deepEqual(panel.state.lastSubmit, { task: "stalled request" });
+  assert.deepEqual(panel.state.debugPayload, { stale_in_flight_submit: true });
+});
+
+test("SUBMIT_FINALLY clears watchdog metadata only when explicitly requested", () => {
+  const promise = Promise.resolve();
+  const controller = { aborted: false };
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    submitEpoch: 4,
+    inFlightSubmit: promise,
+    submitAbortController: controller,
+    submitStartedAtMs: 111,
+    submitDeadlineMs: 222,
+    submittingScopeId: "scope-1",
+  });
+
+  transition(panel, "SUBMIT_FINALLY", {
+    clearAbortController: false,
+    clearInFlightSubmit: false,
+    clearSubmitWatchdogState: false,
+    clearSubmittingScope: false,
+  });
+  assert.equal(panel.state.inFlightSubmit, promise);
+  assert.equal(panel.state.submitAbortController, controller);
+  assert.equal(panel.state.submitStartedAtMs, 111);
+  assert.equal(panel.state.submitDeadlineMs, 222);
+  assert.equal(panel.state.submittingScopeId, "scope-1");
+
+  transition(panel, "SUBMIT_FINALLY", {
+    clearAbortController: true,
+    clearInFlightSubmit: true,
+    clearSubmitWatchdogState: true,
+  });
+  assert.equal(panel.state.inFlightSubmit, null);
+  assert.equal(panel.state.submitAbortController, null);
+  assert.equal(panel.state.submitStartedAtMs, null);
+  assert.equal(panel.state.submitDeadlineMs, null);
+  assert.equal(panel.state.submittingScopeId, null);
 });
 
 test("NEW_CONVERSATION resets lifecycle state, increments epochs, and leaves non-lifecycle keys untouched", () => {

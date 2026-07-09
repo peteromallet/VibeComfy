@@ -176,6 +176,114 @@ function cssPx(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function positiveFiniteNumber(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function currentPreviewApp(app = null) {
+  if (app) {
+    return app;
+  }
+  if (typeof window !== "undefined" && window.app) {
+    return window.app;
+  }
+  if (typeof globalThis !== "undefined" && globalThis.app) {
+    return globalThis.app;
+  }
+  return null;
+}
+
+function previewGraphBounds(app) {
+  const liveApp = currentPreviewApp(app);
+  const canvas = liveApp?.canvas || null;
+  const el = liveCanvasElement(liveApp);
+  const ds = canvas?.ds || canvas?.graphcanvas?.ds || {};
+  const scale = Number.isFinite(ds.scale) && ds.scale > 0 ? ds.scale : 1;
+  const offset = Array.isArray(ds.offset) ? ds.offset : [0, 0];
+  const ox = Number.isFinite(offset[0]) ? offset[0] : 0;
+  const oy = Number.isFinite(offset[1]) ? offset[1] : 0;
+  const backingWidth = positiveFiniteNumber(
+    el?.width,
+    positiveFiniteNumber(el?.clientWidth, positiveFiniteNumber(canvas?.width, 0)),
+  );
+  const backingHeight = positiveFiniteNumber(
+    el?.height,
+    positiveFiniteNumber(el?.clientHeight, positiveFiniteNumber(canvas?.height, 0)),
+  );
+  if (!(backingWidth > 0) || !(backingHeight > 0)) {
+    return null;
+  }
+  return {
+    x: -ox,
+    y: -oy,
+    w: backingWidth / scale,
+    h: backingHeight / scale,
+  };
+}
+
+function intersectRect(leftRect, rightRect) {
+  if (
+    !leftRect
+    || !rightRect
+    || !Number.isFinite(leftRect.x)
+    || !Number.isFinite(leftRect.y)
+    || !Number.isFinite(leftRect.w)
+    || !Number.isFinite(leftRect.h)
+    || !Number.isFinite(rightRect.x)
+    || !Number.isFinite(rightRect.y)
+    || !Number.isFinite(rightRect.w)
+    || !Number.isFinite(rightRect.h)
+    || leftRect.w <= 0
+    || leftRect.h <= 0
+    || rightRect.w <= 0
+    || rightRect.h <= 0
+  ) {
+    return null;
+  }
+  const left = Math.max(leftRect.x, rightRect.x);
+  const top = Math.max(leftRect.y, rightRect.y);
+  const right = Math.min(leftRect.x + leftRect.w, rightRect.x + rightRect.w);
+  const bottom = Math.min(leftRect.y + leftRect.h, rightRect.y + rightRect.h);
+  if (!(right > left) || !(bottom > top)) {
+    return null;
+  }
+  return {
+    x: left,
+    y: top,
+    w: right - left,
+    h: bottom - top,
+  };
+}
+
+function clampRectWithin(rect, container, minW = 4, minH = 4) {
+  if (!rect || !container) {
+    return rect;
+  }
+  if (
+    !Number.isFinite(container.x)
+    || !Number.isFinite(container.y)
+    || !Number.isFinite(container.w)
+    || !Number.isFinite(container.h)
+    || container.w <= 0
+    || container.h <= 0
+  ) {
+    return rect;
+  }
+  const width = Math.max(minW, Math.min(
+    positiveFiniteNumber(rect.w, minW),
+    Math.max(minW, container.w),
+  ));
+  const height = Math.max(minH, Math.min(
+    positiveFiniteNumber(rect.h, minH),
+    Math.max(minH, container.h),
+  ));
+  const maxX = container.x + container.w - width;
+  const maxY = container.y + container.h - height;
+  const x = Math.min(Math.max(Number.isFinite(rect.x) ? rect.x : container.x, container.x), maxX);
+  const y = Math.min(Math.max(Number.isFinite(rect.y) ? rect.y : container.y, container.y), maxY);
+  return { x, y, w: width, h: height };
+}
+
 function widgetFieldBoundsFromRow(rowBounds, widget) {
   if (!rowBounds || !Number.isFinite(rowBounds.w) || rowBounds.w <= 0) {
     return rowBounds;
@@ -196,6 +304,118 @@ function widgetFieldBoundsFromRow(rowBounds, widget) {
   fieldX = Math.max(minX, Math.min(fieldX, maxRight - 4));
   fieldW = Math.max(4, Math.min(fieldW, maxRight - fieldX));
   return { x: fieldX, y: rowBounds.y, w: fieldW, h: rowBounds.h };
+}
+
+function computeWidgetFieldBounds(nodePos, nodeSize, widgets, widx, slotRows, slotH, widgetH, valueText) {
+  const safeX = Number.isFinite(nodePos?.x) ? nodePos.x : 0;
+  const safeY = Number.isFinite(nodePos?.y) ? nodePos.y : 0;
+  const safeW = positiveFiniteNumber(nodeSize?.w, 200);
+  const safeH = positiveFiniteNumber(nodeSize?.h, 100);
+  const nodeBottom = safeY + safeH;
+  const computedRowsTop = safeY + slotRows * slotH;
+  const widget = widgets[widx];
+  let rowTop = computedRowsTop + widx * widgetH;
+  let rowH = widgetH;
+  const widgetLastY = Number(widget?.last_y);
+  if (Number.isFinite(widgetLastY) && widgetLastY > 0) {
+    rowTop = safeY + widgetLastY;
+    if (typeof widget.computeSize === "function") {
+      try {
+        const computed = widget.computeSize(safeW);
+        if (computed && Number.isFinite(computed[1]) && computed[1] > 0) {
+          rowH = computed[1];
+        }
+      } catch (_ignored) {}
+    }
+    const rawValue = String(valueText == null ? "" : valueText);
+    const longTextValue = rawValue.indexOf("\n") !== -1 || rawValue.length > 42;
+    if (longTextValue && rowH <= widgetH + 4) {
+      let nextWidgetY = null;
+      for (let wi = 0; wi < widgets.length; wi += 1) {
+        const nextLastY = Number(widgets[wi]?.last_y);
+        if (wi === widx || !Number.isFinite(nextLastY) || nextLastY <= widgetLastY) continue;
+        if (nextWidgetY == null || nextLastY < nextWidgetY) {
+          nextWidgetY = nextLastY;
+        }
+      }
+      const bottomY = nextWidgetY != null ? safeY + nextWidgetY : nodeBottom - 8;
+      if (bottomY > rowTop + rowH) {
+        rowH = Math.min(bottomY - rowTop, 160);
+      }
+    }
+  }
+  return widgetFieldBoundsFromRow(
+    { x: safeX, y: rowTop, w: safeW, h: rowH, nodeTop: safeY, nodeBottom },
+    widget,
+  );
+}
+
+function resolveWidgetOverlayBounds({
+  app = null,
+  primaryNodePos,
+  primaryNodeSize,
+  fallbackNodePos = null,
+  fallbackNodeSize = null,
+  widgets,
+  widx,
+  slotRows,
+  slotH,
+  widgetH,
+  valueText,
+}) {
+  const previewBounds = previewGraphBounds(currentPreviewApp(app));
+  const buildBounds = (nodePos, nodeSize) => {
+    if (!nodePos && !nodeSize) {
+      return null;
+    }
+    const safePos = {
+      x: Number.isFinite(nodePos?.x) ? nodePos.x : 0,
+      y: Number.isFinite(nodePos?.y) ? nodePos.y : 0,
+    };
+    const safeSize = {
+      w: positiveFiniteNumber(nodeSize?.w, 200),
+      h: positiveFiniteNumber(nodeSize?.h, 100),
+    };
+    const nodeBounds = { x: safePos.x, y: safePos.y, w: safeSize.w, h: safeSize.h };
+    const clampBounds = intersectRect(nodeBounds, previewBounds) || nodeBounds;
+    const rawBounds = computeWidgetFieldBounds(
+      safePos,
+      safeSize,
+      widgets,
+      widx,
+      slotRows,
+      slotH,
+      widgetH,
+      valueText,
+    );
+    const clampedBounds = clampRectWithin(rawBounds, clampBounds, 4, 12);
+    return {
+      ...clampedBounds,
+      nodeTop: nodeBounds.y,
+      nodeBottom: nodeBounds.y + nodeBounds.h,
+      clampBounds,
+    };
+  };
+
+  const primaryBounds = buildBounds(primaryNodePos, primaryNodeSize);
+  const fallbackBounds = buildBounds(fallbackNodePos, fallbackNodeSize);
+  const primaryLooksBroken = (
+    !primaryBounds
+    || !Number.isFinite(primaryBounds.x)
+    || !Number.isFinite(primaryBounds.y)
+    || !Number.isFinite(primaryBounds.w)
+    || !Number.isFinite(primaryBounds.h)
+    || primaryBounds.w <= 0
+    || primaryBounds.h <= 0
+    || (
+      primaryBounds.x <= 1
+      && primaryBounds.y <= 1
+      && fallbackBounds
+      && fallbackBounds.x > 1
+      && fallbackBounds.y > 1
+    )
+  );
+  return primaryLooksBroken ? (fallbackBounds || primaryBounds) : primaryBounds;
 }
 
 function widgetDomViewport(widget) {
@@ -512,6 +732,7 @@ export function syncPreviewDomOverlay(app, ctx, diff, candidateGraph, deps = {})
     getLiveGraphNodes,
     getUid,
     graphNodeCount,
+    readNodePos,
     readNodeSize,
     readWidgetValues,
     widgetValuePreviewText,
@@ -549,48 +770,33 @@ export function syncPreviewDomOverlay(app, ctx, diff, candidateGraph, deps = {})
   let chipCount = 0;
   for (const [uid, fields] of editedFieldsByUid) {
     const node = liveByUid.get(uid);
-    if (!node?.pos || node.flags?.collapsed) {
+    if (!node || node.flags?.collapsed) {
       continue;
     }
-    const pos = node.pos;
-    const size = readNodeSize(node);
+    const candidateNode = drawModel.candidateByUid.get(uid);
+    const pos = readNodePos(node, NaN, NaN);
+    const size = readNodeSize(node, NaN, NaN);
+    const fallbackPos = candidateNode ? readNodePos(candidateNode, NaN, NaN) : null;
+    const fallbackSize = candidateNode ? readNodeSize(candidateNode, NaN, NaN) : null;
     const widgets = Array.isArray(node.widgets) ? node.widgets : [];
     const slotRows = Math.max(
       Array.isArray(node.inputs) ? node.inputs.length : 0,
       Array.isArray(node.outputs) ? node.outputs.length : 0,
     );
-    const computedRowsTop = pos[1] + slotRows * SLOT_H;
     const rowBoundsForWidgetIndex = function (widx, valueText) {
-      const widget = widgets[widx];
-      let rowTop = computedRowsTop + widx * WIDGET_H;
-      let rowH = WIDGET_H;
-      if (widget && typeof widget.last_y === "number") {
-        rowTop = pos[1] + widget.last_y;
-        if (typeof widget.computeSize === "function") {
-          try {
-            const computed = widget.computeSize(size.w);
-            if (computed && typeof computed[1] === "number" && computed[1] > 0) {
-              rowH = computed[1];
-            }
-          } catch (_ignored) {}
-        }
-        const rawValue = String(valueText == null ? "" : valueText);
-        const longTextValue = rawValue.indexOf("\n") !== -1 || rawValue.length > 42;
-        if (longTextValue && rowH <= WIDGET_H + 4) {
-          let nextWidgetY = null;
-          for (let wi = 0; wi < widgets.length; wi += 1) {
-            if (wi === widx || typeof widgets[wi]?.last_y !== "number") continue;
-            if (widgets[wi].last_y > widget.last_y && (nextWidgetY == null || widgets[wi].last_y < nextWidgetY)) {
-              nextWidgetY = widgets[wi].last_y;
-            }
-          }
-          const bottomY = nextWidgetY != null ? pos[1] + nextWidgetY : pos[1] + size.h - 8;
-          if (bottomY > rowTop + rowH) {
-            rowH = Math.min(bottomY - rowTop, 160);
-          }
-        }
-      }
-      return widgetFieldBoundsFromRow({ x: pos[0], y: rowTop, w: size.w, h: rowH }, widget);
+      return resolveWidgetOverlayBounds({
+        app,
+        primaryNodePos: pos,
+        primaryNodeSize: size,
+        fallbackNodePos: fallbackPos,
+        fallbackNodeSize: fallbackSize,
+        widgets,
+        widx,
+        slotRows,
+        slotH: SLOT_H,
+        widgetH: WIDGET_H,
+        valueText,
+      });
     };
     const drawn = new Set();
     for (const field of fields) {
@@ -950,18 +1156,30 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       var padY = 4;
       var rawValue = previewFieldValueText(labelText, valueText);
       if (!Number.isFinite(bounds.w) || !Number.isFinite(bounds.h) || bounds.w <= 0 || bounds.h <= 0) return;
-      var overlayX = bounds.x;
-      var overlayW = bounds.w;
+      var clampBounds = bounds.clampBounds || {
+        x: bounds.x,
+        y: bounds.nodeTop || bounds.y,
+        w: bounds.w,
+        h: Math.max(bounds.h, (bounds.nodeBottom || (bounds.y + bounds.h)) - (bounds.nodeTop || bounds.y)),
+      };
+      var overlayW = Math.max(4, Math.min(bounds.w, clampBounds.w));
+      var overlayX = Math.min(Math.max(bounds.x, clampBounds.x), clampBounds.x + clampBounds.w - overlayW);
       var maxTextW = Math.max(overlayW - padX * 2, 4);
       var measuredRawW = ctx.measureText(rawValue).width + padX * 2;
       var wantsMultipleLines = rawValue.indexOf("\n") !== -1 || rawValue.length > 42 || measuredRawW > overlayW;
-      var maxLines = wantsMultipleLines ? 3 : 1;
+      var lineH = 13;
+      var maxPanelHeight = Math.max(12, clampBounds.h);
+      var maxLines = wantsMultipleLines
+        ? Math.max(1, Math.min(3, Math.floor((maxPanelHeight - padY * 2) / lineH)))
+        : 1;
       var lines = wantsMultipleLines ? wrapTextToWidth(rawValue, maxTextW, maxLines) : [fitTextToWidth(rawValue, maxTextW)];
       lines = lines.filter(function (line) { return line != null; });
       if (lines.length === 0) lines = [""];
-      var lineH = 13;
-      var overlayY = bounds.y;
-      var overlayH = Math.max(bounds.h, 12);
+      var desiredOverlayH = wantsMultipleLines
+        ? Math.max(bounds.h, padY * 2 + lines.length * lineH)
+        : Math.max(bounds.h, 12);
+      var overlayH = Math.max(12, Math.min(maxPanelHeight, desiredOverlayH));
+      var overlayY = Math.min(Math.max(bounds.y, clampBounds.y), clampBounds.y + clampBounds.h - overlayH);
       drawRoundedPanel(
         overlayX,
         overlayY,
@@ -996,49 +1214,23 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       }
     };
 
-    var widgetFieldBoundsFromRow = function (rowBounds, widget) {
-      if (!rowBounds || !Number.isFinite(rowBounds.w) || rowBounds.w <= 0) {
-        return rowBounds;
-      }
-      var marginX = Math.min(15, Math.max(4, rowBounds.w * 0.08));
-      var fieldX = rowBounds.x + marginX;
-      var fieldW = Math.max(8, rowBounds.w - marginX * 2);
-      var explicitX = Number(widget && (widget.input_x ?? widget.inputX ?? widget.field_x ?? widget.fieldX ?? widget.value_x ?? widget.valueX));
-      var explicitW = Number(widget && (widget.input_width ?? widget.inputWidth ?? widget.field_width ?? widget.fieldWidth ?? widget.value_width ?? widget.valueWidth));
-      if (Number.isFinite(explicitX)) {
-        fieldX = rowBounds.x + explicitX;
-      }
-      if (Number.isFinite(explicitW) && explicitW > 0) {
-        fieldW = explicitW;
-      }
-      var minX = rowBounds.x;
-      var maxRight = rowBounds.x + rowBounds.w;
-      fieldX = Math.max(minX, Math.min(fieldX, maxRight - 4));
-      fieldW = Math.max(4, Math.min(fieldW, maxRight - fieldX));
-      return {
-        x: fieldX,
-        y: rowBounds.y,
-        w: fieldW,
-        h: rowBounds.h,
-        nodeTop: rowBounds.nodeTop,
-        nodeBottom: rowBounds.nodeBottom,
-      };
-    };
-
     for (var ei = 0; ei < (diff.edited || []).length; ei += 1) {
       var eitem = diff.edited[ei];
       var enode = liveByUid.get(eitem.uid);
-      if (!enode || !enode.pos) {
+      if (!enode) {
         continue;
       }
-      var epos = readNodePos(enode);
-      var ex = epos.x;
-      var ey = epos.y;
-      var esize = readNodeSize(enode);
-      var ew = esize.w;
+      var ecandidate = candidateByUid.get(eitem.uid);
+      var epos = readNodePos(enode, NaN, NaN);
+      var esize = readNodeSize(enode, NaN, NaN);
+      var fallbackPos = ecandidate ? readNodePos(ecandidate, NaN, NaN) : null;
+      var fallbackSize = ecandidate ? readNodeSize(ecandidate, NaN, NaN) : null;
+      var ex = Number.isFinite(epos.x) && epos.x > 0 ? epos.x : (Number.isFinite(fallbackPos?.x) ? fallbackPos.x : 0);
+      var ey = Number.isFinite(epos.y) && epos.y > 0 ? epos.y : (Number.isFinite(fallbackPos?.y) ? fallbackPos.y : 0);
+      var ew = positiveFiniteNumber(esize.w, positiveFiniteNumber(fallbackSize?.w, 200));
       var collapsed = !!(enode.flags && enode.flags.collapsed);
-      var eh = collapsed ? 0 : esize.h;
-      var eb = readNodeBounding(enode, TITLE_H);
+      var eh = collapsed ? 0 : positiveFiniteNumber(esize.h, positiveFiniteNumber(fallbackSize?.h, 100));
+      var eb = { x: ex, y: ey - TITLE_H, w: ew, h: eh + TITLE_H };
       drawFullBoxMarker(eb, editedColor, editedFill, false);
       if (collapsed) {
         continue;
@@ -1048,45 +1240,24 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
         Array.isArray(enode.inputs) ? enode.inputs.length : 0,
         Array.isArray(enode.outputs) ? enode.outputs.length : 0,
       );
-      var computedRowsTop = ey + slotRows * SLOT_H;
       var widgetRowBounds = new Map();
       var rowBoundsForWidgetIndex = function (widx, valueText) {
         var hasValueText = valueText !== undefined && valueText !== null && String(valueText) !== "";
         if (!hasValueText && widgetRowBounds.has(widx)) {
           return widgetRowBounds.get(widx);
         }
-        var w = widgets[widx];
-        var rowTop;
-        var rowH = WIDGET_H;
-        if (w && typeof w.last_y === "number") {
-          rowTop = ey + w.last_y;
-          if (typeof w.computeSize === "function") {
-            try {
-              var cs = w.computeSize(ew);
-              if (cs && typeof cs[1] === "number" && cs[1] > 0) {
-                rowH = cs[1];
-              }
-            } catch (_ignored) {}
-          }
-          var rawValue = String(valueText == null ? "" : valueText);
-          var longTextValue = rawValue.indexOf("\n") !== -1 || rawValue.length > 42;
-          if (longTextValue && rowH <= WIDGET_H + 4) {
-            var nextWidgetY = null;
-            for (var nwi = 0; nwi < widgets.length; nwi += 1) {
-              if (nwi === widx || !widgets[nwi] || typeof widgets[nwi].last_y !== "number") continue;
-              if (widgets[nwi].last_y > w.last_y && (nextWidgetY == null || widgets[nwi].last_y < nextWidgetY)) {
-                nextWidgetY = widgets[nwi].last_y;
-              }
-            }
-            var bottomY = nextWidgetY != null ? ey + nextWidgetY : ey + eh - 8;
-            if (bottomY > rowTop + rowH) {
-              rowH = Math.min(bottomY - rowTop, 160);
-            }
-          }
-        } else {
-          rowTop = computedRowsTop + widx * WIDGET_H;
-        }
-        var bounds = widgetFieldBoundsFromRow({ x: ex, y: rowTop, w: ew, h: rowH, nodeTop: ey, nodeBottom: ey + eh }, w);
+        var bounds = resolveWidgetOverlayBounds({
+          primaryNodePos: { x: ex, y: ey },
+          primaryNodeSize: { w: ew, h: eh },
+          fallbackNodePos: fallbackPos,
+          fallbackNodeSize: fallbackSize,
+          widgets,
+          widx,
+          slotRows,
+          slotH: SLOT_H,
+          widgetH: WIDGET_H,
+          valueText,
+        });
         if (!hasValueText) {
           widgetRowBounds.set(widx, bounds);
         }

@@ -24,6 +24,8 @@ import logging
 import os
 import sys
 import hashlib
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,15 @@ _MODULE_DIR = Path(__file__).resolve().parent
 _WEB_SRC_DIR = _MODULE_DIR / "web"
 _WEB_DIST_DIR = _MODULE_DIR / "web_dist"
 _WEB_DIRECTORY = "./web"  # fallback
+_MODULE_START_AT_UTC = datetime.now(timezone.utc)
+_MODULE_START_MONOTONIC = time.monotonic()
+_INFO_LAUNCH_FLAG_NAMES = (
+    "VIBECOMFY_HEADLESS",
+    "VIBECOMFY_CODE_DYNAMIC_IO",
+    "VIBECOMFY_ARNOLD_RUNTIME_MODULE",
+    "VIBECOMFY_DEMO_PICKER",
+    "VIBECOMFY_AGENTIC_REPLAY",
+)
 
 
 def _web_source_hash() -> str | None:
@@ -78,6 +89,92 @@ if _WEB_DIST_DIR.is_dir():
             pass
 WEB_DIRECTORY = _WEB_DIRECTORY
 _LOGGER.info("VibeComfy custom node loading. WEB_DIRECTORY=%s", WEB_DIRECTORY)
+
+
+def _utc_isoformat(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _launch_flags_snapshot() -> dict[str, str | None]:
+    return {
+        name: os.environ.get(name)
+        for name in _INFO_LAUNCH_FLAG_NAMES
+    }
+
+
+def _resolve_served_web_path() -> str:
+    relative = WEB_DIRECTORY.removeprefix("./")
+    return str((_MODULE_DIR / relative).resolve())
+
+
+def _git_info_snapshot() -> tuple[dict[str, Any], dict[str, Any] | None]:
+    from vibecomfy._git_utils import git_stdout_result
+    from vibecomfy.commands._diagnostics import diagnostic_to_json
+    from vibecomfy.utils import find_repo_root
+
+    repo_root = find_repo_root()
+
+    sha: str | None = None
+    session_git_error: Exception | None = None
+    try:
+        from vibecomfy.runtime.session import current_source_revision
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        session_git_error = exc
+    else:
+        try:
+            sha = current_source_revision()
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            session_git_error = exc
+
+    sha_result = None
+    if sha is None:
+        sha_result = git_stdout_result(repo_root, ["rev-parse", "HEAD"])
+        sha = (sha_result.stdout or "").strip() or None
+
+    branch_result = git_stdout_result(repo_root, ["rev-parse", "--abbrev-ref", "HEAD"])
+    branch = (branch_result.stdout or "").strip() or None
+
+    dirty_result = git_stdout_result(repo_root, ["status", "--porcelain"])
+    dirty_stdout = dirty_result.stdout
+    dirty = None if dirty_stdout is None else bool(dirty_stdout.strip())
+
+    diagnostic: dict[str, Any] | None = None
+    for result in (sha_result, branch_result, dirty_result):
+        if result is not None and result.diagnostic is not None:
+            diagnostic = diagnostic_to_json(result.diagnostic)
+            break
+    if diagnostic is None and session_git_error is not None and sha is None:
+        diagnostic = {
+            "code": "git_helper_unavailable",
+            "message": str(session_git_error),
+            "severity": "error",
+            "recoverable": True,
+        }
+
+    return {
+        "sha": sha,
+        "branch": branch,
+        "dirty": dirty,
+    }, diagnostic
+
+
+def _info_payload() -> dict[str, Any]:
+    git, git_diagnostic = _git_info_snapshot()
+    payload: dict[str, Any] = {
+        "start_time_utc": _utc_isoformat(_MODULE_START_AT_UTC),
+        "uptime_seconds": max(0.0, round(time.monotonic() - _MODULE_START_MONOTONIC, 3)),
+        "WEB_DIRECTORY": WEB_DIRECTORY,
+        "web_source_hash": _web_source_hash(),
+        "web_source_path": str(_WEB_SRC_DIR.resolve()),
+        "web_dist_path": str(_WEB_DIST_DIR.resolve()),
+        "served_web_path": _resolve_served_web_path(),
+        "launch_flags": _launch_flags_snapshot(),
+        "git_sha": git["sha"],
+        "git_branch": git["branch"],
+        "git_dirty": git["dirty"],
+        "git_diagnostic": git_diagnostic,
+    }
+    return payload
 
 def _ensure_comfyui_root_on_path() -> None:
     """Make sure the running ComfyUI root is on sys.path.
@@ -124,6 +221,12 @@ if os.environ.get("VIBECOMFY_HEADLESS", "0") != "1":
                 from aiohttp import web
 
                 return web.json_response({"status": "ok"})
+
+            @PromptServer.instance.routes.get("/vibecomfy/info")
+            async def _vibecomfy_info(request):  # type: ignore[no-untyped-def]
+                from aiohttp import web
+
+                return web.json_response(_info_payload())
 
             from .agent import routes  # noqa: F401
 

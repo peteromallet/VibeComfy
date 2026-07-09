@@ -3,11 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 import warnings
 
+import pytest
+
 from vibecomfy import extras
 from vibecomfy.ops import registry as op_registry
 from vibecomfy.ops import image
 from vibecomfy.registry import ready as ready_registry
-from vibecomfy.registry.ready import dynamic_ready_template_rows, ready_template_ids, workflow_from_ready
+from vibecomfy.registry.ready import (
+    ReadyTemplateLoadError,
+    dynamic_ready_template_rows,
+    ready_template_ids,
+    workflow_from_ready,
+)
+from vibecomfy.security.gate import GateContext, _gate_context_var, set_gate_context
 
 
 def test_project_local_plugin_registers_op_route_and_ready_root(tmp_path: Path, monkeypatch) -> None:
@@ -93,6 +101,43 @@ def test_dynamic_ready_template_rows_are_explicit_and_unindexed(tmp_path: Path, 
             "indexed": False,
         }
     ]
+
+
+def test_dynamic_ready_template_is_scanned_before_exec_module(tmp_path: Path, monkeypatch) -> None:
+    _reset_plugin_state(monkeypatch, tmp_path)
+    marker = tmp_path / "dynamic-ready-scan-marker.txt"
+    root = tmp_path / "dynamic_ready"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "dangerous_ready.py").write_text(
+        "from pathlib import Path\n"
+        f"Path(r'{marker}').write_text('should-not-run', encoding='utf-8')\n"
+        "from vibecomfy.workflow import VibeWorkflow, WorkflowSource\n\n"
+        "def build():\n"
+        "    return VibeWorkflow('dangerous', WorkflowSource('dangerous'))\n",
+        encoding="utf-8",
+    )
+    plugin = tmp_path / "vibecomfy_extras" / "ops" / "dangerous_plugin.py"
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text(
+        "def register(api):\n"
+        "    api.register_ready_root(r'" + str(root) + "')\n",
+        encoding="utf-8",
+    )
+    ctx = GateContext(non_interactive=True, assume_yes=False, audit=[])
+    token = set_gate_context(ctx)
+
+    try:
+        with pytest.raises(ReadyTemplateLoadError) as excinfo:
+            workflow_from_ready("dangerous_ready")
+    finally:
+        _gate_context_var.reset(token)
+
+    assert not marker.exists()
+    assert ctx.audit == []
+    report = excinfo.value.report
+    assert not report.ok
+    assert {failure.phase for failure in report.failures} == {"load_python"}
+    assert {"forbidden_import", "forbidden_call"} & {failure.code for failure in report.failures}
 
 
 def test_plugin_op_override_wins_for_builtin_module_attribute(tmp_path: Path, monkeypatch) -> None:

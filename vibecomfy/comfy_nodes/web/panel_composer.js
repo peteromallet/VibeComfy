@@ -476,6 +476,14 @@ function renderDeveloperSubsection(title, deps = {}) {
   return section;
 }
 
+function normalizedRuntimeInfoString(value, fallback = "unknown") {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const normalized = value.trim();
+  return normalized || fallback;
+}
+
 export function renderDeveloper(panel, deps = {}) {
   const {
     adapterCapabilitySnapshot,
@@ -536,6 +544,30 @@ export function renderDeveloper(panel, deps = {}) {
   }
   devData.appendChild(qgSection);
 
+  const runtimeSection = renderDeveloperSubsection("Runtime Identity", deps);
+  const runtimeInfo = panel.state.vibeComfyInfoSnapshot;
+  const runtimeStatus = panel.state.vibeComfyInfoStatus?.kind || "loading";
+  const runtimeDiagnostic = panel.state.lastVibeComfyInfoDiagnostic;
+  const gitSha = normalizedRuntimeInfoString(runtimeInfo?.git_sha);
+  const gitShaWithDirtyMarker = runtimeInfo?.git_dirty === true
+    ? `${gitSha} (dirty)`
+    : gitSha;
+  const runtimeLines = [
+    `infoRoute: ${runtimeStatus}`,
+    `gitSha: ${gitShaWithDirtyMarker}`,
+    `gitBranch: ${normalizedRuntimeInfoString(runtimeInfo?.git_branch)}`,
+    `webSourceHash: ${normalizedRuntimeInfoString(runtimeInfo?.web_source_hash)}`,
+    `servedWebPath: ${normalizedRuntimeInfoString(runtimeInfo?.served_web_path || runtimeInfo?.WEB_DIRECTORY)}`,
+    runtimeInfo?.start_time_utc ? `startTimeUtc: ${runtimeInfo.start_time_utc}` : null,
+    Number.isFinite(runtimeInfo?.uptime_seconds) ? `uptimeSeconds: ${runtimeInfo.uptime_seconds}` : null,
+    runtimeInfo?.git_diagnostic?.code ? `gitDiagnostic: ${runtimeInfo.git_diagnostic.code}` : null,
+    runtimeDiagnostic?.error ? `fetchDiagnostic: ${runtimeDiagnostic.error}` : null,
+  ].filter(Boolean);
+  for (const line of runtimeLines) {
+    runtimeSection.appendChild(el("div", line));
+  }
+  devData.appendChild(runtimeSection);
+
   const hashSection = renderDeveloperSubsection("Hashes", deps);
   const hashLines = [
     `baselineGraphHash: ${panel.state.baselineGraphHash || "none"}`,
@@ -581,10 +613,18 @@ export function renderDeveloper(panel, deps = {}) {
 
   const rawSection = renderDeveloperSubsection("Raw JSON", deps);
   const statusSnapshot = scrubDebugPayload(panel.state.statusSnapshot);
+  const runtimeInfoSnapshot = scrubDebugPayload(panel.state.vibeComfyInfoSnapshot);
+  const runtimeInfoDiagnostic = scrubDebugPayload(panel.state.lastVibeComfyInfoDiagnostic);
   const debugPayload = scrubDebugPayload(panel.state.debugPayload);
-  if (statusSnapshot || debugPayload) {
+  if (statusSnapshot || runtimeInfoSnapshot || runtimeInfoDiagnostic || debugPayload) {
     if (statusSnapshot) {
       rawSection.appendChild(createDetails("Status snapshot", statusSnapshot));
+    }
+    if (runtimeInfoSnapshot) {
+      rawSection.appendChild(createDetails("Runtime info snapshot", runtimeInfoSnapshot));
+    }
+    if (runtimeInfoDiagnostic) {
+      rawSection.appendChild(createDetails("Runtime info diagnostic", runtimeInfoDiagnostic));
     }
     if (debugPayload) {
       rawSection.appendChild(createDetails("Debug payload", debugPayload));

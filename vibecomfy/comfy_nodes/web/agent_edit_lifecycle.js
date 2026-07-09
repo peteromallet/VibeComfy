@@ -171,6 +171,8 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   "inFlightSubmit",
   "submitAbortController",
   "submitEpoch",
+  "submitStartedAtMs",
+  "submitDeadlineMs",
   "inFlightApply",
   "inFlightRebaseline",
 
@@ -277,6 +279,8 @@ export function createAgentEditState() {
     inFlightSubmit: null,
     submitAbortController: null,
     submitEpoch: 0,
+    submitStartedAtMs: null,
+    submitDeadlineMs: null,
     inFlightApply: null,
     inFlightRebaseline: null,
 
@@ -393,6 +397,9 @@ export function transition(panel, event, payload = {}) {
 
     case "SUBMIT_STALE_EPOCH":
       return { render: false, stale: true };
+
+    case "SUBMIT_STALE_IN_FLIGHT_RECOVERY":
+      return _handleSubmitStaleInFlightRecovery(panel, payload);
 
     case "SUBMIT_ABORT":
       return _handleSubmitAbort(panel, payload);
@@ -1140,6 +1147,12 @@ function _handleSubmitStart(panel, payload) {
   const submitEpoch = Number.isFinite(payload?.submitEpoch) ? payload.submitEpoch : previousEpoch + 1;
   panel.state.submitEpoch = submitEpoch;
   panel.state.phase = PANEL_STATE.SUBMITTING;
+  panel.state.submitStartedAtMs = Number.isFinite(payload?.submitStartedAtMs)
+    ? Number(payload.submitStartedAtMs)
+    : null;
+  panel.state.submitDeadlineMs = Number.isFinite(payload?.submitDeadlineMs)
+    ? Number(payload.submitDeadlineMs)
+    : null;
   panel.state.syntheticAgentMessage = null;
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.failure = null;
@@ -1189,6 +1202,8 @@ function _handleSubmitAbort(panel, payload) {
   panel.state.phase = PANEL_STATE.IDLE;
   panel.state.failure = null;
   panel.state.deltaOps = null;
+  panel.state.submitStartedAtMs = null;
+  panel.state.submitDeadlineMs = null;
   panel.state.message = payload?.message || "Request cancelled.";
   panel.state.syntheticAgentMessage = _projectSyntheticTranscriptMessage(payload?.syntheticAgentMessage || {
     role: "agent",
@@ -1214,6 +1229,8 @@ function _handleSubmitNetworkFailure(panel, payload) {
   const failure = payload?.failure || null;
   panel.state.phase = PANEL_STATE.ERROR;
   panel.state.failure = failure;
+  panel.state.submitStartedAtMs = null;
+  panel.state.submitDeadlineMs = null;
   panel.state.turnId = _stringOrCurrent(failure?.turn_id, panel.state.turnId);
   panel.state.sessionId = _stringOrCurrent(failure?.session_id, panel.state.sessionId);
   _handleSyncBaseline(panel, failure || {});
@@ -1600,6 +1617,10 @@ function _handleSubmitFinally(panel, payload) {
   if (payload?.clearInFlightSubmit) {
     panel.state.inFlightSubmit = null;
   }
+  if (payload?.clearSubmitWatchdogState) {
+    panel.state.submitStartedAtMs = null;
+    panel.state.submitDeadlineMs = null;
+  }
   // ── T5: Clear submitting scope on submit finish ────────────────────────
   if (payload?.clearSubmittingScope !== false) {
     panel.state.submittingScopeId = null;
@@ -1607,11 +1628,30 @@ function _handleSubmitFinally(panel, payload) {
   return { render: false };
 }
 
+function _handleSubmitStaleInFlightRecovery(panel, payload) {
+  const previousEpoch = Number.isFinite(panel.state.submitEpoch) ? panel.state.submitEpoch : 0;
+  panel.state.submitEpoch = previousEpoch + 1;
+  panel.state.submitAbortController = null;
+  panel.state.inFlightSubmit = null;
+  panel.state.submitStartedAtMs = null;
+  panel.state.submitDeadlineMs = null;
+  panel.state.submittingScopeId = null;
+  if (panel.state.phase === PANEL_STATE.SUBMITTING) {
+    panel.state.phase = PANEL_STATE.IDLE;
+  }
+  if (payload?.debugPayload) {
+    panel.state.debugPayload = payload.debugPayload;
+  }
+  return { render: false, recovered: true };
+}
+
 function _handleStopAbort(panel, payload) {
   const previousEpoch = Number.isFinite(panel.state.submitEpoch) ? panel.state.submitEpoch : 0;
   panel.state.submitEpoch = previousEpoch + 1;
   panel.state.submitAbortController = null;
   panel.state.inFlightSubmit = null;
+  panel.state.submitStartedAtMs = null;
+  panel.state.submitDeadlineMs = null;
   panel.state.phase = PANEL_STATE.IDLE;
   panel.state.failure = null;
   _handleInvalidateCandidate(panel, { repaint: false });

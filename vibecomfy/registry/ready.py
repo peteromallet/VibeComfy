@@ -7,7 +7,9 @@ from pathlib import Path
 import warnings
 from typing import Any, Iterable
 
+from vibecomfy.errors import WorkflowBuildError
 from vibecomfy.registry.ready_template import apply_ready_template_policy
+from vibecomfy.security.agent_generated_loader import ScanReport, scan_agent_generated_python
 from vibecomfy.security import current_gate_context, require_confirmation
 from vibecomfy.security.loader_provenance import _provenance_for_path
 from vibecomfy.utils import find_repo_root
@@ -16,6 +18,24 @@ from vibecomfy.workflow import VibeWorkflow
 
 READY_ROOT = find_repo_root() / "ready_templates"
 _WARNED_COLLISIONS: set[str] = set()
+
+
+class ReadyTemplateLoadError(WorkflowBuildError):
+    """Raised when a dynamic ready template fails the pre-execution scan."""
+
+    def __init__(self, message: str, *, report: ScanReport) -> None:
+        self.report = report
+        super().__init__(
+            message,
+            next_action=(
+                "Remove unsafe Python from the dynamic ready template or move the code into a packaged built-in template."
+            ),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        payload = super().to_dict()
+        payload["report"] = self.report.to_dict()
+        return payload
 
 
 @dataclass(frozen=True)
@@ -92,12 +112,15 @@ def ready_template_ids(*, include_dynamic: bool = True) -> list[str]:
 
 def workflow_from_ready(template_id: str) -> VibeWorkflow:
     path = _resolve_ready_path(template_id)
+    is_dynamic_ready_template = _path_is_dynamic_ready_template(path)
+    if is_dynamic_ready_template:
+        _scan_dynamic_ready_template(path)
     spec = importlib.util.spec_from_file_location(f"vibecomfy_ready_{path.stem}", path)
     if spec is None or spec.loader is None:
         raise ValueError(f"Could not import ready template {path}")
     module = importlib.util.module_from_spec(spec)
     provenance = _provenance_for_path(path)
-    if provenance == "untrusted_source" and _path_is_dynamic_ready_template(path):
+    if provenance == "untrusted_source" and is_dynamic_ready_template:
         provenance = "user_confirmed"
     require_confirmation(
         operation="scratchpad_exec",
@@ -273,6 +296,22 @@ def _resolve_ready_path(template_id: str) -> Path:
             if candidate.is_file():
                 return candidate
     raise KeyError(f"Ready template not found: {template_id}")
+
+
+def _scan_dynamic_ready_template(path: Path) -> None:
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WorkflowBuildError(
+            f"Could not read dynamic ready template {path}: {exc}",
+            next_action="Verify the dynamic ready template file exists and is readable, then try again.",
+        ) from exc
+    report = scan_agent_generated_python(source)
+    if not report.ok:
+        raise ReadyTemplateLoadError(
+            f"Dynamic ready template failed load_python scan: {path}",
+            report=report,
+        )
 
 
 def _template_id_for_path(path: Path) -> str:

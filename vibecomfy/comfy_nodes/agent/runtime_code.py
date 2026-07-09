@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Mapping
 
 from vibecomfy.contracts.intent_nodes import (
     EXECUTION_MODE_UNRESTRICTED,
@@ -24,6 +24,56 @@ from vibecomfy.contracts.intent_nodes import (
 
 _WORKER_MAX_STDOUT_BYTES: Final[int] = 64 * 1024
 _WORKER_MAX_STDERR_BYTES: Final[int] = 16 * 1024
+_UNRESTRICTED_ENV_BLOCKLIST: Final[frozenset[str]] = frozenset(
+    {
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "DATABASE_URL",
+        "DATABASE_URI",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "PGPASSWORD",
+        "POSTGRES_URL",
+        "SQLALCHEMY_DATABASE_URI",
+    }
+)
+_UNRESTRICTED_ENV_BLOCK_PREFIXES: Final[tuple[str, ...]] = (
+    "ANTHROPIC_",
+    "ARNOLD_",
+    "AWS_",
+    "AZURE_",
+    "CLAUDE_",
+    "COHERE_",
+    "DEEPSEEK_",
+    "GCP_",
+    "GEMINI_",
+    "GOOGLE_",
+    "GROQ_",
+    "HF_",
+    "HUGGINGFACE_",
+    "HERMES_",
+    "MISTRAL_",
+    "OPENAI_",
+    "OPENROUTER_",
+    "PERPLEXITY_",
+    "REPLICATE_",
+    "RUNPOD_",
+    "TOGETHER_",
+    "VOYAGE_",
+)
+_UNRESTRICTED_ENV_BLOCK_SUFFIXES: Final[tuple[str, ...]] = (
+    "_ACCESS_TOKEN",
+    "_API_KEY",
+    "_CONNECTION_STRING",
+    "_DATABASE_URL",
+    "_DSN",
+    "_PASSWORD",
+    "_PRIVATE_KEY",
+    "_REFRESH_TOKEN",
+    "_SECRET",
+    "_SECRET_KEY",
+    "_TOKEN",
+)
 
 # ComfyUI INPUT_TYPES traversal contract: ComfyUI discovers node ports exclusively by
 # calling INPUT_TYPES as a @classmethod on the node class.  Per-instance state is not
@@ -291,6 +341,26 @@ def _is_json_compatible(value: Any) -> bool:
     return True
 
 
+def _is_sensitive_unrestricted_env_key(key: str) -> bool:
+    normalized = key.strip().upper().replace("-", "_")
+    if not normalized:
+        return False
+    if normalized in _UNRESTRICTED_ENV_BLOCKLIST:
+        return True
+    if normalized.startswith(_UNRESTRICTED_ENV_BLOCK_PREFIXES):
+        return True
+    return normalized.endswith(_UNRESTRICTED_ENV_BLOCK_SUFFIXES)
+
+
+def _build_unrestricted_worker_env(parent_env: Mapping[str, str] | None = None) -> dict[str, str]:
+    env_source = parent_env if parent_env is not None else os.environ
+    return {
+        key: value
+        for key, value in env_source.items()
+        if not _is_sensitive_unrestricted_env_key(key)
+    }
+
+
 def _run_worker(payload: dict[str, Any], *, timeout_ms: int) -> Any:
     timeout_seconds = max(timeout_ms, 1) / 1000
     mode = payload.get("mode") if isinstance(payload, dict) else None
@@ -302,12 +372,12 @@ def _run_worker(payload: dict[str, Any], *, timeout_ms: int) -> Any:
         raise RuntimeCodeExecutionError("runtime_protocol_input_invalid", str(exc)) from exc
 
     # Branch env + preexec on mode. Unrestricted mode is the explicit "no sandbox"
-    # escape hatch (gated by unrestricted_ack upstream) and therefore inherits the
-    # parent env and skips the rlimit preexec so user code can actually do things
-    # like read files or import native libs. All other modes (legacy expression_v1
-    # and the two sandboxed modes) run with an empty env and rlimits.
+    # escape hatch (gated by unrestricted_ack upstream), but still strips common
+    # parent credential variables before launching the worker. All other modes
+    # (legacy expression_v1 and the two sandboxed modes) run with an empty env
+    # and rlimits.
     if mode == EXECUTION_MODE_UNRESTRICTED:
-        worker_env = os.environ.copy()
+        worker_env = _build_unrestricted_worker_env()
         preexec = None
     else:
         worker_env = {}
