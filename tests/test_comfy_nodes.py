@@ -253,9 +253,19 @@ def test_execute_runtime_code_dynamic_empty_outputs_sentinel_wraps(
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"x": 21},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "x * 2"},
             "io": {"inputs": [["x", "INT"]], "outputs": []},
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -271,9 +281,19 @@ def test_execute_runtime_code_dynamic_single_output(monkeypatch: pytest.MonkeyPa
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"val": 99},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "val"},
             "io": {"inputs": [["val", "INT"]], "outputs": [["score", "INT"]]},
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -293,12 +313,22 @@ def test_execute_runtime_code_dynamic_multiple_outputs_requires_dict(
         runtime_code.execute_runtime_code_dynamic(
             named_inputs={"a": 3, "b": 4},
             vibecomfy_props={
+                "provenance": "agent_authored",
                 "intent": {"source": "a + b"},
                 "io": {
                     "inputs": [["a", "INT"], ["b", "INT"]],
                     "outputs": [["x", "INT"], ["y", "INT"]],
                 },
-                "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+                "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
             },
         )
 
@@ -320,12 +350,22 @@ def test_execute_runtime_code_dynamic_multiple_outputs_dict_result(
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"a": 3, "b": 4},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "{'x': a+b, 'y': a*b}"},
             "io": {
                 "inputs": [["a", "INT"], ["b", "INT"]],
                 "outputs": [["x", "INT"], ["y", "INT"]],
             },
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -343,9 +383,19 @@ def test_execute_runtime_code_dynamic_asymmetric_inputs_only(
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"msg": "hello"},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "msg"},
             "io": {"inputs": [["msg", "STRING"]], "outputs": []},
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -365,9 +415,19 @@ def test_execute_runtime_code_dynamic_always_returns_dict(
         result = runtime_code.execute_runtime_code_dynamic(
             named_inputs={},
             vibecomfy_props={
+                "provenance": "agent_authored",
                 "intent": {"source": "0"},
                 "io": {"inputs": [], "outputs": []},
-                "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+                "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
             },
         )
         assert isinstance(result, dict), f"expected dict, got {type(result)} for worker result {worker_result!r}"

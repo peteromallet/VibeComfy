@@ -37,6 +37,30 @@ export const ROUTE_LABELS = Object.freeze({
 
 export const CANONICAL_AGENT_PROVIDERS = new Set(["anthropic", "deepseek", "openai-codex", "openrouter"]);
 
+export const DEFAULT_FETCH_DEADLINE_MS = 30000;
+
+/**
+ * Create a deadline controller that aborts a fetch after `deadlineMs`.
+ * The returned `signal` can be passed directly to `fetch()`.
+ * Call `clearDeadline()` once the fetch completes to prevent the timeout
+ * from firing after the response has already been received.
+ *
+ * @param {number} deadlineMs - deadline in milliseconds (default: 30000)
+ * @returns {{ signal: AbortSignal, clearDeadline: () => void }}
+ */
+export function createFetchDeadlineController(deadlineMs = DEFAULT_FETCH_DEADLINE_MS) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error("Fetch deadline exceeded"));
+  }, deadlineMs);
+  return {
+    signal: controller.signal,
+    clearDeadline() {
+      clearTimeout(timeoutId);
+    },
+  };
+}
+
 // ── localStorage helpers (safe wrappers — tolerate missing/throwing storage) ──
 
 const LS_AGENT_PROVIDER_KEY = "vibecomfy_agent_provider";
@@ -490,14 +514,23 @@ export async function refreshAgentStatus(panel, { quiet = false } = {}, deps = {
   if (typeof document !== "undefined" && typeof renderAgentPanel === "function") {
     renderAgentPanel(panel, { dirtySections: SETTINGS_STATUS_RENDER_SECTIONS });
   }
+  const fetchDeadlineMs = Number.isFinite(deps.fetchDeadlineMs) && deps.fetchDeadlineMs > 0
+    ? deps.fetchDeadlineMs
+    : DEFAULT_FETCH_DEADLINE_MS;
   try {
     // Keep the initial "loading" paint observable, then let tests/users observe
     // the completed state after the request has actually been issued.
     if (typeof nextMacrotask === "function") {
       await nextMacrotask();
     }
+    const deadline = createFetchDeadlineController(fetchDeadlineMs);
     const statusUrl = buildStatusUrl(route, model);
-    const res = await fetch(statusUrl);
+    let res;
+    try {
+      res = await fetch(statusUrl, { signal: deadline.signal });
+    } finally {
+      deadline.clearDeadline();
+    }
     let status = null;
     try {
       status = await res.json();
@@ -575,6 +608,7 @@ export async function refreshAgentStatus(panel, { quiet = false } = {}, deps = {
       panel.fields.model.value = status.model;
     }
   } catch (e) {
+    const isTimeout = e?.name === "AbortError" || String(e?.message || "").includes("deadline exceeded");
     if (Number.isFinite(requestEpoch) && panel.state.statusRequestEpoch !== requestEpoch) {
       return;
     }
@@ -583,19 +617,24 @@ export async function refreshAgentStatus(panel, { quiet = false } = {}, deps = {
       url: buildStatusUrl(route, model),
       ok: false,
       httpStatus: priorStatusDiagnostic?.httpStatus ?? null,
-      error: String(e?.message || e),
+      error: isTimeout
+        ? `Fetch timed out after ${fetchDeadlineMs}ms`
+        : String(e?.message || e),
       payload: priorStatusDiagnostic?.payload || null,
+      timedOut: isTimeout || undefined,
     });
-    panel.state.settingsMessage = `Status unavailable: ${String(e)}`;
+    panel.state.settingsMessage = isTimeout
+      ? `Status request timed out after ${fetchDeadlineMs}ms`
+      : `Status unavailable: ${String(e)}`;
     panel.state.statusSnapshot = null;
     panel.state.routeStatus = {
       kind: ROUTE_STATUS_KIND.UNAVAILABLE,
       requestedRoute: route,
       model,
-      detail: String(e),
+      detail: isTimeout ? `timed out after ${fetchDeadlineMs}ms` : String(e),
     };
     populateRouteSelect(panel.fields.route, null, {
-      placeholderLabel: "Status unavailable",
+      placeholderLabel: isTimeout ? "Status request timed out" : "Status unavailable",
       selectedRoute: route,
     }, deps);
     panel.fields.route.value = route;
@@ -637,9 +676,19 @@ export async function refreshVibeComfyInfo(panel, deps = {}) {
   panel.state.vibeComfyInfoRequestEpoch = requestEpoch;
   panel.state.vibeComfyInfoStatus = { kind: "loading" };
 
+  const fetchDeadlineMs = Number.isFinite(deps.fetchDeadlineMs) && deps.fetchDeadlineMs > 0
+    ? deps.fetchDeadlineMs
+    : DEFAULT_FETCH_DEADLINE_MS;
+
   try {
     const infoUrl = buildVibeComfyInfoUrl();
-    const res = await fetch(infoUrl);
+    const deadline = createFetchDeadlineController(fetchDeadlineMs);
+    let res;
+    try {
+      res = await fetch(infoUrl, { signal: deadline.signal });
+    } finally {
+      deadline.clearDeadline();
+    }
     let info = null;
     try {
       info = await res.json();
@@ -694,18 +743,22 @@ export async function refreshVibeComfyInfo(panel, deps = {}) {
     if (Number.isFinite(requestEpoch) && panel.state.vibeComfyInfoRequestEpoch !== requestEpoch) {
       return;
     }
+    const isTimeout = error?.name === "AbortError" || String(error?.message || "").includes("deadline exceeded");
     const priorDiagnostic = panel.state.lastVibeComfyInfoDiagnostic || null;
     recordVibeComfyInfoDiagnostic(panel, {
       url: buildVibeComfyInfoUrl(),
       ok: false,
       httpStatus: priorDiagnostic?.httpStatus ?? null,
-      error: String(error?.message || error),
+      error: isTimeout
+        ? `Fetch timed out after ${fetchDeadlineMs}ms`
+        : String(error?.message || error),
       payload: priorDiagnostic?.payload || null,
+      timedOut: isTimeout || undefined,
     });
     panel.state.vibeComfyInfoSnapshot = null;
     panel.state.vibeComfyInfoStatus = {
       kind: "unavailable",
-      detail: String(error),
+      detail: isTimeout ? `timed out after ${fetchDeadlineMs}ms` : String(error),
     };
   } finally {
     if (
