@@ -616,6 +616,224 @@ def test_resolve_delta_unknown_set_node_field_lists_valid_fields_and_aliases() -
     assert issue.detail["semantic_aliases"]["image"] == "widget_0"
 
 
+# ── KSampler diagnostics: compact fields, omitted raw slots, aliases ──────────
+
+
+def test_resolve_delta_unknown_ksampler_set_node_field_exposes_compact_names_and_omits_widget_N() -> None:
+    """When an unknown field is targeted on a KSampler node, valid_fields must
+    use compact names (seed, control_after_generate, steps, …) and must NOT
+    advertise raw widget_N slots that already have a semantic resolution."""
+    original = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "pos": [0, 0],
+                "size": [315, 341],
+                "flags": {},
+                "order": 0,
+                "mode": 0,
+                "inputs": [
+                    {"name": "model", "type": "MODEL", "link": None},
+                    {"name": "positive", "type": "CONDITIONING", "link": None},
+                    {"name": "negative", "type": "CONDITIONING", "link": None},
+                    {"name": "latent_image", "type": "LATENT", "link": None},
+                ],
+                "outputs": [{"name": "LATENT", "type": "LATENT", "links": None, "slot_index": 0}],
+                "properties": {"vibecomfy_uid": "ksampler"},
+                "widgets_values": [42, "fixed", 8, 1.0, "euler", "normal", 1.0],
+            }
+        ],
+        "links": [],
+    }
+    delta = parse_edit_delta(
+        [
+            {
+                "op": "set_node_field",
+                "target": ["", "ksampler", "nonexistent_field"],
+                "value": 99,
+            }
+        ]
+    )
+
+    result = resolve_delta(original, delta, schema_provider=_SchemaProvider())
+
+    assert result.ok is False
+    issue = next(issue for issue in result.diagnostics if issue.code == "unknown_node_field")
+    assert "Valid fields:" in issue.message
+    valid_fields = issue.detail["valid_fields"]
+
+    # Compact widget names must be present.
+    for compact_name in ("seed", "control_after_generate", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
+        assert compact_name in valid_fields, f"{compact_name!r} missing from valid_fields"
+
+    # Socket inputs must also be present.
+    for socket_name in ("model", "positive", "negative", "latent_image"):
+        assert socket_name in valid_fields, f"{socket_name!r} missing from valid_fields"
+
+    # Raw widget_N must NOT appear — every slot has a semantic name.
+    widget_n_entries = [f for f in valid_fields if f.startswith("widget_")]
+    assert widget_n_entries == [], f"widget_N entries should be omitted but found {widget_n_entries}"
+
+
+def test_resolve_delta_unknown_ksampler_set_node_field_includes_relevant_aliases() -> None:
+    """Semantic aliases must describe the mapping for UI-only slots like
+    control_after_generate → widget_1, while self-mapping fields (seed→seed)
+    are correctly excluded."""
+    original = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "pos": [0, 0],
+                "size": [315, 341],
+                "flags": {},
+                "order": 0,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [{"name": "LATENT", "type": "LATENT", "links": None, "slot_index": 0}],
+                "properties": {"vibecomfy_uid": "ksampler"},
+                "widgets_values": [42, "fixed", 8, 1.0, "euler", "normal", 1.0],
+            }
+        ],
+        "links": [],
+    }
+    delta = parse_edit_delta(
+        [
+            {
+                "op": "set_node_field",
+                "target": ["", "ksampler", "bogus"],
+                "value": 1,
+            }
+        ]
+    )
+
+    result = resolve_delta(original, delta, schema_provider=_SchemaProvider())
+
+    assert result.ok is False
+    issue = next(issue for issue in result.diagnostics if issue.code == "unknown_node_field")
+    semantic_aliases = issue.detail["semantic_aliases"]
+
+    # control_after_generate → widget_1 must be present (UI-only slot).
+    assert "control_after_generate" in semantic_aliases
+    assert semantic_aliases["control_after_generate"] == "widget_1"
+
+    # Self-mapping fields (seed→seed, steps→steps, …) must NOT leak into aliases.
+    for compact_name in ("seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
+        assert compact_name not in semantic_aliases, f"{compact_name!r} should not appear in semantic_aliases"
+
+
+def test_resolve_delta_unknown_ksampler_add_node_field_omits_covered_widget_N() -> None:
+    """When add_node targets a KSampler with an unknown field, the class-level
+    diagnostics must omit widget_N slots that have compact semantic names."""
+    original = _fixture()
+    delta = parse_edit_delta(
+        [
+            {
+                "op": "add_node",
+                "scope_path": "",
+                "class_type": "KSampler",
+                "fields": {"seed": 7, "bogus_field": 999},
+                "inputs": {},
+            }
+        ]
+    )
+
+    result = resolve_delta(original, delta, schema_provider=_SchemaProvider())
+
+    assert result.ok is False
+    issue = next(issue for issue in result.diagnostics if issue.code == "unknown_add_node_field")
+    valid_fields = issue.detail["valid_fields"]
+
+    # Compact names must be in valid_fields.
+    for compact_name in ("seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
+        assert compact_name in valid_fields, f"{compact_name!r} missing from valid_fields"
+
+    # widget_N for slots that have known semantic names must be omitted.
+    for widget_n in ("widget_0", "widget_2", "widget_3", "widget_4", "widget_5", "widget_6"):
+        assert widget_n not in valid_fields, f"{widget_n!r} should be omitted but is present"
+
+
+def test_field_diagnostics_for_node_direct_call_ksampler_compact_names() -> None:
+    """Directly call field_diagnostics_for_node on a KSampler node and verify
+    the contract: compact names, no covered widget_N, correct aliases."""
+    from vibecomfy.porting.edit.apply_field_aliases import field_diagnostics_for_node
+
+    node = {
+        "id": 1,
+        "type": "KSampler",
+        "widgets_values": [42, "fixed", 8, 1.0, "euler", "normal", 1.0],
+        "inputs": [
+            {"name": "model", "type": "MODEL", "link": None},
+            {"name": "positive", "type": "CONDITIONING", "link": None},
+            {"name": "negative", "type": "CONDITIONING", "link": None},
+            {"name": "latent_image", "type": "LATENT", "link": None},
+        ],
+    }
+    provider = _SchemaProvider()
+    schema = provider.get_schema("KSampler")
+    assert schema is not None
+    schema_inputs = schema.inputs
+
+    detail = field_diagnostics_for_node(
+        node, "KSampler", schema_inputs, schema_provider=provider
+    )
+
+    valid_fields = detail["valid_fields"]
+
+    # All 7 compact widget names must appear.
+    for name in ("seed", "control_after_generate", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
+        assert name in valid_fields, f"{name!r} missing"
+
+    # Socket inputs must appear.
+    for name in ("model", "positive", "negative", "latent_image"):
+        assert name in valid_fields, f"{name!r} missing"
+
+    # No raw widget_N (every slot has a semantic name).
+    widget_n = [f for f in valid_fields if f.startswith("widget_")]
+    assert widget_n == [], f"unexpected widget_N: {widget_n}"
+
+    # control_after_generate alias must be present.
+    assert detail["semantic_aliases"].get("control_after_generate") == "widget_1"
+
+
+def test_field_diagnostics_for_class_direct_call_ksampler_compact_names() -> None:
+    """Directly call field_diagnostics_for_class for KSampler and verify
+    widget_N omission for slots with known semantic names."""
+    from vibecomfy.porting.edit.apply_field_aliases import field_diagnostics_for_class
+
+    provider = _SchemaProvider()
+    schema = provider.get_schema("KSampler")
+    assert schema is not None
+    schema_inputs = schema.inputs
+
+    detail = field_diagnostics_for_class(
+        "KSampler", schema_inputs, schema_provider=provider
+    )
+
+    valid_fields = detail["valid_fields"]
+
+    # Compact names must appear (from schema inputs).
+    for name in ("seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
+        assert name in valid_fields, f"{name!r} missing"
+
+    # Socket inputs must appear.
+    for name in ("model", "positive", "negative", "latent_image"):
+        assert name in valid_fields, f"{name!r} missing"
+
+    # widget_N for covered slots must NOT appear.
+    for widget_n in ("widget_0", "widget_2", "widget_3", "widget_4", "widget_5", "widget_6"):
+        assert widget_n not in valid_fields, f"{widget_n!r} should be omitted"
+
+    # widget_1 (control_after_generate) might or might not appear at class level
+    # because the class-level sources don't have a name for index 1 (None in WIDGET_SCHEMA).
+    # This is acceptable — the node-level diagnostics handle it.
+
+
 def test_resolve_delta_rejects_set_node_field_on_socket_only_input() -> None:
     original = _fixture()
     before = copy.deepcopy(original)

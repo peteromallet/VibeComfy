@@ -2,6 +2,55 @@
 # Contents: Batch reports, terminal clarify parsing, and budget classification.
 
 SOURCE = r'''
+_DIAGNOSTIC_DETAIL_KEYS = (
+    "choices",
+    "valid_fields",
+    "semantic_aliases",
+    "available_slots",
+    "min",
+    "max",
+)
+_DETAIL_LIST_CAP = 8
+_DETAIL_ALIAS_CAP = 8
+
+
+def _format_diagnostic_detail_text(detail: dict[str, Any]) -> str:
+    """Format engine diagnostic detail keys as stable, capped text."""
+    if not isinstance(detail, dict):
+        return ""
+    parts: list[str] = []
+    for key in _DIAGNOSTIC_DETAIL_KEYS:
+        value = detail.get(key)
+        if value is None:
+            continue
+        if key in ("choices", "valid_fields", "available_slots"):
+            if isinstance(value, (list, tuple)):
+                items = [str(v) for v in value if v is not None]
+                if not items:
+                    continue
+                shown = items[:_DETAIL_LIST_CAP]
+                label = f"{key}: [{', '.join(repr(v) for v in shown)}"
+                if len(items) > _DETAIL_LIST_CAP:
+                    label += f", ... (+{len(items) - _DETAIL_LIST_CAP} more)"
+                label += "]"
+                parts.append(label)
+        elif key == "semantic_aliases":
+            if isinstance(value, dict):
+                items = [(str(k), str(v)) for k, v in value.items() if k and v and k != v]
+                if not items:
+                    continue
+                items.sort()
+                shown = items[:_DETAIL_ALIAS_CAP]
+                label = f"semantic_aliases: {{{', '.join(f'{k!r}->{v!r}' for k, v in shown)}"
+                if len(items) > _DETAIL_ALIAS_CAP:
+                    label += f", ... (+{len(items) - _DETAIL_ALIAS_CAP} more)"
+                label += "}"
+                parts.append(label)
+        elif key in ("min", "max"):
+            parts.append(f"{key}: {value!r}")
+    return "; ".join(parts) if parts else ""
+
+
 def _format_batch_report(
     batch_result: Any,
     *,
@@ -44,6 +93,9 @@ def _format_batch_report(
         if statement.diagnostics:
             primary = statement.diagnostics[0]
             extras.append(f"{primary.code}: {primary.message}")
+            detail_text = _format_diagnostic_detail_text(getattr(primary, "detail", {}))
+            if detail_text:
+                extras.append(detail_text)
         if statement.teaching_hint:
             extras.append(f"hint: {statement.teaching_hint}")
         if extras:
@@ -59,16 +111,21 @@ def _format_batch_report(
                 )
             )
 
-    diagnostic_lines = [
-        f"! {diagnostic.code}: {diagnostic.message}"
-        for diagnostic in batch_result.diagnostics
-    ]
+    diagnostic_lines = []
+    for diagnostic in batch_result.diagnostics:
+        line = f"! {diagnostic.code}: {diagnostic.message}"
+        diagnostic_lines.append(line)
+        detail_text = _format_diagnostic_detail_text(getattr(diagnostic, "detail", {}))
+        if detail_text:
+            diagnostic_lines.append(f"  detail: {detail_text}")
     # Append lint diagnostics so the model sees them inline.
     if lint_diagnostics:
-        diagnostic_lines.extend(
-            f"! [lint] {d['code']}: {d['message']}"
-            for d in lint_diagnostics
-        )
+        for d in lint_diagnostics:
+            diagnostic_lines.append(f"! [lint] {d['code']}: {d['message']}")
+            lint_detail = d.get("detail") if isinstance(d, dict) else None
+            lint_detail_text = _format_diagnostic_detail_text(lint_detail) if isinstance(lint_detail, dict) else ""
+            if lint_detail_text:
+                diagnostic_lines.append(f"  detail: {lint_detail_text}")
     lint_note = (
         f", {lint_dropped_count} lint-dropped no-op(s)"
         if lint_dropped_count
@@ -98,6 +155,32 @@ def _format_batch_report(
         )
     lines = [summary, *statement_lines, query_only_note, *diagnostic_lines]
     return "\n".join(line for line in lines if line)
+
+
+def _cap_diagnostic_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    """Cap list/dict values in a diagnostic detail for stable, bounded JSON."""
+    if not isinstance(detail, dict):
+        return {}
+    capped: dict[str, Any] = {}
+    for key in _DIAGNOSTIC_DETAIL_KEYS:
+        value = detail.get(key)
+        if value is None:
+            continue
+        if key in ("choices", "valid_fields", "available_slots"):
+            if isinstance(value, (list, tuple)):
+                capped[key] = [v for v in value[:_DETAIL_LIST_CAP] if v is not None]
+            else:
+                capped[key] = value
+        elif key == "semantic_aliases":
+            if isinstance(value, dict):
+                items = [(str(k), str(v)) for k, v in value.items() if k and v and k != v]
+                items.sort()
+                capped[key] = dict(items[:_DETAIL_ALIAS_CAP])
+            else:
+                capped[key] = value
+        else:
+            capped[key] = value
+    return capped
 
 
 def _format_batch_report_json(
@@ -134,21 +217,37 @@ def _format_batch_report_json(
                 "dependency_cause": item.dependency_cause,
                 "teaching_hint": item.teaching_hint,
                 "diagnostics": [
-                    _compact_diag_to_dict(diag) for diag in item.diagnostics
+                    _compact_diag_with_capped_detail(diag) for diag in item.diagnostics
                 ],
             }
             for item in batch_result.statements
         ],
         "diagnostics": [
-            _compact_diag_to_dict(item) for item in batch_result.diagnostics
+            _compact_diag_with_capped_detail(item) for item in batch_result.diagnostics
         ],
     }
     if lint_dropped_count:
         result["summary"]["lint_dropped"] = lint_dropped_count
     if lint_diagnostics:
         result["lint_diagnostics"] = [
-            dict(d) for d in lint_diagnostics
+            _lint_diag_with_capped_detail(d) for d in lint_diagnostics
         ]
+    return result
+
+
+def _compact_diag_with_capped_detail(diagnostic: Any) -> dict[str, Any]:
+    d = _compact_diag_to_dict(diagnostic)
+    raw_detail = d.get("detail")
+    if isinstance(raw_detail, dict):
+        d["detail"] = _cap_diagnostic_detail(raw_detail)
+    return d
+
+
+def _lint_diag_with_capped_detail(d: dict[str, Any]) -> dict[str, Any]:
+    result = dict(d)
+    raw_detail = result.get("detail")
+    if isinstance(raw_detail, dict):
+        result["detail"] = _cap_diagnostic_detail(raw_detail)
     return result
 
 

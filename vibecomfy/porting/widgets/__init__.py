@@ -26,6 +26,12 @@ from .schema import (
     WIDGET_SEMANTIC_NAMES,
     effective_widget_names_for_class,
 )
+from .settings_contract import (
+    NodeFieldInfo,
+    NodeSettingsInfo,
+    compact_field_names_for_node,
+    node_settings_for,
+)
 
 __all__ = [
     # .aliases
@@ -50,4 +56,9 @@ __all__ = [
     "WIDGET_SCHEMA",
     "WIDGET_SEMANTIC_NAMES",
     "effective_widget_names_for_class",
+    # .settings_contract
+    "NodeFieldInfo",
+    "NodeSettingsInfo",
+    "compact_field_names_for_node",
+    "node_settings_for",
 ]

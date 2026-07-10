@@ -550,3 +550,130 @@ test("PUBLIC_OUTCOME_KINDS does not include stale or malformed as outcome kinds"
   assert.ok(!PUBLIC_OUTCOME_KINDS.includes("stale"));
   assert.ok(!PUBLIC_OUTCOME_KINDS.includes("malformed"));
 });
+
+// ── T12: Diagnostic detail must not leak into candidate graph or canvas ─
+
+test("normalizeAgentEditResponse with diagnostic detail does not leak detail into candidateGraph", () => {
+  const raw = {
+    ok: true,
+    route: "revise",
+    reply: "Graph was edited.",
+    session_id: "sess-diag-leak",
+    turn_id: "t-diag-leak",
+    candidate: {
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+    },
+    apply_eligible: true,
+    // Diagnostic detail in the raw payload — must NOT leak into candidate graph
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Sampler 'nonexistent' is not a valid choice",
+        detail: {
+          choices: ["euler", "euler_ancestral", "heun"],
+          valid_fields: ["seed", "steps", "cfg", "sampler_name"],
+        },
+      },
+    ],
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/vibecomfy/agent-executor" });
+  assert.equal(normalized.outcome.kind, "candidate");
+  assert.ok(normalized.candidateGraph);
+
+  // The candidate graph must be exactly what was provided — no diagnostic
+  // detail injection into nodes, links, or graph structure.
+  const graph = normalized.candidateGraph;
+  assert.deepEqual(graph.nodes, [{ id: 1, type: "KSampler" }]);
+  assert.deepEqual(graph.links, []);
+
+  // No diagnostic-structured fields must appear on the graph itself
+  assert.equal(graph.choices, undefined, "choices detail must not leak onto graph");
+  assert.equal(graph.valid_fields, undefined, "valid_fields detail must not leak onto graph");
+  assert.equal(graph.available_slots, undefined, "available_slots detail must not leak onto graph");
+
+  // Candidate nodes must not carry diagnostic detail
+  for (const node of graph.nodes) {
+    assert.equal(node.choices, undefined, "choices must not leak onto candidate node");
+    assert.equal(node.valid_fields, undefined, "valid_fields must not leak onto candidate node");
+  }
+
+  // The diagnostics field on the normalized response is separate and must
+  // not be mixed into the candidate or graph structures.
+  if (normalized.diagnostics) {
+    // If diagnostics exist, they must be an array of diagnostic records
+    assert.ok(Array.isArray(normalized.diagnostics));
+  }
+});
+
+test("normalizeAgentEditResponse error with diagnostic detail preserves error outcome, not stale recovery", () => {
+  const raw = {
+    ok: false,
+    route: "revise",
+    reply: "Edit failed.",
+    session_id: "sess-err-diag",
+    turn_id: "t-err-diag",
+    outcome: { kind: "error", failure_kind: "batch_failure" },
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Sampler choice invalid",
+        detail: {
+          choices: ["euler", "heun", "dpmpp_2m"],
+          valid_fields: ["sampler_name"],
+        },
+      },
+    ],
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+
+  // Must be an error outcome, not stale/malformed
+  assert.equal(normalized.outcome.kind, "error");
+  assert.equal(normalized.outcome.failure_kind, "batch_failure");
+
+  // Diagnostic detail must not trigger rebaseline recovery
+  assert.equal(normalized.rebaselineRecovery, null,
+    "diagnostic detail must not trigger spurious rebaseline recovery");
+
+  // Candidate graph must be null (no candidate in error responses)
+  assert.equal(normalized.candidateGraph, null);
+
+  // Session/turn identity preserved
+  assert.equal(normalized.sessionId, "sess-err-diag");
+  assert.equal(normalized.turnId, "t-err-diag");
+});
+
+test("readEligibility ignores diagnostic detail and does not mark candidate as stale", () => {
+  const raw = {
+    ok: true,
+    session_id: "sess-elig-diag",
+    turn_id: "t-elig-diag",
+    outcome: { kind: "candidate", changes: [] },
+    candidate: {
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "valid_candidate",
+      warnings: [],
+    },
+    diagnostics: [
+      {
+        code: "field_set_ok",
+        message: "Field set with no issues",
+        detail: { valid_fields: ["steps", "cfg"] },
+      },
+    ],
+  };
+
+  const eligibility = readEligibility(raw, { endpoint: "/submit" });
+  assert.ok(eligibility);
+  assert.equal(eligibility.applyable, true);
+  assert.equal(eligibility.reason, "valid_candidate");
+
+  // Diagnostics must not contaminate eligibility — no stale signals
+  assert.equal(eligibility.stale, undefined, "stale must not appear from diagnostic detail");
+  assert.equal(eligibility.needsRebaseline, undefined,
+    "needsRebaseline must not appear from diagnostic detail");
+});

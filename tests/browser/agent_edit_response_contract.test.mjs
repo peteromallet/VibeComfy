@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   PUBLIC_OUTCOME_KINDS,
+  DIAGNOSTIC_DETAIL_KEYS,
   adaptLegacyAgentEditResponse,
   normalizeAgentEditResponse,
   normalizeCanonicalAgentEditResponse,
@@ -1405,6 +1406,7 @@ const CURATED_PROJECTION_FIELDS = [
   "turnIdentity",
   "stageSnapshots",
   "fieldChanges",
+  "diagnostics",
   "applyEligible",
   "noCandidateReason",
   "applyAllowed",
@@ -1575,6 +1577,287 @@ test("normalizeCanonicalAgentEditResponse keeps the curated projection leak-free
       leaks.length,
       0,
       `canonical projection field "${field}" leaked forbidden payload: ${JSON.stringify(leaks.slice(0, 3))}`,
+    );
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T10 — Curated diagnostics normalization with capped enum choices / valid_fields
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("DIAGNOSTIC_DETAIL_KEYS stays the closed public contract", () => {
+  assert.deepEqual(DIAGNOSTIC_DETAIL_KEYS, [
+    "choices",
+    "valid_fields",
+    "available_slots",
+  ]);
+});
+
+test("normalizeAgentEditResponse surfaces safe diagnostics from outcome.diagnostics", () => {
+  const raw = {
+    ok: false,
+    outcome: {
+      kind: "error",
+      diagnostics: [
+        {
+          code: "unknown_field",
+          severity: "error",
+          message: "Field \"bogus\" is not recognized.",
+          detail: {
+            valid_fields: ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"],
+            input: "bogus",
+          },
+        },
+      ],
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.ok(Array.isArray(normalized.diagnostics), "diagnostics must be an array");
+  assert.equal(normalized.diagnostics.length, 1);
+
+  const diag = normalized.diagnostics[0];
+  assert.equal(diag.code, "unknown_field");
+  assert.equal(diag.severity, "error");
+  assert.equal(diag.message, "Field \"bogus\" is not recognized.");
+  assert.ok(diag.detail, "detail must be present");
+  assert.deepEqual(diag.detail.valid_fields, [
+    "seed", "steps", "cfg", "sampler_name", "scheduler", "denoise",
+  ]);
+  // Raw debug payloads must never be hoisted into diagnostics.
+  assert.equal(Object.prototype.hasOwnProperty.call(diag.detail, "input"), false);
+});
+
+test("normalizeAgentEditResponse surfaces safe diagnostics from top-level diagnostics array", () => {
+  const raw = {
+    ok: false,
+    outcome: { kind: "error" },
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        severity: "warning",
+        message: "\"nonexistent_sampler\" is not a valid sampler_name.",
+        detail: {
+          choices: ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_sde", "lcm", "uni_pc", "ddim"],
+          value: "nonexistent_sampler",
+        },
+      },
+    ],
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.equal(normalized.diagnostics.length, 1);
+
+  const diag = normalized.diagnostics[0];
+  assert.equal(diag.code, "value_not_in_enum");
+  assert.equal(diag.severity, "warning");
+  assert.deepEqual(diag.detail.choices, [
+    "euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_sde", "lcm", "uni_pc", "ddim",
+  ]);
+  // Raw detail value (the rejected input) must never be hoisted.
+  assert.equal(Object.prototype.hasOwnProperty.call(diag.detail, "value"), false);
+});
+
+test("normalizeAgentEditResponse caps diagnostic detail lists at DIAGNOSTIC_LIST_CAP", () => {
+  const manyChoices = Array.from({ length: 15 }, (_, i) => `choice_${i}`);
+  const raw = {
+    ok: false,
+    outcome: { kind: "error" },
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Bad value.",
+        detail: { choices: manyChoices },
+      },
+    ],
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  const diag = normalized.diagnostics[0];
+  assert.ok(Array.isArray(diag.detail.choices));
+  assert.ok(diag.detail.choices.length <= 8, "choices must be capped at 8");
+  assert.deepEqual(diag.detail.choices, manyChoices.slice(0, 8));
+});
+
+test("normalizeAgentEditResponse collects diagnostics from stageSnapshots[].issues[]", () => {
+  const raw = {
+    ok: false,
+    outcome: { kind: "error" },
+    debug: {
+      stage_snapshots: [
+        {
+          stage: "queue_validate",
+          ok: false,
+          blocking: true,
+          issues: [
+            {
+              code: "queue_blocked",
+              severity: "error",
+              message: "Queue validation blocked.",
+              detail: { available_slots: ["seed", "steps"] },
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.equal(normalized.diagnostics.length, 1);
+  assert.equal(normalized.diagnostics[0].code, "queue_blocked");
+  assert.deepEqual(normalized.diagnostics[0].detail.available_slots, ["seed", "steps"]);
+});
+
+test("normalizeAgentEditResponse collects diagnostics from change_details batch turns", () => {
+  const raw = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    change_details: {
+      batch_turns: [
+        {
+          turn_number: 1,
+          diagnostics: [
+            {
+              code: "value_not_in_enum",
+              message: "Invalid sampler.",
+              detail: { choices: ["euler", "heun"] },
+            },
+          ],
+        },
+        {
+          turn_number: 2,
+          diagnostics: [
+            {
+              code: "unknown_field",
+              message: "Unknown field.",
+              detail: { valid_fields: ["cfg", "steps"] },
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.equal(normalized.diagnostics.length, 2);
+  // First batch turn diagnostic (value_not_in_enum with choices)
+  assert.equal(normalized.diagnostics[0].code, "value_not_in_enum");
+  assert.deepEqual(normalized.diagnostics[0].detail.choices, ["euler", "heun"]);
+  // Second batch turn diagnostic (unknown_field with valid_fields)
+  assert.equal(normalized.diagnostics[1].code, "unknown_field");
+  assert.deepEqual(normalized.diagnostics[1].detail.valid_fields, ["cfg", "steps"]);
+});
+
+test("normalizeAgentEditResponse deduplicates diagnostics by code+message fingerprint", () => {
+  const raw = {
+    ok: false,
+    outcome: {
+      kind: "error",
+      diagnostics: [
+        { code: "value_not_in_enum", message: "Invalid sampler.", detail: { choices: ["euler"] } },
+      ],
+    },
+    diagnostics: [
+      { code: "value_not_in_enum", message: "Invalid sampler.", detail: { choices: ["euler"] } },
+    ],
+    debug: {
+      stage_snapshots: [
+        {
+          stage: "plan",
+          issues: [
+            { code: "value_not_in_enum", message: "Invalid sampler." },
+          ],
+        },
+      ],
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  // All three sources carry the same code+message — only one entry survives.
+  assert.equal(normalized.diagnostics.length, 1);
+  assert.equal(normalized.diagnostics[0].code, "value_not_in_enum");
+});
+
+test("normalizeAgentEditResponse returns null diagnostics when no source has issues", () => {
+  const raw = {
+    ok: true,
+    outcome: { kind: "candidate" },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.equal(normalized.diagnostics, null);
+});
+
+test("normalizeAgentEditResponse diagnostics never leak raw debug/provider payloads", () => {
+  const raw = {
+    ok: false,
+    outcome: {
+      kind: "error",
+      diagnostics: [
+        {
+          code: "value_not_in_enum",
+          message: "Bad enum.",
+          detail: {
+            choices: ["a", "b"],
+            // Forbidden keys that must NOT surface:
+            raw_error: "provider token secret",
+            debug_payload: { internal_trace: "secret" },
+            provider_diagnostics: { model: "secret-model" },
+            system_prompt: "secret system prompt",
+            model_prompt: "hidden",
+            input: "rejected_value",
+            value: "rejected_value",
+          },
+        },
+      ],
+    },
+    debug: {
+      stage_snapshots: [
+        {
+          stage: "plan",
+          issues: [
+            {
+              code: "unknown_field",
+              message: "Unknown field.",
+              detail: {
+                valid_fields: ["steps"],
+                raw_graph: { secret: true },
+                debug_payload: { trace: "leak" },
+              },
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.equal(normalized.diagnostics.length, 2);
+
+  for (const diag of normalized.diagnostics) {
+    assert.ok(diag.code, "every diagnostic must have a code");
+    // Verify only whitelisted detail keys survive.
+    if (diag.detail) {
+      for (const key of Object.keys(diag.detail)) {
+        assert.ok(
+          DIAGNOSTIC_DETAIL_KEYS.includes(key),
+          `diagnostic detail key "${key}" is not in DIAGNOSTIC_DETAIL_KEYS`,
+        );
+      }
+    }
+  }
+
+  // Stringify and scan: raw debug/provider terms must not appear anywhere in diagnostics.
+  const diagJson = JSON.stringify(normalized.diagnostics);
+  const forbiddenTerms = [
+    "raw_error", "debug_payload", "provider_diagnostics",
+    "system_prompt", "model_prompt", "raw_graph",
+  ];
+  for (const term of forbiddenTerms) {
+    assert.equal(
+      diagJson.includes(term),
+      false,
+      `diagnostics must not contain forbidden term "${term}"`,
     );
   }
 });

@@ -737,3 +737,113 @@ def test_isolated_pinned_node_with_stale_raw_link_ref_refuses() -> None:
     assert exc_info.value.diff["7"]["reason"] == "pinned_link_id_mismatch"
     assert exc_info.value.diff["7"]["details"]["original_reason"] == "unmappable_input_link"
     assert exc_info.value.diff["7"]["details"]["raw_link"] == 42
+
+
+def test_collateral_overflow_pins_while_edited_ksampler_regenerates() -> None:
+    """Collateral overflow node pins opaque beside an edited KSampler.
+
+    When a prior UI payload contains both an overflowing node and a
+    KSampler, and only the KSampler is edited (widget delta), the
+    collateral overflow node should pin opaque while the KSampler
+    regenerates normally.
+    """
+    raw_ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "pos": [10, 20],
+                "size": [300, 120],
+                "flags": {},
+                "order": 0,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "uid-ksampler"},
+                "widgets_values": [42, "fixed", 20, 7.0, "euler", "normal", 1.0],
+            },
+            {
+                "id": 7,
+                "type": "OverflowNode",
+                "pos": [400, 20],
+                "size": [300, 120],
+                "flags": {},
+                "order": 1,
+                "mode": 0,
+                "inputs": [],
+                "outputs": [],
+                "properties": {"vibecomfy_uid": "uid-overflow"},
+                "widgets_values": [10, 20, 30],
+            },
+        ],
+        "links": [],
+    }
+
+    provider = _Provider(
+        {
+            "KSampler": _schema(
+                "KSampler",
+                {
+                    "seed": InputSpec("INT"),
+                    "steps": InputSpec("INT"),
+                    "cfg": InputSpec("FLOAT"),
+                    "sampler_name": InputSpec("STRING"),
+                    "scheduler": InputSpec("STRING"),
+                    "denoise": InputSpec("FLOAT"),
+                },
+                [OutputSpec("IMAGE", "IMAGE")],
+            ),
+            "OverflowNode": _schema(
+                "OverflowNode",
+                {"value": InputSpec("INT")},
+                [OutputSpec("INT", "INT")],
+            ),
+        }
+    )
+
+    wf = _wf()
+    wf.nodes["1"] = VibeNode(
+        "1",
+        "KSampler",
+        uid="uid-ksampler",
+        widgets={"widget_0": 42},
+    )
+    # Simulate an edit: change the seed widget value
+    wf.metadata["_ingest_snapshot"] = capture_ingest_snapshot({}, wf)
+    wf.nodes["1"].widgets["widget_0"] = 99
+
+    wf.nodes["7"] = VibeNode(
+        "7",
+        "OverflowNode",
+        uid="uid-overflow",
+        widgets={"widget_0": 10, "widget_1": 20, "widget_2": 30},
+    )
+
+    report: list[dict[str, Any]] = []
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        ui = emit_ui_json(
+            wf,
+            schema_provider=provider,
+            prior_store=store_from_ui_json(raw_ui),
+            prior_ui_payload=raw_ui,
+            recovery_report=report,
+        )
+
+    # Collateral overflow node should be pinned opaque
+    overflow_entry = next(item for item in report if item.get("node_id") == "7")
+    assert overflow_entry["widget_shape_verdict"] == "pin_opaque"
+    assert overflow_entry["widget_shape_recovery"] == "carry_forward_raw_ui"
+
+    # Its widgets_values should be the original raw payload
+    overflow_ui = next(node for node in ui["nodes"] if node["id"] == 7)
+    assert overflow_ui["widgets_values"] == [10, 20, 30]
+
+    # KSampler should have regenerated (or refused) — at minimum the
+    # report must contain a verdict for it
+    ksampler_entry = next(item for item in report if item.get("node_id") == "1")
+    assert ksampler_entry["widget_shape_verdict"] in {
+        "safe_to_regenerate",
+        "pin_opaque",
+        "refuse",
+    }

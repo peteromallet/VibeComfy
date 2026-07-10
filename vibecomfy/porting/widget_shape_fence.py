@@ -84,9 +84,15 @@ def decide_widget_shape(
     has_link_delta = bool(link_delta)
 
     static_reasons = _static_refusal_reasons(evidence)
+
+    # Collateral nodes (no widget delta, no link delta) with a complete
+    # raw LiteGraph node dict can carry the payload forward even when
+    # they have dynamic / overflow widget-shape problems.  Edited or
+    # touched nodes (any delta) fall through to the stricter refusal
+    # gates below.
     if (
-        identity_matched
-        and raw_ui_node is not None
+        raw_ui_node is not None
+        and _has_full_raw_ui_payload(raw_ui_node)
         and not has_widget_delta
         and not has_link_delta
     ):

@@ -116,8 +116,46 @@ function normalizeStatements(raw) {
 
 // ── Diagnostic entry normalization ──────────────────────────────────────────
 
+/** Whitelist of engine diagnostic detail keys safe for user-facing surfaces.
+ *  Raw debug, provider payloads, and internal trace keys are never included. */
+const DIAGNOSTIC_DETAIL_KEYS = Object.freeze([
+  "choices",
+  "valid_fields",
+  "available_slots",
+]);
+
+/** Maximum number of items kept in each list-valued diagnostic detail. */
+const DIAGNOSTIC_DETAIL_LIST_CAP = 8;
+
 /**
- * Normalize a single diagnostic entry to { code, message }.
+ * Extract safe diagnostic detail from a raw detail object.
+ * Only whitelisted keys are kept; list values are capped.
+ */
+function _safeDiagnosticDetail(rawDetail) {
+  if (!isObject(rawDetail)) {
+    return null;
+  }
+  const detail = {};
+  for (const key of DIAGNOSTIC_DETAIL_KEYS) {
+    const value = rawDetail[key];
+    if (Array.isArray(value)) {
+      const capped = value
+        .slice(0, DIAGNOSTIC_DETAIL_LIST_CAP)
+        .filter((v) => typeof v === "string" || typeof v === "number");
+      if (capped.length) {
+        detail[key] = capped;
+      }
+    } else if (typeof value === "string" || typeof value === "number") {
+      detail[key] = value;
+    }
+  }
+  return Object.keys(detail).length ? detail : null;
+}
+
+/**
+ * Normalize a single diagnostic entry to { code, message, detail }.
+ * The detail field is curated to only include safe whitelisted keys
+ * (choices, valid_fields, available_slots) with capped lists.
  */
 function normalizeDiagnostic(entry) {
   if (!isObject(entry)) {
@@ -127,9 +165,11 @@ function normalizeDiagnostic(entry) {
   if (!code) {
     return null;
   }
+  const detail = _safeDiagnosticDetail(entry.detail);
   return compactObject({
     code,
     message: asString(entry.message),
+    detail,
   });
 }
 
@@ -795,6 +835,31 @@ function buildSafeDetails(normalized, status, statements, latestSub, counts, dia
     }
   }
 
+  // Diagnostic detail entries (curated: choices, valid_fields, available_slots)
+  if (diagnostics && diagnostics.length > 0) {
+    const diagDetails = [];
+    for (const diag of diagnostics) {
+      if (diag && typeof diag === "object" && diag.detail && typeof diag.detail === "object") {
+        const detailKeys = Object.keys(diag.detail);
+        if (detailKeys.length > 0) {
+          diagDetails.push(compactObject({
+            code: asString(diag.code),
+            message: asString(diag.message),
+            detail: diag.detail,
+          }));
+        }
+      }
+    }
+    if (diagDetails.length > 0) {
+      detailEntries.push({
+        kind: "diagnostics",
+        shown: diagDetails.length,
+        total: diagnostics.length,
+        items: diagDetails,
+      });
+    }
+  }
+
   // Counts summary
   if (counts.total > 0 || typeof normalized.landed_op_count === "number" || typeof normalized.statement_count === "number") {
     detailEntries.push({
@@ -1149,6 +1214,8 @@ export {
   normalizeDiagnostics,
   normalizeTiming,
   normalizeBudget,
+  DIAGNOSTIC_DETAIL_KEYS,
+  _safeDiagnosticDetail,
 };
 
 // ── Activity feed reducer ───────────────────────────────────────────────────
