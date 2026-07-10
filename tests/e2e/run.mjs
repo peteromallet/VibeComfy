@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,52 @@ const DEFAULT_ARTIFACT_ROOT = path.join(REPO_ROOT, "test-results", "e2e-launcher
 const REQUIRED_SESSION_FILES = ["session_state.json"];
 const REQUIRED_TURN_FILES = ["request.json", "response.json", "chat.json"];
 const REQUIRED_PROVIDER_FILES = ["request.json", "fixture.json", "content.txt"];
+const COMFYUI_SHIM_MAIN = `#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+from pathlib import Path
+
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--cpu", action="store_true")
+parser.add_argument("--port", type=int, required=True)
+parser.add_argument("--enable-cors-header")
+parser.add_argument("--output-directory", required=True)
+parser.add_argument("--temp-directory", required=True)
+parser.add_argument("--input-directory", required=True)
+parser.add_argument("--user-directory", required=True)
+parser.add_argument("--database-url")
+args, unknown = parser.parse_known_args()
+if unknown:
+    raise SystemExit(f"Unsupported ComfyUI shim args: {' '.join(unknown)}")
+
+checkout_root = Path(__file__).resolve().parent
+runtime_root = Path(args.user_directory).resolve().parent
+command = [
+    "comfyui",
+    "serve",
+    "--listen",
+    "127.0.0.1",
+    "--port",
+    str(args.port),
+    "--base-directory",
+    str(runtime_root),
+    "--input-directory",
+    args.input_directory,
+    "--output-directory",
+    args.output_directory,
+    "--temp-directory",
+    args.temp_directory,
+    "--user-directory",
+    args.user_directory,
+]
+if args.enable_cors_header:
+    command.extend(["--enable-cors-header", args.enable_cors_header])
+os.chdir(checkout_root)
+raise SystemExit(subprocess.run(command, check=False).returncode)
+`;
 
 const FAILURE_DETAILS = Object.freeze({
   ARGUMENT_ERROR: ["preflight", "Correct the launcher arguments and retry."],
@@ -190,17 +237,47 @@ async function exists(target) {
   }
 }
 
+function commandExists(name) {
+  const pathValue = process.env.PATH || "";
+  const pathEntries = pathValue.split(path.delimiter).filter(Boolean);
+  const extensions = process.platform === "win32"
+    ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";")
+    : [""];
+  for (const entry of pathEntries) {
+    for (const extension of extensions) {
+      const candidate = path.join(entry, `${name}${extension}`);
+      try {
+        if (fsSync.existsSync(candidate)) {
+          return true;
+        }
+      } catch {
+        // Ignore unreadable PATH entries and keep searching.
+      }
+    }
+  }
+  return false;
+}
+
 export async function resolveComfyuiDir(explicitDir) {
-  const candidates = [
-    explicitDir,
-    DEFAULT_VENDOR_COMFYUI_DIR,
-    DEFAULT_SIBLING_COMFYUI_DIR,
-  ].filter(Boolean);
+  const candidates = explicitDir
+    ? [explicitDir]
+    : [DEFAULT_VENDOR_COMFYUI_DIR, DEFAULT_SIBLING_COMFYUI_DIR];
   for (const candidate of candidates) {
     const mainPy = path.join(candidate, "main.py");
     if (await exists(mainPy)) {
+      if (
+        path.resolve(candidate) === path.resolve(DEFAULT_VENDOR_COMFYUI_DIR)
+        && !commandExists("comfyui")
+      ) {
+        continue;
+      }
       return path.resolve(candidate);
     }
+  }
+  if (!explicitDir && commandExists("comfyui")) {
+    const shimDir = await fs.mkdtemp(path.join(os.tmpdir(), "vibecomfy-comfyui-"));
+    await fs.writeFile(path.join(shimDir, "main.py"), COMFYUI_SHIM_MAIN, { encoding: "utf8", mode: 0o755 });
+    return shimDir;
   }
   throw new LauncherFailure("MISSING_COMFYUI",
     `Could not find ComfyUI. Checked: ${candidates.join(", ")}. Set COMFYUI_DIR or pass --comfyui-dir.`

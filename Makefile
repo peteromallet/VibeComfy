@@ -176,11 +176,17 @@ parity:
 
 e2e-browser:
 	cd tests/e2e && npm install
-	$(NODE) tests/e2e/run.mjs
+	PYBIN="$(PYTHON)" $(NODE) tests/e2e/run.mjs
 
 # Keep preview e2e explicit because it assumes the heavier browser + ComfyUI test environment.
 e2e-preview:
-	$(NODE) tests/e2e/run.mjs -- --config tests/e2e/playwright.config.mjs $(E2E_PREVIEW_SPECS)
+	@if ! command -v comfyui >/dev/null 2>&1; then \
+		$(PYTHON) -m pip install --extra-index-url https://nodes.appmana.com/simple/ 'comfyui==0.26.0'; \
+	fi
+	@if [ ! -d tests/e2e/node_modules/@playwright/test ]; then \
+		cd tests/e2e && npm install && npx playwright install chromium; \
+	fi
+	PYBIN="$(PYTHON)" $(NODE) tests/e2e/run.mjs -- --config tests/e2e/playwright.config.mjs $(E2E_PREVIEW_SPECS)
 
 clean-artifacts:
 	rm -rf .coverage coverage.xml .pytest_cache .hypothesis out temp test-results
