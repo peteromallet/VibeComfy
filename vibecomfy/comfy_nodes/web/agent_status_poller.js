@@ -39,6 +39,43 @@ export const CANONICAL_AGENT_PROVIDERS = new Set(["anthropic", "deepseek", "open
 
 export const DEFAULT_FETCH_DEADLINE_MS = 30000;
 
+const INFO_CONTRACT_VERSION = 1;
+const INFO_PAYLOAD_KEYS = Object.freeze([
+  "info_contract_version",
+  "process_start_id",
+  "start_time_utc",
+  "git_sha",
+  "git_dirty",
+  "git_state",
+  "web_source_hash",
+  "web_source_state",
+  "served_asset_kind",
+  "served_asset_id",
+  "served_asset_state",
+  "runtime_modes",
+  "remediation",
+]);
+const INFO_GIT_STATES = new Set(["clean", "dirty", "unavailable", "dirty_state_unavailable"]);
+const INFO_WEB_STATES = new Set(["identified", "unavailable"]);
+const INFO_ASSET_KINDS = new Set(["source", "cache_busted_dist", "unknown"]);
+const INFO_ASSET_STATES = new Set(["identified", "unavailable"]);
+const INFO_RUNTIME_MODE_KEYS = Object.freeze([
+  "headless",
+  "dynamic_io",
+  "runtime_module",
+  "demo_picker",
+  "agentic_replay",
+]);
+const INFO_REMEDIATIONS = new Set([
+  "restore_git_metadata",
+  "check_git_worktree_state",
+  "rebuild_web_assets",
+  "restart_with_matching_web_assets",
+]);
+const INFO_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+const INFO_WEB_HASH_PATTERN = /^[a-f0-9]{12}$/;
+const INFO_PROCESS_START_ID_PATTERN = /^[a-f0-9]{32}$/;
+
 /**
  * Create a deadline controller that aborts a fetch after `deadlineMs`.
  * The returned `signal` can be passed directly to `fetch()`.
@@ -138,6 +175,94 @@ export function buildStatusUrl(route, model) {
 
 export function buildVibeComfyInfoUrl() {
   return "/vibecomfy/info";
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasExactlyKeys(value, keys) {
+  const valueKeys = Object.keys(value);
+  return valueKeys.length === keys.length && valueKeys.every((key) => keys.includes(key));
+}
+
+function isNullable(value, predicate) {
+  return value === null || predicate(value);
+}
+
+/**
+ * Project the `/vibecomfy/info` response onto its deliberately small public
+ * contract.  Do not retain unknown values: the diagnostic panel is visible to
+ * users and must never become a reflector for paths, environment values, or
+ * credential-shaped server fields.
+ */
+export function projectVibeComfyInfo(value) {
+  if (!isPlainObject(value) || !hasExactlyKeys(value, INFO_PAYLOAD_KEYS)) {
+    return null;
+  }
+  if (
+    value.info_contract_version !== INFO_CONTRACT_VERSION
+    || !INFO_PROCESS_START_ID_PATTERN.test(value.process_start_id)
+    || typeof value.start_time_utc !== "string"
+    || !value.start_time_utc.endsWith("Z")
+    || !Number.isFinite(Date.parse(value.start_time_utc))
+    || !isNullable(value.git_sha, (candidate) => typeof candidate === "string" && INFO_SHA_PATTERN.test(candidate))
+    || !isNullable(value.git_dirty, (candidate) => typeof candidate === "boolean")
+    || !INFO_GIT_STATES.has(value.git_state)
+    || !isNullable(value.web_source_hash, (candidate) => typeof candidate === "string" && INFO_WEB_HASH_PATTERN.test(candidate))
+    || !INFO_WEB_STATES.has(value.web_source_state)
+    || !INFO_ASSET_KINDS.has(value.served_asset_kind)
+    || !isNullable(value.served_asset_id, (candidate) => typeof candidate === "string")
+    || !INFO_ASSET_STATES.has(value.served_asset_state)
+    || !isPlainObject(value.runtime_modes)
+    || !hasExactlyKeys(value.runtime_modes, INFO_RUNTIME_MODE_KEYS)
+    || typeof value.runtime_modes.headless !== "boolean"
+    || typeof value.runtime_modes.dynamic_io !== "boolean"
+    || !["configured", "default"].includes(value.runtime_modes.runtime_module)
+    || typeof value.runtime_modes.demo_picker !== "boolean"
+    || typeof value.runtime_modes.agentic_replay !== "boolean"
+    || !Array.isArray(value.remediation)
+    || value.remediation.some((item) => typeof item !== "string" || !INFO_REMEDIATIONS.has(item))
+    || new Set(value.remediation).size !== value.remediation.length
+  ) {
+    return null;
+  }
+
+  const gitConsistent = (
+    (value.git_state === "unavailable" && value.git_sha === null && value.git_dirty === null)
+    || (value.git_state === "dirty_state_unavailable" && value.git_sha !== null && value.git_dirty === null)
+    || (value.git_state === "clean" && value.git_sha !== null && value.git_dirty === false)
+    || (value.git_state === "dirty" && value.git_sha !== null && value.git_dirty === true)
+  );
+  const webConsistent = (
+    (value.web_source_state === "identified" && value.web_source_hash !== null)
+    || (value.web_source_state === "unavailable" && value.web_source_hash === null)
+  );
+  const assetPrefix = value.served_asset_kind === "source"
+    ? "source:"
+    : value.served_asset_kind === "cache_busted_dist" ? "dist:" : null;
+  const assetConsistent = value.served_asset_state === "identified"
+    ? Boolean(value.web_source_hash && assetPrefix && value.served_asset_id === `${assetPrefix}${value.web_source_hash}`)
+    : value.served_asset_id === null;
+  if (!gitConsistent || !webConsistent || !assetConsistent) {
+    return null;
+  }
+
+  return Object.freeze({
+    info_contract_version: value.info_contract_version,
+    process_start_id: value.process_start_id,
+    start_time_utc: value.start_time_utc,
+    git_sha: value.git_sha,
+    git_dirty: value.git_dirty,
+    git_state: value.git_state,
+    web_source_hash: value.web_source_hash,
+    web_source_state: value.web_source_state,
+    served_asset_kind: value.served_asset_kind,
+    served_asset_id: value.served_asset_id,
+    served_asset_state: value.served_asset_state,
+    runtime_modes: Object.freeze({ ...value.runtime_modes }),
+    remediation: Object.freeze([...value.remediation]),
+  });
 }
 
 export function routeStatusState(panel) {
@@ -692,12 +817,6 @@ export async function refreshVibeComfyInfo(panel, deps = {}) {
     let info = null;
     try {
       info = await res.json();
-      recordVibeComfyInfoDiagnostic(panel, {
-        url: infoUrl,
-        ok: res.ok,
-        httpStatus: res.status,
-        payload: scrubDebugPayload(info),
-      });
     } catch (error) {
       if (Number.isFinite(requestEpoch) && panel.state.vibeComfyInfoRequestEpoch !== requestEpoch) {
         return;
@@ -706,12 +825,12 @@ export async function refreshVibeComfyInfo(panel, deps = {}) {
         url: infoUrl,
         ok: false,
         httpStatus: res.status,
-        error: `Malformed JSON: ${String(error?.message || error)}`,
+        error: "Runtime identity response was not valid JSON",
       });
       panel.state.vibeComfyInfoSnapshot = null;
       panel.state.vibeComfyInfoStatus = {
         kind: "malformed",
-        detail: String(error),
+        detail: "response was not valid JSON",
       };
       return;
     }
@@ -722,22 +841,22 @@ export async function refreshVibeComfyInfo(panel, deps = {}) {
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    if (!info || typeof info !== "object" || Array.isArray(info)) {
+    const projectedInfo = projectVibeComfyInfo(info);
+    if (!projectedInfo) {
       recordVibeComfyInfoDiagnostic(panel, {
         url: infoUrl,
         ok: false,
         httpStatus: res.status,
-        error: "Malformed payload: expected JSON object",
-        payload: scrubDebugPayload(info),
+        error: "Invalid immutable runtime identity contract",
       });
       panel.state.vibeComfyInfoSnapshot = null;
       panel.state.vibeComfyInfoStatus = {
         kind: "malformed",
-        detail: "expected JSON object",
+        detail: "invalid immutable runtime identity contract",
       };
       return;
     }
-    panel.state.vibeComfyInfoSnapshot = info;
+    panel.state.vibeComfyInfoSnapshot = projectedInfo;
     panel.state.vibeComfyInfoStatus = { kind: "ready" };
   } catch (error) {
     if (Number.isFinite(requestEpoch) && panel.state.vibeComfyInfoRequestEpoch !== requestEpoch) {
@@ -751,14 +870,13 @@ export async function refreshVibeComfyInfo(panel, deps = {}) {
       httpStatus: priorDiagnostic?.httpStatus ?? null,
       error: isTimeout
         ? `Fetch timed out after ${fetchDeadlineMs}ms`
-        : String(error?.message || error),
-      payload: priorDiagnostic?.payload || null,
+        : "Runtime identity request unavailable",
       timedOut: isTimeout || undefined,
     });
     panel.state.vibeComfyInfoSnapshot = null;
     panel.state.vibeComfyInfoStatus = {
       kind: "unavailable",
-      detail: isTimeout ? `timed out after ${fetchDeadlineMs}ms` : String(error),
+      detail: isTimeout ? `timed out after ${fetchDeadlineMs}ms` : "request unavailable",
     };
   } finally {
     if (

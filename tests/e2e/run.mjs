@@ -10,14 +10,85 @@ import { spawn } from "node:child_process";
 const __filename = fileURLToPath(import.meta.url);
 const E2E_DIR = path.dirname(__filename);
 const REPO_ROOT = path.resolve(E2E_DIR, "..", "..");
-const DEFAULT_EXTERNAL_COMFYUI_DIR = "/Users/peteromalley/Documents/reigh-workspace/ComfyUI";
 const DEFAULT_VENDOR_COMFYUI_DIR = path.join(REPO_ROOT, "vendor", "ComfyUI");
 const DEFAULT_SEED_SESSIONS_DIR = path.join(REPO_ROOT, "tests", "fixtures", "e2e_sessions");
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_STOP_TIMEOUT_MS = 10_000;
+const DEFAULT_ARTIFACT_ROOT = path.join(REPO_ROOT, "test-results", "e2e-launcher");
 const REQUIRED_SESSION_FILES = ["session_state.json"];
 const REQUIRED_TURN_FILES = ["request.json", "response.json", "chat.json"];
 const REQUIRED_PROVIDER_FILES = ["request.json", "fixture.json", "content.txt"];
+
+const FAILURE_DETAILS = Object.freeze({
+  ARGUMENT_ERROR: ["preflight", "Correct the launcher arguments and retry."],
+  MISSING_COMFYUI: ["preflight", "Set COMFYUI_DIR or pass --comfyui-dir with a checkout containing main.py."],
+  MALFORMED_FIXTURES: ["preflight", "Repair the named fixture file or choose a valid fixture directory."],
+  CUSTOM_NODE_WIRING: ["preflight", "Use a dedicated ComfyUI checkout or remove the conflicting custom_nodes/vibecomfy entry."],
+  MISSING_CHROMIUM: ["preflight", "Run cd tests/e2e && npx playwright install chromium, then retry."],
+  COMFYUI_START_FAILED: ["readiness", "Verify the selected Python can run ComfyUI and inspect comfyui.log."],
+  COMFYUI_EARLY_EXIT: ["readiness", "Inspect comfyui.log for the startup exception and verify ComfyUI dependencies."],
+  READINESS_TIMEOUT: ["readiness", "Inspect comfyui.log and verify /vibecomfy/ping plus agent status can become ready."],
+  READINESS_NOT_READY: ["readiness", "Inspect the agent status contract and fixture-provider configuration."],
+  PLAYWRIGHT_START_FAILED: ["playwright", "Verify the tests/e2e npm dependencies and retry."],
+  PLAYWRIGHT_FAILED: ["playwright", "Inspect results.json, the retained trace, screenshot, and HTML report."],
+  TEARDOWN_FAILED: ["teardown", "Stop the recorded ComfyUI process group and remove only the recorded seeded/runtime paths."],
+  INTERNAL_ERROR: ["launcher", "Inspect launcher-result.json and comfyui.log, then report the unclassified launcher defect."],
+});
+
+export class LauncherFailure extends Error {
+  constructor(code, message, options = {}) {
+    super(message, options);
+    this.name = "LauncherFailure";
+    this.code = code;
+    const [phase, remediation] = FAILURE_DETAILS[code] || FAILURE_DETAILS.INTERNAL_ERROR;
+    this.phase = phase;
+    this.remediation = remediation;
+    this.details = options.details || null;
+  }
+}
+
+function asLauncherFailure(error, code, message = null) {
+  if (error instanceof LauncherFailure) return error;
+  const detail = error instanceof Error ? error.message : String(error);
+  return new LauncherFailure(code, message || detail, { cause: error });
+}
+
+export function sanitizeText(value, replacements = []) {
+  let text = String(value ?? "");
+  const secretValues = Object.entries(process.env)
+    .filter(([name, secret]) => secret && secret.length >= 8 && /(?:TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(name))
+    .map(([, secret]) => secret);
+  for (const secret of secretValues) text = text.split(secret).join("<redacted>");
+  text = text
+    .replace(/([?&](?:token|key|secret|password|auth)=)[^&\s]+/gi, "$1<redacted>")
+    .replace(/(\b(?:token|api[_-]?key|secret|password|authorization)\b\s*[:=]\s*)[^\s,;]+/gi, "$1<redacted>");
+  const pathReplacements = [
+    [REPO_ROOT, "<repo>"],
+    [os.homedir(), "<home>"],
+    ...replacements,
+  ].filter(([source]) => source);
+  for (const [source, label] of pathReplacements.sort((a, b) => b[0].length - a[0].length)) {
+    text = text.split(String(source)).join(String(label));
+  }
+  return text;
+}
+
+async function writeJson(filePath, payload) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+function publicFailure(error, replacements = []) {
+  const failure = asLauncherFailure(error, "INTERNAL_ERROR");
+  return {
+    ok: false,
+    code: failure.code,
+    phase: failure.phase,
+    message: sanitizeText(failure.message, replacements),
+    remediation: failure.remediation,
+    ...(failure.details ? { details: failure.details } : {}),
+  };
+}
 
 function usage() {
   return `Usage: node tests/e2e/run.mjs [options] [-- <playwright args...>]
@@ -121,7 +192,6 @@ async function exists(target) {
 async function resolveComfyuiDir(explicitDir) {
   const candidates = [
     explicitDir,
-    DEFAULT_EXTERNAL_COMFYUI_DIR,
     DEFAULT_VENDOR_COMFYUI_DIR,
   ].filter(Boolean);
   for (const candidate of candidates) {
@@ -130,7 +200,7 @@ async function resolveComfyuiDir(explicitDir) {
       return path.resolve(candidate);
     }
   }
-  throw new Error(
+  throw new LauncherFailure("MISSING_COMFYUI",
     `Could not find ComfyUI. Checked: ${candidates.join(", ")}. Set COMFYUI_DIR or pass --comfyui-dir.`
   );
 }
@@ -184,7 +254,7 @@ async function ensureCustomNodeLink(comfyuiDir) {
     }
     return;
   }
-  throw new Error(
+  throw new LauncherFailure("CUSTOM_NODE_WIRING",
     `Cannot wire custom node at ${linkPath}: path exists and is not a symlink. Move it aside or set COMFYUI_DIR to a dedicated test checkout.`
   );
 }
@@ -194,7 +264,7 @@ async function readJsonFile(filePath) {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    throw new Error(`Invalid JSON in ${filePath}: ${error.message}`);
+    throw new LauncherFailure("MALFORMED_FIXTURES", `Invalid JSON in ${filePath}: ${error.message}`);
   }
 }
 
@@ -203,28 +273,28 @@ async function validateSessionFixture(sessionDir) {
   for (const fileName of REQUIRED_SESSION_FILES) {
     const fullPath = path.join(sessionDir, fileName);
     if (!(await exists(fullPath))) {
-      throw new Error(`Session fixture ${sessionName} is missing ${fileName}.`);
+      throw new LauncherFailure("MALFORMED_FIXTURES", `Session fixture ${sessionName} is missing ${fileName}.`);
     }
     await readJsonFile(fullPath);
   }
 
   const turnsDir = path.join(sessionDir, "turns");
   if (!(await exists(turnsDir))) {
-    throw new Error(`Session fixture ${sessionName} is missing turns/.`);
+    throw new LauncherFailure("MALFORMED_FIXTURES", `Session fixture ${sessionName} is missing turns/.`);
   }
   const turnEntries = (await fs.readdir(turnsDir, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
   if (turnEntries.length === 0) {
-    throw new Error(`Session fixture ${sessionName} has no turn directories.`);
+    throw new LauncherFailure("MALFORMED_FIXTURES", `Session fixture ${sessionName} has no turn directories.`);
   }
   for (const turnName of turnEntries) {
     const turnDir = path.join(turnsDir, turnName);
     for (const fileName of REQUIRED_TURN_FILES) {
       const fullPath = path.join(turnDir, fileName);
       if (!(await exists(fullPath))) {
-        throw new Error(`Session fixture ${sessionName}/${turnName} is missing ${fileName}.`);
+        throw new LauncherFailure("MALFORMED_FIXTURES", `Session fixture ${sessionName}/${turnName} is missing ${fileName}.`);
       }
       await readJsonFile(fullPath);
     }
@@ -234,14 +304,14 @@ async function validateSessionFixture(sessionDir) {
 async function validateProviderFixtures(fixtureDir) {
   const manifestPath = path.join(fixtureDir, "manifest.json");
   if (!(await exists(manifestPath))) {
-    throw new Error(
+    throw new LauncherFailure("MALFORMED_FIXTURES",
       `Fixture-provider fixture directory ${fixtureDir} is missing manifest.json.`
     );
   }
   const manifest = await readJsonFile(manifestPath);
   const keys = Object.keys(manifest);
   if (keys.length === 0) {
-    throw new Error(
+    throw new LauncherFailure("MALFORMED_FIXTURES",
       `Fixture-provider manifest at ${manifestPath} contains no entries.`
     );
   }
@@ -277,7 +347,7 @@ async function validateProviderFixtures(fixtureDir) {
     if (corrupt.length > 0) {
       parts.push(`corrupt JSON: ${corrupt.join(", ")}`);
     }
-    throw new Error(
+    throw new LauncherFailure("MALFORMED_FIXTURES",
       `Fixture-provider fixture directory ${fixtureDir} is incomplete: ${parts.join("; ")}`
     );
   }
@@ -315,7 +385,7 @@ async function seedSessions(sourceRoot, comfyuiDir) {
     await validateSessionFixture(sourceDir);
     const targetDir = path.join(targetRoot, sessionName);
     if (await exists(targetDir)) {
-      throw new Error(
+      throw new LauncherFailure("MALFORMED_FIXTURES",
         `Refusing to overwrite existing seeded session ${targetDir}. Remove it or choose unique fixture names.`
       );
     }
@@ -337,11 +407,18 @@ async function waitForHttpJson(url, timeoutMs, label, child) {
   const deadline = Date.now() + timeoutMs;
   let lastError = null;
   while (Date.now() < deadline) {
+    if (child?.launchError) {
+      throw new LauncherFailure("COMFYUI_START_FAILED", `Could not start ComfyUI: ${child.launchError.message}`);
+    }
     if (child && childExited(child)) {
-      throw new Error(`ComfyUI exited before ${label} became ready.`);
+      throw new LauncherFailure("COMFYUI_EARLY_EXIT", `ComfyUI exited before ${label} became ready.`);
     }
     try {
-      const response = await fetch(url, { headers: { accept: "application/json" } });
+      const remainingMs = Math.max(1, deadline - Date.now());
+      const response = await fetch(url, {
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(Math.min(5_000, remainingMs)),
+      });
       if (response.ok) {
         const payload = await response.json();
         return payload;
@@ -352,7 +429,7 @@ async function waitForHttpJson(url, timeoutMs, label, child) {
     }
     await delay(500);
   }
-  throw new Error(`Timed out waiting for ${label}: ${lastError ? lastError.message : "no response"}`);
+  throw new LauncherFailure("READINESS_TIMEOUT", `Timed out waiting for ${label}: ${lastError ? lastError.message : "no response"}`);
 }
 
 async function waitForReadiness(baseUrl, timeoutMs, child) {
@@ -364,7 +441,7 @@ async function waitForReadiness(baseUrl, timeoutMs, child) {
     child
   );
   if (!status || status.ready !== true) {
-    throw new Error(
+    throw new LauncherFailure("READINESS_NOT_READY",
       `/vibecomfy/agent/status returned not-ready payload: ${JSON.stringify(status)}`
     );
   }
@@ -379,7 +456,7 @@ async function makeRuntimeRoot() {
   return runtimeRoot;
 }
 
-function spawnComfyUI({ comfyuiDir, python, port, runtimeRoot }) {
+function spawnComfyUI({ comfyuiDir, python, port, runtimeRoot, comfyLog, replacements }) {
   const childEnv = { ...process.env };
   childEnv.PORT = String(port);
   childEnv.REPO_ROOT = REPO_ROOT;
@@ -420,13 +497,19 @@ function spawnComfyUI({ comfyuiDir, python, port, runtimeRoot }) {
     }
   );
 
+  child.launchError = null;
+  child.on("error", (error) => {
+    child.launchError = error;
+  });
+
   for (const [streamName, stream] of [
     ["stdout", child.stdout],
     ["stderr", child.stderr],
   ]) {
     stream?.setEncoding("utf8");
     stream?.on("data", (chunk) => {
-      const text = String(chunk);
+      const text = sanitizeText(String(chunk), replacements);
+      comfyLog.push(`[${streamName}] ${text}`);
       for (const line of text.split(/\r?\n/)) {
         if (line) {
           process.stdout.write(`[comfyui:${streamName}] ${line}\n`);
@@ -468,7 +551,9 @@ async function stopProcess(child) {
     log(`ComfyUI pid ${pid} did not stop after SIGTERM; escalating to SIGKILL.`);
     sendSignal("SIGKILL");
   }
-  await new Promise((resolve) => child.once("exit", resolve));
+  if (!childExited(child)) {
+    await new Promise((resolve) => child.once("exit", resolve));
+  }
 }
 
 async function removeSeededSessions(pathsToRemove) {
@@ -477,17 +562,40 @@ async function removeSeededSessions(pathsToRemove) {
   }
 }
 
+function normalizePlaywrightArgs(playwrightArgs) {
+  return playwrightArgs.map((arg) => {
+    if (path.isAbsolute(arg)) return arg;
+    const repoCandidate = path.join(REPO_ROOT, arg);
+    return fs.access(repoCandidate).then(() => repoCandidate, () => arg);
+  });
+}
+
+async function ensureChromiumInstalled() {
+  let chromium;
+  try {
+    ({ chromium } = await import("@playwright/test"));
+  } catch (error) {
+    throw new LauncherFailure("MISSING_CHROMIUM", `Playwright is unavailable: ${error.message}`);
+  }
+  const executable = chromium.executablePath();
+  if (!executable || !(await exists(executable))) {
+    throw new LauncherFailure("MISSING_CHROMIUM", "The Playwright Chromium executable is not installed.");
+  }
+}
+
 async function runPlaywright(playwrightArgs, env) {
-  const args = ["playwright", "test", ...playwrightArgs];
-  return new Promise((resolve) => {
+  const normalized = await Promise.all(normalizePlaywrightArgs(playwrightArgs));
+  const args = ["playwright", "test", ...normalized];
+  return new Promise((resolve, reject) => {
     const child = spawn("npx", args, {
       cwd: E2E_DIR,
       env,
       stdio: "inherit",
     });
+    child.on("error", (error) => reject(new LauncherFailure("PLAYWRIGHT_START_FAILED", error.message)));
     child.on("exit", (code, signal) => {
       if (signal) {
-        resolve(128);
+        resolve(128 + (signal === "SIGTERM" ? 15 : 0));
         return;
       }
       resolve(code ?? 1);
@@ -495,33 +603,57 @@ async function runPlaywright(playwrightArgs, env) {
   });
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
+export async function main(argv = process.argv.slice(2)) {
+  let options;
+  try {
+    options = parseArgs(argv);
+  } catch (error) {
+    throw asLauncherFailure(error, "ARGUMENT_ERROR");
+  }
   if (options.help) {
     process.stdout.write(usage());
-    return;
+    return { ok: true, code: "HELP", phase: "preflight" };
   }
 
-  const comfyuiDir = await resolveComfyuiDir(options.comfyuiDir);
-  const port = options.port ?? (await allocatePort());
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const artifactRoot = path.resolve(process.env.VIBECOMFY_E2E_ARTIFACT_DIR || DEFAULT_ARTIFACT_ROOT);
+  await fs.mkdir(artifactRoot, { recursive: true });
+  const comfyLog = [];
   const seededTargets = [];
   let comfyChild = null;
   let runtimeRoot = null;
   let cleaningUp = false;
+  let comfyuiDir = null;
+  let primaryFailure = null;
+  const replacements = [[artifactRoot, "<artifacts>"]];
+  if (options.comfyuiDir) {
+    replacements.push([path.resolve(options.comfyuiDir), "<comfyui>"]);
+  }
+  if (options.seedSessionsDir) {
+    replacements.push([path.resolve(options.seedSessionsDir), "<session-fixtures>"]);
+  }
 
   const cleanup = async () => {
     if (cleaningUp) {
       return;
     }
     cleaningUp = true;
-    try {
-      await stopProcess(comfyChild);
-    } finally {
-      await removeSeededSessions(seededTargets);
-      if (runtimeRoot) {
-        await fs.rm(runtimeRoot, { recursive: true, force: true });
+    const errors = [];
+    for (const action of [
+      () => stopProcess(comfyChild),
+      () => removeSeededSessions(seededTargets),
+      () => runtimeRoot ? fs.rm(runtimeRoot, { recursive: true, force: true }) : undefined,
+      () => fs.writeFile(path.join(artifactRoot, "comfyui.log"), sanitizeText(comfyLog.join(""), replacements), "utf8"),
+    ]) {
+      try {
+        await action();
+      } catch (error) {
+        errors.push(error instanceof Error ? error.message : String(error));
       }
+    }
+    if (errors.length > 0) {
+      throw new LauncherFailure("TEARDOWN_FAILED", errors.join("; "), {
+        details: primaryFailure ? { primary_failure: publicFailure(primaryFailure, replacements) } : null,
+      });
     }
   };
 
@@ -529,7 +661,9 @@ async function main() {
     process.on(signal, async () => {
       log(`Received ${signal}; tearing down ComfyUI.`);
       try {
-        await cleanup();
+        await cleanup().catch((error) => {
+          process.stderr.write(`[e2e-run] ${JSON.stringify(publicFailure(error, replacements))}\n`);
+        });
       } finally {
         process.exit(exitCode);
       }
@@ -540,6 +674,10 @@ async function main() {
   forwardSignal("SIGTERM", 143);
 
   try {
+    comfyuiDir = await resolveComfyuiDir(options.comfyuiDir);
+    replacements.push([comfyuiDir, "<comfyui>"]);
+    const port = options.port ?? (await allocatePort());
+    const baseUrl = `http://127.0.0.1:${port}`;
     log(`repo: ${REPO_ROOT}`);
     log(`comfyui: ${comfyuiDir}`);
     log(`python: ${options.python}`);
@@ -551,9 +689,15 @@ async function main() {
     const providerFixtureDir =
       process.env.VIBECOMFY_FIXTURE_DIR ||
       path.join(REPO_ROOT, "tests", "fixtures", "editor_sessions");
+    replacements.push([path.resolve(providerFixtureDir), "<provider-fixtures>"]);
     await validateProviderFixtures(providerFixtureDir);
 
+    if (!options.launcherOnly) {
+      await ensureChromiumInstalled();
+    }
+
     runtimeRoot = await makeRuntimeRoot();
+    replacements.push([runtimeRoot, "<runtime>"]);
     if (options.seedSessions) {
       const copied = await seedSessions(options.seedSessionsDir, comfyuiDir);
       seededTargets.push(...copied);
@@ -562,13 +706,13 @@ async function main() {
       }
     }
 
-    comfyChild = spawnComfyUI({ comfyuiDir, python: options.python, port, runtimeRoot });
+    comfyChild = spawnComfyUI({ comfyuiDir, python: options.python, port, runtimeRoot, comfyLog, replacements });
     await waitForReadiness(baseUrl, options.readyTimeoutMs, comfyChild);
     log(`ComfyUI is ready at ${baseUrl}`);
 
     if (options.launcherOnly) {
       log("Launcher-only mode enabled; skipping Playwright.");
-      return;
+      return { ok: true, code: "LAUNCHER_READY", phase: "readiness" };
     }
 
     const env = {
@@ -576,18 +720,58 @@ async function main() {
       BASE_URL: baseUrl,
       REPO_ROOT,
       PORT: String(port),
+      VIBECOMFY_E2E_PLAYWRIGHT_OUTPUT_DIR: path.join(artifactRoot, "playwright"),
+      VIBECOMFY_E2E_PLAYWRIGHT_JSON: path.join(artifactRoot, "results.json"),
+      VIBECOMFY_E2E_PLAYWRIGHT_HTML: path.join(artifactRoot, "html-report"),
     };
     const code = await runPlaywright(options.playwrightArgs, env);
     if (code !== 0) {
-      throw new Error(`Playwright exited with code ${code}.`);
+      throw new LauncherFailure("PLAYWRIGHT_FAILED", `Playwright exited with code ${code}.`);
     }
+    return { ok: true, code: "E2E_PASSED", phase: "playwright" };
+  } catch (error) {
+    primaryFailure = asLauncherFailure(error, "INTERNAL_ERROR");
+    primaryFailure.message = sanitizeText(primaryFailure.message, replacements);
+    throw primaryFailure;
   } finally {
-    await cleanup();
+    try {
+      await cleanup();
+    } catch (error) {
+      const teardownFailure = asLauncherFailure(error, "TEARDOWN_FAILED");
+      teardownFailure.message = sanitizeText(teardownFailure.message, replacements);
+      primaryFailure = teardownFailure;
+      throw teardownFailure;
+    }
   }
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.stack || error.message : String(error);
-  process.stderr.write(`[e2e-run] ERROR ${message}\n`);
-  process.exit(1);
-});
+export async function runEntrypoint(argv = process.argv.slice(2)) {
+  const artifactRoot = path.resolve(process.env.VIBECOMFY_E2E_ARTIFACT_DIR || DEFAULT_ARTIFACT_ROOT);
+  let result;
+  try {
+    result = await main(argv);
+  } catch (error) {
+    result = publicFailure(error);
+  }
+  result.artifacts = {
+    launcher_result: "launcher-result.json",
+    comfyui_log: "comfyui.log",
+    playwright_result: "results.json",
+    playwright_output: "playwright/",
+    html_report: "html-report/",
+  };
+  await writeJson(path.join(artifactRoot, "launcher-result.json"), result);
+  const stream = result.ok ? process.stdout : process.stderr;
+  stream.write(`[e2e-run:result] ${JSON.stringify(result)}\n`);
+  return result.ok ? 0 : 1;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  runEntrypoint().then((exitCode) => {
+    process.exitCode = exitCode;
+  }).catch((error) => {
+    const result = publicFailure(error);
+    process.stderr.write(`[e2e-run:result] ${JSON.stringify(result)}\n`);
+    process.exitCode = 1;
+  });
+}

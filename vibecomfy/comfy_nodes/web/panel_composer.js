@@ -554,13 +554,15 @@ export function renderDeveloper(panel, deps = {}) {
     : gitSha;
   const runtimeLines = [
     `infoRoute: ${runtimeStatus}`,
+    `infoContractVersion: ${runtimeInfo?.info_contract_version ?? "unknown"}`,
+    `processStartId: ${normalizedRuntimeInfoString(runtimeInfo?.process_start_id)}`,
     `gitSha: ${gitShaWithDirtyMarker}`,
-    `gitBranch: ${normalizedRuntimeInfoString(runtimeInfo?.git_branch)}`,
+    `gitState: ${normalizedRuntimeInfoString(runtimeInfo?.git_state)}`,
     `webSourceHash: ${normalizedRuntimeInfoString(runtimeInfo?.web_source_hash)}`,
-    `servedWebPath: ${normalizedRuntimeInfoString(runtimeInfo?.served_web_path || runtimeInfo?.WEB_DIRECTORY)}`,
-    runtimeInfo?.start_time_utc ? `startTimeUtc: ${runtimeInfo.start_time_utc}` : null,
-    Number.isFinite(runtimeInfo?.uptime_seconds) ? `uptimeSeconds: ${runtimeInfo.uptime_seconds}` : null,
-    runtimeInfo?.git_diagnostic?.code ? `gitDiagnostic: ${runtimeInfo.git_diagnostic.code}` : null,
+    `webSourceState: ${normalizedRuntimeInfoString(runtimeInfo?.web_source_state)}`,
+    `servedAsset: ${normalizedRuntimeInfoString(runtimeInfo?.served_asset_id)}`,
+    `servedAssetState: ${normalizedRuntimeInfoString(runtimeInfo?.served_asset_state)}`,
+    runtimeInfo?.remediation?.length ? `remediation: ${runtimeInfo.remediation.join(", ")}` : null,
     runtimeDiagnostic?.error ? `fetchDiagnostic: ${runtimeDiagnostic.error}` : null,
   ].filter(Boolean);
   for (const line of runtimeLines) {

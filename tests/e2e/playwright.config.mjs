@@ -2,6 +2,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const BASE_URL = process.env.BASE_URL || "http://127.0.0.1:8188";
+const OUTPUT_DIR = process.env.VIBECOMFY_E2E_PLAYWRIGHT_OUTPUT_DIR || "test-results";
+const JSON_RESULT = process.env.VIBECOMFY_E2E_PLAYWRIGHT_JSON || "test-results/results.json";
+const HTML_REPORT = process.env.VIBECOMFY_E2E_PLAYWRIGHT_HTML || "playwright-report";
 
 export default defineConfig({
   testDir: "./specs",
@@ -31,13 +34,19 @@ export default defineConfig({
   },
 
   // Reporters
-  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+  reporter: [
+    ["list"],
+    ["json", { outputFile: JSON_RESULT }],
+    ["html", { outputFolder: HTML_REPORT, open: "never" }],
+  ],
+
+  outputDir: OUTPUT_DIR,
 
   use: {
     // Shared across all projects
     baseURL: BASE_URL,
     trace: "retain-on-failure",
-    screenshot: "off",
+    screenshot: "only-on-failure",
     video: "off",
   },
 

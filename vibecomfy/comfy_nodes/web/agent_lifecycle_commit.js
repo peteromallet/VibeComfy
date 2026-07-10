@@ -254,6 +254,12 @@ function _coerceDebugPayload(value) {
   return {};
 }
 
+function _submitEpochPayload(payload) {
+  return Number.isFinite(payload?.submitEpoch)
+    ? { submitEpoch: Number(payload.submitEpoch) }
+    : {};
+}
+
 // ---------------------------------------------------------------------------
 // Commit helpers. Each one projects a canonical envelope and delegates to
 // `transition(...)`, returning the plain obligations object.
@@ -276,9 +282,7 @@ export function commitOptimisticSubmit(panel, payload = {}) {
   return transition(panel, "SUBMIT_START", {
     lastSubmit: payload.lastSubmit || null,
     debugPayload: _coerceDebugPayload(payload.debugPayload),
-    ...(typeof payload.submitEpoch === "string" && payload.submitEpoch
-      ? { submitEpoch: payload.submitEpoch }
-      : {}),
+    ..._submitEpochPayload(payload),
   });
 }
 
@@ -325,6 +329,7 @@ export function commitTerminalResponse(panel, payload = {}) {
   // ── Explicit error/failure terminal ──────────────────────────────────
   if (explicitFailure) {
     return transition(panel, "SUBMIT_NETWORK_FAILURE", {
+      ..._submitEpochPayload(payload),
       failure: explicitFailure,
       syntheticAgentMessage: payload.syntheticAgentMessage || null,
       debugPayload: {
@@ -378,6 +383,7 @@ export function commitTerminalResponse(panel, payload = {}) {
         session_id: sessionId,
       };
       return transition(panel, "CLARIFY_ONLY_RESPONSE", {
+        ..._submitEpochPayload(payload),
         result: raw || result,
         sessionId,
         turnId,
@@ -407,6 +413,7 @@ export function commitTerminalResponse(panel, payload = {}) {
             endpoint: "submit:custom-nodes",
           });
       return transition(panel, "REQUIRES_CUSTOM_NODES_RESPONSE", {
+        ..._submitEpochPayload(payload),
         result: raw || result,
         sessionId,
         turnId,
@@ -431,6 +438,7 @@ export function commitTerminalResponse(panel, payload = {}) {
           ? outcome.reason.trim()
           : "No change needed.");
       return transition(panel, "NOOP_RESPONSE", {
+        ..._submitEpochPayload(payload),
         result: raw || result,
         sessionId,
         turnId,
@@ -471,6 +479,7 @@ export function commitTerminalResponse(panel, payload = {}) {
         panel,
         kind === "edit_clarify" ? "EDIT_CLARIFY_RESPONSE" : "OK_CANDIDATE_RESPONSE",
         {
+          ..._submitEpochPayload(payload),
           result: raw || result,
           sessionId,
           turnId,
@@ -513,6 +522,7 @@ export function commitTerminalResponse(panel, payload = {}) {
           retryable: false,
         };
       return transition(panel, "SUBMIT_NETWORK_FAILURE", {
+        ..._submitEpochPayload(payload),
         failure,
         syntheticAgentMessage: payload.syntheticAgentMessage || null,
         debugPayload: {

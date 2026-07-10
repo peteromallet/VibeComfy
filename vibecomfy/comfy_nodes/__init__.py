@@ -24,7 +24,7 @@ import logging
 import os
 import sys
 import hashlib
-import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -49,14 +49,8 @@ _WEB_SRC_DIR = _MODULE_DIR / "web"
 _WEB_DIST_DIR = _MODULE_DIR / "web_dist"
 _WEB_DIRECTORY = "./web"  # fallback
 _MODULE_START_AT_UTC = datetime.now(timezone.utc)
-_MODULE_START_MONOTONIC = time.monotonic()
-_INFO_LAUNCH_FLAG_NAMES = (
-    "VIBECOMFY_HEADLESS",
-    "VIBECOMFY_CODE_DYNAMIC_IO",
-    "VIBECOMFY_ARNOLD_RUNTIME_MODULE",
-    "VIBECOMFY_DEMO_PICKER",
-    "VIBECOMFY_AGENTIC_REPLAY",
-)
+_PROCESS_START_ID = uuid.uuid4().hex
+_INFO_CONTRACT_VERSION = 1
 
 
 def _web_source_hash() -> str | None:
@@ -95,84 +89,108 @@ def _utc_isoformat(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _launch_flags_snapshot() -> dict[str, str | None]:
+def _runtime_modes_snapshot() -> dict[str, bool | str]:
+    """Return semantic modes without reflecting raw environment values."""
     return {
-        name: os.environ.get(name)
-        for name in _INFO_LAUNCH_FLAG_NAMES
+        "headless": os.environ.get("VIBECOMFY_HEADLESS") == "1",
+        "dynamic_io": os.environ.get("VIBECOMFY_CODE_DYNAMIC_IO") == "1",
+        "runtime_module": (
+            "configured"
+            if os.environ.get("VIBECOMFY_ARNOLD_RUNTIME_MODULE")
+            else "default"
+        ),
+        "demo_picker": os.environ.get("VIBECOMFY_DEMO_PICKER") == "1",
+        "agentic_replay": os.environ.get("VIBECOMFY_AGENTIC_REPLAY") == "1",
     }
 
 
-def _resolve_served_web_path() -> str:
-    relative = WEB_DIRECTORY.removeprefix("./")
-    return str((_MODULE_DIR / relative).resolve())
+def _served_asset_snapshot(source_hash: str | None) -> dict[str, str | None]:
+    """Describe the served bytes without exposing or trusting a filesystem path."""
+    if WEB_DIRECTORY == "./web":
+        return {
+            "served_asset_kind": "source",
+            "served_asset_id": f"source:{source_hash}" if source_hash else None,
+            "served_asset_state": "identified" if source_hash else "unavailable",
+        }
+    if source_hash and WEB_DIRECTORY == f"./web_dist/{source_hash}":
+        return {
+            "served_asset_kind": "cache_busted_dist",
+            "served_asset_id": f"dist:{source_hash}",
+            "served_asset_state": "identified",
+        }
+    return {
+        "served_asset_kind": "unknown",
+        "served_asset_id": None,
+        "served_asset_state": "unavailable",
+    }
 
 
-def _git_info_snapshot() -> tuple[dict[str, Any], dict[str, Any] | None]:
+def _git_info_snapshot() -> dict[str, Any]:
     from vibecomfy._git_utils import git_stdout_result
-    from vibecomfy.commands._diagnostics import diagnostic_to_json
     from vibecomfy.utils import find_repo_root
 
-    repo_root = find_repo_root()
-
-    sha: str | None = None
-    session_git_error: Exception | None = None
     try:
-        from vibecomfy.runtime.session import current_source_revision
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        session_git_error = exc
-    else:
-        try:
-            sha = current_source_revision()
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            session_git_error = exc
-
-    sha_result = None
-    if sha is None:
+        repo_root = find_repo_root()
         sha_result = git_stdout_result(repo_root, ["rev-parse", "HEAD"])
-        sha = (sha_result.stdout or "").strip() or None
-
-    branch_result = git_stdout_result(repo_root, ["rev-parse", "--abbrev-ref", "HEAD"])
-    branch = (branch_result.stdout or "").strip() or None
-
-    dirty_result = git_stdout_result(repo_root, ["status", "--porcelain"])
-    dirty_stdout = dirty_result.stdout
-    dirty = None if dirty_stdout is None else bool(dirty_stdout.strip())
-
-    diagnostic: dict[str, Any] | None = None
-    for result in (sha_result, branch_result, dirty_result):
-        if result is not None and result.diagnostic is not None:
-            diagnostic = diagnostic_to_json(result.diagnostic)
-            break
-    if diagnostic is None and session_git_error is not None and sha is None:
-        diagnostic = {
-            "code": "git_helper_unavailable",
-            "message": str(session_git_error),
-            "severity": "error",
-            "recoverable": True,
+        dirty_result = git_stdout_result(repo_root, ["status", "--porcelain"])
+    except Exception:  # pragma: no cover - defensive containment
+        return {
+            "sha": None,
+            "dirty": None,
+            "state": "unavailable",
         }
 
+    sha_candidate = (sha_result.stdout or "").strip().lower()
+    sha = (
+        sha_candidate
+        if len(sha_candidate) in (40, 64)
+        and all(character in "0123456789abcdef" for character in sha_candidate)
+        else None
+    )
+    dirty = (
+        bool(dirty_result.stdout.strip())
+        if dirty_result.stdout is not None
+        else None
+    )
+    if sha is None:
+        state = "unavailable"
+    elif dirty is None:
+        state = "dirty_state_unavailable"
+    else:
+        state = "dirty" if dirty else "clean"
     return {
         "sha": sha,
-        "branch": branch,
         "dirty": dirty,
-    }, diagnostic
+        "state": state,
+    }
 
 
 def _info_payload() -> dict[str, Any]:
-    git, git_diagnostic = _git_info_snapshot()
+    git = _git_info_snapshot()
+    source_hash = _web_source_hash()
+    served_asset = _served_asset_snapshot(source_hash)
+    remediation: list[str] = []
+    if git["state"] == "unavailable":
+        remediation.append("restore_git_metadata")
+    elif git["state"] == "dirty_state_unavailable":
+        remediation.append("check_git_worktree_state")
+    if source_hash is None:
+        remediation.append("rebuild_web_assets")
+    if served_asset["served_asset_state"] == "unavailable" and source_hash is not None:
+        remediation.append("restart_with_matching_web_assets")
+
     payload: dict[str, Any] = {
+        "info_contract_version": _INFO_CONTRACT_VERSION,
+        "process_start_id": _PROCESS_START_ID,
         "start_time_utc": _utc_isoformat(_MODULE_START_AT_UTC),
-        "uptime_seconds": max(0.0, round(time.monotonic() - _MODULE_START_MONOTONIC, 3)),
-        "WEB_DIRECTORY": WEB_DIRECTORY,
-        "web_source_hash": _web_source_hash(),
-        "web_source_path": str(_WEB_SRC_DIR.resolve()),
-        "web_dist_path": str(_WEB_DIST_DIR.resolve()),
-        "served_web_path": _resolve_served_web_path(),
-        "launch_flags": _launch_flags_snapshot(),
         "git_sha": git["sha"],
-        "git_branch": git["branch"],
         "git_dirty": git["dirty"],
-        "git_diagnostic": git_diagnostic,
+        "git_state": git["state"],
+        "web_source_hash": source_hash,
+        "web_source_state": "identified" if source_hash else "unavailable",
+        **served_asset,
+        "runtime_modes": _runtime_modes_snapshot(),
+        "remediation": remediation,
     }
     return payload
 
