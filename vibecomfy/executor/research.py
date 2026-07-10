@@ -3176,13 +3176,15 @@ def _build_adaptation_plan(
     # ── Media-domain gate (pre-selection) ────────────────────────────────────
     # Compute the target graph's media domain once.  When the graph domain is
     # undecided ("multi" or None), the gate is skipped entirely (permissive —
-    # do not block when we cannot confidently classify the target).  Any slice
-    # whose domain is DEFINED and differs from the graph's is rejected — NO
-    # exceptions, NO cross-media-adapter pass-through.  (The earlier whitelist
-    # for image_to_video / first_last_frame / *_to_* adapters was net-harmful:
-    # it let video adapters through against 3D/image graphs, flipping
-    # structural_validation fail→pass on slices that are still wrong for the
-    # query — see ``_slice_is_cross_media_adapter`` for the removed logic.)
+    # do not block when we cannot confidently classify the target).  Slices
+    # whose domain is DEFINED and differs from the graph's are filtered
+    # through ``_slice_allowed_for_graph_domain``, which permits cross-media
+    # adapters (detected by ``_slice_is_cross_media_adapter``) while rejecting
+    # same-media mismatches (e.g. a video slice against an image graph with no
+    # adapter signal).  The None-fallback below also exempts cross-media
+    # adapters — a slice advertising ``image_to_video`` / ``i2v`` / etc. that
+    # fails structural binding will still produce a plan (with
+    # structural_validation="fail") rather than being rejected wholesale.
     graph_domain = _media_domain_from_node_types(_graph_node_class_types(graph))
     gate_active = graph_domain not in (None, "multi")
 

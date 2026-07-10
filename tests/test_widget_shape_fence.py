@@ -321,6 +321,150 @@ def test_raw_ui_node_map_extracts_full_payload_by_id_and_uid() -> None:
     assert "widgets_values" in raw_map["uid-dynamic"]
 
 
+def test_collateral_overflow_without_delta_pins_opaque() -> None:
+    """Collateral node with overflow, full raw UI, and no deltas pins opaque.
+
+    Even when identity_matched is False, a node that has a complete
+    raw LiteGraph dict and no widget/link deltas should carry the
+    payload forward rather than refusing or regenerating.
+    """
+    evidence = _evidence(
+        overflow=True,
+        raw_widget_count=3,
+        candidate_widget_count=3,
+        schema_widget_count=2,
+    )
+
+    verdict = decide_widget_shape(
+        evidence,
+        raw_payloads={"7": _raw_node()},
+        layout_entries={"7": _layout()},
+        field_deltas={},
+        link_deltas={},
+        identity_matched=False,
+    )
+
+    assert verdict.decision is WidgetShapeDecision.PIN_OPAQUE
+    assert verdict.pin_opaque is True
+    assert verdict.refuse is False
+    assert verdict.recovery == "carry_forward_raw_ui"
+    assert WidgetShapeReason.OVERFLOW in verdict.reasons
+
+
+def test_collateral_dynamic_node_without_delta_pins_opaque() -> None:
+    """Collateral dynamic (dict-row) node without deltas pins opaque.
+
+    A node with dict-row widgets that is untouched by any edit
+    should pin opaque when the raw UI payload is complete.
+    """
+    evidence = _evidence(has_dict_rows=True)
+
+    verdict = decide_widget_shape(
+        evidence,
+        raw_payloads={"7": _raw_node()},
+        layout_entries={"7": _layout()},
+        field_deltas={},
+        link_deltas={},
+        identity_matched=False,
+    )
+
+    assert verdict.decision is WidgetShapeDecision.PIN_OPAQUE
+    assert verdict.pin_opaque is True
+    assert verdict.refuse is False
+    assert verdict.recovery == "carry_forward_raw_ui"
+    assert WidgetShapeReason.DICT_ROW_DYNAMIC_WIDGETS in verdict.reasons
+
+
+def test_collateral_schema_less_node_without_delta_pins_opaque() -> None:
+    """Collateral schema-less node without deltas pins opaque.
+
+    Even a schema-less node with full raw UI and no deltas
+    should carry forward rather than refusing.
+    """
+    evidence = _evidence(schema_less=True, provider=None, confidence=None)
+
+    verdict = decide_widget_shape(
+        evidence,
+        raw_payloads={"7": _raw_node()},
+        layout_entries={"7": _layout()},
+        field_deltas={},
+        link_deltas={},
+        identity_matched=False,
+    )
+
+    assert verdict.decision is WidgetShapeDecision.PIN_OPAQUE
+    assert verdict.pin_opaque is True
+    assert verdict.refuse is False
+    assert verdict.recovery == "carry_forward_raw_ui"
+
+
+def test_collateral_node_with_widget_delta_still_refuses() -> None:
+    """Touched collateral node with a widget delta must still refuse.
+
+    The relaxation only applies to truly collateral (untouched) nodes.
+    Once a widget delta exists, the strict refusal path is preserved.
+    """
+    evidence = _evidence(
+        overflow=True,
+        raw_widget_count=3,
+        candidate_widget_count=3,
+        schema_widget_count=2,
+    )
+
+    verdict = decide_widget_shape(
+        evidence,
+        raw_payloads={"7": _raw_node()},
+        layout_entries={"7": _layout()},
+        field_deltas={"7": {"widget_0": ("old", "new")}},
+        identity_matched=False,
+    )
+
+    assert verdict.decision is WidgetShapeDecision.REFUSE
+    assert WidgetShapeReason.WIDGET_DELTA in verdict.reasons
+
+
+def test_collateral_node_with_link_delta_still_refuses() -> None:
+    """Touched collateral node with a link delta must still refuse."""
+    evidence = _evidence(
+        overflow=True,
+        raw_widget_count=3,
+        candidate_widget_count=3,
+        schema_widget_count=2,
+    )
+
+    verdict = decide_widget_shape(
+        evidence,
+        raw_payloads={"7": _raw_node()},
+        layout_entries={"7": _layout()},
+        link_deltas={"7": {"incoming_edge_sig": ("old", "new")}},
+        identity_matched=False,
+    )
+
+    assert verdict.decision is WidgetShapeDecision.REFUSE
+    assert WidgetShapeReason.LINK_DELTA in verdict.reasons
+
+
+def test_collateral_node_without_raw_ui_payload_still_refuses() -> None:
+    """Collateral node without a complete raw UI payload must still refuse."""
+    evidence = _evidence(
+        overflow=True,
+        raw_widget_count=3,
+        candidate_widget_count=3,
+        schema_widget_count=2,
+    )
+
+    verdict = decide_widget_shape(
+        evidence,
+        raw_payloads={},
+        layout_entries={},
+        field_deltas={},
+        link_deltas={},
+        identity_matched=False,
+    )
+
+    assert verdict.decision is WidgetShapeDecision.REFUSE
+
+
 def test_prior_store_only_layout_match_does_not_make_dynamic_node_pin_capable() -> None:
     raw_node = _raw_node()
     raw_node["properties"] = {"vibecomfy_uid": "7"}

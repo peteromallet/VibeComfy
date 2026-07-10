@@ -15181,6 +15181,269 @@ def test_format_batch_report_json_includes_lint_fields() -> None:
     assert "lint_diagnostics" not in json_no_lint
 
 
+def test_format_batch_report_includes_enum_choices_in_detail() -> None:
+    """Enum failure diagnostics include valid choices in text feedback."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic
+
+    diag = CompactDiagnostic(
+        code="value_not_in_enum",
+        message="value 'bad' is not in the declared enum.",
+        severity="error",
+        detail={"class_type": "KSampler", "input": "sampler_name", "value": "bad", "choices": ["euler", "heun", "dpmpp_2m"]},
+    )
+    br = BatchResult(
+        ok=False,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="set_node_field(n1, 'sampler_name', 'bad')",
+                ok=False,
+                landed=False,
+                op_kind="set_node_field",
+                diagnostics=(diag,),
+            ),
+        ),
+        diagnostics=(),
+    )
+    report = _format_batch_report(br, consecutive_errors=1, budget_remaining=3)
+    assert "value_not_in_enum" in report
+    assert "choices: [" in report
+    assert "'euler'" in report
+    assert "'heun'" in report
+    assert "'dpmpp_2m'" in report
+
+
+def test_format_batch_report_includes_valid_fields_for_unknown_field() -> None:
+    """Unknown-field failure diagnostics include valid_fields in text feedback."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic
+
+    diag = CompactDiagnostic(
+        code="unknown_node_field",
+        message="KSampler does not expose field 'bad_field'.",
+        severity="error",
+        detail={
+            "class_type": "KSampler",
+            "field_path": "bad_field",
+            "valid_fields": ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"],
+            "semantic_aliases": {"steps": "widget_1", "cfg": "widget_2"},
+        },
+    )
+    br = BatchResult(
+        ok=False,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="set_node_field(n1, 'bad_field', 'v')",
+                ok=False,
+                landed=False,
+                op_kind="set_node_field",
+                diagnostics=(diag,),
+            ),
+        ),
+        diagnostics=(),
+    )
+    report = _format_batch_report(br, consecutive_errors=1, budget_remaining=3)
+    assert "unknown_node_field" in report
+    assert "valid_fields: [" in report
+    assert "'seed'" in report
+    assert "'steps'" in report
+    assert "'cfg'" in report
+    assert "semantic_aliases: {" in report
+
+
+def test_format_batch_report_detail_caps_long_lists() -> None:
+    """Diagnostic detail lists are capped at _DETAIL_LIST_CAP entries."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic
+
+    many_choices = [f"choice_{i}" for i in range(20)]
+    diag = CompactDiagnostic(
+        code="value_not_in_enum",
+        message="value 'x' is not in the declared enum.",
+        severity="error",
+        detail={"class_type": "Test", "input": "f", "value": "x", "choices": many_choices},
+    )
+    br = BatchResult(
+        ok=False,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="set_node_field(n1, 'f', 'x')",
+                ok=False,
+                landed=False,
+                op_kind="set_node_field",
+                diagnostics=(diag,),
+            ),
+        ),
+        diagnostics=(),
+    )
+    report = _format_batch_report(br, consecutive_errors=1, budget_remaining=3)
+    assert "(+12 more)" in report
+    # First 8 should be present, 9th should not
+    assert "'choice_0'" in report
+    assert "'choice_7'" in report
+    assert "'choice_8'" not in report
+
+
+def test_format_batch_report_detail_includes_min_max() -> None:
+    """Diagnostic detail includes min/max when present."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic
+
+    diag = CompactDiagnostic(
+        code="value_out_of_range",
+        message="value 0 is outside the declared range.",
+        severity="error",
+        detail={"class_type": "KSampler", "input": "steps", "value": 0, "min": 1, "max": 10000},
+    )
+    br = BatchResult(
+        ok=False,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="set_node_field(n1, 'steps', 0)",
+                ok=False,
+                landed=False,
+                op_kind="set_node_field",
+                diagnostics=(diag,),
+            ),
+        ),
+        diagnostics=(),
+    )
+    report = _format_batch_report(br, consecutive_errors=1, budget_remaining=3)
+    assert "value_out_of_range" in report
+    assert "min: 1" in report
+    assert "max: 10000" in report
+
+
+def test_format_batch_report_batch_level_detail() -> None:
+    """Batch-level diagnostics also include capped detail text."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import BatchResult
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic
+
+    diag = CompactDiagnostic(
+        code="value_not_in_enum",
+        message="value 'bad' is not in the declared enum.",
+        severity="error",
+        detail={"class_type": "Test", "input": "f", "value": "bad", "choices": ["a", "b", "c"]},
+    )
+    br = BatchResult(
+        ok=False,
+        statements=(),
+        diagnostics=(diag,),
+    )
+    report = _format_batch_report(br, consecutive_errors=1, budget_remaining=3)
+    assert "value_not_in_enum" in report
+    assert "detail: " in report
+    assert "choices: [" in report
+
+
+def test_format_batch_report_detail_stable_ordering() -> None:
+    """Detail keys are rendered in stable order regardless of dict insertion order."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic
+
+    # Insert keys in reverse of the stable order
+    diag = CompactDiagnostic(
+        code="test_code",
+        message="test message",
+        severity="error",
+        detail={
+            "max": 100,
+            "min": 1,
+            "available_slots": ["s1", "s2"],
+            "semantic_aliases": {"a": "b"},
+            "valid_fields": ["f1"],
+            "choices": ["c1"],
+        },
+    )
+    br = BatchResult(
+        ok=False,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="test",
+                ok=False,
+                landed=False,
+                op_kind="test",
+                diagnostics=(diag,),
+            ),
+        ),
+        diagnostics=(),
+    )
+    report = _format_batch_report(br, consecutive_errors=1, budget_remaining=3)
+    # Find positions of keys in the report
+    pos_choices = report.index("choices:")
+    pos_valid = report.index("valid_fields:")
+    pos_aliases = report.index("semantic_aliases:")
+    pos_slots = report.index("available_slots:")
+    pos_min = report.index("min:")
+    pos_max = report.index("max:")
+    assert pos_choices < pos_valid < pos_aliases < pos_slots < pos_min < pos_max, (
+        f"Expected stable order, got choices@{pos_choices}, valid@{pos_valid}, "
+        f"aliases@{pos_aliases}, slots@{pos_slots}, min@{pos_min}, max@{pos_max}"
+    )
+
+
+def test_format_batch_report_no_detail_when_empty() -> None:
+    """Statement without detail does not emit extra text."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
+    from vibecomfy.porting.edit.session import BatchResult, StatementResult
+
+    br = BatchResult(
+        ok=True,
+        statements=(
+            StatementResult(
+                statement_index=0,
+                source="set_node_field(n1, 'f', 'v')",
+                ok=True,
+                landed=True,
+                op_kind="set_node_field",
+                diagnostics=(),
+            ),
+        ),
+        diagnostics=(),
+    )
+    report = _format_batch_report(br, consecutive_errors=0, budget_remaining=3)
+    assert "choices:" not in report
+    assert "valid_fields:" not in report
+    assert "detail:" not in report
+
+
+def test_format_batch_report_json_caps_detail_lists() -> None:
+    """JSON report caps detail list values at _DETAIL_LIST_CAP."""
+    from vibecomfy.comfy_nodes.agent.edit import _format_batch_report_json
+    from vibecomfy.porting.edit.session import BatchResult
+    from vibecomfy.porting.edit._session_types import CompactDiagnostic
+
+    many_choices = [f"choice_{i}" for i in range(15)]
+    diag = CompactDiagnostic(
+        code="value_not_in_enum",
+        message="value 'x' is not in the declared enum.",
+        severity="error",
+        detail={"choices": many_choices},
+    )
+    br = BatchResult(
+        ok=False,
+        statements=(),
+        diagnostics=(diag,),
+    )
+    json_report = _format_batch_report_json(br, consecutive_errors=1, budget_remaining=3)
+    diag_detail = json_report["diagnostics"][0]["detail"]
+    assert "choices" in diag_detail
+    assert len(diag_detail["choices"]) == 8  # capped at _DETAIL_LIST_CAP
+    assert diag_detail["choices"][0] == "choice_0"
+    assert diag_detail["choices"][-1] == "choice_7"
+
+
 def test_field_change_is_noop_without_lint_dropped_ids_flag_off() -> None:
     """When lint_dropped_op_ids is None (flag-off), behavior matches the
     original: only old==new changes are no-ops."""

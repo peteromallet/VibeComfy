@@ -2,6 +2,8 @@
 # Contents: Batch prompt context, research memory, and clarify feedback.
 
 SOURCE = r'''
+from vibecomfy.porting.widgets.settings_contract import node_settings_for
+
 def _normalize_test_client_response(response: dict[str, str]) -> AgentTurnResult:
     python = response.get("python")
     message = response.get("message")
@@ -601,16 +603,18 @@ def _existing_parameter_tweak_targets_from_graph(
         if not isinstance(node, Mapping):
             continue
         class_type = str(node.get("class_type") or node.get("type") or "").strip()
-        inputs = node.get("inputs")
-        widgets = node.get("widgets")
-        raw_widgets = node.get("raw_widgets")
         if not class_type:
             continue
-        input_fields = [
-            str(name)
-            for name, value in (inputs.items() if isinstance(inputs, Mapping) else ())
-            if not isinstance(value, (Mapping, list, tuple))
-        ]
+        inputs = node.get("inputs")
+
+        # ── 1. Capture scalar input fields (unconnected defaults) ──
+        input_fields: list[str] = []
+        if isinstance(inputs, Mapping):
+            input_fields = [
+                str(name)
+                for name, value in inputs.items()
+                if not isinstance(value, (Mapping, list, tuple))
+            ]
         if isinstance(inputs, list):
             for input_spec in inputs:
                 if not isinstance(input_spec, Mapping):
@@ -620,39 +624,83 @@ def _existing_parameter_tweak_targets_from_graph(
                 name = input_spec.get("name")
                 if isinstance(name, str) and name:
                     input_fields.append(name)
+
+        # ── 2. Primary: compact field names via shared settings contract ──
+        field_previews: list[str] = []
+        have_compact_names = False
+        try:
+            info = node_settings_for(node, class_type)
+            if info.fields:
+                have_compact_names = True
+                for field in info.fields:
+                    name = field.name
+                    # Capped enum annotations: show up to 3 choices for enum fields
+                    if field.choices and not name.startswith("widget_"):
+                        choices = list(field.choices)
+                        if len(choices) <= 3:
+                            enum_hint = "|".join(choices)
+                        else:
+                            shown = choices[:3]
+                            remaining = len(choices) - 3
+                            enum_hint = "|".join(shown) + f"|+{remaining}"
+                        name = f"{name}[{enum_hint}]"
+                    field_previews.append(name)
+        except Exception:
+            pass
+
+        # ── 3. Fallback: old widget resolution when settings_contract can't help ──
         widget_fields: list[str] = []
-        if isinstance(widgets, Mapping):
-            widget_fields = [str(name) for name in sorted(widgets, key=str)]
-        elif isinstance(widgets, list):
-            widget_fields = [
-                str(widget.get("name") or f"widget_{index}")
-                for index, widget in enumerate(widgets)
-                if isinstance(widget, Mapping)
-            ]
-        widget_values = node.get("widgets_values") if isinstance(node, Mapping) else None
-        if not widget_fields and isinstance(widget_values, list):
-            widget_fields = [f"widget_{index}" for index in range(min(len(widget_values), 4))]
         raw_widget_count = None
-        if isinstance(raw_widgets, Mapping):
-            values = raw_widgets.get("values")
-            if isinstance(values, list):
-                raw_widget_count = len(values)
-        elif raw_widgets is not None:
-            values = getattr(raw_widgets, "values", None)
-            if isinstance(values, list):
-                raw_widget_count = len(values)
-        if not input_fields and not widget_fields and not raw_widget_count:
+        if not have_compact_names:
+            widgets = node.get("widgets")
+            raw_widgets = node.get("raw_widgets")
+            if isinstance(widgets, Mapping):
+                widget_fields = [str(name) for name in sorted(widgets, key=str)]
+            elif isinstance(widgets, list):
+                widget_fields = [
+                    str(widget.get("name") or f"widget_{index}")
+                    for index, widget in enumerate(widgets)
+                    if isinstance(widget, Mapping)
+                ]
+            widget_values = node.get("widgets_values") if isinstance(node, Mapping) else None
+            if not widget_fields and isinstance(widget_values, list):
+                widget_fields = [f"widget_{index}" for index in range(min(len(widget_values), 4))]
+            if isinstance(raw_widgets, Mapping):
+                values = raw_widgets.get("values")
+                if isinstance(values, list):
+                    raw_widget_count = len(values)
+            elif raw_widgets is not None:
+                values = getattr(raw_widgets, "values", None)
+                if isinstance(values, list):
+                    raw_widget_count = len(values)
+
+        # ── 4. Assemble final field list ──
+        if have_compact_names:
+            # Merge input fields (deduped against compact widget names) +
+            # compact names.  Strip enum annotation brackets for dedup.
+            merged: list[str] = []
+            compact_set = {f.split("[")[0] for f in field_previews}
+            for inp in input_fields:
+                if inp not in compact_set:
+                    merged.append(inp)
+            merged.extend(field_previews)
+            field_previews = merged
+        else:
+            field_previews = input_fields + widget_fields
+            if raw_widget_count and not widget_fields:
+                field_previews.extend(
+                    f"widget_{index}" for index in range(min(raw_widget_count, 4))
+                )
+
+        if not field_previews:
             continue
-        fields = input_fields + widget_fields
-        if raw_widget_count and not widget_fields:
-            fields.extend(f"widget_{index}" for index in range(min(raw_widget_count, 4)))
-        if not fields:
-            continue
-        preview = ", ".join(fields[:4])
-        if len(fields) > 4:
+
+        # ── 5. Build preview and score ──
+        preview = ", ".join(field_previews[:4])
+        if len(field_previews) > 4:
             preview += ", ..."
         class_text = class_type.casefold()
-        field_text = " ".join(fields).casefold()
+        field_text = " ".join(field_previews).casefold()
         score = 0
         if any(term in class_text for term in _PARAMETER_TWEAK_TARGET_TERMS):
             score += 5
@@ -662,7 +710,7 @@ def _existing_parameter_tweak_targets_from_graph(
             score += 4
         if any(token and token in field_text for token in query_text.split() if len(token) >= 5):
             score += 3
-        if widget_fields or raw_widget_count:
+        if have_compact_names or widget_fields or raw_widget_count:
             score += 3
         if class_type == "ACN_AdvancedControlNetApply" and "controlnet" in query_text:
             score += 8

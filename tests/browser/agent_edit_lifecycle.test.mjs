@@ -30,6 +30,8 @@ import {
   reduceAgentActivityFeed,
   deriveAgentActivityState,
   normalizeAgentTurnPayload,
+  normalizeDiagnostic,
+  normalizeDiagnostics,
 } from "../../vibecomfy/comfy_nodes/web/agent_turn_feed.js";
 
 // ── T11: Active-canvas scope guards ─────────────────────────────────────
@@ -6914,4 +6916,578 @@ test("SUBMIT_RELOAD_ORPHAN_RECOVERY resolves identity from panel state when payl
   assert.equal(panel.state.failure.turn_id, "turn-from-state");
   assert.equal(panel.state.failure.recovery_reason, "page_reload_orphan");
   assert.equal(obligations.render, true);
+});
+
+// ── T11: Curated diagnostic detail in activity/error path ──────────────────
+
+test("normalizeDiagnostic preserves safe detail keys (choices, valid_fields, available_slots)", () => {
+  // A diagnostic with enum choices detail
+  const diag = normalizeDiagnostic({
+    code: "value_not_in_enum",
+    message: "Sampler 'nonexistent' is not valid",
+    detail: {
+      choices: ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_sde", "lcm", "ddim", "uni_pc"],
+      valid_fields: ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"],
+      available_slots: [0, 1, 2],
+      // These should be stripped:
+      raw_provider: { secret: "payload" },
+      internal_debug: "trace-data",
+    },
+  });
+
+  assert.ok(diag, "diagnostic should not be null");
+  assert.equal(diag.code, "value_not_in_enum");
+  assert.ok(diag.message.includes("nonexistent"));
+  assert.ok(diag.detail, "detail should be preserved");
+  assert.deepEqual(diag.detail.choices, [
+    "euler", "euler_ancestral", "heun", "dpmpp_2m",
+    "dpmpp_sde", "lcm", "ddim", "uni_pc",
+  ]);
+  assert.deepEqual(diag.detail.valid_fields, [
+    "seed", "steps", "cfg", "sampler_name", "scheduler", "denoise",
+  ]);
+  assert.deepEqual(diag.detail.available_slots, [0, 1, 2]);
+  // Unsafe keys must not leak
+  assert.equal(diag.detail.raw_provider, undefined);
+  assert.equal(diag.detail.internal_debug, undefined);
+});
+
+test("normalizeDiagnostic caps list-valued detail at 8 items", () => {
+  const choices = Array.from({ length: 15 }, (_, i) => `choice_${i}`);
+  const diag = normalizeDiagnostic({
+    code: "TEST_CAP",
+    message: "cap test",
+    detail: { choices },
+  });
+
+  assert.ok(diag.detail);
+  assert.ok(Array.isArray(diag.detail.choices));
+  assert.equal(diag.detail.choices.length, 8, "choices should be capped at 8");
+  assert.deepEqual(diag.detail.choices, choices.slice(0, 8));
+});
+
+test("normalizeDiagnostic returns no detail when no whitelisted keys present", () => {
+  const diag = normalizeDiagnostic({
+    code: "SOME_CODE",
+    message: "A message",
+    detail: {
+      raw_provider: { secret: true },
+      internal_trace: "debug-data",
+    },
+  });
+
+  assert.ok(diag);
+  assert.equal(diag.code, "SOME_CODE");
+  // compactObject strips null/undefined keys; detail is absent entirely
+  assert.equal("detail" in diag, false,
+    "detail key should be absent when no whitelisted keys are present");
+});
+
+test("normalizeDiagnostics preserves detail across multiple entries", () => {
+  const diags = normalizeDiagnostics([
+    {
+      code: "value_not_in_enum",
+      message: "Bad sampler",
+      detail: { choices: ["euler", "heun"], valid_fields: ["sampler_name"] },
+    },
+    {
+      code: "unknown_field",
+      message: "Field not recognized",
+      detail: { valid_fields: ["seed", "steps", "cfg", "sampler_name"] },
+    },
+  ]);
+
+  assert.ok(diags);
+  assert.equal(diags.length, 2);
+  assert.deepEqual(diags[0].detail.choices, ["euler", "heun"]);
+  assert.deepEqual(diags[0].detail.valid_fields, ["sampler_name"]);
+  assert.deepEqual(diags[1].detail.valid_fields, ["seed", "steps", "cfg", "sampler_name"]);
+});
+
+test("deriveAgentActivityState surfaces diagnostic detail for error turns", () => {
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-diag-err",
+    turn_id: "t-diag-err",
+    turn_number: 1,
+    status: "error",
+    message: "Edit failed: invalid sampler",
+    statement_count: 1,
+    landed_op_count: 0,
+    statements: [
+      {
+        op_kind: "set_field",
+        status: "error",
+        message: "Failed to set sampler_name",
+        ok: false,
+        diagnostics: [
+          {
+            code: "value_not_in_enum",
+            message: "Sampler 'nonexistent_sampler' is not a valid choice",
+            detail: {
+              choices: ["euler", "euler_ancestral", "heun", "dpmpp_2m"],
+              valid_fields: ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"],
+            },
+          },
+        ],
+      },
+    ],
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Sampler 'nonexistent_sampler' is not a valid choice",
+        detail: {
+          choices: ["euler", "euler_ancestral", "heun", "dpmpp_2m"],
+          valid_fields: ["sampler_name"],
+        },
+      },
+    ],
+  });
+
+  const activity = deriveAgentActivityState(payload);
+  assert.equal(activity.status, "error");
+  assert.equal(activity.outcome.kind, "error");
+
+  // Verify diagnostics are present and carry detail
+  assert.ok(activity.diagnostics, "activity should have diagnostics");
+  assert.ok(activity.diagnostics.length >= 1, "should have at least one diagnostic");
+
+  // At least one diagnostic should carry detail with choices
+  const withDetail = activity.diagnostics.filter(
+    (d) => d.detail && Array.isArray(d.detail.choices),
+  );
+  assert.ok(withDetail.length > 0,
+    "at least one diagnostic should have choices detail");
+
+  // Verify choices appear
+  const firstDiagWithChoices = withDetail[0];
+  assert.ok(firstDiagWithChoices.detail.choices.includes("euler"));
+  assert.ok(firstDiagWithChoices.detail.choices.includes("heun"));
+});
+
+test("deriveAgentActivityState details contain diagnostic entries with curated detail", () => {
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-diag-detail",
+    turn_id: "t-diag-detail",
+    turn_number: 2,
+    status: "error",
+    message: "Edit failed",
+    statement_count: 1,
+    landed_op_count: 0,
+    statements: [
+      {
+        op_kind: "set_field",
+        status: "error",
+        message: "Failed",
+        ok: false,
+        diagnostics: [
+          {
+            code: "unknown_field",
+            message: "Field 'bad_field' is not recognized",
+            detail: {
+              valid_fields: ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise", "control_after_generate"],
+            },
+          },
+        ],
+      },
+    ],
+    diagnostics: [
+      {
+        code: "unknown_field",
+        message: "Field 'bad_field' is not recognized",
+        detail: {
+          valid_fields: ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise", "control_after_generate"],
+        },
+      },
+    ],
+  });
+
+  const activity = deriveAgentActivityState(payload);
+
+  // Verify details contain a diagnostics entry
+  assert.ok(activity.details, "activity should have details");
+  const diagDetail = activity.details.find((d) => d.kind === "diagnostics");
+  assert.ok(diagDetail, "details should contain a diagnostics entry");
+  assert.ok(diagDetail.items && diagDetail.items.length > 0, "diagnostics items should be non-empty");
+
+  // Verify the diagnostic detail carries valid_fields
+  const firstDiagItem = diagDetail.items[0];
+  assert.ok(firstDiagItem.detail, "diagnostic item should have detail");
+  assert.ok(Array.isArray(firstDiagItem.detail.valid_fields),
+    "detail should have valid_fields array");
+  assert.ok(firstDiagItem.detail.valid_fields.includes("sampler_name"));
+  assert.ok(firstDiagItem.detail.valid_fields.includes("steps"));
+  assert.ok(firstDiagItem.detail.valid_fields.includes("cfg"));
+});
+
+test("deriveAgentActivityState preserves existing lifecycle ownership behavior alongside diagnostics", () => {
+  // Ensure diagnostics detail doesn't disturb lifecycle ownership fields
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-owner-diag",
+    turn_id: "t-owner-diag",
+    turn_number: 3,
+    status: "done",
+    message: "Edit complete",
+    statement_count: 2,
+    landed_op_count: 2,
+    statements: [
+      {
+        op_kind: "set_field",
+        status: "done",
+        message: "Set sampler_name to euler",
+        landed: true,
+        ok: true,
+        diagnostics: [
+          {
+            code: "field_set_ok",
+            message: "Field set successfully",
+            detail: { valid_fields: ["sampler_name"] },
+          },
+        ],
+      },
+      { op_kind: "done", status: "done" },
+    ],
+    done_summary: "Updated sampler settings.",
+  });
+
+  const activity = deriveAgentActivityState(payload);
+
+  // Core lifecycle fields unchanged
+  assert.equal(activity.status, "done");
+  assert.equal(activity.session_id, "sess-owner-diag");
+  assert.equal(activity.turn_id, "t-owner-diag");
+  assert.equal(activity.turn_number, 3);
+  assert.equal(activity.outcome.kind, "done");
+  assert.ok(activity.outcome.landed_ops >= 2);
+
+  // Latest substantive statement must NOT be the done() terminator
+  assert.ok(activity.latest_substantive_statement);
+  assert.notEqual(activity.latest_substantive_statement.op_kind, "done");
+
+  // Counts unchanged
+  assert.ok(activity.counts.total >= 2);
+  // landed count only from statement-level (1 statement with landed:true);
+  // top-level landed_op_count augmentation only triggers when total===0
+  assert.ok(activity.counts.landed >= 1);
+
+  // Diagnostics detail present but does not disturb headline/outcome
+  const diagDetail = activity.details.find((d) => d.kind === "diagnostics");
+  if (diagDetail) {
+    // Just verify it doesn't crash — the detail is supplementary
+    assert.ok(diagDetail.items.length > 0);
+  }
+});
+
+test("reduceAgentActivityFeed preserves diagnostic detail across feed entries", () => {
+  // WS partial with diagnostic detail
+  const wsPartial = makeActivity({
+    session_id: "sess-feed-diag",
+    turn_id: "t-feed-diag",
+    turn_number: 1,
+    status: "error",
+    message: "Failed",
+    statement_count: 1,
+    landed_op_count: 0,
+    statements: [
+      {
+        op_kind: "set_field",
+        status: "error",
+        message: "Invalid sampler",
+        ok: false,
+        diagnostics: [
+          {
+            code: "value_not_in_enum",
+            message: "Sampler not in valid choices",
+            detail: {
+              choices: ["euler", "heun", "dpmpp_2m"],
+              valid_fields: ["sampler_name"],
+            },
+          },
+        ],
+      },
+    ],
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Sampler not in valid choices",
+        detail: {
+          choices: ["euler", "heun", "dpmpp_2m"],
+          valid_fields: ["sampler_name"],
+        },
+      },
+    ],
+  });
+
+  let feed = [];
+  feed = reduceAgentActivityFeed(feed, wsPartial, { source: "websocket" });
+
+  assert.equal(feed.length, 1);
+  const entry = feed[0];
+
+  // Verify diagnostics in feed entry
+  assert.ok(entry.diagnostics, "feed entry should have diagnostics");
+  const diagWithChoices = entry.diagnostics.find(
+    (d) => d.detail && Array.isArray(d.detail.choices),
+  );
+  assert.ok(diagWithChoices, "feed diagnostic should carry choices detail");
+  assert.deepEqual(diagWithChoices.detail.choices, ["euler", "heun", "dpmpp_2m"]);
+
+  // Verify details contain diagnostics kind
+  const diagDetail = entry.details.find((d) => d.kind === "diagnostics");
+  assert.ok(diagDetail, "feed details should contain diagnostics entry");
+  assert.ok(diagDetail.items[0].detail.choices.includes("euler"));
+});
+
+// ── T12: Diagnostic detail must not leak into preview/canvas text ───────
+
+test("deriveAgentActivityState headline never contains diagnostic detail keys", () => {
+  // A payload where diagnostics carry choices/valid_fields/available_slots.
+  // The headline must be derived from statement messages, not from
+  // diagnostic detail content.
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-headline-safe",
+    turn_id: "t-headline-safe",
+    turn_number: 1,
+    status: "error",
+    message: "Edit partially failed",
+    statement_count: 1,
+    landed_op_count: 0,
+    statements: [
+      {
+        op_kind: "set_field",
+        status: "error",
+        message: "Could not set sampler_name to invalid_value",
+        ok: false,
+        diagnostics: [
+          {
+            code: "value_not_in_enum",
+            message: "Sampler choice not recognized",
+            detail: {
+              choices: ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_sde", "lcm", "ddim", "uni_pc"],
+              valid_fields: ["seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"],
+              available_slots: [0, 1, 2, 3, 4, 5, 6],
+            },
+          },
+        ],
+      },
+    ],
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Sampler choice not recognized",
+        detail: {
+          choices: ["euler", "euler_ancestral", "heun", "dpmpp_2m"],
+          valid_fields: ["sampler_name"],
+        },
+      },
+    ],
+  });
+
+  const activity = deriveAgentActivityState(payload);
+
+  // Headline must come from the statement message, not diagnostic detail
+  assert.ok(activity.headline, "headline must be non-null");
+  assert.ok(activity.headline.includes("Could not set sampler_name"),
+    "headline must come from statement message");
+
+  // Headline must NEVER contain raw diagnostic detail keys or their values
+  const headline = activity.headline.toLowerCase();
+  assert.ok(!headline.includes("choices:"), "headline must not leak 'choices:'");
+  assert.ok(!headline.includes("valid_fields:"), "headline must not leak 'valid_fields:'");
+  assert.ok(!headline.includes("available_slots:"), "headline must not leak 'available_slots:'");
+  assert.ok(!headline.includes("euler_ancestral"), "headline must not leak concrete enum choices");
+  assert.ok(!headline.includes("dpmpp_2m"), "headline must not leak concrete enum choices");
+
+  // Outcome summary must also be free of diagnostic detail keys
+  assert.ok(activity.outcome.summary, "outcome summary must be non-null");
+  const summary = activity.outcome.summary.toLowerCase();
+  assert.ok(!summary.includes("choices:"), "outcome summary must not leak 'choices:'");
+  assert.ok(!summary.includes("valid_fields:"), "outcome summary must not leak 'valid_fields:'");
+  assert.ok(!summary.includes("available_slots:"), "outcome summary must not leak 'available_slots:'");
+});
+
+test("deriveAgentActivityState outcome summary for errors uses diagnostic message, not detail", () => {
+  // When status is error, the outcome summary comes from the first
+  // diagnostic's message or code — never from its detail object.
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-summary-safe",
+    turn_id: "t-summary-safe",
+    turn_number: 1,
+    status: "error",
+    message: null, // No turn-level message; must fall back to diagnostic
+    statement_count: 0,
+    landed_op_count: 0,
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Sampler 'bad_sampler' is not a valid option",
+        detail: {
+          choices: ["euler", "heun", "dpmpp_2m", "lcm"],
+          valid_fields: ["sampler_name", "scheduler"],
+        },
+      },
+    ],
+  });
+
+  const activity = deriveAgentActivityState(payload);
+  assert.equal(activity.status, "error");
+  assert.equal(activity.outcome.kind, "error");
+
+  // Summary must be the diagnostic message, not detail content
+  assert.ok(activity.outcome.summary.includes("bad_sampler"),
+    "outcome summary must use diagnostic message text");
+  assert.ok(activity.outcome.summary.includes("not a valid option"),
+    "outcome summary must include the diagnostic message");
+
+  const summary = activity.outcome.summary.toLowerCase();
+  assert.ok(!summary.includes("choices:"), "outcome summary must not leak 'choices:'");
+  assert.ok(!summary.includes("[euler"), "outcome summary must not leak array of choices");
+  assert.ok(!summary.includes("valid_fields"), "outcome summary must not leak 'valid_fields'");
+});
+
+test("buildSafeDetails diagnostics entries exclude raw debug/provider payloads", () => {
+  // buildSafeDetails is called internally by deriveAgentActivityState.
+  // The diagnostics detail entries must only include whitelisted keys
+  // (choices, valid_fields, available_slots) and never raw provider data.
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-safe-details",
+    turn_id: "t-safe-details",
+    turn_number: 1,
+    status: "error",
+    message: "Edit failed",
+    statement_count: 1,
+    landed_op_count: 0,
+    statements: [
+      {
+        op_kind: "set_field",
+        status: "error",
+        message: "Invalid field",
+        ok: false,
+        diagnostics: [
+          {
+            code: "unknown_field",
+            message: "Field not recognized",
+            detail: {
+              valid_fields: ["seed", "steps", "cfg"],
+              // These should be stripped:
+              raw_provider: { secret: "payload" },
+              debug_trace: "sensitive",
+              file_path: "/tmp/debug.json",
+            },
+          },
+        ],
+      },
+    ],
+    diagnostics: [
+      {
+        code: "unknown_field",
+        message: "Field not recognized",
+        detail: {
+          valid_fields: ["seed", "steps", "cfg"],
+          raw_provider: { secret: "should-be-stripped" },
+        },
+      },
+    ],
+  });
+
+  const activity = deriveAgentActivityState(payload);
+
+  // Find diagnostics entry in details
+  const diagDetail = activity.details.find((d) => d.kind === "diagnostics");
+  assert.ok(diagDetail, "details must contain diagnostics entry");
+  assert.ok(diagDetail.items.length > 0, "diagnostics items must be non-empty");
+
+  for (const item of diagDetail.items) {
+    if (item.detail && typeof item.detail === "object") {
+      // Whitelisted keys can be present
+      // But raw provider / debug keys must never appear
+      assert.equal(item.detail.raw_provider, undefined,
+        "raw_provider must not leak into safe detail");
+      assert.equal(item.detail.debug_trace, undefined,
+        "debug_trace must not leak into safe detail");
+      assert.equal(item.detail.file_path, undefined,
+        "file_path must not leak into safe detail");
+      assert.equal(item.detail.internal_debug, undefined,
+        "internal_debug must not leak into safe detail");
+    }
+  }
+});
+
+test("deriveAgentActivityState diagnostics detail does not trigger stale state behavior", () => {
+  // Diagnostics with detail must not cause the activity state to look
+  // like a stale/rebaseline situation.
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-no-stale",
+    turn_id: "t-no-stale",
+    turn_number: 1,
+    status: "error",
+    message: "Edit failed",
+    statement_count: 0,
+    landed_op_count: 0,
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Invalid enum choice",
+        detail: {
+          choices: ["euler", "heun"],
+          valid_fields: ["sampler_name"],
+        },
+      },
+    ],
+  });
+
+  const activity = deriveAgentActivityState(payload);
+
+  // Activity state must be error, not stale
+  assert.equal(activity.status, "error");
+  assert.equal(activity.outcome.kind, "error");
+
+  // No rebaseline or stale fields should appear on activity state
+  // (deriveAgentActivityState doesn't produce these fields)
+  assert.equal(activity.rebaselineRecovery, undefined,
+    "activity must not have rebaselineRecovery");
+  assert.equal(activity.rebaselinePending, undefined,
+    "activity must not have rebaselinePending");
+  assert.equal(activity.staleDetected, undefined,
+    "activity must not have staleDetected");
+
+  // Details must not contain stale indicators
+  const staleDetail = activity.details.find(
+    (d) => d.kind === "stale" || d.kind === "rebaseline",
+  );
+  assert.equal(staleDetail, undefined,
+    "details must not contain stale or rebaseline entries from diagnostics");
+});
+
+test("deriveAgentActivityState phase_progress is never 'stale' from diagnostics", () => {
+  const payload = normalizeAgentTurnPayload({
+    session_id: "sess-phase-safe",
+    turn_id: "t-phase-safe",
+    turn_number: 1,
+    status: "error",
+    message: "Edit failed",
+    statement_count: 0,
+    landed_op_count: 0,
+    diagnostics: [
+      {
+        code: "value_not_in_enum",
+        message: "Invalid sampler",
+        detail: { choices: ["euler", "heun"] },
+      },
+    ],
+  });
+
+  const activity = deriveAgentActivityState(payload);
+
+  // phase_progress must only contain decide/research/execute/review keys
+  assert.ok(activity.phase_progress, "phase_progress must be non-null");
+  assert.ok("decide" in activity.phase_progress);
+  assert.ok("research" in activity.phase_progress);
+  assert.ok("execute" in activity.phase_progress);
+  assert.ok("review" in activity.phase_progress);
+
+  // No stale/rebaseline phase
+  assert.equal(activity.phase_progress.stale, undefined,
+    "phase_progress must not contain stale");
+  assert.equal(activity.phase_progress.rebaseline, undefined,
+    "phase_progress must not contain rebaseline");
 });

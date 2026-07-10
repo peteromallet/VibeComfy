@@ -1410,19 +1410,11 @@ def _widget_shape_identity_match(
     node_id: str,
     node: Any,
     matched_entries: Mapping[str, Mapping[str, Any]],
-    raw_ui_node: Mapping[str, Any] | None,
+    raw_ui_node: Mapping[str, Any] | None,  # noqa: ARG001
 ) -> bool:
     uid = getattr(node, "uid", "")
     key = uid or node_id
-    if key in matched_entries:
-        return True
-    # A partial ``_ui`` stub (``widgets_values`` present but ``inputs``/``outputs``
-    # stripped at ingest) must NOT count as identity evidence: the PIN_OPAQUE
-    # carry-forward path needs a full LiteGraph node dict to rewrite link refs,
-    # otherwise pin normalization refuses with ``missing_raw_input_link``.
-    from vibecomfy.porting.widget_shape_fence import _has_full_raw_ui_payload  # noqa: PLC0415
-
-    return _has_full_raw_ui_payload(raw_ui_node)
+    return key in matched_entries
 
 
 def _has_object_info_widget_schema(

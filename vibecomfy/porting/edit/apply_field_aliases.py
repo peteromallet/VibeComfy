@@ -9,6 +9,7 @@ from vibecomfy.porting.authoring_surface import input_spec_is_literal_widget
 from vibecomfy.porting.resolution import _normalize_type
 from vibecomfy.porting.widgets.aliases import widget_names_for_class
 from vibecomfy.porting.widgets.compact_resolver import compact_widget_names_for_node
+from vibecomfy.porting.widgets.settings_contract import node_settings_for
 from vibecomfy.schema import socket_types_compatible
 
 
@@ -87,12 +88,55 @@ def field_diagnostics_for_node(
     schema_provider: Any | None,
 ) -> dict[str, Any]:
     aliases = _semantic_aliases_for_node(node, class_type, schema_inputs, schema_provider)
+
+    # ── compact field names from the shared settings helper ──────────────
+    compact_names: list[str] = []
+    try:
+        settings_info = node_settings_for(node, class_type, schema_provider=schema_provider)
+        compact_names = [f.name for f in settings_info.fields if f.name]
+    except Exception:
+        pass
+
+    # ── determine which widget indices are covered by semantic names ────
+    covered_indices: set[int] = set()
+    for i, name in enumerate(compact_names):
+        if name and not _is_widget_key(name):
+            covered_indices.add(i)
+
     valid_fields: list[str] = []
-    valid_fields.extend(str(name) for name in schema_inputs)
+
+    # 1. Compact (semantic) field names first.
+    valid_fields.extend(compact_names)
+
+    # 2. Socket input names.
     valid_fields.extend(_node_input_names(node))
-    valid_fields.extend(_node_widget_keys(node))
+
+    # 3. Schema-input names not already present (e.g. socket-only fields).
+    for name in schema_inputs:
+        s = str(name)
+        if s not in valid_fields:
+            valid_fields.append(s)
+
+    # 4. Raw widget_N keys *only* for slots that do not have a semantic name.
+    for key in _node_widget_keys(node):
+        if key in valid_fields:
+            continue  # already present via schema_inputs
+        match = _WIDGET_KEY_RE.fullmatch(key)
+        if match is not None and int(match.group(1)) in covered_indices:
+            continue  # covered by a compact semantic name
+        valid_fields.append(key)
+
+    # 5. Aliases (preserve existing semantic and compatibility aliases).
     valid_fields.extend(aliases)
-    valid_fields.extend(aliases.values())
+    for alias_target in aliases.values():
+        # Omit alias targets that are covered widget_N (the semantic name
+        # already appears in valid_fields via compact names).
+        if _is_widget_key(alias_target):
+            match = _WIDGET_KEY_RE.fullmatch(alias_target)
+            if match is not None and int(match.group(1)) in covered_indices:
+                continue
+        valid_fields.append(alias_target)
+
     return _diagnostic_payload(valid_fields, aliases)
 
 
@@ -103,11 +147,44 @@ def field_diagnostics_for_class(
     schema_provider: Any | None,
 ) -> dict[str, Any]:
     aliases = _semantic_aliases_for_class(class_type, schema_inputs, schema_provider)
+
+    # ── determine which widget indices are covered by semantic names ────
+    covered_indices: set[int] = set()
+    for names in _known_compact_widget_name_sources(class_type, schema_inputs, schema_provider):
+        for i, name in enumerate(names):
+            if name and not _is_widget_key(str(name)):
+                covered_indices.add(i)
+
+    # Also cover indices where a non-widget-key alias maps to a widget_N target.
+    for alias_name, target in aliases.items():
+        if not _is_widget_key(alias_name) and _is_widget_key(target):
+            match = _WIDGET_KEY_RE.fullmatch(target)
+            if match is not None:
+                covered_indices.add(int(match.group(1)))
+
     valid_fields: list[str] = []
+
+    # 1. Schema-input names.
     valid_fields.extend(str(name) for name in schema_inputs)
-    valid_fields.extend(_known_widget_keys_for_class(class_type, schema_inputs, schema_provider))
+
+    # 2. Widget keys, skipping those covered by semantic names.
+    for key in _known_widget_keys_for_class(class_type, schema_inputs, schema_provider):
+        if key in valid_fields:
+            continue  # already present via schema_inputs
+        match = _WIDGET_KEY_RE.fullmatch(key)
+        if match is not None and int(match.group(1)) in covered_indices:
+            continue  # covered by a semantic name
+        valid_fields.append(key)
+
+    # 3. Aliases (preserve existing semantic and compatibility aliases).
     valid_fields.extend(aliases)
-    valid_fields.extend(aliases.values())
+    for alias_target in aliases.values():
+        if _is_widget_key(alias_target):
+            match = _WIDGET_KEY_RE.fullmatch(alias_target)
+            if match is not None and int(match.group(1)) in covered_indices:
+                continue
+        valid_fields.append(alias_target)
+
     return _diagnostic_payload(valid_fields, aliases)
 
 

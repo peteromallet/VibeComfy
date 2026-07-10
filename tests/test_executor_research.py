@@ -2903,6 +2903,75 @@ class TestBuildAdaptationPlan:
         assert slice_domain is not None
         assert slice_domain != graph_domain
 
+    def test_cross_media_adapter_slice_not_rejected_at_source(self) -> None:
+        """A cross-media adapter slice (image_to_video) is NOT rejected by
+        source filtering (``_filter_slices_for_graph_domain``) or
+        adaptation-plan selection (``_build_adaptation_plan``) when the
+        target graph is video-domain and the slice genuinely advertises a
+        cross-media adapter capability.  Both paths route through
+        ``_slice_allowed_for_graph_domain``, which delegates to
+        ``_slice_is_cross_media_adapter`` for defined-domain mismatches.
+        """
+        import dataclasses
+
+        from vibecomfy.executor.research import (
+            _filter_slices_for_graph_domain,
+            _graph_node_class_types,
+            _media_domain_from_node_types,
+            _slice_is_cross_media_adapter,
+        )
+
+        # Build an image_to_video adapter slice with image-domain node_types
+        # so the slice's computed domain ("image") differs from the target
+        # graph's domain ("video").  The source_class_type and python_path
+        # contain the "image_to_video" signal so _slice_is_cross_media_adapter
+        # returns True.
+        adapter_slice = dataclasses.replace(
+            self._wan_lora_slice(),
+            node_types=(
+                "CheckpointLoaderSimple",
+                "CLIPTextEncode",
+                "KSampler",
+                "VAEDecode",
+                "SaveImage",
+            ),
+            source_class_type="image_to_video/wan_i2v_adapter",
+            python_path="ready_templates/image_to_video/wan_i2v_adapter.py",
+        )
+        video_graph = self._wan_target_graph()
+
+        # ── Prove the slice advertises a cross-media adapter ──
+        assert _slice_is_cross_media_adapter(adapter_slice) is True
+
+        # ── Prove the domains differ ──
+        graph_class_types = _graph_node_class_types(video_graph)
+        graph_domain = _media_domain_from_node_types(graph_class_types)
+        slice_domain = _media_domain_from_node_types(adapter_slice.node_types)
+        assert graph_domain == "video"
+        assert slice_domain == "image"
+        assert slice_domain != graph_domain
+
+        # ── Source filtering: adapter passes through _filter_slices_for_graph_domain ──
+        filtered = _filter_slices_for_graph_domain(video_graph, (adapter_slice,))
+        assert len(filtered) == 1, (
+            f"Expected adapter slice to pass source filtering, "
+            f"but _filter_slices_for_graph_domain returned {len(filtered)} slices"
+        )
+        assert filtered[0] is adapter_slice
+
+        # ── Adaptation plan: adapter is not rejected (plan is not None) ──
+        plan = _build_adaptation_plan(
+            query="add image_to_video adapter",
+            graph=video_graph,
+            inspection=None,
+            slices=(adapter_slice,),
+        )
+        assert plan is not None, (
+            "_build_adaptation_plan must not reject a cross-media adapter "
+            "slice at the gate level"
+        )
+        assert plan.selected_slice is adapter_slice
+
     def test_same_domain_slice_is_not_rejected(self) -> None:
         """A video slice against a video target graph is unaffected by the
         gate (same domain)."""

@@ -32,6 +32,18 @@ const FAILURE_HINT_KEYS = Object.freeze([
 
 const NORMALIZED_RESPONSE_MARKER = "__agentEditResponseNormalized";
 
+/** Whitelist of engine diagnostic detail keys safe for normalized browser
+ * diagnostics. Raw debug, provider payloads, and internal trace keys stay
+ * behind explicit debug surfaces and are never included here. */
+const DIAGNOSTIC_DETAIL_KEYS = Object.freeze([
+  "choices",
+  "valid_fields",
+  "available_slots",
+]);
+
+/** Maximum number of items kept in each list-valued diagnostic detail. */
+const DIAGNOSTIC_LIST_CAP = 8;
+
 /** Routes that are allowed to carry Apply / candidate / review / rebaseline
  * affordances in the browser UI.  All other routes render as normal
  * assistant messages with no editing controls. */
@@ -775,6 +787,120 @@ function normalizeMessage(message, options) {
   return normalized;
 }
 
+function safeDiagnosticDetail(rawDetail) {
+  if (!isObject(rawDetail)) {
+    return null;
+  }
+  const detail = {};
+  for (const key of DIAGNOSTIC_DETAIL_KEYS) {
+    const value = rawDetail[key];
+    if (Array.isArray(value)) {
+      const capped = value
+        .slice(0, DIAGNOSTIC_LIST_CAP)
+        .map((v) => (typeof v === "string" || typeof v === "number") ? v : null)
+        .filter((v) => v !== null);
+      if (capped.length) {
+        detail[key] = capped;
+      }
+    } else if (value !== undefined && value !== null) {
+      // Scalar detail values (min, max, slot, etc.) kept at safe types only.
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        detail[key] = value;
+      }
+    }
+  }
+  return Object.keys(detail).length ? detail : null;
+}
+
+function normalizeSafeDiagnosticIssue(issue) {
+  if (!isObject(issue)) {
+    return null;
+  }
+  const code = asString(issue.code);
+  if (!code) {
+    return null;
+  }
+  const detail = safeDiagnosticDetail(issue.detail);
+  const entry = compactObject({
+    code,
+    severity: asString(issue.severity),
+    message: asString(issue.message),
+    detail,
+  });
+  return Object.keys(entry).length > 1 ? entry : null;
+}
+
+function normalizeDiagnostics(raw) {
+  const seen = new Set();
+  const collected = [];
+
+  function add(issue) {
+    const normalized = normalizeSafeDiagnosticIssue(issue);
+    if (!normalized) {
+      return;
+    }
+    // Deduplicate by code+message fingerprint.
+    const fingerprint = `${normalized.code}::${normalized.message || ""}`;
+    if (seen.has(fingerprint)) {
+      return;
+    }
+    seen.add(fingerprint);
+    collected.push(normalized);
+  }
+
+  // Top-level diagnostics array.
+  if (Array.isArray(raw.diagnostics)) {
+    for (const issue of raw.diagnostics) {
+      add(issue);
+    }
+  }
+
+  // Public outcome diagnostics.
+  if (Array.isArray(raw.outcome?.diagnostics)) {
+    for (const issue of raw.outcome.diagnostics) {
+      add(issue);
+    }
+  }
+
+  // Stage snapshot issues (raw.debug.stage_snapshots[].issues[]).
+  const snapshots =
+    Array.isArray(raw.debug?.stage_snapshots)
+      ? raw.debug.stage_snapshots
+      : Array.isArray(raw.debug?.stageSnapshots)
+        ? raw.debug.stageSnapshots
+        : Array.isArray(raw.stage_snapshots)
+          ? raw.stage_snapshots
+          : Array.isArray(raw.stageSnapshots)
+            ? raw.stageSnapshots
+            : [];
+  for (const snapshot of snapshots) {
+    if (Array.isArray(snapshot?.issues)) {
+      for (const issue of snapshot.issues) {
+        add(issue);
+      }
+    }
+  }
+
+  // Change details batch-turn diagnostics.
+  const batchTurns =
+    raw.change_details?.batch_turns
+    || raw.changeDetails?.batchTurns
+    || raw.batch_turns
+    || raw.batchTurns
+    || [];
+  if (Array.isArray(batchTurns)) {
+    for (const turn of batchTurns) {
+      if (Array.isArray(turn?.diagnostics)) {
+        for (const diag of turn.diagnostics) {
+          add(diag);
+        }
+      }
+    }
+  }
+
+  return collected.length ? collected : null;
+}
+
 export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy = true } = {}) {
   if (raw?.[NORMALIZED_RESPONSE_MARKER] === true) {
     return raw;
@@ -845,6 +971,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
             ? raw.debug.stage_snapshots.map(normalizeStageSnapshotPayload).filter(Boolean)
             : null,
     fieldChanges: readRawFieldChanges(raw),
+    diagnostics: normalizeDiagnostics(raw),
     applyEligible:
       asBooleanOrNull(raw.applyEligible)
       ?? asBooleanOrNull(raw.apply_eligible)
@@ -1805,6 +1932,7 @@ export function normalizeCanonicalAgentEditResponse(raw, options = {}) {
 
 export {
   PUBLIC_OUTCOME_KINDS,
+  DIAGNOSTIC_DETAIL_KEYS,
   extractRebaselineRecovery,
   normalizeRebaselineRecovery,
 };
