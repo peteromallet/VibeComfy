@@ -68,6 +68,7 @@ ROOT_ALLOWLIST := \
 	docs \
 	pyproject.toml \
 	ready_templates \
+	research \
 	scripts \
 	template_index.json \
 	tests \

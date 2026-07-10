@@ -228,6 +228,12 @@ function parseArgs(argv) {
   return options;
 }
 
+export function resolvePythonExecutable(python, cwd = process.cwd()) {
+  if (path.isAbsolute(python)) return python;
+  if (python.includes("/") || python.includes("\\")) return path.resolve(cwd, python);
+  return python;
+}
+
 async function exists(target) {
   try {
     await fs.access(target);
@@ -693,6 +699,7 @@ export async function main(argv = process.argv.slice(2)) {
     process.stdout.write(usage());
     return { ok: true, code: "HELP", phase: "preflight" };
   }
+  options.python = resolvePythonExecutable(options.python);
 
   const artifactRoot = path.resolve(process.env.VIBECOMFY_E2E_ARTIFACT_DIR || DEFAULT_ARTIFACT_ROOT);
   await fs.mkdir(artifactRoot, { recursive: true });
@@ -702,6 +709,7 @@ export async function main(argv = process.argv.slice(2)) {
   let runtimeRoot = null;
   let cleaningUp = false;
   let comfyuiDir = null;
+  let generatedComfyuiShim = null;
   let primaryFailure = null;
   const replacements = [[artifactRoot, "<artifacts>"]];
   if (options.comfyuiDir) {
@@ -721,6 +729,7 @@ export async function main(argv = process.argv.slice(2)) {
       () => stopProcess(comfyChild),
       () => removeSeededSessions(seededTargets),
       () => runtimeRoot ? fs.rm(runtimeRoot, { recursive: true, force: true }) : undefined,
+      () => generatedComfyuiShim ? fs.rm(generatedComfyuiShim, { recursive: true, force: true }) : undefined,
       () => fs.writeFile(path.join(artifactRoot, "comfyui.log"), sanitizeText(comfyLog.join(""), replacements), "utf8"),
     ]) {
       try {
@@ -754,6 +763,13 @@ export async function main(argv = process.argv.slice(2)) {
 
   try {
     comfyuiDir = await resolveComfyuiDir(options.comfyuiDir);
+    if (
+      !options.comfyuiDir
+      && path.dirname(comfyuiDir) === os.tmpdir()
+      && path.basename(comfyuiDir).startsWith("vibecomfy-comfyui-")
+    ) {
+      generatedComfyuiShim = comfyuiDir;
+    }
     replacements.push([comfyuiDir, "<comfyui>"]);
     const port = options.port ?? (await allocatePort());
     const baseUrl = `http://127.0.0.1:${port}`;

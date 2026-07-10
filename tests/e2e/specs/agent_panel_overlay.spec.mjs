@@ -33,6 +33,9 @@ const READY_STATUS = {
   ok: true,
   ready: true,
   provider_available: true,
+  credential_presence: {
+    deepseek_api_key: true,
+  },
   route: "deepseek",
   requested_route: "auto",
   route_options: {
@@ -138,6 +141,18 @@ function candidateResponse({
 }
 
 async function installReadyStatusRoute(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("vibecomfy_demo_picker_enabled", "0");
+  });
+  await page.route("**/api/extensions", async (route) => {
+    const response = await route.fetch();
+    const extensions = await response.json();
+    const evalExtensionRoot = "/extensions/comfy_extras.nodes.nodes_eval/";
+    const filtered = extensions.filter((entry) => (
+      !entry.startsWith(evalExtensionRoot) || entry === `${evalExtensionRoot}eval_python.js`
+    ));
+    await route.fulfill({ response, json: filtered });
+  });
   await page.route("**/vibecomfy/agent/status**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -667,7 +682,7 @@ test.describe("Agent Panel Overlay", () => {
 
     const overlay = await probeOverlayState(page);
     expect(overlay.previewInstalled).toBe(true);
-    expect(overlay.hasOverlayDraw).toBe(true);
+    expect(overlay.previewDegraded).toBe(false);
 
     const firstGeometry = await readTargetWidgetGeometry(page);
     expect(firstGeometry).not.toBeNull();

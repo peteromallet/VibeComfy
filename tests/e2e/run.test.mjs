@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { LauncherFailure, runEntrypoint, sanitizeText } from "./run.mjs";
+import {
+  LauncherFailure,
+  resolvePythonExecutable,
+  runEntrypoint,
+  sanitizeText,
+} from "./run.mjs";
 
 const FAILURE_EXPECTATIONS = {
   MISSING_COMFYUI: "preflight",
@@ -72,6 +77,16 @@ test("launcher checks sibling ComfyUI checkout in addition to vendor checkout", 
   const source = await fs.readFile(new URL("./run.mjs", import.meta.url), "utf8");
   assert.match(source, /DEFAULT_SIBLING_COMFYUI_DIR/);
   assert.match(source, /DEFAULT_VENDOR_COMFYUI_DIR,\s*[\r\n\s]*DEFAULT_SIBLING_COMFYUI_DIR/);
+});
+
+test("launcher resolves a path-like Python executable before changing child cwd", () => {
+  const invocationDir = path.join(os.tmpdir(), "vibecomfy-invocation");
+  assert.equal(
+    resolvePythonExecutable(".venv/bin/python", invocationDir),
+    path.join(invocationDir, ".venv", "bin", "python"),
+  );
+  assert.equal(resolvePythonExecutable("python", invocationDir), "python");
+  assert.equal(resolvePythonExecutable("/opt/python", invocationDir), "/opt/python");
 });
 
 test("malformed fixtures fail before ComfyUI starts and retain launcher artifacts", async () => {

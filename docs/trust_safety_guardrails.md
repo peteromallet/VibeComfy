@@ -141,3 +141,27 @@ worker env already strips common LLM/cloud secrets (`ANTHROPIC_`, `OPENAI_`,
 `_SECRET`, `_TOKEN`, `_PASSWORD`, …).  The remaining gaps are env‑blocklist
 completeness and value‑pattern redaction — important hardening that can be
 addressed in a follow‑up without reopening the dynamic‑code bypass.
+
+---
+
+## Corrective trust-gate validation (2026-07-10)
+
+Final independent validation did not earn a pass. The dedicated
+`corrective-trust-gate` target, locked inventory, driver, and unified manifest
+are absent from this checkout. The separate Corrective 2 run collected 402
+tests and kept 11 failures explicit and outside quarantine (391 passed); their
+exact node IDs and the command are recorded in
+`research/corrective-verification-evidence-2026-07-10.md`.
+
+The three retained real-browser runs had valid non-skipped geometry evidence,
+but their native Playwright JSON contained absolute workspace paths. Also,
+`make check` stopped at `root-clean` because a generated `vendor/ComfyUI` root
+remained. `make clean`, explicit generated-root removal, and
+`make post-root-clean` ultimately left only the intentional implementation and
+evidence edits.
+
+Before claiming acceptance, add the missing gate surface, sanitize native
+Playwright artifacts, make generated ComfyUI cleanup certain, and rerun both
+the canonical gate and the independent Corrective 2 command. Missing ComfyUI
+or Chromium prerequisites must continue to fail with launcher remediation,
+never become skips.
