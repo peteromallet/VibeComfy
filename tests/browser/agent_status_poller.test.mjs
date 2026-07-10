@@ -812,6 +812,31 @@ test("refreshAgentStatus — LOADING → UNAVAILABLE (fetch throws)", async () =
   assert.ok(panel.state.statusRetry, "should schedule retry");
 });
 
+test("refreshAgentStatus aborts a deadline-bound fetch and records timeout diagnostics", async () => {
+  let observedSignal = null;
+  mockFetch((_url, options) => new Promise((_resolve, reject) => {
+    observedSignal = options.signal;
+    options.signal.addEventListener("abort", () => {
+      const error = new Error("Fetch deadline exceeded");
+      error.name = "AbortError";
+      reject(error);
+    }, { once: true });
+  }));
+
+  const panel = makePanel();
+  const pending = refreshAgentStatus(panel, { quiet: false }, makeDeps({ fetchDeadlineMs: 1 }));
+  await Promise.resolve();
+  const deadline = globalThis._getTimers().find((timer) => timer.ms === 1);
+  assert.ok(deadline, "deadline timer should be scheduled");
+  deadline.fn();
+  await pending;
+
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.UNAVAILABLE);
+  assert.equal(panel.state.lastAgentStatusDiagnostic.timedOut, true);
+  assert.match(panel.state.settingsMessage, /timed out after 1ms/);
+});
+
 test("refreshAgentStatus — LOADING → UNAVAILABLE (HTTP error status)", async () => {
   mockFetch((url) => {
     if (url.startsWith("/vibecomfy/agent/status")) {
@@ -1810,4 +1835,29 @@ test("refreshVibeComfyInfo — unavailable responses keep an error diagnostic on
     panel.state.lastVibeComfyInfoDiagnostic.error.includes("Connection refused"),
     `got: ${panel.state.lastVibeComfyInfoDiagnostic.error}`,
   );
+});
+
+test("refreshVibeComfyInfo aborts a deadline-bound fetch without changing route status", async () => {
+  let observedSignal = null;
+  mockFetch((_url, options) => new Promise((_resolve, reject) => {
+    observedSignal = options.signal;
+    options.signal.addEventListener("abort", () => {
+      const error = new Error("Fetch deadline exceeded");
+      error.name = "AbortError";
+      reject(error);
+    }, { once: true });
+  }));
+
+  const panel = makePanel({ state: { routeStatus: { kind: ROUTE_STATUS_KIND.READY } } });
+  const pending = refreshVibeComfyInfo(panel, makeDeps({ fetchDeadlineMs: 1 }));
+  await Promise.resolve();
+  const deadline = globalThis._getTimers().find((timer) => timer.ms === 1);
+  assert.ok(deadline, "deadline timer should be scheduled");
+  deadline.fn();
+  await pending;
+
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(panel.state.vibeComfyInfoStatus.kind, "unavailable");
+  assert.equal(panel.state.lastVibeComfyInfoDiagnostic.timedOut, true);
+  assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.READY);
 });

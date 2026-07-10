@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from vibecomfy.comfy_nodes import VibeComfyStripConditioningKeys
+from vibecomfy.security.provenance import PROVENANCE_KEY
 
 
 def test_strip_conditioning_keys_removes_metadata_without_touching_embeddings() -> None:
@@ -236,6 +237,39 @@ def test_code_intent_execute_dynamic_missing_prompt_does_not_crash(
     assert props["intent"] == {"source": "", "spec": ""}
     assert props["runtime"] == {}
     assert props["execution_mode"] == "sandboxed_loose"
+
+
+def test_code_intent_execute_dynamic_merges_widget_runtime_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real CodeIntent path supplies the validator's complete contract."""
+    monkeypatch.setenv("VIBECOMFY_CODE_DYNAMIC_IO", "1")
+    import vibecomfy.comfy_nodes as m
+
+    prompt = _make_prompt("1", {
+        "kind": "code",
+        PROVENANCE_KEY: "agent_authored",
+        "intent": {"source": ""},
+        "io": {"inputs": [], "outputs": [["value", "INT"]]},
+        "runtime": {},
+    })
+
+    result = m.VibeComfyCodeIntent().execute(
+        unique_id="1",
+        prompt=prompt,
+        source="outputs['value'] = 2",
+        execution_mode="sandboxed_loose",
+        runtime_backed=True,
+        runtime_contract_version="runtime_code_v1",
+        timeout_ms=1000,
+        max_source_bytes=16384,
+        allowed_builtins=[],
+        redaction_policy=[],
+        policy_version="runtime_code_policy_v1",
+    )
+
+    assert result[0] == 2
+    assert all(value is None for value in result[1:])
 
 
 # ---------------------------------------------------------------------------

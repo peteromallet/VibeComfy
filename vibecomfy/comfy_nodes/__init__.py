@@ -396,13 +396,17 @@ class VibeComfyCodeIntent(_VibeComfyIntentNodeBase):
             raw_props = node_data.get("properties")
             properties = raw_props if isinstance(raw_props, dict) else {}
 
-        vibecomfy = properties.get("vibecomfy")
-        vibecomfy = vibecomfy if isinstance(vibecomfy, dict) else {}
+        raw_vibecomfy = properties.get("vibecomfy")
+        # Prompt metadata belongs to ComfyUI's queued prompt. Copy the layers
+        # we enrich below so a node execution never mutates that shared prompt.
+        vibecomfy = dict(raw_vibecomfy) if isinstance(raw_vibecomfy, dict) else {}
         # Ensure the sub-dicts intent/runtime exist so downstream code
         # (runtime_code.py execute_runtime_code_dynamic, contract validator)
         # does not need its own defensive get chains.
-        vibecomfy.setdefault("intent", {})
-        vibecomfy.setdefault("runtime", {})
+        existing_intent = vibecomfy.get("intent")
+        vibecomfy["intent"] = dict(existing_intent) if isinstance(existing_intent, dict) else {}
+        existing_runtime = vibecomfy.get("runtime")
+        vibecomfy["runtime"] = dict(existing_runtime) if isinstance(existing_runtime, dict) else {}
 
         # --- Widget-to-property roundtrip: source / spec / execution_mode ---
         _NEW_MODE_SET = frozenset({"sandboxed_loose", "sandboxed_strict", "unrestricted"})
@@ -430,6 +434,25 @@ class VibeComfyCodeIntent(_VibeComfyIntentNodeBase):
         elif "spec" not in intent:
             intent["spec"] = ""
 
+        # Dynamic CodeIntent widgets are the live runtime contract. The
+        # executor validates vibecomfy.runtime, not the historical top-level
+        # execution_mode, so copy every contract field before dispatch.
+        runtime: dict[str, Any] = vibecomfy["runtime"]
+        runtime_widget_fields = (
+            "runtime_backed", "runtime_contract_version", "timeout_ms",
+            "max_source_bytes", "allowed_builtins", "allowed_imports",
+            "redaction_policy", "policy_version", "passthrough_on_non_json",
+            "unrestricted_ack",
+        )
+        has_widget_runtime = any(field in kwargs for field in runtime_widget_fields)
+        for field in runtime_widget_fields:
+            if field in kwargs:
+                runtime[field] = kwargs[field]
+        # Preserve the defensive missing-prompt shape for callers which only
+        # inspect metadata; an actual runtime contract always has either saved
+        # runtime data or one of the runtime widget fields above.
+        if runtime or has_widget_runtime:
+            runtime["execution_mode"] = widget_mode
         vibecomfy["execution_mode"] = widget_mode
 
         io = vibecomfy.get("io")

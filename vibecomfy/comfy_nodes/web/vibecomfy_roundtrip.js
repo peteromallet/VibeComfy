@@ -4759,8 +4759,8 @@ export function recoverReloadOrphanSubmit(panel) {
       session_id: panel.state.sessionId || null,
       turn_id: panel.state.turnId || null,
       recovery_reason: "page_reload_orphan",
-      url: "/vibecomfy/agent-edit",
-      next_action: "retry",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
       message,
     },
     syntheticAgentMessage: {
@@ -4772,8 +4772,8 @@ export function recoverReloadOrphanSubmit(panel) {
     },
     debugPayload: {
       recovery_reason: "page_reload_orphan",
-      url: "/vibecomfy/agent-edit",
-      next_action: "retry",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
       session_id: panel.state.sessionId || null,
       turn_id: panel.state.turnId || null,
       last_submit: panel.state.lastSubmit || null,

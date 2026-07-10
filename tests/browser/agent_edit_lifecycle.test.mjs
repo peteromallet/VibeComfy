@@ -6769,8 +6769,8 @@ test("SUBMIT_RELOAD_ORPHAN_RECOVERY transitions wedged SUBMITTING state to ERROR
       session_id: "sess-orphan",
       turn_id: "turn-orphan",
       recovery_reason: "page_reload_orphan",
-      url: "/vibecomfy/agent-edit",
-      next_action: "retry",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
       message: "Your last edit didn't finish because the page reloaded. Please try again.",
     },
     syntheticAgentMessage: {
@@ -6781,8 +6781,8 @@ test("SUBMIT_RELOAD_ORPHAN_RECOVERY transitions wedged SUBMITTING state to ERROR
     },
     debugPayload: {
       recovery_reason: "page_reload_orphan",
-      url: "/vibecomfy/agent-edit",
-      next_action: "retry",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
       session_id: "sess-orphan",
       turn_id: "turn-orphan",
       last_submit: { task: "edit node" },
@@ -6798,8 +6798,8 @@ test("SUBMIT_RELOAD_ORPHAN_RECOVERY transitions wedged SUBMITTING state to ERROR
   assert.equal(panel.state.failure.session_id, "sess-orphan");
   assert.equal(panel.state.failure.turn_id, "turn-orphan");
   assert.equal(panel.state.failure.recovery_reason, "page_reload_orphan");
-  assert.equal(panel.state.failure.url, "/vibecomfy/agent-edit");
-  assert.equal(panel.state.failure.next_action, "retry");
+  assert.equal(panel.state.failure.url, "/vibecomfy/agent-executor");
+  assert.equal(panel.state.failure.next_action, "resubmit_or_refresh");
   // Stale in-flight bookkeeping is cleared
   assert.equal(panel.state.inFlightSubmit, null);
   assert.equal(panel.state.submitAbortController, null);
@@ -6904,8 +6904,8 @@ test("SUBMIT_RELOAD_ORPHAN_RECOVERY resolves identity from panel state when payl
   const obligations = transition(panel, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {
     failure: {
       recovery_reason: "page_reload_orphan",
-      url: "/vibecomfy/agent-edit",
-      next_action: "retry",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
     },
   });
 

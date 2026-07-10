@@ -1297,8 +1297,8 @@ function _handleSubmitReloadOrphanRecovery(panel, payload) {
       ? failure.turn_id
       : (panel.state.turnId || null),
     recovery_reason: failure.recovery_reason || "page_reload_orphan",
-    url: failure.url || "/vibecomfy/agent-edit",
-    next_action: failure.next_action || "retry",
+    url: failure.url || "/vibecomfy/agent-executor",
+    next_action: failure.next_action || "resubmit_or_refresh",
   };
   return _handleSubmitNetworkFailure(panel, { ...(payload || {}), failure: recoveryFailure });
 }
