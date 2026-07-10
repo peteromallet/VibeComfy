@@ -696,9 +696,7 @@ def _existing_parameter_tweak_targets_from_graph(
             continue
 
         # ── 5. Build preview and score ──
-        preview = ", ".join(field_previews[:4])
-        if len(field_previews) > 4:
-            preview += ", ..."
+        preview = ", ".join(field_previews)
         class_text = class_type.casefold()
         field_text = " ".join(field_previews).casefold()
         score = 0

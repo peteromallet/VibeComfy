@@ -100,9 +100,9 @@ def test_direct_existing_parameter_tweak_feedback_skips_non_parameter_requests()
 
 def test_ks_sampler_targets_use_compact_field_names() -> None:
     """``_existing_parameter_tweak_targets`` returns engine-accepted compact
-    field names for KSampler: ``seed``, ``steps``, ``cfg``, etc.  The preview
-    is truncated to 4 fields, so only the first 4 semantic names are
-    guaranteed to appear in the target string."""
+    field names for KSampler: all seven fields (``seed``, ``steps``, ``cfg``,
+    ``sampler_name``, ``scheduler``, ``denoise``, ``control_after_generate``)
+    are visible without raw ``widget_N`` entries."""
     state = _state(
         task="increase steps and adjust cfg to improve quality",
         graph=_ks_graph(),
@@ -110,15 +110,16 @@ def test_ks_sampler_targets_use_compact_field_names() -> None:
     targets = _existing_parameter_tweak_targets(state)
     assert len(targets) >= 1, "Expected at least one KSampler target"
     target_text = targets[0]
-    # The preview shows the first 4 fields; they must be semantic names.
+    # All seven compact field names must be visible in the target string.
     assert "seed" in target_text, f"Missing 'seed' in: {target_text}"
     assert "control_after_generate" in target_text, (
         f"Missing 'control_after_generate' in: {target_text}"
     )
     assert "steps" in target_text, f"Missing 'steps' in: {target_text}"
     assert "cfg" in target_text, f"Missing 'cfg' in: {target_text}"
-    # Later fields (sampler_name, scheduler, denoise) are truncated with "..."
-    assert "..." in target_text, f"Expected truncation '...' for 7 fields in: {target_text}"
+    assert "sampler_name" in target_text, f"Missing 'sampler_name' in: {target_text}"
+    assert "scheduler" in target_text, f"Missing 'scheduler' in: {target_text}"
+    assert "denoise" in target_text, f"Missing 'denoise' in: {target_text}"
 
 
 def test_ks_sampler_targets_avoid_raw_widget_positions() -> None:

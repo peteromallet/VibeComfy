@@ -488,7 +488,8 @@ def test_batch_set_scheduler_nonexistent_fails_with_value_not_in_enum() -> None:
 
 def test_batch_set_nonexistent_attribute_sampler_fails_with_unknown_target_field() -> None:
     """Setting ``ksampler.sampler = 'euler'`` (no such attribute) fails with
-    ``unknown_target_field`` and diagnostic detail names the field."""
+    ``unknown_target_field`` and diagnostic detail names the field and
+    surfaces ``valid_fields`` containing compact KSampler fields."""
     session = _ks_edit_session()
     result = session.apply_batch("ksampler.sampler = 'euler'")
 
@@ -505,6 +506,13 @@ def test_batch_set_nonexistent_attribute_sampler_fails_with_unknown_target_field
     assert detail.get("name") == "ksampler"
     assert detail.get("field") == "sampler"
     assert "Sampler" in field_diag.message or "sampler" in field_diag.message
+
+    # valid_fields must include the compact KSampler names
+    valid_fields = detail.get("valid_fields")
+    assert isinstance(valid_fields, list), f"expected valid_fields list, got {valid_fields!r}"
+    assert len(valid_fields) >= 7
+    for expected in ("seed", "steps", "cfg", "sampler_name", "scheduler", "denoise"):
+        assert expected in valid_fields, f"missing {expected!r} in valid_fields"
 
     # Graph should NOT be mutated
     node = session.working_ui["nodes"][0]
@@ -541,7 +549,8 @@ def test_batch_report_for_enum_failure_has_detail_choices() -> None:
 
 
 def test_batch_report_for_unknown_field_has_diagnostic_code() -> None:
-    """``_format_batch_report`` includes ``unknown_target_field`` for unknown field."""
+    """``_format_batch_report`` includes ``unknown_target_field`` and
+    ``valid_fields`` for unknown field."""
     from vibecomfy.comfy_nodes.agent.edit import _format_batch_report
 
     session = _ks_edit_session()
@@ -549,6 +558,7 @@ def test_batch_report_for_unknown_field_has_diagnostic_code() -> None:
     report = _format_batch_report(result, consecutive_errors=0, budget_remaining=5)
 
     assert "unknown_target_field" in report
+    assert "valid_fields:" in report
 
 
 def test_batch_report_for_success_includes_statement_marker() -> None:

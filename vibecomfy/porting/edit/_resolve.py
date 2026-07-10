@@ -54,6 +54,7 @@ from vibecomfy.porting.edit._ir_utils import (
     _socket_type_from_widget_value,
     _widget_value_for_field,
 )
+from vibecomfy.porting.edit.apply_field_aliases import field_diagnostics_for_node
 from vibecomfy.porting.edit.apply_slots import _canonical_ui_only_widget_field
 from vibecomfy.porting.resolution import _find_named_slot
 
@@ -1465,12 +1466,24 @@ class _ResolveMixin:
         raw_input = _find_named_slot(node_ref.node.get("inputs"), field_name)
         widget_value = _widget_value_for_field(node_ref.node, node_ref.class_type, field_name)
         if raw_input is None and schema_input is None and widget_value is _MISSING_WIDGET_VALUE and field_name != "mode":
+            detail: dict[str, Any] = {"name": node_ref.name, "uid": node_ref.uid, "field": target.attr}
+            try:
+                fd = field_diagnostics_for_node(
+                    node_ref.node,
+                    node_ref.class_type,
+                    schema_inputs,
+                    schema_provider=self.schema_provider,
+                )
+                if fd.get("valid_fields"):
+                    detail["valid_fields"] = fd["valid_fields"]
+            except Exception:
+                pass
             return None, [
                 _diag(
                     "unknown_target_field",
                     f"{node_ref.class_type} has no editable field or input named {target.attr!r}.",
                     severity="error",
-                    detail={"name": node_ref.name, "uid": node_ref.uid, "field": target.attr},
+                    detail=detail,
                 )
             ]
         socket_type = _normalize_ir_type(
