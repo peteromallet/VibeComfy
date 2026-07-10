@@ -11,6 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const E2E_DIR = path.dirname(__filename);
 const REPO_ROOT = path.resolve(E2E_DIR, "..", "..");
 const DEFAULT_VENDOR_COMFYUI_DIR = path.join(REPO_ROOT, "vendor", "ComfyUI");
+const DEFAULT_SIBLING_COMFYUI_DIR = path.join(path.dirname(REPO_ROOT), "ComfyUI");
 const DEFAULT_SEED_SESSIONS_DIR = path.join(REPO_ROOT, "tests", "fixtures", "e2e_sessions");
 const DEFAULT_READY_TIMEOUT_MS = 120_000;
 const DEFAULT_STOP_TIMEOUT_MS = 10_000;
@@ -189,10 +190,11 @@ async function exists(target) {
   }
 }
 
-async function resolveComfyuiDir(explicitDir) {
+export async function resolveComfyuiDir(explicitDir) {
   const candidates = [
     explicitDir,
     DEFAULT_VENDOR_COMFYUI_DIR,
+    DEFAULT_SIBLING_COMFYUI_DIR,
   ].filter(Boolean);
   for (const candidate of candidates) {
     const mainPy = path.join(candidate, "main.py");

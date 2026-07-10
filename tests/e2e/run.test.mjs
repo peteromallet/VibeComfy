@@ -68,6 +68,12 @@ test("missing ComfyUI fails closed with a machine-readable sanitized artifact", 
   }
 });
 
+test("launcher checks sibling ComfyUI checkout in addition to vendor checkout", async () => {
+  const source = await fs.readFile(new URL("./run.mjs", import.meta.url), "utf8");
+  assert.match(source, /DEFAULT_SIBLING_COMFYUI_DIR/);
+  assert.match(source, /DEFAULT_VENDOR_COMFYUI_DIR,\s*[\r\n\s]*DEFAULT_SIBLING_COMFYUI_DIR/);
+});
+
 test("malformed fixtures fail before ComfyUI starts and retain launcher artifacts", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "vibecomfy-launcher-fixture-"));
   const comfyDir = path.join(root, "ComfyUI");
