@@ -121,6 +121,31 @@ export function sanitizeText(value, replacements = []) {
   return text;
 }
 
+function sanitizeStructuredValue(value, replacements = []) {
+  if (typeof value === "string") return sanitizeText(value, replacements);
+  if (Array.isArray(value)) return value.map((item) => sanitizeStructuredValue(item, replacements));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, sanitizeStructuredValue(item, replacements)]),
+    );
+  }
+  return value;
+}
+
+export async function sanitizeJsonArtifact(filePath, replacements = []) {
+  const payload = JSON.parse(await fs.readFile(filePath, "utf8"));
+  const sanitized = sanitizeStructuredValue(payload, replacements);
+  await writeJson(filePath, sanitized);
+  return sanitized;
+}
+
+export async function pruneSuccessfulPlaywrightArtifacts(artifactRoot) {
+  // The bundled HTML viewer is useful when a test fails, but on success it is
+  // redundant with results.json and contains generic credential-field source
+  // literals. Do not publish that third-party bundle as successful evidence.
+  await fs.rm(path.join(artifactRoot, "html-report"), { recursive: true, force: true });
+}
+
 async function writeJson(filePath, payload) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -820,9 +845,21 @@ export async function main(argv = process.argv.slice(2)) {
       VIBECOMFY_E2E_PLAYWRIGHT_HTML: path.join(artifactRoot, "html-report"),
     };
     const code = await runPlaywright(options.playwrightArgs, env);
+    const playwrightResult = path.join(artifactRoot, "results.json");
+    if (await exists(playwrightResult)) {
+      try {
+        await sanitizeJsonArtifact(playwrightResult, replacements);
+      } catch (error) {
+        throw new LauncherFailure(
+          "PLAYWRIGHT_FAILED",
+          `Playwright produced a malformed or unsanitizable results.json: ${error.message}`,
+        );
+      }
+    }
     if (code !== 0) {
       throw new LauncherFailure("PLAYWRIGHT_FAILED", `Playwright exited with code ${code}.`);
     }
+    await pruneSuccessfulPlaywrightArtifacts(artifactRoot);
     return { ok: true, code: "E2E_PASSED", phase: "playwright" };
   } catch (error) {
     primaryFailure = asLauncherFailure(error, "INTERNAL_ERROR");

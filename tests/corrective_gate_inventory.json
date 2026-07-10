@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "python": {
+    "paths": [
+      "tests/test_comfy_nodes_info.py",
+      "tests/test_runtime_code_modes.py",
+      "tests/security/test_runtime_code_policy.py"
+    ],
+    "minimum_collected": 20
+  },
+  "node": {
+    "paths": [
+      "tests/browser/payload_contracts.test.mjs",
+      "tests/browser/agent_edit_lifecycle.test.mjs",
+      "tests/browser/agent_status_poller.test.mjs",
+      "tests/browser/lifecycle_ownership_static.test.mjs",
+      "tests/browser/roundtrip_smoke.test.mjs"
+    ],
+    "minimum_collected": 20
+  },
+  "playwright": {
+    "paths": [
+      "tests/e2e/specs/agent_panel_overlay.spec.mjs"
+    ],
+    "minimum_collected": 1
+  },
+  "quarantine_sha256": {
+    "tests/quarantine/agent_cli_surface.txt": "9d60887ae3097f846a8cdbeb2fc68cb63c99be8a29f597288313e083e1552623",
+    "tests/quarantine/characterization_surface.txt": "3b4a543468dac6c2bb5c00ad2d051e1e5cc677d5b2a7dc711bcfe49cf6a1c431",
+    "tests/quarantine/comfy_nodes_agent_surface.txt": "48866fa7cc6f5f66d186ba55c0cb78ae310de03fb9ab968d93ce8d0aa1f51341",
+    "tests/quarantine/comfy_nodes_hivemind_surface.txt": "1eab0a7cb3c0f3bf670bdfb8d0818dcd7f04b9cdca3319c67aabb7d91e5c312e",
+    "tests/quarantine/comfy_roundtrip_surface.txt": "9e13885792c45e6785f0145a12ea8ba0c163633082950ba51ee503c2f15ce708",
+    "tests/quarantine/core_api_surface.txt": "5ecf855725fa061d939fd4bfbbc0b74aedbea02a25c1765ec8ab9e2e9cdf4bd7",
+    "tests/quarantine/emitter_parity_surface.txt": "dd79e89890959a0bd8fa185077dc60f49c8ea12d4980b92d80a53f6922fdd80a",
+    "tests/quarantine/intent_surface.txt": "6d73367a21ad3075b7897e0cf29793166b0093f98106de8d0e9be109f0dcd9b1",
+    "tests/quarantine/node_resolution_surface.txt": "0e642cbd8528b0d10ad9cbae627803e144648803d8ac5cb140a21849fa38204e",
+    "tests/quarantine/pi_transition.txt": "c05a2ecf42b523caebee7755c79ddf472ed17f455f6515dc30364d3c914159a2",
+    "tests/quarantine/ready_templates_surface.txt": "c7f2de5daaea9e927bbf7bf58322dfa49607b9a50bf11caf14a90e89e7cb3a77",
+    "tests/quarantine/runtime_embedded_surface.txt": "ed36635e5ed8446e2247f6b1229f2f21ca1ea839a4b3b10c31af0ee9379f85a4",
+    "tests/quarantine/schema_oracle_surface.txt": "be42a54cf84eb768d87d46cd6e35cdd236f14ba49288c341be6573b7a6e4fb5f",
+    "tests/quarantine/structural_harness_surface.txt": "a53f078c7452bad8e901b591ede090caedb43991084c08145f8a7ac89b42b4e2"
+  }
+}

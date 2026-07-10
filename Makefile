@@ -51,6 +51,9 @@ BROWSER_CONTRACT_TESTS := \
 E2E_PREVIEW_SPECS := \
 	tests/e2e/specs/agent_panel_overlay.spec.mjs
 
+CORRECTIVE_GATE_INVENTORY ?= tests/corrective_gate_inventory.json
+CORRECTIVE_GATE_ARTIFACTS ?= test-results/corrective-trust-gate
+
 ROOT_ALLOWLIST := \
 	.env.example \
 	.gitattributes \
@@ -96,7 +99,7 @@ ROOT_BANNED := \
 	version_matrix.json \
 	workflow_corpus
 
-.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast snapshots oracle browser-contracts browser-smoke parity e2e-browser e2e-preview clean clean-artifacts
+.PHONY: all check ci install-dev install-ci prune-empty-runtime-root root-clean post-root-clean docs template-index templates strict-ready fast snapshots oracle browser-contracts browser-smoke parity e2e-browser e2e-preview corrective-trust-gate-preflight corrective-trust-gate clean clean-artifacts
 
 all: check
 
@@ -181,13 +184,26 @@ e2e-browser:
 
 # Keep preview e2e explicit because it assumes the heavier browser + ComfyUI test environment.
 e2e-preview:
-	@if ! command -v comfyui >/dev/null 2>&1; then \
+	@if ! command -v comfyui >/dev/null 2>&1 && [ ! -x "$(dir $(PYTHON))comfyui" ]; then \
 		$(PYTHON) -m pip install --extra-index-url https://nodes.appmana.com/simple/ 'comfyui==0.26.0'; \
 	fi
 	@if [ ! -d tests/e2e/node_modules/@playwright/test ]; then \
 		cd tests/e2e && npm install && npx playwright install chromium; \
 	fi
 	PYBIN="$(PYTHON)" $(NODE) tests/e2e/run.mjs -- --config tests/e2e/playwright.config.mjs $(E2E_PREVIEW_SPECS)
+
+corrective-trust-gate-preflight:
+	@if ! command -v comfyui >/dev/null 2>&1 && [ ! -x "$(dir $(PYTHON))comfyui" ]; then \
+		$(PYTHON) -m pip install --extra-index-url https://nodes.appmana.com/simple/ 'comfyui==0.26.0'; \
+	fi
+	@if [ ! -d tests/e2e/node_modules/@playwright/test ]; then \
+		cd tests/e2e && npm install && npx playwright install chromium; \
+	fi
+
+corrective-trust-gate: corrective-trust-gate-preflight
+	PYBIN="$(PYTHON)" $(PYTHON) -m tools.run_corrective_gate \
+		--inventory "$(CORRECTIVE_GATE_INVENTORY)" \
+		--artifact-dir "$(CORRECTIVE_GATE_ARTIFACTS)"
 
 clean-artifacts:
 	rm -rf .coverage coverage.xml .pytest_cache .hypothesis out temp test-results

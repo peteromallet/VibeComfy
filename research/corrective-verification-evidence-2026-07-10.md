@@ -1,22 +1,45 @@
 # Corrective Verification Evidence — 2026-07-10
 
-## Final independent validation
+## Canonical corrective gate
 
-Commit under test: `9bc855e` with the three intentional E2E implementation
-edits listed by `git status`.
+The missing acceptance surface was restored and run from commit
+`a9b2add2dbfa1485f06875323bb71b7a1e1c8a2a` plus the intentional gate repair
+awaiting commit. The command was:
 
-The corrective acceptance surface was not available in this checkout:
-`make corrective-trust-gate`, `tests/corrective_gate_inventory.json`, the gate
-driver, and a unified manifest do not exist. Therefore this note does not claim
-canonical-gate acceptance.
+```text
+make corrective-trust-gate
+```
 
-The separate Corrective 2 command was run once:
+The locked inventory and complete quarantine hash set passed. The unified
+manifest recorded:
+
+- Python: 64 collected, 64 passed, exit 0.
+- Node: 675 collected, 675 passed, exit 0.
+- Playwright: one real Chromium test, one expected, zero skipped, unexpected,
+  or flaky results, exit 0.
+- Launcher: `E2E_PASSED` after real ComfyUI readiness, two real submits, geometry
+  capture, and certain teardown.
+
+The sanitized manifest is
+`test-results/corrective-trust-gate/manifest.json` with SHA-256
+`79da340e0594257f3071bfd7ec80d141d310b388dccc1f67a53debb050f6ff13`.
+The locked inventory SHA-256 is
+`7fdb5df649b80f0387e7951b867c9f12ff9bf3e6883eabcdb7da615b93430390`.
+An exact repository-root search across the retained gate artifacts found no
+absolute workspace path. Native Playwright `results.json` is recursively
+sanitized before publication, and the bundled HTML viewer is retained only for
+failed Playwright runs.
+
+## Separate Corrective 2 boundary
+
+The separate, intentionally non-gating Corrective 2 command was rerun after the
+canonical gate:
 
 ```text
 PATH="$PWD/.venv/bin:$PATH" python -m pytest -q --tb=short tests/test_comfy_nodes_agent_edit.py
 ```
 
-It collected 402 tests: 391 passed and the following 11 failed. Pytest reported
+It again collected 402 tests: 391 passed and the same 11 failed. Pytest reported
 all 11 as new failures outside quarantine:
 
 - `tests/test_comfy_nodes_agent_edit.py::test_agent_edit_batch_empty_model_response_retries_once_then_commits`
@@ -31,23 +54,15 @@ all 11 as new failures outside quarantine:
 - `tests/test_comfy_nodes_agent_edit.py::test_rejected_terminal_clarify_after_partial_edit_fails_fast`
 - `tests/test_comfy_nodes_agent_edit.py::test_rejected_terminal_clarify_is_durable_budget_failure`
 
-No passing corrective inventory exists, and a temporary exact-ID audit found
-none of these nodes in `tests/quarantine/*.txt`. The audit script was deleted
-after execution.
+These node IDs remain visibly reproducible and are neither quarantined nor
+included in the passing corrective inventory.
 
-`make check` failed at its initial `root-clean` guard because the earlier E2E
-launcher left `vendor/ComfyUI`. `make clean` removed ordinary artifacts but not
-that runtime root. After explicitly removing the generated `vendor/` root,
-`make post-root-clean` and `git diff --check` passed; no ComfyUI, Playwright, or
-Chromium process or generated runtime root remained.
+## Cleanup and remediation behavior
 
-The three earlier E2E result sets each contained one expected Chromium test,
-zero skipped/unexpected/flaky tests, and two parseable geometry attachments.
-However, every native `results.json` contained six absolute workspace-path
-references. Those artifacts were removed by `make clean`, but their sanitation
-failure prevents a trust-gate pass.
-
-Remediation: implement the missing locked inventory, fail-closed driver, Make
-target, and unified manifest; sanitize native Playwright result paths before
-publication; make launcher/cleanup ownership of generated `vendor/ComfyUI`
-certain; then rerun the canonical gate and this independent validation.
+The launcher removed its generated ComfyUI shim and runtime root. No ComfyUI,
+Playwright, Chromium, or chain-runner process remained after the gate.
+`make post-root-clean` and `git diff --check` passed. Wrong-runner inventory,
+quarantine drift, missing tools/files, timeout, nonzero exit, zero collection,
+malformed native output, skipped/unexpected/flaky Playwright results, and
+unsanitizable Playwright JSON all fail the corrective gate with remediation in
+the unified manifest.

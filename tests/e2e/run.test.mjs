@@ -6,8 +6,10 @@ import test from "node:test";
 
 import {
   LauncherFailure,
+  pruneSuccessfulPlaywrightArtifacts,
   resolvePythonExecutable,
   runEntrypoint,
+  sanitizeJsonArtifact,
   sanitizeText,
 } from "./run.mjs";
 
@@ -49,6 +51,34 @@ test("launcher sanitizer removes credential values, credential query parameters,
   } finally {
     if (original === undefined) delete process.env.VIBECOMFY_TEST_API_KEY;
     else process.env.VIBECOMFY_TEST_API_KEY = original;
+  }
+});
+
+test("launcher sanitizes nested native Playwright JSON before publication", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "vibecomfy-playwright-json-"));
+  const resultPath = path.join(root, "results.json");
+  const privateFile = path.join(os.homedir(), "checkout", "tests", "e2e", "spec.mjs");
+  await fs.writeFile(resultPath, JSON.stringify({ suites: [{ file: privateFile, errors: [privateFile] }] }));
+  try {
+    const sanitized = await sanitizeJsonArtifact(resultPath);
+    assert.doesNotMatch(JSON.stringify(sanitized), new RegExp(os.homedir().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(sanitized.suites[0].file, /^<home>/);
+    assert.deepEqual(JSON.parse(await fs.readFile(resultPath, "utf8")), sanitized);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("launcher retains the HTML viewer only for failed Playwright runs", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "vibecomfy-playwright-html-"));
+  const htmlDir = path.join(root, "html-report");
+  await fs.mkdir(htmlDir, { recursive: true });
+  await fs.writeFile(path.join(htmlDir, "index.html"), "bundled viewer", "utf8");
+  try {
+    await pruneSuccessfulPlaywrightArtifacts(root);
+    await assert.rejects(fs.access(htmlDir));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
   }
 });
 

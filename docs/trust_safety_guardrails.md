@@ -146,22 +146,22 @@ addressed in a follow‑up without reopening the dynamic‑code bypass.
 
 ## Corrective trust-gate validation (2026-07-10)
 
-Final independent validation did not earn a pass. The dedicated
-`corrective-trust-gate` target, locked inventory, driver, and unified manifest
-are absent from this checkout. The separate Corrective 2 run collected 402
-tests and kept 11 failures explicit and outside quarantine (391 passed); their
-exact node IDs and the command are recorded in
-`research/corrective-verification-evidence-2026-07-10.md`.
+Final independent validation earned a canonical gate pass. The dedicated
+`corrective-trust-gate` target uses a locked, runner-separated inventory and a
+complete quarantine hash set. Its fail-closed driver produced one sanitized
+manifest after 64 Python tests, 675 Node tests, and one real Chromium test all
+passed; Playwright reported zero skipped, unexpected, or flaky results.
 
-The three retained real-browser runs had valid non-skipped geometry evidence,
-but their native Playwright JSON contained absolute workspace paths. Also,
-`make check` stopped at `root-clean` because a generated `vendor/ComfyUI` root
-remained. `make clean`, explicit generated-root removal, and
-`make post-root-clean` ultimately left only the intentional implementation and
-evidence edits.
+Native Playwright JSON is recursively sanitized before publication; the bundled
+HTML viewer is retained only when Playwright fails. An exact repository-root
+search found no absolute workspace path in the retained successful gate
+artifacts. Generated ComfyUI/runtime roots were removed, no test process
+remained, and `make post-root-clean` passed.
 
-Before claiming acceptance, add the missing gate surface, sanitize native
-Playwright artifacts, make generated ComfyUI cleanup certain, and rerun both
-the canonical gate and the independent Corrective 2 command. Missing ComfyUI
-or Chromium prerequisites must continue to fail with launcher remediation,
-never become skips.
+The separate Corrective 2 run still collected 402 tests with the same 11
+explicit failures and 391 passes. Those exact node IDs remain outside both the
+passing inventory and quarantine; they are documented in
+`research/corrective-verification-evidence-2026-07-10.md` and were not weakened
+to manufacture the gate pass. Missing prerequisites, runner mismatch, zero
+collection, quarantine drift, malformed results, dirty Playwright outcomes, or
+unsanitizable native JSON remain hard failures with remediation.

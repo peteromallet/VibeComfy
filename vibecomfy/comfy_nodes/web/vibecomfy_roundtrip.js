@@ -6258,10 +6258,14 @@ function syntheticFailureAgentMessage(panel, failure, fallbackStage = "frontend"
   if (!failure || typeof failure !== "object") {
     return null;
   }
-  const text = failure.user_facing_message || failure.message || failure.error || null;
-  if (!text) {
+  const message = failure.user_facing_message || failure.message || failure.error || null;
+  if (!message) {
     return null;
   }
+  const nextAction = typeof failure.next_action === "string" ? failure.next_action.trim() : "";
+  const text = nextAction && !String(message).includes(nextAction)
+    ? `${message}\n\n${nextAction}`
+    : message;
   const detailTurnId =
     typeof failure.turn_id === "string" && failure.turn_id
       ? failure.turn_id
