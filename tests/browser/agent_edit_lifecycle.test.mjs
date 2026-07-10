@@ -6744,3 +6744,174 @@ test("ACCEPT_REJECTED transitions to ERROR phase", () => {
   // Handler does not attach toast obligation
   assert.equal(obligations.toast, undefined);
 });
+
+// ── SD1: Reload-orphan submit recovery ──────────────────────────────────────
+// Tests covering both the terminal failure path (reload-wedge → ERROR) and
+// non-interruption branches (legitimate in-flight, finite started-at, wrong phase).
+
+test("SUBMIT_RELOAD_ORPHAN_RECOVERY transitions wedged SUBMITTING state to ERROR with recovery failure envelope", () => {
+  // Simulate a panel rehydrated after page reload: phase is SUBMITTING but
+  // the in-memory inFlightSubmit promise and finite submitStartedAtMs are lost.
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-orphan",
+    turnId: "turn-orphan",
+    inFlightSubmit: null,
+    submitStartedAtMs: null, // non-finite; lost on reload
+    submitAbortController: { abort: () => {} },
+    lastSubmit: { task: "edit node" },
+    baselineGraphHash: "base-orphan",
+    baselineTurnId: "turn-base",
+  });
+
+  const recoveryPayload = {
+    failure: {
+      session_id: "sess-orphan",
+      turn_id: "turn-orphan",
+      recovery_reason: "page_reload_orphan",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
+      message: "Your last edit didn't finish because the page reloaded. Please try again.",
+    },
+    syntheticAgentMessage: {
+      role: "agent",
+      text: "Your last edit didn't finish because the page reloaded. Please try again.",
+      session_id: "sess-orphan",
+      synthetic: true,
+    },
+    debugPayload: {
+      recovery_reason: "page_reload_orphan",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
+      session_id: "sess-orphan",
+      turn_id: "turn-orphan",
+      last_submit: { task: "edit node" },
+    },
+  };
+
+  const obligations = transition(panel, "SUBMIT_RELOAD_ORPHAN_RECOVERY", recoveryPayload);
+
+  // Terminal outcome: phase transitions to ERROR
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  // Failure envelope is populated
+  assert.ok(panel.state.failure, "failure envelope must be populated");
+  assert.equal(panel.state.failure.session_id, "sess-orphan");
+  assert.equal(panel.state.failure.turn_id, "turn-orphan");
+  assert.equal(panel.state.failure.recovery_reason, "page_reload_orphan");
+  assert.equal(panel.state.failure.url, "/vibecomfy/agent-executor");
+  assert.equal(panel.state.failure.next_action, "resubmit_or_refresh");
+  // Stale in-flight bookkeeping is cleared
+  assert.equal(panel.state.inFlightSubmit, null);
+  assert.equal(panel.state.submitAbortController, null);
+  assert.equal(panel.state.submitStartedAtMs, null);
+  assert.equal(panel.state.submitDeadlineMs, null);
+  // Obligations demand render + rehydrate
+  assert.equal(obligations.render, true);
+  assert.deepEqual(obligations.dirtySections, STATUS_AND_DEVELOPER_DIRTY_SECTIONS);
+  assert.equal(obligations.persistSession, "sess-orphan");
+  assert.equal(obligations.refreshQueueGuard, true);
+  assert.equal(obligations.rehydrateChat, true);
+});
+
+test("SUBMIT_RELOAD_ORPHAN_RECOVERY is a no-op when phase is not SUBMITTING", () => {
+  // Legitimate non-SUBMITTING phase — recovery must not fire
+  const panel = makePanel({
+    phase: PANEL_STATE.IDLE,
+    sessionId: "sess-idle",
+    inFlightSubmit: null,
+    submitStartedAtMs: null,
+  });
+
+  const obligations = transition(panel, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {
+    failure: {
+      recovery_reason: "page_reload_orphan",
+    },
+  });
+
+  // Non-terminal: phase unchanged, no render
+  assert.equal(panel.state.phase, PANEL_STATE.IDLE);
+  assert.equal(obligations.render, false);
+  assert.equal(panel.state.failure, null);
+});
+
+test("SUBMIT_RELOAD_ORPHAN_RECOVERY is a no-op when an in-flight submit exists (legitimate active submit)", () => {
+  // A live inFlightSubmit promise means the submit is still active — do not
+  // interrupt it with orphan recovery.
+  const livePromise = Promise.resolve();
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-live",
+    inFlightSubmit: livePromise,
+    submitStartedAtMs: null,
+  });
+
+  const obligations = transition(panel, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {
+    failure: {
+      recovery_reason: "page_reload_orphan",
+    },
+  });
+
+  // Non-terminal: phase unchanged, no render, inFlightSubmit preserved
+  assert.equal(panel.state.phase, PANEL_STATE.SUBMITTING);
+  assert.equal(panel.state.inFlightSubmit, livePromise);
+  assert.equal(obligations.render, false);
+  assert.equal(panel.state.failure, null);
+});
+
+test("SUBMIT_RELOAD_ORPHAN_RECOVERY is a no-op when submitStartedAtMs is finite (legitimate timed submit)", () => {
+  // A finite submitStartedAtMs means the submit was started with timing
+  // bookkeeping intact — not an orphan.
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-timed",
+    inFlightSubmit: null,
+    submitStartedAtMs: 1700000000000,
+  });
+
+  const obligations = transition(panel, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {
+    failure: {
+      recovery_reason: "page_reload_orphan",
+    },
+  });
+
+  // Non-terminal: phase unchanged, no render, submitStartedAtMs preserved
+  assert.equal(panel.state.phase, PANEL_STATE.SUBMITTING);
+  assert.equal(panel.state.submitStartedAtMs, 1700000000000);
+  assert.equal(obligations.render, false);
+  assert.equal(panel.state.failure, null);
+});
+
+test("SUBMIT_RELOAD_ORPHAN_RECOVERY defense-in-depth: handles missing panel gracefully", () => {
+  // Handler must not throw on null/undefined panel
+  const obligations = transition(null, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {});
+  assert.equal(obligations.render, false);
+
+  const obligations2 = transition({}, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {});
+  assert.equal(obligations2.render, false);
+});
+
+test("SUBMIT_RELOAD_ORPHAN_RECOVERY resolves identity from panel state when payload failure lacks session_id / turn_id", () => {
+  // When the payload failure doesn't carry session_id/turn_id explicitly,
+  // the handler falls back to the panel state values.
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    sessionId: "sess-from-state",
+    turnId: "turn-from-state",
+    inFlightSubmit: null,
+    submitStartedAtMs: null,
+  });
+
+  const obligations = transition(panel, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {
+    failure: {
+      recovery_reason: "page_reload_orphan",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
+    },
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure.session_id, "sess-from-state");
+  assert.equal(panel.state.failure.turn_id, "turn-from-state");
+  assert.equal(panel.state.failure.recovery_reason, "page_reload_orphan");
+  assert.equal(obligations.render, true);
+});

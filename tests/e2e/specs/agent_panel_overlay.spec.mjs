@@ -503,6 +503,11 @@ function assertOverlayAnchoring(snapshot, geometry, expectedValue, staleValue = 
     expect(panelTextRecords.some((record) => record.text.includes(String(staleValue)))).toBe(false);
   }
 
+  // Horizontal padding used by the renderer inside drawn overlay panels
+  // (drawWidgetValueOverlay in panel_overlay.js: padX = 7 on each side).
+  const OVERLAY_TEXT_PAD_X = 7;
+  const AVAILABLE_TEXT_WIDTH = Math.max(4, panelBounds.w - OVERLAY_TEXT_PAD_X * 2);
+
   for (const record of panelTextRecords) {
     const box = textBox(record);
     expect(box.left).toBeGreaterThan(20);
@@ -511,6 +516,13 @@ function assertOverlayAnchoring(snapshot, geometry, expectedValue, staleValue = 
     expect(boxInside(box, geometry.widgetBounds, 2)).toBe(true);
     expect(boxInside(box, geometry.nodeBounds, 2)).toBe(true);
     expect(boxInside(box, geometry.previewBounds, 4)).toBe(true);
+
+    // Regression guard: text measuredWidth must not exceed the available
+    // panel width (panel width minus renderer horizontal padding).  A
+    // small tolerance accounts for minor measurement differences between
+    // the recorded measuredWidth and the actual render-time width.
+    const measuredWidth = Number(record?.measuredWidth) || 0;
+    expect(measuredWidth).toBeLessThanOrEqual(AVAILABLE_TEXT_WIDTH + 2);
   }
 }
 

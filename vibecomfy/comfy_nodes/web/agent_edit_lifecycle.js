@@ -404,6 +404,15 @@ export function transition(panel, event, payload = {}) {
     case "SUBMIT_ABORT":
       return _handleSubmitAbort(panel, payload);
 
+    // ── SD1: Reload-orphan submit recovery ──────────────────────────────
+    // A persisted SUBMITTING phase with no live in-flight submit promise
+    // and a non-finite start timestamp can only arise after a page reload
+    // interrupted a submit.  Transition it to a terminal ERROR failure
+    // envelope instead of leaving the UI wedged.  Defense-in-depth: the
+    // handler re-checks the predicate and no-ops if it no longer holds.
+    case "SUBMIT_RELOAD_ORPHAN_RECOVERY":
+      return _handleSubmitReloadOrphanRecovery(panel, payload);
+
     case "SUBMIT_NETWORK_FAILURE":
     case "SUBMIT_BACKEND_FAILURE":
       return _handleSubmitNetworkFailure(panel, payload);
@@ -1251,6 +1260,47 @@ function _handleSubmitNetworkFailure(panel, payload) {
     refreshQueueGuard: true,
     rehydrateChat: true,
   });
+}
+
+// ── SD1: Reload-orphan submit recovery handler ─────────────────────────────
+// Detects a SUBMITTING phase that lost its in-memory submit bookkeeping to a
+// page reload (no live inFlightSubmit, non-finite submitStartedAtMs) and
+// routes it through the existing terminal network-failure envelope so the UI
+// surfaces a recoverable error instead of staying wedged.  The predicate is
+// re-checked here as defense-in-depth so a stale caller can never interrupt a
+// genuinely active submit.
+function _handleSubmitReloadOrphanRecovery(panel, payload) {
+  if (!panel || !panel.state) {
+    return { render: false };
+  }
+  if (panel.state.phase !== PANEL_STATE.SUBMITTING) {
+    return { render: false };
+  }
+  if (panel.state.inFlightSubmit) {
+    return { render: false };
+  }
+  if (Number.isFinite(panel.state.submitStartedAtMs)) {
+    return { render: false };
+  }
+  // Clear any stale abort controller / in-flight bookkeeping defensively
+  // before transitioning so no later code re-arms a dead submit.
+  panel.state.inFlightSubmit = null;
+  panel.state.submitAbortController = null;
+
+  const failure = (payload && payload.failure) || {};
+  const recoveryFailure = {
+    ...failure,
+    session_id: (typeof failure.session_id === "string" && failure.session_id)
+      ? failure.session_id
+      : (panel.state.sessionId || null),
+    turn_id: (typeof failure.turn_id === "string" && failure.turn_id)
+      ? failure.turn_id
+      : (panel.state.turnId || null),
+    recovery_reason: failure.recovery_reason || "page_reload_orphan",
+    url: failure.url || "/vibecomfy/agent-executor",
+    next_action: failure.next_action || "resubmit_or_refresh",
+  };
+  return _handleSubmitNetworkFailure(panel, { ...(payload || {}), failure: recoveryFailure });
 }
 
 function _handleClarifyOnlyResponse(panel, payload) {

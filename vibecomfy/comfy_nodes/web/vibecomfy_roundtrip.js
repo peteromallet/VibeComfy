@@ -4617,6 +4617,11 @@ async function _rehydrateChat(panel) {
   }
   const startObligations = transition(panel, "CHAT_REHYDRATE_START");
   fulfillLifecycleTransitionObligations(panel, startObligations);
+  // ── SD1: Reload-orphan submit recovery.  After rehydration begins (and
+  // before the chat fetch / any new submit is possible), detect a SUBMITTING
+  // phase that lost its in-memory submit bookkeeping to a page reload and
+  // recover it to a terminal failure envelope.  Safe no-op otherwise.
+  recoverReloadOrphanSubmit(panel);
   const requestEpoch = startObligations.requestEpoch;
 
   // ── T8: Scope-aware session resolution ─────────────────────────────────
@@ -4714,6 +4719,69 @@ async function _rehydrateChat(panel) {
     fulfillAgentPanelCommitObligations(panel, failureObligations, "rehydrate");
     resetThreadRenderState(panel);
   }
+}
+
+// ── SD1: Reload-orphan submit recovery helper ──────────────────────────────
+// On page reload a previously SUBMITTING phase can be rehydrated into panel
+// state while the in-memory in-flight submit promise (inFlightSubmit) and the
+// finite submitStartedAtMs are lost.  Such a state can never resolve, so fail
+// closed to a terminal ERROR envelope carrying recovery metadata
+// (session_id, turn_id, recovery_reason, url, next_action) instead of leaving
+// the UI wedged.  Invoked from openAgentPanel via _rehydrateChat after
+// rehydration begins and before another submit is possible.  Pure predicate
+// check + existing lifecycle transition; no new HTTP/DOM contracts.
+export function recoverReloadOrphanSubmit(panel) {
+  if (!panel || !panel.state) {
+    return false;
+  }
+  if (panel.state.phase !== PANEL_STATE.SUBMITTING) {
+    return false;
+  }
+  if (panel.state.inFlightSubmit) {
+    return false;
+  }
+  if (Number.isFinite(panel.state.submitStartedAtMs)) {
+    return false;
+  }
+  // Best-effort: abort any stale controller before transitioning so a dead
+  // request can never be resurrected by later code.
+  try {
+    const controller = panel.state.submitAbortController;
+    if (controller && typeof controller.abort === "function") {
+      controller.abort();
+    }
+  } catch (_err) {
+    // Recovery must not depend on controller health; ignore abort failures.
+  }
+  const message = "Your last edit didn't finish because the page reloaded. Please try again.";
+  const obligations = transition(panel, "SUBMIT_RELOAD_ORPHAN_RECOVERY", {
+    failure: {
+      session_id: panel.state.sessionId || null,
+      turn_id: panel.state.turnId || null,
+      recovery_reason: "page_reload_orphan",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
+      message,
+    },
+    syntheticAgentMessage: {
+      role: "agent",
+      text: message,
+      session_id: panel.state.sessionId || null,
+      synthetic: true,
+      local_id: `recovery:reload_orphan:${Date.now()}`,
+    },
+    debugPayload: {
+      recovery_reason: "page_reload_orphan",
+      url: "/vibecomfy/agent-executor",
+      next_action: "resubmit_or_refresh",
+      session_id: panel.state.sessionId || null,
+      turn_id: panel.state.turnId || null,
+      last_submit: panel.state.lastSubmit || null,
+    },
+  });
+  fulfillLifecycleTransitionObligations(panel, obligations);
+  renderLifecycleTransition(panel, obligations);
+  return true;
 }
 
 // ── T9: Scope-aware session persistence ──────────────────────────────────

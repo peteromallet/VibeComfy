@@ -27,15 +27,25 @@ from vibecomfy.contracts import (
 )
 
 
-def _props(source: str, mode: str, *, ack: bool = False, outputs: list | None = None) -> dict:
+def _props(source: str, mode: str, *, ack: bool = False, outputs: list | None = None, inputs: list | None = None, allowed_builtins: list | None = None) -> dict:
     """Build a minimal vibecomfy_props dict for execute_runtime_code_dynamic."""
-    runtime: dict = {"execution_mode": mode}
+    runtime: dict = {
+        "runtime_backed": True,
+        "runtime_contract_version": "runtime_code_v1",
+        "execution_mode": mode,
+        "policy_version": "runtime_code_policy_v1",
+        "timeout_ms": 1000,
+        "max_source_bytes": 16 * 1024,
+        "allowed_builtins": allowed_builtins if allowed_builtins is not None else [],
+        "redaction_policy": [],
+    }
     if ack:
         runtime["unrestricted_ack"] = True
     return {
+        "provenance": "agent_authored",
         "intent": {"source": source},
         "runtime": runtime,
-        "io": {"outputs": outputs or []},
+        "io": {"inputs": inputs or [], "outputs": outputs or []},
     }
 
 
@@ -45,7 +55,7 @@ def test_expression_v1_eval_semantics() -> None:
     """expression_v1 evaluates a single expression and returns the scalar result."""
     result = execute_runtime_code_dynamic(
         named_inputs={"value": 10},
-        vibecomfy_props=_props("value * 2", RUNTIME_CODE_EXECUTION_MODE),
+        vibecomfy_props=_props("value * 2", RUNTIME_CODE_EXECUTION_MODE, inputs=[["value", "INT"]]),
     )
     # No io.outputs → sentinel-wrapped as {"value": 20}
     assert result == {"value": 20}
@@ -55,7 +65,7 @@ def test_expression_v1_uses_16_name_builtins() -> None:
     """expression_v1 only exposes the 16-name SAFE_BUILTINS set."""
     result = execute_runtime_code_dynamic(
         named_inputs={"items": [3, 1, 2]},
-        vibecomfy_props=_props("sorted(items)", RUNTIME_CODE_EXECUTION_MODE),
+        vibecomfy_props=_props("sorted(items)", RUNTIME_CODE_EXECUTION_MODE, inputs=[["items", "JSON"]], allowed_builtins=["sorted"]),
     )
     assert result == {"value": [1, 2, 3]}
 
@@ -76,7 +86,7 @@ def test_sandboxed_strict_exec_multi_statement() -> None:
     source = "x = inputs['a'] + inputs['b']\noutputs['result'] = x * 2"
     result = execute_runtime_code_dynamic(
         named_inputs={"a": 3, "b": 4},
-        vibecomfy_props=_props(source, EXECUTION_MODE_SANDBOXED_STRICT, outputs=[["result", "INT"]]),
+        vibecomfy_props=_props(source, EXECUTION_MODE_SANDBOXED_STRICT, outputs=[["result", "INT"]], inputs=[["a", "INT"], ["b", "INT"]]),
     )
     assert result == {"result": 14}
 
@@ -132,6 +142,7 @@ def test_sandboxed_loose_multi_output() -> None:
             source,
             EXECUTION_MODE_SANDBOXED_LOOSE,
             outputs=[["count", "INT"], ["label", "STRING"]],
+            inputs=[["items", "JSON"]],
         ),
     )
     assert result["count"] == 3
@@ -273,3 +284,230 @@ def test_agent_edit_call_site_uses_sandboxed_loose(monkeypatch) -> None:
     # The call site hard-codes execution_mode="sandboxed_loose"; simulate the call.
     _ae.build_messages(task="test", python_source="# x", execution_mode="sandboxed_loose")
     assert captured.get("execution_mode") == "sandboxed_loose"
+
+
+# ── confirmation gate (T8 / T9) ──────────────────────────────────────────────
+
+def test_gate_untrusted_source_raises_capability_fence_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Untrusted provenance (or missing) raises CapabilityFenceError before _run_worker."""
+    from vibecomfy.comfy_nodes.agent import runtime_code
+    from vibecomfy.security.gate import CapabilityFenceError
+
+    worker_called = False
+
+    def _fail_worker(*args, **kwargs):
+        nonlocal worker_called
+        worker_called = True
+        return {"value": "should-not-reach"}
+
+    monkeypatch.setattr(runtime_code, "_run_worker", _fail_worker)
+
+    # Omit provenance → fail-closed to untrusted_source
+    with pytest.raises(CapabilityFenceError):
+        runtime_code.execute_runtime_code_dynamic(
+            named_inputs={},
+            vibecomfy_props={
+                "intent": {"source": "1 + 1"},
+                "io": {"inputs": [], "outputs": []},
+                "runtime": {
+                    "runtime_backed": True,
+                    "runtime_contract_version": "runtime_code_v1",
+                    "execution_mode": "expression_v1",
+                    "policy_version": "runtime_code_policy_v1",
+                    "timeout_ms": 500,
+                    "max_source_bytes": 16 * 1024,
+                    "allowed_builtins": [],
+                    "redaction_policy": [],
+                },
+            },
+        )
+    assert not worker_called, "_run_worker must not be reached for untrusted provenance"
+
+
+def test_gate_explicit_untrusted_source_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit provenance='untrusted_source' also raises CapabilityFenceError."""
+    from vibecomfy.comfy_nodes.agent import runtime_code
+    from vibecomfy.security.gate import CapabilityFenceError
+
+    worker_called = False
+
+    def _fail_worker(*args, **kwargs):
+        nonlocal worker_called
+        worker_called = True
+        return {"value": "should-not-reach"}
+
+    monkeypatch.setattr(runtime_code, "_run_worker", _fail_worker)
+
+    with pytest.raises(CapabilityFenceError):
+        runtime_code.execute_runtime_code_dynamic(
+            named_inputs={},
+            vibecomfy_props={
+                "provenance": "untrusted_source",
+                "intent": {"source": "1 + 1"},
+                "io": {"inputs": [], "outputs": []},
+                "runtime": {
+                    "runtime_backed": True,
+                    "runtime_contract_version": "runtime_code_v1",
+                    "execution_mode": "expression_v1",
+                    "policy_version": "runtime_code_policy_v1",
+                    "timeout_ms": 500,
+                    "max_source_bytes": 16 * 1024,
+                    "allowed_builtins": [],
+                    "redaction_policy": [],
+                },
+            },
+        )
+    assert not worker_called
+
+
+def test_gate_agent_authored_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trusted provenance 'agent_authored' passes the gate and reaches _run_worker."""
+    from vibecomfy.comfy_nodes.agent import runtime_code
+
+    worker_called = False
+
+    def _fake_worker(payload, *, timeout_ms):
+        nonlocal worker_called
+        worker_called = True
+        return 42
+
+    monkeypatch.setattr(runtime_code, "_run_worker", _fake_worker)
+
+    result = runtime_code.execute_runtime_code_dynamic(
+        named_inputs={},
+        vibecomfy_props={
+            "provenance": "agent_authored",
+            "intent": {"source": "1 + 1"},
+            "io": {"inputs": [], "outputs": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
+        },
+    )
+    assert worker_called
+    assert result == {"value": 42}
+
+
+def test_gate_user_confirmed_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trusted provenance 'user_confirmed' passes the gate and reaches _run_worker."""
+    from vibecomfy.comfy_nodes.agent import runtime_code
+
+    worker_called = False
+
+    def _fake_worker(payload, *, timeout_ms):
+        nonlocal worker_called
+        worker_called = True
+        return 7
+
+    monkeypatch.setattr(runtime_code, "_run_worker", _fake_worker)
+
+    result = runtime_code.execute_runtime_code_dynamic(
+        named_inputs={},
+        vibecomfy_props={
+            "provenance": "user_confirmed",
+            "intent": {"source": "3 + 4"},
+            "io": {"inputs": [], "outputs": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
+        },
+    )
+    assert worker_called
+    assert result == {"value": 7}
+
+
+def test_gate_agent_generated_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Trusted provenance 'agent_generated' passes the gate and reaches _run_worker."""
+    from vibecomfy.comfy_nodes.agent import runtime_code
+
+    worker_called = False
+
+    def _fake_worker(payload, *, timeout_ms):
+        nonlocal worker_called
+        worker_called = True
+        return 99
+
+    monkeypatch.setattr(runtime_code, "_run_worker", _fake_worker)
+
+    result = runtime_code.execute_runtime_code_dynamic(
+        named_inputs={},
+        vibecomfy_props={
+            "provenance": "agent_generated",
+            "intent": {"source": "99"},
+            "io": {"inputs": [], "outputs": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
+        },
+    )
+    assert worker_called
+    assert result == {"value": 99}
+
+
+def test_gate_unknown_provenance_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unrecognized provenance string fail-closes to untrusted_source."""
+    from vibecomfy.comfy_nodes.agent import runtime_code
+    from vibecomfy.security.gate import CapabilityFenceError
+
+    worker_called = False
+
+    def _fail_worker(*args, **kwargs):
+        nonlocal worker_called
+        worker_called = True
+        return {"value": "should-not-reach"}
+
+    monkeypatch.setattr(runtime_code, "_run_worker", _fail_worker)
+
+    with pytest.raises(CapabilityFenceError):
+        runtime_code.execute_runtime_code_dynamic(
+            named_inputs={},
+            vibecomfy_props={
+                "provenance": "some_bogus_value",
+                "intent": {"source": "1 + 1"},
+                "io": {"inputs": [], "outputs": []},
+                "runtime": {
+                    "runtime_backed": True,
+                    "runtime_contract_version": "runtime_code_v1",
+                    "execution_mode": "expression_v1",
+                    "policy_version": "runtime_code_policy_v1",
+                    "timeout_ms": 500,
+                    "max_source_bytes": 16 * 1024,
+                    "allowed_builtins": [],
+                    "redaction_policy": [],
+                },
+            },
+        )
+    assert not worker_called

@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Final, Mapping
+from typing import Any, Final, Mapping, get_args
 
 from vibecomfy.contracts.intent_nodes import (
     EXECUTION_MODE_UNRESTRICTED,
@@ -16,11 +16,12 @@ from vibecomfy.contracts.intent_nodes import (
     RUNTIME_CODE_SAFE_BUILTINS,
     RUNTIME_CODE_UNRESTRICTED_ACK_ERROR,
     _ALLOWED_IMPORTS_BY_MODE,
-    _TIMEOUT_MS_DEFAULT_BY_MODE,
     intent_node_properties,
     resolve_execution_mode,
     validate_runtime_code_contract,
 )
+from vibecomfy.security.gate import require_confirmation
+from vibecomfy.security.provenance import PROVENANCE_KEY, Provenance
 
 _WORKER_MAX_STDOUT_BYTES: Final[int] = 64 * 1024
 _WORKER_MAX_STDERR_BYTES: Final[int] = 16 * 1024
@@ -175,6 +176,32 @@ def execute_runtime_code(
     return worker_result
 
 
+# Permitted S4 provenance tags for dynamic runtime-code execution. The gate's
+# trusted-provenance allow rule covers ``agent_authored`` / ``agent_generated`` /
+# ``user_confirmed``; ``untrusted_source`` is the fail-closed default. Any value
+# outside this set is treated as untrusted (SD2).
+_RUNTIME_PROVENANCE_VALUES: Final[frozenset[Provenance]] = frozenset(get_args(Provenance))
+
+
+def _resolve_runtime_provenance(vibecomfy_props: Mapping[str, Any]) -> Provenance:
+    """Resolve the S4 provenance tag carried in ``vibecomfy_props``.
+
+    Dynamic runtime-code execution is reached through ComfyUI's prompt path,
+    where the ambient ``requesting_provenance`` ContextVar is unavailable, so
+    provenance is read from the per-node ``vibecomfy_props`` metadata instead.
+    Fail-closed: a missing key, a ``None`` value, or an unrecognized string all
+    resolve to ``"untrusted_source"`` so untagged or malformed dynamic code never
+    gains an implicit trust path for execution (SD2). Trusted local flows
+    (``agent_authored`` / ``agent_generated`` / ``user_confirmed``) pass through
+    unchanged and are then allowed by the gate's existing trusted-provenance
+    rule, so headless agent-authored and user-confirmed dynamic nodes still run.
+    """
+    raw = vibecomfy_props.get(PROVENANCE_KEY)
+    if isinstance(raw, str) and raw in _RUNTIME_PROVENANCE_VALUES:
+        return raw  # type: ignore[return-value]
+    return "untrusted_source"
+
+
 def execute_runtime_code_dynamic(
     *,
     named_inputs: dict[str, Any],
@@ -205,44 +232,74 @@ def execute_runtime_code_dynamic(
     source = intent.get("source")
     source = source if isinstance(source, str) else ""
 
-    # Re-derive execution-mode caps from the resolved mode at execution time.
-    # The widget mode is authoritative; an agent's snapshot of allowed_builtins /
-    # allowed_imports / timeout_ms must never widen the runtime sandbox (SD3).
-    resolved_mode = resolve_execution_mode(runtime)
-
     # Defense-in-depth ack: even if the contract validator was bypassed, never
-    # execute unrestricted code without the explicit unrestricted_ack flag.
-    if resolved_mode == EXECUTION_MODE_UNRESTRICTED and runtime.get("unrestricted_ack") is not True:
+    # execute unrestricted code without the explicit unrestricted_ack flag. This
+    # lightweight mode resolution is only the backstop; the shared contract
+    # validated below is the authoritative source of execution caps.
+    ack_guard_mode = resolve_execution_mode(runtime)
+    if ack_guard_mode == EXECUTION_MODE_UNRESTRICTED and runtime.get("unrestricted_ack") is not True:
         raise RuntimeCodeExecutionError(
             RUNTIME_CODE_UNRESTRICTED_ACK_ERROR,
             "Unrestricted execution mode requires runtime.unrestricted_ack=true.",
-            {"mode": resolved_mode},
+            {"mode": ack_guard_mode},
         )
 
+    # Validate the shared runtime-code contract before _run_worker so the prompt,
+    # validator, and executor all share one normalized contract. Invalid contracts
+    # (missing/unsupported fields, forbidden source constructs, unsupported policy
+    # combinations, etc.) never reach the worker. (SD3: the contract is the single
+    # execution boundary; an agent snapshot must never widen the runtime sandbox.)
+    contract = validate_runtime_code_contract(
+        class_type=KIND_TO_CLASS_TYPE["code"],
+        payload=props,
+        require_runtime=True,
+    )
+    if not contract.ok or contract.normalized is None:
+        raise RuntimeCodeExecutionError(
+            "runtime_contract_invalid",
+            "Runtime-backed code contract failed validation before execution.",
+            {"issues": [problem.code for problem in contract.problems]},
+        )
+
+    # Dynamic runtime-code confirmation gate (SD2). Runtime-code execution is a
+    # side-effecting capability, so the confused-deputy fence must run before the
+    # worker is spawned. Provenance is resolved from ``vibecomfy_props`` and
+    # fail-closed to ``untrusted_source`` so untagged or unrecognized per-node
+    # metadata never grants an implicit trust path for code execution. Trusted
+    # local flows (``agent_authored`` / ``agent_generated`` / ``user_confirmed``)
+    # are preserved by the gate's existing trusted-provenance allow rule, so
+    # headless agent-authored and user-confirmed dynamic nodes still execute.
+    require_confirmation(
+        operation="runtime_code_exec",
+        class_type=KIND_TO_CLASS_TYPE["code"],
+        provenance=_resolve_runtime_provenance(props),
+        capabilities=("code_exec",),
+        details={"execution_mode": contract.normalized.execution_mode},
+    )
+
+    # Use the normalized contract for execution mode and timeout so the executor
+    # and the shared validator agree on the same caps.
+    resolved_mode = contract.normalized.execution_mode
+    timeout_ms_val = contract.normalized.timeout_ms
+
+    # Re-derive execution-mode caps from the resolved mode at execution time. The
+    # widget mode is authoritative; an agent's snapshot of allowed_builtins /
+    # allowed_imports must never widen the runtime sandbox (SD3, SD6).
     if resolved_mode == RUNTIME_CODE_EXECUTION_MODE:
-        # expression_v1: always the fixed 16-name SAFE_BUILTINS set (SD6 re-derive at execution time)
+        # expression_v1: always the fixed 16-name SAFE_BUILTINS set, re-derived at
+        # execution time. The agent's allowed_builtins snapshot is ignored here so
+        # the snapshot can never widen the expression sandbox.
         allowed_builtins = sorted(RUNTIME_CODE_SAFE_BUILTINS)
     else:
-        allowed_builtins_raw = runtime.get("allowed_builtins")
-        if isinstance(allowed_builtins_raw, list) and all(isinstance(x, str) for x in allowed_builtins_raw):
-            allowed_builtins = allowed_builtins_raw
-        else:
-            allowed_builtins = []
+        allowed_builtins = list(contract.normalized.allowed_builtins)
 
+    # allowed_imports are derived from the resolved mode so the executor and the
+    # validator's source scanner share the same import allowlist.
     mode_imports = _ALLOWED_IMPORTS_BY_MODE.get(resolved_mode)
     if mode_imports is None:
         allowed_imports: list[str] = []
     else:
         allowed_imports = sorted(mode_imports)
-
-    if resolved_mode == RUNTIME_CODE_EXECUTION_MODE:
-        timeout_default = 1000
-    else:
-        timeout_default = _TIMEOUT_MS_DEFAULT_BY_MODE.get(resolved_mode, 10_000)
-
-    timeout_ms_val = runtime.get("timeout_ms")
-    if not isinstance(timeout_ms_val, int) or isinstance(timeout_ms_val, bool):
-        timeout_ms_val = timeout_default
 
     outputs_spec = io.get("outputs")
     outputs_spec = outputs_spec if isinstance(outputs_spec, list) else []

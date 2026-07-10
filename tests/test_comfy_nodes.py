@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from vibecomfy.comfy_nodes import VibeComfyStripConditioningKeys
+from vibecomfy.security.provenance import PROVENANCE_KEY
 
 
 def test_strip_conditioning_keys_removes_metadata_without_touching_embeddings() -> None:
@@ -238,6 +239,39 @@ def test_code_intent_execute_dynamic_missing_prompt_does_not_crash(
     assert props["execution_mode"] == "sandboxed_loose"
 
 
+def test_code_intent_execute_dynamic_merges_widget_runtime_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real CodeIntent path supplies the validator's complete contract."""
+    monkeypatch.setenv("VIBECOMFY_CODE_DYNAMIC_IO", "1")
+    import vibecomfy.comfy_nodes as m
+
+    prompt = _make_prompt("1", {
+        "kind": "code",
+        PROVENANCE_KEY: "agent_authored",
+        "intent": {"source": ""},
+        "io": {"inputs": [], "outputs": [["value", "INT"]]},
+        "runtime": {},
+    })
+
+    result = m.VibeComfyCodeIntent().execute(
+        unique_id="1",
+        prompt=prompt,
+        source="outputs['value'] = 2",
+        execution_mode="sandboxed_loose",
+        runtime_backed=True,
+        runtime_contract_version="runtime_code_v1",
+        timeout_ms=1000,
+        max_source_bytes=16384,
+        allowed_builtins=[],
+        redaction_policy=[],
+        policy_version="runtime_code_policy_v1",
+    )
+
+    assert result[0] == 2
+    assert all(value is None for value in result[1:])
+
+
 # ---------------------------------------------------------------------------
 # execute_runtime_code_dynamic — unit tests
 # ---------------------------------------------------------------------------
@@ -253,9 +287,19 @@ def test_execute_runtime_code_dynamic_empty_outputs_sentinel_wraps(
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"x": 21},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "x * 2"},
             "io": {"inputs": [["x", "INT"]], "outputs": []},
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -271,9 +315,19 @@ def test_execute_runtime_code_dynamic_single_output(monkeypatch: pytest.MonkeyPa
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"val": 99},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "val"},
             "io": {"inputs": [["val", "INT"]], "outputs": [["score", "INT"]]},
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -293,12 +347,22 @@ def test_execute_runtime_code_dynamic_multiple_outputs_requires_dict(
         runtime_code.execute_runtime_code_dynamic(
             named_inputs={"a": 3, "b": 4},
             vibecomfy_props={
+                "provenance": "agent_authored",
                 "intent": {"source": "a + b"},
                 "io": {
                     "inputs": [["a", "INT"], ["b", "INT"]],
                     "outputs": [["x", "INT"], ["y", "INT"]],
                 },
-                "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+                "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
             },
         )
 
@@ -320,12 +384,22 @@ def test_execute_runtime_code_dynamic_multiple_outputs_dict_result(
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"a": 3, "b": 4},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "{'x': a+b, 'y': a*b}"},
             "io": {
                 "inputs": [["a", "INT"], ["b", "INT"]],
                 "outputs": [["x", "INT"], ["y", "INT"]],
             },
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -343,9 +417,19 @@ def test_execute_runtime_code_dynamic_asymmetric_inputs_only(
     result = runtime_code.execute_runtime_code_dynamic(
         named_inputs={"msg": "hello"},
         vibecomfy_props={
+            "provenance": "agent_authored",
             "intent": {"source": "msg"},
             "io": {"inputs": [["msg", "STRING"]], "outputs": []},
-            "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+            "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
         },
     )
 
@@ -365,9 +449,19 @@ def test_execute_runtime_code_dynamic_always_returns_dict(
         result = runtime_code.execute_runtime_code_dynamic(
             named_inputs={},
             vibecomfy_props={
+                "provenance": "agent_authored",
                 "intent": {"source": "0"},
                 "io": {"inputs": [], "outputs": []},
-                "runtime": {"timeout_ms": 500, "allowed_builtins": []},
+                "runtime": {
+                "runtime_backed": True,
+                "runtime_contract_version": "runtime_code_v1",
+                "execution_mode": "expression_v1",
+                "policy_version": "runtime_code_policy_v1",
+                "timeout_ms": 500,
+                "max_source_bytes": 16 * 1024,
+                "allowed_builtins": [],
+                "redaction_policy": [],
+            },
             },
         )
         assert isinstance(result, dict), f"expected dict, got {type(result)} for worker result {worker_result!r}"
