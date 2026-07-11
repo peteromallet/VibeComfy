@@ -5875,7 +5875,10 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
     await waitFor(() =>
       harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"),
     );
-    await waitFor(() => globalThis.localStorage.getItem("vibecomfy_agent_provider") === "deepseek");
+    await waitFor(() =>
+      globalThis.localStorage.getItem("vibecomfy_agent_provider") === "deepseek"
+      && harness.document.getElementById("vibecomfy-agent-panel-route")?.value === "deepseek",
+    );
 
     assert.equal(
       harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
