@@ -33,6 +33,9 @@ const READY_STATUS = {
   ok: true,
   ready: true,
   provider_available: true,
+  credential_presence: {
+    deepseek_api_key: true,
+  },
   route: "deepseek",
   requested_route: "auto",
   route_options: {
@@ -138,6 +141,18 @@ function candidateResponse({
 }
 
 async function installReadyStatusRoute(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("vibecomfy_demo_picker_enabled", "0");
+  });
+  await page.route("**/api/extensions", async (route) => {
+    const response = await route.fetch();
+    const extensions = await response.json();
+    const evalExtensionRoot = "/extensions/comfy_extras.nodes.nodes_eval/";
+    const filtered = extensions.filter((entry) => (
+      !entry.startsWith(evalExtensionRoot) || entry === `${evalExtensionRoot}eval_python.js`
+    ));
+    await route.fulfill({ response, json: filtered });
+  });
   await page.route("**/vibecomfy/agent/status**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -273,7 +288,8 @@ async function readTargetWidgetGeometry(page) {
   return page.evaluate(({ targetNodeUid, targetWidgetIndex }) => {
     const app = window.app;
     const graph = app?.canvas?.graph;
-    const canvas = app?.canvas?.canvas || app?.canvas?.canvasEl || app?.canvas?.el || null;
+    const graphCanvas = app?.canvas?.canvas || null;
+    const canvas = graphCanvas || app?.canvas?.canvasEl || app?.canvas?.el || null;
     const scale = Number.isFinite(app?.canvas?.ds?.scale) && app.canvas.ds.scale > 0
       ? app.canvas.ds.scale
       : 1;
@@ -338,6 +354,19 @@ async function readTargetWidgetGeometry(page) {
 
     return {
       widgetName: widget && typeof widget.name === "string" ? widget.name : `widget_${targetWidgetIndex}`,
+      previewSurface: {
+        canvasId: typeof canvas?.id === "string" ? canvas.id : null,
+        isAttached: !!canvas?.isConnected,
+        isLiveGraphCanvas: canvas === graphCanvas,
+        isVisible: (() => {
+          const rect = typeof canvas?.getBoundingClientRect === "function"
+            ? canvas.getBoundingClientRect()
+            : null;
+          return !!rect && rect.width > 0 && rect.height > 0;
+        })(),
+        pixelWidth: Number(canvas?.width) || 0,
+        pixelHeight: Number(canvas?.height) || 0,
+      },
       nodeBounds: {
         x: pos[0],
         y: pos[1] - TITLE_H,
@@ -446,19 +475,7 @@ function boxInside(box, outer, tolerance = 2) {
 
 function findWidgetPanelRecord(records, widgetBounds) {
   const candidates = records
-    .filter((record) => (
-      (record.kind === "roundRect" || record.kind === "fillRect" || record.kind === "strokeRect")
-      && Number.isFinite(record.x)
-      && Number.isFinite(record.y)
-      && Number.isFinite(record.w)
-      && Number.isFinite(record.h)
-      && record.w > 0
-      && record.h > 0
-      && Math.abs(record.x - widgetBounds.x) <= 3
-      && Math.abs(record.y - widgetBounds.y) <= 3
-      && Math.abs(record.w - widgetBounds.w) <= 3
-      && Math.abs(record.h - widgetBounds.h) <= 3
-    ))
+    .filter((record) => isWidgetPanelRecord(record, widgetBounds))
     .sort((left, right) => {
       const kindRank = (value) => {
         if (value.kind === "roundRect") return 0;
@@ -471,11 +488,80 @@ function findWidgetPanelRecord(records, widgetBounds) {
   return candidates[0];
 }
 
+function isWidgetPanelRecord(record, widgetBounds) {
+  return (
+    (record.kind === "roundRect" || record.kind === "fillRect" || record.kind === "strokeRect")
+    && Number.isFinite(record.x)
+    && Number.isFinite(record.y)
+    && Number.isFinite(record.w)
+    && Number.isFinite(record.h)
+    && record.w > 0
+    && record.h > 0
+    && Math.abs(record.x - widgetBounds.x) <= 3
+    && Math.abs(record.y - widgetBounds.y) <= 3
+    && Math.abs(record.w - widgetBounds.w) <= 3
+    && Math.abs(record.h - widgetBounds.h) <= 3
+  );
+}
+
+function geometrySnapshot({ stage, geometry, snapshot, expectedValue, staleValue = null }) {
+  const tokens = [expectedValue, staleValue]
+    .filter((value) => value != null)
+    .map((value) => String(value));
+  const rectRecords = snapshot.records.filter((record) => isWidgetPanelRecord(record, geometry.widgetBounds));
+  const textRecords = snapshot.records
+    .filter((record) => {
+      if ((record.kind !== "fillText" && record.kind !== "strokeText") || typeof record.text !== "string") {
+        return false;
+      }
+      const box = textBox(record);
+      return boxInside(box, geometry.nodeBounds, 2) || tokens.some((token) => record.text.includes(token));
+    })
+    .map((record) => ({ ...record, textBounds: textBox(record) }));
+  return {
+    stage,
+    expectedValue,
+    staleValue,
+    previewSurface: geometry.previewSurface,
+    nodeBounds: geometry.nodeBounds,
+    widgetBounds: geometry.widgetBounds,
+    previewBounds: geometry.previewBounds,
+    recorder: {
+      installed: snapshot.installed,
+      enabled: snapshot.enabled,
+      canvasId: snapshot.canvasId,
+      recordCount: snapshot.recordCount,
+    },
+    widgetPanelRecords: rectRecords,
+    visibleNodeTextRecords: textRecords,
+  };
+}
+
+async function attachGeometrySnapshot(testInfo, details) {
+  await testInfo.attach(`overlay-${details.stage}-geometry.json`, {
+    body: JSON.stringify(geometrySnapshot(details), null, 2),
+    contentType: "application/json",
+  });
+}
+
 function assertOverlayAnchoring(snapshot, geometry, expectedValue, staleValue = null) {
   expect(snapshot.installed).toBe(true);
+  expect(snapshot.enabled).toBe(true);
+  expect(snapshot.canvasId).toBe("graph-canvas");
   expect(snapshot.recordCount).toBeGreaterThan(0);
 
+  // This must be the actual live preview canvas, not merely a DOM element
+  // with the same id.  The Canvas2D records below are consequently browser
+  // rendering evidence, rather than a DOM-only approximation of the overlay.
+  expect(geometry.previewSurface.canvasId).toBe("graph-canvas");
+  expect(geometry.previewSurface.isAttached).toBe(true);
+  expect(geometry.previewSurface.isLiveGraphCanvas).toBe(true);
+  expect(geometry.previewSurface.isVisible).toBe(true);
+  expect(geometry.previewSurface.pixelWidth).toBeGreaterThan(0);
+  expect(geometry.previewSurface.pixelHeight).toBeGreaterThan(0);
+
   const panelRecord = findWidgetPanelRecord(snapshot.records, geometry.widgetBounds);
+  expect(panelRecord.canvas?.id).toBe(geometry.previewSurface.canvasId);
   const panelBounds = {
     x: panelRecord.x,
     y: panelRecord.y,
@@ -483,6 +569,10 @@ function assertOverlayAnchoring(snapshot, geometry, expectedValue, staleValue = 
     h: panelRecord.h,
   };
 
+  expect(geometry.nodeBounds.x).toBeGreaterThan(20);
+  expect(geometry.nodeBounds.y).toBeGreaterThan(20);
+  expect(geometry.widgetBounds.x).toBeGreaterThan(20);
+  expect(geometry.widgetBounds.y).toBeGreaterThan(20);
   expect(panelBounds.x).toBeGreaterThan(20);
   expect(panelBounds.y).toBeGreaterThan(20);
   expect(boundsInside(panelBounds, geometry.widgetBounds)).toBe(true);
@@ -498,6 +588,7 @@ function assertOverlayAnchoring(snapshot, geometry, expectedValue, staleValue = 
   });
 
   expect(panelTextRecords.length).toBeGreaterThan(0);
+  expect(panelTextRecords.every((record) => record.canvas?.id === geometry.previewSurface.canvasId)).toBe(true);
   expect(panelTextRecords.some((record) => record.text.includes(String(expectedValue)))).toBe(true);
   if (staleValue != null) {
     expect(panelTextRecords.some((record) => record.text.includes(String(staleValue)))).toBe(false);
@@ -539,7 +630,7 @@ test.describe("Agent Panel Overlay", () => {
     }
   });
 
-  test("draw-call recorder keeps widget overlay text anchored and replaces stale preview text after a newer submit", async ({ page }) => {
+  test("draw-call recorder keeps widget overlay text anchored and replaces stale preview text after a newer submit", async ({ page }, testInfo) => {
     const submitBodies = [];
     const responses = [
       candidateResponse({
@@ -591,12 +682,18 @@ test.describe("Agent Panel Overlay", () => {
 
     const overlay = await probeOverlayState(page);
     expect(overlay.previewInstalled).toBe(true);
-    expect(overlay.hasOverlayDraw).toBe(true);
+    expect(overlay.previewDegraded).toBe(false);
 
     const firstGeometry = await readTargetWidgetGeometry(page);
     expect(firstGeometry).not.toBeNull();
 
     const firstSnapshot = await captureOverlayRecords(page, String(FIRST_WIDGET_VALUE));
+    await attachGeometrySnapshot(testInfo, {
+      stage: "first-submit",
+      geometry: firstGeometry,
+      snapshot: firstSnapshot,
+      expectedValue: FIRST_WIDGET_VALUE,
+    });
     assertOverlayAnchoring(firstSnapshot, firstGeometry, FIRST_WIDGET_VALUE);
 
     await submitAndWaitForReview(page, SECOND_SUBMIT_PROMPT, "0002");
@@ -609,6 +706,13 @@ test.describe("Agent Panel Overlay", () => {
     expect(secondGeometry).not.toBeNull();
 
     const secondSnapshot = await captureOverlayRecords(page, String(SECOND_WIDGET_VALUE));
+    await attachGeometrySnapshot(testInfo, {
+      stage: "second-submit",
+      geometry: secondGeometry,
+      snapshot: secondSnapshot,
+      expectedValue: SECOND_WIDGET_VALUE,
+      staleValue: FIRST_WIDGET_VALUE,
+    });
     assertOverlayAnchoring(secondSnapshot, secondGeometry, SECOND_WIDGET_VALUE, FIRST_WIDGET_VALUE);
     expect(
       secondSnapshot.records.some((record) => (

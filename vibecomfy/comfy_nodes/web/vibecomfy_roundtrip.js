@@ -6258,10 +6258,14 @@ function syntheticFailureAgentMessage(panel, failure, fallbackStage = "frontend"
   if (!failure || typeof failure !== "object") {
     return null;
   }
-  const text = failure.user_facing_message || failure.message || failure.error || null;
-  if (!text) {
+  const message = failure.user_facing_message || failure.message || failure.error || null;
+  if (!message) {
     return null;
   }
+  const nextAction = typeof failure.next_action === "string" ? failure.next_action.trim() : "";
+  const text = nextAction && !String(message).includes(nextAction)
+    ? `${message}\n\n${nextAction}`
+    : message;
   const detailTurnId =
     typeof failure.turn_id === "string" && failure.turn_id
       ? failure.turn_id
@@ -8984,7 +8988,13 @@ function buildSubmitTimeoutFailure(panel, snapshot, deadlineMs) {
   );
 }
 
-function runSubmitFetchWithDeadline(fetchPromise, { panel, snapshot, submitAbortController, deadlineMs }) {
+function runSubmitFetchWithDeadline(fetchPromise, {
+  panel,
+  snapshot,
+  submitAbortController,
+  submitEpoch,
+  deadlineMs,
+}) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finalize = () => {
@@ -9001,6 +9011,15 @@ function runSubmitFetchWithDeadline(fetchPromise, { panel, snapshot, submitAbort
       callback(value);
     };
     const timeoutId = submitWatchdogDepsState.setTimeoutFn(() => {
+      if (
+        panel?.state?.submitEpoch !== submitEpoch
+        || panel?.state?.submitAbortController !== submitAbortController
+      ) {
+        const staleError = new Error("Submit watchdog expired after its attempt was superseded.");
+        staleError.name = "AbortError";
+        settle(reject, staleError);
+        return;
+      }
       try {
         submitAbortController?.abort();
       } catch (_error) {
@@ -9247,6 +9266,7 @@ function renderLifecycleTransition(panel, obligations = {}) {
 
 function handleRequiresCustomNodesSubmitResponse(panel, context = {}) {
   const {
+    submitEpoch,
     result,
     outcome,
     task,
@@ -9262,6 +9282,7 @@ function handleRequiresCustomNodesSubmitResponse(panel, context = {}) {
 	        : "VibeComfy could not confirm automatic installation for this edit.";
   const customNodeResolution = readCustomNodeResolution(result, { endpoint: "submit:custom-nodes" });
   const obligations = commitTerminalResponse(panel, {
+    submitEpoch,
     result,
     outcome,
     auditRef: result.auditRef || null,
@@ -9304,6 +9325,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     return panel.state.inFlightRebaseline || undefined;
   }
   if (panel.state.inFlightSubmit) {
+    const staleSubmitEpoch = panel.state.submitEpoch;
     const submitStartedAtMs = Number(panel?.state?.submitStartedAtMs);
     const submitDeadlineMs = currentSubmitDeadlineMs(panel);
     const submitAgeMs = currentSubmitNowMs() - submitStartedAtMs;
@@ -9315,6 +9337,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     ) {
       const staleAbortController = panel.state.submitAbortController;
       const recoveryObligations = transition(panel, "SUBMIT_STALE_IN_FLIGHT_RECOVERY", {
+        submitEpoch: staleSubmitEpoch,
         debugPayload: {
           stale_in_flight_submit: true,
           submit_age_ms: submitAgeMs,
@@ -9334,9 +9357,10 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       return panel.state.inFlightSubmit;
     }
   }
-  const submitPromise = (async () => {
-    let submitEpoch = null;
-    let submitAbortController = null;
+  let submitPromise = null;
+  let submitEpoch = null;
+  let submitAbortController = null;
+  const submitRunPromise = (async () => {
     let submitHttpStatus = null;
     let submitDeadlineMs = currentSubmitDeadlineMs(panel);
     const isCurrentSubmit = () => panel?.state?.submitEpoch === submitEpoch;
@@ -9492,7 +9516,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       }
     } catch (e) {
       if (!isCurrentSubmit()) {
-        clearPendingResponseMessages(panel);
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
@@ -9501,6 +9524,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         next_action: "Make sure the canvas can serialize, then retry.",
       });
       const obligations = transition(panel, "SUBMIT_SERIALIZE_ERROR", {
+        submitEpoch,
         failure,
         syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
         debugPayload: failure,
@@ -9583,7 +9607,10 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       for (let attemptIndex = 0; attemptIndex <= automaticRetryCount; attemptIndex += 1) {
         submitAbortController = new AbortController();
         submitHttpStatus = null;
-        transition(panel, "SUBMIT_ABORT_CONTROLLER", { controller: submitAbortController });
+        transition(panel, "SUBMIT_ABORT_CONTROLLER", {
+          submitEpoch,
+          controller: submitAbortController,
+        });
         const failureContextForAttempt = (extras = {}) => buildSubmitFailureContext(panel, snapshot, {
           sessionId: retryContext.sessionId,
           turnId: retryContext.turnId,
@@ -9604,12 +9631,12 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
               panel,
               snapshot,
               submitAbortController,
+              submitEpoch,
               deadlineMs: submitDeadlineMs,
             },
           );
           submitHttpStatus = Number.isFinite(res?.status) ? Number(res.status) : null;
           if (!isCurrentSubmit()) {
-            clearPendingResponseMessages(panel);
             transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
             return;
           }
@@ -9634,7 +9661,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
             throw error;
           }
           if (!isCurrentSubmit()) {
-            clearPendingResponseMessages(panel);
             transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
             return;
           }
@@ -9693,7 +9719,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
           break;
         } catch (error) {
           if (!isCurrentSubmit()) {
-            clearPendingResponseMessages(panel);
             transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
             return;
           }
@@ -9718,7 +9743,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       }
     } catch (e) {
       if (!isCurrentSubmit()) {
-        clearPendingResponseMessages(panel);
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
@@ -9735,6 +9759,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       if (e?.name === "AbortError") {
         clearPendingResponseMessages(panel);
         const obligations = transition(panel, "SUBMIT_ABORT", {
+          submitEpoch,
           message: "Request cancelled.",
           syntheticAgentMessage: {
             role: "agent",
@@ -9767,6 +9792,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       );
       clearPendingResponseMessages(panel);
       const obligations = commitTerminalResponse(panel, {
+        submitEpoch,
         failure,
         syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
       });
@@ -9791,17 +9817,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       });
       renderLifecycleTransition(panel, obligations);
       return;
-    } finally {
-      transition(panel, "SUBMIT_FINALLY", {
-        clearAbortController: isCurrentSubmit() || panel.state.submitAbortController === submitAbortController,
-        clearInFlightSubmit: isCurrentSubmit() || panel.state.inFlightSubmit === submitPromise,
-        clearSubmitWatchdogState:
-          isCurrentSubmit()
-          || (
-            Number.isFinite(submitEpoch)
-            && Number(panel.state.submitEpoch) === Number(submitEpoch)
-          ),
-      });
     }
 
     // Clarify terminal: the agent ended the turn with `clarify("...")` instead of
@@ -9833,6 +9848,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         session_id: resultSessionId,
       };
       const obligations = commitTerminalResponse(panel, {
+        submitEpoch,
         result,
         outcome,
         candidateGraph: null,
@@ -9873,6 +9889,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
 
     if (outcomeRequiresCustomNodes(outcome)) {
       handleRequiresCustomNodesSubmitResponse(panel, {
+        submitEpoch,
         result,
         outcome,
         task,
@@ -9895,6 +9912,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         ? clonePlainData(result.raw.change_details)
         : null;
       const obligations = commitTerminalResponse(panel, {
+        submitEpoch,
         result,
         outcome,
         candidateGraph: null,
@@ -9937,13 +9955,11 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     try {
       arrivalSnapshot = await buildCanvasSnapshot();
       if (!isCurrentSubmit()) {
-        clearPendingResponseMessages(panel);
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
     } catch (e) {
       if (!isCurrentSubmit()) {
-        clearPendingResponseMessages(panel);
         transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
         return;
       }
@@ -9953,6 +9969,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         next_action: "Make sure the current canvas can serialize, then submit again.",
       });
       const obligations = transition(panel, "ARRIVAL_SERIALIZE_FAILURE", {
+        submitEpoch,
         result: result.raw || result,
         failure,
         syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
@@ -9979,7 +9996,6 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       || applyCandidate?.graphHash
       || await sha256HexUtf8(canonicalJsonString(candidateGraph));
     if (!isCurrentSubmit()) {
-      clearPendingResponseMessages(panel);
       transition(panel, "SUBMIT_STALE_EPOCH", { submitEpoch });
       return;
     }
@@ -9997,6 +10013,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     });
     const candidateObligations = commitTerminalResponse(panel,
       {
+        submitEpoch,
         result,
         outcome,
         candidateGraph,
@@ -10065,7 +10082,18 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     }
   })();
 
-  transition(panel, "SUBMIT_IN_FLIGHT", { promise: submitPromise });
+  // Own the guard for the complete attempt, including response projection,
+  // arrival serialization/hash work, terminal commit, and preview activation.
+  // Cleanup is reducer-owned and keyed by both epoch and promise identity, so a
+  // superseded attempt's finally callback cannot clear a newer submission.
+  submitPromise = submitRunPromise.finally(() => {
+    transition(panel, "SUBMIT_FINALLY", {
+      submitEpoch,
+      promise: submitPromise,
+      controller: submitAbortController,
+    });
+  });
+  transition(panel, "SUBMIT_IN_FLIGHT", { submitEpoch, promise: submitPromise });
   return panel.state.inFlightSubmit;
 }
 

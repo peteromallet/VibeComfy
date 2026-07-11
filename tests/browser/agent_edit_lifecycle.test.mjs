@@ -2857,7 +2857,7 @@ test("SUBMIT_STALE_IN_FLIGHT_RECOVERY increments submitEpoch and clears only sta
   assert.deepEqual(panel.state.debugPayload, { stale_in_flight_submit: true });
 });
 
-test("SUBMIT_FINALLY clears watchdog metadata only when explicitly requested", () => {
+test("SUBMIT_FINALLY clears only the matching epoch, promise, and controller owner", () => {
   const promise = Promise.resolve();
   const controller = { aborted: false };
   const panel = makePanel({
@@ -2870,28 +2870,77 @@ test("SUBMIT_FINALLY clears watchdog metadata only when explicitly requested", (
     submittingScopeId: "scope-1",
   });
 
-  transition(panel, "SUBMIT_FINALLY", {
-    clearAbortController: false,
-    clearInFlightSubmit: false,
-    clearSubmitWatchdogState: false,
-    clearSubmittingScope: false,
+  const stalePromise = Promise.resolve();
+  const staleController = { aborted: false };
+  const staleEpochObligations = transition(panel, "SUBMIT_FINALLY", {
+    submitEpoch: 3,
+    promise: stalePromise,
+    controller: staleController,
   });
+  assert.deepEqual(staleEpochObligations, { render: false, stale: true });
   assert.equal(panel.state.inFlightSubmit, promise);
   assert.equal(panel.state.submitAbortController, controller);
   assert.equal(panel.state.submitStartedAtMs, 111);
   assert.equal(panel.state.submitDeadlineMs, 222);
   assert.equal(panel.state.submittingScopeId, "scope-1");
 
+  const staleIdentityObligations = transition(panel, "SUBMIT_FINALLY", {
+    submitEpoch: 4,
+    promise: stalePromise,
+    controller,
+  });
+  assert.deepEqual(staleIdentityObligations, { render: false, stale: true });
+  assert.equal(panel.state.inFlightSubmit, promise);
+
   transition(panel, "SUBMIT_FINALLY", {
-    clearAbortController: true,
-    clearInFlightSubmit: true,
-    clearSubmitWatchdogState: true,
+    submitEpoch: 4,
+    promise,
+    controller,
   });
   assert.equal(panel.state.inFlightSubmit, null);
   assert.equal(panel.state.submitAbortController, null);
   assert.equal(panel.state.submitStartedAtMs, null);
   assert.equal(panel.state.submitDeadlineMs, null);
   assert.equal(panel.state.submittingScopeId, null);
+});
+
+test("submit terminal transitions ignore a response from an older epoch", () => {
+  const promise = Promise.resolve();
+  const controller = { aborted: false };
+  const panel = makePanel({
+    phase: PANEL_STATE.SUBMITTING,
+    submitEpoch: 12,
+    inFlightSubmit: promise,
+    submitAbortController: controller,
+    submitStartedAtMs: 500,
+    submitDeadlineMs: 30000,
+    sessionId: "new-session",
+    turnId: "0012",
+    lastSubmit: { task: "new attempt" },
+  });
+
+  const obligations = transition(panel, "OK_CANDIDATE_RESPONSE", {
+    submitEpoch: 11,
+    result: {
+      session_id: "old-session",
+      turn_id: "0011",
+      canvas_apply_allowed: true,
+      queue_allowed: true,
+    },
+    candidateGraph: { nodes: [{ id: "old" }] },
+    candidateGraphHash: "old-hash",
+    applyEligibility: { applyable: true },
+  });
+
+  assert.deepEqual(obligations, { render: false, stale: true });
+  assert.equal(panel.state.phase, PANEL_STATE.SUBMITTING);
+  assert.equal(panel.state.sessionId, "new-session");
+  assert.equal(panel.state.turnId, "0012");
+  assert.equal(panel.state.candidateGraph, null);
+  assert.equal(panel.state.inFlightSubmit, promise);
+  assert.equal(panel.state.submitAbortController, controller);
+  assert.equal(panel.state.submitStartedAtMs, 500);
+  assert.equal(panel.state.submitDeadlineMs, 30000);
 });
 
 test("NEW_CONVERSATION resets lifecycle state, increments epochs, and leaves non-lifecycle keys untouched", () => {

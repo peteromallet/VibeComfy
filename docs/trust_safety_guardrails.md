@@ -141,3 +141,27 @@ worker env already strips common LLM/cloud secrets (`ANTHROPIC_`, `OPENAI_`,
 `_SECRET`, `_TOKEN`, `_PASSWORD`, …).  The remaining gaps are env‑blocklist
 completeness and value‑pattern redaction — important hardening that can be
 addressed in a follow‑up without reopening the dynamic‑code bypass.
+
+---
+
+## Corrective trust-gate validation (2026-07-10)
+
+Final independent validation earned a canonical gate pass. The dedicated
+`corrective-trust-gate` target uses a locked, runner-separated inventory and a
+complete quarantine hash set. Its fail-closed driver produced one sanitized
+manifest after 64 Python tests, 675 Node tests, and one real Chromium test all
+passed; Playwright reported zero skipped, unexpected, or flaky results.
+
+Native Playwright JSON is recursively sanitized before publication; the bundled
+HTML viewer is retained only when Playwright fails. An exact repository-root
+search found no absolute workspace path in the retained successful gate
+artifacts. Generated ComfyUI/runtime roots were removed, no test process
+remained, and `make post-root-clean` passed.
+
+The separate Corrective 2 run still collected 402 tests with the same 11
+explicit failures and 391 passes. Those exact node IDs remain outside both the
+passing inventory and quarantine; they are documented in
+`research/corrective-verification-evidence-2026-07-10.md` and were not weakened
+to manufacture the gate pass. Missing prerequisites, runner mismatch, zero
+collection, quarantine drift, malformed results, dirty Playwright outcomes, or
+unsanitizable native JSON remain hard failures with remediation.

@@ -323,9 +323,40 @@ export function createAgentEditState() {
 //   { render: true|false, toast?: string, ... }
 //
 // Unknown events return { render: false } (no-op, no side effects).
+const SUBMIT_EPOCH_GUARDED_EVENTS = new Set([
+  "SUBMIT_IN_FLIGHT",
+  "SUBMIT_ABORT_CONTROLLER",
+  "SUBMIT_SERIALIZE_ERROR",
+  "SUBMIT_ABORT",
+  "SUBMIT_NETWORK_FAILURE",
+  "SUBMIT_BACKEND_FAILURE",
+  "MALFORMED_CANDIDATE_RESPONSE",
+  "CLARIFY_ONLY_RESPONSE",
+  "NOOP_RESPONSE",
+  "REQUIRES_CUSTOM_NODES_RESPONSE",
+  "ARRIVAL_SERIALIZE_FAILURE",
+  "OK_CANDIDATE_RESPONSE",
+  "EDIT_CLARIFY_RESPONSE",
+  "SUBMIT_FINALLY",
+  "SUBMIT_STALE_IN_FLIGHT_RECOVERY",
+]);
+
 export function transition(panel, event, payload = {}) {
   if (!panel || !panel.state) {
     return { render: false };
+  }
+
+  // Async submit completions may arrive after STOP_ABORT, stale recovery, or a
+  // newer submit has advanced the epoch.  When an orchestrator supplies the
+  // epoch it observed, reject the entire transition before any lifecycle field
+  // can be written.  Epoch-less calls remain supported for source-agnostic
+  // replay/rehydrate commits and synchronous validation paths.
+  if (
+    SUBMIT_EPOCH_GUARDED_EVENTS.has(event)
+    && Object.prototype.hasOwnProperty.call(payload || {}, "submitEpoch")
+    && payload.submitEpoch !== panel.state.submitEpoch
+  ) {
+    return { render: false, stale: true };
   }
 
   switch (event) {
@@ -1661,16 +1692,19 @@ function _handleCandidateResponse(panel, payload) {
 }
 
 function _handleSubmitFinally(panel, payload) {
-  if (payload?.clearAbortController) {
-    panel.state.submitAbortController = null;
+  // Identity checks complement the transition-level epoch gate. They prevent
+  // cleanup from a duplicate/stale promise within the same epoch from clearing
+  // the controller or promise registered by the actual owner.
+  if (payload?.promise && panel.state.inFlightSubmit !== payload.promise) {
+    return { render: false, stale: true };
   }
-  if (payload?.clearInFlightSubmit) {
-    panel.state.inFlightSubmit = null;
+  if (payload?.controller && panel.state.submitAbortController !== payload.controller) {
+    return { render: false, stale: true };
   }
-  if (payload?.clearSubmitWatchdogState) {
-    panel.state.submitStartedAtMs = null;
-    panel.state.submitDeadlineMs = null;
-  }
+  panel.state.submitAbortController = null;
+  panel.state.inFlightSubmit = null;
+  panel.state.submitStartedAtMs = null;
+  panel.state.submitDeadlineMs = null;
   // ── T5: Clear submitting scope on submit finish ────────────────────────
   if (payload?.clearSubmittingScope !== false) {
     panel.state.submittingScopeId = null;

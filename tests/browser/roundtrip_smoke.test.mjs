@@ -5640,18 +5640,25 @@ test("VibeComfy developer diagnostics fetch runtime identity even when route sta
         return {
           status: 200,
           body: {
+            info_contract_version: 1,
+            process_start_id: "a".repeat(32),
             start_time_utc: "2026-07-09T16:10:00Z",
-            uptime_seconds: 42.5,
-            WEB_DIRECTORY: "/workspace/vibecomfy/comfy_nodes/web",
-            web_source_hash: "feedface",
-            served_web_path: "/tmp/vibecomfy-served/web",
-            launch_flags: {
-              VIBECOMFY_HEADLESS: "0",
+            web_source_hash: "feedface1234",
+            web_source_state: "identified",
+            served_asset_kind: "source",
+            served_asset_id: "source:feedface1234",
+            served_asset_state: "identified",
+            runtime_modes: {
+              headless: false,
+              dynamic_io: false,
+              runtime_module: "default",
+              demo_picker: false,
+              agentic_replay: false,
             },
-            git_sha: "abc123",
-            git_branch: "main",
+            remediation: [],
+            git_sha: "b".repeat(40),
             git_dirty: true,
-            git_diagnostic: null,
+            git_state: "dirty",
           },
         };
       },
@@ -5676,12 +5683,13 @@ test("VibeComfy developer diagnostics fetch runtime identity even when route sta
     await waitFor(() => infoCalls === 1);
     developerToggle.click();
 
-    await waitFor(() => /gitSha: abc123 \(dirty\)/.test(developerRegion.textContent));
+    await waitFor(() => /gitSha: b{40} \(dirty\)/.test(developerRegion.textContent));
     assert.match(settingsStatus.textContent, /Status unavailable/);
     assert.match(developerRegion.textContent, /infoRoute: ready/);
-    assert.match(developerRegion.textContent, /gitBranch: main/);
-    assert.match(developerRegion.textContent, /webSourceHash: feedface/);
-    assert.match(developerRegion.textContent, /servedWebPath: \/tmp\/vibecomfy-served\/web/);
+    assert.match(developerRegion.textContent, /gitState: dirty/);
+    assert.match(developerRegion.textContent, /webSourceHash: feedface1234/);
+    assert.match(developerRegion.textContent, /servedAsset: source:feedface1234/);
+    assert.doesNotMatch(developerRegion.textContent, /servedWebPath|\/tmp\/vibecomfy-served/);
     assert.equal(
       harness.requests.some((entry) => entry.url === "/vibecomfy/info"),
       true,
@@ -5867,7 +5875,10 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
     await waitFor(() =>
       harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"),
     );
-    await waitFor(() => globalThis.localStorage.getItem("vibecomfy_agent_provider") === "deepseek");
+    await waitFor(() =>
+      globalThis.localStorage.getItem("vibecomfy_agent_provider") === "deepseek"
+      && harness.document.getElementById("vibecomfy-agent-panel-route")?.value === "deepseek",
+    );
 
     assert.equal(
       harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"),
@@ -16754,10 +16765,15 @@ test("VibeComfy submit watchdog times out stalled submits with diagnostics and a
       },
     },
   });
+  const timers = createSubmitWatchdogTimerTracker();
 
   try {
     const extensionModule = await harness.loadExtension();
-    extensionModule.configureSubmitWatchdogDeps({ submitDeadlineMs: 10 });
+    extensionModule.configureSubmitWatchdogDeps({
+      submitDeadlineMs: 10,
+      setTimeoutFn: timers.setTimeoutFn,
+      clearTimeoutFn: timers.clearTimeoutFn,
+    });
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -16796,6 +16812,7 @@ test("VibeComfy submit watchdog times out stalled submits with diagnostics and a
     );
     assert.equal(panel.state.phase, "AWAITING_REVIEW");
     assert.equal(panel.state.failure, null);
+    timers.assertBalanced(2, "timeout followed by user retry");
   } finally {
     try {
       (await harness.loadExtension()).resetSubmitWatchdogDeps();
@@ -16829,6 +16846,40 @@ function makeSubmitRetryHarness(agentExecutorHandler) {
       "/vibecomfy/agent-executor": agentExecutorHandler,
     },
   });
+}
+
+function createSubmitWatchdogTimerTracker() {
+  let nextTimerId = 0;
+  const timers = new Map();
+  const armed = [];
+  const cleared = [];
+  return {
+    armed,
+    cleared,
+    get activeCount() {
+      return timers.size;
+    },
+    setTimeoutFn(handler, delayMs) {
+      const timerId = ++nextTimerId;
+      const nativeTimerId = globalThis.setTimeout(handler, delayMs);
+      timers.set(timerId, nativeTimerId);
+      armed.push({ timerId, delayMs });
+      return timerId;
+    },
+    clearTimeoutFn(timerId) {
+      const nativeTimerId = timers.get(timerId);
+      assert.notEqual(nativeTimerId, undefined, `watchdog timer ${timerId} must be cleared exactly once`);
+      globalThis.clearTimeout(nativeTimerId);
+      timers.delete(timerId);
+      cleared.push(timerId);
+    },
+    assertBalanced(expectedAttempts, label) {
+      assert.equal(armed.length, expectedAttempts, `${label}: one watchdog must be armed per fetch attempt`);
+      assert.equal(cleared.length, expectedAttempts, `${label}: one watchdog must be cleared per fetch attempt`);
+      assert.equal(new Set(cleared).size, expectedAttempts, `${label}: no watchdog may be cleared twice`);
+      assert.equal(timers.size, 0, `${label}: teardown must leave no armed watchdogs`);
+    },
+  };
 }
 
 test("VibeComfy submit auto-retries exactly once for retryable backend failures and preserves request context", async () => {
@@ -16877,9 +16928,14 @@ test("VibeComfy submit auto-retries exactly once for retryable backend failures 
       },
     };
   });
+  const timers = createSubmitWatchdogTimerTracker();
 
   try {
     const extensionModule = await harness.loadExtension();
+    extensionModule.configureSubmitWatchdogDeps({
+      setTimeoutFn: timers.setTimeoutFn,
+      clearTimeoutFn: timers.clearTimeoutFn,
+    });
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -16900,7 +16956,13 @@ test("VibeComfy submit auto-retries exactly once for retryable backend failures 
     assert.equal(panel.state.failure, null);
     assert.equal(panel.state.sessionId, "session-submit-retry");
     assert.equal(panel.state.turnId, "0009");
+    timers.assertBalanced(2, "automatic retry success");
   } finally {
+    try {
+      (await harness.loadExtension()).resetSubmitWatchdogDeps();
+    } catch (_error) {
+      // Best-effort test cleanup only.
+    }
     await harness.dispose();
   }
 });
@@ -16921,9 +16983,14 @@ test("VibeComfy submit does not auto-retry retryable false backend failures", as
       baseline_turn_id: "0009",
     },
   }));
+  const timers = createSubmitWatchdogTimerTracker();
 
   try {
     const extensionModule = await harness.loadExtension();
+    extensionModule.configureSubmitWatchdogDeps({
+      setTimeoutFn: timers.setTimeoutFn,
+      clearTimeoutFn: timers.clearTimeoutFn,
+    });
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
@@ -16942,7 +17009,13 @@ test("VibeComfy submit does not auto-retry retryable false backend failures", as
     assert.equal(panel.state.failure?.kind, "ProviderError");
     assert.equal(panel.state.failure?.retryable, false);
     assert.equal(prompt.value, "do not retry this failure");
+    timers.assertBalanced(1, "terminal failure");
   } finally {
+    try {
+      (await harness.loadExtension()).resetSubmitWatchdogDeps();
+    } catch (_error) {
+      // Best-effort test cleanup only.
+    }
     await harness.dispose();
   }
 });
@@ -17049,6 +17122,7 @@ test("VibeComfy submit surfaces the exhausted retry failure after one automatic 
 
 test("VibeComfy stale inFlightSubmit metadata is recovered before promise reuse", async () => {
   let staleAbortCount = 0;
+  const timers = createSubmitWatchdogTimerTracker();
   const harness = await createBrowserHarness({
     responses: {
       "/system_stats": {
@@ -17100,6 +17174,8 @@ test("VibeComfy stale inFlightSubmit metadata is recovered before promise reuse"
     extensionModule.configureSubmitWatchdogDeps({
       submitDeadlineMs: 1000,
       nowMs: () => 50,
+      setTimeoutFn: timers.setTimeoutFn,
+      clearTimeoutFn: timers.clearTimeoutFn,
     });
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
@@ -17132,6 +17208,126 @@ test("VibeComfy stale inFlightSubmit metadata is recovered before promise reuse"
     assert.equal(panel.state.phase, "AWAITING_REVIEW");
     assert.equal(panel.state.failure, null);
     assert.equal(panel.state.submitEpoch > 4, true);
+    timers.assertBalanced(1, "stale persisted metadata recovery");
+  } finally {
+    try {
+      (await harness.loadExtension()).resetSubmitWatchdogDeps();
+    } catch (_error) {
+      // Best-effort test cleanup only.
+    }
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy late submit response and finally cannot clear or overwrite a newer attempt", async () => {
+  let nowMs = 0;
+  const pendingResponses = [];
+  const timers = createSubmitWatchdogTimerTracker();
+  const candidateResponse = (sessionId, turnId, message, uid) => ({
+    status: 200,
+    body: {
+      ok: true,
+      session_id: sessionId,
+      turn_id: turnId,
+      baseline_turn_id: null,
+      candidate: {
+        graph: {
+          nodes: [{ id: 1, type: "PreviewImage", properties: { vibecomfy_uid: uid } }],
+          links: [],
+        },
+      },
+      eligibility: { applyable: true, reason: "applyable", message: "Ready to apply." },
+      canvas_apply_allowed: true,
+      apply_allowed: true,
+      queue_allowed: true,
+      message,
+    },
+  });
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      "/vibecomfy/agent-executor": () => new Promise((resolve) => {
+        pendingResponses.push(resolve);
+      }),
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    extensionModule.configureSubmitWatchdogDeps({
+      submitDeadlineMs: 1000,
+      nowMs: () => nowMs,
+      setTimeoutFn: timers.setTimeoutFn,
+      clearTimeoutFn: timers.clearTimeoutFn,
+    });
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    const prompt = harness.document.getElementById("vibecomfy-agent-panel-prompt");
+    prompt.value = "first attempt";
+    const firstSubmit = harness.clickButton("Submit");
+    await waitFor(() => pendingResponses.length === 1);
+    const firstEpoch = panel.state.submitEpoch;
+
+    nowMs = 2000;
+    await harness.clickButton("Stop");
+    await waitFor(() => harness.getButton("Submit"));
+    const retryPrompt = harness.document.getElementById("vibecomfy-agent-panel-prompt");
+    retryPrompt.value = "newer attempt";
+    const secondSubmit = harness.clickButton("Submit");
+    await waitFor(() => pendingResponses.length === 2);
+    const secondEpoch = panel.state.submitEpoch;
+    const secondInFlight = panel.state.inFlightSubmit;
+    assert.equal(secondEpoch > firstEpoch, true);
+
+    pendingResponses[0](candidateResponse(
+      "old-session",
+      "0001",
+      "Old candidate must be ignored.",
+      "uid-old-late",
+    ));
+    await firstSubmit;
+    assert.equal(panel.state.submitEpoch, secondEpoch);
+    assert.equal(panel.state.inFlightSubmit, secondInFlight);
+    assert.equal(panel.state.phase, "SUBMITTING");
+    assert.equal(panel.state.lastSubmit?.task, "newer attempt");
+    assert.notEqual(panel.state.sessionId, "old-session");
+    assert.doesNotMatch(harness.textDump(), /Old candidate must be ignored\./);
+
+    pendingResponses[1](candidateResponse(
+      "new-session",
+      "0002",
+      "New candidate owns the panel.",
+      "uid-new-current",
+    ));
+    await secondSubmit;
+    await waitFor(() => /New candidate owns the panel\./.test(harness.textDump()));
+    assert.equal(panel.state.phase, "AWAITING_REVIEW");
+    assert.equal(panel.state.sessionId, "new-session");
+    assert.equal(panel.state.turnId, "0002");
+    assert.equal(panel.state.inFlightSubmit, null);
+    assert.equal(panel.state.submitAbortController, null);
+    assert.equal(panel.state.submitStartedAtMs, null);
+    assert.equal(panel.state.submitDeadlineMs, null);
+    timers.assertBalanced(2, "stale response and finalizer teardown");
   } finally {
     try {
       (await harness.loadExtension()).resetSubmitWatchdogDeps();

@@ -29,6 +29,7 @@ import {
   populateRouteSelect,
   refreshAgentStatus,
   refreshVibeComfyInfo,
+  projectVibeComfyInfo,
   syncChooseEngineGate,
   storeOpenRouterCredential,
   persistAgentSettings,
@@ -1760,19 +1761,36 @@ test("refreshAgentStatus — unavailable status text propagated to settingsMessa
   );
 });
 
-test("refreshVibeComfyInfo — fetches runtime identity independently of route status and rerenders developer diagnostics", async () => {
+function makeInfoPayload(overrides = {}) {
+  return {
+    info_contract_version: 1,
+    process_start_id: "a".repeat(32),
+    start_time_utc: "2026-07-09T16:10:00Z",
+    git_sha: "b".repeat(40),
+    git_dirty: true,
+    git_state: "dirty",
+    web_source_hash: "feedface1234",
+    web_source_state: "identified",
+    served_asset_kind: "source",
+    served_asset_id: "source:feedface1234",
+    served_asset_state: "identified",
+    runtime_modes: {
+      headless: false,
+      dynamic_io: false,
+      runtime_module: "default",
+      demo_picker: false,
+      agentic_replay: false,
+    },
+    remediation: [],
+    ...overrides,
+  };
+}
+
+test("refreshVibeComfyInfo — accepts only the immutable identity contract independently of route status", async () => {
   const markCalls = [];
   mockFetch((url) => {
     if (url === "/vibecomfy/info") {
-      return makeFetchResponse({
-        git_sha: "abc123",
-        git_branch: "main",
-        git_dirty: true,
-        web_source_hash: "feedface",
-        served_web_path: "/srv/vibecomfy/web",
-        start_time_utc: "2026-07-09T16:10:00Z",
-        uptime_seconds: 42.5,
-      });
+      return makeFetchResponse(makeInfoPayload());
     }
     return makeFetchResponse({ error: "unexpected" }, { status: 404 });
   });
@@ -1791,8 +1809,9 @@ test("refreshVibeComfyInfo — fetches runtime identity independently of route s
   }));
 
   assert.equal(panel.state.vibeComfyInfoStatus.kind, "ready");
-  assert.equal(panel.state.vibeComfyInfoSnapshot.git_sha, "abc123");
-  assert.equal(panel.state.vibeComfyInfoSnapshot.web_source_hash, "feedface");
+  assert.equal(panel.state.vibeComfyInfoSnapshot.git_sha, "b".repeat(40));
+  assert.equal(panel.state.vibeComfyInfoSnapshot.web_source_hash, "feedface1234");
+  assert.equal(panel.state.vibeComfyInfoSnapshot.served_asset_id, "source:feedface1234");
   assert.equal(panel.state.settingsMessage, "Status unavailable: Error: backend down");
   assert.deepEqual(markCalls, [{
     sections: [RENDER_SECTIONS.DEVELOPER],
@@ -1800,10 +1819,13 @@ test("refreshVibeComfyInfo — fetches runtime identity independently of route s
   }]);
 });
 
-test("refreshVibeComfyInfo — malformed payload stores diagnostic and clears the snapshot", async () => {
+test("refreshVibeComfyInfo — rejects malformed and secret-shaped payloads without reflecting their values", async () => {
   mockFetch((url) => {
     if (url === "/vibecomfy/info") {
-      return makeFetchResponse("not-an-object");
+      return makeFetchResponse(makeInfoPayload({
+        servedWebPath: "/home/alice/secret-project",
+        api_key: "sk-secret-value",
+      }));
     }
     return makeFetchResponse({ error: "unexpected" }, { status: 404 });
   });
@@ -1815,9 +1837,11 @@ test("refreshVibeComfyInfo — malformed payload stores diagnostic and clears th
   assert.equal(panel.state.vibeComfyInfoSnapshot, null);
   assert.ok(panel.state.lastVibeComfyInfoDiagnostic, "should capture info diagnostic");
   assert.ok(
-    panel.state.lastVibeComfyInfoDiagnostic.error.includes("expected JSON object"),
+    panel.state.lastVibeComfyInfoDiagnostic.error.includes("Invalid immutable runtime identity contract"),
     `got: ${panel.state.lastVibeComfyInfoDiagnostic.error}`,
   );
+  assert.equal("payload" in panel.state.lastVibeComfyInfoDiagnostic, false);
+  assert.doesNotMatch(JSON.stringify(panel.state), /secret-project|sk-secret-value/);
 });
 
 test("refreshVibeComfyInfo — unavailable responses keep an error diagnostic on the owned state surface", async () => {
@@ -1831,10 +1855,7 @@ test("refreshVibeComfyInfo — unavailable responses keep an error diagnostic on
   assert.equal(panel.state.vibeComfyInfoStatus.kind, "unavailable");
   assert.equal(panel.state.vibeComfyInfoSnapshot, null);
   assert.ok(panel.state.lastVibeComfyInfoDiagnostic, "should capture info diagnostic");
-  assert.ok(
-    panel.state.lastVibeComfyInfoDiagnostic.error.includes("Connection refused"),
-    `got: ${panel.state.lastVibeComfyInfoDiagnostic.error}`,
-  );
+  assert.equal(panel.state.lastVibeComfyInfoDiagnostic.error, "Runtime identity request unavailable");
 });
 
 test("refreshVibeComfyInfo aborts a deadline-bound fetch without changing route status", async () => {
@@ -1860,4 +1881,27 @@ test("refreshVibeComfyInfo aborts a deadline-bound fetch without changing route 
   assert.equal(panel.state.vibeComfyInfoStatus.kind, "unavailable");
   assert.equal(panel.state.lastVibeComfyInfoDiagnostic.timedOut, true);
   assert.equal(panel.state.routeStatus.kind, ROUTE_STATUS_KIND.READY);
+});
+
+test("projectVibeComfyInfo rejects inconsistent or noncanonical identity fields", () => {
+  const canonical = makeInfoPayload();
+  assert.ok(projectVibeComfyInfo(canonical));
+  assert.equal(projectVibeComfyInfo({ ...canonical, servedWebPath: "/tmp/private" }), null);
+  assert.equal(projectVibeComfyInfo({ ...canonical, git_state: "clean" }), null);
+});
+
+test("refreshVibeComfyInfo ignores stale successful responses and diagnostics", async () => {
+  const pending = [];
+  mockFetch(() => new Promise((resolve) => pending.push(resolve)));
+  const panel = makePanel();
+
+  const first = refreshVibeComfyInfo(panel, makeDeps());
+  const second = refreshVibeComfyInfo(panel, makeDeps());
+  pending[1](makeFetchResponse(makeInfoPayload({ process_start_id: "b".repeat(32) })));
+  await second;
+  pending[0](makeFetchResponse(makeInfoPayload({ process_start_id: "c".repeat(32) })));
+  await first;
+
+  assert.equal(panel.state.vibeComfyInfoSnapshot.process_start_id, "b".repeat(32));
+  assert.equal(panel.state.vibeComfyInfoStatus.kind, "ready");
 });

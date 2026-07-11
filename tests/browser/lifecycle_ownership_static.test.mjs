@@ -113,6 +113,22 @@ test("agentic_replay.js must not directly assign to lifecycle-owned state fields
   }
 });
 
+test("vibecomfy_roundtrip.js routes submit-watchdog state writes through lifecycle transitions", () => {
+  for (const field of [
+    "inFlightSubmit",
+    "submitAbortController",
+    "submitEpoch",
+    "submitStartedAtMs",
+    "submitDeadlineMs",
+  ]) {
+    assert.doesNotMatch(
+      roundtripSource,
+      new RegExp(String.raw`\.state\.${field}\s*=\s*`),
+      `vibecomfy_roundtrip.js must not directly assign submit watchdog field .state.${field}`,
+    );
+  }
+});
+
 test("preview_picker.js must not create lifecycle state via createAgentEditState", () => {
   // Preview/replay modules should not create their own lifecycle state;
   // that's the panel's responsibility. They should only commit through helpers.
