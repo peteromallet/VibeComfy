@@ -17,3 +17,7 @@ Resume the existing `vibecomfy-trust-corrective-2026-07` chain without a human-a
 ## Recovery invariant
 
 Advance only after `make corrective-trust-gate` passes with nonzero Python, Node, and Playwright collection, no unexpected/flaky/skipped Playwright result, unchanged quarantine hashes, and sanitized artifacts. Preserve genuine human-only or security gates if a later milestone introduces one.
+
+## Remaining human boundary
+
+The fresh canonical review moved the plan to `awaiting_human_verify`. Do not synthesize those verdicts from automated tests. The three pending must-level checks are criterion 4 (observe runtime security/redaction logs), criterion 5 (inspect the runtime info/panel identity UI), and criterion 7 (drive and visually inspect the real ComfyUI overlay while observing its logs). Criterion 10 is also classified human-only but is a should-level artifact-quality judgment rather than a must-level advancement gate.
