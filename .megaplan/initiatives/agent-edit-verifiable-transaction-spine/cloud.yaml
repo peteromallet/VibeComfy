@@ -12,7 +12,7 @@ mode: idle
 chain:
   spec: /workspace/agent-edit-verifiable-transaction-spine/vibecomfy/.megaplan/initiatives/agent-edit-verifiable-transaction-spine/chain.yaml
 megaplan:
-  ref: editible-install
+  ref: main
   codex_auth: chatgpt
   repo: https://github.com/peteromallet/Arnold.git
   src_path: /workspace/arnold
