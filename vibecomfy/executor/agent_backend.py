@@ -51,6 +51,7 @@ def run_classify_turn(
     *,
     route: str,
     model: str,
+    effort: str | None = None,
     has_graph: bool = False,
     graph_summary: str | None = None,
     layout_hint: Mapping[str, Any] | None = None,
@@ -112,6 +113,7 @@ def run_classify_turn(
             messages,
             route=route,
             model=model,
+            effort=effort,
             response_contract="json",
         )
         raw = _extract_content(result)
@@ -130,6 +132,7 @@ def run_reply_turn(
     *,
     route: str,
     model: str,
+    effort: str | None = None,
     plan: ClassifyDecision | None = None,
     research_summary: str | None = None,
     research_sources: tuple[dict[str, Any], ...] | None = None,
@@ -213,6 +216,7 @@ def run_reply_turn(
             messages,
             route=route,
             model=model,
+            effort=effort,
             response_contract="json",
         )
         raw = _extract_content(result)

@@ -697,10 +697,27 @@ def _node_field_value(
     node = index.node_by_uid(scope_path, uid)
     if node is None:
         return _MISSING
-    # Widget values are stored as a list; field_path is like "widgets.0"
-    if field_path.startswith("widgets."):
+    # Widget values are stored as a list.  The authoring surface accepts both
+    # explicit indexed paths (widgets.1 / widgets_values.1) and the positional
+    # aliases emitted for schema-light custom nodes (widget_1).  Lint must use
+    # the same aliases as apply or it emits false unknown_field warnings after
+    # an edit has already landed.
+    widget_index_match = re.fullmatch(r"widget_(\d+)", field_path)
+    indexed_widget_prefix = next(
+        (
+            prefix
+            for prefix in ("widgets.", "widgets_values.")
+            if field_path.startswith(prefix)
+        ),
+        None,
+    )
+    if widget_index_match is not None or indexed_widget_prefix is not None:
         try:
-            idx = int(field_path.split(".", 1)[1])
+            idx = (
+                int(widget_index_match.group(1))
+                if widget_index_match is not None
+                else int(field_path.split(".", 1)[1])
+            )
         except (ValueError, IndexError):
             return _MISSING
         widgets = node.get("widgets_values")
@@ -761,10 +778,15 @@ def _lint_set_node_field(
             isinstance(widgets_values, (list, dict))
             and len(widgets_values) > 0
         )
+        explicit_widget_index = bool(
+            re.fullmatch(r"widget_\d+", target.field_path)
+            or target.field_path.startswith("widgets.")
+            or target.field_path.startswith("widgets_values.")
+        )
         # Only pass through unqualified names that might be widget names;
         # explicit widget-index paths (widgets.N) that are out of range
         # still hard-reject.
-        if has_widget_surface and not target.field_path.startswith("widgets."):
+        if has_widget_surface and not explicit_widget_index:
             return op, _make_issue(
                 "unknown_field",
                 f"{_node_label(index, target.scope_path, target.uid)} field "

@@ -668,6 +668,45 @@ function materializeAddNodePayload(candidateGraph, op) {
   return cloneJson(candidateNode);
 }
 
+function withoutSerializedLinkReferences(nodePayload) {
+  const payload = cloneJson(nodePayload);
+  if (Array.isArray(payload?.inputs)) {
+    for (const input of payload.inputs) {
+      if (input && typeof input === "object") input.link = null;
+    }
+  }
+  if (Array.isArray(payload?.outputs)) {
+    for (const output of payload.outputs) {
+      if (output && typeof output === "object") output.links = null;
+    }
+  }
+  return payload;
+}
+
+function appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan) {
+  const addedIds = new Set(
+    plan.filter((step) => step.op === "add_node").map((step) => String(step.nodePayload.id)),
+  );
+  if (addedIds.size === 0) return;
+  const links = iterateLinkRecords(candidateGraph)
+    .filter((link) => addedIds.has(String(link.origin_id)) || addedIds.has(String(link.target_id)))
+    .sort((a, b) => Number(a.id) - Number(b.id));
+  for (const link of links) {
+    // An add_node carries input intent in the canonical contract. Materialize
+    // those edges explicitly so native LiteGraph nodes are never configured
+    // with link ids that are absent from graph.links.
+    upsertLinkInSerializedGraph(workingGraph, link);
+    const alreadyPlanned = plan.some((step) => step.op === "upsert_link"
+      && String(step.link?.origin_id) === String(link.origin_id)
+      && Number(step.link?.origin_slot) === Number(link.origin_slot)
+      && String(step.link?.target_id) === String(link.target_id)
+      && Number(step.link?.target_slot) === Number(link.target_slot));
+    if (!alreadyPlanned) {
+      plan.push({ op: "upsert_link", link: { ...link }, derivedFromAddNode: true });
+    }
+  }
+}
+
 function resolveFactory(app) {
   const liteGraph = app?.LiteGraph
     || app?.canvas?.LiteGraph
@@ -675,6 +714,127 @@ function resolveFactory(app) {
     || globalThis?.window?.LiteGraph
     || null;
   return typeof liteGraph?.createNode === "function" ? liteGraph.createNode.bind(liteGraph) : null;
+}
+
+function positivePair(value) {
+  if (!Array.isArray(value) && !(value && typeof value.length === "number")) {
+    return null;
+  }
+  const w = Number(value[0]);
+  const h = Number(value[1]);
+  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? { w, h } : null;
+}
+
+function serializedNodeSize(node) {
+  return positivePair(node?.size) || { w: 320, h: 180 };
+}
+
+/**
+ * Ask the installed LiteGraph node class how large it really is.  This must
+ * run in the browser: object_info describes inputs, but custom widgets and
+ * Comfy extensions determine their final rendered height client-side.
+ */
+function measureNativeNodePayload(factory, payload) {
+  if (typeof factory !== "function" || !payload?.type) {
+    return null;
+  }
+  try {
+    const node = factory(payload.type);
+    if (!node) return null;
+    if (typeof node.configure === "function") {
+      node.configure(cloneJson(payload));
+    } else {
+      Object.assign(node, cloneJson(payload));
+    }
+    let size = positivePair(node.size) || serializedNodeSize(payload);
+    let measured = false;
+    if (typeof node.computeSize === "function") {
+      const computed = positivePair(node.computeSize());
+      if (computed) {
+        size = { w: Math.max(size.w, computed.w), h: Math.max(size.h, computed.h) };
+        measured = true;
+      }
+    }
+    if (typeof node.getBounding === "function") {
+      const bounds = node.getBounding();
+      const width = Number(bounds?.[2]);
+      const height = Number(bounds?.[3]);
+      const titleHeight = Number(globalThis?.LiteGraph?.NODE_TITLE_HEIGHT) || 30;
+      if (Number.isFinite(width) && width > 0) size.w = Math.max(size.w, width);
+      // LiteGraph bounds include the title, while serialized node.size does not.
+      if (Number.isFinite(height) && height > titleHeight) {
+        size.h = Math.max(size.h, height - titleHeight);
+        measured = true;
+      }
+    }
+    return measured ? size : null;
+  } catch (_error) {
+    // A malformed extension node must never block review; retain server geometry.
+    return null;
+  }
+}
+
+function rectanglesOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/**
+ * Project a server candidate onto the actual installed node widgets before it
+ * is previewed or applied.  Only newly-added nodes are moved: existing canvas
+ * nodes remain authoritative obstacles.  The server candidate itself and its
+ * hash remain untouched by returning a clone.
+ */
+export function projectCandidateGraphToRuntimeLayout(app, candidateGraph) {
+  const projected = cloneJson(candidateGraph);
+  if (!projected || !Array.isArray(projected.nodes)) return projected;
+
+  const graph = getLiveGraph(app);
+  const live = liveNodeIndex(graph);
+  const factory = resolveFactory(app);
+  const entries = projected.nodes.map((node, index) => {
+    const uid = canonicalNodeUid(node);
+    const liveNode = (uid && live.byUid.get(uid)) || live.byId.get(String(node?.id));
+    // Existing nodes are drawn from the live canvas by the overlay and must
+    // remain byte-identical to the server candidate for review/CAS.  Only a
+    // newly created node needs browser-native measurement.
+    const measuredNative = liveNode ? null : measureNativeNodePayload(factory, node);
+    const measured = measuredNative || serializedNodeSize(node);
+    if (measuredNative) {
+      node.size = [Math.ceil(measured.w), Math.ceil(measured.h)];
+    }
+    return {
+      node,
+      index,
+      isNew: !liveNode,
+      measured: Boolean(measuredNative),
+      rect: { x: Number(node?.pos?.[0]) || 0, y: Number(node?.pos?.[1]) || 0, w: measured.w, h: measured.h },
+    };
+  });
+
+  // No browser-native measurement means this runtime cannot improve on the
+  // server candidate.  Crucially, preserve its exact payload/hash shape.
+  if (!entries.some((entry) => entry.measured)) return projected;
+
+  // Stable top-to-bottom ordering retains the backend's intended topology.
+  const placed = [];
+  for (const entry of [...entries].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x || a.index - b.index)) {
+    if (entry.isNew) {
+      let moved = true;
+      while (moved) {
+        moved = false;
+        for (const obstacle of placed) {
+          if (!rectanglesOverlap(entry.rect, obstacle.rect)) continue;
+          entry.rect.y = obstacle.rect.y + obstacle.rect.h + 24;
+          moved = true;
+        }
+      }
+      if (entry.rect.y !== (Number(entry.node?.pos?.[1]) || 0)) {
+        entry.node.pos = [Math.round(entry.rect.x), Math.round(entry.rect.y)];
+      }
+    }
+    placed.push(entry);
+  }
+  return projected;
 }
 
 function liveNodeIndex(graph) {
@@ -929,7 +1089,10 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
         workingGraph.nodes = [];
       }
       workingGraph.nodes.push(nodePayload);
-      plan.push({ op: opKind, nodePayload: cloneJson(nodePayload) });
+      // Links are applied as explicit follow-up operations once every endpoint
+      // exists. Passing candidate link ids into native configure() first can
+      // corrupt LiteGraph's link index (and has caused recursive failures).
+      plan.push({ op: opKind, nodePayload: withoutSerializedLinkReferences(nodePayload) });
       continue;
     }
     if (opKind === "remove_node") {
@@ -952,6 +1115,8 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
     }
     throw new Error(`Unsupported delta op kind ${opKind}.`);
   }
+
+  appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan);
 
   // Verify candidate graph consistency with the delta ops after planning.
   verifyCandidateGraphConsistency(candidateGraph, deltaOps);

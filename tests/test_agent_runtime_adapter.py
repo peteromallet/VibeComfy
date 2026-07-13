@@ -9,6 +9,7 @@ import pytest
 
 from vibecomfy.comfy_nodes.agent import runtime
 from vibecomfy.comfy_nodes.agent import provider as agent_provider
+from vibecomfy.comfy_nodes.agent import worker
 
 
 def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -24,6 +25,33 @@ def test_openrouter_agent_kwargs_use_openrouter_model_slug(monkeypatch: pytest.M
     assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
     assert kwargs["model"] == "deepseek/deepseek-v4-pro"
     assert kwargs["max_tokens"] == 2048
+
+
+def test_explicit_openrouter_route_cannot_be_hijacked_by_generic_endpoint_or_key_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime, "_OPENROUTER_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("VIBECOMFY_HERMES_API_KEY", "generic-provider-key")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "native-deepseek-key")
+    monkeypatch.setattr(runtime, "_resolve_openrouter_key", lambda: "sk-or-v1-openrouter-key")
+
+    kwargs = runtime._build_agent_kwargs(
+        "hermes",
+        route="openrouter",
+        model="openrouter:deepseek/deepseek-v4-pro",
+    )
+
+    assert kwargs["provider"] == "openrouter"
+    assert kwargs["base_url"] == "https://openrouter.ai/api/v1"
+    assert kwargs["api_key"] == "sk-or-v1-openrouter-key"
+    assert kwargs["model"] == "deepseek/deepseek-v4-pro"
+
+
+def test_provider_preserves_openrouter_route_at_runtime_boundary() -> None:
+    descriptor = agent_provider._resolve_agent_route("openrouter")
+    assert agent_provider._runtime_dispatch_route(
+        descriptor, descriptor.normalized_route
+    ) == "openrouter"
 
 
 def test_agent_edit_contract_model_uses_openrouter_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -167,6 +195,74 @@ def test_run_worker_mirrors_parent_resolved_native_deepseek_key(
     assert captured_env["OPENROUTER_API_KEY"] == "sk-native-deepseek-key"
     assert captured_env["OPENAI_API_KEY"] == "sk-native-deepseek-key"
     assert captured_env["HERMES_API_KEY"] == "sk-native-deepseek-key"
+
+
+def test_codex_request_preserves_selected_model_and_reasoning_effort() -> None:
+    request = worker._build_request(
+        agent_id="codex",
+        user_message="route this",
+        system_message="return json",
+        model="gpt-5.6-luna",
+        effort="medium",
+    )
+
+    assert request.model == "gpt-5.6-luna"
+    assert request.resolved_model == "gpt-5.6-luna"
+    assert request.effort == "medium"
+
+
+def test_runtime_serializes_codex_model_and_effort_for_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_request: dict[str, object] = {}
+
+    def fake_run(args, **kwargs):
+        with open(args[2], encoding="utf-8") as fh:
+            captured_request.update(json.load(fh))
+        with open(args[3], "w", encoding="utf-8") as fh:
+            json.dump({"content": "ok"}, fh)
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(runtime.subprocess, "run", fake_run)
+    result = runtime._run_worker(
+        {},
+        "system",
+        "user",
+        response_contract="text",
+        agent_id="codex",
+        model="gpt-5.6-sol",
+        effort="medium",
+    )
+
+    assert result["content"] == "ok"
+    assert captured_request["model"] == "gpt-5.6-sol"
+    assert captured_request["effort"] == "medium"
+
+
+def test_provider_forwards_codex_model_and_effort_to_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Runtime:
+        @staticmethod
+        def run_model_turn(**kwargs):
+            captured.update(kwargs)
+            return {"content": '{"reply":"ok"}', "json": {"reply": "ok"}}
+
+    monkeypatch.setattr(agent_provider, "_load_arnold_runtime", lambda: Runtime)
+
+    result = agent_provider.run_model_turn(
+        "judge this",
+        route="codex",
+        model="gpt-5.6-luna",
+        effort="medium",
+    )
+
+    assert result["json"] == {"reply": "ok"}
+    assert captured["route"] == "openai-codex"
+    assert captured["model"] == "gpt-5.6-luna"
+    assert captured["effort"] == "medium"
 
 
 def test_worker_bootstraps_repo_root_from_neutral_cwd(tmp_path) -> None:

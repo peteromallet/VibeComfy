@@ -160,6 +160,58 @@ def test_name_from_output_resolves_to_slot_index() -> None:
     assert link[5] == "CLIP"  # socket type
 
 
+def test_linked_inputs_and_links_follow_schema_socket_order_not_name_order() -> None:
+    """LiteGraph target slots must follow ComfyUI's physical input order.
+
+    Alphabetical ordering makes KSampler's ``latent_image`` occupy target slot
+    zero and sends MODEL to its positive-conditioning socket.  That payload is
+    structurally invalid when the browser applies it to a live ComfyUI graph.
+    """
+    wf = _wf()
+    wf.nodes["model"] = VibeNode("model", "ModelSource")
+    wf.nodes["positive"] = VibeNode("positive", "ConditioningSource")
+    wf.nodes["negative"] = VibeNode("negative", "ConditioningSource")
+    wf.nodes["latent"] = VibeNode("latent", "LatentSource")
+    wf.nodes["sampler"] = VibeNode("sampler", "KSampler")
+    wf.edges.extend(
+        [
+            VibeEdge("model", "MODEL", "sampler", "model"),
+            VibeEdge("positive", "CONDITIONING", "sampler", "positive"),
+            VibeEdge("negative", "CONDITIONING", "sampler", "negative"),
+            VibeEdge("latent", "LATENT", "sampler", "latent_image"),
+        ]
+    )
+    provider = _Provider(
+        {
+            "ModelSource": _schema("ModelSource", [OutputSpec("MODEL", "MODEL")]),
+            "ConditioningSource": _schema("ConditioningSource", [OutputSpec("CONDITIONING", "CONDITIONING")]),
+            "LatentSource": _schema("LatentSource", [OutputSpec("LATENT", "LATENT")]),
+            "KSampler": NodeSchema(
+                class_type="KSampler",
+                pack=None,
+                inputs={
+                    "model": InputSpec("MODEL"),
+                    "positive": InputSpec("CONDITIONING"),
+                    "negative": InputSpec("CONDITIONING"),
+                    "latent_image": InputSpec("LATENT"),
+                },
+                outputs=[OutputSpec("LATENT", "LATENT")],
+            ),
+        }
+    )
+
+    result = emit_ui_json(wf, schema_provider=provider)
+    sampler = next(node for node in result["nodes"] if node["id"] == 5)
+
+    assert [entry["name"] for entry in sampler["inputs"]] == [
+        "model",
+        "positive",
+        "negative",
+        "latent_image",
+    ]
+    assert {link[4] for link in result["links"] if link[3] == 5} == {0, 1, 2, 3}
+
+
 # ---------------------------------------------------------------------------
 # Node outputs list: slot_index, wired links, and links=null for unwired
 # ---------------------------------------------------------------------------

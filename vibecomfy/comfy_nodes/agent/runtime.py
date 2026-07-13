@@ -62,6 +62,7 @@ _DEEPSEEK_USAGE_CAPTURE: contextvars.ContextVar[dict[str, Any] | None] = context
     default=None,
 )
 
+_CANONICAL_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _OPENROUTER_MODEL = os.getenv("VIBECOMFY_OPENROUTER_MODEL", "openrouter:deepseek/deepseek-v4-pro")
 _OPENROUTER_BASE_URL = os.getenv("VIBECOMFY_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 _OPENROUTER_MAX_TOKENS = int(os.getenv("VIBECOMFY_OPENROUTER_MAX_TOKENS", "2048"))
@@ -334,11 +335,20 @@ def _normalize_native_deepseek_model(model: str) -> str:
     return stripped
 
 
-def _is_native_deepseek_endpoint() -> bool:
-    return "deepseek.com" in (_OPENROUTER_BASE_URL or "").lower()
+def _base_url_for_route(route: str | None) -> str:
+    """Pin explicit OpenRouter turns to OpenRouter's canonical API endpoint."""
+    if (route or "").strip().lower() == "openrouter":
+        return _CANONICAL_OPENROUTER_BASE_URL
+    return _OPENROUTER_BASE_URL
+
+
+def _is_native_deepseek_endpoint(base_url: str | None = None) -> bool:
+    return "deepseek.com" in (base_url or _OPENROUTER_BASE_URL or "").lower()
 
 
 def _hermes_credential_for(route: str | None, model: str | None) -> str | None:
+    if (route or "").strip().lower() == "openrouter":
+        return _resolve_openrouter_key()
     # Explicit per-process override (e.g. pointing the hermes backend at a
     # non-OpenRouter OpenAI-compatible endpoint such as Fireworks). Bypasses
     # _resolve_openrouter_key(), which force-clobbers OPENROUTER_API_KEY from
@@ -399,8 +409,9 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
         quiet_mode=True,
     )
     if agent_id == "hermes":
+        base_url = _base_url_for_route(route)
         resolved_model = _runtime_model_for_route(route, model) or _OPENROUTER_MODEL
-        if _is_native_deepseek_endpoint():
+        if _is_native_deepseek_endpoint(base_url):
             # Native api.deepseek.com rejects OpenRouter-style ``deepseek/`` slugs
             # with HTTP 400; normalize to the bare model name it accepts.
             resolved_model = _normalize_native_deepseek_model(resolved_model)
@@ -409,7 +420,7 @@ def _build_agent_kwargs(agent_id: str, route: str | None = None, model: str | No
         return dict(
             model=resolved_model,
             api_key=_hermes_credential_for(route, model),
-            base_url=_OPENROUTER_BASE_URL,
+            base_url=base_url,
             provider="openrouter",
             max_tokens=_OPENROUTER_MAX_TOKENS,
             **common,
@@ -425,6 +436,8 @@ def _run_worker(
     *,
     response_contract: str = "python",
     agent_id: str = "hermes",
+    model: str | None = None,
+    effort: str | None = None,
     profiling_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one AIAgent turn in an isolated subprocess; return its result dict.
@@ -440,6 +453,8 @@ def _run_worker(
             json.dump(
                 {
                     "agent_id": agent_id,
+                    "model": model,
+                    "effort": effort,
                     "agent_kwargs": agent_kwargs,
                     "system_message": system_msg,
                     "user_message": user_msg,
@@ -519,6 +534,7 @@ def run_agent_turn(
     python_source: str,
     route: str,
     model: str | None = None,
+    effort: str | None = None,
     messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one agent-edit turn through the megaplan AIAgent backend.
@@ -548,6 +564,8 @@ def run_agent_turn(
         user_msg,
         response_contract="python",
         agent_id=agent_id,
+        model=_runtime_model_for_route(route, model),
+        effort=effort,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -561,6 +579,7 @@ def run_agent_turn_delta(
     op_schema: Mapping[str, Any],
     route: str,
     model: str | None = None,
+    effort: str | None = None,
     messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one v2 agent-edit turn and return ``{"delta": [...], "message": str}``."""
@@ -587,6 +606,8 @@ def run_agent_turn_delta(
         user_msg,
         response_contract="delta",
         agent_id=agent_id,
+        model=_runtime_model_for_route(route, model),
+        effort=effort,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -598,6 +619,7 @@ def run_agent_turn_batch(
     task: str,
     route: str,
     model: str | None = None,
+    effort: str | None = None,
     messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run one batch-REPL agent-edit turn and return raw model content."""
@@ -620,6 +642,8 @@ def run_agent_turn_batch(
         user_msg,
         response_contract="batch_repl",
         agent_id=agent_id,
+        model=_runtime_model_for_route(route, model),
+        effort=effort,
     )
     if "error" in result:
         _raise_worker_error(result)
@@ -752,7 +776,7 @@ def readiness(*, route: str, model: str | None = None) -> dict[str, Any]:
             "backend": backend,
             "route": "openrouter",
             "model": _default_model_for_route("openrouter", model),
-            "base_url": _OPENROUTER_BASE_URL,
+            "base_url": _CANONICAL_OPENROUTER_BASE_URL,
             "openrouter_key_present": bool(key),
             "reason": (
                 "OpenRouter key resolved; ready to run agent-edit turns."
@@ -902,6 +926,7 @@ def run_model_turn(
     messages: Sequence[Mapping[str, Any]] | None = None,
     route: str,
     model: str | None = None,
+    effort: str | None = None,
     response_contract: str = "json",
     profiling_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -968,6 +993,8 @@ def run_model_turn(
                 user_msg,
                 response_contract=response_contract,
                 agent_id=agent_id,
+                model=_runtime_model_for_route(route, model),
+                effort=effort,
                 profiling_context={
                     **effective_profile,
                     **({"json_retry_count": attempt} if attempt else {}),

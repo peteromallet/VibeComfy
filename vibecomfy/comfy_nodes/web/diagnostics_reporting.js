@@ -85,12 +85,37 @@ function pageUrlForReport() {
   return "(unknown URL)";
 }
 
+function compactPanelPreviewDiff(panel) {
+  const diff = panel?.state?._previewDiff;
+  if (!diff || typeof diff !== "object") return null;
+  return {
+    edited: (Array.isArray(diff.edited) ? diff.edited : []).map((entry) => ({
+      uid: entry?.uid || null,
+      changedWidgetIndices: Array.isArray(entry?.changedWidgetIndices) ? entry.changedWidgetIndices.slice() : [],
+    })),
+    editedFields: (Array.isArray(diff.edited_fields) ? diff.edited_fields : []).map((entry) => ({
+      uid: entry?.uid || null,
+      fieldPath: entry?.field_path || null,
+    })),
+    added: (Array.isArray(diff.added) ? diff.added : []).map((entry) => entry?.uid || null).filter(Boolean),
+    removed: (Array.isArray(diff.removed) ? diff.removed : []).map((entry) => entry?.uid || null).filter(Boolean),
+    addedLinks: Array.isArray(diff.added_links) ? diff.added_links.slice() : [],
+    removedLinks: Array.isArray(diff.removed_links) ? diff.removed_links.slice() : [],
+    deltaOpsDerived: Boolean(diff._deltaOpsDerived),
+    candidateGraphHash: panel?.state?._previewDiffGraphHash || null,
+    liveCanvasRevision: panel?.state?._previewDiffLiveCanvasRevision ?? null,
+  };
+}
+
 function debugSnapshotForReport(panel) {
   try {
     if (typeof window !== "undefined" && typeof window.__vibecomfyPanelDebug === "function") {
       const snapshot = window.__vibecomfyPanelDebug();
       if (snapshot && typeof snapshot === "object") {
-        return snapshot;
+        return {
+          ...snapshot,
+          previewDiff: snapshot.previewDiff ?? compactPanelPreviewDiff(panel),
+        };
       }
     }
   } catch (_error) {
@@ -103,6 +128,7 @@ function debugSnapshotForReport(panel) {
     turnId: panel?.state?.turnId || null,
     messageCount: selectTranscriptMessages(panel).length,
     renderErrors: Array.isArray(panel?.__renderErrors) ? panel.__renderErrors.length : 0,
+    previewDiff: compactPanelPreviewDiff(panel),
   };
 }
 
@@ -533,6 +559,8 @@ export function buildAgentSolvePrompt(panel) {
     "",
     "Here are the logs from my last 2 turns:",
     formatTurnSummaries(summaries),
+    "",
+    `Browser-computed preview diff: ${compactReportText(debug.previewDiff, 2000) || "(not captured)"}`,
     "",
     "The tool's code lives at /Users/peteromalley/Documents/reigh-workspace/vibecomfy.",
     "Browser panel code is under vibecomfy/comfy_nodes/web/.",

@@ -26,7 +26,9 @@ from typing import Any
 # ── canonical stages ─────────────────────────────────────────────────────────
 
 DECLARED_STAGES: frozenset[str] = frozenset({"classify", "research", "implement", "reply"})
-_KNOWN_AGENTS: frozenset[str] = frozenset({"hermes", "codex", "claude", "shannon"})
+_KNOWN_AGENTS: frozenset[str] = frozenset(
+    {"hermes", "openrouter", "codex", "claude", "shannon"}
+)
 
 # ── AgentSpecShape ───────────────────────────────────────────────────────────
 

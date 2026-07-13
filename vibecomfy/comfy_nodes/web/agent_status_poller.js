@@ -510,7 +510,7 @@ function storedReadyProviderFromStatus(panel) {
   if (resolvedRoute === "deepseek" && status.credential_presence?.deepseek_api_key) {
     return "deepseek";
   }
-  if (resolvedRoute === "openrouter" && (status.credential_presence?.openrouter_api_key || status.credential_presence?.deepseek_api_key)) {
+  if (resolvedRoute === "openrouter" && status.credential_presence?.openrouter_api_key) {
     return "openrouter";
   }
   return null;

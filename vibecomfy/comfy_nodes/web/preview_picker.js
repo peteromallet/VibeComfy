@@ -402,6 +402,9 @@ export function installPreviewPicker(panel, options = {}) {
   function applyOriginalGraph(payload) {
     try {
       helpers.applyGraphCandidateInPlace(helpers.app, clonePlainData(payload.originalGraph), { repaint: true });
+      if (typeof helpers.fitCanvasViewportToGraphPayload === "function") {
+        helpers.fitCanvasViewportToGraphPayload(payload.originalGraph);
+      }
     } catch (graphError) {
       console.warn("[vibecomfy] demo original graph apply failed:", graphError);
     }
@@ -409,6 +412,9 @@ export function installPreviewPicker(panel, options = {}) {
 
   function applyCandidateGraph(payload) {
     helpers.applyGraphCandidateInPlace(helpers.app, clonePlainData(payload.candidateGraph), { repaint: true });
+    if (typeof helpers.fitCanvasViewportToGraphPayload === "function") {
+      helpers.fitCanvasViewportToGraphPayload(payload.candidateGraph);
+    }
   }
 
   function isLayoutPreviewScenario() {
@@ -433,6 +439,7 @@ export function installPreviewPicker(panel, options = {}) {
     currentPanel.state.__demoMode = true;
     currentPanel.state.__demoStage = stage;
     currentPanel.state.__demoStageIndex = stageIndex;
+    currentPanel.state.__demoScenarioId = loadedScenario?.scenario?.id || loadedScenario?.id || null;
 
     if (stage === "before_send") {
       applyOriginalGraph(payload);
@@ -513,11 +520,10 @@ export function installPreviewPicker(panel, options = {}) {
     requestPreviewOverlayRepaint();
   }
 
-  async function loadAndPlay() {
-    const id = selectedScenarioId;
+  async function loadScenarioById(id, { readyToApply = false } = {}) {
     if (!id) {
       showError("Select a scenario first");
-      return;
+      return null;
     }
     showError("");
     loadingScenario = true;
@@ -548,12 +554,22 @@ export function installPreviewPicker(panel, options = {}) {
         __candidateGraphHash: await sha256Hex(JSON.stringify(candidateGraph)),
       };
       renderDemoStage(0);
+      if (readyToApply) {
+        renderDemoStage(1);
+        renderDemoStage(2);
+      }
+      return loadedScenario;
     } catch (error) {
       showError(error?.message || String(error));
+      return null;
     } finally {
       loadingScenario = false;
       updateStageButtons();
     }
+  }
+
+  async function loadAndPlay() {
+    return loadScenarioById(selectedScenarioId);
   }
 
   select.addEventListener("change", () => {
@@ -776,6 +792,7 @@ export function installPreviewPicker(panel, options = {}) {
     prevButton: prevBtn,
     nextButton: nextBtn,
     loadButton: loadBtn,
+    loadScenarioById,
     get mounted() {
       return mounted;
     },

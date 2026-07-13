@@ -33,6 +33,31 @@ def _real_field_changes(
     )
 
 
+def _net_field_changes(changes: tuple[FieldChange, ...]) -> tuple[FieldChange, ...]:
+    """Collapse an edit history into the original-to-final public diff.
+
+    Batch turns are an audit log and may write the same field repeatedly while
+    the agent revises its approach.  Public outcome/change surfaces must not
+    expose those abandoned intermediate values as separate final edits.
+    """
+    by_field: dict[tuple[str, str], FieldChange] = {}
+    field_order: list[tuple[str, str]] = []
+    for change in changes:
+        key = (change.uid, change.field_path)
+        previous = by_field.get(key)
+        if previous is None:
+            field_order.append(key)
+            by_field[key] = change
+            continue
+        by_field[key] = FieldChange(
+            uid=change.uid,
+            field_path=change.field_path,
+            old=previous.old,
+            new=change.new,
+        )
+    return _real_field_changes(tuple(by_field[key] for key in field_order))
+
+
 def _noop_field_changes(
     changes: tuple[FieldChange, ...],
     *,
@@ -365,7 +390,7 @@ def _sentence_case(text: str) -> str:
 
 
 def _humanized_edit_message(state: AgentEditState) -> str:
-    changes = _real_field_changes(tuple(state.batch_field_changes or ()))
+    changes = _net_field_changes(tuple(state.batch_field_changes or ()))
     labels = _node_label_by_uid(state.graph, state.ui_payload)
     structural_phrases = _structural_change_phrases(state, labels)
     if structural_phrases:
@@ -550,7 +575,7 @@ def _change_details_payload(state: AgentEditState, context: TurnContext) -> dict
     gate_snapshot = context.gate_snapshot()
     gate_a = gate_snapshot.get("edit_scope_ok") or gate_snapshot.get("python_load_ok")
     gate_b = gate_snapshot.get("isomorphic_ok") or gate_snapshot.get("ui_fidelity_ok")
-    operations = _operation_detail_payload(tuple(state.batch_field_changes or ()))
+    operations = _operation_detail_payload(_net_field_changes(tuple(state.batch_field_changes or ())))
     payload = {
         "landed_operation_count": _total_landed_edit_count(state),
         "done_summary": state.batch_done_summary or "",

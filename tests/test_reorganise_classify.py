@@ -6,10 +6,12 @@ from vibecomfy.porting.reorganise.classify import (
     REASON_BRANCH_PIPELINE_TERMINAL,
     REASON_CLASS_NAME_LOADER,
     REASON_CLASS_NAME_OUTPUT,
+    REASON_CLASS_NAME_POSTPROCESS,
     REASON_CLASS_NAME_SAMPLER,
     REASON_CLASS_NAME_UTILITY,
     REASON_EQUIVALENT_SINGLE_NODE_SIBLING_PAIR,
     REASON_HELPER_NODE,
+    REASON_IMAGE_TRANSFORM_UPSTREAM_OF_SAMPLING,
     REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING,
     REASON_UI_NODE,
     REASON_UNKNOWN_UNASSIGNED,
@@ -28,8 +30,10 @@ from vibecomfy.porting.reorganise.plan_types import (
     ROLE_HINT_CONDITIONING,
     ROLE_HINT_DECODE,
     ROLE_HINT_HELPER,
+    ROLE_HINT_LATENT,
     ROLE_HINT_LOADER,
     ROLE_HINT_OUTPUT,
+    ROLE_HINT_POSTPROCESS,
     ROLE_HINT_SAMPLER,
     ROLE_HINT_UI,
     ROLE_HINT_UNKNOWN,
@@ -127,6 +131,189 @@ def test_classification_folds_simple_latent_source_to_sampling() -> None:
 
     assert hints["latent-source"].role_hint == ROLE_HINT_SAMPLER
     assert hints["latent-source"].reason_codes == (REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING,)
+
+
+def test_classification_places_multihop_resize_upstream_of_sampler_in_prep() -> None:
+    ui = {
+        "nodes": [
+            _node(
+                1,
+                "LoadImage",
+                "load",
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _node(
+                2,
+                "ImageResizeKJ",
+                "resize",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            _node(
+                3,
+                "VAEEncode",
+                "encode",
+                inputs=[{"name": "pixels", "type": "IMAGE", "link": 11}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [12]}],
+            ),
+            _node(
+                4,
+                "SetLatentNoiseMask",
+                "mask-latent",
+                inputs=[{"name": "samples", "type": "LATENT", "link": 12}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [13]}],
+            ),
+            _node(
+                5,
+                "KSampler",
+                "sample",
+                inputs=[{"name": "latent_image", "type": "LATENT", "link": 13}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+            [12, 3, 0, 4, 0, "LATENT"],
+            [13, 4, 0, 5, 0, "LATENT"],
+        ],
+    }
+
+    hints = _hints_by_uid(ui)
+
+    assert hints["resize"].role_hint == ROLE_HINT_LATENT
+    assert hints["resize"].confidence == 0.88
+    assert hints["resize"].reason_codes == (REASON_IMAGE_TRANSFORM_UPSTREAM_OF_SAMPLING,)
+    assert [ref.uid for ref in hints["resize"].related_refs] == ["sample"]
+    assert hints["resize"].detail["pipeline_position"] == "pre_sampling_image_or_latent_prep"
+
+
+def test_classification_keeps_post_decode_resize_in_postprocess() -> None:
+    ui = {
+        "nodes": [
+            _node(
+                1,
+                "KSampler",
+                "sample",
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [10]}],
+            ),
+            _node(
+                2,
+                "VAEDecode",
+                "decode",
+                inputs=[{"name": "samples", "type": "LATENT", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            _node(
+                3,
+                "ResizeImage",
+                "resize-output",
+                inputs=[{"name": "image", "type": "IMAGE", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _node(
+                4,
+                "SaveImage",
+                "save",
+                inputs=[{"name": "images", "type": "IMAGE", "link": 12}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "LATENT"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+        ],
+    }
+
+    hints = _hints_by_uid(ui)
+
+    assert hints["resize-output"].role_hint == ROLE_HINT_POSTPROCESS
+    assert hints["resize-output"].reason_codes == (REASON_CLASS_NAME_POSTPROCESS,)
+
+
+def test_classification_uses_any_downstream_sampler_branch_for_split_transform_output() -> None:
+    ui = {
+        "nodes": [
+            _node(
+                1,
+                "ImageScale",
+                "scale",
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10, 11]}],
+            ),
+            _node(
+                2,
+                "PreviewImage",
+                "preview-input",
+                inputs=[{"name": "images", "type": "IMAGE", "link": 10}],
+            ),
+            _node(
+                3,
+                "VAEEncode",
+                "encode",
+                inputs=[{"name": "pixels", "type": "IMAGE", "link": 11}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [12]}],
+            ),
+            _node(
+                4,
+                "KSampler",
+                "sample",
+                inputs=[{"name": "latent_image", "type": "LATENT", "link": 12}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 1, 0, 3, 0, "IMAGE"],
+            [12, 3, 0, 4, 0, "LATENT"],
+        ],
+    }
+
+    hints = _hints_by_uid(ui)
+
+    assert hints["scale"].role_hint == ROLE_HINT_LATENT
+    assert hints["scale"].reason_codes == (REASON_IMAGE_TRANSFORM_UPSTREAM_OF_SAMPLING,)
+    assert [ref.uid for ref in hints["scale"].related_refs] == ["sample"]
+
+
+def test_classification_does_not_treat_upscale_model_loader_as_image_prep() -> None:
+    ui = {
+        "nodes": [
+            _node(
+                1,
+                "UpscaleModelLoader",
+                "upscale-model",
+                outputs=[{"name": "UPSCALE_MODEL", "type": "UPSCALE_MODEL", "links": [10]}],
+            ),
+            _node(
+                2,
+                "ImageUpscaleWithModel",
+                "upscale-image",
+                inputs=[{"name": "upscale_model", "type": "UPSCALE_MODEL", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            _node(
+                3,
+                "VAEEncode",
+                "encode",
+                inputs=[{"name": "pixels", "type": "IMAGE", "link": 11}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [12]}],
+            ),
+            _node(
+                4,
+                "KSampler",
+                "sample",
+                inputs=[{"name": "latent_image", "type": "LATENT", "link": 12}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "UPSCALE_MODEL"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+            [12, 3, 0, 4, 0, "LATENT"],
+        ],
+    }
+
+    hints = _hints_by_uid(ui)
+
+    assert hints["upscale-model"].role_hint == ROLE_HINT_LOADER
+    assert hints["upscale-image"].role_hint == ROLE_HINT_LATENT
 
 
 def test_classification_pairs_equivalent_single_node_siblings() -> None:

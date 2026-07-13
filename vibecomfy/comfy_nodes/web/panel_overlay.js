@@ -576,11 +576,11 @@ function fieldNameCandidates(fieldPath) {
 }
 
 function resolveWidgetFieldIndex(field, node) {
+  var widgetsForNode = Array.isArray(node && node.widgets) ? node.widgets : [];
   var directIndex = widgetIndexFromFieldPath(field && field.field_path);
   if (directIndex != null && Number.isFinite(directIndex)) {
-    return directIndex;
+    return directIndex >= 0 && directIndex < widgetsForNode.length ? directIndex : null;
   }
-  var widgetsForNode = Array.isArray(node && node.widgets) ? node.widgets : [];
   if (widgetsForNode.length === 0) {
     return null;
   }
@@ -603,6 +603,14 @@ function resolveWidgetFieldIndex(field, node) {
 function fieldNewValueLabel(field) {
   if (!field || field.new_value === null || field.new_value === undefined) {
     return "";
+  }
+  // An empty string is still a real candidate value.  Treating it as
+  // "nothing to render" drops DOM-backed text fields onto the translucent
+  // canvas fallback behind Comfy's textarea.  Give clearing edits an
+  // explicit visible value so they use the same solid DOM overlay as every
+  // other text edit.
+  if (String(field.new_value) === "") {
+    return "(empty)";
   }
   return safePreviewOverlayText(field.new_value, "");
 }
@@ -1092,11 +1100,11 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
     };
 
     var resolveWidgetFieldIndex = function (field, node) {
+      var widgetsForNode = Array.isArray(node && node.widgets) ? node.widgets : [];
       var directIndex = widgetIndexFromFieldPath(field && field.field_path);
       if (directIndex != null && Number.isFinite(directIndex)) {
-        return directIndex;
+        return directIndex >= 0 && directIndex < widgetsForNode.length ? directIndex : null;
       }
-      var widgetsForNode = Array.isArray(node && node.widgets) ? node.widgets : [];
       if (widgetsForNode.length === 0) {
         return null;
       }
@@ -1128,6 +1136,9 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       if (!field || field.new_value === null || field.new_value === undefined) {
         return "";
       }
+      if (String(field.new_value) === "") {
+        return "(empty)";
+      }
       return safePreviewOverlayText(field.new_value, "");
     };
 
@@ -1143,16 +1154,21 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       }
     }
 
-    var hasEditedLinkTarget = function (uid) {
-      if (!uid) return false;
-      var needle = "->" + uid + "::";
+    var isChangedLinkTargetField = function (uid, fieldPath) {
+      if (!uid || !fieldPath) return false;
+      var targetPrefix = "->" + uid + "::";
+      var fieldNames = fieldNameCandidates(fieldPath);
       var addedLinks = Array.isArray(diff.added_links) ? diff.added_links : [];
       var removedLinks = Array.isArray(diff.removed_links) ? diff.removed_links : [];
-      for (var ai = 0; ai < addedLinks.length; ai += 1) {
-        if (String(addedLinks[ai]).indexOf(needle) !== -1) return true;
-      }
-      for (var ri = 0; ri < removedLinks.length; ri += 1) {
-        if (String(removedLinks[ri]).indexOf(needle) !== -1) return true;
+      var links = addedLinks.concat(removedLinks);
+      for (var li = 0; li < links.length; li += 1) {
+        var link = String(links[li]);
+        var targetAt = link.indexOf(targetPrefix);
+        if (targetAt < 0) continue;
+        var targetPort = link.slice(targetAt + targetPrefix.length);
+        if (fieldNames.some(function (name) { return String(name) === targetPort; })) {
+          return true;
+        }
       }
       return false;
     };
@@ -1220,6 +1236,40 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       }
     };
 
+    // Layout previews deliberately leave the live LiteGraph graph untouched
+    // until Apply. That also means LiteGraph can only draw the *old* groups.
+    // Render the serialized candidate groups as translucent furniture in the
+    // preview layer so the review represents the complete proposed layout,
+    // not just node movement arrows.
+    var layoutGroups = Array.isArray(diff.layout_groups) ? diff.layout_groups : [];
+    for (var lgi = 0; lgi < layoutGroups.length; lgi += 1) {
+      var layoutGroup = layoutGroups[lgi];
+      var groupBounds = layoutGroup && layoutGroup.bounds;
+      if (!groupBounds) continue;
+      var groupColor = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(layoutGroup.color || ""))
+        ? layoutGroup.color
+        : layoutColor;
+      ctx.save();
+      try {
+        if (ctx.setLineDash) ctx.setLineDash([10, 5]);
+        ctx.fillStyle = hexToRgba(groupColor, 0.10);
+        ctx.strokeStyle = hexToRgba(groupColor, 0.95);
+        ctx.lineWidth = 3;
+        ctx.fillRect(groupBounds.x, groupBounds.y, groupBounds.w, groupBounds.h);
+        ctx.strokeRect(groupBounds.x, groupBounds.y, groupBounds.w, groupBounds.h);
+        if (ctx.setLineDash) ctx.setLineDash([]);
+        ctx.font = "bold 16px sans-serif";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = hexToRgba(groupColor, 0.98);
+        ctx.fillText(
+          safePreviewOverlayText(layoutGroup.title, "Group"),
+          groupBounds.x + 10,
+          groupBounds.y + 8,
+        );
+      } finally {
+        ctx.restore();
+      }
+    }
     for (var ei = 0; ei < (diff.edited || []).length; ei += 1) {
       var eitem = diff.edited[ei];
       var enode = liveByUid.get(eitem.uid);
@@ -1272,6 +1322,12 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       ctx.fillStyle = hexToRgba(VC_COLORS.edited, 0.22);
       for (var wi = 0; wi < (eitem.changedWidgetIndices || []).length; wi += 1) {
         var widx = eitem.changedWidgetIndices[wi];
+        // Serialized widgets_values can contain cached/hidden values that do
+        // not have a drawable native widget.  Never invent a visual row for
+        // an index absent from the live node.
+        if (!Number.isInteger(widx) || widx < 0 || widx >= widgets.length) {
+          continue;
+        }
         var rowBounds = rowBoundsForWidgetIndex(widx);
         ctx.fillRect(rowBounds.x, rowBounds.y, rowBounds.w, Math.max(rowBounds.h - 2, 4));
       }
@@ -1280,6 +1336,12 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       var drawnWidgetFieldIndexes = new Set();
       for (var efi = 0; efi < fieldsForNode.length; efi += 1) {
         var ef = fieldsForNode[efi];
+        // A link-valued FieldChange and its added/removed wire describe the
+        // same edit.  Do not turn the serialized endpoint object into a
+        // second yellow `model: {...}` badge; the wire is the precise visual.
+        if (isChangedLinkTargetField(eitem.uid, ef && ef.field_path)) {
+          continue;
+        }
         var resolvedWidgetIndex = resolveWidgetFieldIndex(ef, enode);
         if (resolvedWidgetIndex != null && Number.isFinite(resolvedWidgetIndex) && resolvedWidgetIndex >= 0) {
           if (!drawnWidgetFieldIndexes.has(resolvedWidgetIndex)) {
@@ -1293,13 +1355,12 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
               );
             }
           }
-        } else {
+        } else if (widgetIndexFromFieldPath(ef && ef.field_path) == null) {
           nonWidgetFields.push(ef);
         }
       }
-      if (nonWidgetFields.length > 0 || hasEditedLinkTarget(eitem.uid)) {
-        var chipLabel = nonWidgetFields.length > 0 ? formatFieldLabel(nonWidgetFields[0]) : "inputs changed";
-        drawBadge(ex + 4, ey + eh - 2, chipLabel, editedColor);
+      if (nonWidgetFields.length > 0) {
+        drawBadge(ex + 4, ey + eh - 2, formatFieldLabel(nonWidgetFields[0]), editedColor);
       }
     }
 
@@ -1424,10 +1485,12 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
 
     var resolvePortPoint = function (uid, slotIndex, ioKind, candidatePreferred) {
       var node = candidatePreferred ? candidateByUid.get(uid) : liveByUid.get(uid);
-      var titleOffset = TITLE_H;
       if (node && typeof node.getConnectionPos === "function") {
         try {
-          var pos = node.getConnectionPos(ioKind === "output", slotIndex);
+          // LiteGraph's first argument is `is_input`, not `is_output`.
+          // Passing the output predicate here mirrors every live endpoint:
+          // outputs land on the left edge and inputs on the right edge.
+          var pos = node.getConnectionPos(ioKind === "input", slotIndex);
           if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[1])) {
             return { x: pos[0], y: pos[1] };
           }

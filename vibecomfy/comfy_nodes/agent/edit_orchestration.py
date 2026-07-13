@@ -183,6 +183,7 @@ def _run_batch_repl_product_path(
     deepseek_client: DeepSeekClient | None = None,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
     client_id: str | None = None,
     conversation_messages: list[dict[str, Any]] | None = None,
 ) -> AgentEditState:
@@ -235,6 +236,7 @@ def _run_batch_repl_product_path(
         deepseek_client=deepseek_client,
         route=route,
         model=model,
+        effort=effort,
         client_id=client_id,
         conversation_messages=conversation_messages,
     )
@@ -249,6 +251,7 @@ def _run_delta_dev_path(
     deepseek_client: DeepSeekClient | None = None,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
 ) -> AgentEditState:
     _run_stage("ingest", state, context, _stage_ingest_v2)
     _run_stage("project", state, context, _stage_project_v2)
@@ -260,6 +263,7 @@ def _run_delta_dev_path(
         deepseek_client=deepseek_client,
         route=route,
         model=model,
+        effort=effort,
     )
     _run_stage("apply_delta", state, context, _stage_apply_delta)
     _run_stage("summarize", state, context, _stage_summarize_v2)
@@ -273,6 +277,7 @@ def _run_full_dev_path(
     deepseek_client: DeepSeekClient | None = None,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
 ) -> AgentEditState:
     _run_stage("ingest", state, context, _stage_ingest)
     _run_stage("convert", state, context, _stage_convert)
@@ -284,6 +289,7 @@ def _run_full_dev_path(
         deepseek_client=deepseek_client,
         route=route,
         model=model,
+        effort=effort,
     )
     _run_stage("load_python", state, context, _stage_load_python)
     _run_stage("lower", state, context, _stage_lower)

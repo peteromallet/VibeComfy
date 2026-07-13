@@ -96,7 +96,7 @@ _INSTALL_REQUEST_TERMS = (
 def _spec_fields(spec: AgentSpecShape | None) -> dict[str, Any]:
     if spec is None:
         return {}
-    return {"route": spec.agent, "model": spec.model}
+    return {"route": spec.agent, "model": spec.model, "effort": spec.effort}
 
 
 def _allows_install_or_provider_research(query: str) -> bool:
@@ -799,6 +799,7 @@ def _run_classify(
         classify_kwargs: dict[str, Any] = {
             "route": spec.agent,
             "model": spec.model,
+            "effort": spec.effort,
             "has_graph": request.graph is not None,
             "graph_summary": graph_summary,
         }
@@ -1052,6 +1053,7 @@ def _run_implement(
         "executor_route": executor_route,
         "provider_route": spec.agent,
         "model": spec.model,
+        "effort": spec.effort,
         "executor_classification": classification,
     }
     graph_inspection = _graph_inspection(request.graph)
@@ -1453,6 +1455,7 @@ def _run_reply(
         reply_kwargs: dict[str, Any] = {
             "route": spec.agent,
             "model": spec.model,
+            "effort": spec.effort,
             "plan": plan,
             "research_summary": research_summary,
             "research_sources": research_sources,

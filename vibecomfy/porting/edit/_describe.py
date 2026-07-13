@@ -761,7 +761,10 @@ class _DescribeMixin:
                             continue
                         if l[0] == link_id:
                             src_uid = str(l[1])
-                            src_slot = l[3]
+                            # LiteGraph link tuples are
+                            # [id, origin_id, origin_slot, target_id, target_slot, type].
+                            # l[3] is the target node id, not the source slot.
+                            src_slot = l[2]
                             return (src_uid, src_slot)
                 break
         return None

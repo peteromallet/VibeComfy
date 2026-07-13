@@ -657,6 +657,34 @@ def _resolve_output_slot_and_type(
     return 0, ""
 
 
+def _ordered_incoming_edges(
+    edges: list[Any],
+    schema: Any | None,
+) -> list[Any]:
+    """Order linked inputs by their physical ComfyUI socket position.
+
+    LiteGraph link records address a target by *input-array index*, not by
+    input name.  Alphabetizing linked fields therefore corrupts any node whose
+    authoring names do not happen to match its physical socket order (notably
+    KSampler: ``model, positive, negative, latent_image``).  Runtime schema
+    input order mirrors ComfyUI's declared order, so use it whenever present;
+    retain a deterministic name-based fallback for schema-less nodes.
+    """
+    schema_inputs = getattr(schema, "inputs", None)
+    ordered_names = list(schema_inputs) if isinstance(schema_inputs, Mapping) else []
+    position = {name: index for index, name in enumerate(ordered_names)}
+    unknown_offset = len(position)
+    return sorted(
+        edges,
+        key=lambda edge: (
+            position.get(edge.to_input, unknown_offset),
+            edge.to_input,
+            edge.from_node,
+            edge.from_output,
+        ),
+    )
+
+
 def _get_node_schema_provenance(
     class_type: str,
     schema: Any,
@@ -2432,10 +2460,10 @@ def emit_ui_json(
         if full_committed is not None:
             widget_name_set.update(n for n in full_committed if n is not None)
 
-        # --- inputs list (sorted by to_input for determinism) ---
+        # --- inputs list (physical ComfyUI socket order) ---
         # Only LINKED inputs get an input-slot entry; a linked input whose name is a
         # widget-type input additionally carries widget:{name:...} (widget→link).
-        incoming_sorted = sorted(edges_to[node_id], key=lambda e: e.to_input)
+        incoming_sorted = _ordered_incoming_edges(edges_to[node_id], schema)
         incoming_link_ids_by_input: dict[str, list[int]] = defaultdict(list)
         for edge in incoming_sorted:
             lid = link_id_map[(edge.from_node, edge.from_output, edge.to_node, edge.to_input)]
@@ -2486,7 +2514,7 @@ def emit_ui_json(
             if 0 <= candidate_slot < len(from_exec_io["outputs"]):
                 from_slot = candidate_slot
                 socket_type = from_exec_io["outputs"][candidate_slot][1]
-        # to_slot = index of this input in the to-node's sorted inputs array
+        # to_slot = index of this input in the to-node's physical input array.
         to_exec_io = _exec_io_for_node(wf.nodes[edge.to_node]) if edge.to_node in wf.nodes else None
         if to_exec_io is not None and edge.to_input.startswith("in_"):
             try:
@@ -2494,7 +2522,8 @@ def emit_ui_json(
             except ValueError:
                 to_slot = 0
         else:
-            incoming_sorted = sorted(edges_to[edge.to_node], key=lambda e: e.to_input)
+            target_schema = schema_cache.get(wf.nodes[edge.to_node].class_type)
+            incoming_sorted = _ordered_incoming_edges(edges_to[edge.to_node], target_schema)
             to_slot = next(
                 (
                     i

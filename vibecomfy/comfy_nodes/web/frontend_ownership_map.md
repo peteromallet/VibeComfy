@@ -155,8 +155,9 @@ owner functions.
   primitive.
 - Reject failure intentionally preserves candidate preview state because the
   reject did not complete.
-- Transient preview diff fields (`_previewDiff`, `_previewDiffGraphHash`, and
-  `_previewDiffCacheTag`) are cleared only by lifecycle candidate invalidation.
+- Transient preview diff fields (`_previewDiff`, `_previewDiffGraphHash`,
+  `_previewDiffCacheTag`, `_previewDiffLiveCanvasRevision`, and
+  `_previewDiffInputSignature`) are cleared only by lifecycle candidate invalidation.
   Shell/demo code may fulfill cleanup obligations, but must not hand-clear those
   fields.
 

@@ -51,6 +51,7 @@ REASON_CLASS_NAME_UTILITY = "class_name_utility"
 REASON_EQUIVALENT_SINGLE_NODE_SIBLING_PAIR = "equivalent_single_node_sibling_pair"
 REASON_HELPER_NODE = "helper_node"
 REASON_BRANCH_PIPELINE_TERMINAL = "branch_pipeline_terminal"
+REASON_IMAGE_TRANSFORM_UPSTREAM_OF_SAMPLING = "image_transform_upstream_of_sampling"
 REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING = "simple_latent_source_to_sampling"
 REASON_UI_NODE = "ui_node"
 REASON_UNKNOWN_UNASSIGNED = "unknown_unassigned"
@@ -290,6 +291,20 @@ def _classify_node(
             layout_behavior=layout_behavior,
         )
 
+    downstream_samplers = _downstream_sampler_refs(fact, topology)
+    if downstream_samplers:
+        role = ROLE_HINT_LATENT
+        layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=False, role_hint=role)
+        return _hint(
+            fact,
+            role,
+            0.88,
+            (REASON_IMAGE_TRANSFORM_UPSTREAM_OF_SAMPLING,),
+            downstream_samplers,
+            {"pipeline_position": "pre_sampling_image_or_latent_prep"},
+            layout_behavior=layout_behavior,
+        )
+
     role, confidence, reason = _class_name_role(fact.class_type)
     layout_behavior = _derive_layout_behavior(fact.class_type, is_helper=False, role_hint=role)
     if sibling_refs:
@@ -504,6 +519,34 @@ def _is_simple_latent_source(fact: CanonicalRefFact, topology: _TopologyIndex) -
     return "sample" in target_classish or "sampler" in target_classish
 
 
+def _downstream_sampler_refs(
+    fact: CanonicalRefFact,
+    topology: _TopologyIndex,
+) -> tuple[CanonicalNodeRef, ...]:
+    """Return samplers transitively fed by an image transform.
+
+    Resize/upscale/crop names describe an operation, not its pipeline stage.
+    Such a node is image/latent preparation when any of its outputs eventually
+    feed a sampler (commonly through VAE encode and latent-processing nodes).
+    With no downstream sampler, the class-name fallback remains postprocess.
+    """
+
+    if not _is_image_transform_class(fact.class_type):
+        return ()
+    reachable = _reachable_refs((fact.ref,), topology.outgoing)
+    return tuple(
+        sorted(
+            (
+                ref
+                for ref in reachable
+                if ref != fact.ref
+                and _is_sampler_class(topology.class_type_by_ref.get(ref, ""))
+            ),
+            key=lambda ref: ref.to_json(),
+        )
+    )
+
+
 def _class_name_role(class_type: str) -> tuple[RoleHint, float, str]:
     lower = class_type.lower()
     if _is_output_class(class_type):
@@ -518,7 +561,7 @@ def _class_name_role(class_type: str) -> tuple[RoleHint, float, str]:
         return ROLE_HINT_CONTROL, 0.82, REASON_CLASS_NAME_CONTROL
     if "latent" in lower:
         return ROLE_HINT_LATENT, 0.72, REASON_CLASS_NAME_LATENT
-    if "upscale" in lower or "resize" in lower or "crop" in lower:
+    if _is_image_transform_class(class_type):
         return ROLE_HINT_POSTPROCESS, 0.72, REASON_CLASS_NAME_POSTPROCESS
     if "loader" in lower or lower.startswith(("checkpoint", "clip", "unet", "vae")):
         return ROLE_HINT_LOADER, 0.84, REASON_CLASS_NAME_LOADER
@@ -540,6 +583,19 @@ def _is_output_class(class_type: str) -> bool:
 
 def _is_sampler_class(class_type: str) -> bool:
     return "sampler" in class_type.lower()
+
+
+def _is_image_transform_class(class_type: str) -> bool:
+    lower = class_type.lower()
+    # Resource providers can contain the same operation words (for example
+    # ``UpscaleModelLoader``) without transforming an image themselves.  Keep
+    # those anchored in Loaders even when a downstream transform reaches a
+    # sampler.
+    if "loader" in lower:
+        return False
+    return any(token in lower for token in ("upscale", "resize", "crop")) or (
+        "image" in lower and "scale" in lower
+    )
 
 
 def _is_decode_class(class_type: str) -> bool:
@@ -567,6 +623,7 @@ __all__ = [
     "REASON_CLASS_NAME_UTILITY",
     "REASON_EQUIVALENT_SINGLE_NODE_SIBLING_PAIR",
     "REASON_HELPER_NODE",
+    "REASON_IMAGE_TRANSFORM_UPSTREAM_OF_SAMPLING",
     "REASON_LB_CLASS_NAME_OUTPUT",
     "REASON_LB_CLASS_NAME_SIDECAR",
     "REASON_LB_HELPER_NOTE",

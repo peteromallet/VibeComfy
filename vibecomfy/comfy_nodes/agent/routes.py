@@ -366,12 +366,14 @@ def _resolve_demo_scenario(scenario_id: str) -> tuple[dict[str, Any], int]:
         agent_reply = response_json.get("reply") or response_json.get("message") or ""
         eligibility = response_json.get("apply_eligibility") or response_json.get("eligibility") or {}
         change_details = response_json.get("change_details") or response_json.get("change") or {}
+        report = response_json.get("report") or {}
         session_id = response_json.get("session_id") or f"demo-{scenario_id}"
         turn_id = response_json.get("turn_id") or f"demo-{scenario_id}-turn"
     else:
         agent_reply = ""
         eligibility = {}
         change_details = {}
+        report = {}
         session_id = f"demo-{scenario_id}"
         turn_id = f"demo-{scenario_id}-turn"
 
@@ -384,6 +386,7 @@ def _resolve_demo_scenario(scenario_id: str) -> tuple[dict[str, Any], int]:
         "agent_reply": agent_reply,
         "eligibility": eligibility,
         "change_details": change_details,
+        "report": report,
         "session_id": session_id,
         "turn_id": turn_id,
     }, 200
@@ -983,6 +986,22 @@ def _executor_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
     request_payload = dict(payload)
     if "query" not in request_payload and isinstance(request_payload.get("task"), str):
         request_payload["query"] = request_payload["task"]
+    route = str(request_payload.get("route") or "").strip().lower()
+    route_profile = {
+        "openai-codex": "openai",
+        "codex": "openai",
+        "openrouter": "openrouter",
+        "anthropic": "anthropic",
+        "claude": "anthropic",
+        "opensource": "opensource",
+    }.get(route)
+    if route_profile is not None:
+        # A recognized provider route owns its executor profile.  Do not let a
+        # stale or custom client claim OpenRouter while selecting another
+        # provider's stages underneath it.
+        request_payload["profile"] = route_profile
+    elif "profile" not in request_payload:
+        request_payload["profile"] = "default"
     return request_payload
 
 

@@ -151,6 +151,36 @@ class TestLoadProfile:
         assert profile["implement"].agent == "shannon"
         assert profile["implement"].model == "openrouter/hermes-3-70b"
 
+
+def test_packaged_openai_profile_uses_luna_adjudicator_and_sol_workers() -> None:
+    """Guard the shipped profile, not the synthetic profile fixture above."""
+    set_profile_override_dir(None)
+    profile = load_profile("openai")
+
+    assert profile["classify"] == AgentSpecShape(
+        agent="codex", model="gpt-5.6-luna", effort="medium"
+    )
+    for stage in ("research", "implement", "reply"):
+        assert profile[stage] == AgentSpecShape(
+            agent="codex", model="gpt-5.6-sol", effort="medium"
+        )
+
+
+def test_packaged_openrouter_profile_preserves_explicit_provider_route() -> None:
+    set_profile_override_dir(None)
+    profile = load_profile("openrouter")
+
+    assert profile["classify"] == AgentSpecShape(
+        agent="openrouter",
+        model="openrouter:deepseek/deepseek-v4-flash",
+        effort="low",
+    )
+    assert profile["implement"] == AgentSpecShape(
+        agent="openrouter",
+        model="openrouter:deepseek/deepseek-v4-pro",
+        effort="low",
+    )
+
     def test_all_profiles_have_exactly_four_stages(self, profile_dir: Path) -> None:
         for name in ("default", "openai", "anthropic", "opensource"):
             profile = load_profile(name)

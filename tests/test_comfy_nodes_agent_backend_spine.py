@@ -5016,6 +5016,8 @@ def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None
         *,
         response_contract="python",
         agent_id=None,
+        model=None,
+        effort=None,
         profiling_context=None,
     ):
         calls.append(
@@ -5025,6 +5027,8 @@ def test_runtime_batch_turn_uses_batch_repl_worker_contract(monkeypatch) -> None
                 "user_msg": user_msg,
                 "response_contract": response_contract,
                 "agent_id": agent_id,
+                "model": model,
+                "effort": effort,
                 "profiling_context": profiling_context,
             }
         )
@@ -5062,6 +5066,8 @@ def test_runtime_json_model_turn_retries_malformed_worker_json(monkeypatch) -> N
         *,
         response_contract="python",
         agent_id=None,
+        model=None,
+        effort=None,
         profiling_context=None,
     ):
         calls.append(
@@ -5071,6 +5077,8 @@ def test_runtime_json_model_turn_retries_malformed_worker_json(monkeypatch) -> N
                 "user_msg": user_msg,
                 "response_contract": response_contract,
                 "agent_id": agent_id,
+                "model": model,
+                "effort": effort,
                 "profiling_context": profiling_context,
             }
         )

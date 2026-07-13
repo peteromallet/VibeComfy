@@ -663,6 +663,17 @@ def test_compile_layout_plan_spacing_presets_scale_ranked_positions_deterministi
     ).to_json()
 
 
+def test_huge_wall_uses_same_gutter_between_columns_and_stacked_groups() -> None:
+    compact = compile_module._huge_wall_spacing(_spacing("compact"))
+    balanced = compile_module._huge_wall_spacing(_spacing("balanced"))
+    wide = compile_module._huge_wall_spacing(_spacing("wide"))
+
+    assert compact.section_gap_x == compact.section_gap_y == 44
+    assert balanced.section_gap_x == balanced.section_gap_y == 53
+    assert wide.section_gap_x == wide.section_gap_y == 79
+    assert compact.section_gap_x < balanced.section_gap_x < wide.section_gap_x
+
+
 def test_compile_layout_plan_stacks_same_rank_parallel_sections_in_rows() -> None:
     ui = {
         "nodes": [
@@ -1111,6 +1122,194 @@ def test_compile_layout_plan_uses_deterministic_cluster_grid_for_huge_sections()
     assert layouts[COMPILE_LARGE_SECTION_CLUSTER_SIZE].y == layouts[0].y
     assert all(left.y < right.y for left, right in zip(layouts[:9], layouts[1:10]))
     assert compile_layout_plan(plan, extract_graph_facts({"nodes": nodes, "links": links})).to_json() == result.to_json()
+
+
+def test_huge_wall_next_rank_packs_against_overlapping_section_not_widest_lower_section(
+    monkeypatch,
+) -> None:
+    """A wide lower group must not reserve empty space beside a narrow top row.
+
+    Regression for the real wall shape where a narrow Video Input group sits
+    above a much wider Loaders group.  Prompt is vertically aligned with Video
+    Input, so its x offset should follow that overlapping rectangle's right
+    edge rather than the maximum width of the whole resource rank.
+    """
+    sections = (
+        _CompileSection(
+            "video",
+            "custom",
+            "Video Input / Info",
+            None,
+            (CanonicalNodeRef("", "video"),),
+        ),
+        _CompileSection(
+            "loaders",
+            "loaders",
+            "Loaders",
+            None,
+            (CanonicalNodeRef("", "loaders"),),
+        ),
+        _CompileSection(
+            "prompt",
+            "conditioning",
+            "Prompt / Text",
+            None,
+            (CanonicalNodeRef("", "prompt"),),
+        ),
+    )
+    topologies = tuple(
+        compile_module.CompiledSectionTopology(
+            section_id=section.id,
+            scope_path="",
+            island_index=0,
+            rank=0,
+            scc_id=section.id,
+            auto_name=section.title,
+        )
+        for section in sections
+    )
+    sizes = {
+        "video": (380, 600),
+        "loaders": (940, 500),
+        "prompt": (500, 500),
+    }
+    spacing = _Spacing(
+        section_gap_x=140,
+        island_gap_x=1800,
+        band_gap_y=320,
+        section_gap_y=44,
+        node_gap_y=60,
+        group_padding=32,
+    )
+    monkeypatch.setattr(
+        compile_module,
+        "_large_workflow_soft_quality_gate",
+        lambda _facts: True,
+    )
+    monkeypatch.setattr(
+        compile_module,
+        "_estimated_section_size",
+        lambda section, *_args: sizes[section.id],
+    )
+    # This test isolates horizontal skyline packing from the independent
+    # over-tall-lane footer reflow.
+    monkeypatch.setattr(
+        compile_module,
+        "_reflow_overtall_lane_trails",
+        lambda placements, *_args: placements,
+    )
+
+    placements = compile_module._section_placements(
+        sections,
+        topologies,
+        extract_graph_facts({"nodes": []}),
+        spacing,
+        {},
+        LayoutCompileOptions(),
+        None,
+    )
+
+    assert placements["video"].x == placements["loaders"].x == 0
+    assert placements["prompt"].y == placements["video"].y == 0
+    assert placements["loaders"].y >= sizes["video"][1]
+    assert placements["prompt"].x == sizes["video"][0] + spacing.section_gap_x
+
+
+def test_huge_wall_keeps_semantic_lane_at_one_x_when_lower_member_meets_wide_section(
+    monkeypatch,
+) -> None:
+    """Dovetailing must move a semantic lane as a unit, never split its x.
+
+    The upper prompt could fit beside narrow Video Input by itself, but the
+    lower prompt overlaps the wide Loaders rectangle.  Both prompt sections
+    therefore belong to the conservative lane x after Loaders.
+    """
+    sections = (
+        _CompileSection(
+            "video",
+            "custom",
+            "Video Input / Info",
+            None,
+            (CanonicalNodeRef("", "video"),),
+        ),
+        _CompileSection(
+            "loaders",
+            "loaders",
+            "Loaders",
+            None,
+            (CanonicalNodeRef("", "loaders"),),
+        ),
+        _CompileSection(
+            "prompt_a",
+            "conditioning",
+            "Prompt / Text A",
+            None,
+            (CanonicalNodeRef("", "prompt-a"),),
+        ),
+        _CompileSection(
+            "prompt_b",
+            "conditioning",
+            "Prompt / Text B",
+            None,
+            (CanonicalNodeRef("", "prompt-b"),),
+        ),
+    )
+    topologies = tuple(
+        compile_module.CompiledSectionTopology(
+            section_id=section.id,
+            scope_path="",
+            island_index=0,
+            rank=0,
+            scc_id=section.id,
+            auto_name=section.title,
+        )
+        for section in sections
+    )
+    sizes = {
+        "video": (380, 600),
+        "loaders": (940, 500),
+        "prompt_a": (500, 500),
+        "prompt_b": (500, 500),
+    }
+    spacing = _Spacing(
+        section_gap_x=140,
+        island_gap_x=1800,
+        band_gap_y=320,
+        section_gap_y=44,
+        node_gap_y=60,
+        group_padding=32,
+    )
+    monkeypatch.setattr(
+        compile_module,
+        "_large_workflow_soft_quality_gate",
+        lambda _facts: True,
+    )
+    monkeypatch.setattr(
+        compile_module,
+        "_estimated_section_size",
+        lambda section, *_args: sizes[section.id],
+    )
+    monkeypatch.setattr(
+        compile_module,
+        "_reflow_overtall_lane_trails",
+        lambda placements, *_args: placements,
+    )
+
+    placements = compile_module._section_placements(
+        sections,
+        topologies,
+        extract_graph_facts({"nodes": []}),
+        spacing,
+        {},
+        LayoutCompileOptions(),
+        None,
+    )
+
+    assert placements["prompt_a"].y == 0
+    assert placements["prompt_b"].y >= sizes["prompt_a"][1]
+    assert placements["prompt_b"].y < placements["loaders"].y + sizes["loaders"][1]
+    assert placements["prompt_a"].x == placements["prompt_b"].x
+    assert placements["prompt_a"].x == sizes["loaders"][0] + spacing.section_gap_x
 
 
 def test_compile_layout_plan_preserves_tall_rendered_node_floor_in_huge_sections() -> None:

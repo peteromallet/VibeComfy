@@ -1,10 +1,10 @@
 # OpenAI Codex profile for vibecomfy-executor.
 #
 # Uses OpenAI's Codex Responses API via the Arnold "codex" agent family.
-# Classify / reply run on the fast gpt-5.4 model; research / implement run
-# on the flagship gpt-5.5 model.
+# The routing adjudicator uses the cost-efficient Luna tier. Substantive Codex
+# stages use the flagship Sol tier, all at medium reasoning effort.
 [profiles.openai]
-classify   = "codex:gpt-5.4:low"
-research   = "codex:gpt-5.5:medium"
-implement  = "codex:gpt-5.5:medium"
-reply      = "codex:gpt-5.4:low"
+classify   = "codex:gpt-5.6-luna:medium"
+research   = "codex:gpt-5.6-sol:medium"
+implement  = "codex:gpt-5.6-sol:medium"
+reply      = "codex:gpt-5.6-sol:medium"

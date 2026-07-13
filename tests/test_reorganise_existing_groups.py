@@ -298,3 +298,84 @@ def test_compile_layout_plan_preserves_pinned_nodes_from_ui_unless_force_regroup
     forced_checkpoint = next(layout for layout in forced.node_layouts if layout.ref.uid == "checkpoint")
     assert forced_checkpoint.pinned is False
     assert (forced_checkpoint.x, forced_checkpoint.y) != (1220, 700)
+
+
+def test_huge_prompt_group_does_not_swallow_sampler_or_reverse_latent_flow() -> None:
+    """A mixed existing prompt group must not override semantic ownership.
+
+    This reproduces the agent-edit failure where huge-workflow group
+    preservation put KSampler inside ``Prompt / Conditioning`` and left the
+    latent-prep node in a later group to its right.
+    """
+    nodes = [
+        _node(1, "CheckpointLoaderSimple", "checkpoint", (0, 0)),
+        _node(2, "CLIPTextEncode", "positive", (300, 50)),
+        _node(3, "CLIPTextEncode", "negative", (300, 150)),
+        _node(4, "EmptyLatentImage", "latent", (600, 350)),
+        _node(5, "KSampler", "sample", (600, 100)),
+        _node(6, "VAEDecode", "decode", (900, 100)),
+        _node(7, "SaveImage", "save", (1200, 100)),
+    ]
+    nodes.extend(
+        _node(node_id, "PrimitiveNode", f"filler-{node_id}", (node_id * 200, 800))
+        for node_id in range(8, 21)
+    )
+    ui = {
+        "nodes": nodes,
+        "links": [
+            [10, 1, 1, 2, 0, "CLIP"],
+            [11, 1, 1, 3, 0, "CLIP"],
+            [12, 2, 0, 5, 1, "CONDITIONING"],
+            [13, 3, 0, 5, 2, "CONDITIONING"],
+            [14, 4, 0, 5, 3, "LATENT"],
+            [15, 5, 0, 6, 0, "LATENT"],
+            [16, 1, 2, 6, 1, "VAE"],
+            [17, 6, 0, 7, 0, "IMAGE"],
+        ],
+        "groups": [
+            {
+                "title": "Prompt / Conditioning",
+                "bounding": [250, 0, 560, 300],
+                "nodes": [2, 3, 5],
+            }
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "loaders", "kind": "loaders", "nodes": [["", "checkpoint"]]},
+                {
+                    "id": "conditioning",
+                    "kind": "conditioning",
+                    "nodes": [["", "positive"], ["", "negative"]],
+                },
+                {
+                    "id": "sampling",
+                    "kind": "sampling",
+                    "nodes": [["", "latent"], ["", "sample"]],
+                },
+                {"id": "decode", "kind": "decode", "nodes": [["", "decode"]]},
+                {"id": "output", "kind": "output", "nodes": [["", "save"]]},
+                {
+                    "id": "utility",
+                    "kind": "utility",
+                    "nodes": [["", f"filler-{node_id}"] for node_id in range(8, 21)],
+                },
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    sections = _node_sections(result)
+    assert sections["positive"] == sections["negative"] == "__huge_prompt_conditioning__"
+    assert sections["latent"] == sections["sample"] == "sampling"
+    prompt_group = next(group for group in result.group_layouts if group.title == "Prompt / Conditioning")
+    assert {ref.uid for ref in prompt_group.node_refs} == {"positive", "negative"}
+
+    layouts = {layout.ref.uid: layout for layout in result.node_layouts}
+    assert layouts["positive"].x < layouts["sample"].x < layouts["decode"].x < layouts["save"].x
+    assert layouts["latent"].x <= layouts["sample"].x

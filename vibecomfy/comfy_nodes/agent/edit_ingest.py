@@ -257,6 +257,7 @@ def _stage_agent(
     deepseek_client: DeepSeekClient | None = None,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
 ) -> StageResult:
     start = time.monotonic()
     messages = build_messages(task=state.task, python_source=state.python_before, execution_mode="sandboxed_loose")
@@ -271,6 +272,7 @@ def _stage_agent(
             state.python_before,
             route=route,
             model=model,
+            effort=effort,
         )
     state.python_after = agent_result.python
     state.user_message = agent_result.message
@@ -300,6 +302,7 @@ def _stage_agent_delta(
     deepseek_client: DeepSeekClient | None = None,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
 ) -> StageResult:
     from vibecomfy.porting.edit.ops import (
         DELTA_SCHEMA_VERSION,
@@ -329,6 +332,7 @@ def _stage_agent_delta(
             op_schema=EDIT_OP_RESPONSE_SCHEMA_V2,
             route=route,
             model=model,
+            effort=effort,
         )
     state.user_message = agent_result.message
     state.provider_metadata = dict(agent_result.audit_metadata or {})

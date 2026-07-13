@@ -339,6 +339,7 @@ def build_batch_messages(
         "Question / explanation mode: if Research/Graph inspection appears and the user only asked a question, answer from it and `done()`.\n\n"
         "Research cap: after 4 consecutive turns that only search/research/report and land 0 edits, stop researching. "
         "Either apply the best edit supported by precedent and current authoring signatures, or call `clarify()` / `done()` with no candidate if no defensible edit exists.\n\n"
+        "Undo abandoned edits before done().\n\n"
         "Code node rule:\n"
         "For code-node, Python, PIL, or custom image-processing requests, use exactly "
         "`vibecomfy.exec` — never `vibecomfy.code`, `ImageCode`, `PythonCode`, or a guessed class. "
@@ -393,7 +394,7 @@ def build_batch_messages(
         "workflow value; do not translate positional widgets into guessed friendly field names. "
         "Opaque `widget_N` needs a corroborating `search()`/schema hit or a self-evident current "
         "value, else `clarify()`.\n\n"
-        "Placement: optional `near=anchor_var`; never set coordinates.\n\n"
+        "Placement: `near=anchor, relation='left_of|right_of|below'`; upstream left, downstream right; no coords.\n\n"
         "Envelope: start with one user-facing prose sentence, then exactly one ```batch fence. "
         "Never respond with only a fenced block. `clarify(\"...\")` is terminal and creates no candidate. "
         "Use it only when no defensible edit is possible after graph context, precedent research, and authoring-signature checks. "
@@ -854,10 +855,12 @@ def _runtime_dispatch_route(route_descriptor: AgentRouteDescriptor, selected_rou
     requested = route_descriptor.requested_route
     if requested in {"anthropic", "openai-codex"}:
         return requested
-    # The browser-facing "openrouter" route is backed by the DeepSeek runtime
-    # adapter; the model is selected via OpenRouter but the runtime route is
-    # still "deepseek".
-    if requested in {"deepseek", "openrouter"}:
+    # Preserve an explicit OpenRouter selection through the runtime boundary.
+    # The runtime still uses the Hermes adapter internally, but the route name
+    # is the transport contract that pins endpoint and credential resolution.
+    if requested == "openrouter":
+        return "openrouter"
+    if requested == "deepseek":
         return "deepseek"
     return selected_route
 
@@ -986,7 +989,15 @@ def _normalize_agent_response(
     )
 
 
-def _call_runtime(runtime: Any, *, task: str, python_source: str, route: str, model: str | None) -> Any:
+def _call_runtime(
+    runtime: Any,
+    *,
+    task: str,
+    python_source: str,
+    route: str,
+    model: str | None,
+    effort: str | None = None,
+) -> Any:
     messages = build_messages(task=task, python_source=python_source, execution_mode="sandboxed_loose")
     run_agent_turn_fn: Callable[..., Any] | None = getattr(runtime, "run_agent_turn", None)
     if callable(run_agent_turn_fn):
@@ -995,6 +1006,7 @@ def _call_runtime(runtime: Any, *, task: str, python_source: str, route: str, mo
             python_source=python_source,
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
         )
     run_fn: Callable[..., Any] | None = getattr(runtime, "run", None)
@@ -1004,6 +1016,7 @@ def _call_runtime(runtime: Any, *, task: str, python_source: str, route: str, mo
             python_source=python_source,
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
         )
     raise ProviderError("Arnold/Hermes runtime does not expose run_agent_turn or run.")
@@ -1017,6 +1030,7 @@ def _call_delta_runtime(
     op_schema: Mapping[str, Any],
     route: str,
     model: str | None,
+    effort: str | None = None,
 ) -> Any:
     messages = build_delta_messages(task=task, projection=projection, op_schema=op_schema)
     run_agent_turn_delta_fn: Callable[..., Any] | None = getattr(runtime, "run_agent_turn_delta", None)
@@ -1027,6 +1041,7 @@ def _call_delta_runtime(
             op_schema=op_schema,
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
         )
     run_delta_agent_turn_fn: Callable[..., Any] | None = getattr(runtime, "run_delta_agent_turn", None)
@@ -1037,6 +1052,7 @@ def _call_delta_runtime(
             op_schema=op_schema,
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
         )
     run_fn: Callable[..., Any] | None = getattr(runtime, "run", None)
@@ -1047,6 +1063,7 @@ def _call_delta_runtime(
             op_schema=op_schema,
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
             response_contract="delta",
         )
@@ -1059,6 +1076,7 @@ def run_agent_turn(
     *,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
 ) -> AgentTurnResult:
     route_descriptor = _resolve_agent_route(route)
     selected_route = route_descriptor.normalized_route
@@ -1072,6 +1090,7 @@ def run_agent_turn(
             python_source=python_source,
             route=dispatch_route,
             model=selected_model,
+            effort=effort,
         )
     except PermissionError as exc:
         raise AuthError(str(exc)) from exc
@@ -1107,6 +1126,7 @@ def run_agent_turn_delta(
     op_schema: Mapping[str, Any] | None = None,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
 ):
     from vibecomfy.porting.edit.ops import (
         EDIT_OP_RESPONSE_SCHEMA_V2,
@@ -1128,6 +1148,7 @@ def run_agent_turn_delta(
             op_schema=schema,
             route=dispatch_route,
             model=selected_model,
+            effort=effort,
         )
     except PermissionError as exc:
         raise AuthError(str(exc)) from exc
@@ -1220,6 +1241,7 @@ def _call_batch_runtime(
     messages: list[dict[str, str]],
     route: str,
     model: str | None,
+    effort: str | None = None,
 ) -> Any:
     """Call the Arnold/Hermes runtime for a batch-REPL turn."""
     run_agent_turn_batch_fn: Callable[..., Any] | None = getattr(runtime, "run_agent_turn_batch", None)
@@ -1228,6 +1250,7 @@ def _call_batch_runtime(
             task=task,
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
         )
     run_agent_turn_fn: Callable[..., Any] | None = getattr(runtime, "run_agent_turn", None)
@@ -1237,6 +1260,7 @@ def _call_batch_runtime(
             python_source="",
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
         )
     run_fn: Callable[..., Any] | None = getattr(runtime, "run", None)
@@ -1245,6 +1269,7 @@ def _call_batch_runtime(
             task=task,
             route=route,
             model=model,
+            effort=effort,
             messages=messages,
             response_contract="batch_repl",
         )
@@ -1275,6 +1300,7 @@ def run_agent_turn_batch(
     *,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
 ) -> BatchTurnResult:
     """Run a single batch-REPL turn through the Arnold/Hermes provider.
 
@@ -1321,6 +1347,7 @@ def run_agent_turn_batch(
                 messages=current_messages,
                 route=dispatch_route,
                 model=selected_model,
+                effort=effort,
             )
             try:
                 result = _normalize_batch_response(
@@ -1369,6 +1396,7 @@ def run_model_turn(
     *,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
     response_contract: str = "json",
     profiling_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -1391,6 +1419,7 @@ def run_model_turn(
                 messages=messages,
                 route=dispatch_route,
                 model=selected_model,
+                effort=effort,
                 response_contract=response_contract,
                 profiling_context=profiling_context,
             )
@@ -1403,6 +1432,7 @@ def run_model_turn(
                 messages=messages,
                 route=dispatch_route,
                 model=selected_model,
+                effort=effort,
                 response_contract=response_contract,
                 profiling_context=profiling_context,
             )

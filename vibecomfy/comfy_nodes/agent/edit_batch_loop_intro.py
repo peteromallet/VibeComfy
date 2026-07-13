@@ -298,6 +298,7 @@ def _stage_agent_batch_repl(
     deepseek_client: DeepSeekClient | None = None,
     route: str | None = None,
     model: str | None = None,
+    effort: str | None = None,
     client_id: str | None = None,
     conversation_messages: list[dict[str, Any]] | None = None,
 ) -> StageResult:
@@ -564,6 +565,7 @@ def _stage_agent_batch_repl(
                         messages,
                         route=route,
                         model=model,
+                        effort=effort,
                     )
             except (MalformedModelJSON, MissingRequiredField) as first_exc:
                 retry_messages = _batch_protocol_retry_messages(messages, first_exc)
@@ -607,6 +609,7 @@ def _stage_agent_batch_repl(
                         retry_messages,
                         route=route,
                         model=model,
+                        effort=effort,
                     )
                 retry_metadata = dict(turn_result.audit_metadata or {})
                 retry_metadata["batch_repl_protocol_retry"] = {

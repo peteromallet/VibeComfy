@@ -6,6 +6,7 @@ _LITERAL_WIDGET_TYPES: frozenset[str] = frozenset(
     {
         "BOOLEAN",
         "BOOL",
+        "CHOICE",
         "COMBO",
         "DICT",
         "DOUBLE",

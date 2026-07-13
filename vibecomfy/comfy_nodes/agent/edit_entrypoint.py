@@ -204,6 +204,7 @@ def handle_agent_edit(
     provider_route = payload.get("provider_route") if isinstance(payload.get("provider_route"), str) else raw_route
     route = _canonical_agent_edit_route(executor_route)
     model = payload.get("model") if isinstance(payload.get("model"), str) else None
+    effort = payload.get("effort") if isinstance(payload.get("effort"), str) else None
     state.route = route
 
     from .reorganise import build_reorganise_agent_response, is_reorganise_agent_request
@@ -266,6 +267,7 @@ def handle_agent_edit(
                 deepseek_client=deepseek_client,
                 route=provider_route,
                 model=model,
+                effort=effort,
                 client_id=client_id,
                 conversation_messages=conversation_messages,
             )
@@ -276,6 +278,7 @@ def handle_agent_edit(
                 deepseek_client=deepseek_client,
                 route=provider_route,
                 model=model,
+                effort=effort,
             )
         else:
             state = _run_full_dev_path(
@@ -284,6 +287,7 @@ def handle_agent_edit(
                 deepseek_client=deepseek_client,
                 route=provider_route,
                 model=model,
+                effort=effort,
             )
     except _StageBlocked as blocked:
         stage_name = (

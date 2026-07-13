@@ -24,6 +24,7 @@ from vibecomfy.comfy_nodes.agent.edit import (
     _guard_narrative_message,
     _narrate_final_message,
     _narrator_fast_path_applies,
+    _net_field_changes,
     _write_narrative_artifacts,
 )
 from vibecomfy.comfy_nodes.agent.contracts import (
@@ -39,6 +40,19 @@ from vibecomfy.comfy_nodes.agent.provider import (
     ProviderError,
 )
 from vibecomfy.porting.edit.types import FieldChange
+
+
+def test_net_field_changes_collapses_revisions_and_drops_reverted_edits() -> None:
+    changes = (
+        FieldChange(uid="prompt", field_path="text", old="calm", new="energetic"),
+        FieldChange(uid="engine", field_path="emotion_control", old="options", new="qwen"),
+        FieldChange(uid="prompt", field_path="text", old="calm", new="dramatic"),
+        FieldChange(uid="engine", field_path="emotion_control", old="options", new="options"),
+    )
+
+    assert _net_field_changes(changes) == (
+        FieldChange(uid="prompt", field_path="text", old="calm", new="dramatic"),
+    )
 
 
 # ── helpers ────────────────────────────────────────────────────────────────

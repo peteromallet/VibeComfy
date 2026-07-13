@@ -1,0 +1,10 @@
+# Explicit OpenRouter profile for vibecomfy-executor.
+#
+# Keep the provider route as ``openrouter`` through every model stage.  The
+# runtime enforces OpenRouter's canonical endpoint and OPENROUTER_API_KEY for
+# this route instead of allowing generic Hermes/DeepSeek overrides to hijack it.
+[profiles.openrouter]
+classify   = "openrouter:openrouter:deepseek/deepseek-v4-flash"
+research   = "openrouter:openrouter:deepseek/deepseek-v4-pro"
+implement  = "openrouter:openrouter:deepseek/deepseek-v4-pro"
+reply      = "openrouter:openrouter:deepseek/deepseek-v4-flash"

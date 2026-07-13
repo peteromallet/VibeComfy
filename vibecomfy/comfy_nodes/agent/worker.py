@@ -110,7 +110,14 @@ def _anchor_agent_package_on_syspath() -> None:
         sys.path.insert(0, agent_dir)
 
 
-def _build_request(*, agent_id: str, user_message: str, system_message: str | None):
+def _build_request(
+    *,
+    agent_id: str,
+    user_message: str,
+    system_message: str | None,
+    model: str | None = None,
+    effort: str | None = None,
+):
     """Construct the tool-free single-shot AgentRequest for a panel turn.
 
     Tool-free single-shot: empty ``toolsets`` in metadata -> the DeepSeekAdapter
@@ -124,6 +131,9 @@ def _build_request(*, agent_id: str, user_message: str, system_message: str | No
     return AgentRequest(
         agent=agent_id,
         mode="default",
+        model=model,
+        resolved_model=model,
+        effort=effort,
         prompt=user_message,
         system_prompt=system_message,
         read_only=True,
@@ -137,6 +147,8 @@ def _dispatch_turn(
     agent_kwargs: dict,
     user_message: str,
     system_message: str | None,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run one agent turn through the Arnold dispatch seam; return raw text.
 
@@ -159,6 +171,8 @@ def _dispatch_turn(
         agent_id=agent_id,
         user_message=user_message,
         system_message=system_message,
+        model=model,
+        effort=effort,
     )
 
     if agent_id == "hermes":
@@ -358,6 +372,8 @@ def main() -> int:
                 agent_kwargs=request["agent_kwargs"],
                 user_message=request["user_message"],
                 system_message=request.get("system_message"),
+                model=request.get("model"),
+                effort=request.get("effort"),
             )
             span.update(raw_text_length=len(text or ""))
             if response_contract == "batch_repl":

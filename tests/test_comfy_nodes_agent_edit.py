@@ -1308,6 +1308,7 @@ def test_run_batch_repl_product_path_only_runs_ingest_then_agent_batch_and_retur
                 "deepseek_client": "client",
                 "route": "router",
                 "model": "model-x",
+                "effort": None,
                 "client_id": "client-7",
                 "conversation_messages": None,
             }
@@ -8156,7 +8157,7 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
             {
                 "uid": "2",
                 "field_path": "images",
-                "old": {"uid": "1", "output_slot": 2, "scope_path": ""},
+                "old": {"uid": "1", "output_slot": 0, "scope_path": ""},
                 "new": {"uid": "n1", "output_slot": "IMAGE", "scope_path": ""},
             }
         ],
@@ -8193,7 +8194,7 @@ def test_handle_agent_edit_batch_repl_applies_assignment_add_and_rewire(
         {
             "uid": "2",
             "field_path": "images",
-            "old": {"uid": "1", "output_slot": 2, "scope_path": ""},
+            "old": {"uid": "1", "output_slot": 0, "scope_path": ""},
             "new": {"uid": "n1", "output_slot": "IMAGE", "scope_path": ""},
         }
     ]
@@ -8301,7 +8302,7 @@ def test_handle_agent_edit_batch_repl_scripted_transcript_commits_structurally_c
             {
                 "uid": "3",
                 "field_path": "images",
-                "old": {"uid": "2", "output_slot": 3, "scope_path": ""},
+                "old": {"uid": "2", "output_slot": 0, "scope_path": ""},
                 "new": {"uid": "1", "output_slot": "image", "scope_path": ""},
             },
             {
@@ -10321,6 +10322,90 @@ def test_agent_edit_route_sanitizes_pure_clarify_candidate_and_apply_leaks(
         "queue_allowed",
     ):
         assert forbidden not in result
+
+
+def test_agent_executor_route_maps_codex_selection_to_openai_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_executor_submit
+
+    captured: dict[str, object] = {}
+
+    class _Result:
+        def to_dict(self) -> dict[str, object]:
+            return {"ok": True, "route": "respond", "reply": "ok"}
+
+    def _run_executor(request, **_kwargs):
+        captured["profile"] = request.profile
+        return _Result()
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_executor", _run_executor)
+
+    result, status = _handle_agent_executor_submit({
+        "query": "inspect this",
+        "graph": _ui_graph(),
+        "route": "openai-codex",
+    })
+
+    assert status == 200
+    assert result["ok"] is True
+    assert captured["profile"] == "openai"
+
+
+def test_agent_executor_route_maps_openrouter_selection_to_openrouter_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_executor_submit
+
+    captured: dict[str, object] = {}
+
+    class _Result:
+        def to_dict(self) -> dict[str, object]:
+            return {"ok": True, "route": "respond", "reply": "ok"}
+
+    def _run_executor(request, **_kwargs):
+        captured["profile"] = request.profile
+        return _Result()
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_executor", _run_executor)
+
+    result, status = _handle_agent_executor_submit({
+        "query": "inspect this",
+        "graph": _ui_graph(),
+        "route": "openrouter",
+    })
+
+    assert status == 200
+    assert result["ok"] is True
+    assert captured["profile"] == "openrouter"
+
+
+def test_agent_executor_openrouter_route_overrides_conflicting_client_profile(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_executor_submit
+
+    captured: dict[str, object] = {}
+
+    class _Result:
+        def to_dict(self) -> dict[str, object]:
+            return {"ok": True, "route": "respond", "reply": "ok"}
+
+    def _run_executor(request, **_kwargs):
+        captured["profile"] = request.profile
+        return _Result()
+
+    monkeypatch.setattr("vibecomfy.executor.core.run_executor", _run_executor)
+
+    _, status = _handle_agent_executor_submit({
+        "query": "inspect this",
+        "graph": _ui_graph(),
+        "route": "openrouter",
+        "profile": "openai",
+    })
+
+    assert status == 200
+    assert captured["profile"] == "openrouter"
 
 
 def test_agent_executor_route_sanitizes_clarify_candidate_and_apply_fields(

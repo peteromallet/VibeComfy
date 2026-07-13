@@ -1075,7 +1075,12 @@ def _compile_sections(
                 generated_defs["__huge_prompt_conditioning__"] = prompt_generated
     if huge_mode and _can_preserve_existing_groups(options):
         for ref, generated in _huge_existing_group_ownership(facts, classification).items():
-            if ref in helper_refs:
+            # Existing canvas groups are weak, inferred evidence.  They must
+            # never replace the semantic ownership stated by the layout plan.
+            # In particular, a large catch-all group can span loaders,
+            # conditioning, sampling, latent, and decode nodes; preserving it
+            # here used to overwrite every one of those explicit sections.
+            if ref in helper_refs or ref in primary_owned:
                 continue
             primary_owned[ref] = generated[0]
             ownership[ref] = _OwnershipDecision(
@@ -2341,11 +2346,16 @@ def _huge_wall_layout_options(options: LayoutCompileOptions) -> LayoutCompileOpt
 
 
 def _huge_wall_spacing(spacing: _Spacing) -> _Spacing:
+    # Section groups form one visual wall, so use one gutter in both axes.
+    # Keeping the old independently-scaled horizontal gutter made adjacent
+    # columns more than three times farther apart than vertically stacked
+    # groups (167px versus 53px for the balanced preset).
+    section_gap = max(44, round(spacing.section_gap_y * 0.55))
     return _Spacing(
-        section_gap_x=max(140, round(spacing.section_gap_x * 0.38)),
+        section_gap_x=section_gap,
         island_gap_x=max(1800, round(spacing.island_gap_x * 0.55)),
         band_gap_y=max(320, round(spacing.band_gap_y * 0.45)),
-        section_gap_y=max(44, round(spacing.section_gap_y * 0.55)),
+        section_gap_y=section_gap,
         node_gap_y=max(60, round(spacing.node_gap_y * 0.46)),
         group_padding=max(32, round(spacing.group_padding * 0.7)),
     )
@@ -2403,7 +2413,7 @@ def _section_placements(
     x_by_lane: dict[tuple[str, int, int, int], int] = {}
     placed_lanes: list[tuple[str, int, int, int, int, int, int]] = []
     placements: dict[str, _SectionPlacement] = {}
-    for section in sorted(
+    ordered_sections = sorted(
         sections,
         key=lambda item: (
             _topology_for(item, topology_by_section).scope_path,
@@ -2412,7 +2422,32 @@ def _section_placements(
             raw_band_by_section[item.id],
             *_section_semantic_sort_key(item),
         ),
-    ):
+    )
+    lane_vertical_intervals: dict[tuple[str, int, int, int], list[tuple[int, int]]] = {}
+    if huge_mode:
+        preview_next_y_by_lane: dict[tuple[str, int, int, int], int] = {}
+        for section in ordered_sections:
+            topology = _topology_for(section, topology_by_section)
+            island_index = 0
+            rank = effective_ranks[section.id]
+            band = raw_band_by_section[section.id]
+            lane = (topology.scope_path, island_index, rank, band)
+            base_y = band_y_offsets[(topology.scope_path, island_index, band)]
+            y = base_y + preview_next_y_by_lane.get(lane, 0)
+            _width, height = _estimated_section_size(
+                section,
+                facts,
+                furniture_by_ref,
+                options,
+                spacing,
+                plan,
+            )
+            lane_vertical_intervals.setdefault(lane, []).append((y, y + height))
+            preview_next_y_by_lane[lane] = (
+                preview_next_y_by_lane.get(lane, 0) + height + spacing.section_gap_y
+            )
+
+    for section in ordered_sections:
         topology = _topology_for(section, topology_by_section)
         island_index = 0 if huge_mode else topology.island_index
         rank = effective_ranks[section.id]
@@ -2431,6 +2466,21 @@ def _section_placements(
         )
         if lane in x_by_lane:
             x = x_by_lane[lane]
+        elif huge_mode:
+            # Pack the whole semantic lane against the contour of earlier
+            # ranks, then keep every section in that lane on one straight x.
+            # A lane may tuck beside a wide lower group only when none of its
+            # vertical intervals reaches that group.
+            x = _compact_wall_lane_x(
+                placed_lanes,
+                scope_path=topology.scope_path,
+                island_index=island_index,
+                rank=rank,
+                vertical_intervals=lane_vertical_intervals[lane],
+                fallback=rank_x_offsets[(topology.scope_path, island_index, rank)],
+                gap_x=spacing.section_gap_x,
+            )
+            x_by_lane[lane] = x
         else:
             x = rank_x_offsets[(topology.scope_path, island_index, rank)]
             x_by_lane[lane] = x
@@ -2544,8 +2594,7 @@ def _compact_wall_lane_x(
     scope_path: str,
     island_index: int,
     rank: int,
-    y: int,
-    height: int,
+    vertical_intervals: Sequence[tuple[int, int]],
     fallback: int,
     gap_x: int,
 ) -> int:
@@ -2555,9 +2604,10 @@ def _compact_wall_lane_x(
     wide helper/settings groups lower in the left resource column should not
     force prompt/sampling groups on the top row far to the right. This keeps
     left-to-right rank order while only reserving horizontal space for earlier
-    ranks that overlap the current lane's vertical interval.
+    ranks that overlap any vertical interval occupied by the current lane.
+    Treating the lane as the unit of placement keeps its sections aligned in a
+    straight column; the lane only dovetails when the entire column fits.
     """
-    y2 = y + height
     overlapping_right_edges = [
         placed_x + placed_width + gap_x
         for (
@@ -2572,7 +2622,10 @@ def _compact_wall_lane_x(
         if placed_scope == scope_path
         and placed_island == island_index
         and placed_rank < rank
-        and _vertical_intervals_overlap(y, y2, placed_y, placed_y + placed_height)
+        and any(
+            _vertical_intervals_overlap(y1, y2, placed_y, placed_y + placed_height)
+            for y1, y2 in vertical_intervals
+        )
     ]
     if not overlapping_right_edges:
         return fallback

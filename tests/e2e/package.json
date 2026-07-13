@@ -7,6 +7,7 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
+    "capture:demo-previews": "VIBECOMFY_DEMO_PICKER=1 node run.mjs --no-seed -- --grep @demo-preview",
     "install:browsers": "playwright install chromium"
   },
   "devDependencies": {

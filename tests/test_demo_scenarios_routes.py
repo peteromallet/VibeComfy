@@ -215,6 +215,16 @@ class TestDemoGraphResolution:
         assert status == 200
         assert result["candidate_graph"] == inline
 
+    def test_report_is_preserved_for_preview_rendering(self, demo_fs, monkeypatch):
+        original = {"nodes": [{"id": "orig"}], "links": []}
+        candidate = {"nodes": [{"id": "cand"}], "links": []}
+        report = {"kind": "reorganise", "change": {"content_edits": {"removed_named": []}}}
+        record = self._valid_manifest_record("report_passthrough")
+        self._write_run(demo_fs, record["id"], {"report": report}, original, candidate)
+        result, status = self._resolve_with_record(demo_fs, record, monkeypatch)
+        assert status == 200
+        assert result["report"] == report
+
     def test_candidate_under_candidate_key(self, demo_fs, monkeypatch):
         nested = {"nodes": [{"id": "nested"}], "links": []}
         original = {"nodes": [{"id": "orig"}], "links": []}

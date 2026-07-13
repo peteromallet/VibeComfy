@@ -68,6 +68,7 @@ import {
   applyGraphDeltaInPlace,
   installQueueGuard as installQueueGuardAdapter,
   preflightDeltaPlan,
+  projectCandidateGraphToRuntimeLayout,
   repaintGraph,
 } from "./comfy_adapter.js";
 import {
@@ -177,6 +178,10 @@ import {
 } from "./active_canvas_scope_guard.js";
 import { installPreviewPicker } from "./preview_picker.js";
 import { installAgenticReplay } from "./agentic_replay.js";
+import {
+  computeSerializedGraphPreviewDiff,
+  constrainPreviewDiffToLegacyIntent,
+} from "./preview_diff_core.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
@@ -1367,13 +1372,16 @@ function decorateIntentGraphPayload(graph) {
   sanitizeSerializedGraphLinks(graph);
 }
 
-function prepareCandidateGraphForPanel(graph) {
+function prepareCandidateGraphForPanel(graph, runtimeApp = app) {
   if (!graph || typeof graph !== "object") {
     return graph;
   }
   const candidate = clonePlainData(graph);
   decorateIntentGraphPayload(candidate);
-  return candidate;
+  // Server layout is deliberately deterministic, but it cannot know the
+  // browser-only sizes of native/custom Comfy widgets.  Project this clone
+  // through LiteGraph before both the overlay and delta apply consume it.
+  return projectCandidateGraphToRuntimeLayout(runtimeApp, candidate);
 }
 
 function liveGraphNodeIndex(graph) {
@@ -3499,7 +3507,7 @@ function hasStoredBrowserCredential(panel, route = panel?.fields?.route?.value) 
 }
 
 function hasStoredOpenRouterCredential(panel) {
-  return hasStoredBrowserCredential(panel, "deepseek") || hasStoredBrowserCredential(panel, "openrouter");
+  return hasStoredBrowserCredential(panel, "openrouter");
 }
 
 function closeChooseEngineOverlay(panel) {
@@ -4364,6 +4372,7 @@ function createAgentPanelShell() {
     helpers: {
       app,
       applyGraphCandidateInPlace,
+      fitCanvasViewportToGraphPayload,
       scheduleRenderAgentPanel,
       currentAgentPanel,
       PANEL_STATE,
@@ -5545,6 +5554,21 @@ function _normalizeFieldChangeList(rawList) {
   return result;
 }
 
+function _compactNetFieldChanges(changes) {
+  const byField = new Map();
+  for (const change of changes) {
+    if (!change?.uid || !change?.field_path) continue;
+    const key = `${change.uid}::${change.field_path}`;
+    const previous = byField.get(key);
+    byField.set(key, previous
+      ? { ...change, old: previous.old }
+      : { ...change });
+  }
+  return Array.from(byField.values()).filter(
+    (change) => JSON.stringify(change.old) !== JSON.stringify(change.new),
+  );
+}
+
 // Read field changes from a submit response: outcome.changes and
 // batch_turns[].field_changes. Returns normalized arrays without
 // positional widget inference.
@@ -5568,17 +5592,18 @@ function normalizeFieldChangesFromSubmit(result) {
       }))
     : [];
 
+  const all = _compactNetFieldChanges([
+    ...directChanges,
+    ...outcomeChanges,
+    ...legacyChanges,
+    ...batchTurnChanges.flatMap((turn) => turn.changes),
+  ]);
   return {
     directChanges,
     outcomeChanges,
     legacyChanges,
     batchTurnChanges,
-    all: [
-      ...directChanges,
-      ...outcomeChanges,
-      ...legacyChanges,
-      ...batchTurnChanges.flatMap((turn) => turn.changes),
-    ],
+    all,
   };
 }
 
@@ -5619,12 +5644,12 @@ function normalizeFieldChangesFromMessage(message) {
     outcomeChanges,
     legacyChanges,
     batchTurnChanges,
-    all: [
+    all: _compactNetFieldChanges([
       ...directChanges,
       ...outcomeChanges,
       ...legacyChanges,
       ...batchTurnChanges.flatMap((turn) => turn.changes),
-    ],
+    ]),
   };
 }
 
@@ -6716,6 +6741,26 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
   } catch (err) {
     debugError = String(err);
   }
+  const previewDiff = panel?.state?._previewDiff;
+  const previewDiffSummary = previewDiff && typeof previewDiff === "object"
+    ? {
+        edited: (Array.isArray(previewDiff.edited) ? previewDiff.edited : []).map((entry) => ({
+          uid: entry?.uid || null,
+          changedWidgetIndices: Array.isArray(entry?.changedWidgetIndices) ? entry.changedWidgetIndices.slice() : [],
+        })),
+        editedFields: (Array.isArray(previewDiff.edited_fields) ? previewDiff.edited_fields : []).map((entry) => ({
+          uid: entry?.uid || null,
+          fieldPath: entry?.field_path || null,
+        })),
+        added: (Array.isArray(previewDiff.added) ? previewDiff.added : []).map((entry) => entry?.uid || null).filter(Boolean),
+        removed: (Array.isArray(previewDiff.removed) ? previewDiff.removed : []).map((entry) => entry?.uid || null).filter(Boolean),
+        addedLinks: Array.isArray(previewDiff.added_links) ? previewDiff.added_links.slice() : [],
+        removedLinks: Array.isArray(previewDiff.removed_links) ? previewDiff.removed_links.slice() : [],
+        deltaOpsDerived: Boolean(previewDiff._deltaOpsDerived),
+        candidateGraphHash: panel?.state?._previewDiffGraphHash || null,
+        liveCanvasRevision: panel?.state?._previewDiffLiveCanvasRevision ?? null,
+      }
+    : null;
   return {
     panelId: panel?.panelId || null,
     panelsCreated: panelsCreatedCount(),
@@ -6725,6 +6770,8 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
     rehydrateCommitAt: runtime._rehydrateCommitAt,
     marksAfterCommit: runtime._marksAfterCommit,
     phase: panel?.state?.phase || null,
+    demoStage: panel?.state?.__demoStage || null,
+    demoScenarioId: panel?.state?.__demoScenarioId || null,
     chatScopeId: panel?.state?.chatScopeId || null,
     chatScopeFingerprint: panel?.state?.chatScopeFingerprint || null,
     activeCanvasScope: resolveActiveCanvasScope(),
@@ -6746,6 +6793,7 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
     renderFailureCounts: panel?.__renderFailureCounts && typeof panel.__renderFailureCounts === "object"
       ? { ...panel.__renderFailureCounts }
       : {},
+    previewDiff: previewDiffSummary,
     debugError,
     mountMode: panel?.state?.mountMode || null,
     flushPending: hasPendingAgentPanelFlush(),
@@ -6772,6 +6820,7 @@ function installAgentPanelDebugHook() {
   targetWindow.__vibecomfyRoundtripDebug = {
     applyGraphInPlaceWithIntentDecoration,
     captureSerializedGraphForAgent,
+    fitCanvasViewportToGraphPayload,
     prepareCandidateGraphForPanel,
     repairLiveIntentNodesFromCandidate,
   };
@@ -7043,6 +7092,41 @@ function collectLayoutMovesFromBaseline(baselineGraph, candidateGraph) {
   return moves;
 }
 
+function readGroupBounding(group) {
+  const raw = group?.bounding || group?._bounding;
+  if (!raw) {
+    return null;
+  }
+  const x = vecNumber(raw, 0, NaN);
+  const y = vecNumber(raw, 1, NaN);
+  const w = vecNumber(raw, 2, NaN);
+  const h = vecNumber(raw, 3, NaN);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) {
+    return null;
+  }
+  return { x, y, w, h };
+}
+
+function collectLayoutGroupsFromCandidate(baselineGraph, candidateGraph) {
+  if (!baselineGraph || !candidateGraph) {
+    return [];
+  }
+  return (Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [])
+    .map((group, index) => {
+      const bounds = readGroupBounding(group);
+      if (!bounds) {
+        return null;
+      }
+      return {
+        key: group?.id != null ? `id:${String(group.id)}` : `index:${index}`,
+        title: typeof group?.title === "string" ? group.title : "Group",
+        color: typeof group?.color === "string" ? group.color : null,
+        bounds,
+      };
+    })
+    .filter(Boolean);
+}
+
 function clearCandidateInvalidationSideEffects(repaint = true) {
   // Roundtrip-owned side effect: clear overlay draw model cache.
   invalidateOverlayDrawModelCache();
@@ -7066,22 +7150,53 @@ function clearCandidateInvalidationSideEffects(repaint = true) {
   }
 }
 
+function previewDiffInputSignature(panel, candidateReport, deltaOps) {
+  const fieldChanges = panel?.state?.lastSubmitFieldChanges;
+  const legacyOperations = (Array.isArray(panel?.state?.changeDetails?.batch_turns)
+    ? panel.state.changeDetails.batch_turns
+    : []).flatMap((turn) => (
+    Array.isArray(turn?.statements) ? turn.statements : []
+  )).filter((statement) => statement?.landed === true).map((statement) => ({
+    op_kind: statement.op_kind || null,
+    touched_uids: Array.isArray(statement.touched_uids) ? statement.touched_uids : [],
+  }));
+  return canonicalJsonString({
+    version: 3,
+    sessionId: panel?.state?.sessionId || null,
+    turnId: panel?.state?.turnId || null,
+    candidateGraphHash: panel?.state?.candidateGraphHash || null,
+    liveCanvasRevision: captureLiveCanvasRevision(),
+    deltaOps: Array.isArray(deltaOps) ? deltaOps : [],
+    fieldChanges: fieldChanges && typeof fieldChanges === "object" ? fieldChanges : null,
+    legacyOperations,
+    report: {
+      contentEdits: candidateReport?.change?.content_edits || null,
+      reorganise: isReorganiseReport(candidateReport),
+    },
+  });
+}
+
 export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = null) {
   try {
     const panel = currentAgentPanel();
     const candidateGraphHash = panel?.state?.candidateGraphHash;
+    const liveCanvasRevision = captureLiveCanvasRevision();
     // Include delta ops presence in the cache key so we don't serve a
     // graph-diff-derived cache when delta ops are now available (or vice versa).
     const deltaOpsCacheTag = Array.isArray(deltaOps) && deltaOps.length > 0 ? `delta:${deltaOps.length}` : "graph";
+    const inputSignature = previewDiffInputSignature(panel, candidateReport, deltaOps);
     if (
       candidateGraphHash
       && panel.state._previewDiffGraphHash === candidateGraphHash
       && panel.state._previewDiffCacheTag === deltaOpsCacheTag
+      && panel.state._previewDiffLiveCanvasRevision === liveCanvasRevision
+      && panel.state._previewDiffInputSignature === inputSignature
       && panel.state._previewDiff
       && Array.isArray(panel.state._previewDiff.added_links)
       && Array.isArray(panel.state._previewDiff.removed_links)
       && Array.isArray(panel.state._previewDiff.edited_fields)
       && Array.isArray(panel.state._previewDiff.layout_moved)
+      && Array.isArray(panel.state._previewDiff.layout_groups)
     ) {
       return panel.state._previewDiff;
     }
@@ -7094,7 +7209,24 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     const useDeltaOps = Array.isArray(deltaOps) && deltaOps.length > 0;
 
     const previewCandidateGraph = prepareCandidateGraphForPanel(candidateGraph);
-    const liveNodes = getLiveGraphNodes(getLiveGraph());
+    const liveGraph = getLiveGraph();
+    const liveNodes = getLiveGraphNodes(liveGraph);
+    // Compare workflow state to workflow state. Runtime LiteGraph nodes may
+    // contain DOM, upload, preview, and other controls marked serialize:false;
+    // those controls are canvas UI, not persisted workflow widgets. The
+    // candidate is serialized UI JSON, so the live side must use the same
+    // representation boundary or unchanged nodes acquire phantom edits.
+    let liveSerializedGraph = null;
+    try {
+      liveSerializedGraph = liveGraph && typeof liveGraph.serialize === "function"
+        ? liveGraph.serialize()
+        : null;
+    } catch (serializeErr) {
+      console.warn("[vibecomfy] computePreviewDiff — live graph serialization failed; using runtime widgets:", safePreviewLogDetail(serializeErr));
+    }
+    const liveSerializedNodes = Array.isArray(liveSerializedGraph?.nodes)
+      ? liveSerializedGraph.nodes
+      : [];
     const candidateNodes = Array.isArray(previewCandidateGraph?.nodes) ? previewCandidateGraph.nodes : [];
 
     // ── Delta-ops-derived diff entries (built before the graph-diff fallback) ──
@@ -7106,9 +7238,8 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
 
     if (useDeltaOps) {
       try {
-        const liveGraph = getLiveGraph();
-        const liveSnapshot = (liveGraph && typeof liveGraph.serialize === "function")
-          ? liveGraph.serialize()
+        const liveSnapshot = liveSerializedGraph
+          ? liveSerializedGraph
           : { nodes: [], links: [] };
 
         // Run the same planning surface used by applyGraphDeltaInPlace.
@@ -7299,16 +7430,32 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
         liveByUid.set(uid, node);
       }
     }
+    const liveSerializedByUid = new Map();
+    for (const node of liveSerializedNodes) {
+      const uid = getUid(node)
+        || (node.id != null ? candidateUidById.get(String(node.id)) : null);
+      if (uid) {
+        liveSerializedByUid.set(uid, node);
+      }
+    }
+    const serializedGraphFallback = !deltaDerivedEdited && liveSerializedGraph
+      ? computeSerializedGraphPreviewDiff({
+          liveGraph: liveSerializedGraph,
+          candidateGraph: previewCandidateGraph,
+        })
+      : null;
 
     // ── Edited: from delta ops or live-vs-candidate graph diff ──────────
     const edited = deltaDerivedEdited
       ? deltaDerivedEdited
+      : serializedGraphFallback
+        ? serializedGraphFallback.edited
       : (() => {
           const result = [];
           for (const [uid, liveNode] of liveByUid) {
             const candidateNode = candidateByUid.get(uid);
             if (!candidateNode) continue;
-            const liveValues = readWidgetValues(liveNode);
+            const liveValues = readWidgetValues(liveSerializedByUid.get(uid) || liveNode);
             const candidateValues = readWidgetValues(candidateNode);
             const maxLen = Math.max(liveValues.length, candidateValues.length);
             const changedWidgetIndices = [];
@@ -7329,6 +7476,8 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     // ── Added: from delta ops or live-vs-candidate graph diff ──────────
     const added = deltaDerivedAdded
       ? deltaDerivedAdded
+      : serializedGraphFallback
+        ? serializedGraphFallback.added
       : (() => {
           const result = [];
           for (const [uid, candidateNode] of candidateByUid) {
@@ -7349,6 +7498,8 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     // ── Removed: from delta ops or live-vs-candidate graph diff ──────────
     const removed = deltaDerivedRemoved
       ? deltaDerivedRemoved
+      : serializedGraphFallback
+        ? serializedGraphFallback.removed
       : (() => {
           const result = [];
           for (const [uid, liveNode] of liveByUid) {
@@ -7411,21 +7562,23 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     // Resolve uids through the existing liveByUid/candidateByUid maps (which
     // already use getUid()/LiteGraph id fallback).
     const editedFields = [];
+    let legacyFieldChanges = [];
     if (panel?.state?.lastSubmitFieldChanges) {
       const seenFieldKeys = new Set();
       const lfs = panel.state.lastSubmitFieldChanges;
 
-      // Collect all changes: outcome first, then batch turns
-      const allFieldChanges = [
-        ...(Array.isArray(lfs.outcomeChanges) ? lfs.outcomeChanges : []),
-      ];
-      if (Array.isArray(lfs.batchTurnChanges)) {
-        for (const btc of lfs.batchTurnChanges) {
-          if (Array.isArray(btc.changes)) {
-            allFieldChanges.push(...btc.changes);
-          }
-        }
-      }
+      // normalizeFieldChangesFromSubmit publishes the compact original-to-final
+      // list.  Raw per-batch changes remain available for transcript/audit UI,
+      // but must not leak abandoned intermediate values into the canvas review.
+      const allFieldChanges = Array.isArray(lfs.all)
+        ? lfs.all
+        : _compactNetFieldChanges([
+            ...(Array.isArray(lfs.outcomeChanges) ? lfs.outcomeChanges : []),
+            ...(Array.isArray(lfs.batchTurnChanges)
+              ? lfs.batchTurnChanges.flatMap((btc) => Array.isArray(btc?.changes) ? btc.changes : [])
+              : []),
+          ]);
+      legacyFieldChanges = allFieldChanges;
 
       for (const fc of allFieldChanges) {
         const fieldPath = typeof fc?.fieldPath === "string" && fc.fieldPath
@@ -7532,19 +7685,32 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       return `${fromUid}::${fromPortName}->${toUid}::${toPortName}`;
     }
 
-    function _collectNormalizedLinkKeys(linkEntries, uidById, nodesById) {
-      const keys = new Set();
+    function _physicalLinkEndpointKey(link, uidById) {
+      const hasLeadingLinkId = Array.isArray(link) && link.length >= 6;
+      const originId = Array.isArray(link) ? link[hasLeadingLinkId ? 1 : 0] : link?.origin_id;
+      const originSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 2 : 1] : link?.origin_slot;
+      const targetId = Array.isArray(link) ? link[hasLeadingLinkId ? 3 : 2] : link?.target_id;
+      const targetSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 4 : 3] : link?.target_slot;
+      const fromUid = uidById.get(String(originId));
+      const toUid = uidById.get(String(targetId));
+      if (!fromUid || !toUid || originSlot == null || targetSlot == null) return null;
+      return `${fromUid}::#${String(originSlot)}->${toUid}::#${String(targetSlot)}`;
+    }
+
+    function _collectNormalizedLinks(linkEntries, uidById, nodesById) {
+      const linksByPhysicalEndpoint = new Map();
       for (const link of linkEntries) {
         if (!link) continue;
-        const key = _normalizeLinkEndpoint(link, uidById, nodesById);
-        if (key) {
-          keys.add(key);
+        const physicalKey = _physicalLinkEndpointKey(link, uidById);
+        const displayKey = _normalizeLinkEndpoint(link, uidById, nodesById);
+        if (physicalKey && displayKey) {
+          linksByPhysicalEndpoint.set(physicalKey, displayKey);
         } else if (_unresolvableLinkWarnCount < _MAX_UNRESOLVABLE_LINK_WARNS) {
           _unresolvableLinkWarnCount += 1;
           console.warn("[vibecomfy] computePreviewDiff — unresolvable link endpoint:", safePreviewLogDetail(link));
         }
       }
-      return keys;
+      return linksByPhysicalEndpoint;
     }
 
     // Live links: LiteGraph stores links as an object map keyed by link id.
@@ -7556,12 +7722,12 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     })();
     const candidateLinkEntries = Array.isArray(previewCandidateGraph?.links) ? previewCandidateGraph.links : [];
 
-    const liveLinkKeys = _collectNormalizedLinkKeys(
+    const liveLinksByPhysicalEndpoint = _collectNormalizedLinks(
       liveLinkEntries,
       liveUidById,
       liveNodesById,
     );
-    const candidateLinkKeys = _collectNormalizedLinkKeys(
+    const candidateLinksByPhysicalEndpoint = _collectNormalizedLinks(
       candidateLinkEntries,
       candidateUidById,
       candidateNodesById,
@@ -7570,19 +7736,23 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     // ── Link diff: from delta ops or live-vs-candidate comparison ──────
     const added_links = deltaDerivedAddedLinks
       ? deltaDerivedAddedLinks
+      : serializedGraphFallback
+        ? serializedGraphFallback.added_links
       : (() => {
           const result = [];
-          for (const key of candidateLinkKeys) {
-            if (!liveLinkKeys.has(key)) result.push(key);
+          for (const [physicalKey, displayKey] of candidateLinksByPhysicalEndpoint) {
+            if (!liveLinksByPhysicalEndpoint.has(physicalKey)) result.push(displayKey);
           }
           return result;
         })();
     const removed_links = deltaDerivedRemovedLinks
       ? deltaDerivedRemovedLinks
+      : serializedGraphFallback
+        ? serializedGraphFallback.removed_links
       : (() => {
           const result = [];
-          for (const key of liveLinkKeys) {
-            if (!candidateLinkKeys.has(key)) result.push(key);
+          for (const [physicalKey, displayKey] of liveLinksByPhysicalEndpoint) {
+            if (!candidateLinksByPhysicalEndpoint.has(physicalKey)) result.push(displayKey);
           }
           return result;
         })();
@@ -7666,20 +7836,53 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       ? panel?.state?._layoutPreviewBaseline?.graph
       : null;
     const layoutMoved = collectLayoutMovesFromBaseline(baselineGraph, previewCandidateGraph);
+    const layoutGroups = collectLayoutGroupsFromCandidate(baselineGraph, previewCandidateGraph);
+
+    const legacyIntentDiff = !deltaDerivedEdited
+      ? constrainPreviewDiffToLegacyIntent({
+          graphDiff: { edited, added, removed, added_links, removed_links },
+          fieldChanges: legacyFieldChanges,
+          changeDetails: panel?.state?.changeDetails || null,
+        })
+      : null;
+    if (legacyIntentDiff?._legacyIntentDerived) {
+      const fieldsByUid = new Map();
+      for (const field of legacyFieldChanges) {
+        const uid = field?.uid != null ? String(field.uid) : null;
+        const fieldPath = field?.fieldPath || field?.field_path || null;
+        if (!uid || !fieldPath) continue;
+        if (!fieldsByUid.has(uid)) fieldsByUid.set(uid, []);
+        fieldsByUid.get(uid).push(String(fieldPath));
+      }
+      for (const entry of legacyIntentDiff.edited) {
+        const liveNode = liveByUid.get(entry.uid);
+        const widgets = Array.isArray(liveNode?.widgets) ? liveNode.widgets : [];
+        for (const fieldPath of fieldsByUid.get(entry.uid) || []) {
+          const widgetIndex = widgets.findIndex((widget) => widget?.name === fieldPath);
+          if (widgetIndex >= 0 && !entry.changedWidgetIndices.includes(widgetIndex)) {
+            entry.changedWidgetIndices.push(widgetIndex);
+          }
+        }
+        entry.changedWidgetIndices.sort((left, right) => left - right);
+      }
+    }
 
     const diff = {
-      edited,
+      edited: legacyIntentDiff?.edited || edited,
       edited_fields: editedFields,
-      added,
-      removed,
+      added: legacyIntentDiff?.added || added,
+      removed: legacyIntentDiff?.removed || removed,
       removed_named: removedNamed,
       layout_moved: layoutMoved,
+      layout_groups: layoutGroups,
       unresolved,
-      added_links,
-      removed_links,
+      added_links: legacyIntentDiff?.added_links || added_links,
+      removed_links: legacyIntentDiff?.removed_links || removed_links,
       _candidateGraph: previewCandidateGraph,
       _candidateGraphHash: candidateGraphHash || null,
       _deltaOpsDerived: useDeltaOps && deltaDerivedEdited !== null,
+      _legacyIntentDerived: Boolean(legacyIntentDiff?._legacyIntentDerived),
+      _roundtripDrift: legacyIntentDiff?._roundtripDrift || null,
     };
 
     // ── Cache on panel state ──────────────────────────────────────────────
@@ -7687,6 +7890,8 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       panel.state._previewDiff = diff;
       panel.state._previewDiffGraphHash = candidateGraphHash;
       panel.state._previewDiffCacheTag = deltaOpsCacheTag;
+      panel.state._previewDiffLiveCanvasRevision = liveCanvasRevision;
+      panel.state._previewDiffInputSignature = inputSignature;
     }
 
     return diff;
@@ -7699,6 +7904,7 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       removed: [],
       removed_named: [],
       layout_moved: [],
+      layout_groups: [],
       unresolved: [],
       added_links: [],
       removed_links: [],
@@ -7719,14 +7925,19 @@ function getOrBuildPreviewDiff() {
   const deltaOps = Array.isArray(panel.state.deltaOps) ? panel.state.deltaOps : null;
   const deltaOpsCacheTag = deltaOps && deltaOps.length > 0 ? `delta:${deltaOps.length}` : "graph";
   const candidateGraphHash = panel.state.candidateGraphHash;
+  const liveCanvasRevision = captureLiveCanvasRevision();
+  const inputSignature = previewDiffInputSignature(panel, candidateReport, deltaOps);
   if (
     panel.state._previewDiff &&
     panel.state._previewDiffGraphHash === candidateGraphHash &&
     panel.state._previewDiffCacheTag === deltaOpsCacheTag &&
+    panel.state._previewDiffLiveCanvasRevision === liveCanvasRevision &&
+    panel.state._previewDiffInputSignature === inputSignature &&
     Array.isArray(panel.state._previewDiff.added_links) &&
     Array.isArray(panel.state._previewDiff.removed_links) &&
     Array.isArray(panel.state._previewDiff.edited_fields) &&
-    Array.isArray(panel.state._previewDiff.layout_moved)
+    Array.isArray(panel.state._previewDiff.layout_moved) &&
+    Array.isArray(panel.state._previewDiff.layout_groups)
   ) {
     return panel.state._previewDiff;
   }
@@ -8870,10 +9081,21 @@ function buildSubmitBody(snapshot, task, panel, options = {}) {
     typeof options.sessionIdOverride === "string" && options.sessionIdOverride
       ? options.sessionIdOverride
       : null;
+  const route = String(snapshot.route || "").trim().toLowerCase();
+  const profile = route === "openai-codex" || route === "codex"
+    ? "openai"
+    : route === "anthropic" || route === "claude"
+      ? "anthropic"
+      : route === "openrouter"
+        ? "openrouter"
+      : route === "opensource"
+        ? "opensource"
+        : "default";
   return {
     graph: snapshot.graph,
     task,
     route: snapshot.route,
+    profile,
     model: snapshot.model || undefined,
     session_id: sessionIdOverride || panel.state.sessionId || undefined,
     client_id: api?.clientId || undefined,
@@ -12057,7 +12279,12 @@ app.registerExtension({
       };
     }
     ensureAgentPanel();
-    ensureAgentSidebarTab();
+    // The right-edge launcher is the sole production entry point. Keep the
+    // historical ComfyUI sidebar mount available only to explicit test/dev
+    // harnesses so users do not see duplicate VibeComfy controls on both sides.
+    if (globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__ === true) {
+      ensureAgentSidebarTab();
+    }
     ensureAgentLauncher();
   },
 });

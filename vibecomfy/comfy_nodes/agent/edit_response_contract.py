@@ -803,11 +803,11 @@ def _build_batch_repl_response(
     elif state.batch_exit_mode == _BATCH_EXIT_EDIT_CLARIFY:
         question = state.user_message or None
         internal_outcome = TurnOutcome.edit_and_clarify(
-            changes=_real_field_changes(state.batch_field_changes),
+            changes=_net_field_changes(state.batch_field_changes),
             question=question,
         )
     elif state.batch_exit_mode == _BATCH_EXIT_DONE:
-        internal_outcome = TurnOutcome.edit(changes=_real_field_changes(state.batch_field_changes))
+        internal_outcome = TurnOutcome.edit(changes=_net_field_changes(state.batch_field_changes))
     elif state.batch_exit_mode == _BATCH_EXIT_BUDGET:
         internal_outcome = TurnOutcome.budget(reason=state.batch_final_summary or None)
     else:

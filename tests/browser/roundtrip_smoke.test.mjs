@@ -949,6 +949,7 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
     assert.deepEqual(payload.graph, graph);
     assert.equal(payload.client_id, harness.api.clientId);
     assert.equal(payload.route, "openai-codex");
+    assert.equal(payload.profile, "openai");
     assert.equal(payload.model, "gpt-5.1");
     assert.equal(payload.client_graph_hash, sha256HexUtf8(graph));
     assert.equal(payload.client_structural_graph_hash, sha256HexUtf8((await harness.loadExtension()).buildStructuralGraphProjection(graph)));
@@ -3296,6 +3297,11 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
     // The diff still describes both moves (old position -> new position).
     const reviewDiff = extensionModule.computePreviewDiff(panel.state.candidateGraph, panel.state.candidateReport);
     assert.equal(reviewDiff.layout_moved.length, 2, "review should preserve moved-node preview entries");
+    assert.deepEqual(
+      reviewDiff.layout_groups.map((group) => ({ title: group.title, bounds: group.bounds })),
+      [{ title: "After", bounds: { x: 480, y: 45, w: 520, h: 180 } }],
+      "review should carry serialized candidate groups because the live graph still contains the baseline groups",
+    );
     for (const entry of reviewDiff.layout_moved) {
       assert.ok(
         entry.before.x !== entry.after.x || entry.before.y !== entry.after.y,
@@ -3307,6 +3313,14 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
     const reviewDrawOps = await harness.drawPreviewOverlay(reviewDiff);
     assert.ok(reviewDrawOps.some((op) => op.kind === "stroke"), "review overlay should draw movement arrow shafts");
     assert.ok(reviewDrawOps.some((op) => op.kind === "fill"), "review overlay should draw movement arrowheads");
+    assert.ok(
+      reviewDrawOps.some((op) => op.kind === "strokeRect" && op.args.join(",") === "480,45,520,180"),
+      "review overlay should draw the candidate group boundary",
+    );
+    assert.ok(
+      reviewDrawOps.some((op) => op.kind === "fillText" && op.args[0] === "After"),
+      "review overlay should label the candidate group",
+    );
     assert.ok(
       !reviewDrawOps.some((op) => op.kind === "fillText" && String(op.args[0]).includes("moved")),
       "review overlay should not draw per-node moved badges",
@@ -5898,6 +5912,61 @@ test("VibeComfy first open auto-selects DeepSeek when a stored browser key is re
   }
 });
 
+test("VibeComfy does not treat a native DeepSeek key as an OpenRouter credential", async () => {
+  globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+  const routeOptions = {
+    auto: { requested_route: "auto", normalized_route: "openrouter", browser_api_key_allowed: false },
+    openrouter: { requested_route: "openrouter", normalized_route: "openrouter", browser_api_key_allowed: true },
+  };
+  const statusBody = {
+    ok: true,
+    ready: true,
+    provider_available: true,
+    route: "openrouter",
+    requested_route: "auto",
+    route_options: routeOptions,
+    credential_presence: {
+      openrouter_api_key: false,
+      deepseek_api_key: true,
+    },
+  };
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": { status: 200, body: statusBody },
+      "/vibecomfy/agent/status?route=openrouter": {
+        status: 200,
+        body: { ...statusBody, requested_route: "openrouter" },
+      },
+    },
+    withQueuePrompt: false,
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-welcome-overlay"));
+
+    assert.equal(globalThis.localStorage.getItem("vibecomfy_agent_provider"), null);
+    const openRouterLabel = harness.document.body.querySelectorAll(
+      (node) => node.textContent === "OpenRouter",
+    )[0];
+    openRouterLabel.parentNode.click();
+    assert.equal(
+      harness.getButton("Confirm Selection").disabled,
+      true,
+      "OpenRouter must require its own credential even when a DeepSeek key exists",
+    );
+  } finally {
+    globalThis.localStorage?.removeItem("vibecomfy_agent_provider");
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy surfaces network and malformed accept failures with retry guidance and without canvas mutation", async () => {
   const initialGraph = {
     nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
@@ -7412,6 +7481,32 @@ test("VibeComfy preview diff computes named-port link deltas and drawPreviewOver
     }
     assert.ok(foundDashedRedBezier, "must contain a dashed red bezierCurveTo with [8,4] dash");
 
+    // LiteGraph getConnectionPos(isInput, slotIndex) uses true for the left
+    // input edge and false for the right output edge.  Guard the exact wire
+    // endpoints so the preview cannot silently mirror live-node sockets.
+    const wirePathsByColor = new Map();
+    let activeWireColor = null;
+    let activeWirePath = null;
+    for (const op of drawOps) {
+      if (op.kind === "strokeStyle") activeWireColor = op.args[0];
+      if (op.kind === "beginPath") activeWirePath = {};
+      if (op.kind === "moveTo" && activeWirePath) activeWirePath.from = op.args;
+      if (op.kind === "bezierCurveTo" && activeWirePath) activeWirePath.to = op.args.slice(-2);
+      if (op.kind === "stroke" && activeWireColor && activeWirePath?.from && activeWirePath?.to) {
+        wirePathsByColor.set(activeWireColor, activeWirePath);
+      }
+    }
+    assert.deepEqual(
+      wirePathsByColor.get("#f44336"),
+      { from: [340, 240], to: [400, 240] },
+      "removed wire must run from the live source output socket to the live target input socket",
+    );
+    assert.deepEqual(
+      wirePathsByColor.get("#4caf50"),
+      { from: [340, 240], to: [400, 210] },
+      "added wire must start at the live source output socket and end at the candidate input edge",
+    );
+
     // ── Ghost title text ────────────────────────────────────────────
     const titleTextOps = opsByKind("fillText").filter(
       (op) => op.args[0] === "PreviewImage",
@@ -7860,6 +7955,58 @@ test("VibeComfy edited-node overlay box encloses the title bar (LiteGraph pos[1]
     assert.ok(ry + rh >= NODE_POS[1] + NODE_SIZE[1], "box must reach the body bottom");
     // Width tracks the node width.
     assert.ok(rw >= NODE_SIZE[0], "box width must cover the node width");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy preview field labels use the final value after repeated batch revisions", async () => {
+  const liveGraph = {
+    nodes: [{
+      id: 124,
+      type: "QwenEmotionNode",
+      pos: [100, 200],
+      size: [320, 100],
+      properties: { vibecomfy_uid: "124" },
+      inputs: [],
+      outputs: [{ name: "output_0" }],
+      widgets_values: ["model", "calm"],
+    }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [{ ...liveGraph.nodes[0], widgets_values: ["model", "highly dramatic"] }],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.lastSubmitFieldChanges = {
+      outcomeChanges: [
+        { uid: "124", field_path: "widget_1", old: "calm", new: "energetic" },
+        { uid: "124", field_path: "widget_1", old: "calm", new: "highly dramatic" },
+      ],
+      batchTurnChanges: [],
+    };
+
+    const diff = extensionModule.computePreviewDiff(candidateGraph, {
+      change: { content_edits: { preserved: [], edited: ["124"], removed_named: [] } },
+      recovery: [],
+    });
+
+    assert.deepEqual(diff.edited_fields, [{
+      uid: "124",
+      field_path: "widget_1",
+      new_value: "highly dramatic",
+    }]);
   } finally {
     await harness.dispose();
   }
@@ -8314,6 +8461,28 @@ test("VibeComfy edited text widget DOM preview chip sits on top of the edited fi
     assert.equal(chips[0].style.height, "74px");
     assert.equal(chips[0].style.fontSize, "11px");
     assert.equal(chips[0].style.alignItems, "flex-start");
+
+    syncPreviewDomOverlay(
+      harness.app,
+      ctx,
+      {
+        edited: [{ uid: "uid-dom-text-widget", class_type: "CLIPTextEncode", changedWidgetIndices: [0] }],
+        edited_fields: [{ uid: "uid-dom-text-widget", field_path: "widgets_values.0", new_value: "" }],
+        added: [],
+        removed: [],
+        removed_named: [],
+        added_links: [],
+        removed_links: [],
+        _candidateGraph: liveGraph,
+      },
+      liveGraph,
+      makePanelOverlayDeps({ nodes: harness.getLiveNodes(), links: [] }),
+    );
+
+    const clearedChips = root.querySelectorAll((node) => node.dataset?.vibecomfyPreviewChip === "1");
+    assert.equal(clearedChips.length, 1, "clearing a text field must keep the solid DOM preview layer");
+    assert.equal(clearedChips[0].textContent, "text: (empty)");
+    assert.equal(clearedChips[0].style.background, "rgba(20,18,8,0.98)");
   } finally {
     await harness.dispose();
   }
@@ -8398,6 +8567,62 @@ test("VibeComfy edited text widget DOM preview chip uses the widget DOM rect whe
     assert.equal(chip.style.top, "155px");
     assert.equal(chip.style.width, "237px");
     assert.equal(chip.style.height, "63px");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy preview only draws serialized widget edits that have real live widget geometry", async () => {
+  const liveGraph = {
+    nodes: [{
+      id: 182,
+      type: "StringFunction|pysssss",
+      pos: [100, 220],
+      size: [320, 520],
+      properties: { vibecomfy_uid: "182" },
+      inputs: [{ name: "text_a" }],
+      outputs: [{ name: "output_0" }],
+      widgets_values: ["append", "no", "", "", "old suffix", "cached output"],
+    }],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    const liveNode = harness.getLiveNodes()[0];
+    liveNode.widgets = [
+      { name: "action", type: "combo", last_y: 26 },
+      { name: "tidy_tags", type: "combo", last_y: 50 },
+      { name: "text_a", type: "customtext", last_y: 74 },
+      { name: "text_b", type: "customtext", last_y: 214 },
+      { name: "text_c", type: "customtext", last_y: 355 },
+    ];
+    const candidateGraph = structuredClone(liveGraph);
+    candidateGraph.nodes[0].widgets_values[4] = "";
+    candidateGraph.nodes[0].widgets_values[5] = "";
+    const drawOps = await harness.drawPreviewOverlay({
+      edited: [{ uid: "182", changedWidgetIndices: [4, 5] }],
+      edited_fields: [
+        { uid: "182", field_path: "widget_4", new_value: "" },
+        { uid: "182", field_path: "widget_5", new_value: "" },
+      ],
+      added: [],
+      removed: [],
+      removed_named: [],
+      added_links: [],
+      removed_links: [],
+      _candidateGraph: candidateGraph,
+    });
+    const labels = drawOps.filter((op) => op.kind === "fillText").map((op) => String(op.args[0]));
+    assert.equal(labels.filter((label) => label === "text_c: (empty)").length, 1);
+    assert.equal(labels.some((label) => /widget_5|cached output/.test(label)), false);
   } finally {
     await harness.dispose();
   }
@@ -8660,8 +8885,8 @@ test("VibeComfy link-rewired target nodes get the full edited-node overlay box",
     assert.ok(rh >= SAVE_SIZE[1] + TITLE_H, "rewired target box must include body plus title");
     assert.equal(
       drawOps.filter((op) => op.kind === "fillText" && op.args[0] === "inputs changed").length,
-      1,
-      "link-only changes must render exactly one edited-node corner chip",
+      0,
+      "link-only changes are already represented by wires and must not add a redundant corner chip",
     );
   } finally {
     await harness.dispose();
@@ -8801,6 +9026,184 @@ test("VibeComfy link rewire promotion ignores identical LiteGraph link re-emissi
           === "rgba(255,193,7,0.16)",
     );
     assert.equal(editedBoxFills.length, 1, "only the changed link target should get a full amber box");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy link diff ignores native-versus-serialized port-name aliases on identical slots", async () => {
+  const liveGraph = {
+    nodes: [
+      {
+        id: 124,
+        type: "QwenEmotionNode",
+        properties: { vibecomfy_uid: "124" },
+        inputs: [],
+        outputs: [{ name: "emotion_control" }],
+      },
+      {
+        id: 138,
+        type: "IndexTTSEngineNode",
+        properties: { vibecomfy_uid: "138" },
+        inputs: [{ name: "emotion_control" }],
+        outputs: [{ name: "tts_engine" }],
+      },
+      {
+        id: 47,
+        type: "UnifiedTTSTextNode",
+        properties: { vibecomfy_uid: "47" },
+        inputs: [{ name: "TTS_engine" }],
+        outputs: [{ name: "audio" }],
+      },
+    ],
+    links: [
+      [10, 124, 0, 138, 0, "EMOTION_CONTROL"],
+      [15, 138, 0, 47, 0, "TTS_ENGINE"],
+    ],
+  };
+  const candidateGraph = {
+    nodes: liveGraph.nodes.map((node) => ({
+      ...node,
+      inputs: (node.inputs || []).map((input) => ({ ...input })),
+      outputs: (node.outputs || []).map((output, index) => ({
+        ...output,
+        name: `output_${index}`,
+      })),
+    })),
+    links: liveGraph.links.map((link, index) => [100 + index, ...link.slice(1)]),
+  };
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const diff = extensionModule.computePreviewDiff(candidateGraph, {
+      change: { content_edits: { preserved: [], edited: [], removed_named: [] } },
+      recovery: [],
+    });
+
+    assert.deepEqual(diff.added_links, []);
+    assert.deepEqual(diff.removed_links, []);
+    assert.deepEqual(diff.edited, []);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy preview diff ignores non-serialized runtime widgets while preserving real widget edits", async () => {
+  const liveGraph = {
+    nodes: [
+      {
+        id: 131,
+        type: "LoadAudio",
+        properties: { vibecomfy_uid: "131" },
+        widgets_values: ["evelynn.mp3"],
+        inputs: [],
+        outputs: [{ name: "AUDIO" }],
+      },
+      {
+        id: 135,
+        type: "LoadAudio",
+        properties: { vibecomfy_uid: "135" },
+        widgets_values: ["samira.mp3"],
+        inputs: [],
+        outputs: [{ name: "AUDIO" }],
+      },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: liveGraph.nodes.map((node) => ({
+      ...node,
+      properties: { ...node.properties },
+      widgets_values: [...node.widgets_values],
+      inputs: [],
+      outputs: node.outputs.map((output) => ({ ...output })),
+    })),
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+
+    for (const node of harness.getLiveNodes()) {
+      const filename = node.id === 131 ? "evelynn.mp3" : "samira.mp3";
+      node.widgets_values = null;
+      node.widgets = [
+        { name: "audio", value: filename },
+        { name: "audioUI", value: `http://127.0.0.1:8188/view?filename=${filename}`, serialize: false },
+        { name: "upload", value: "", options: { serialize: false, canvasOnly: true } },
+      ];
+    }
+
+    const unchangedDiff = extensionModule.computePreviewDiff(candidateGraph, {
+      change: { content_edits: { preserved: [], edited: [], removed_named: [] } },
+      recovery: [],
+    });
+    assert.deepEqual(unchangedDiff.edited, []);
+
+    const changedCandidate = structuredClone(candidateGraph);
+    changedCandidate.nodes.find((node) => node.id === 131).widgets_values[0] = "new-evelynn.mp3";
+    const changedDiff = extensionModule.computePreviewDiff(changedCandidate, {
+      change: { content_edits: { preserved: [], edited: [], removed_named: [] } },
+      recovery: [],
+    });
+    assert.deepEqual(changedDiff.edited, [{ uid: "131", changedWidgetIndices: [0] }]);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy preview diff cache invalidates when the live canvas revision changes", async () => {
+  const liveGraph = {
+    nodes: [{
+      id: 131,
+      type: "LoadAudio",
+      properties: { vibecomfy_uid: "131" },
+      widgets_values: ["old.mp3"],
+      inputs: [],
+      outputs: [{ name: "AUDIO" }],
+    }],
+    links: [],
+  };
+  const candidateGraph = structuredClone(liveGraph);
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.candidateGraphHash = "same-candidate";
+
+    const report = { change: { content_edits: {} }, recovery: [] };
+    assert.deepEqual(extensionModule.computePreviewDiff(candidateGraph, report).edited, []);
+
+    const changedLiveGraph = structuredClone(liveGraph);
+    changedLiveGraph.nodes[0].widgets_values[0] = "changed-on-canvas.mp3";
+    harness.setCurrentGraph(changedLiveGraph);
+
+    assert.deepEqual(
+      extensionModule.computePreviewDiff(candidateGraph, report).edited,
+      [{ uid: "131", changedWidgetIndices: [0] }],
+      "the candidate-only cache key must not hide a later live-canvas change",
+    );
   } finally {
     await harness.dispose();
   }
@@ -9599,7 +10002,39 @@ test("VibeComfy current status response commits even if inactive model input cha
   }
 });
 
-test("VibeComfy live sidebar tab mount dispatches status fetch and chat rehydrate", async () => {
+test("VibeComfy production setup keeps the right launcher without a left sidebar tab", async () => {
+  const harness = await createBrowserHarness({
+    enableVibeComfySidebarTab: false,
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: { ok: true, ready: true, provider_available: true, route: "deepseek" },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+
+    assert.equal(harness.getSidebarTabs().length, 0);
+    const launcher = harness.document.getElementById("vibecomfy-agent-launcher");
+    assert.ok(launcher, "right-edge launcher must remain installed");
+    launcher.click();
+    await waitFor(() => harness.getPanelRoots().length === 1);
+    const root = harness.getPanelRoots()[0];
+    assert.equal(root.parentNode, harness.document.body);
+    assert.equal(root.dataset.mountMode, "launcher");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy opt-in sidebar tab mount dispatches status fetch and chat rehydrate", async () => {
   const SESSION_ID = "sess-sidebar-live-path-1";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
   let resolveStatus;
@@ -13002,6 +13437,64 @@ test("VibeComfy comfy_adapter applies candidate graphs in place with clear-befor
     assert.equal(harness.app.canvas.graph._nodes[0].boxcolor, "#123456");
     assert.deepEqual(harness.graphDirtyCanvasCalls, [[true, true]]);
     assert.deepEqual(harness.canvasDrawCalls, [[true, true]]);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter projects preview geometry from native widgets and reflows new overlaps", async () => {
+  const harness = await createBrowserHarness({ graph: { nodes: [], links: [] }, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    globalThis.window.LiteGraph.createNode = (type) => ({
+      type,
+      size: [320, 180],
+      configure(payload) { this.payload = payload; },
+      computeSize() { return type === "TallSampler" ? [320, 360] : [320, 180]; },
+    });
+    const source = {
+      nodes: [
+        { id: 1, type: "TallSampler", pos: [800, 0], size: [320, 180], properties: { vibecomfy_uid: "sampler" } },
+        { id: 2, type: "Neighbor", pos: [944, 192], size: [320, 180], properties: { vibecomfy_uid: "latent" } },
+      ],
+      links: [],
+    };
+
+    const projected = adapter.projectCandidateGraphToRuntimeLayout(harness.app, source);
+
+    assert.deepEqual(source.nodes[0].size, [320, 180], "projection must not mutate the server candidate");
+    assert.deepEqual(projected.nodes[0].size, [320, 360], "preview must use native widget height");
+    assert.ok(projected.nodes[1].pos[1] >= 384, "nearby new node must be shifted below the measured sampler");
+    assert.equal(harness.graphAddCalls.length, 0, "measurement must not mutate the live graph");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter hydrates add-node candidate links after native node construction", async () => {
+  const graph = {
+    nodes: [{ id: 1, type: "KSampler", inputs: [{ name: "latent_image", type: "LATENT", link: 4 }], properties: { vibecomfy_uid: "sampler" } }],
+    links: [[4, 3, 0, 1, 0, "LATENT"]],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "KSampler", inputs: [{ name: "latent_image", type: "LATENT", link: 7 }], properties: { vibecomfy_uid: "sampler" } },
+      { id: 2, type: "LoadImage", outputs: [{ name: "IMAGE", type: "IMAGE", links: [6] }], properties: { vibecomfy_uid: "image" } },
+      { id: 3, type: "VAEEncode", inputs: [{ name: "pixels", type: "IMAGE", link: 6 }], outputs: [{ name: "LATENT", type: "LATENT", links: [7] }], properties: { vibecomfy_uid: "encode" } },
+    ],
+    links: [[6, 2, 0, 3, 0, "IMAGE"], [7, 3, 0, 1, 0, "LATENT"]],
+  };
+  const harness = await createBrowserHarness({ graph, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    const prepared = adapter.preflightDeltaPlan(graph, candidateGraph, [
+      { op: "add_node", scope_path: "", uid: "image", node_id: "2", class_type: "LoadImage", fields: {}, inputs: {} },
+      { op: "add_node", scope_path: "", uid: "encode", node_id: "3", class_type: "VAEEncode", fields: {}, inputs: { pixels: ["", "image", "IMAGE"] } },
+    ]);
+    assert.equal(prepared.plan.filter((step) => step.op === "upsert_link").length, 2);
+    assert.equal(prepared.plan[0].nodePayload.outputs[0].links, null, "native configure must not receive dangling output links");
+    assert.equal(prepared.plan[1].nodePayload.inputs[0].link, null, "native configure must not receive dangling input links");
+    assert.deepEqual(prepared.nextGraph.links, candidateGraph.links, "serialized projection must contain the complete candidate wiring");
   } finally {
     await harness.dispose();
   }
@@ -18170,6 +18663,17 @@ test("diagnostic report rebuilds turn history from explicit rehydrate diagnostic
             text: "Nothing needed changing; the workflow already matches that.",
           },
         ],
+        _previewDiff: {
+          edited: [{ uid: "131", changedWidgetIndices: [2] }],
+          edited_fields: [],
+          added: [],
+          removed: [],
+          added_links: [],
+          removed_links: [],
+          _deltaOpsDerived: false,
+        },
+        _previewDiffGraphHash: "preview-candidate-hash",
+        _previewDiffLiveCanvasRevision: "42",
       },
     };
 
@@ -18200,6 +18704,12 @@ test("diagnostic report rebuilds turn history from explicit rehydrate diagnostic
 
     // The coding-agent prompt should point at the raw artifacts where reasoning lives.
     assert.ok(prompt.includes("messages.jsonl"), "solve prompt must point to messages.jsonl");
+    assert.ok(
+      prompt.includes("Browser-computed preview diff")
+        && prompt.includes('"uid":"131"')
+        && prompt.includes('"changedWidgetIndices":[2]'),
+      "solve prompt must capture the browser's actual preview classification",
+    );
     assert.ok(report.includes("messages.jsonl"), "issue report must point to messages.jsonl");
     assert.ok(
       prompt.includes("/real/ComfyUI/out/editor_sessions/sess123/turns/"),
@@ -19850,6 +20360,57 @@ test("preview delta-ops parity: delta-derived overlay renders link wire operatio
         assert.equal(pattern.test(text), false, `link overlay leaked forbidden text: ${text}`);
       }
     }
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("preview link wires suppress duplicate serialized endpoint badges but preserve real non-widget fields", async () => {
+  const liveGraph = {
+    nodes: [
+      { id: 1, type: "OldModel", properties: { vibecomfy_uid: "source-old" }, pos: [100, 100], size: [160, 80], inputs: [], outputs: [{ name: "MODEL", type: "MODEL" }] },
+      { id: 2, type: "Sampler", properties: { vibecomfy_uid: "target" }, pos: [400, 100], size: [200, 100], inputs: [{ name: "model", type: "MODEL" }], outputs: [] },
+      { id: 3, type: "NewModel", properties: { vibecomfy_uid: "source-new" }, pos: [100, 260], size: [160, 80], inputs: [], outputs: [{ name: "MODEL", type: "MODEL" }] },
+    ],
+    links: [[1, 1, 0, 2, 0, "MODEL"]],
+  };
+  const candidateGraph = {
+    nodes: structuredClone(liveGraph.nodes),
+    links: [[2, 3, 0, 2, 0, "MODEL"]],
+  };
+  const harness = await createBrowserHarness({
+    graph: liveGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    const drawOps = await harness.drawPreviewOverlay({
+      edited: [{ uid: "target", changedWidgetIndices: [] }],
+      edited_fields: [
+        { uid: "target", field_path: "model", new_value: "{…}" },
+        { uid: "target", field_path: "scheduler_note", new_value: "kept visible" },
+      ],
+      added: [],
+      removed: [],
+      removed_named: [],
+      layout_moved: [],
+      unresolved: [],
+      added_links: ["source-new::MODEL->target::model"],
+      removed_links: ["source-old::MODEL->target::model"],
+      _candidateGraph: candidateGraph,
+    });
+    const labels = drawOps
+      .filter((op) => op.kind === "fillText")
+      .map((op) => String(op.args[0]));
+
+    assert.equal(labels.some((label) => label.startsWith("model:")), false);
+    assert.equal(labels.includes("inputs changed"), false);
+    assert.ok(labels.includes("scheduler_note: kept visible"));
+    assert.equal(drawOps.filter((op) => op.kind === "bezierCurveTo").length, 2);
   } finally {
     await harness.dispose();
   }

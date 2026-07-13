@@ -1488,6 +1488,7 @@ class TestProfileSmokeCoverage:
         # Verify classify was called with default profile's agent/model.
         assert mock_classify.call_args.kwargs["route"] == "hermes"
         assert mock_classify.call_args.kwargs["model"] == "deepseek-v4-flash"
+        assert mock_classify.call_args.kwargs["effort"] == "low"
 
     @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_respond_only)
     @mock.patch("vibecomfy.executor.core.run_reply_turn", side_effect=_fake_reply_respond_only)

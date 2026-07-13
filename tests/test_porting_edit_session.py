@@ -1941,6 +1941,31 @@ sampler = KSampler(
         assert any(diag.code == "socket_input_not_literal_widget" for diag in result.diagnostics)
         assert any("input socket, not a widget" in diag.message for diag in result.diagnostics)
 
+    def test_apply_batch_accepts_empty_choice_constructor_literal(self) -> None:
+        """An empty runtime dropdown is still a literal widget, not a socket.
+
+        ComfyUI exposes model selectors as ``[[], {...}]`` when no models are
+        installed.  The schema parser represents that surface as ``CHOICE``
+        with an empty ``choices`` list.
+        """
+        from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+        session = TestEditSessionPrimitiveLowering._primitive_session()
+        session.schema_provider._schemas["CheckpointLoaderSimple"] = NodeSchema(
+            class_type="CheckpointLoaderSimple",
+            pack=None,
+            inputs={"ckpt_name": InputSpec(type="CHOICE", required=True, choices=[])},
+            outputs=[OutputSpec(type="MODEL", name="MODEL")],
+        )
+
+        result = session.apply_batch(
+            'loader = CheckpointLoaderSimple(ckpt_name="sd15.safetensors")\n'
+        )
+
+        assert result.ok is True
+        assert result.diagnostics == ()
+        assert result.statements[0].ok is True
+
     def test_apply_batch_accepts_handle_refs_in_node_call_values(self) -> None:
         session = TestEditSessionPrimitiveLowering._primitive_session()
         result = session.apply_batch(
@@ -2411,6 +2436,34 @@ class TestEditSessionPrimitiveLowering:
         assert second.field_changes == (
             FieldChange(uid="widget", field_path="seed", old=1, new=11),
         )
+
+    def test_original_link_endpoint_uses_litegraph_origin_slot(self) -> None:
+        from vibecomfy.porting.edit._describe import _DescribeMixin
+        from vibecomfy.porting.edit.ledger import EditLedger
+
+        ledger = EditLedger.ingest(
+            {
+                "nodes": [
+                    {
+                        "id": 126,
+                        "type": "Reroute",
+                        "outputs": [{"name": "*", "links": [10]}],
+                        "properties": {"vibecomfy_uid": "126"},
+                    },
+                    {
+                        "id": 138,
+                        "type": "IndexTTSEngineNode",
+                        "inputs": [{"name": "emotion_control", "link": 10}],
+                        "properties": {"vibecomfy_uid": "138"},
+                    },
+                ],
+                "links": [[10, 126, 0, 138, 0, "*"]],
+            }
+        )
+
+        assert _DescribeMixin._find_link_to_target_in_ledger(
+            ledger, "", "138", "emotion_control"
+        ) == ("126", 0)
 
     def test_apply_batch_marks_unresolved_old_values_distinct_from_json_null(self) -> None:
         from vibecomfy.porting import FieldChange

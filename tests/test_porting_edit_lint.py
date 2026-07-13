@@ -362,6 +362,34 @@ def test_absent_field_nonzero_widget_index() -> None:
     assert result.issues[0].code == "unknown_field"
 
 
+def test_positional_widget_alias_uses_same_resolution_as_apply() -> None:
+    raw = {
+        "nodes": [
+            {
+                "id": 124,
+                "type": "QwenEmotionNode",
+                "properties": {"vibecomfy_uid": "124"},
+                "mode": 0,
+                "inputs": [],
+                "outputs": [],
+                "widgets_values": ["model", "calm"],
+            },
+        ],
+        "links": [],
+    }
+    op = SetNodeFieldOp(
+        op="set_node_field",
+        target=NodeFieldTarget(scope_path="", uid="124", field_path="widget_1"),
+        value="dramatic",
+    )
+
+    result = lint_delta([op], LintIndex.build(raw))
+
+    assert result.passed_count == 1
+    assert result.rejected_count == 0
+    assert result.issues == ()
+
+
 # ── identity rewrite pass-through (mixed delta) ─────────────────────────────
 
 def test_identity_rewrite_mixed_delta() -> None:

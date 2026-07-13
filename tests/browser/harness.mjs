@@ -26,6 +26,7 @@ const SCOPE_RESOLVER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "
 const SCOPED_SESSION_STORAGE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "scoped_session_storage.js");
 const MARKDOWN_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "markdown.js");
 const PREVIEW_PICKER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "preview_picker.js");
+const PREVIEW_DIFF_CORE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "preview_diff_core.js");
 const AGENTIC_REPLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agentic_replay.js");
 const CANONICAL_DELTA_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_delta.js");
 
@@ -349,6 +350,7 @@ export async function createBrowserHarness({
   responses = {},
   withQueuePrompt = true,
   withGraphMutation = false,
+  enableVibeComfySidebarTab = true,
 } = {}) {
   const document = new FakeDocument();
   const requests = [];
@@ -824,6 +826,7 @@ export async function createBrowserHarness({
   await writeFile(path.join(webRoot, "scoped_session_storage.js"), await readFile(SCOPED_SESSION_STORAGE_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "markdown.js"), await readFile(MARKDOWN_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "preview_picker.js"), await readFile(PREVIEW_PICKER_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "preview_diff_core.js"), await readFile(PREVIEW_DIFF_CORE_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agentic_replay.js"), await readFile(AGENTIC_REPLAY_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "canonical_delta.js"), await readFile(CANONICAL_DELTA_SOURCE, "utf8"));
 
@@ -865,6 +868,7 @@ export async function createBrowserHarness({
   const originalClearTimeout = globalThis.clearTimeout;
   const originalApp = globalThis.__VIBECOMFY_BROWSER_APP__;
   const originalApi = globalThis.__VIBECOMFY_BROWSER_API__;
+  const originalSidebarTabFlag = globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__;
   const originalComfyAPI = globalThis.window?.comfyAPI;
   const hadCrypto = "crypto" in globalThis;
 
@@ -893,6 +897,7 @@ export async function createBrowserHarness({
   globalThis.fetch = fetchImpl;
   globalThis.__VIBECOMFY_BROWSER_APP__ = app;
   globalThis.__VIBECOMFY_BROWSER_API__ = mockApi;
+  globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__ = enableVibeComfySidebarTab;
   globalThis.window.comfyAPI = {
     app: { app },
     api: { api: mockApi },
@@ -1182,6 +1187,8 @@ export async function createBrowserHarness({
       else globalThis.__VIBECOMFY_BROWSER_APP__ = originalApp;
       if (originalApi === undefined) delete globalThis.__VIBECOMFY_BROWSER_API__;
       else globalThis.__VIBECOMFY_BROWSER_API__ = originalApi;
+      if (originalSidebarTabFlag === undefined) delete globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__;
+      else globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__ = originalSidebarTabFlag;
       if (globalThis.window && originalComfyAPI !== undefined) {
         globalThis.window.comfyAPI = originalComfyAPI;
       } else if (globalThis.window) {

@@ -1091,6 +1091,8 @@ function _handleInvalidateCandidate(panel, payload) {
   delete panel.state._previewDiff;
   delete panel.state._previewDiffGraphHash;
   delete panel.state._previewDiffCacheTag;
+  delete panel.state._previewDiffLiveCanvasRevision;
+  delete panel.state._previewDiffInputSignature;
 
   return { render: repaint };
 }

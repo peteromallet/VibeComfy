@@ -346,7 +346,7 @@ def _duration_ms(start: float) -> int:
 
 def _total_landed_edit_count(state: AgentEditState) -> int:
     # Only non-noop field changes count as landed edits.
-    real = _real_field_changes(tuple(state.batch_field_changes or ()))
+    real = _net_field_changes(tuple(state.batch_field_changes or ()))
     count = len(real)
     if count > 0:
         return count
