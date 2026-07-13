@@ -10,6 +10,8 @@ from .contracts import (
     CANVAS_APPLY_GATE_NAMES,
     DEFAULT_GATE_NAMES,
     GateResult,
+    PLAN_STATE_NOT_REQUIRED,
+    PLAN_STATE_REQUIRED_UNSUPPORTED,
     PLAN_VALIDATE_GATE_NAME,
     StageResult,
     TurnContext,
@@ -31,6 +33,78 @@ EXPLICIT_QUEUE_BLOCKER_CODES = frozenset(
         "editor_only_node_queue_blocker",
     }
 )
+
+# Evidence tiers considered authoritative for runtime-readiness proof.
+# Only these tiers carry direct node-installation or live-schema knowledge;
+# every other tier (web, github, hivemind, civitai, external_workflow, …) is
+# treated as weak and must not be used to satisfy Queue/runtime readiness.
+_RUNTIME_READINESS_STRONG_TIERS: frozenset[str] = frozenset(
+    {
+        "live_runtime_schema",
+        "object_info",
+    }
+)
+
+# Canonical labels for runtime_availability evidence that signal the caller
+# does *not* have an installed, live-schema-backed snapshot.  These are
+# treated as weak regardless of the tier that produced them.
+_RUNTIME_AVAILABILITY_WEAK_LABELS: frozenset[str] = frozenset(
+    {
+        "not_available",
+        "not_installed",
+        "not-installed",
+        "provisional",
+        "workflow_observed",
+        "workflow-observed",
+        "stale",
+        "untrusted_source",
+    }
+)
+
+
+def _is_strong_runtime_evidence_tier(tier: str | None) -> bool:
+    """Return True when *tier* is an authoritative source for runtime readiness."""
+    if not isinstance(tier, str) or not tier:
+        return False
+    return tier in _RUNTIME_READINESS_STRONG_TIERS
+
+
+def _is_weak_runtime_availability_label(label: str | None) -> bool:
+    """Return True when *label* signals the runtime snapshot is not installed."""
+    if not isinstance(label, str) or not label:
+        return True  # absent label → treat as weak
+    return label.lower() in _RUNTIME_AVAILABILITY_WEAK_LABELS
+
+
+def _collect_runtime_evidence_tiers(
+    plan: Any | None,
+) -> frozenset[str]:
+    """Walk *plan* required steps and return the set of evidence tiers used."""
+    tiers: set[str] = set()
+    if plan is None:
+        return frozenset(tiers)
+    steps = getattr(plan, "required_steps", None)
+    if steps is None and isinstance(plan, Mapping):
+        steps = plan.get("required_steps", ())
+    if not steps:
+        return frozenset(tiers)
+    for step in steps:
+        tier = None
+        if isinstance(step, Mapping):
+            tier = step.get("_evidence_tier")
+            if tier is None:
+                rp = step.get("runtime_provenance") or {}
+                if isinstance(rp, Mapping):
+                    tier = rp.get("tier") or rp.get("_tier")
+        else:
+            tier = getattr(step, "_evidence_tier", None)
+            if tier is None:
+                rp = getattr(step, "runtime_provenance", None)
+                if isinstance(rp, Mapping):
+                    tier = rp.get("tier") or rp.get("_tier")
+        if tier:
+            tiers.add(str(tier))
+    return frozenset(tiers)
 
 
 @dataclass(frozen=True)
@@ -87,6 +161,7 @@ def update_plan_validate_gate(
     execution_plan: Any | None = None,
     plan_evaluation: Any | None = None,
     has_execution_plan: bool | None = None,
+    plan_state: str | None = None,
 ) -> None:
     plan_present = (
         bool(has_execution_plan)
@@ -94,11 +169,29 @@ def update_plan_validate_gate(
         else execution_plan is not None or plan_evaluation is not None
     )
     if not plan_present:
-        context.set_gate(
-            PLAN_VALIDATE_GATE_NAME,
-            True,
-            evidence=_evidence("plan_validate", reason="no_execution_plan"),
-        )
+        # Only ``not_required`` may pass without a plan.  Any other state
+        # (including an absent / unset state) is fail-closed.
+        if plan_state == PLAN_STATE_NOT_REQUIRED:
+            context.set_gate(
+                PLAN_VALIDATE_GATE_NAME,
+                True,
+                evidence=_evidence(
+                    "plan_validate",
+                    reason="not_required",
+                    extra={"plan_state": PLAN_STATE_NOT_REQUIRED},
+                ),
+            )
+        else:
+            resolved = plan_state or PLAN_STATE_REQUIRED_UNSUPPORTED
+            context.set_gate(
+                PLAN_VALIDATE_GATE_NAME,
+                False,
+                evidence=_evidence(
+                    "plan_validate",
+                    reason=resolved,
+                    extra={"plan_state": resolved},
+                ),
+            )
         return
 
     plan_id = _field(plan_evaluation, "plan_id") or _field(execution_plan, "plan_id")
@@ -133,10 +226,10 @@ def update_plan_validate_gate(
     )
 
 
-def initialize_gates(context: TurnContext, *, has_execution_plan: bool = False) -> None:
+def initialize_gates(context: TurnContext, *, has_execution_plan: bool = False, plan_state: str | None = None) -> None:
     for name in DEFAULT_GATE_NAMES:
         context.set_gate(name, False, evidence=_evidence("init", reason="fail_closed_default"))
-    update_plan_validate_gate(context, has_execution_plan=has_execution_plan)
+    update_plan_validate_gate(context, has_execution_plan=has_execution_plan, plan_state=plan_state)
 
 
 def apply_stage_gate_updates(context: TurnContext, stage_result: StageResult) -> None:
@@ -203,11 +296,33 @@ def update_queue_gate(
     *,
     stage_results: Mapping[str, StageResult] | None = None,
     queue_blockers: tuple[dict[str, Any], ...] | None = None,
+    evidence_tiers: frozenset[str] | None = None,
 ) -> tuple[dict[str, Any], ...]:
     results = context.stage_results if stage_results is None else stage_results
     blockers = queue_blockers
     if blockers is None:
         blockers = _queue_blocker_issues(results)
+    # Collect weak-evidence queue blockers when evidence tiers are provided
+    # but none are from a strong / authoritative runtime source.
+    evidence_blockers: list[dict[str, Any]] = []
+    if evidence_tiers is not None:
+        strong = any(_is_strong_runtime_evidence_tier(t) for t in evidence_tiers)
+        if evidence_tiers and not strong:
+            evidence_blockers.append(
+                {
+                    "code": "runtime_readiness_weak_evidence",
+                    "severity": "error",
+                    "message": (
+                        "Queue blocked: runtime readiness evidence tiers "
+                        f"{sorted(evidence_tiers)} are not authoritative "
+                        "(require live_runtime_schema or object_info)."
+                    ),
+                    "evidence": {
+                        "provided_tiers": sorted(evidence_tiers),
+                        "required_tiers": sorted(_RUNTIME_READINESS_STRONG_TIERS),
+                    },
+                }
+            )
     validate_ok = results["validate"].ok if "validate" in results else True
     queue_stage_present = "queue_validate" in results
     explicit_blocker_analysis = queue_blockers is not None
@@ -216,7 +331,8 @@ def update_queue_gate(
         if queue_stage_present
         else explicit_blocker_analysis and not blockers
     )
-    ok = validate_ok and queue_stage_ok and not blockers
+    ok = validate_ok and queue_stage_ok and not blockers and not evidence_blockers
+    all_blockers = list(blockers) + evidence_blockers
     context.set_gate(
         "queue_validate_ok",
         ok,
@@ -224,16 +340,18 @@ def update_queue_gate(
             "queue_validate",
             reason="no_queue_blockers" if ok else "queue_blocked",
             extra={
-                "blocker_count": len(blockers),
-                "blockers": list(blockers),
+                "blocker_count": len(all_blockers),
+                "blockers": all_blockers,
                 "validate_stage_present": "validate" in results,
                 "validate_ok": validate_ok,
                 "queue_validate_stage_present": queue_stage_present,
                 "queue_validate_stage_ok": queue_stage_ok,
+                "evidence_tiers": sorted(evidence_tiers) if evidence_tiers else None,
+                "weak_evidence_blocked": bool(evidence_blockers),
             },
         ),
     )
-    return blockers
+    return tuple(all_blockers)
 
 
 def derive_gates(
@@ -245,19 +363,22 @@ def derive_gates(
     execution_plan: Any | None = None,
     plan_evaluation: Any | None = None,
     has_execution_plan: bool | None = None,
+    plan_state: str | None = None,
+    evidence_tiers: frozenset[str] | None = None,
 ) -> GateDerivation:
     update_plan_validate_gate(
         context,
         execution_plan=execution_plan,
         plan_evaluation=plan_evaluation,
         has_execution_plan=has_execution_plan,
+        plan_state=plan_state,
     )
     update_state_match_gate(
         context,
         baseline_graph_hash=baseline_graph_hash,
         client_graph_hash=client_graph_hash,
     )
-    blockers = update_queue_gate(context, queue_blockers=queue_blockers)
+    blockers = update_queue_gate(context, queue_blockers=queue_blockers, evidence_tiers=evidence_tiers)
     return GateDerivation(
         gates={name: context.gate_results[name] for name in DEFAULT_GATE_NAMES},
         canvas_apply_allowed=all(context.gate_results[name].ok for name in CANVAS_APPLY_GATE_NAMES),
@@ -271,6 +392,11 @@ __all__ = [
     "EXPLICIT_QUEUE_BLOCKER_CODES",
     "EMIT_STAGE_GATE_NAMES",
     "GateDerivation",
+    "_RUNTIME_READINESS_STRONG_TIERS",
+    "_RUNTIME_AVAILABILITY_WEAK_LABELS",
+    "_is_strong_runtime_evidence_tier",
+    "_is_weak_runtime_availability_label",
+    "_collect_runtime_evidence_tiers",
     "apply_stage_gate_updates",
     "derive_gates",
     "derive_apply_eligibility",

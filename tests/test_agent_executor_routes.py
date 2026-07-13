@@ -168,7 +168,7 @@ def test_agent_executor_and_agent_edit_submit_share_executor_adapter(monkeypatch
     real_aiohttp = sys.modules.get("aiohttp")
     aiohttp_module = types.ModuleType("aiohttp")
     aiohttp_module.web = types.SimpleNamespace(
-        json_response=lambda body, status=200: {"status": status, "body": body},
+        json_response=lambda body, status=200, **kwargs: {"status": status, "body": body, "headers": kwargs.get("headers", {})},
     )
     monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
 
@@ -256,6 +256,36 @@ def test_agent_executor_and_agent_edit_submit_share_executor_adapter(monkeypatch
         assert captured[-1][0].query == "legacy submit"
         assert captured[-1][1] == "client-b"
         assert to_thread_calls[-1] == "_handle_agent_executor_submit"
+
+        # ── Legacy /agent/edit route also shares the executor adapter ──────
+        assert ("POST", "/agent/edit") in registered, (
+            "Legacy /agent/edit route must be registered alongside /vibecomfy/agent-edit"
+        )
+
+        legacy_slash_response = routes.asyncio.run(registered[("POST", "/agent/edit")](
+            _Request({"task": "legacy slash edit", "graph": {}, "client_id": "client-legacy"})
+        ))
+        assert legacy_slash_response["status"] == 200
+        # ── Legacy deprecation header must be present ──
+        assert legacy_slash_response["headers"].get("X-VibeComfy-Legacy-Route") == "true", (
+            "Legacy /agent/edit must include X-VibeComfy-Legacy-Route deprecation header"
+        )
+        assert captured[-1][0].query == "legacy slash edit"
+        assert captured[-1][1] == "client-legacy"
+        assert to_thread_calls[-1] == "_handle_agent_executor_submit", (
+            "Legacy /agent/edit must route through _handle_agent_executor_submit, "
+            "not the old direct handle_agent_edit"
+        )
+
+        slash_body = legacy_slash_response["body"]
+        assert slash_body["route"] == "revise"
+        assert slash_body["reply"] == "Changed the graph."
+        assert slash_body["message"] == "Changed the graph."
+        assert slash_body["candidate"]["graph"] == slash_body["graph"]
+        assert slash_body["candidate_graph"] == slash_body["graph"]
+        assert slash_body["apply_eligible"] is True
+        assert slash_body["apply_eligibility"]["applyable"] is True
+        assert slash_body["outcome"]["kind"] == "candidate"
 
         body = legacy_response["body"]
         assert body["route"] == "revise"

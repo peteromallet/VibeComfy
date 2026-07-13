@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.vibecomfy.local/porting/edit/v2/obligation_ledger.schema.json",
+  "title": "VibeComfy Obligation Ledger V1",
+  "description": "Schema for the obligation ledger that declares structural conditions a candidate graph must satisfy, with deterministic serialization for audit/replay.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "obligations"],
+  "properties": {
+    "contract_version": {
+      "const": "obligation_ledger_v1"
+    },
+    "turn_id": {
+      "type": "string",
+      "description": "Optional turn identifier for cross-referencing."
+    },
+    "obligations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Obligation"
+      }
+    }
+  },
+  "$defs": {
+    "ObligationKind": {
+      "type": "string",
+      "enum": [
+        "class_present",
+        "class_absent",
+        "value_match",
+        "edge_exists",
+        "terminal_output_domain",
+        "scope_preserved",
+        "obligation_declared"
+      ]
+    },
+    "ObligationStatus": {
+      "type": "string",
+      "enum": [
+        "satisfied",
+        "unsatisfied",
+        "unknown",
+        "not_evaluated",
+        "unsupported"
+      ]
+    },
+    "ObligationSeverity": {
+      "type": "string",
+      "enum": [
+        "required",
+        "recommended",
+        "optional"
+      ]
+    },
+    "PlanState": {
+      "type": "string",
+      "enum": [
+        "not_required",
+        "required_supported",
+        "required_unsupported"
+      ]
+    },
+    "StructuralTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "Stable node identifier."
+        },
+        "class_type": {
+          "type": "string",
+          "description": "Node class type (e.g. CheckpointLoaderSimple)."
+        },
+        "input_name": {
+          "type": "string",
+          "description": "Name of an input slot."
+        },
+        "output_name": {
+          "type": "string",
+          "description": "Name of an output slot."
+        },
+        "field": {
+          "type": "string",
+          "description": "Name of a widget/field on the node."
+        },
+        "source_node_id": {
+          "type": "string",
+          "description": "Source node of a directed edge."
+        },
+        "source_output": {
+          "type": "string",
+          "description": "Output slot on the source node."
+        },
+        "target_node_id": {
+          "type": "string",
+          "description": "Target node of a directed edge."
+        },
+        "target_input": {
+          "type": "string",
+          "description": "Input slot on the target node."
+        },
+        "role": {
+          "type": "string",
+          "description": "Semantic role assigned to this target."
+        }
+      }
+    },
+    "Obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["obligation_id", "kind", "severity", "status"],
+      "properties": {
+        "obligation_id": {
+          "type": "string",
+          "description": "Stable identifier for this obligation."
+        },
+        "kind": {
+          "$ref": "#/$defs/ObligationKind"
+        },
+        "severity": {
+          "$ref": "#/$defs/ObligationSeverity"
+        },
+        "status": {
+          "$ref": "#/$defs/ObligationStatus"
+        },
+        "target": {
+          "$ref": "#/$defs/StructuralTarget",
+          "description": "Structural reference to the graph element(s) the obligation applies to."
+        },
+        "expected": {
+          "description": "Expected value for value_match obligations, or domain name for terminal_output_domain."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable description of the obligation."
+        },
+        "evidence": {
+          "type": "object",
+          "description": "Per-obligation evidence payload."
+        },
+        "plan_state": {
+          "$ref": "#/$defs/PlanState",
+          "description": "Plan obligation state associated with this obligation."
+        }
+      }
+    }
+  }
+}

@@ -967,6 +967,33 @@ class PrecedentPacket:
         return payload
 
 
+# ── freshness / evidence-metadata vocabulary ──────────────────────────────────
+
+# Per-tier TTL defaults (seconds) with environment override hooks.
+# These are consumed by research.py and govern staleness marking;
+# contracts.py defines the field vocabulary so all consumers share
+# a single source of truth for serialization shapes.
+
+_ALLOWED_FRESHNESS_STATUSES = frozenset({"fresh", "stale", "unknown"})
+_ALLOWED_EVIDENCE_TIERS = frozenset({
+    "local_corpus",
+    "hivemind",
+    "hivemind_workflow",
+    "comfy-registry",
+    "github",
+    "git",
+    "web",
+    "civitai",
+    "external_workflow",
+    "live_runtime_schema",
+    "curated",
+    "ready_template",
+    "source_workflow",
+    "custom_node_examples",
+    "object_info",
+})
+
+
 @dataclass(frozen=True)
 class SelectedPrecedent:
     """Research-grounded workflow interpretation for edit-by-precedent.
@@ -974,6 +1001,12 @@ class SelectedPrecedent:
     Unlike :class:`PrecedentPacket`, this is intentionally directive: it records
     the workflow pattern research found to be compatible enough to ground the
     later authoring/resolution step.  It is still evidence, not an applied edit.
+
+    **Freshness / evidence metadata (SD1)**
+    Every precedent now carries retrieval-time, content-hash, tier, freshness
+    status, and deterministic selection reasons so downstream consumers can
+    audit why a particular precedent was selected and whether its cached data
+    is still current relative to the tier's TTL.
     """
 
     name: str = ""
@@ -989,6 +1022,14 @@ class SelectedPrecedent:
     promotion_gates: Mapping[str, Any] = field(default_factory=dict)
     interpretation_notes: tuple[str, ...] = ()
     avoid_searches: tuple[str, ...] = ()
+
+    # ── freshness / evidence metadata (SD1) ─────────────────────────────────
+    retrieval_time: str = ""          # ISO-8601 timestamp of source retrieval
+    content_hash: str = ""            # SHA-256 hex digest of source content
+    query_transform_trace: str = ""   # how the query was transformed for this tier
+    tier: str = ""                    # evidence tier (e.g. "web", "hivemind")
+    freshness_status: str = "unknown" # "fresh" | "stale" | "unknown"
+    selection_reasons: tuple[str, ...] = ()  # deterministic selection rationale
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -1040,6 +1081,16 @@ class SelectedPrecedent:
             "avoid_searches",
             tuple(str(v) for v in self.avoid_searches if str(v).strip()),
         )
+        # ── clamp freshness / evidence metadata ──────────────────────────
+        object.__setattr__(
+            self,
+            "selection_reasons",
+            tuple(str(v) for v in self.selection_reasons if str(v).strip()),
+        )
+        if self.tier not in _ALLOWED_EVIDENCE_TIERS:
+            object.__setattr__(self, "tier", "")
+        if self.freshness_status not in _ALLOWED_FRESHNESS_STATUSES:
+            object.__setattr__(self, "freshness_status", "unknown")
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -1068,6 +1119,19 @@ class SelectedPrecedent:
             payload["interpretation_notes"] = list(self.interpretation_notes)
         if self.avoid_searches:
             payload["avoid_searches"] = list(self.avoid_searches)
+        # ── freshness / evidence metadata ──────────────────────────────────
+        if self.retrieval_time:
+            payload["retrieval_time"] = self.retrieval_time
+        if self.content_hash:
+            payload["content_hash"] = self.content_hash
+        if self.query_transform_trace:
+            payload["query_transform_trace"] = self.query_transform_trace
+        if self.tier:
+            payload["tier"] = self.tier
+        if self.freshness_status != "unknown":
+            payload["freshness_status"] = self.freshness_status
+        if self.selection_reasons:
+            payload["selection_reasons"] = list(self.selection_reasons)
         return payload
 
 

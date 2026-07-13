@@ -60,6 +60,42 @@ def _canonical_delta_ops_envelope_payload(delta_ops: tuple[Any, ...]) -> dict[st
     ).to_dict()
 
 
+def _build_cumulative_batch_repl_delta_envelope(state: AgentEditState) -> dict[str, Any] | None:
+    """Assemble one cumulative normalized V2 delta envelope from landed
+    batch_repl operations across all turns.
+
+    Returns ``{schema_version, ops}`` or ``None`` when no ops were landed.
+    ``delta_ops`` must only be exposed as a read-only derived compatibility
+    view from this canonical envelope.
+    """
+    from vibecomfy.porting.edit.ops import (
+        DELTA_SCHEMA_VERSION,
+        ensure_root_scoped_delta_envelope,
+    )
+
+    cumulative_ops: list[dict[str, Any]] = []
+    for turn in state.batch_turns:
+        if not isinstance(turn, dict):
+            continue
+        turn_envelope = turn.get("delta_ops_envelope")
+        if not isinstance(turn_envelope, dict):
+            continue
+        turn_ops = turn_envelope.get("ops")
+        if isinstance(turn_ops, list):
+            cumulative_ops.extend(turn_ops)
+
+    if not cumulative_ops:
+        return None
+
+    return ensure_root_scoped_delta_envelope(
+        {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": cumulative_ops,
+        },
+        strict=True,
+    ).to_dict()
+
+
 def _product_failure_response(failure: AgentError) -> dict[str, Any]:
     response = failure.to_dict()
     response.update(product_failure_envelope_fields(failure))
@@ -896,6 +932,12 @@ def _build_batch_repl_response(
             dict(state.post_edit_reorganisation_advisory)
         )
     response["batch_turns"] = _json_safe(state.batch_turns)
+    # ── Cumulative V2 delta envelope from landed batch_repl operations ──────
+    cumulative_delta_envelope = _build_cumulative_batch_repl_delta_envelope(state)
+    if cumulative_delta_envelope is not None:
+        response["delta_ops_envelope"] = cumulative_delta_envelope
+        # delta_ops is a read-only derived compatibility view from the canonical envelope.
+        response["delta_ops"] = list(cumulative_delta_envelope["ops"])
     # adapt carries semantic checks as advisory/not_evaluated.
     if _canonical_agent_edit_route(state.route) == "adapt":
         semantic_entries = _build_precedent_semantic_check_entries(state)

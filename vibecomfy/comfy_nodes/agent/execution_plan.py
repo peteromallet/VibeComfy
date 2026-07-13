@@ -14,10 +14,37 @@ from typing import Any, Mapping
 
 from vibecomfy.executor.graph_inspection import EdgeEvidence, GraphEvidence, NodeEvidence, inspect_graph
 
+from .completion_proofs import (
+    COMPLETION_PROOF_CONTRACT_VERSION,
+    PROOF_DOMAIN_GRAPH_VALIDITY,
+    PROOF_DOMAIN_LABELS,
+    PROOF_DOMAIN_RUNTIME_READINESS,
+    PROOF_DOMAIN_TASK_SATISFACTION,
+    PROOF_DOMAIN_TRANSFORMATION_SAFETY,
+    PROOF_DOMAINS,
+    PROOF_STATE_FAIL,
+    PROOF_STATE_NOT_RUN,
+    PROOF_STATE_PASS,
+    PROOF_STATE_UNKNOWN,
+    PROOF_STATES,
+    CompletionProof,
+)
 from .session import STRUCTURAL_PROJECTION_VERSION, structural_graph_hash
 
 EXECUTION_PLAN_CONTRACT_VERSION = "execution_plan_v1"
 PLAN_EVALUATION_CONTRACT_VERSION = "plan_evaluation_v1"
+
+# Plan obligation states — serialized representation of whether planning is
+# required for a turn and whether a required plan is supported by the current
+# execution-plan builder.  Only ``not_required`` may pass without a plan.
+PLAN_STATE_NOT_REQUIRED = "not_required"
+PLAN_STATE_REQUIRED_SUPPORTED = "required_supported"
+PLAN_STATE_REQUIRED_UNSUPPORTED = "required_unsupported"
+PLAN_STATES: tuple[str, ...] = (
+    PLAN_STATE_NOT_REQUIRED,
+    PLAN_STATE_REQUIRED_SUPPORTED,
+    PLAN_STATE_REQUIRED_UNSUPPORTED,
+)
 
 SUPPORTED_EXECUTION_PLAN_CONTRACT_VERSIONS: tuple[str, ...] = (
     EXECUTION_PLAN_CONTRACT_VERSION,
@@ -363,6 +390,7 @@ class PlanEvaluation:
     schema_provenance: Mapping[str, Any] = field(default_factory=dict)
     runtime_provenance: Mapping[str, Any] = field(default_factory=dict)
     contract_version: str = PLAN_EVALUATION_CONTRACT_VERSION
+    completion_proof: CompletionProof | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -383,7 +411,7 @@ class PlanEvaluation:
         return is_supported_plan_evaluation_version(self.contract_version)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "contract_version": self.contract_version,
             "plan_id": self.plan_id,
             "ok": self.ok,
@@ -397,6 +425,9 @@ class PlanEvaluation:
             "schema_provenance": _thaw_jsonish(self.schema_provenance),
             "runtime_provenance": _thaw_jsonish(self.runtime_provenance),
         }
+        if self.completion_proof is not None:
+            payload["completion_proof"] = self.completion_proof.to_dict()
+        return payload
 
     def fail_closed_if_unsupported_version(self) -> "PlanEvaluation":
         if self.supported_contract_version:
@@ -1110,12 +1141,16 @@ def evaluate_execution_plan(
     plan: ExecutionPlan | Mapping[str, Any],
     *,
     candidate_graph_hash: str | None = None,
+    completion_proof: CompletionProof | None = None,
 ) -> PlanEvaluation:
     """Evaluate a candidate graph against deterministic execution-plan conditions.
 
     The evaluator is intentionally pure and evidence-driven: topology, values,
     terminals, and frame counts are read from :func:`inspect_graph`, while graph
     identity uses the same structural hash projection as agent session state.
+
+    When *completion_proof* is provided it is stamped directly on the returned
+    ``PlanEvaluation``; otherwise the evaluation carries no completion proof.
     """
 
     unsupported = fail_closed_if_unsupported_plan_version(
@@ -1282,16 +1317,80 @@ def evaluate_execution_plan(
         feedback=feedback,
         schema_provenance=_mapping_value(plan, "schema_provenance") or {},
         runtime_provenance=runtime_provenance,
+        completion_proof=completion_proof,
     )
 
 
+# -- Evidence-tier helpers for plan-backed runtime readiness -------------------
+
+
+# Evidence tiers that carry direct node-installation knowledge.  Queue /
+# runtime-readiness proof must only pass when backed by one of these tiers.
+_RUNTIME_READINESS_STRONG_TIERS: frozenset[str] = frozenset(
+    {"live_runtime_schema", "object_info"}
+)
+
+
+def collect_plan_runtime_evidence_tiers(
+    plan: ExecutionPlan | Mapping[str, Any] | None,
+) -> frozenset[str]:
+    """Return the set of evidence tiers referenced by *plan* runtime provenance.
+
+    Walk ``runtime_provenance`` on the plan and every required step looking
+    for ``tier`` / ``_tier`` keys.  An empty frozenset means no tier metadata
+    was present — callers should treat that as weak evidence.
+    """
+    tiers: set[str] = set()
+    if plan is None:
+        return frozenset(tiers)
+
+    def _add_from_mapping(m: Mapping[str, Any]) -> None:
+        for key in ("tier", "_tier", "_evidence_tier"):
+            v = m.get(key)
+            if isinstance(v, str) and v:
+                tiers.add(v)
+                return
+
+    # plan-level runtime_provenance
+    rp = _mapping_value(plan, "runtime_provenance")
+    if isinstance(rp, Mapping):
+        _add_from_mapping(rp)
+
+    # step-level runtime_provenance (in case individual steps carry their own)
+    steps = _mapping_value(plan, "required_steps")
+    if isinstance(steps, (list, tuple)):
+        for step in steps:
+            if isinstance(step, Mapping):
+                step_rp = step.get("runtime_provenance")
+                if isinstance(step_rp, Mapping):
+                    _add_from_mapping(step_rp)
+
+    return frozenset(tiers)
+
+
 __all__ = (
+    "COMPLETION_PROOF_CONTRACT_VERSION",
     "CURRENT_EXECUTION_PLAN_VERSION",
     "CURRENT_PLAN_EVALUATION_VERSION",
     "EXECUTION_PLAN_CONTRACT_VERSION",
     "OPTIONAL_CRITICALITIES",
     "PLAN_CRITICALITIES",
     "PLAN_EVALUATION_CONTRACT_VERSION",
+    "PLAN_STATE_NOT_REQUIRED",
+    "PLAN_STATE_REQUIRED_SUPPORTED",
+    "PLAN_STATE_REQUIRED_UNSUPPORTED",
+    "PLAN_STATES",
+    "PROOF_DOMAIN_GRAPH_VALIDITY",
+    "PROOF_DOMAIN_RUNTIME_READINESS",
+    "PROOF_DOMAIN_TASK_SATISFACTION",
+    "PROOF_DOMAIN_TRANSFORMATION_SAFETY",
+    "PROOF_DOMAIN_LABELS",
+    "PROOF_DOMAINS",
+    "PROOF_STATE_FAIL",
+    "PROOF_STATE_NOT_RUN",
+    "PROOF_STATE_PASS",
+    "PROOF_STATE_UNKNOWN",
+    "PROOF_STATES",
     "REQUIRED_CRITICALITIES",
     "STEP_STATUSES",
     "SUPPORTED_CONDITION_KINDS",
@@ -1299,12 +1398,15 @@ __all__ = (
     "SUPPORTED_PLAN_EVALUATION_CONTRACT_VERSIONS",
     "UNKNOWN_EVALUATION_VERSION_CONDITION_ID",
     "UNKNOWN_PLAN_VERSION_CONDITION_ID",
+    "CompletionProof",
     "ExecutionPlan",
     "PlanCondition",
     "PlanEvaluation",
     "PlanStep",
     "RoleBinding",
     "SocketRef",
+    "_RUNTIME_READINESS_STRONG_TIERS",
+    "collect_plan_runtime_evidence_tiers",
     "execution_plan_version_status",
     "fail_closed_evaluation_for_evaluation_version",
     "fail_closed_evaluation_for_plan_version",

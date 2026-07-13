@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import time
 import zipfile
 from html import unescape
 from html.parser import HTMLParser
@@ -64,6 +65,39 @@ _DEFAULT_BRAVE_SEARCH_URL = "https://search.brave.com/search"
 _DEFAULT_WEB_CACHE_ROOT = Path(os.environ.get("VIBECOMFY_WEB_SEARCH_CACHE", "~/.cache/vibecomfy/web_search")).expanduser()
 _DEFAULT_WEB_SEARCH_TIMEOUT = 5.0  # seconds
 _DEFAULT_EXTERNAL_LIMIT = 10
+
+# ── Per-tier freshness TTLs (SD1) ─────────────────────────────────────────────
+# Each tier carries a maximum age before cached results are marked stale.
+# Zero means "no caching / always fetch" (live runtime schemas).
+# Environment overrides follow the VIBECOMFY_<TIER>_TTL pattern.
+
+_DEFAULT_WEB_SEARCH_TTL = int(os.environ.get(
+    "VIBECOMFY_WEB_SEARCH_TTL", 86400,
+))  # 24h
+_DEFAULT_GITHUB_TTL = int(os.environ.get(
+    "VIBECOMFY_GITHUB_TTL", 604800,
+))  # 7d
+_DEFAULT_HIVEMIND_TTL = int(os.environ.get(
+    "VIBECOMFY_HIVEMIND_TTL", 604800,
+))  # 7d
+_DEFAULT_CIVITAI_TTL = int(os.environ.get(
+    "VIBECOMFY_CIVITAI_TTL", 2592000,
+))  # 30d
+_DEFAULT_LIVE_RUNTIME_TTL = 0  # never cache — always use live schema
+
+# Map source-kind strings (as they appear in source dict ``source`` fields)
+# to their TTL in seconds.  Unknown tiers default to 24h.
+_TIER_TTL_MAP: dict[str, int] = {
+    "web": _DEFAULT_WEB_SEARCH_TTL,
+    "github": _DEFAULT_GITHUB_TTL,
+    "git": _DEFAULT_GITHUB_TTL,
+    "hivemind": _DEFAULT_HIVEMIND_TTL,
+    "hivemind_workflow": _DEFAULT_HIVEMIND_TTL,
+    "civitai": _DEFAULT_CIVITAI_TTL,
+    "external_workflow": _DEFAULT_CIVITAI_TTL,  # external workflows share Civitai TTL
+    "live_runtime_schema": _DEFAULT_LIVE_RUNTIME_TTL,
+    "object_info": _DEFAULT_LIVE_RUNTIME_TTL,
+}
 
 # ── Domain-specific external-workflow extraction limits ──────────────────────
 
@@ -2231,6 +2265,168 @@ def _source_relevance_anchor_terms(query: str) -> list[str]:
 
 # ── Structured precedent helpers (SD2) ────────────────────────────────────────
 
+# ── Freshness / evidence metadata helpers (SD1) ───────────────────────────────
+
+
+def _compute_content_hash(source: Mapping[str, Any]) -> str:
+    """Return a deterministic SHA-256 hex digest of a source dict's content.
+
+    Only serializable, non-ephemeral fields are hashed so the hash is stable
+    across re-fetches of the same underlying content.  Fields that vary per
+    request (score, reasons, relevance_*) are excluded.
+    """
+    stable_keys = sorted(
+        k for k in source
+        if not k.startswith("_")  # internal keys excluded
+        and k not in {
+            "score", "reasons", "relevance_score", "relevance_matched_anchors",
+            "relevance_anchor_count", "strong_relevance_match",
+        }
+    )
+    canonical = json.dumps(
+        {k: source[k] for k in stable_keys},
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _source_tier_for_source(source: Mapping[str, Any]) -> str:
+    """Return the canonical evidence tier string for a source dict."""
+    source_kind = str(source.get("source") or "").strip()
+    # Map known aliases to canonical tier names.
+    tier_map: dict[str, str] = {
+        "hivemind_workflow": "hivemind_workflow",
+        "hivemind": "hivemind",
+        "external_workflow": "external_workflow",
+        "comfy-registry": "comfy-registry",
+        "github": "github",
+        "git": "git",
+        "web": "web",
+        "curated": "curated",
+        "ready_template": "ready_template",
+        "source_workflow": "source_workflow",
+        "custom_node_examples": "custom_node_examples",
+        "object_info": "object_info",
+    }
+    direct = tier_map.get(source_kind)
+    if direct:
+        return direct
+    # Heuristic: if the url contains civitai.com, it's civitai tier.
+    url = str(source.get("url") or "").casefold()
+    if "civitai.com" in url:
+        return "civitai"
+    # Fallback: use the source_kind directly if non-empty, else empty.
+    return source_kind if source_kind else ""
+
+
+def _tier_ttl_seconds(tier: str) -> int:
+    """Return the TTL in seconds for a given evidence tier.
+
+    Returns 86400 (24h) for unknown tiers as a safe default.
+    """
+    return _TIER_TTL_MAP.get(tier, 86400)
+
+
+def _source_freshness_status(
+    retrieval_time: str,
+    tier: str,
+    *,
+    now: float | None = None,
+) -> str:
+    """Return ``"fresh"``, ``"stale"``, or ``"unknown"`` for a source.
+
+    When *retrieval_time* is empty, returns ``"unknown"``.
+    When the tier TTL is 0 (live runtime schema), always returns ``"fresh"``
+    (the fetch is live by definition).
+    """
+    if not retrieval_time:
+        return "unknown"
+    ttl = _tier_ttl_seconds(tier)
+    if ttl <= 0:
+        return "fresh"  # live runtime — never stale
+    if now is None:
+        now = time.time()
+    try:
+        # Parse ISO-8601.  Accept 'Z' suffix and fractional seconds.
+        ts = retrieval_time.replace("Z", "+00:00")
+        if "+" in ts or ts.endswith("Z"):
+            from datetime import datetime, timezone
+            parsed = datetime.fromisoformat(ts)
+            epoch = parsed.timestamp()
+        else:
+            epoch = float(ts)  # plain Unix timestamp
+    except (ValueError, TypeError):
+        return "unknown"
+    if epoch <= 0:
+        return "unknown"
+    age = now - epoch
+    return "fresh" if age <= ttl else "stale"
+
+
+def _build_query_transform_trace(
+    query: str,
+    tier: str,
+    *,
+    original_query: str | None = None,
+    extra: str | None = None,
+) -> str:
+    """Build a compact, deterministic trace of how *query* was transformed.
+
+    Records the original query (if different), the tier it was submitted to,
+    and any extra transform note.  This lets downstream audit trails see that
+    a Hivemind query was stopword-stripped, or a web search was broadened.
+    """
+    parts: list[str] = [f"tier={tier}"]
+    if original_query and original_query.strip() != query.strip():
+        parts.append(f"original={original_query.strip()!r}")
+    if extra:
+        parts.append(extra)
+    parts.append(f"effective={query.strip()!r}")
+    return "; ".join(parts)
+
+
+def _now_iso() -> str:
+    """Return the current UTC time as a compact ISO-8601 string."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _stamp_source_evidence_meta(
+    source: dict[str, Any],
+    *,
+    query: str,
+    retrieval_time: str | None = None,
+    query_transform_extra: str | None = None,
+    original_query: str | None = None,
+) -> dict[str, Any]:
+    """Stamp freshness / evidence metadata onto a source dict in-place.
+
+    Adds ``_retrieval_time``, ``_content_hash``, ``_query_transform_trace``,
+    ``_tier``, and ``_freshness_status`` to *source*.  The leading underscore
+    convention keeps these fields out of serialized ``ResearchResult.sources``
+    while still being inspectable from the raw dict.
+
+    Returns *source* for chaining.
+    """
+    if retrieval_time is None:
+        retrieval_time = _now_iso()
+    tier = _source_tier_for_source(source)
+    source["_retrieval_time"] = retrieval_time
+    source["_content_hash"] = _compute_content_hash(source)
+    source["_query_transform_trace"] = _build_query_transform_trace(
+        query=query,
+        tier=tier,
+        original_query=original_query,
+        extra=query_transform_extra,
+    )
+    source["_tier"] = tier
+    source["_freshness_status"] = _source_freshness_status(retrieval_time, tier)
+    return source
+
+
+# ── Structured precedent helpers (continued) ──────────────────────────────────
+
 
 def _build_inspection_summary(graph: dict | None) -> InspectionSummary | None:
     """Build an :class:`InspectionSummary` from raw graph inspection.
@@ -3579,12 +3775,86 @@ def _requested_terms_for_selected_precedent(query: str, source: Mapping[str, Any
     return _unique_strings(tuple(terms), limit=12)
 
 
+def _build_precedent_selection_reasons(
+    *,
+    source: Mapping[str, Any],
+    query: str,
+    model_families: tuple[str, ...],
+    requested_families: set[str],
+    precedent_sources: tuple[dict[str, Any], ...],
+) -> list[str]:
+    """Build deterministic, human-readable reasons why *source* was selected.
+
+    Reasons are ordered from strongest to weakest and always include
+    evidence-metadata facts (tier, freshness, match count) so downstream
+    consumers never need to guess why a particular precedent was chosen.
+    """
+    reasons: list[str] = []
+
+    # 1. Tier and source identity.
+    tier = _source_tier_for_source(source)
+    source_kind = str(source.get("source") or "").strip()
+    reasons.append(
+        f"tier={tier}" if tier else f"source={source_kind}"
+    )
+
+    # 2. Strong relevance match.
+    strong = source.get("strong_relevance_match")
+    if strong is True:
+        reasons.append("strong_relevance_match=true")
+    relevance_score = source.get("relevance_score")
+    if isinstance(relevance_score, (int, float)) and relevance_score > 0:
+        reasons.append(f"relevance_score={int(relevance_score)}")
+
+    # 3. Model family alignment.
+    if model_families and requested_families:
+        matched = sorted(model_families) if isinstance(model_families, (list, tuple, set)) else []
+        reasons.append(f"model_families={','.join(matched)}")
+        if requested_families & set(model_families):
+            reasons.append("family_match=exact")
+        else:
+            reasons.append("family_match=none")
+
+    # 4. Source count (how many precedent sources were considered).
+    reasons.append(f"considered_sources={len(precedent_sources)}")
+
+    # 5. Freshness status.
+    freshness = str(source.get("_freshness_status") or "unknown")
+    if freshness != "unknown":
+        reasons.append(f"freshness={freshness}")
+
+    # 6. Content hash prefix for auditability.
+    content_hash = str(source.get("_content_hash") or "")
+    if content_hash:
+        reasons.append(f"content_hash={content_hash[:12]}")
+
+    # 7. Source-specific quality signals.
+    if source.get("source_workflow_parseable") is True:
+        reasons.append("workflow_parseable=true")
+    if source.get("hivemind_promoted_workflow") is True:
+        reasons.append("hivemind_promoted=true")
+    if source.get("source_workflow_available") is True:
+        reasons.append("source_workflow_available=true")
+
+    # 8. Match reason count.
+    match_reasons = source.get("reasons")
+    if isinstance(match_reasons, (list, tuple)):
+        reasons.append(f"match_reason_count={len(match_reasons)}")
+
+    return reasons
+
+
 def _build_selected_precedent(
     *,
     query: str,
     precedent_sources: tuple[dict[str, Any], ...],
 ) -> SelectedPrecedent | None:
-    """Build a directive workflow interpretation from compatible research sources."""
+    """Build a directive workflow interpretation from compatible research sources.
+
+    Stamps freshness / evidence metadata from the selected source onto the
+    returned :class:`SelectedPrecedent` so downstream consumers can audit
+    why this precedent was chosen and how current its data is.
+    """
     if not precedent_sources:
         return None
     source = precedent_sources[0]
@@ -3634,6 +3904,21 @@ def _build_selected_precedent(
     if not isinstance(promotion_gates, Mapping):
         promotion_gates = {}
 
+    # ── freshness / evidence metadata (SD1) ─────────────────────────────────
+    retrieval_time = str(source.get("_retrieval_time") or "")
+    content_hash = str(source.get("_content_hash") or "")
+    query_transform_trace = str(source.get("_query_transform_trace") or "")
+    tier = _source_tier_for_source(source)
+    freshness_status = str(source.get("_freshness_status") or "unknown")
+    # Build deterministic selection reasons.
+    selection_reasons = _build_precedent_selection_reasons(
+        source=source,
+        query=query,
+        model_families=model_families,
+        requested_families=requested_families,
+        precedent_sources=precedent_sources,
+    )
+
     return SelectedPrecedent(
         name=name,
         source=str(source.get("source") or "").strip(),
@@ -3648,6 +3933,13 @@ def _build_selected_precedent(
         promotion_gates=dict(promotion_gates),
         interpretation_notes=tuple(notes),
         avoid_searches=tuple(avoid_searches),
+        # ── freshness / evidence metadata ──────────────────────────────
+        retrieval_time=retrieval_time,
+        content_hash=content_hash,
+        query_transform_trace=query_transform_trace,
+        tier=tier,
+        freshness_status=freshness_status if freshness_status in ("fresh", "stale") else "unknown",
+        selection_reasons=tuple(selection_reasons),
     )
 
 
@@ -3846,6 +4138,23 @@ def research(
                 warnings.append("web search: no results")
             for ws in web_sources:
                 sources.append(ws)
+
+    # ── Stamp freshness / evidence metadata on every source (SD1) ─────────
+    # Each source dict receives _retrieval_time, _content_hash,
+    # _query_transform_trace, _tier, and _freshness_status so downstream
+    # selection reasons and audit trails can reference concrete evidence
+    # metadata without re-deriving it.
+    now_iso = _now_iso()
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        # Only stamp when not already stamped (idempotent).
+        if "_retrieval_time" not in source:
+            _stamp_source_evidence_meta(
+                source,
+                query=query,
+                retrieval_time=now_iso,
+            )
 
     # Re-sort by a strict relevance gate first, then stable source tier. This
     # keeps every evidence source but lets exact external/Hivemind workflow hits

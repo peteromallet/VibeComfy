@@ -1801,7 +1801,11 @@ def register_agent_edit_routes(app) -> None:
         if not isinstance(payload, dict):
             return _json_error("Request body must be a JSON object.", stage="agent_edit")
         try:
-            result = await asyncio.to_thread(handle_agent_edit, payload)
+            result, status = await asyncio.to_thread(
+                _handle_agent_executor_submit,
+                payload,
+                client_id=_client_id_from_payload(payload),
+            )
         except Exception as exc:
             failure = _classify_failure("agent_edit", exc)
             return _web.json_response(
@@ -1809,10 +1813,10 @@ def register_agent_edit_routes(app) -> None:
                 status=500,
             )
         if not isinstance(result, dict):
-            return _json_error("handle_agent_edit returned a non-dict result.", stage="agent_edit", status=500)
+            return _json_error("run_executor returned a non-dict result.", stage="agent_edit", status=500)
         if result.get("status") == "error":
             return _web.json_response(result, status=400)
-        return _web.json_response(result)
+        return _web.json_response(result, status=status, headers={"X-VibeComfy-Legacy-Route": "true"})
 
     @app.routes.post("/vibecomfy/agent-edit/accept")
     async def _agent_edit_accept_route(request):  # type: ignore[no-untyped-def]
