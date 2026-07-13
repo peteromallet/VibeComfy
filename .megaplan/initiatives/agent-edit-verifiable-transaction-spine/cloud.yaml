@@ -1,0 +1,30 @@
+provider: ssh
+repo:
+  url: https://github.com/peteromallet/VibeComfy.git
+  branch: main
+  workspace: /workspace/agent-edit-verifiable-transaction-spine/vibecomfy
+agents:
+  default: codex
+codex:
+  model: gpt-5.4
+  reasoning: high
+mode: idle
+chain:
+  spec: /workspace/agent-edit-verifiable-transaction-spine/vibecomfy/.megaplan/initiatives/agent-edit-verifiable-transaction-spine/chain.yaml
+megaplan:
+  ref: editible-install
+  codex_auth: chatgpt
+  repo: https://github.com/peteromallet/Arnold.git
+  src_path: /workspace/arnold
+resources:
+  volume: agent-volume
+  port: 8080
+ssh:
+  host: 159.69.51.216
+  user: root
+  port: 22
+  remote_dir: /opt/megaplan-cloud/deploy
+  workspace_dir: /opt/megaplan-cloud/workspace
+  container: megaplan-cloud-agent
+chain_session: agent-edit-verifiable-transaction-spine
+secrets: []

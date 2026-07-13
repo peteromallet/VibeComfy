@@ -1,0 +1,38 @@
+base_branch: main
+anchors:
+  north_star: NORTHSTAR.md
+milestones:
+- label: sprint-1
+  idea: .megaplan/initiatives/agent-edit-verifiable-transaction-spine/briefs/sprint-1.md
+  branch: megaplan/agent-edit-verifiable-transaction-spine/sprint-1
+  profile: partnered-5
+  vendor: codex
+  robustness: full
+  depth: high
+  with_prep: true
+  notes: >-
+    Difficulty 5/5. First close authority loss and publish the canonical
+    candidate/proof handoff that Sprint 2 must consume.
+- label: sprint-2
+  idea: .megaplan/initiatives/agent-edit-verifiable-transaction-spine/briefs/sprint-2.md
+  branch: megaplan/agent-edit-verifiable-transaction-spine/sprint-2
+  profile: partnered-5
+  vendor: codex
+  robustness: thorough
+  depth: high
+  with_prep: true
+  notes: >-
+    Difficulty 5/5. Build crash-recoverable Apply and topology-truthful
+    deterministic layout on the merged Sprint 1 contracts.
+on_failure:
+  abort: stop_chain
+on_escalate:
+  abort: stop_chain
+merge_policy: auto
+driver:
+  robustness: thorough
+  phase_timeout: 10800
+  auto_approve: true
+  on_escalate: abort
+  max_iterations: 60
+  poll_sleep: 8.0
