@@ -4118,3 +4118,233 @@ def test_topology_rank_overrides_kind_wall_when_custom_before_loaders() -> None:
     # even though kind-bucket floor for loaders=0 and custom=2
     layouts = _layouts_by_uid(result)
     assert layouts["preprocess"].x < layouts["load"].x
+
+
+def test_unassigned_multipass_classification_splits_repeated_sampler_and_output_stages() -> None:
+    """Deterministic classification must emit distinct stage instances when
+    topology proves repeated same-role passes in one connected workflow.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-1"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode-1"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "ImageResize", "resize"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13]}],
+            ),
+            _with_io(
+                _node(5, "KSampler", "sample-2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 13}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [14]}],
+            ),
+            _with_io(
+                _node(6, "VAEDecode", "decode-2"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 14}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [15]}],
+            ),
+            _with_io(
+                _node(7, "SaveImage", "save"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 15}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, 5, 0, "IMAGE"],
+            [14, 5, 0, 6, 0, "LATENT"],
+            [15, 6, 0, 7, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    sections = _node_sections(result)
+    topologies = {t.section_id: t for t in result.section_topologies}
+    layouts = _layouts_by_uid(result)
+
+    sampling_sections = {sections["sample-1"], sections["sample-2"]}
+    output_sections = {sections["decode-2"], sections["save"]}
+    assert len(sampling_sections) == 2
+    assert len(output_sections) == 2
+
+    assert sections["sample-1"] == "__sampling__"
+    assert sections["sample-2"].startswith("__sampling____p")
+    assert sections["decode-2"] == "__output__"
+    assert sections["save"].startswith("__output____p")
+
+    assert topologies[sections["sample-1"]].rank < topologies[sections["sample-2"]].rank
+    assert topologies[sections["decode-2"]].rank < topologies[sections["save"]].rank
+    assert layouts["sample-1"].x < layouts["decode-1"].x < layouts["sample-2"].x
+    assert layouts["sample-2"].x < layouts["decode-2"].x < layouts["save"].x
+
+
+def test_unassigned_late_sampler_is_not_grouped_with_conditioning() -> None:
+    """A later-pass sampler must stay in a sampler section rather than being
+    absorbed into prompt/conditioning when topology proves it occurs after
+    an earlier sample/decode stage.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "CLIPTextEncode", "prompt"),
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-1"),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "KSampler", "sample-2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [13]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "CONDITIONING"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, -1, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    sections = _node_sections(result)
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    assert sections["prompt"] == "__conditioning__"
+    assert sections["sample-1"] == "__sampling__"
+    assert sections["sample-2"].startswith("__sampling____p")
+    assert sections["sample-2"] != sections["prompt"]
+    assert topologies[sections["prompt"]].rank < topologies[sections["sample-2"]].rank
+
+
+def test_unassigned_disconnected_islands_keep_same_layer_nodes_stable() -> None:
+    """Disconnected islands should not spuriously multiply same-layer stage
+    sections; only topology-deeper repeated passes get distinct instances.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load-a"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-a1"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode-a1"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "KSampler", "sample-a2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [13]}],
+            ),
+            _with_io(
+                _node(5, "SaveImage", "save-a"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 13}],
+            ),
+            _with_io(
+                _node(6, "CLIPTextEncode", "prompt-b"),
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [20]}],
+            ),
+            _with_io(
+                _node(7, "KSampler", "sample-b"),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 20}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [21]}],
+            ),
+            _with_io(
+                _node(8, "SaveImage", "save-b"),
+                inputs=[{"name": "images", "type": "LATENT", "link": 21}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, 5, 0, "IMAGE"],
+            [20, 6, 0, 7, 0, "CONDITIONING"],
+            [21, 7, 0, 8, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    sections = _node_sections(result)
+
+    assert sections["sample-a1"] == "__sampling__"
+    assert sections["sample-b"] == "__sampling__"
+    assert sections["sample-a2"].startswith("__sampling____p")
+    assert sections["sample-a2"] != sections["sample-a1"]
+    assert sections["save-a"] == "__output__"
+    assert sections["save-b"].startswith("__output____p")
+
+
+def test_unassigned_single_pass_keeps_legacy_base_section_ids() -> None:
+    """Single-pass deterministic classification should remain a no-op for the
+    first conditioning/sampling instances: their legacy base ids remain
+    unsuffixed when topology does not prove a repeated pass of that role.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "CLIPTextEncode", "prompt"),
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample"),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "CONDITIONING"],
+            [11, 2, 0, -1, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    sections = _node_sections(result)
+    assert sections["prompt"] == "__conditioning__"
+    assert sections["sample"] == "__sampling__"
+    assert all(section_id in {"__conditioning__", "__sampling__"} for section_id in sections.values())
