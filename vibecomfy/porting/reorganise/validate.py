@@ -190,6 +190,7 @@ def validate_layout_plan(
     _validate_section_scope_boundaries(sections, diagnostics)
     _validate_sampler_relations(plan, facts, canonical_by_ref, known_refs, diagnostics)
     _validate_ownership_counts(plan, facts, ownerships, helper_refs, diagnostics)
+    _validate_topology_contradictions(facts, diagnostics)
 
     return ReorganiseDiagnosticReport(ok=not _has_error(diagnostics), diagnostics=tuple(diagnostics))
 
@@ -655,6 +656,47 @@ def _validate_ownership_counts(
                     detail={"ref": ref.to_json(), "unassigned_policy": policy},
                 )
             )
+
+
+def _validate_topology_contradictions(
+    facts: GraphInventoryFacts,
+    diagnostics: list[ReorganiseDiagnostic],
+) -> None:
+    """Validate that no active inter-SCC edge has target rank lower than source rank.
+
+    An edge whose endpoints belong to different SCCs must respect topological
+    ordering: the target rank must be >= the source rank.  SCC-internal edges
+    (``feedback=True``) are exempt because mutual reachability places both
+    endpoints at the same layer after SCC condensation.
+    """
+    for scope_topology in facts.scope_topologies:
+        rank_by_ref: dict[CanonicalNodeRef, int] = {}
+        for node_fact in scope_topology.node_topology:
+            rank_by_ref[node_fact.ref] = node_fact.topological_rank
+
+        for edge in scope_topology.effective_edges:
+            if edge.feedback:
+                continue
+            source_rank = rank_by_ref.get(edge.source)
+            target_rank = rank_by_ref.get(edge.target)
+            if source_rank is None or target_rank is None:
+                continue
+            if target_rank < source_rank:
+                diagnostics.append(
+                    _diag(
+                        "topology_contradiction",
+                        "Active inter-SCC edge has target rank lower than source rank, "
+                        "violating topological ordering.",
+                        detail={
+                            "source": edge.source.to_json(),
+                            "target": edge.target.to_json(),
+                            "source_rank": source_rank,
+                            "target_rank": target_rank,
+                            "scope_path": edge.scope_path,
+                            "feedback": edge.feedback,
+                        },
+                    )
+                )
 
 
 def _validate_forbidden_payloads(

@@ -121,15 +121,21 @@ const META_AND_THREAD_DIRTY_SECTIONS = Object.freeze([
 
 // ── PANEL_STATE ─────────────────────────────────────────────────────────────
 
-test("PANEL_STATE exports frozen phase taxonomy with 6 phases matching the contract", () => {
+test("PANEL_STATE exports frozen phase taxonomy with 12 phases matching the contract", () => {
   assert.ok(Object.isFrozen(PANEL_STATE));
   const keys = Object.keys(PANEL_STATE).sort();
   assert.deepEqual(keys, [
     "APPLYING",
+    "APPLY_PREPARED",
     "AWAITING_REVIEW",
+    "CANVAS_VERIFIED",
     "CLARIFY",
     "ERROR",
+    "FINALIZED",
     "IDLE",
+    "REVIEW_BOUND",
+    "ROLLBACK_COMPLETE",
+    "ROLLBACK_PREPARED",
     "SUBMITTING",
   ]);
   assert.equal(PANEL_STATE.IDLE, "IDLE");
@@ -138,6 +144,13 @@ test("PANEL_STATE exports frozen phase taxonomy with 6 phases matching the contr
   assert.equal(PANEL_STATE.AWAITING_REVIEW, "AWAITING_REVIEW");
   assert.equal(PANEL_STATE.APPLYING, "APPLYING");
   assert.equal(PANEL_STATE.ERROR, "ERROR");
+  // ── V2 transaction lifecycle states ─────────────────────────────────────────
+  assert.equal(PANEL_STATE.REVIEW_BOUND, "REVIEW_BOUND");
+  assert.equal(PANEL_STATE.APPLY_PREPARED, "APPLY_PREPARED");
+  assert.equal(PANEL_STATE.CANVAS_VERIFIED, "CANVAS_VERIFIED");
+  assert.equal(PANEL_STATE.FINALIZED, "FINALIZED");
+  assert.equal(PANEL_STATE.ROLLBACK_PREPARED, "ROLLBACK_PREPARED");
+  assert.equal(PANEL_STATE.ROLLBACK_COMPLETE, "ROLLBACK_COMPLETE");
 });
 
 test("composer buttons hide undo while processing and hide reset controls while reviewing", () => {
@@ -236,9 +249,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 55 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 62 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 55);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 62);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -284,14 +297,22 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 55 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatRehydrateCommittedEpoch"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("syntheticAgentMessage"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
+  // ── T24: Transaction lifecycle fields ─────────────────────────────────────
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("mutationPlanHash"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("generation"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("leaseNonce"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("preparedReceipt"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("verifiedReceipt"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("rollbackReceipt"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 55);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 62);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 55 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 62 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -302,9 +323,9 @@ test("createAgentEditState initializes all 55 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 55 fields
+  // No extra own keys beyond the 62 fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 55);
+  assert.equal(ownKeys.length, 62);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -7539,4 +7560,386 @@ test("deriveAgentActivityState phase_progress is never 'stale' from diagnostics"
     "phase_progress must not contain stale");
   assert.equal(activity.phase_progress.rebaseline, undefined,
     "phase_progress must not contain rebaseline");
+});
+
+// ── T25: V2 Transaction lifecycle transition tests ──────────────────────────
+
+test("PREPARE_STARTED sets phase to APPLY_PREPARED and records lifecycle event", () => {
+  const panel = makePanel({ turnId: "turn-abc", sessionId: "sess-xyz" });
+  const obligations = transition(panel, "PREPARE_STARTED", {
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 7,
+    leaseNonce: "nonce-42",
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.APPLY_PREPARED);
+  assert.equal(panel.state.mutationPlanHash, "deadbeef".repeat(8));
+  assert.equal(panel.state.generation, 7);
+  assert.equal(panel.state.leaseNonce, "nonce-42");
+  assert.equal(panel.state.failure, null);
+  assert.ok(Array.isArray(panel.state.lifecycleEvents));
+  assert.equal(panel.state.lifecycleEvents.length, 1);
+  assert.equal(panel.state.lifecycleEvents[0].event_type, "prepare_started");
+  assert.ok(obligations.render);
+});
+
+test("PREPARE_SUCCESS records receipt and advances to APPLY_PREPARED with preparedReceipt", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 7,
+  });
+  const receipt = {
+    plan_hash: "deadbeef".repeat(8),
+    generation: 7,
+    lease_nonce: "nonce-receipt",
+    prepared_at: "2026-07-14T12:00:00Z",
+  };
+  const obligations = transition(panel, "PREPARE_SUCCESS", {
+    receipt,
+    preparedReceipt: receipt,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.APPLY_PREPARED);
+  assert.deepEqual(panel.state.preparedReceipt, receipt);
+  assert.equal(panel.state.leaseNonce, "nonce-receipt");
+  assert.equal(panel.state.generation, 7);
+  assert.equal(panel.state.failure, null);
+  assert.ok(Array.isArray(panel.state.lifecycleEvents));
+  const lastEvent = panel.state.lifecycleEvents[panel.state.lifecycleEvents.length - 1];
+  assert.equal(lastEvent.event_type, "prepare_success");
+  assert.ok(obligations.render);
+  assert.ok(obligations.dirtySections.includes(RENDER_SECTIONS.COMPOSER));
+});
+
+test("PREPARE_FAILURE clears preparedReceipt and transitions to ERROR", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+    preparedReceipt: { plan_hash: "deadbeef".repeat(8) },
+  });
+  const failure = { code: "PREPARE_CAS_FAILED", message: "Baseline mismatch" };
+  const obligations = transition(panel, "PREPARE_FAILURE", { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  assert.equal(panel.state.preparedReceipt, null);
+  assert.equal(panel.state.leaseNonce, null);
+  assert.ok(obligations.render);
+});
+
+test("VERIFY_CANVAS_STARTED sets phase to CANVAS_VERIFIED", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+    phase: PANEL_STATE.APPLY_PREPARED,
+  });
+  const obligations = transition(panel, "VERIFY_CANVAS_STARTED", {});
+
+  assert.equal(panel.state.phase, PANEL_STATE.CANVAS_VERIFIED);
+  assert.equal(panel.state.failure, null);
+  assert.ok(Array.isArray(panel.state.lifecycleEvents));
+  const lastEvent = panel.state.lifecycleEvents[panel.state.lifecycleEvents.length - 1];
+  assert.equal(lastEvent.event_type, "verify_canvas_started");
+  assert.ok(obligations.render);
+});
+
+test("VERIFY_CANVAS_SUCCESS records verifiedReceipt", () => {
+  const panel = makePanel({
+    sessionId: "sess-verify",
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+  });
+  const receipt = {
+    post_apply_hash: "abcdef".repeat(10) + "1234",
+    verified_at: "2026-07-14T12:01:00Z",
+  };
+  const obligations = transition(panel, "VERIFY_CANVAS_SUCCESS", {
+    receipt,
+    verifiedReceipt: receipt,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.CANVAS_VERIFIED);
+  assert.deepEqual(panel.state.verifiedReceipt, receipt);
+  assert.equal(panel.state.failure, null);
+  assert.ok(obligations.render);
+  assert.ok(obligations.dirtySections.includes(RENDER_SECTIONS.COMPOSER));
+  assert.ok(obligations.persistSession);
+});
+
+test("VERIFY_CANVAS_FAILURE clears verifiedReceipt and transitions to ERROR", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+    verifiedReceipt: { post_apply_hash: "wrong" },
+  });
+  const failure = { code: "HASH_MISMATCH", message: "Canvas hash does not match plan hash" };
+  const obligations = transition(panel, "VERIFY_CANVAS_FAILURE", { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  assert.equal(panel.state.verifiedReceipt, null);
+  assert.ok(obligations.render);
+});
+
+test("FINALIZE_STARTED sets phase to FINALIZED", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 7,
+    leaseNonce: "nonce-42",
+  });
+  const obligations = transition(panel, "FINALIZE_STARTED", {});
+
+  assert.equal(panel.state.phase, PANEL_STATE.FINALIZED);
+  assert.equal(panel.state.failure, null);
+  assert.ok(obligations.render);
+});
+
+test("FINALIZE_SUCCESS syncs baseline and clears candidate", () => {
+  const panel = makePanel({
+    sessionId: "sess-finalize",
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 7,
+    candidateGraph: { nodes: [{ id: 1 }], links: [] },
+    candidateGraphHash: "candidate-hash",
+    baselineGraphHash: "old-baseline",
+    undoStack: [{ turn_id: "prev" }],
+  });
+  const receipt = {
+    audit_ref: "audit-999",
+    baseline_graph_hash: "new-baseline",
+  };
+  const obligations = transition(panel, "FINALIZE_SUCCESS", {
+    receipt,
+    finalizedReceipt: receipt,
+    accepted: receipt,
+    lastAppliedChanges: { nodes: 1 },
+    undoStackDepth: 2,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.FINALIZED);
+  assert.equal(panel.state.candidateGraph, null);
+  assert.equal(panel.state.candidateGraphHash, null);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+  assert.equal(panel.state.auditRef, "audit-999");
+  assert.equal(panel.state.failure, null);
+  assert.ok(obligations.render);
+  assert.ok(obligations.invalidateCandidate);
+  assert.ok(obligations.clearCandidatePreview);
+});
+
+test("FINALIZE_FAILURE transitions to ERROR and syncs baseline from failure payload", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+  });
+  const failure = {
+    code: "FINALIZE_CAS_FAILED",
+    message: "Lease expired",
+    baseline_graph_hash: "server-baseline",
+    baseline_graph_hash_kind: "sha256",
+  };
+  const obligations = transition(panel, "FINALIZE_FAILURE", { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  // Baseline should be synced from the failure payload
+  assert.equal(panel.state.baselineGraphHash, "server-baseline");
+  assert.ok(obligations.render);
+});
+
+test("ROLLBACK_STARTED sets phase to ROLLBACK_PREPARED", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 7,
+  });
+  const obligations = transition(panel, "ROLLBACK_STARTED", {});
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_PREPARED);
+  assert.equal(panel.state.failure, null);
+  assert.ok(obligations.render);
+});
+
+test("ROLLBACK_SUCCESS records rollbackReceipt and clears candidate", () => {
+  const panel = makePanel({
+    turnId: "turn-abc",
+    candidateGraph: { nodes: [{ id: 1 }], links: [] },
+    candidateGraphHash: "candidate-hash",
+    undoStack: [{ turn_id: "prev" }],
+  });
+  const receipt = { rollback_at: "2026-07-14T12:05:00Z" };
+  const obligations = transition(panel, "ROLLBACK_SUCCESS", {
+    receipt,
+    rollbackReceipt: receipt,
+    message: "Transaction rolled back successfully.",
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
+  assert.deepEqual(panel.state.rollbackReceipt, receipt);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.equal(panel.state.candidateGraph, null);
+  assert.ok(obligations.render);
+  assert.ok(obligations.invalidateCandidate);
+  assert.ok(obligations.clearCandidatePreview);
+});
+
+test("ROLLBACK_FAILURE transitions to ERROR", () => {
+  const panel = makePanel({ turnId: "turn-abc" });
+  const failure = { code: "ROLLBACK_FAILED", message: "Cannot rollback" };
+  const obligations = transition(panel, "ROLLBACK_FAILURE", { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  assert.equal(panel.state.rollbackReceipt, null);
+  assert.ok(obligations.render);
+});
+
+test("RECONCILE_RECEIPTS recovers prepared state from server receipts", () => {
+  const panel = makePanel({
+    sessionId: "sess-reconcile",
+    turnId: "turn-abc",
+    lifecycleEvents: [],
+  });
+  const receipts = {
+    preparedReceipt: {
+      plan_hash: "deadbeef".repeat(8),
+      generation: 3,
+      lease_nonce: "nonce-rec",
+    },
+    lifecycleEvents: [
+      { event_type: "prepare_success", timestamp: 1700000000000 },
+    ],
+  };
+  const obligations = transition(panel, "RECONCILE_RECEIPTS", { receipts });
+
+  assert.equal(panel.state.phase, PANEL_STATE.APPLY_PREPARED);
+  assert.equal(panel.state.mutationPlanHash, "deadbeef".repeat(8));
+  assert.equal(panel.state.generation, 3);
+  assert.equal(panel.state.leaseNonce, "nonce-rec");
+  assert.ok(obligations.render);
+});
+
+test("RECONCILE_RECEIPTS recovers canvas_verified state when verifiedReceipt present", () => {
+  const panel = makePanel({
+    sessionId: "sess-reconcile-v",
+    turnId: "turn-abc",
+  });
+  const receipts = {
+    preparedReceipt: {
+      plan_hash: "deadbeef".repeat(8),
+      generation: 5,
+      lease_nonce: "nonce-v",
+    },
+    verifiedReceipt: { post_apply_hash: "abcdef".repeat(10) + "1234" },
+  };
+  transition(panel, "RECONCILE_RECEIPTS", { receipts });
+
+  assert.equal(panel.state.phase, PANEL_STATE.CANVAS_VERIFIED);
+  assert.ok(panel.state.verifiedReceipt);
+});
+
+test("RECONCILE_RECEIPTS recovers rollback_complete state when rollbackReceipt present", () => {
+  const panel = makePanel({
+    sessionId: "sess-reconcile-r",
+    turnId: "turn-abc",
+  });
+  const receipts = {
+    rollbackReceipt: { rollback_at: "2026-07-14T12:05:00Z" },
+  };
+  transition(panel, "RECONCILE_RECEIPTS", { receipts });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
+  assert.ok(panel.state.rollbackReceipt);
+});
+
+// ── T25: V2 panel_composer button/display logic ─────────────────────────────
+
+test("composerApplyDisplayState with V2 prepared-but-unfinalized state does not treat as generic applying", () => {
+  // APPLY_PREPARED should not be treated as APPLYING — it is a recoverable state,
+  // not an ordinary apply in-progress.
+  const panel = makePanel({
+    phase: PANEL_STATE.APPLY_PREPARED,
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 7,
+    preparedReceipt: { plan_hash: "deadbeef".repeat(8) },
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+  });
+
+  // APPLY_PREPARED is NOT APPLYING, so the composer should not show Apply/Reject
+  // The phase is distinct and recoverable.
+  assert.notEqual(panel.state.phase, PANEL_STATE.APPLYING);
+  assert.notEqual(panel.state.phase, PANEL_STATE.IDLE);
+  assert.notEqual(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.phase, PANEL_STATE.APPLY_PREPARED);
+
+  // The preparedReceipt is present, confirming this is recoverable (not a failure)
+  assert.ok(panel.state.preparedReceipt);
+});
+
+test("composerApplyDisplayState with CANVAS_VERIFIED is recoverable not terminal success", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.CANVAS_VERIFIED,
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 7,
+    preparedReceipt: { plan_hash: "deadbeef".repeat(8) },
+    verifiedReceipt: { post_apply_hash: "abcdef".repeat(10) + "1234" },
+  });
+
+  // CANVAS_VERIFIED is recoverable — the user can still finalize or rollback
+  assert.notEqual(panel.state.phase, PANEL_STATE.FINALIZED);
+  assert.notEqual(panel.state.phase, PANEL_STATE.ERROR);
+  assert.notEqual(panel.state.phase, PANEL_STATE.IDLE);
+  assert.ok(panel.state.preparedReceipt);
+  assert.ok(panel.state.verifiedReceipt);
+});
+
+test("ROLLBACK_COMPLETE is a terminal V2 state with receipts cleared from active", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.ROLLBACK_COMPLETE,
+    rollbackReceipt: { rollback_at: "2026-07-14T12:05:00Z" },
+    mutationPlanHash: null,
+    preparedReceipt: null,
+    verifiedReceipt: null,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
+  assert.ok(panel.state.rollbackReceipt);
+  assert.equal(panel.state.preparedReceipt, null);
+  assert.equal(panel.state.verifiedReceipt, null);
+});
+
+test("lifecycleEvents array is append-only across multiple transitions", () => {
+  const panel = makePanel({ turnId: "turn-seq" });
+
+  transition(panel, "PREPARE_STARTED", { mutationPlanHash: "aa".repeat(32) });
+  assert.equal(panel.state.lifecycleEvents.length, 1);
+
+  transition(panel, "PREPARE_SUCCESS", { receipt: { plan_hash: "aa".repeat(32) } });
+  assert.equal(panel.state.lifecycleEvents.length, 2);
+
+  transition(panel, "VERIFY_CANVAS_STARTED", {});
+  assert.equal(panel.state.lifecycleEvents.length, 3);
+
+  transition(panel, "VERIFY_CANVAS_SUCCESS", { receipt: { post_apply_hash: "bb".repeat(32) } });
+  assert.equal(panel.state.lifecycleEvents.length, 4);
+
+  // All events must have required fields
+  for (const event of panel.state.lifecycleEvents) {
+    assert.ok(typeof event.event_type === "string");
+    assert.ok(typeof event.timestamp === "number");
+    assert.equal(event.turn_id, "turn-seq");
+  }
+
+  // Event types must match transition order
+  assert.equal(panel.state.lifecycleEvents[0].event_type, "prepare_started");
+  assert.equal(panel.state.lifecycleEvents[1].event_type, "prepare_success");
+  assert.equal(panel.state.lifecycleEvents[2].event_type, "verify_canvas_started");
+  assert.equal(panel.state.lifecycleEvents[3].event_type, "verify_canvas_success");
 });

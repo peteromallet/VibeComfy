@@ -649,3 +649,170 @@ export function commitLifecycleReset(panel, payload = {}) {
     ...(payload.debugPayload !== undefined ? { debugPayload: payload.debugPayload } : {}),
   });
 }
+
+// ── T24: Transaction lifecycle commit helpers ──────────────────────────────
+
+/**
+ * Commit the prepare-started phase.  Records the mutation plan hash, generation,
+ * and lease nonce before the server CAS prepare call.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ mutationPlanHash?, planHash?, generation?,
+ *   leaseNonce?, turnId?, sessionId?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitPrepareStarted(panel, payload = {}) {
+  return transition(panel, "PREPARE_STARTED", payload);
+}
+
+/**
+ * Commit a successful server prepare.  Records the prepared receipt (CAS without
+ * baseline advance).
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ receipt?, preparedReceipt?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitPrepareSuccess(panel, payload = {}) {
+  return transition(panel, "PREPARE_SUCCESS", payload);
+}
+
+/**
+ * Commit a failed server prepare.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ failure?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitPrepareFailure(panel, payload = {}) {
+  return transition(panel, "PREPARE_FAILURE", payload);
+}
+
+/**
+ * Commit the start of canvas hash verification after apply.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitVerifyCanvasStarted(panel, payload = {}) {
+  return transition(panel, "VERIFY_CANVAS_STARTED", payload);
+}
+
+/**
+ * Commit successful canvas hash verification.  Records the verified receipt.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ receipt?, verifiedReceipt?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitVerifyCanvasSuccess(panel, payload = {}) {
+  return transition(panel, "VERIFY_CANVAS_SUCCESS", payload);
+}
+
+/**
+ * Commit failed canvas hash verification.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ failure?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitVerifyCanvasFailure(panel, payload = {}) {
+  return transition(panel, "VERIFY_CANVAS_FAILURE", payload);
+}
+
+/**
+ * Commit the start of server finalize.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitFinalizeStarted(panel, payload = {}) {
+  return transition(panel, "FINALIZE_STARTED", payload);
+}
+
+/**
+ * Commit a successful server finalize.  Records the finalized receipt,
+ * advances the baseline, and clears the candidate.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ receipt?, finalizedReceipt?, accepted?,
+ *   lastAppliedChanges?, undoStackDepth?, toast?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitFinalizeSuccess(panel, payload = {}) {
+  return transition(panel, "FINALIZE_SUCCESS", {
+    receipt: payload.receipt || payload.finalizedReceipt || null,
+    accepted: payload.accepted || payload.receipt || null,
+    ...(payload.lastAppliedChanges !== undefined ? { lastAppliedChanges: payload.lastAppliedChanges } : {}),
+    ...(payload.undoStackDepth !== undefined ? { undoStackDepth: payload.undoStackDepth } : {}),
+    ...(payload.toast !== undefined ? { toast: payload.toast } : {}),
+    ...(payload.debugPayload !== undefined ? { debugPayload: payload.debugPayload } : {}),
+  });
+}
+
+/**
+ * Commit a failed server finalize.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ failure?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitFinalizeFailure(panel, payload = {}) {
+  return transition(panel, "FINALIZE_FAILURE", payload);
+}
+
+/**
+ * Commit the start of server rollback.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitRollbackStarted(panel, payload = {}) {
+  return transition(panel, "ROLLBACK_STARTED", payload);
+}
+
+/**
+ * Commit a successful server rollback.  Records the rollback receipt and clears
+ * the candidate.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ receipt?, rollbackReceipt?, message?,
+ *   toast?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitRollbackSuccess(panel, payload = {}) {
+  return transition(panel, "ROLLBACK_SUCCESS", {
+    receipt: payload.receipt || payload.rollbackReceipt || null,
+    ...(payload.message !== undefined ? { message: payload.message } : {}),
+    ...(payload.toast !== undefined ? { toast: payload.toast } : {}),
+    ...(payload.debugPayload !== undefined ? { debugPayload: payload.debugPayload } : {}),
+  });
+}
+
+/**
+ * Commit a failed server rollback.
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ failure?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitRollbackFailure(panel, payload = {}) {
+  return transition(panel, "ROLLBACK_FAILURE", payload);
+}
+
+/**
+ * Commit reconciliation of durable receipts from the server (reload recovery).
+ *
+ * @param {object} panel
+ * @param {object} payload - `{ receipts?, debugPayload? }`
+ * @returns {object} plain obligations from `transition(...)`.
+ */
+export function commitReconcileReceipts(panel, payload = {}) {
+  return transition(panel, "RECONCILE_RECEIPTS", {
+    receipts: payload.receipts || null,
+    ...(payload.debugPayload !== undefined ? { debugPayload: payload.debugPayload } : {}),
+  });
+}

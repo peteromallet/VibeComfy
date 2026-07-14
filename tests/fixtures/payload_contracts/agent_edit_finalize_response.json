@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "action": "finalize",
+  "session_id": "session-v2-finalize",
+  "turn_id": "0001",
+  "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "generation": 1,
+  "phase": "finalized",
+  "baseline_turn_id": "0001",
+  "baseline_graph_hash": "structural-hash-after",
+  "baseline_graph_hash_kind": "structural",
+  "post_apply_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "receipt": {
+    "event_type": "finalized",
+    "turn_id": "0001",
+    "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": 1,
+    "structural_hash_after": "structural-hash-after",
+    "applied_payload": {
+      "post_apply_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "post_apply_hash_verified": true,
+      "expected_post_apply_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "timestamp": "2026-07-14T11:00:01Z"
+  }
+}

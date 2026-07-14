@@ -1,6 +1,8 @@
 // Pure serialized-graph preview diff shared by the live review overlay and the
 // demo preview gallery. It deliberately has no app/panel/global canvas access.
 
+import { sha256Hex } from "./canonical_hash.js";
+
 function uidOf(node) {
   return node?.properties?.vibecomfy_uid || null;
 }
@@ -249,21 +251,155 @@ function layoutMoves(baselineGraph, candidateGraph) {
   return result;
 }
 
+/**
+ * Extract a group's bounding box from its serialized representation.
+ *
+ * ComfyUI represents group bounds as [x, y, width, height] stored under
+ * `bounding` or `_bounding`.  Returns null when the group has no valid
+ * bounding box (missing, non-finite, or non-positive dimensions).
+ *
+ * @param {object} group  serialized group object
+ * @returns {{x: number, y: number, w: number, h: number} | null}
+ */
+function readGroupBounds(group) {
+  const raw = group?.bounding || group?._bounding;
+  if (!raw) return null;
+  const x = Number(raw[0]);
+  const y = Number(raw[1]);
+  const w = Number(raw[2]);
+  const h = Number(raw[3]);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+  return { x, y, w, h };
+}
+
+/**
+ * Derive a stable lookup key for a group so candidate and baseline groups
+ * can be matched even when the group list order differs.
+ *
+ * Groups that carry an `id` field use `id:<id>`; otherwise the array index
+ * is used as a fallback key.
+ *
+ * @param {object} group  serialized group object
+ * @param {number} index  position in the groups array
+ * @returns {string}
+ */
+function groupLayoutKey(group, index) {
+  if (group?.id != null) return `id:${String(group.id)}`;
+  // Fall back to title when no id is present — this allows matching across
+  // baseline and candidate even when the group list order changes (e.g. a
+  // group is removed and indices shift).
+  if (typeof group?.title === "string" && group.title.trim()) {
+    return `title:${group.title.trim()}`;
+  }
+  return `index:${index}`;
+}
+
+/**
+ * Build a Map of group layout keys to their bounds for a given graph.
+ *
+ * @param {object} graph  serialized graph with optional `.groups` array
+ * @returns {Map<string, {x: number, y: number, w: number, h: number}>}
+ */
+function baselineGroupBoundsMap(graph) {
+  const result = new Map();
+  const groups = Array.isArray(graph?.groups) ? graph.groups : [];
+  for (let i = 0; i < groups.length; i += 1) {
+    const bounds = readGroupBounds(groups[i]);
+    if (bounds) {
+      result.set(groupLayoutKey(groups[i], i), bounds);
+    }
+  }
+  return result;
+}
+
+/**
+ * Compare two group bounding boxes for equality within a half-pixel tolerance.
+ *
+ * @param {object} left   {x, y, w, h}
+ * @param {object} right  {x, y, w, h}
+ * @returns {boolean}
+ */
+function groupBoundsEqual(left, right) {
+  return (
+    Math.abs(left.x - right.x) < 0.5
+    && Math.abs(left.y - right.y) < 0.5
+    && Math.abs(left.w - right.w) < 0.5
+    && Math.abs(left.h - right.h) < 0.5
+  );
+}
+
+/**
+ * Collect layout-group entries from the exact candidate patch, with optional
+ * baseline comparison data for group geometry parity.
+ *
+ * The function always renders from the candidate patch — the authoritative
+ * representation of the proposed layout.  When a baseline graph is provided,
+ * each returned entry also carries `_baselineBounds` (the baseline group
+ * bounds for the same key, or null when the group is new) and `_changed`
+ * (true when the candidate and baseline bounds differ).
+ *
+ * Groups present in the baseline but absent from the candidate are listed
+ * under `_removedGroupKeys` (an array of layout keys), so the overlay can
+ * render them as removed.
+ *
+ * The return value is a plain Array for backward compatibility with all
+ * existing consumers that iterate `layout_groups`.
+ *
+ * @param {object|null} baselineGraph   serialized baseline graph (live canvas)
+ * @param {object}      candidateGraph  serialized candidate graph (patch)
+ * @returns {Array<{key: string, title: string, color: string|null, bounds: {x,y,w,h}, _baselineBounds?: {x,y,w,h}|null, _changed?: boolean}>}
+ */
 function layoutGroups(baselineGraph, candidateGraph) {
-  if (!baselineGraph) return [];
-  return (Array.isArray(candidateGraph?.groups) ? candidateGraph.groups : [])
-    .map((group, index) => {
-      const raw = group?.bounding || group?._bounding;
-      const bounds = Array.from({ length: 4 }, (_unused, coordinate) => Number(raw?.[coordinate]));
-      if (!raw || !bounds.every(Number.isFinite) || bounds[2] <= 0 || bounds[3] <= 0) return null;
-      return {
-        key: group?.id != null ? `id:${String(group.id)}` : `index:${index}`,
-        title: typeof group?.title === "string" ? group.title : "Group",
-        color: typeof group?.color === "string" ? group.color : null,
-        bounds: { x: bounds[0], y: bounds[1], w: bounds[2], h: bounds[3] },
-      };
-    })
-    .filter(Boolean);
+  const candidateGroups = Array.isArray(candidateGraph?.groups) ? candidateGraph.groups : [];
+
+  // Always extract candidate groups from the exact candidate patch —
+  // even when no baseline is available for comparison.
+  const entries = [];
+  const candidateKeys = new Set();
+  for (let i = 0; i < candidateGroups.length; i += 1) {
+    const group = candidateGroups[i];
+    const bounds = readGroupBounds(group);
+    if (!bounds) continue;
+    const key = groupLayoutKey(group, i);
+    candidateKeys.add(key);
+    entries.push({
+      key,
+      title: typeof group?.title === "string" ? group.title : "Group",
+      color: typeof group?.color === "string" ? group.color : null,
+      bounds,
+      _baselineBounds: null,
+      _changed: false,
+    });
+  }
+
+  // When a baseline is available, compare against applied group geometry.
+  if (baselineGraph) {
+    const baselineMap = baselineGroupBoundsMap(baselineGraph);
+    const removedGroupKeys = [];
+    for (const [key] of baselineMap) {
+      if (!candidateKeys.has(key)) {
+        removedGroupKeys.push(key);
+      }
+    }
+    for (const entry of entries) {
+      const baselineBounds = baselineMap.get(entry.key) || null;
+      entry._baselineBounds = baselineBounds;
+      entry._changed = baselineBounds ? !groupBoundsEqual(entry.bounds, baselineBounds) : true;
+    }
+    if (removedGroupKeys.length > 0) {
+      // Attach removed-group keys as a non-enumerable sentinel so the overlay
+      // can optionally render removed-group indicators, but standard array
+      // iteration does not accidentally treat them as entries.
+      Object.defineProperty(entries, "_removedGroupKeys", {
+        value: removedGroupKeys,
+        writable: false,
+        enumerable: false,
+        configurable: false,
+      });
+    }
+  }
+
+  return entries;
 }
 
 export function computeSerializedGraphPreviewDiff({
@@ -333,4 +469,141 @@ export function computeSerializedGraphPreviewDiff({
     added_links,
     removed_links,
   };
+}
+
+// ── Browser-side mutation-plan and canvas projection hashing ─────────────────
+//
+// The functions below are the browser-side authority for computing the
+// mutation-plan hash and the post-apply canvas projection hash.  They
+// delegate to `sha256Hex` from `canonical_hash.js`, which mirrors the
+// Python backend's `_canonical_bytes` + `_sha256` semantics exactly:
+// recursive key-sorting, compact separators, ASCII-safe escaping, and
+// string fallback for non-JSON-serializable values.
+//
+// All lifecycle consumers (preview, apply, verify) MUST use these
+// functions so that browser-side hashes match the Python backend
+// byte-for-byte for equivalent plan / canvas data.
+
+/**
+ * Compute the SHA-256 hex digest of a mutation-plan projection using the JS
+ * canonical hash mirror.
+ *
+ * The `planProjection` object should mirror the Python
+ * `LayoutCandidatePatch.__post_init__` projection fields:
+ *
+ *   - store_version  (number)
+ *   - vibecomfy_version (string)
+ *   - schema_hash    (string)
+ *   - entries        (object: node-id → {pos, size, flags, color, ...})
+ *   - groups         (array of {title, bounding, color, ...})
+ *   - extra          (object)
+ *   - lastRerouteId  (any)
+ *   - definitions    (object)
+ *   - virtual_wires  (object)
+ *   - unkeyed        (array)
+ *
+ * Only the fields present in the projection are hashed; callers may pass a
+ * subset when computing a partial hash (e.g. canvas-only projection).
+ *
+ * @param {object} planProjection
+ * @returns {string} 64-character lowercase hex digest
+ */
+export function computeMutationPlanHash(planProjection) {
+  if (!planProjection || Array.isArray(planProjection) || typeof planProjection !== "object") {
+    return "";
+  }
+  return sha256Hex(planProjection);
+}
+
+/**
+ * Compute the SHA-256 hex digest of a post-apply serialized canvas projection.
+ *
+ * A canvas projection is the visual / positional subset of the mutation plan:
+ * node positions, sizes, flags, colors, group bounding boxes, titles, colors,
+ * and any extra canvas-level metadata.  Structural graph data (links, widget
+ * values) that is NOT part of the canvas arrangement should be excluded so
+ * that the canvas hash is stable under layout-only reorganise passes.
+ *
+ * The canonical shape mirrors the entries + groups + extra subset of the
+ * full mutation-plan projection:
+ *
+ *   {
+ *     entries: { [nodeId]: { pos, size, flags, color, bgcolor, mode, order } },
+ *     groups:  [{ title, bounding, color, font_size, locked }],
+ *     extra:   { ... }
+ *   }
+ *
+ * @param {object} canvasProjection
+ * @returns {string} 64-character lowercase hex digest
+ */
+export function computeCanvasProjectionHash(canvasProjection) {
+  if (!canvasProjection || Array.isArray(canvasProjection) || typeof canvasProjection !== "object") {
+    return "";
+  }
+  return sha256Hex(canvasProjection);
+}
+
+/**
+ * Extract the canvas-only projection from a candidate graph whose nodes carry
+ * position / size / flags / color furniture.  This is the subset signed by the
+ * plan_hash when structural graph changes are absent (layout-only reorganise).
+ *
+ * @param {object} candidateGraph  serialized graph with `.nodes`, `.groups`,
+ *                                 and optionally `.extra`.
+ * @returns {object} canvas projection suitable for `computeCanvasProjectionHash`
+ */
+export function extractCanvasProjection(candidateGraph) {
+  const nodes = Array.isArray(candidateGraph?.nodes) ? candidateGraph.nodes : [];
+  const groups = Array.isArray(candidateGraph?.groups) ? candidateGraph.groups : [];
+  const extra = candidateGraph?.extra && typeof candidateGraph.extra === "object"
+    ? candidateGraph.extra
+    : {};
+
+  const entries = {};
+  for (const node of nodes) {
+    const uid = uidOf(node) || (node?.id != null ? String(node.id) : null);
+    if (!uid) continue;
+    const entry = {};
+    if (Array.isArray(node.pos) && node.pos.length >= 2) {
+      entry.pos = [Number(node.pos[0]), Number(node.pos[1])];
+    } else if (Array.isArray(node?.properties?.pos) && node.properties.pos.length >= 2) {
+      entry.pos = [Number(node.properties.pos[0]), Number(node.properties.pos[1])];
+    }
+    if (node.size && (Array.isArray(node.size) ? node.size.length >= 2 : true)) {
+      entry.size = Array.isArray(node.size)
+        ? [Number(node.size[0]), Number(node.size[1])]
+        : node.size;
+    }
+    if (node.flags && typeof node.flags === "object") {
+      entry.flags = { ...node.flags };
+    }
+    if (typeof node.color === "string") entry.color = node.color;
+    if (typeof node.bgcolor === "string") entry.bgcolor = node.bgcolor;
+    if (node.mode != null) entry.mode = node.mode;
+    if (node.order != null) entry.order = node.order;
+    entries[uid] = entry;
+  }
+
+  const canvasGroups = groups.map((group) => {
+    const g = {};
+    if (typeof group.title === "string") g.title = group.title;
+    const raw = group?.bounding || group?._bounding;
+    if (raw) {
+      const bounds = [
+        Number(raw[0] ?? 0), Number(raw[1] ?? 0),
+        Number(raw[2] ?? 0), Number(raw[3] ?? 0),
+      ];
+      if (bounds.every(Number.isFinite)) g.bounding = bounds;
+    }
+    if (typeof group.color === "string") g.color = group.color;
+    if (group.font_size != null) g.font_size = group.font_size;
+    if (group.locked != null) g.locked = Boolean(group.locked);
+    return g;
+  }).filter((g) => Object.keys(g).length > 0);
+
+  const projection = { entries };
+  if (canvasGroups.length > 0) projection.groups = canvasGroups;
+  if (Object.keys(extra).length > 0) projection.extra = extra;
+
+  return projection;
 }

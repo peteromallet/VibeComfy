@@ -601,6 +601,14 @@ function normalizeCandidateEnvelope(response, candidateGraph) {
     if (!isObject(candidate.graph)) {
       candidate.graph = candidateGraph;
     }
+    // Expose mutation-plan fields from the candidate envelope for durable authority.
+    candidate.plan_hash = asString(candidate.plan_hash) || asString(candidate.planHash) || null;
+    candidate.structural_hash_before = asString(candidate.structural_hash_before) || asString(candidate.structuralHashBefore) || null;
+    candidate.structural_hash_after = asString(candidate.structural_hash_after) || asString(candidate.structuralHashAfter) || null;
+    candidate.monotonic_generation = typeof candidate.monotonic_generation === "number"
+      ? candidate.monotonic_generation
+      : typeof candidate.monotonicGeneration === "number" ? candidate.monotonicGeneration : null;
+    candidate.lease_nonce = asString(candidate.lease_nonce) || asString(candidate.leaseNonce) || null;
     return candidate;
   }
   return {
@@ -1138,6 +1146,18 @@ export function readApplyCandidate(value, options) {
       ? normalized.eligibility.applyable === true
       : normalized.applyEligible === true,
     turnIdentity: identity,
+    planHash:
+      asString(candidate.plan_hash) || asString(candidate.planHash) || null,
+    structuralHashBefore:
+      asString(candidate.structural_hash_before) || asString(candidate.structuralHashBefore) || null,
+    structuralHashAfter:
+      asString(candidate.structural_hash_after) || asString(candidate.structuralHashAfter) || null,
+    monotonicGeneration:
+      typeof candidate.monotonic_generation === "number"
+        ? candidate.monotonic_generation
+        : typeof candidate.monotonicGeneration === "number" ? candidate.monotonicGeneration : null,
+    leaseNonce:
+      asString(candidate.lease_nonce) || asString(candidate.leaseNonce) || null,
   });
 }
 

@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "action": "rollback",
+  "session_id": "session-v2-rollback",
+  "turn_id": "0001",
+  "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "generation": 1,
+  "phase": "rolled_back",
+  "baseline_turn_id": "0000",
+  "baseline_graph_hash": "baseline-restored-hash",
+  "baseline_graph_hash_kind": "structural",
+  "receipt": {
+    "event_type": "rolled_back",
+    "turn_id": "0001",
+    "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": 1,
+    "restored_structural_hash": "baseline-restored-hash",
+    "timestamp": "2026-07-14T11:00:02Z"
+  }
+}

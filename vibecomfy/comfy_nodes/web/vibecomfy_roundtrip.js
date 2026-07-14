@@ -86,6 +86,19 @@ import {
   commitTerminalResponse,
   commitApplyResolved,
   commitLifecycleReset,
+  commitPrepareStarted,
+  commitPrepareSuccess,
+  commitPrepareFailure,
+  commitVerifyCanvasStarted,
+  commitVerifyCanvasSuccess,
+  commitVerifyCanvasFailure,
+  commitFinalizeStarted,
+  commitFinalizeSuccess,
+  commitFinalizeFailure,
+  commitRollbackStarted,
+  commitRollbackSuccess,
+  commitRollbackFailure,
+  commitReconcileReceipts,
 } from "./agent_lifecycle_commit.js";
 import {
   normalizeAgentEditResponse,
@@ -4709,6 +4722,13 @@ async function _rehydrateChat(panel) {
       // ── T8: Pass requestScopeId so restoreLatestCandidateFromChat can
       // refuse cross-scope / cross-session candidate restores.
       await restoreLatestCandidateFromChat(panel, payload, requestScopeId);
+      if (isTransactionalApplyCandidate(panel)) {
+        try {
+          await reconcilePreparedTransactionState(panel);
+        } catch (error) {
+          console.warn("[vibecomfy] transaction reconcile after rehydrate failed:", safePreviewLogDetail(error));
+        }
+      }
       renderAgentPanel(panel, { dirtySections: [RENDER_SECTIONS.META, RENDER_SECTIONS.THREAD] });
     } else {
       throw new Error(payload.raw?.error || "chat endpoint returned ok: false");
@@ -7107,24 +7127,84 @@ function readGroupBounding(group) {
   return { x, y, w, h };
 }
 
+function groupLayoutKey(group, index) {
+  if (group?.id != null) return `id:${String(group.id)}`;
+  // Fall back to title when no id is present — this allows matching across
+  // baseline and candidate even when the group list order changes (e.g. a
+  // group is removed and indices shift).
+  if (typeof group?.title === "string" && group.title.trim()) {
+    return `title:${group.title.trim()}`;
+  }
+  return `index:${index}`;
+}
+
+function groupBoundsEqual(left, right) {
+  return (
+    Math.abs(left.x - right.x) < 0.5
+    && Math.abs(left.y - right.y) < 0.5
+    && Math.abs(left.w - right.w) < 0.5
+    && Math.abs(left.h - right.h) < 0.5
+  );
+}
+
 function collectLayoutGroupsFromCandidate(baselineGraph, candidateGraph) {
-  if (!baselineGraph || !candidateGraph) {
+  if (!candidateGraph) {
     return [];
   }
-  return (Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [])
-    .map((group, index) => {
-      const bounds = readGroupBounding(group);
-      if (!bounds) {
-        return null;
+  const candidateGroups = Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [];
+
+  // Always extract candidate groups from the exact candidate patch —
+  // even when no baseline is available for comparison.
+  const entries = [];
+  const candidateKeys = new Set();
+  for (let i = 0; i < candidateGroups.length; i += 1) {
+    const group = candidateGroups[i];
+    const bounds = readGroupBounding(group);
+    if (!bounds) continue;
+    const key = groupLayoutKey(group, i);
+    candidateKeys.add(key);
+    entries.push({
+      key,
+      title: typeof group?.title === "string" ? group.title : "Group",
+      color: typeof group?.color === "string" ? group.color : null,
+      bounds,
+      _baselineBounds: null,
+      _changed: false,
+    });
+  }
+
+  // When a baseline is available, compare against applied group geometry.
+  if (baselineGraph) {
+    const baselineGroups = Array.isArray(baselineGraph.groups) ? baselineGraph.groups : [];
+    const baselineMap = new Map();
+    for (let i = 0; i < baselineGroups.length; i += 1) {
+      const bounds = readGroupBounding(baselineGroups[i]);
+      if (bounds) {
+        baselineMap.set(groupLayoutKey(baselineGroups[i], i), bounds);
       }
-      return {
-        key: group?.id != null ? `id:${String(group.id)}` : `index:${index}`,
-        title: typeof group?.title === "string" ? group.title : "Group",
-        color: typeof group?.color === "string" ? group.color : null,
-        bounds,
-      };
-    })
-    .filter(Boolean);
+    }
+    const removedGroupKeys = [];
+    for (const [key] of baselineMap) {
+      if (!candidateKeys.has(key)) {
+        removedGroupKeys.push(key);
+      }
+    }
+    for (const entry of entries) {
+      const baselineBounds = baselineMap.get(entry.key) || null;
+      entry._baselineBounds = baselineBounds;
+      entry._changed = baselineBounds ? !groupBoundsEqual(entry.bounds, baselineBounds) : true;
+    }
+    if (removedGroupKeys.length > 0) {
+      Object.defineProperty(entries, "_removedGroupKeys", {
+        value: removedGroupKeys,
+        writable: false,
+        enumerable: false,
+        configurable: false,
+      });
+    }
+  }
+
+  return entries;
 }
 
 function clearCandidateInvalidationSideEffects(repaint = true) {
@@ -10411,6 +10491,388 @@ async function applyAgentCandidate(panel) {
     return;
   }
 
+  if (isTransactionalApplyCandidate(panel)) {
+    const applyPromise = (async () => {
+      let beforeApply;
+      try {
+        beforeApply = await buildCanvasSnapshot();
+      } catch (e) {
+        const failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas before Apply: ${String(e)}`, {
+          retryable: true,
+          graph_unchanged: true,
+        });
+        const obligations = transition(panel, "APPLY_SERIALIZE_ERROR", { failure, debugPayload: failure });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+
+      const eligibility = applyEligibility(panel, beforeApply);
+      if (!eligibility.applyable) {
+        const failure = agentPanelFailure("StaleStateMismatch", eligibility.message || "Apply is blocked for this candidate.", {
+          retryable: true,
+          graph_unchanged: true,
+          next_action: "Submit a new edit from the current canvas.",
+          apply_eligibility: eligibility,
+        });
+        const obligations = transition(panel, "APPLY_ELIGIBILITY_BLOCKED", {
+          failure,
+          debugPayload: failure,
+          clearCandidatePreview: true,
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+
+      const prepareBody = {
+        session_id: panel.state.sessionId,
+        turn_id: panel.state.turnId,
+        plan_hash: panel.state.mutationPlanHash,
+        candidate_graph_hash: panel.state.candidateGraphHash,
+        client_graph_hash: beforeApply.graphHash,
+        client_structural_graph_hash: beforeApply.structuralHash,
+        client_live_canvas_token: beforeApply.liveCanvasToken,
+        apply_eligibility: clonePlainData(panel.state.applyEligibility || eligibility),
+        candidate: {
+          graph_hash: panel.state.candidateGraphHash,
+          plan_hash: panel.state.mutationPlanHash,
+          structural_hash_before: beforeApply.structuralHash,
+          structural_hash_after: await structuralGraphHash(panel.state.candidateGraph),
+        },
+        idempotency_key: buildActionIdempotencyKey({
+          action: "prepare",
+          sessionId: panel.state.sessionId,
+          turnId: panel.state.turnId,
+          graphHash: beforeApply.graphHash,
+        }),
+      };
+
+      const startedObligations = transition(panel, "APPLY_STARTED", {
+        acceptBody: prepareBody,
+        debugPayload: {
+          applying_turn_id: panel.state.turnId,
+          transactional_apply: true,
+          prepare_request: prepareBody,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, startedObligations);
+      const prepareStarted = commitPrepareStarted(panel, {
+        mutationPlanHash: panel.state.mutationPlanHash,
+        debugPayload: { prepare_request: prepareBody },
+      });
+      fulfillLifecycleTransitionObligations(panel, prepareStarted);
+      renderLifecycleTransition(panel, prepareStarted);
+
+      let prepared;
+      try {
+        prepared = await postAgentLifecycleAction("prepare", prepareBody, "prepare");
+        const obligations = commitPrepareSuccess(panel, {
+          preparedReceipt: prepared.receipt || null,
+          debugPayload: {
+            prepare_request: prepareBody,
+            prepare_response: prepared.raw || prepared,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+      } catch (error) {
+        const failure = error?.ok === false
+          ? error
+          : agentPanelFailure("PrepareError", String(error), {
+              retryable: true,
+              graph_unchanged: true,
+              next_action: "Retry Apply after the backend can prepare the transaction.",
+            });
+        const obligations = commitPrepareFailure(panel, {
+          failure,
+          debugPayload: {
+            prepare_request: prepareBody,
+            prepare_failure: failure,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+
+      // ── T26: Verify prepared mutation-plan hash ──────────────────────
+      // After prepare succeeds, confirm the server's prepared plan_hash
+      // matches the candidate's mutationPlanHash before mutating the
+      // canvas.  A mismatch means the server prepared a different plan;
+      // roll back the prepared transaction and fail closed.
+      {
+        const preparedPlanHash =
+          panel.state.preparedReceipt?.plan_hash
+          || panel.state.preparedReceipt?.planHash
+          || prepared?.receipt?.plan_hash
+          || prepared?.receipt?.planHash
+          || prepared?.plan_hash
+          || prepared?.planHash
+          || null;
+        if (
+          typeof panel.state.mutationPlanHash === "string"
+          && panel.state.mutationPlanHash
+          && typeof preparedPlanHash === "string"
+          && preparedPlanHash
+          && preparedPlanHash !== panel.state.mutationPlanHash
+        ) {
+          await rollbackPreparedAgentCandidate(panel, beforeApply);
+          const failure = agentPanelFailure(
+            "StaleStateMismatch",
+            "Prepared mutation-plan hash does not match the candidate plan hash.",
+            {
+              retryable: true,
+              graph_unchanged: true,
+              next_action: "Submit a new edit from the current canvas.",
+              expected_plan_hash: panel.state.mutationPlanHash,
+              prepared_plan_hash: preparedPlanHash,
+            },
+          );
+          const verifyObligations = commitVerifyCanvasFailure(panel, {
+            failure,
+            debugPayload: {
+              transactional_apply: true,
+              prepare_response: prepared.raw || prepared,
+              plan_hash_mismatch: true,
+              expected_plan_hash: panel.state.mutationPlanHash,
+              prepared_plan_hash: preparedPlanHash,
+            },
+          });
+          fulfillLifecycleTransitionObligations(panel, verifyObligations);
+          renderLifecycleTransition(panel, verifyObligations);
+          return;
+        }
+      }
+
+      const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
+      panel.state.undoStack.push({
+        session_id: panel.state.sessionId,
+        turn_id: panel.state.turnId,
+        graph: clonePlainData(undoSnapshot.graph),
+        client_graph_hash: undoSnapshot.graphHash,
+        accepted_baseline_graph_hash: panel.state.baselineGraphHash || null,
+        captured_at: new Date().toISOString(),
+        chat_scope_id: panel.state.chatScopeId || null,
+        chat_scope_fingerprint: panel.state.chatScopeFingerprint || null,
+        canvas_structural_hash: undoSnapshot.structuralHash || null,
+      });
+      panel.state.undoStack = panel.state.undoStack.slice(-16);
+      markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
+
+      try {
+        applyGraphInPlaceWithIntentDecoration(panel.state.candidateGraph);
+      } catch (error) {
+        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const failure = agentPanelFailure("CanvasApplyError", String(error), {
+          retryable: true,
+          graph_unchanged: true,
+          next_action: "Retry Apply or Rebaseline from the current canvas.",
+        });
+        const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
+          failure,
+          debugPayload: {
+            transactional_apply: true,
+            prepare_response: prepared.raw || prepared,
+            canvas_apply_failure: failure,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+
+      // ── T26: Post-apply serialize/hash (try/catch with rollback) ──────
+      // After local mutation, serialize the live canvas and hash it.  If
+      // serialization fails the canvas is already mutated, so roll back
+      // the prepared transaction and report a verification failure.
+      let afterApply;
+      try {
+        afterApply = await buildCanvasSnapshot();
+      } catch (serializeErr) {
+        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const failure = agentPanelFailure(
+          "SerializeError",
+          `Could not serialize the canvas after Apply: ${String(serializeErr)}`,
+          {
+            retryable: true,
+            graph_unchanged: false,
+            next_action: "Retry Apply or Rebaseline from the current canvas.",
+          },
+        );
+        const serializeObligations = commitVerifyCanvasFailure(panel, {
+          failure,
+          debugPayload: {
+            transactional_apply: true,
+            prepare_response: prepared.raw || prepared,
+            post_apply_serialize_failure: failure,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, serializeObligations);
+        renderLifecycleTransition(panel, serializeObligations);
+        return;
+      }
+      const verifyStarted = commitVerifyCanvasStarted(panel, {
+        debugPayload: {
+          expected_plan_hash: panel.state.mutationPlanHash,
+          post_apply_hash: afterApply.graphHash,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, verifyStarted);
+
+      // ── T26: Verify post-apply structural hash matches candidate ──────
+      // The live canvas structure after mutation must match the candidate
+      // graph structure.  A mismatch means the apply did not produce the
+      // expected graph; roll back and fail closed.
+      let expectedStructuralHashAfter = null;
+      try {
+        expectedStructuralHashAfter = await structuralGraphHash(panel.state.candidateGraph);
+      } catch (_hashErr) {
+        expectedStructuralHashAfter = null;
+      }
+      if (
+        typeof afterApply.structuralHash === "string"
+        && afterApply.structuralHash
+        && typeof expectedStructuralHashAfter === "string"
+        && expectedStructuralHashAfter
+        && afterApply.structuralHash !== expectedStructuralHashAfter
+      ) {
+        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const failure = agentPanelFailure(
+          "StaleStateMismatch",
+          "Post-apply canvas structural hash does not match the candidate structural hash.",
+          {
+            retryable: true,
+            graph_unchanged: false,
+            next_action: "Retry Apply or Rebaseline from the current canvas.",
+            expected_structural_hash: expectedStructuralHashAfter,
+            actual_structural_hash: afterApply.structuralHash,
+          },
+        );
+        const hashObligations = commitVerifyCanvasFailure(panel, {
+          failure,
+          debugPayload: {
+            transactional_apply: true,
+            prepare_response: prepared.raw || prepared,
+            post_apply_hash_mismatch: true,
+            expected_structural_hash: expectedStructuralHashAfter,
+            actual_structural_hash: afterApply.structuralHash,
+            post_apply_graph_hash: afterApply.graphHash,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, hashObligations);
+        renderLifecycleTransition(panel, hashObligations);
+        return;
+      }
+
+      const verifyReceipt = {
+        plan_hash: panel.state.mutationPlanHash,
+        generation: panel.state.generation,
+        lease_nonce: panel.state.leaseNonce,
+        post_apply_hash: afterApply.graphHash,
+      };
+      const verifySuccess = commitVerifyCanvasSuccess(panel, {
+        verifiedReceipt: verifyReceipt,
+        debugPayload: {
+          verify_canvas: verifyReceipt,
+          prepare_response: prepared.raw || prepared,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, verifySuccess);
+
+      const finalizeBody = {
+        session_id: panel.state.sessionId,
+        turn_id: panel.state.turnId,
+        plan_hash: panel.state.mutationPlanHash,
+        generation: panel.state.generation,
+        lease_nonce: panel.state.leaseNonce,
+        post_apply_hash: afterApply.graphHash,
+        post_apply_hash_verified: true,
+        browser_verified: true,
+        verified: true,
+        client_graph_hash: afterApply.graphHash,
+        client_structural_graph_hash: afterApply.structuralHash,
+        idempotency_key: buildActionIdempotencyKey({
+          action: "finalize",
+          sessionId: panel.state.sessionId,
+          turnId: panel.state.turnId,
+          graphHash: afterApply.graphHash,
+        }),
+      };
+      const finalizeStarted = commitFinalizeStarted(panel, {
+        debugPayload: { finalize_request: finalizeBody },
+      });
+      fulfillLifecycleTransitionObligations(panel, finalizeStarted);
+
+      try {
+        const finalized = await postAgentLifecycleAction("finalize", finalizeBody, "finalize");
+        const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
+        pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
+        pushTurnStatus(panel, "applied", {
+          turn_id: panel.state.turnId,
+          baseline_turn_id: finalized.baselineTurnId || panel.state.turnId,
+          message: panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate",
+          audit_ref: finalized.auditRef || panel.state.auditRef,
+          raw_payload: finalized.raw || finalized,
+        });
+        const obligations = commitFinalizeSuccess(panel, {
+          finalizedReceipt: finalized.receipt || null,
+          accepted: finalized.raw || finalized,
+          lastAppliedChanges,
+          undoStackDepth: panel.state.undoStack.length,
+          toast: "Agent candidate applied",
+          debugPayload: {
+            prepare_response: prepared.raw || prepared,
+            finalize_request: finalizeBody,
+            finalize_response: finalized.raw || finalized,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        clearLayoutPreviewState(panel);
+        rememberTurnDetailSnapshot(panel, {
+          turn_id: panel.state.turnId,
+          session_id: panel.state.sessionId,
+          auditRef: finalized.auditRef || panel.state.auditRef,
+          debugPayload: obligations.debugPayload || panel.state.debugPayload,
+          lastAppliedChanges,
+          message: panel.state.message,
+        });
+        renderLifecycleTransition(panel, obligations);
+      } catch (error) {
+        const failure = error?.ok === false
+          ? error
+          : agentPanelFailure("FinalizeError", String(error), {
+              retryable: true,
+              graph_unchanged: false,
+              next_action: "Reload to recover the prepared transaction, then finalize or rollback.",
+            });
+        // ── T26: Finalize failure boundary — rollback the prepared ──────
+        // transaction so the server baseline does not remain wedged in
+        // apply_prepared.  The canvas is already mutated; rollback cancels
+        // the server-side prepared transaction.
+        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const obligations = commitFinalizeFailure(panel, {
+          failure,
+          debugPayload: {
+            transactional_apply: true,
+            finalize_boundary_rollback: true,
+            prepare_response: prepared.raw || prepared,
+            finalize_request: finalizeBody,
+            finalize_failure: failure,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+      }
+    })();
+
+    transition(panel, "APPLY_IN_FLIGHT", { promise: applyPromise });
+    try {
+      return await panel.state.inFlightApply;
+    } finally {
+      transition(panel, "APPLY_FINALLY", { clearInFlightApply: true });
+    }
+  }
+
   const applyPromise = (async () => {
     let beforeApply;
     try {
@@ -11019,6 +11481,145 @@ async function applyAgentCandidate(panel) {
   }
 }
 
+function isTransactionalApplyCandidate(panel) {
+  return Boolean(
+    panel?.state?.candidateGraph
+    && typeof panel?.state?.mutationPlanHash === "string"
+    && panel.state.mutationPlanHash
+    && typeof panel?.state?.candidateGraphHash === "string"
+    && panel.state.candidateGraphHash,
+  );
+}
+
+function normalizeLifecycleReceiptsFromEvents(events) {
+  const receipts = {
+    preparedReceipt: null,
+    verifiedReceipt: null,
+    rollbackReceipt: null,
+    lifecycleEvents: [],
+  };
+  if (!Array.isArray(events)) {
+    return receipts;
+  }
+  receipts.lifecycleEvents = events.map((event) => clonePlainData(event));
+  for (const event of events) {
+    if (!event || typeof event !== "object") {
+      continue;
+    }
+    const eventType = String(event.event_type || event.eventType || "");
+    const receipt = event.receipt && typeof event.receipt === "object"
+      ? clonePlainData(event.receipt)
+      : clonePlainData(event);
+    if (eventType === "prepared") {
+      receipts.preparedReceipt = receipt;
+    } else if (eventType === "finalized") {
+      receipts.verifiedReceipt = {
+        plan_hash: receipt.plan_hash || null,
+        generation: receipt.generation ?? null,
+        post_apply_hash: receipt.applied_payload?.post_apply_hash || null,
+        finalized_receipt: receipt,
+      };
+    } else if (eventType === "rolled_back") {
+      receipts.rollbackReceipt = receipt;
+    }
+  }
+  return receipts;
+}
+
+async function postAgentLifecycleAction(endpoint, body, action) {
+  const response = await fetch(`/vibecomfy/agent-edit/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const rawPayload = await response.json();
+  const payload = normalizeAuxiliaryAgentPayload(rawPayload, action);
+  if (!response.ok || payload?.ok === false || payload.raw?.error) {
+    throw payload.raw || payload || { kind: `${action}Error`, message: response.statusText };
+  }
+  return payload;
+}
+
+async function reconcilePreparedTransactionState(panel) {
+  if (!panel?.state?.sessionId || !panel?.state?.turnId) {
+    return null;
+  }
+  const payload = await postAgentLifecycleAction("reconcile", {
+    session_id: panel.state.sessionId,
+    turn_id: panel.state.turnId,
+  }, "reconcile");
+  const events = Array.isArray(payload?.raw?.receipts_by_turn?.[panel.state.turnId])
+    ? payload.raw.receipts_by_turn[panel.state.turnId]
+    : [];
+  const receipts = normalizeLifecycleReceiptsFromEvents(events);
+  const obligations = commitReconcileReceipts(panel, {
+    receipts,
+    debugPayload: {
+      reconcile_response: payload.raw || payload,
+      reconciled_receipts: receipts,
+    },
+  });
+  fulfillLifecycleTransitionObligations(panel, obligations);
+  return payload;
+}
+
+async function rollbackPreparedAgentCandidate(panel, snapshot) {
+  const rollbackBody = {
+    session_id: panel.state.sessionId,
+    turn_id: panel.state.turnId,
+    plan_hash: panel.state.mutationPlanHash,
+    generation: panel.state.generation,
+    lease_nonce: panel.state.leaseNonce || undefined,
+    client_graph_hash: snapshot?.graphHash || undefined,
+    client_structural_graph_hash: snapshot?.structuralHash || undefined,
+    idempotency_key: buildActionIdempotencyKey({
+      action: "rollback",
+      sessionId: panel.state.sessionId,
+      turnId: panel.state.turnId,
+      graphHash: snapshot?.graphHash || panel.state.candidateGraphHash,
+    }),
+  };
+  const started = commitRollbackStarted(panel, {
+    debugPayload: { rollback_request: rollbackBody },
+  });
+  fulfillLifecycleTransitionObligations(panel, started);
+  renderLifecycleTransition(panel, started);
+  try {
+    const rolledBack = await postAgentLifecycleAction("rollback", rollbackBody, "rollback");
+    const obligations = commitRollbackSuccess(panel, {
+      rollbackReceipt: rolledBack.receipt || null,
+      message: rolledBack.message || "Prepared transaction rolled back.",
+      toast: "Prepared transaction rolled back",
+      debugPayload: {
+        rollback_request: rollbackBody,
+        rollback_response: rolledBack.raw || rolledBack,
+      },
+    });
+    fulfillLifecycleTransitionObligations(panel, obligations);
+    clearLayoutPreviewState(panel);
+    renderLifecycleTransition(panel, obligations);
+    return true;
+  } catch (error) {
+    const failure = error?.ok === false
+      ? error
+      : agentPanelFailure("RollbackError", String(error), {
+          retryable: true,
+          graph_unchanged: true,
+          next_action: "Retry rollback or Rebaseline from the current canvas.",
+        });
+    const obligations = commitRollbackFailure(panel, {
+      failure,
+      debugPayload: {
+        rollback_request: rollbackBody,
+        rollback_failure: failure,
+      },
+    });
+    fulfillLifecycleTransitionObligations(panel, obligations);
+    renderLifecycleTransition(panel, obligations);
+    return false;
+  }
+}
+
 async function rejectAgentCandidate(panel) {
   // ── T8: Demo-only reject branch (local state only, no backend reject) ──
   // Delegates to preview_picker which handles lifecycle reflection and
@@ -11049,6 +11650,14 @@ async function rejectAgentCandidate(panel) {
       debugPayload: failure,
     });
     if (obligations.render) renderAgentPanel(panel);
+    return;
+  }
+
+  if (
+    isTransactionalApplyCandidate(panel)
+    && (panel.state.phase === PANEL_STATE.APPLY_PREPARED || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED)
+  ) {
+    await rollbackPreparedAgentCandidate(panel, snapshot);
     return;
   }
 

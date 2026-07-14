@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "action": "prepare",
+  "session_id": "session-v2-prepare",
+  "turn_id": "0001",
+  "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "generation": 1,
+  "lease_nonce": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "phase": "prepared",
+  "baseline_graph_hash": "baseline-structural-hash",
+  "baseline_graph_hash_kind": "structural",
+  "baseline_advanced": false,
+  "generation_cas_enforced": false,
+  "receipt": {
+    "event_type": "prepared",
+    "turn_id": "0001",
+    "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generation": 1,
+    "lease_nonce": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "structural_hash_before": "baseline-structural-hash",
+    "candidate_payload": {
+      "graph_hash": "candidate-graph-hash",
+      "plan_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "structural_hash_after": "structural-hash-after"
+    },
+    "baseline_snapshot": {
+      "baseline_graph_hash": "baseline-structural-hash",
+      "baseline_graph_hash_kind": "structural",
+      "baseline_turn_id": "0000"
+    },
+    "timestamp": "2026-07-14T11:00:00Z"
+  }
+}

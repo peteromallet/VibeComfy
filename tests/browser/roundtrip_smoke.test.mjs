@@ -3346,6 +3346,186 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
   }
 });
 
+test("T27: VibeComfy preview overlay renders group geometry parity — candidate groups with baseline comparison", async () => {
+  // Verify that the preview overlay renders candidate groups from the exact
+  // patch and, when baseline groups differ, ghosts the baseline outline for
+  // visual comparison.  The overlay must use the layout_groups entries
+  // (which include _baselineBounds and _changed) to produce both candidate
+  // and baseline group furniture.
+
+  const baselineGraph = {
+    nodes: [
+      { id: 1, type: "Input", pos: [50, 50], size: [200, 100], properties: { vibecomfy_uid: "n1" } },
+      { id: 2, type: "Output", pos: [300, 50], size: [200, 100], properties: { vibecomfy_uid: "n2" } },
+    ],
+    groups: [
+      { title: "Main Pipeline", bounding: [20, 20, 520, 160], color: "#3f789e" },
+    ],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", pos: [50, 300], size: [200, 100], properties: { vibecomfy_uid: "n1" } },
+      { id: 2, type: "Output", pos: [300, 300], size: [200, 100], properties: { vibecomfy_uid: "n2" } },
+    ],
+    groups: [
+      { title: "Main Pipeline", bounding: [20, 270, 520, 160], color: "#3f789e" },
+    ],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: baselineGraph,
+    canvasSize: { width: 800, height: 600 },
+  });
+  try {
+    const mod = await harness.loadExtension();
+
+    // Build a diff that mimics computePreviewDiff output with the new
+    // layout_groups structure carrying _baselineBounds and _changed.
+    const diff = {
+      edited: [],
+      edited_fields: [],
+      added: [],
+      removed: [],
+      removed_named: [],
+      added_links: [],
+      removed_links: [],
+      layout_moved: [
+        {
+          uid: "n1",
+          before: { x: 50, y: 50, w: 200, h: 100 },
+          after: { x: 50, y: 300, w: 200, h: 100 },
+          dx: 0, dy: 250,
+        },
+        {
+          uid: "n2",
+          before: { x: 300, y: 50, w: 200, h: 100 },
+          after: { x: 300, y: 300, w: 200, h: 100 },
+          dx: 0, dy: 250,
+        },
+      ],
+      layout_groups: [
+        {
+          key: "title:Main Pipeline",
+          title: "Main Pipeline",
+          color: "#3f789e",
+          bounds: { x: 20, y: 270, w: 520, h: 160 },
+          _baselineBounds: { x: 20, y: 20, w: 520, h: 160 },
+          _changed: true,
+        },
+      ],
+      unresolved: [],
+      _candidateGraph: candidateGraph,
+    };
+
+    const drawOps = await harness.drawPreviewOverlay(diff);
+
+    // ── Candidate group (exact patch) ────────────────────────────────────
+    assert.ok(
+      drawOps.some((op) => op.kind === "strokeRect" && op.args.join(",") === "20,270,520,160"),
+      "overlay must draw the candidate group boundary from the exact candidate patch",
+    );
+    assert.ok(
+      drawOps.some((op) => op.kind === "fillText" && op.args[0] === "Main Pipeline"),
+      "overlay must label the candidate group with its title",
+    );
+
+    // ── Changed badge ────────────────────────────────────────────────────
+    assert.ok(
+      drawOps.some((op) => op.kind === "fillText" && op.args[0] === "modified"),
+      "overlay must badge modified groups with 'modified' label",
+    );
+
+    // ── Baseline ghost ───────────────────────────────────────────────────
+    assert.ok(
+      drawOps.some((op) => op.kind === "strokeRect" && op.args.join(",") === "20,20,520,160"),
+      "overlay must ghost the baseline group bounds for visual comparison",
+    );
+    assert.ok(
+      drawOps.some((op) => op.kind === "fillText" && op.args[0] === "baseline"),
+      "overlay must label the baseline ghost",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("T27: VibeComfy preview overlay renders new groups without baseline ghost", async () => {
+  // New groups (not present in baseline) should show the "new" badge and
+  // NOT render a baseline ghost outline, since there is no baseline to compare.
+
+  const baselineGraph = {
+    nodes: [
+      { id: 1, type: "Input", pos: [50, 50], size: [200, 100], properties: { vibecomfy_uid: "n1" } },
+    ],
+    groups: [],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", pos: [50, 50], size: [200, 100], properties: { vibecomfy_uid: "n1" } },
+    ],
+    groups: [
+      { title: "New Section", bounding: [10, 10, 300, 200], color: "#00ff00" },
+    ],
+    links: [],
+  };
+
+  const harness = await createBrowserHarness({
+    graph: baselineGraph,
+    canvasSize: { width: 800, height: 600 },
+  });
+  try {
+    const mod = await harness.loadExtension();
+
+    const diff = {
+      edited: [],
+      edited_fields: [],
+      added: [],
+      removed: [],
+      removed_named: [],
+      added_links: [],
+      removed_links: [],
+      layout_moved: [],
+      layout_groups: [
+        {
+          key: "title:New Section",
+          title: "New Section",
+          color: "#00ff00",
+          bounds: { x: 10, y: 10, w: 300, h: 200 },
+          _baselineBounds: null,
+          _changed: true,
+        },
+      ],
+      unresolved: [],
+      _candidateGraph: candidateGraph,
+    };
+
+    const drawOps = await harness.drawPreviewOverlay(diff);
+
+    // Candidate group drawn
+    assert.ok(
+      drawOps.some((op) => op.kind === "strokeRect" && op.args.join(",") === "10,10,300,200"),
+    );
+
+    // "new" badge (not "modified")
+    assert.ok(
+      drawOps.some((op) => op.kind === "fillText" && op.args[0] === "new"),
+      "new groups should be badged 'new', not 'modified'",
+    );
+
+    // No baseline ghost
+    assert.equal(
+      drawOps.some((op) => op.kind === "fillText" && op.args[0] === "baseline"),
+      false,
+      "new groups must not render a baseline ghost",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", async () => {
   const SESSION_ID = "session-layout-rehydrate-preview";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;

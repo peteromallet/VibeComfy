@@ -51,11 +51,15 @@ from .hivemind_feedback import submit_hivemind_feedback
 from .session import (
     accept_turn as _session_accept_turn,
     allocate_turn as _session_allocate_turn,
+    finalize_turn_transaction as _session_finalize_turn_transaction,
     normalize_path_component,
     normalize_session_id,
+    prepare_turn_transaction as _session_prepare_turn_transaction,
     rebaseline_session as _session_rebaseline_session,
+    reconcile_turn_transactions as _session_reconcile_turn_transactions,
     record_idempotent_response as _session_record_idempotent_response,
     reject_turn as _session_reject_turn,
+    rollback_turn_transaction as _session_rollback_turn_transaction,
     session_dir_for,
 )
 
@@ -78,6 +82,22 @@ def read_session_chat(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 def accept_turn(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _session_accept_turn(*args, **kwargs)
+
+
+def prepare_turn_transaction(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _session_prepare_turn_transaction(*args, **kwargs)
+
+
+def finalize_turn_transaction(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _session_finalize_turn_transaction(*args, **kwargs)
+
+
+def rollback_turn_transaction(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _session_rollback_turn_transaction(*args, **kwargs)
+
+
+def reconcile_turn_transactions(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _session_reconcile_turn_transactions(*args, **kwargs)
 
 
 def reject_turn(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -1818,6 +1838,10 @@ def register_agent_edit_routes(app) -> None:
             return _web.json_response(result, status=400)
         return _web.json_response(result, status=status, headers={"X-VibeComfy-Legacy-Route": "true"})
 
+    # ── Named temporary bridge: /vibecomfy/agent-edit/accept → /finalize ──
+    # Deletion condition: remove when every live browser client posts directly
+    # to /vibecomfy/agent-edit/finalize for V2 applyable turns for one full
+    # release cycle (tracked via per-session accept_bridge_v2_count in session.py).
     @app.routes.post("/vibecomfy/agent-edit/accept")
     async def _agent_edit_accept_route(request):  # type: ignore[no-untyped-def]
         try:
@@ -1846,6 +1870,131 @@ def register_agent_edit_routes(app) -> None:
             failure = _classify_failure("accept", exc)
             return _web.json_response(
                 _ensure_contract(failure.to_dict(), stage="accept"),
+                status=500,
+            )
+        response = _to_serializable(result)
+        # Surface bridge-use evidence on every response so operators can
+        # observe whether the accept→finalize bridge is still in active use.
+        if isinstance(response, dict) and isinstance(result, dict):
+            bridge_meta = result.get("bridge")
+            if isinstance(bridge_meta, dict):
+                response.setdefault("bridge", bridge_meta)
+        return _web.json_response(response)
+
+    @app.routes.post("/vibecomfy/agent-edit/prepare")
+    async def _agent_edit_prepare_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _json_error(f"Request body must be valid JSON: {exc}", stage="prepare")
+        if not isinstance(payload, dict):
+            return _json_error("Request body must be a JSON object.", stage="prepare")
+        session_id = _safe_session_id(payload.get("session_id"))
+        turn_id = payload.get("turn_id")
+        if not isinstance(turn_id, str) or not turn_id.strip():
+            return _json_error("turn_id is required.", stage="prepare")
+        try:
+            result = await asyncio.to_thread(
+                prepare_turn_transaction,
+                session_root=_SESSION_ROOT,
+                session_id=session_id,
+                turn_id=turn_id,
+                request_payload=payload,
+                idempotency_key=payload.get("idempotency_key")
+                if isinstance(payload.get("idempotency_key"), str)
+                else None,
+            )
+        except Exception as exc:
+            failure = _classify_failure("prepare", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="prepare"),
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result))
+
+    @app.routes.post("/vibecomfy/agent-edit/finalize")
+    async def _agent_edit_finalize_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _json_error(f"Request body must be valid JSON: {exc}", stage="finalize")
+        if not isinstance(payload, dict):
+            return _json_error("Request body must be a JSON object.", stage="finalize")
+        session_id = _safe_session_id(payload.get("session_id"))
+        turn_id = payload.get("turn_id")
+        if not isinstance(turn_id, str) or not turn_id.strip():
+            return _json_error("turn_id is required.", stage="finalize")
+        try:
+            result = await asyncio.to_thread(
+                finalize_turn_transaction,
+                session_root=_SESSION_ROOT,
+                session_id=session_id,
+                turn_id=turn_id,
+                request_payload=payload,
+                idempotency_key=payload.get("idempotency_key")
+                if isinstance(payload.get("idempotency_key"), str)
+                else None,
+            )
+        except Exception as exc:
+            failure = _classify_failure("finalize", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="finalize"),
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result))
+
+    @app.routes.post("/vibecomfy/agent-edit/rollback")
+    async def _agent_edit_rollback_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _json_error(f"Request body must be valid JSON: {exc}", stage="rollback")
+        if not isinstance(payload, dict):
+            return _json_error("Request body must be a JSON object.", stage="rollback")
+        session_id = _safe_session_id(payload.get("session_id"))
+        turn_id = payload.get("turn_id")
+        if not isinstance(turn_id, str) or not turn_id.strip():
+            return _json_error("turn_id is required.", stage="rollback")
+        try:
+            result = await asyncio.to_thread(
+                rollback_turn_transaction,
+                session_root=_SESSION_ROOT,
+                session_id=session_id,
+                turn_id=turn_id,
+                request_payload=payload,
+                idempotency_key=payload.get("idempotency_key")
+                if isinstance(payload.get("idempotency_key"), str)
+                else None,
+            )
+        except Exception as exc:
+            failure = _classify_failure("rollback", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="rollback"),
+                status=500,
+            )
+        return _web.json_response(_to_serializable(result))
+
+    @app.routes.post("/vibecomfy/agent-edit/reconcile")
+    async def _agent_edit_reconcile_route(request):  # type: ignore[no-untyped-def]
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            return _json_error(f"Request body must be valid JSON: {exc}", stage="reconcile")
+        if not isinstance(payload, dict):
+            return _json_error("Request body must be a JSON object.", stage="reconcile")
+        session_id = _safe_session_id(payload.get("session_id"))
+        turn_id = payload.get("turn_id")
+        try:
+            result = await asyncio.to_thread(
+                reconcile_turn_transactions,
+                session_root=_SESSION_ROOT,
+                session_id=session_id,
+                turn_id=turn_id if isinstance(turn_id, str) and turn_id.strip() else None,
+            )
+        except Exception as exc:
+            failure = _classify_failure("reconcile", exc)
+            return _web.json_response(
+                _ensure_contract(failure.to_dict(), stage="reconcile"),
                 status=500,
             )
         return _web.json_response(_to_serializable(result))

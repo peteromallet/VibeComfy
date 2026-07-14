@@ -1241,6 +1241,11 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
     // Render the serialized candidate groups as translucent furniture in the
     // preview layer so the review represents the complete proposed layout,
     // not just node movement arrows.
+    //
+    // T27: Each entry may carry _baselineBounds (the live group bounds for
+    // the same key) and _changed (true when candidate and baseline geometry
+    // differ).  When _changed is true, we also ghost the baseline outline
+    // so the reviewer can visually compare applied vs. proposed geometry.
     var layoutGroups = Array.isArray(diff.layout_groups) ? diff.layout_groups : [];
     for (var lgi = 0; lgi < layoutGroups.length; lgi += 1) {
       var layoutGroup = layoutGroups[lgi];
@@ -1249,9 +1254,37 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
       var groupColor = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(layoutGroup.color || ""))
         ? layoutGroup.color
         : layoutColor;
+      var groupChanged = Boolean(layoutGroup._changed);
+      var baselineBounds = layoutGroup._baselineBounds || null;
+
+      // ── Ghost baseline outline when geometry changed ────────────────────
+      if (groupChanged && baselineBounds) {
+        ctx.save();
+        try {
+          if (ctx.setLineDash) ctx.setLineDash([4, 6]);
+          ctx.fillStyle = hexToRgba(removedColor, 0.05);
+          ctx.strokeStyle = hexToRgba(removedColor, 0.45);
+          ctx.lineWidth = 2;
+          ctx.fillRect(baselineBounds.x, baselineBounds.y, baselineBounds.w, baselineBounds.h);
+          ctx.strokeRect(baselineBounds.x, baselineBounds.y, baselineBounds.w, baselineBounds.h);
+          if (ctx.setLineDash) ctx.setLineDash([]);
+          ctx.font = "11px sans-serif";
+          ctx.textBaseline = "top";
+          ctx.fillStyle = hexToRgba(removedColor, 0.55);
+          ctx.fillText(
+            "baseline",
+            baselineBounds.x + 6,
+            baselineBounds.y + 4,
+          );
+        } finally {
+          ctx.restore();
+        }
+      }
+
+      // ── Candidate group (exact patch rendering) ─────────────────────────
       ctx.save();
       try {
-        if (ctx.setLineDash) ctx.setLineDash([10, 5]);
+        if (ctx.setLineDash) ctx.setLineDash(groupChanged ? [8, 4] : [10, 5]);
         ctx.fillStyle = hexToRgba(groupColor, 0.10);
         ctx.strokeStyle = hexToRgba(groupColor, 0.95);
         ctx.lineWidth = 3;
@@ -1266,6 +1299,17 @@ export function drawPreviewOverlay(ctx, diff, deps = {}) {
           groupBounds.x + 10,
           groupBounds.y + 8,
         );
+        // ── Changed badge ────────────────────────────────────────────────
+        if (groupChanged) {
+          var changedLabel = baselineBounds ? "modified" : "new";
+          ctx.font = "11px sans-serif";
+          ctx.fillStyle = hexToRgba(editedColor, 0.92);
+          ctx.fillText(
+            changedLabel,
+            groupBounds.x + 10,
+            groupBounds.y + groupBounds.h - 16,
+          );
+        }
       } finally {
         ctx.restore();
       }

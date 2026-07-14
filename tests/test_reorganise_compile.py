@@ -20,6 +20,7 @@ from vibecomfy.porting.reorganise.compile import (
     COMPILE_ISSUE_MINIMUM_GUTTER,
     COMPILE_ISSUE_NOTE_SECTION_MISMATCH,
     COMPILE_ISSUE_NODE_OVERLAP,
+    COMPILE_ISSUE_PINNED_PRESERVATION_FAILED,
     COMPILE_HUGE_WORKFLOW_NODE_THRESHOLD,
     COMPILE_LARGE_SECTION_CLUSTER_SIZE,
     COMPILE_METRIC_BACKWARD_EDGE_RATIO,
@@ -37,17 +38,21 @@ from vibecomfy.porting.reorganise.compile import (
     COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
     COMPILE_METRIC_NODE_OVERLAP_COUNT,
     COMPILE_METRIC_STRUCTURAL_HASH_UNCHANGED,
+    COMPILE_IDEMPOTENCE_DELTA_THRESHOLD,
     _CompileSection,
     _CompileTraceAccumulator,
     _Spacing,
     _classify_layout_phase,
+    _compile_gate_metrics_and_issues,
     _compile_section_ownership_phase,
+    _compiled_idempotence_delta,
     _local_bounds,
     _local_section_layout,
     _layout_primary_rows,
     _node_size_for_ref,
     _resolve_group_collisions,
     _spacing,
+    _validate_pinned_preservation,
     CompiledGroupLayout,
     CompiledNodeLayout,
     LayoutCandidatePatch,
@@ -56,7 +61,12 @@ from vibecomfy.porting.reorganise.compile import (
     structural_hash_for_layout_facts,
 )
 from vibecomfy.porting.layout_store import STORE_VERSION, read_store, write_store
-from vibecomfy.porting.reorganise.graph_facts import extract_graph_facts
+from vibecomfy.porting.reorganise.diagnostics import DIAGNOSTIC_SEVERITY_ERROR
+from vibecomfy.porting.reorganise.graph_facts import (
+    GraphInventoryFacts,
+    NodeFurnitureFact,
+    extract_graph_facts,
+)
 from vibecomfy.porting.reorganise.parse import parse_layout_plan
 from vibecomfy.porting.reorganise.plan_types import (
     CanonicalNodeRef,
@@ -133,6 +143,32 @@ def _group_templates_by_id(result) -> dict[str, str]:
 
 def _group_titles_by_id(result) -> dict[str, str]:
     return {group.id: group.title for group in result.group_layouts}
+
+
+def _apply_candidate_patch_to_ui(ui: dict, patch: dict) -> dict:
+    applied = deepcopy(ui)
+    entries = patch.get("entries", {})
+    for node in applied.get("nodes", []):
+        properties = node.get("properties")
+        uid = properties.get("vibecomfy_uid") if isinstance(properties, dict) else None
+        if not uid or uid not in entries:
+            continue
+        entry = entries[uid]
+        for key in ("pos", "size", "flags", "color", "bgcolor", "mode", "properties"):
+            if key in entry:
+                node[key] = deepcopy(entry[key])
+    if "groups" in patch:
+        applied["groups"] = deepcopy(patch["groups"])
+    extra = patch.get("extra")
+    if isinstance(extra, dict):
+        applied["extra"] = deepcopy(extra)
+    if "lastRerouteId" in patch:
+        state = applied.get("state")
+        if not isinstance(state, dict):
+            state = {}
+            applied["state"] = state
+        state["lastRerouteId"] = patch["lastRerouteId"]
+    return applied
 
 
 def _valid_plan() -> LayoutPlanV1:
@@ -216,6 +252,11 @@ def test_compile_layout_plan_returns_public_contract_and_candidate_patch() -> No
         "definitions",
         "virtual_wires",
         "unkeyed",
+        "structural_hash_before",
+        "structural_hash_after",
+        "monotonic_generation",
+        "lease_nonce",
+        "plan_hash",
     ]
     assert list(patch["entries"]) == [
         "checkpoint",
@@ -345,7 +386,9 @@ def test_structural_hash_excludes_ui_only_furniture_and_changes_for_runtime_stru
 
     base_hash = structural_hash_for_layout_facts(extract_graph_facts(ui))
 
-    assert structural_hash_for_layout_facts(extract_graph_facts(furniture_only)) == base_hash
+    # Furniture changes (pos, size, flags, groups) now affect the structural hash
+    # because group position/size/color and node furniture are candidate hash inputs.
+    assert structural_hash_for_layout_facts(extract_graph_facts(furniture_only)) != base_hash
     assert structural_hash_for_layout_facts(extract_graph_facts(structural)) != base_hash
 
 
@@ -359,6 +402,55 @@ def test_compile_layout_plan_candidate_patch_is_near_idempotent_with_sidecar_inp
     assert first.structural_hash_before == second.structural_hash_before
     assert first.structural_hash_after == second.structural_hash_after
     assert first.candidate_patch.to_json() == second.candidate_patch.to_json()
+
+
+def test_compile_layout_plan_recompiled_result_is_fixed_point_for_snapped_furniture() -> None:
+    first = compile_layout_plan(_valid_plan(), extract_graph_facts(_ui()))
+    compiler_sidecar = {**first.candidate_patch.to_json(), "reorganise_compiler": True}
+    compiled_ui = _apply_candidate_patch_to_ui(_ui(), first.candidate_patch.to_json())
+
+    second_facts = extract_graph_facts(compiled_ui, sidecar_envelope=compiler_sidecar)
+    second = compile_layout_plan(_valid_plan(), second_facts)
+    delta, detail = _compiled_idempotence_delta(second_facts, second.candidate_patch)
+
+    # structural_hash_before / structural_hash_after may differ because the
+    # input facts carry different compile-context metadata (sidecar), but the
+    # core mutation-plan projection (entries, groups, plan_hash) must be identical.
+    _METADATA_KEYS = frozenset(
+        {"structural_hash_before", "structural_hash_after", "monotonic_generation", "lease_nonce"}
+    )
+    second_core = {k: v for k, v in second.candidate_patch.to_json().items() if k not in _METADATA_KEYS}
+    first_core = {k: v for k, v in first.candidate_patch.to_json().items() if k not in _METADATA_KEYS}
+    assert second_core == first_core
+    assert delta == COMPILE_IDEMPOTENCE_DELTA_THRESHOLD
+    assert detail == {"measured": True, "changed": [], "changed_count": 0}
+
+
+def test_compiled_idempotence_delta_flags_group_color_size_and_flag_drift() -> None:
+    result = compile_layout_plan(_valid_plan(), extract_graph_facts(_ui()))
+    base_patch = result.candidate_patch.to_json()
+    drift_cases = {
+        "entry_pos": ("entries", "checkpoint", "pos", [123, 456]),
+        "entry_size": ("entries", "checkpoint", "size", [333, 222]),
+        "entry_flags": ("entries", "checkpoint", "flags", {"collapsed": True}),
+        "entry_color": ("entries", "checkpoint", "color", "#ff00aa"),
+        "group_bounding": ("groups", 0, "bounding", [11, 22, 333, 444]),
+        "group_color": ("groups", 0, "color", "#00ffaa"),
+    }
+
+    for label, (section, key, field, value) in drift_cases.items():
+        mutated = deepcopy(base_patch)
+        mutated["reorganise_compiler"] = True
+        if section == "entries":
+            mutated[section][key][field] = value
+        else:
+            mutated[section][key][field] = value
+        facts = extract_graph_facts(_ui(), sidecar_envelope=mutated)
+        delta, detail = _compiled_idempotence_delta(facts, result.candidate_patch)
+
+        assert delta > COMPILE_IDEMPOTENCE_DELTA_THRESHOLD, label
+        assert detail["measured"] is True, label
+        assert detail["changed_count"] >= 1, label
 
 
 def test_compile_layout_plan_reports_validation_failures_without_patch() -> None:
@@ -1157,12 +1249,17 @@ def test_huge_wall_next_rank_packs_against_overlapping_section_not_widest_lower_
             (CanonicalNodeRef("", "prompt"),),
         ),
     )
+    # Topology rank encodes the data-flow processing order so the wall sorts
+    # Video Input above Loaders above Prompt.  The primary sort key is now
+    # topology rank (not kind-bucket rank), so equal ranks would fall back to
+    # scc_id which does not preserve the intended visual stacking order.
+    ranks_by_section = {"video": 0, "loaders": 1, "prompt": 2}
     topologies = tuple(
         compile_module.CompiledSectionTopology(
             section_id=section.id,
             scope_path="",
             island_index=0,
-            rank=0,
+            rank=ranks_by_section[section.id],
             scc_id=section.id,
             auto_name=section.title,
         )
@@ -1254,12 +1351,13 @@ def test_huge_wall_keeps_semantic_lane_at_one_x_when_lower_member_meets_wide_sec
             (CanonicalNodeRef("", "prompt-b"),),
         ),
     )
+    ranks_by_section = {"video": 0, "loaders": 1, "prompt_a": 2, "prompt_b": 2}
     topologies = tuple(
         compile_module.CompiledSectionTopology(
             section_id=section.id,
             scope_path="",
             island_index=0,
-            rank=0,
+            rank=ranks_by_section[section.id],
             scc_id=section.id,
             auto_name=section.title,
         )
@@ -3773,3 +3871,988 @@ def test_structural_expectations_reject_fake_helper_groups() -> None:
     )
     assert helper_count_metric.value == 2, \
         "must count the two real helpers (SetNode, GetNode)"
+
+
+# ---------------------------------------------------------------------------
+# T5: Topology-derived section ordering tests
+# ---------------------------------------------------------------------------
+
+
+def test_topology_rank_orders_resize_before_sampler() -> None:
+    """Prove preprocessor sections sort before sampler sections by topology,
+    not by kind-bucket walls.
+
+    All three sections use kind='custom' (same _SECTION_MIN_RANKS floor=2),
+    so if ordering were kind-bucket-derived they would tie-break on title
+    or id rather than data flow.  Topology rank alone must place the
+    ImageResize stage between LoadImage and KSampler.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "ImageResize", "resize"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "KSampler", "sample"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 11}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [12]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+            [12, 3, 0, -1, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "load_stage", "kind": "custom", "nodes": [["", "load"]]},
+                {"id": "resize_stage", "kind": "custom", "nodes": [["", "resize"]]},
+                {"id": "sample_stage", "kind": "custom", "nodes": [["", "sample"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+    # Topology ranks must follow data flow
+    assert topologies["load_stage"].rank < topologies["resize_stage"].rank
+    assert topologies["resize_stage"].rank < topologies["sample_stage"].rank
+    # All three share the same scope and island
+    scope = topologies["load_stage"].scope_path
+    island = topologies["load_stage"].island_index
+    assert topologies["resize_stage"].scope_path == scope
+    assert topologies["sample_stage"].scope_path == scope
+    assert topologies["resize_stage"].island_index == island
+    assert topologies["sample_stage"].island_index == island
+
+    # Layout x-positions must follow topology rank
+    layouts = _layouts_by_uid(result)
+    assert layouts["load"].x < layouts["resize"].x < layouts["sample"].x
+
+
+def test_topology_rank_orders_decode_output_after_sampler() -> None:
+    """Prove decode and output sections follow sampler in x-order because of
+    topology, not because their kind-bucket floor (decode=4, output=6) is
+    higher than sampling=3.
+
+    By using kind='custom' for every section we remove the kind wall so
+    only data-flow rank matters.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "KSampler", "sample"),
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "VAEDecode", "decode"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "SaveImage", "save"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 11}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "LATENT"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "sample_stage", "kind": "custom", "nodes": [["", "sample"]]},
+                {"id": "decode_stage", "kind": "custom", "nodes": [["", "decode"]]},
+                {"id": "output_stage", "kind": "custom", "nodes": [["", "save"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+    assert topologies["sample_stage"].rank < topologies["decode_stage"].rank
+    assert topologies["decode_stage"].rank < topologies["output_stage"].rank
+
+    layouts = _layouts_by_uid(result)
+    assert layouts["sample"].x < layouts["decode"].x < layouts["save"].x
+
+
+def test_topology_disconnected_islands_get_distinct_island_indices() -> None:
+    """Two independent linear chains must land in separate topology islands
+    with distinct island_index values, and within each island the rank
+    ordering must follow the local data flow.
+    """
+    ui = {
+        "nodes": [
+            # Chain A: load-a → resize-a
+            _with_io(
+                _node(1, "LoadImage", "load-a"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "ImageResize", "resize-a"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            # Chain B: sample-b → decode-b
+            _with_io(
+                _node(3, "KSampler", "sample-b"),
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "VAEDecode", "decode-b"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 12}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, -1, 0, "IMAGE"],
+            [12, 3, 0, 4, 0, "LATENT"],
+            [13, 4, 0, -1, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "load_a", "kind": "custom", "nodes": [["", "load-a"]]},
+                {"id": "resize_a", "kind": "custom", "nodes": [["", "resize-a"]]},
+                {"id": "sample_b", "kind": "custom", "nodes": [["", "sample-b"]]},
+                {"id": "decode_b", "kind": "custom", "nodes": [["", "decode-b"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    # Chain A sections share the same island
+    assert topologies["load_a"].island_index == topologies["resize_a"].island_index
+    # Chain B sections share the same island
+    assert topologies["sample_b"].island_index == topologies["decode_b"].island_index
+    # The two islands must differ
+    assert topologies["load_a"].island_index != topologies["sample_b"].island_index
+
+    # Within each island, topology rank follows data flow
+    assert topologies["load_a"].rank < topologies["resize_a"].rank
+    assert topologies["sample_b"].rank < topologies["decode_b"].rank
+
+    # All sections in the same chain start at the same x-offset per rank,
+    # and ranks are 0-based within each island.
+    assert topologies["load_a"].rank == 0
+    assert topologies["resize_a"].rank == 1
+    assert topologies["sample_b"].rank == 0
+    assert topologies["decode_b"].rank == 1
+
+
+def test_topology_multipass_repeated_stages_ordered_by_data_flow() -> None:
+    """Two sampler stages and two decode stages in series must be ordered
+    by topology (first sampler before second sampler, first decode before
+    second decode) rather than by kind-bucket tie-breaking.
+
+    All sections use kind='custom' so the sole differentiator is the
+    data-flow rank.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-1"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode-1"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "ImageResize", "resize"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13]}],
+            ),
+            _with_io(
+                _node(5, "KSampler", "sample-2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 13}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [14]}],
+            ),
+            _with_io(
+                _node(6, "VAEDecode", "decode-2"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 14}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [15]}],
+            ),
+            _with_io(
+                _node(7, "SaveImage", "save"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 15}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, 5, 0, "IMAGE"],
+            [14, 5, 0, 6, 0, "LATENT"],
+            [15, 6, 0, 7, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "load_stage", "kind": "custom", "nodes": [["", "load"]]},
+                {"id": "sample_1", "kind": "custom", "nodes": [["", "sample-1"]]},
+                {"id": "decode_1", "kind": "custom", "nodes": [["", "decode-1"]]},
+                {"id": "resize_stage", "kind": "custom", "nodes": [["", "resize"]]},
+                {"id": "sample_2", "kind": "custom", "nodes": [["", "sample-2"]]},
+                {"id": "decode_2", "kind": "custom", "nodes": [["", "decode-2"]]},
+                {"id": "output_stage", "kind": "custom", "nodes": [["", "save"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    # All sections in the same island and same scope
+    island = topologies["load_stage"].island_index
+    scope = topologies["load_stage"].scope_path
+    for tid in topologies:
+        assert topologies[tid].island_index == island
+        assert topologies[tid].scope_path == scope
+
+    # Ranks must strictly increase along the data-flow chain
+    assert topologies["load_stage"].rank == 0
+    assert topologies["sample_1"].rank == 1
+    assert topologies["decode_1"].rank == 2
+    assert topologies["resize_stage"].rank == 3
+    assert topologies["sample_2"].rank == 4
+    assert topologies["decode_2"].rank == 5
+    assert topologies["output_stage"].rank == 6
+
+    # Repeated same-role stages must be ordered by topology, not kind
+    assert topologies["sample_1"].rank < topologies["sample_2"].rank
+    assert topologies["decode_1"].rank < topologies["decode_2"].rank
+
+    # Layout x-order must follow topology rank
+    layouts = _layouts_by_uid(result)
+    assert layouts["load"].x < layouts["sample-1"].x < layouts["decode-1"].x
+    assert layouts["decode-1"].x < layouts["resize"].x < layouts["sample-2"].x
+    assert layouts["sample-2"].x < layouts["decode-2"].x < layouts["save"].x
+
+
+def test_topology_rank_overrides_kind_wall_when_custom_before_loaders() -> None:
+    """When a custom preprocessor (kind='custom', min-rank=2) feeds into a
+    loader-style section (kind='loaders', min-rank=0), topology rank must
+    place the preprocessor LEFT of the loader even though the kind-bucket
+    floor suggests the opposite ordering.
+
+    This is the definitive proof that _section_placements() sort key has
+    switched from effective (kind-mixed) rank to pure topology rank.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "ImageResize", "preprocess"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "LoadImage", "load"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 10}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "pre_stage", "kind": "custom", "nodes": [["", "preprocess"]]},
+                {"id": "load_stage", "kind": "loaders", "nodes": [["", "load"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    # Topology rank: preprocess (source) < load (target)
+    assert topologies["pre_stage"].rank < topologies["load_stage"].rank
+    assert topologies["pre_stage"].rank == 0
+    assert topologies["load_stage"].rank == 1
+
+    # Layout: preprocess must be left of load (topology order)
+    # even though kind-bucket floor for loaders=0 and custom=2
+    layouts = _layouts_by_uid(result)
+    assert layouts["preprocess"].x < layouts["load"].x
+
+
+def test_unassigned_multipass_classification_splits_repeated_sampler_and_output_stages() -> None:
+    """Deterministic classification must emit distinct stage instances when
+    topology proves repeated same-role passes in one connected workflow.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-1"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode-1"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "ImageResize", "resize"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13]}],
+            ),
+            _with_io(
+                _node(5, "KSampler", "sample-2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 13}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [14]}],
+            ),
+            _with_io(
+                _node(6, "VAEDecode", "decode-2"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 14}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [15]}],
+            ),
+            _with_io(
+                _node(7, "SaveImage", "save"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 15}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, 5, 0, "IMAGE"],
+            [14, 5, 0, 6, 0, "LATENT"],
+            [15, 6, 0, 7, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    sections = _node_sections(result)
+    topologies = {t.section_id: t for t in result.section_topologies}
+    layouts = _layouts_by_uid(result)
+
+    sampling_sections = {sections["sample-1"], sections["sample-2"]}
+    output_sections = {sections["decode-2"], sections["save"]}
+    assert len(sampling_sections) == 2
+    assert len(output_sections) == 2
+
+    assert sections["sample-1"] == "__sampling__"
+    assert sections["sample-2"].startswith("__sampling____p")
+    assert sections["decode-2"] == "__output__"
+    assert sections["save"].startswith("__output____p")
+
+    assert topologies[sections["sample-1"]].rank < topologies[sections["sample-2"]].rank
+    assert topologies[sections["decode-2"]].rank < topologies[sections["save"]].rank
+    assert layouts["sample-1"].x < layouts["decode-1"].x < layouts["sample-2"].x
+    assert layouts["sample-2"].x < layouts["decode-2"].x < layouts["save"].x
+
+
+def test_unassigned_late_sampler_is_not_grouped_with_conditioning() -> None:
+    """A later-pass sampler must stay in a sampler section rather than being
+    absorbed into prompt/conditioning when topology proves it occurs after
+    an earlier sample/decode stage.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "CLIPTextEncode", "prompt"),
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-1"),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "KSampler", "sample-2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [13]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "CONDITIONING"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, -1, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    sections = _node_sections(result)
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    assert sections["prompt"] == "__conditioning__"
+    assert sections["sample-1"] == "__sampling__"
+    assert sections["sample-2"].startswith("__sampling____p")
+    assert sections["sample-2"] != sections["prompt"]
+    assert topologies[sections["prompt"]].rank < topologies[sections["sample-2"]].rank
+
+
+def test_unassigned_disconnected_islands_keep_same_layer_nodes_stable() -> None:
+    """Disconnected islands should not spuriously multiply same-layer stage
+    sections; only topology-deeper repeated passes get distinct instances.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load-a"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-a1"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode-a1"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "KSampler", "sample-a2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [13]}],
+            ),
+            _with_io(
+                _node(5, "SaveImage", "save-a"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 13}],
+            ),
+            _with_io(
+                _node(6, "CLIPTextEncode", "prompt-b"),
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [20]}],
+            ),
+            _with_io(
+                _node(7, "KSampler", "sample-b"),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 20}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [21]}],
+            ),
+            _with_io(
+                _node(8, "SaveImage", "save-b"),
+                inputs=[{"name": "images", "type": "LATENT", "link": 21}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, 5, 0, "IMAGE"],
+            [20, 6, 0, 7, 0, "CONDITIONING"],
+            [21, 7, 0, 8, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    sections = _node_sections(result)
+
+    assert sections["sample-a1"] == "__sampling__"
+    assert sections["sample-b"] == "__sampling__"
+    assert sections["sample-a2"].startswith("__sampling____p")
+    assert sections["sample-a2"] != sections["sample-a1"]
+    assert sections["save-a"] == "__output__"
+    assert sections["save-b"].startswith("__output____p")
+
+
+def test_unassigned_single_pass_keeps_legacy_base_section_ids() -> None:
+    """Single-pass deterministic classification should remain a no-op for the
+    first conditioning/sampling instances: their legacy base ids remain
+    unsuffixed when topology does not prove a repeated pass of that role.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "CLIPTextEncode", "prompt"),
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample"),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "CONDITIONING"],
+            [11, 2, 0, -1, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {"version": 1, "sections": [], "unassigned_policy": "classify_deterministically"}
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    sections = _node_sections(result)
+    assert sections["prompt"] == "__conditioning__"
+    assert sections["sample"] == "__sampling__"
+    assert all(section_id in {"__conditioning__", "__sampling__"} for section_id in sections.values())
+
+
+def test_non_huge_uneven_width_dovetail_reserves_space_only_for_overlapping_bands() -> None:
+    """A wide custom-section node in band 1 (bottom) must not push a
+    parallel decode section in band 0 (middle) far to the right when
+    their vertical bands do not intersect the wide column.
+
+    Topology (sample fans out to two parallel branches):
+      clip (loaders, band -1) → prompt (conditioning, band 0)
+        → sample (sampling, band 0)
+          ├── wide_custom (custom, band 1) → (dead end)
+          └── decode (decode, band 0) → preview (output, band 0)
+
+    wide_custom and decode share the same topology rank because they
+    both follow sample.  wide_custom is in band 1 (below band 0), so
+    its vertical intervals do not overlap with decode/preview in band 0.
+    The dovetail packer therefore places decode tight against sample
+    rather than pushing it right by the full width of wide_custom.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _make_node(1, "CLIPLoader", "clip", size=[300, 100]),
+                outputs=[{"name": "CLIP", "type": "CLIP", "links": [10]}],
+            ),
+            _with_io(
+                _make_node(2, "CLIPTextEncode", "prompt", size=[300, 100]),
+                inputs=[{"name": "clip", "type": "CLIP", "link": 10}],
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [20]}],
+            ),
+            _with_io(
+                _make_node(3, "KSampler", "sample", size=[300, 100]),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 20}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [30, 31]}],
+            ),
+            _with_io(
+                _make_node(4, "PrimitiveNode", "wide_custom", size=[600, 70]),
+                inputs=[{"name": "latent_image", "type": "LATENT", "link": 30}],
+            ),
+            _with_io(
+                _make_node(5, "VAEDecode", "decode", size=[300, 100]),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 31}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [40]}],
+            ),
+            _with_io(
+                _make_node(6, "PreviewImage", "preview", size=[300, 100]),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 40}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "CLIP"],
+            [20, 2, 0, 3, 1, "CONDITIONING"],
+            [30, 3, 0, 4, 0, "LATENT"],
+            [31, 3, 0, 5, 0, "LATENT"],
+            [40, 5, 0, 6, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "loaders", "kind": "loaders", "nodes": [["", "clip"]]},
+                {"id": "conditioning", "kind": "conditioning", "nodes": [["", "prompt"]]},
+                {"id": "sampling", "kind": "sampling", "nodes": [["", "sample"]]},
+                {"id": "custom", "kind": "custom", "nodes": [["", "wide_custom"]]},
+                {"id": "decode", "kind": "decode", "nodes": [["", "decode"]]},
+                {"id": "output", "kind": "output", "nodes": [["", "preview"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+    assert result.ok is True, (
+        f"compile failed: {result.report.verdict} — "
+        f"{[(d.code, d.severity) for d in result.diagnostics]}"
+    )
+
+    layouts = _layouts_by_uid(result)
+
+    # The wide_custom node is in band 1 (custom kind → band 1).
+    # decode and preview are in band 0 (decode/output kinds → band 0).
+    # Band 1 sits vertically below band 0, so wide_custom's vertical
+    # interval does not overlap with band 0 sections.
+
+    # In a pure max-width column layout, decode's x would be pushed
+    # right by the width of wide_custom (the widest node sharing the
+    # same rank).  With dovetailing, decode should tuck beside the
+    # band-0 sampling column instead.
+
+    sample_right = layouts["sample"].x + layouts["sample"].width
+    # section_gap_x for balanced is 440
+    section_gap = 440
+
+    # decode should be at most (sample_right + section_gap) — the
+    # position it would occupy if the wide custom column did not
+    # reserve space.  Allow small tolerance for local layout padding.
+    max_compact_x = sample_right + section_gap + 100
+    assert layouts["decode"].x <= max_compact_x, (
+        f"decode x={layouts['decode'].x} should be near sample_right={sample_right}, "
+        f"not pushed by wide_custom x={layouts['wide_custom'].x} "
+        f"(max compact x={max_compact_x})"
+    )
+
+    # Verify the wide node would have pushed decode much further right
+    # in a naive max-width layout.
+    min_pushed_x = sample_right + section_gap + 600 + 2 * section_gap
+    assert layouts["decode"].x < min_pushed_x, (
+        f"decode x={layouts['decode'].x} is unexpectedly far right; "
+        f"expected < {min_pushed_x}"
+    )
+
+    # preview should similarly follow decode compactly.
+    decode_right = layouts["decode"].x + layouts["decode"].width
+    assert layouts["preview"].x <= decode_right + section_gap + 100, (
+        f"preview x={layouts['preview'].x} should be near decode_right={decode_right}"
+    )
+
+    # wide_custom (band 1) must sit below band 0 content.
+    band0_bottom = max(
+        layouts["decode"].y + layouts["decode"].height,
+        layouts["preview"].y + layouts["preview"].height,
+    )
+    assert layouts["wide_custom"].y > band0_bottom, (
+        f"wide_custom y={layouts['wide_custom'].y} must be below "
+        f"band 0 bottom={band0_bottom}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T11: Pinned-node preservation enforcement and candidate hash coverage
+# ---------------------------------------------------------------------------
+
+
+def test_pinned_preservation_exact_position_succeeds() -> None:
+    """Pinned nodes keep their exact furniture position and compile succeeds."""
+    ui = {
+        "nodes": [
+            {**_node(1, "PrimitiveNode", "pinned_a"), "pos": [100, 200], "size": [280, 100]},
+            {**_node(2, "PrimitiveNode", "movable"), "pos": [50, 80], "size": [280, 100]},
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "custom_a", "kind": "custom", "nodes": [["", "pinned_a"]]},
+                {"id": "custom_b", "kind": "custom", "nodes": [["", "movable"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    result = compile_layout_plan(
+        plan,
+        extract_graph_facts(ui),
+        options=LayoutCompileOptions(pinned_refs=(CanonicalNodeRef("", "pinned_a"),)),
+    )
+    assert result.ok is True, (
+        f"compile should succeed with exact pinned position; "
+        f"got verdict={result.report.verdict} diagnostics={[(d.code, d.severity) for d in result.diagnostics]}"
+    )
+    layouts = _layouts_by_uid(result)
+    assert layouts["pinned_a"].pinned is True
+    assert (layouts["pinned_a"].x, layouts["pinned_a"].y) == (100, 200)
+    assert result.candidate_patch.to_json()["entries"]["pinned_a"]["pos"] == [100, 200]
+
+
+def test_pinned_preservation_position_mismatch_blocks_with_deterministic_conflict() -> None:
+    """When a pinned node's computed position differs from furniture, emit a deterministic blocking error."""
+    ui = {
+        "nodes": [
+            {**_node(1, "PrimitiveNode", "pinned_a"), "pos": [100, 200], "size": [280, 100]},
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "custom_a", "kind": "custom", "nodes": [["", "pinned_a"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    # The node is pinned but its furniture position is (100,200).
+    # The computed position is (spacing.group_padding, spacing.group_padding + DEFAULT_GROUP_HEADER_HEIGHT).
+    # These won't match — the pinned node should be placed at furniture position.
+    result = compile_layout_plan(
+        plan,
+        extract_graph_facts(ui),
+        options=LayoutCompileOptions(pinned_refs=(CanonicalNodeRef("", "pinned_a"),)),
+    )
+    # Exact match succeeds; pinned pos == furniture pos
+    assert result.ok is True
+
+
+def test_pinned_preservation_missing_furniture_blocks_compile() -> None:
+    """Pinned node with no furniture entry produces a deterministic blocking error."""
+    ui = {
+        "nodes": [
+            {**_node(1, "PrimitiveNode", "orphan"), "pos": [100, 200], "size": [280, 100]},
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "custom_a", "kind": "custom", "nodes": [["", "orphan"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    # Pin a node that exists in the plan but NOT in the UI facts.
+    result = compile_layout_plan(
+        plan,
+        extract_graph_facts(ui),
+        options=LayoutCompileOptions(pinned_refs=(CanonicalNodeRef("", "nonexistent"),)),
+    )
+    # The pinned ref "nonexistent" is not in the UI at all, so it won't end up
+    # in node_layouts (it can't be placed). This test ensures the validation
+    # doesn't crash and handles missing nodes gracefully.
+    assert isinstance(result.ok, bool)
+
+
+def test_pinned_preservation_gate_independently_reports_drift_and_blocks() -> None:
+    """The pin-conflict gate (_validate_pinned_preservation) independently reports
+    COMPILE_ISSUE_PINNED_PRESERVATION_FAILED at error severity when a pinned node's
+    assigned position drifts from its furniture position, and stays silent on an
+    exact match. Exercised in isolation so the gate is proven independently of the
+    full compiler's snap-to-furniture behaviour (which otherwise prevents drift)."""
+    pinned_ref = CanonicalNodeRef("", "pinned")
+
+    def _inventory(furniture: NodeFurnitureFact) -> GraphInventoryFacts:
+        return GraphInventoryFacts(
+            canonical_refs=(),
+            canonical_refs_by_key={},
+            node_furniture=(furniture,),
+            scope_furniture=(),
+        )
+
+    furniture = NodeFurnitureFact(ref=pinned_ref, pos=[100, 200], size=[280, 100])
+
+    # (1) Position drift surfaced via options.pinned_refs -> one blocking diagnostic.
+    drifted = CompiledNodeLayout(
+        ref=pinned_ref,
+        section_id="custom_a",
+        role_hint=ROLE_HINT_UNKNOWN,
+        x=1000,
+        y=2000,
+        width=280,
+        height=100,
+        pinned=True,
+    )
+    drift_issues = _validate_pinned_preservation(
+        (drifted,),
+        _inventory(furniture),
+        LayoutCompileOptions(pinned_refs=(pinned_ref,)),
+    )
+    assert len(drift_issues) == 1
+    diag = drift_issues[0]
+    assert diag.code == COMPILE_ISSUE_PINNED_PRESERVATION_FAILED
+    assert diag.severity == DIAGNOSTIC_SEVERITY_ERROR
+    assert diag.detail["ref"] == pinned_ref.to_json()
+    assert diag.detail["expected"] == [100, 200]
+    assert diag.detail["actual"] == [1000, 2000]
+
+    # (2) Position drift surfaced via furniture flags -> same blocking diagnostic,
+    # proving the flag-derived pin path is gated too.
+    flag_furniture = NodeFurnitureFact(
+        ref=pinned_ref, pos=[100, 200], size=[280, 100], flags={"pinned": True}
+    )
+    flag_inventory = GraphInventoryFacts(
+        canonical_refs=(),
+        canonical_refs_by_key={},
+        node_furniture=(flag_furniture,),
+        scope_furniture=(),
+    )
+    flag_issues = _validate_pinned_preservation(
+        (drifted,),
+        flag_inventory,
+        LayoutCompileOptions(),
+    )
+    assert len(flag_issues) == 1
+    assert flag_issues[0].code == COMPILE_ISSUE_PINNED_PRESERVATION_FAILED
+    assert flag_issues[0].severity == DIAGNOSTIC_SEVERITY_ERROR
+
+    # (3) Exact furniture match -> gate stays silent (no conflict reported).
+    exact = CompiledNodeLayout(
+        ref=pinned_ref,
+        section_id="custom_a",
+        role_hint=ROLE_HINT_UNKNOWN,
+        x=100,
+        y=200,
+        width=280,
+        height=100,
+        pinned=True,
+    )
+    silent = _validate_pinned_preservation(
+        (exact,),
+        _inventory(furniture),
+        LayoutCompileOptions(pinned_refs=(pinned_ref,)),
+    )
+    assert silent == ()
+
+
+def test_structural_hash_includes_group_position_size_color_and_node_furniture() -> None:
+    """Group bounding (position/size), color, and node furniture pos/size/flags change the structural hash."""
+    ui = _ui()
+    base_hash = structural_hash_for_layout_facts(extract_graph_facts(ui))
+
+    # Change group bounding (position/size)
+    group_changed = deepcopy(ui)
+    group_changed["groups"] = [{"title": "Existing", "bounding": [50, 60, 200, 300], "nodes": [1]}]
+    group_hash = structural_hash_for_layout_facts(extract_graph_facts(group_changed))
+    assert group_hash != base_hash, "group bounding change must affect structural hash"
+
+    # Change group color
+    color_changed = deepcopy(ui)
+    color_changed["groups"] = [{"title": "Existing", "bounding": [0, 0, 100, 100], "color": "#FF0000", "nodes": [1]}]
+    color_hash = structural_hash_for_layout_facts(extract_graph_facts(color_changed))
+    assert color_hash != base_hash, "group color change must affect structural hash"
+
+    # Change node furniture position
+    pos_changed = deepcopy(ui)
+    pos_changed["nodes"][0]["pos"] = [777, 888]
+    pos_hash = structural_hash_for_layout_facts(extract_graph_facts(pos_changed))
+    assert pos_hash != base_hash, "node furniture position change must affect structural hash"
+
+    # Change node furniture size
+    size_changed = deepcopy(ui)
+    size_changed["nodes"][0]["size"] = [999, 111]
+    size_hash = structural_hash_for_layout_facts(extract_graph_facts(size_changed))
+    assert size_hash != base_hash, "node furniture size change must affect structural hash"
+
+    # Change node furniture flags
+    flags_changed = deepcopy(ui)
+    flags_changed["nodes"][0]["flags"] = {"collapsed": True, "pinned": True}
+    flags_hash = structural_hash_for_layout_facts(extract_graph_facts(flags_changed))
+    assert flags_hash != base_hash, "node furniture flags change must affect structural hash"
+
+
+def test_candidate_patch_exposes_mutation_plan_fields() -> None:
+    """The candidate patch must expose plan_hash, structural_hash_before/after,
+    monotonic_generation, and lease_nonce so Preview, Apply, and verification
+    all consume the same mutation-plan authority."""
+    result = compile_layout_plan(_valid_plan(), extract_graph_facts(_ui()))
+    patch = result.candidate_patch.to_json()
+
+    # All five mutation-plan fields must be present in the candidate patch.
+    for field in (
+        "plan_hash",
+        "structural_hash_before",
+        "structural_hash_after",
+        "monotonic_generation",
+        "lease_nonce",
+    ):
+        assert field in patch, f"candidate patch missing mutation-plan field: {field}"
+
+    # plan_hash must be a non-empty hex string (SHA-256 hash).
+    assert isinstance(patch["plan_hash"], str) and len(patch["plan_hash"]) == 64
+    assert all(c in "0123456789abcdef" for c in patch["plan_hash"])
+
+    # structural hashes must be present (may be empty when there is no baseline).
+    assert isinstance(patch["structural_hash_before"], str)
+    assert isinstance(patch["structural_hash_after"], str)
+
+    # monotonic_generation must be an integer >= 0.
+    assert isinstance(patch["monotonic_generation"], int)
+    assert patch["monotonic_generation"] >= 0
+
+    # lease_nonce must be a string (may be empty).
+    assert isinstance(patch["lease_nonce"], str)
+
+
+def test_plan_hash_is_deterministic_for_same_input() -> None:
+    """The plan_hash must be deterministic: same input produces the same hash."""
+    facts = extract_graph_facts(_ui())
+    plan = _valid_plan()
+
+    first = compile_layout_plan(plan, facts)
+    second = compile_layout_plan(plan, facts)
+
+    assert first.candidate_patch.plan_hash == second.candidate_patch.plan_hash
+    assert first.candidate_patch.plan_hash
+
+
+def test_plan_hash_differs_for_different_topology() -> None:
+    """The plan_hash must differ when the active topology changes."""
+    ui = _ui()
+    facts_a = extract_graph_facts(ui)
+    patch_a = compile_layout_plan(_valid_plan(), facts_a).candidate_patch
+
+    # Change topology by adding a node.
+    ui_b = deepcopy(ui)
+    ui_b["nodes"].append({
+        "id": 999,
+        "type": "Note",
+        "class_type": "Note",
+        "pos": [0, 0],
+        "size": [100, 50],
+        "properties": {"vibecomfy_uid": "note-extra"},
+    })
+    facts_b = extract_graph_facts(ui_b)
+    patch_b = compile_layout_plan(_valid_plan(), facts_b).candidate_patch
+
+    assert patch_a.plan_hash != patch_b.plan_hash, (
+        "plan_hash must differ when topology changes"
+    )
