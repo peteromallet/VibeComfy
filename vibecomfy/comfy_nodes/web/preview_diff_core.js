@@ -1,6 +1,8 @@
 // Pure serialized-graph preview diff shared by the live review overlay and the
 // demo preview gallery. It deliberately has no app/panel/global canvas access.
 
+import { sha256Hex } from "./canonical_hash.js";
+
 function uidOf(node) {
   return node?.properties?.vibecomfy_uid || null;
 }
@@ -333,4 +335,141 @@ export function computeSerializedGraphPreviewDiff({
     added_links,
     removed_links,
   };
+}
+
+// ── Browser-side mutation-plan and canvas projection hashing ─────────────────
+//
+// The functions below are the browser-side authority for computing the
+// mutation-plan hash and the post-apply canvas projection hash.  They
+// delegate to `sha256Hex` from `canonical_hash.js`, which mirrors the
+// Python backend's `_canonical_bytes` + `_sha256` semantics exactly:
+// recursive key-sorting, compact separators, ASCII-safe escaping, and
+// string fallback for non-JSON-serializable values.
+//
+// All lifecycle consumers (preview, apply, verify) MUST use these
+// functions so that browser-side hashes match the Python backend
+// byte-for-byte for equivalent plan / canvas data.
+
+/**
+ * Compute the SHA-256 hex digest of a mutation-plan projection using the JS
+ * canonical hash mirror.
+ *
+ * The `planProjection` object should mirror the Python
+ * `LayoutCandidatePatch.__post_init__` projection fields:
+ *
+ *   - store_version  (number)
+ *   - vibecomfy_version (string)
+ *   - schema_hash    (string)
+ *   - entries        (object: node-id → {pos, size, flags, color, ...})
+ *   - groups         (array of {title, bounding, color, ...})
+ *   - extra          (object)
+ *   - lastRerouteId  (any)
+ *   - definitions    (object)
+ *   - virtual_wires  (object)
+ *   - unkeyed        (array)
+ *
+ * Only the fields present in the projection are hashed; callers may pass a
+ * subset when computing a partial hash (e.g. canvas-only projection).
+ *
+ * @param {object} planProjection
+ * @returns {string} 64-character lowercase hex digest
+ */
+export function computeMutationPlanHash(planProjection) {
+  if (!planProjection || Array.isArray(planProjection) || typeof planProjection !== "object") {
+    return "";
+  }
+  return sha256Hex(planProjection);
+}
+
+/**
+ * Compute the SHA-256 hex digest of a post-apply serialized canvas projection.
+ *
+ * A canvas projection is the visual / positional subset of the mutation plan:
+ * node positions, sizes, flags, colors, group bounding boxes, titles, colors,
+ * and any extra canvas-level metadata.  Structural graph data (links, widget
+ * values) that is NOT part of the canvas arrangement should be excluded so
+ * that the canvas hash is stable under layout-only reorganise passes.
+ *
+ * The canonical shape mirrors the entries + groups + extra subset of the
+ * full mutation-plan projection:
+ *
+ *   {
+ *     entries: { [nodeId]: { pos, size, flags, color, bgcolor, mode, order } },
+ *     groups:  [{ title, bounding, color, font_size, locked }],
+ *     extra:   { ... }
+ *   }
+ *
+ * @param {object} canvasProjection
+ * @returns {string} 64-character lowercase hex digest
+ */
+export function computeCanvasProjectionHash(canvasProjection) {
+  if (!canvasProjection || Array.isArray(canvasProjection) || typeof canvasProjection !== "object") {
+    return "";
+  }
+  return sha256Hex(canvasProjection);
+}
+
+/**
+ * Extract the canvas-only projection from a candidate graph whose nodes carry
+ * position / size / flags / color furniture.  This is the subset signed by the
+ * plan_hash when structural graph changes are absent (layout-only reorganise).
+ *
+ * @param {object} candidateGraph  serialized graph with `.nodes`, `.groups`,
+ *                                 and optionally `.extra`.
+ * @returns {object} canvas projection suitable for `computeCanvasProjectionHash`
+ */
+export function extractCanvasProjection(candidateGraph) {
+  const nodes = Array.isArray(candidateGraph?.nodes) ? candidateGraph.nodes : [];
+  const groups = Array.isArray(candidateGraph?.groups) ? candidateGraph.groups : [];
+  const extra = candidateGraph?.extra && typeof candidateGraph.extra === "object"
+    ? candidateGraph.extra
+    : {};
+
+  const entries = {};
+  for (const node of nodes) {
+    const uid = uidOf(node) || (node?.id != null ? String(node.id) : null);
+    if (!uid) continue;
+    const entry = {};
+    if (Array.isArray(node.pos) && node.pos.length >= 2) {
+      entry.pos = [Number(node.pos[0]), Number(node.pos[1])];
+    } else if (Array.isArray(node?.properties?.pos) && node.properties.pos.length >= 2) {
+      entry.pos = [Number(node.properties.pos[0]), Number(node.properties.pos[1])];
+    }
+    if (node.size && (Array.isArray(node.size) ? node.size.length >= 2 : true)) {
+      entry.size = Array.isArray(node.size)
+        ? [Number(node.size[0]), Number(node.size[1])]
+        : node.size;
+    }
+    if (node.flags && typeof node.flags === "object") {
+      entry.flags = { ...node.flags };
+    }
+    if (typeof node.color === "string") entry.color = node.color;
+    if (typeof node.bgcolor === "string") entry.bgcolor = node.bgcolor;
+    if (node.mode != null) entry.mode = node.mode;
+    if (node.order != null) entry.order = node.order;
+    entries[uid] = entry;
+  }
+
+  const canvasGroups = groups.map((group) => {
+    const g = {};
+    if (typeof group.title === "string") g.title = group.title;
+    const raw = group?.bounding || group?._bounding;
+    if (raw) {
+      const bounds = [
+        Number(raw[0] ?? 0), Number(raw[1] ?? 0),
+        Number(raw[2] ?? 0), Number(raw[3] ?? 0),
+      ];
+      if (bounds.every(Number.isFinite)) g.bounding = bounds;
+    }
+    if (typeof group.color === "string") g.color = group.color;
+    if (group.font_size != null) g.font_size = group.font_size;
+    if (group.locked != null) g.locked = Boolean(group.locked);
+    return g;
+  }).filter((g) => Object.keys(g).length > 0);
+
+  const projection = { entries };
+  if (canvasGroups.length > 0) projection.groups = canvasGroups;
+  if (Object.keys(extra).length > 0) projection.extra = extra;
+
+  return projection;
 }

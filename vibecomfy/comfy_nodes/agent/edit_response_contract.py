@@ -123,6 +123,11 @@ def _build_candidate_payload(
     compatibility_fields: Mapping[str, Any],
     has_candidate: bool,
     turn_identity: TurnIdentity,
+    plan_hash: str | None = None,
+    structural_hash_before: str | None = None,
+    structural_hash_after: str | None = None,
+    monotonic_generation: int | None = None,
+    lease_nonce: str | None = None,
 ) -> dict[str, Any] | None:
     if not has_candidate:
         return None
@@ -135,6 +140,11 @@ def _build_candidate_payload(
         submit_graph_hash=compatibility_fields["submit_graph_hash"],
         submit_structural_graph_hash=compatibility_fields["submit_structural_graph_hash"],
         turn_identity=turn_identity,
+        plan_hash=plan_hash,
+        structural_hash_before=structural_hash_before,
+        structural_hash_after=structural_hash_after,
+        monotonic_generation=monotonic_generation,
+        lease_nonce=lease_nonce,
     )
     return candidate.to_dict()
 
@@ -151,6 +161,9 @@ def _layout_only_reorganise_evidence_changed(state: AgentEditState) -> bool:
     if evidence.get("full_ui_payload_hash_changed") is True:
         return True
     if evidence.get("layout_evidence_changed") is True:
+        return True
+    # Mutation-plan hash signals a non-trivial candidate even when layout-only.
+    if evidence.get("plan_hash"):
         return True
     patch_apply = evidence.get("patch_apply")
     if not isinstance(patch_apply, Mapping):

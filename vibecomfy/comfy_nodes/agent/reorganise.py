@@ -210,6 +210,7 @@ def build_reorganise_agent_response(
     turn_identity = TurnIdentity.from_context(context)
     if has_candidate and state.ui_payload is not None:
         compatibility_fields = _compatibility_fields(state)
+        candidate_patch = result.candidate_patch
         candidate_payload = ApplyCandidate(
             state="candidate",
             graph=state.ui_payload,
@@ -219,6 +220,11 @@ def build_reorganise_agent_response(
             submit_graph_hash=compatibility_fields["submit_graph_hash"],
             submit_structural_graph_hash=compatibility_fields["submit_structural_graph_hash"],
             turn_identity=turn_identity,
+            plan_hash=getattr(candidate_patch, "plan_hash", None) or None,
+            structural_hash_before=getattr(candidate_patch, "structural_hash_before", None) or None,
+            structural_hash_after=getattr(candidate_patch, "structural_hash_after", None) or None,
+            monotonic_generation=getattr(candidate_patch, "monotonic_generation", 0) or 0,
+            lease_nonce=getattr(candidate_patch, "lease_nonce", None) or None,
         ).to_dict()
         internal_outcome = TurnOutcome.edit()
         message = "Reorganised layout candidate ready to review."
@@ -522,6 +528,12 @@ def _evidence_payload(
     patch_apply_error: Mapping[str, Any] | None = None,
     has_candidate: bool = False,
 ) -> dict[str, Any]:
+    candidate_patch = getattr(result, "candidate_patch", None)
+    plan_hash = getattr(candidate_patch, "plan_hash", None) or None
+    structural_hash_before = getattr(candidate_patch, "structural_hash_before", None) or None
+    structural_hash_after = getattr(candidate_patch, "structural_hash_after", None) or None
+    monotonic_generation = getattr(candidate_patch, "monotonic_generation", None)
+    lease_nonce = getattr(candidate_patch, "lease_nonce", None) or None
     return _json_safe({
         "apply_data": result.apply_data.to_json(),
         "patch_apply": (
@@ -537,6 +549,11 @@ def _evidence_payload(
         "layout_evidence_changed": _layout_evidence_changed(result, patch_apply),
         "layout_only_structural_noop": result.apply_data.layout_only_structural_noop
         and (patch_apply.layout_only_structural_noop if patch_apply is not None else False),
+        "plan_hash": plan_hash,
+        "structural_hash_before": structural_hash_before,
+        "structural_hash_after": structural_hash_after,
+        "monotonic_generation": monotonic_generation,
+        "lease_nonce": lease_nonce,
     })
 
 

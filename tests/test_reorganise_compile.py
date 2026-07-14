@@ -52,6 +52,7 @@ from vibecomfy.porting.reorganise.compile import (
     _node_size_for_ref,
     _resolve_group_collisions,
     _spacing,
+    _validate_pinned_preservation,
     CompiledGroupLayout,
     CompiledNodeLayout,
     LayoutCandidatePatch,
@@ -60,7 +61,12 @@ from vibecomfy.porting.reorganise.compile import (
     structural_hash_for_layout_facts,
 )
 from vibecomfy.porting.layout_store import STORE_VERSION, read_store, write_store
-from vibecomfy.porting.reorganise.graph_facts import extract_graph_facts
+from vibecomfy.porting.reorganise.diagnostics import DIAGNOSTIC_SEVERITY_ERROR
+from vibecomfy.porting.reorganise.graph_facts import (
+    GraphInventoryFacts,
+    NodeFurnitureFact,
+    extract_graph_facts,
+)
 from vibecomfy.porting.reorganise.parse import parse_layout_plan
 from vibecomfy.porting.reorganise.plan_types import (
     CanonicalNodeRef,
@@ -246,6 +252,11 @@ def test_compile_layout_plan_returns_public_contract_and_candidate_patch() -> No
         "definitions",
         "virtual_wires",
         "unkeyed",
+        "structural_hash_before",
+        "structural_hash_after",
+        "monotonic_generation",
+        "lease_nonce",
+        "plan_hash",
     ]
     assert list(patch["entries"]) == [
         "checkpoint",
@@ -402,7 +413,15 @@ def test_compile_layout_plan_recompiled_result_is_fixed_point_for_snapped_furnit
     second = compile_layout_plan(_valid_plan(), second_facts)
     delta, detail = _compiled_idempotence_delta(second_facts, second.candidate_patch)
 
-    assert second.candidate_patch.to_json() == first.candidate_patch.to_json()
+    # structural_hash_before / structural_hash_after may differ because the
+    # input facts carry different compile-context metadata (sidecar), but the
+    # core mutation-plan projection (entries, groups, plan_hash) must be identical.
+    _METADATA_KEYS = frozenset(
+        {"structural_hash_before", "structural_hash_after", "monotonic_generation", "lease_nonce"}
+    )
+    second_core = {k: v for k, v in second.candidate_patch.to_json().items() if k not in _METADATA_KEYS}
+    first_core = {k: v for k, v in first.candidate_patch.to_json().items() if k not in _METADATA_KEYS}
+    assert second_core == first_core
     assert delta == COMPILE_IDEMPOTENCE_DELTA_THRESHOLD
     assert detail == {"measured": True, "changed": [], "changed_count": 0}
 
@@ -4653,6 +4672,87 @@ def test_pinned_preservation_missing_furniture_blocks_compile() -> None:
     assert isinstance(result.ok, bool)
 
 
+def test_pinned_preservation_gate_independently_reports_drift_and_blocks() -> None:
+    """The pin-conflict gate (_validate_pinned_preservation) independently reports
+    COMPILE_ISSUE_PINNED_PRESERVATION_FAILED at error severity when a pinned node's
+    assigned position drifts from its furniture position, and stays silent on an
+    exact match. Exercised in isolation so the gate is proven independently of the
+    full compiler's snap-to-furniture behaviour (which otherwise prevents drift)."""
+    pinned_ref = CanonicalNodeRef("", "pinned")
+
+    def _inventory(furniture: NodeFurnitureFact) -> GraphInventoryFacts:
+        return GraphInventoryFacts(
+            canonical_refs=(),
+            canonical_refs_by_key={},
+            node_furniture=(furniture,),
+            scope_furniture=(),
+        )
+
+    furniture = NodeFurnitureFact(ref=pinned_ref, pos=[100, 200], size=[280, 100])
+
+    # (1) Position drift surfaced via options.pinned_refs -> one blocking diagnostic.
+    drifted = CompiledNodeLayout(
+        ref=pinned_ref,
+        section_id="custom_a",
+        role_hint=ROLE_HINT_UNKNOWN,
+        x=1000,
+        y=2000,
+        width=280,
+        height=100,
+        pinned=True,
+    )
+    drift_issues = _validate_pinned_preservation(
+        (drifted,),
+        _inventory(furniture),
+        LayoutCompileOptions(pinned_refs=(pinned_ref,)),
+    )
+    assert len(drift_issues) == 1
+    diag = drift_issues[0]
+    assert diag.code == COMPILE_ISSUE_PINNED_PRESERVATION_FAILED
+    assert diag.severity == DIAGNOSTIC_SEVERITY_ERROR
+    assert diag.detail["ref"] == pinned_ref.to_json()
+    assert diag.detail["expected"] == [100, 200]
+    assert diag.detail["actual"] == [1000, 2000]
+
+    # (2) Position drift surfaced via furniture flags -> same blocking diagnostic,
+    # proving the flag-derived pin path is gated too.
+    flag_furniture = NodeFurnitureFact(
+        ref=pinned_ref, pos=[100, 200], size=[280, 100], flags={"pinned": True}
+    )
+    flag_inventory = GraphInventoryFacts(
+        canonical_refs=(),
+        canonical_refs_by_key={},
+        node_furniture=(flag_furniture,),
+        scope_furniture=(),
+    )
+    flag_issues = _validate_pinned_preservation(
+        (drifted,),
+        flag_inventory,
+        LayoutCompileOptions(),
+    )
+    assert len(flag_issues) == 1
+    assert flag_issues[0].code == COMPILE_ISSUE_PINNED_PRESERVATION_FAILED
+    assert flag_issues[0].severity == DIAGNOSTIC_SEVERITY_ERROR
+
+    # (3) Exact furniture match -> gate stays silent (no conflict reported).
+    exact = CompiledNodeLayout(
+        ref=pinned_ref,
+        section_id="custom_a",
+        role_hint=ROLE_HINT_UNKNOWN,
+        x=100,
+        y=200,
+        width=280,
+        height=100,
+        pinned=True,
+    )
+    silent = _validate_pinned_preservation(
+        (exact,),
+        _inventory(furniture),
+        LayoutCompileOptions(pinned_refs=(pinned_ref,)),
+    )
+    assert silent == ()
+
+
 def test_structural_hash_includes_group_position_size_color_and_node_furniture() -> None:
     """Group bounding (position/size), color, and node furniture pos/size/flags change the structural hash."""
     ui = _ui()
@@ -4687,3 +4787,72 @@ def test_structural_hash_includes_group_position_size_color_and_node_furniture()
     flags_changed["nodes"][0]["flags"] = {"collapsed": True, "pinned": True}
     flags_hash = structural_hash_for_layout_facts(extract_graph_facts(flags_changed))
     assert flags_hash != base_hash, "node furniture flags change must affect structural hash"
+
+
+def test_candidate_patch_exposes_mutation_plan_fields() -> None:
+    """The candidate patch must expose plan_hash, structural_hash_before/after,
+    monotonic_generation, and lease_nonce so Preview, Apply, and verification
+    all consume the same mutation-plan authority."""
+    result = compile_layout_plan(_valid_plan(), extract_graph_facts(_ui()))
+    patch = result.candidate_patch.to_json()
+
+    # All five mutation-plan fields must be present in the candidate patch.
+    for field in (
+        "plan_hash",
+        "structural_hash_before",
+        "structural_hash_after",
+        "monotonic_generation",
+        "lease_nonce",
+    ):
+        assert field in patch, f"candidate patch missing mutation-plan field: {field}"
+
+    # plan_hash must be a non-empty hex string (SHA-256 hash).
+    assert isinstance(patch["plan_hash"], str) and len(patch["plan_hash"]) == 64
+    assert all(c in "0123456789abcdef" for c in patch["plan_hash"])
+
+    # structural hashes must be present (may be empty when there is no baseline).
+    assert isinstance(patch["structural_hash_before"], str)
+    assert isinstance(patch["structural_hash_after"], str)
+
+    # monotonic_generation must be an integer >= 0.
+    assert isinstance(patch["monotonic_generation"], int)
+    assert patch["monotonic_generation"] >= 0
+
+    # lease_nonce must be a string (may be empty).
+    assert isinstance(patch["lease_nonce"], str)
+
+
+def test_plan_hash_is_deterministic_for_same_input() -> None:
+    """The plan_hash must be deterministic: same input produces the same hash."""
+    facts = extract_graph_facts(_ui())
+    plan = _valid_plan()
+
+    first = compile_layout_plan(plan, facts)
+    second = compile_layout_plan(plan, facts)
+
+    assert first.candidate_patch.plan_hash == second.candidate_patch.plan_hash
+    assert first.candidate_patch.plan_hash
+
+
+def test_plan_hash_differs_for_different_topology() -> None:
+    """The plan_hash must differ when the active topology changes."""
+    ui = _ui()
+    facts_a = extract_graph_facts(ui)
+    patch_a = compile_layout_plan(_valid_plan(), facts_a).candidate_patch
+
+    # Change topology by adding a node.
+    ui_b = deepcopy(ui)
+    ui_b["nodes"].append({
+        "id": 999,
+        "type": "Note",
+        "class_type": "Note",
+        "pos": [0, 0],
+        "size": [100, 50],
+        "properties": {"vibecomfy_uid": "note-extra"},
+    })
+    facts_b = extract_graph_facts(ui_b)
+    patch_b = compile_layout_plan(_valid_plan(), facts_b).candidate_patch
+
+    assert patch_a.plan_hash != patch_b.plan_hash, (
+        "plan_hash must differ when topology changes"
+    )

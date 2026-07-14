@@ -29,6 +29,7 @@ const PREVIEW_PICKER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "
 const PREVIEW_DIFF_CORE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "preview_diff_core.js");
 const AGENTIC_REPLAY_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agentic_replay.js");
 const CANONICAL_DELTA_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_delta.js");
+const CANONICAL_HASH_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_hash.js");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -829,6 +830,7 @@ export async function createBrowserHarness({
   await writeFile(path.join(webRoot, "preview_diff_core.js"), await readFile(PREVIEW_DIFF_CORE_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agentic_replay.js"), await readFile(AGENTIC_REPLAY_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "canonical_delta.js"), await readFile(CANONICAL_DELTA_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "canonical_hash.js"), await readFile(CANONICAL_HASH_SOURCE, "utf8"));
 
   const apiEventListeners = {};
   const mockApi = {

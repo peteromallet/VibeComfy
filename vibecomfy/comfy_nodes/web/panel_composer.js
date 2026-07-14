@@ -279,10 +279,78 @@ export function renderComposerNotice(panel, readinessState, deps = {}) {
     || null;
   const allowsApply = !panelRoute || routeAllowsApplyAffordances(panelRoute);
 
+  // ── V2: Prepared-but-unfinalized recovery notice ──────────────────────────
+  // APPLY_PREPARED and CANVAS_VERIFIED represent a prepared transaction that has
+  // NOT yet been finalized.  The user must either finalize (commit the prepared
+  // mutation) or rollback (restore the pre-prepare baseline).  These states are
+  // recoverable — not a terminal success or failure — so we surface actionable
+  // recovery controls rather than treating them as generic APPLYING/ERROR.
+  const isPreparedUnfinalized =
+    panel.state.phase === PANEL_STATE.APPLY_PREPARED
+    || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED;
+
+  if (isPreparedUnfinalized && panel.state.preparedReceipt) {
+    const heading = el("div", panel.state.phase === PANEL_STATE.CANVAS_VERIFIED
+      ? "Canvas verified — ready to finalize"
+      : "Transaction prepared — awaiting verification");
+    heading.style.color = "#50fa7b";
+    heading.style.fontWeight = "700";
+    heading.style.marginBottom = "4px";
+    notice.appendChild(heading);
+
+    const detail = el("div", `Plan hash: ${(panel.state.mutationPlanHash || "").slice(0, 12)}...  Generation: ${panel.state.generation ?? "—"}`);
+    detail.style.color = "#9da1ac";
+    detail.style.fontSize = "11px";
+    detail.style.marginBottom = "6px";
+    notice.appendChild(detail);
+
+    if (panel.state.phase === PANEL_STATE.CANVAS_VERIFIED) {
+      const hint = el("div", "Click Finalize to commit this transaction to the baseline, or Rollback to restore the previous state.");
+      hint.style.color = "#edf2f7";
+      hint.style.marginBottom = "6px";
+      notice.appendChild(hint);
+    }
+
+    hasContent = true;
+  }
+
+  // ── V2: Rollback-complete notice ──────────────────────────────────────────
+  if (panel.state.phase === PANEL_STATE.ROLLBACK_COMPLETE) {
+    const heading = el("div", "Rollback complete");
+    heading.style.color = "#50fa7b";
+    heading.style.fontWeight = "700";
+    heading.style.marginBottom = "4px";
+    notice.appendChild(heading);
+    const detail = el("div", panel.state.message || "The baseline has been restored to its pre-transaction state.");
+    detail.style.color = "#edf2f7";
+    notice.appendChild(detail);
+    hasContent = true;
+  }
+
+  // ── V2: Finalized notice ──────────────────────────────────────────────────
+  if (panel.state.phase === PANEL_STATE.FINALIZED) {
+    const heading = el("div", "Transaction finalized");
+    heading.style.color = "#50fa7b";
+    heading.style.fontWeight = "700";
+    heading.style.marginBottom = "4px";
+    notice.appendChild(heading);
+    const detail = el("div", "The mutation has been committed to the baseline. You may submit a new edit.");
+    detail.style.color = "#edf2f7";
+    notice.appendChild(detail);
+    hasContent = true;
+  }
+
   const recovery = (panel.state.phase === PANEL_STATE.ERROR && allowsApply)
     ? panel.state.rebaselineRecovery
     : null;
   if (recovery?.action === "rebaseline" && recovery.reason === "stale_state_recovery") {
+    if (hasContent) {
+      const divider = el("div");
+      divider.style.height = "1px";
+      divider.style.background = "#2a313c";
+      divider.style.margin = "8px 0";
+      notice.appendChild(divider);
+    }
     const heading = el("div", "Canvas changed");
     heading.style.color = "#ffb86c";
     heading.style.fontWeight = "700";
@@ -348,11 +416,28 @@ export function renderComposerActions(panel, deps = {}) {
   const submitting = phase === PANEL_STATE.SUBMITTING;
   const reviewing = phase === PANEL_STATE.AWAITING_REVIEW;
   const applying = phase === PANEL_STATE.APPLYING;
+  // ── V2: Prepared-but-unfinalized recovery phases ──────────────────────────
+  // These states represent a prepared transaction that has not been finalized.
+  // They are NOT equivalent to APPLYING, SUCCESS, or ERROR — the user must
+  // either finalize or rollback.  We surface Finalize / Rollback buttons
+  // instead of the legacy Apply / Reject affordances.
+  const v2Prepared = phase === PANEL_STATE.APPLY_PREPARED;
+  const v2CanvasVerified = phase === PANEL_STATE.CANVAS_VERIFIED;
+  const v2Finalized = phase === PANEL_STATE.FINALIZED;
+  const v2RollbackPrepared = phase === PANEL_STATE.ROLLBACK_PREPARED;
+  const v2RollbackComplete = phase === PANEL_STATE.ROLLBACK_COMPLETE;
+  const v2ReviewBound = phase === PANEL_STATE.REVIEW_BOUND;
+
+  const v2Active = v2Prepared || v2CanvasVerified || v2RollbackPrepared;
+  const v2Terminal = v2Finalized || v2RollbackComplete;
+
   const canSubmit =
     phase === PANEL_STATE.IDLE
     || phase === PANEL_STATE.ERROR
     || phase === PANEL_STATE.CLARIFY
-    || phase === PANEL_STATE.AWAITING_REVIEW;
+    || phase === PANEL_STATE.AWAITING_REVIEW
+    || v2ReviewBound
+    || v2Terminal;
   const applyDisplayState = composerApplyDisplayState(panel, { routeStatusState });
   const actionState = typeof candidateActionState === "function"
     ? candidateActionState(panel)
@@ -371,11 +456,14 @@ export function renderComposerActions(panel, deps = {}) {
     ROUTE_STATUS_KIND,
   });
 
+  // ── V2: During an active V2 transaction, block Submit and hide legacy Apply/Reject ──
+  const v2BlocksSubmit = v2Active || v2RollbackPrepared;
   panel.buttons.submit.disabled =
     submitting
     || rebaselinePending
     || !canSubmit
-    || !readinessState.ready;
+    || !readinessState.ready
+    || v2BlocksSubmit;
   if (submitting) {
     ensureWorkingDotsStyle();
     panel.buttons.submit.textContent = "Working";
@@ -384,12 +472,38 @@ export function renderComposerActions(panel, deps = {}) {
   }
   toggleClass(panel.buttons.submit, "vibecomfy-working-dots", submitting);
   panel.buttons.stop.disabled = !submitting;
-  panel.buttons.apply.disabled = actionState.applyDisabled;
-  panel.buttons.reject.disabled = actionState.rejectDisabled;
+
+  // ── V2: Apply / Reject are hidden during V2 active phases ──────────────────
+  // Legacy Apply/Reject only make sense for AWAITING_REVIEW (V1) or REVIEW_BOUND (V2).
+  // During APPLY_PREPARED / CANVAS_VERIFIED, the user must Finalize or Rollback.
+  if (v2Active) {
+    panel.buttons.apply.style.display = "none";
+    panel.buttons.reject.style.display = "none";
+  } else {
+    panel.buttons.apply.disabled = actionState.applyDisabled;
+    panel.buttons.reject.disabled = actionState.rejectDisabled;
+  }
+
+  // ── V2: Finalize button visibility ─────────────────────────────────────────
+  // Finalize commits the prepared transaction to the baseline.  Only shown during
+  // CANVAS_VERIFIED (post-verify) or APPLY_PREPARED (pre-verify but prepared).
+  if (panel.buttons.finalize) {
+    panel.buttons.finalize.style.display = v2Active ? "inline-flex" : "none";
+    panel.buttons.finalize.disabled = Boolean(panel.state.inFlightApply);
+  }
+
+  // ── V2: Rollback button visibility ─────────────────────────────────────────
+  // Rollback restores the pre-prepare baseline. Shown during any V2 active phase.
+  if (panel.buttons.rollback) {
+    panel.buttons.rollback.style.display = v2Active ? "inline-flex" : "none";
+    panel.buttons.rollback.disabled = Boolean(panel.state.inFlightRebaseline);
+  }
+
   panel.buttons.undo.disabled =
     panel.state.undoStack.length < 1
     || submitting
     || applying
+    || v2Active
     || Boolean(panel.state.inFlightRebaseline)
     || (rebaselinePending && !undoPending);
   const undoLabel =
@@ -409,28 +523,39 @@ export function renderComposerActions(panel, deps = {}) {
   if (panel.buttons.newConversation) {
     // Disabled while a turn is processing; the in-flight escape hatch is Stop.
     panel.buttons.newConversation.disabled =
-      submitting || applying || Boolean(panel.state.inFlightRebaseline);
+      submitting || applying || v2Active || Boolean(panel.state.inFlightRebaseline);
   }
   const providerTestInFlight = Boolean(panel.state.providerTestInFlight);
-  panel.buttons.settingsTest.disabled = submitting || applying || providerTestInFlight;
+  panel.buttons.settingsTest.disabled = submitting || applying || v2Active || providerTestInFlight;
   panel.buttons.settingsTest.textContent = providerTestInFlight ? "Testing..." : "Test Provider";
-  panel.state.previewEnabled = Boolean(reviewing && actionState.visible);
+  panel.state.previewEnabled = Boolean((reviewing || v2ReviewBound) && actionState.visible);
 
   syncComposerButtonsImpl(panel, {
     submitting,
-    applying,
-    reviewing,
+    applying: applying || v2Active,
+    reviewing: reviewing || v2ReviewBound,
     showUndo: panel.state.undoStack.length > 0,
   });
 
-  setButtonEmphasis(panel.buttons.submit, (canSubmit && readinessState.ready) || submitting, "primary");
-  if (canSubmit && !submitting) {
+  setButtonEmphasis(panel.buttons.submit, (canSubmit && readinessState.ready && !v2BlocksSubmit) || submitting, "primary");
+  if (canSubmit && !submitting && !v2BlocksSubmit) {
     panel.buttons.submit.style.display = "inline-flex";
     panel.buttons.submit.style.opacity = "1";
   }
+  if (v2BlocksSubmit) {
+    panel.buttons.submit.style.opacity = "0.4";
+  }
   setButtonEmphasis(panel.buttons.stop, submitting, "danger");
-  setButtonEmphasis(panel.buttons.apply, reviewing || applying, "primary");
-  setButtonEmphasis(panel.buttons.reject, reviewing || applying, "danger");
+  if (!v2Active) {
+    setButtonEmphasis(panel.buttons.apply, reviewing || applying, "primary");
+    setButtonEmphasis(panel.buttons.reject, reviewing || applying, "danger");
+  }
+  if (v2Active && panel.buttons.finalize) {
+    setButtonEmphasis(panel.buttons.finalize, true, "primary");
+  }
+  if (v2Active && panel.buttons.rollback) {
+    setButtonEmphasis(panel.buttons.rollback, true, "danger");
+  }
   setButtonEmphasis(panel.buttons.undo, panel.state.undoStack.length > 0, "neutral");
   setButtonEmphasis(panel.buttons.close, true, "neutral");
   setButtonEmphasis(panel.buttons.settingsTest, true, "neutral");

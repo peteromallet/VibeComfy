@@ -27,6 +27,20 @@ import {
   outcomeIsNoop,
   clarificationMessageFromOutcome,
   outcomeHasClarificationPrompt,
+  // ── T25: V2 transaction commit helpers ────────────────────────────────────
+  commitPrepareStarted,
+  commitPrepareSuccess,
+  commitPrepareFailure,
+  commitVerifyCanvasStarted,
+  commitVerifyCanvasSuccess,
+  commitVerifyCanvasFailure,
+  commitFinalizeStarted,
+  commitFinalizeSuccess,
+  commitFinalizeFailure,
+  commitRollbackStarted,
+  commitRollbackSuccess,
+  commitRollbackFailure,
+  commitReconcileReceipts,
 } from "../../vibecomfy/comfy_nodes/web/agent_lifecycle_commit.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -706,4 +720,377 @@ test("commit helpers only produce valid dirtySections from RENDER_SECTIONS", () 
       );
     }
   }
+});
+
+// ── Mutation-plan field exposure (T15) ──────────────────────────────────────
+
+test("readCommitApplyCandidate exposes mutation-plan fields when present", () => {
+  const raw = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      graph_hash: "gh-123",
+      structural_graph_hash: "sgh-456",
+      baseline_graph_hash: "bh-789",
+      submit_graph_hash: "sh-012",
+      submit_structural_graph_hash: "ssh-345",
+      plan_hash: "a".repeat(64),
+      structural_hash_before: "before-hash",
+      structural_hash_after: "after-hash",
+      monotonic_generation: 5,
+      lease_nonce: "nonce-abc",
+    },
+  };
+
+  const candidate = readCommitApplyCandidate(raw);
+  assert.ok(candidate, "readCommitApplyCandidate must return a candidate");
+  assert.equal(candidate.planHash, "a".repeat(64));
+  assert.equal(candidate.structuralHashBefore, "before-hash");
+  assert.equal(candidate.structuralHashAfter, "after-hash");
+  assert.equal(candidate.monotonicGeneration, 5);
+  assert.equal(candidate.leaseNonce, "nonce-abc");
+});
+
+test("readCommitApplyCandidate returns undefined planHash when mutation-plan fields are absent", () => {
+  const raw = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      graph_hash: "gh-123",
+    },
+  };
+
+  const candidate = readCommitApplyCandidate(raw);
+  assert.ok(candidate, "readCommitApplyCandidate must return a candidate");
+  // compactObject strips null/undefined, so absent fields are undefined on access.
+  assert.equal(candidate.planHash, undefined,
+    "planHash must be undefined when mutation-plan fields are absent");
+  assert.equal(candidate.structuralHashBefore, undefined);
+  assert.equal(candidate.structuralHashAfter, undefined);
+  assert.equal(candidate.monotonicGeneration, undefined);
+  assert.equal(candidate.leaseNonce, undefined);
+});
+
+test("readCommitApplyCandidate planHash consumed by lifecycle commit matches preview", () => {
+  // Simulate a preview → apply flow where both consume the same planHash.
+  const planHash = "b".repeat(64);
+  const raw = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    candidate: {
+      state: "candidate",
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      graph_hash: "gh-123",
+      plan_hash: planHash,
+      structural_hash_before: "same",
+      structural_hash_after: "same",
+      monotonic_generation: 1,
+      lease_nonce: "lease-1",
+    },
+  };
+
+  // Preview reads the planHash.
+  const previewCandidate = readCommitApplyCandidate(raw);
+  assert.equal(previewCandidate.planHash, planHash);
+
+  // Apply reads the same candidate (simulated by the same raw response).
+  const applyCandidate = readCommitApplyCandidate(raw);
+  assert.equal(applyCandidate.planHash, planHash);
+
+  // Verification must see the same planHash.
+  assert.equal(previewCandidate.planHash, applyCandidate.planHash,
+    "Preview and Apply must consume the same planHash for durable authority");
+});
+
+// ── T25: V2 Transaction lifecycle commit tests ──────────────────────────────
+
+test("commitPrepareStarted transitions to APPLY_PREPARED and records plan hash", () => {
+  const panel = makePanel({ turnId: "turn-v2", sessionId: "sess-v2" });
+  const obligations = commitPrepareStarted(panel, {
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 1,
+    leaseNonce: "nonce-1",
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.APPLY_PREPARED);
+  assert.equal(panel.state.mutationPlanHash, "deadbeef".repeat(8));
+  assert.equal(panel.state.generation, 1);
+  assert.equal(panel.state.leaseNonce, "nonce-1");
+  assert.equal(panel.state.failure, null);
+  assert.ok(Array.isArray(panel.state.lifecycleEvents));
+  assert.equal(panel.state.lifecycleEvents.length, 1);
+  assert.equal(panel.state.lifecycleEvents[0].event_type, "prepare_started");
+  assert.ok(obligations.render);
+});
+
+test("commitPrepareSuccess records prepared receipt", () => {
+  const panel = makePanel({
+    sessionId: "sess-prepare",
+    turnId: "turn-v2",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 1,
+  });
+  const receipt = {
+    plan_hash: "deadbeef".repeat(8),
+    generation: 1,
+    lease_nonce: "nonce-receipt",
+    prepared_at: "2026-07-14T12:00:00Z",
+  };
+  const obligations = commitPrepareSuccess(panel, {
+    receipt,
+    preparedReceipt: receipt,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.APPLY_PREPARED);
+  assert.deepEqual(panel.state.preparedReceipt, receipt);
+  assert.equal(panel.state.leaseNonce, "nonce-receipt");
+  assert.ok(obligations.render);
+  assert.ok(obligations.persistSession);
+});
+
+test("commitPrepareFailure clears receipt and goes to ERROR", () => {
+  const panel = makePanel({
+    turnId: "turn-v2",
+    preparedReceipt: { stale: true },
+    leaseNonce: "old-nonce",
+  });
+  const failure = { code: "PREPARE_CAS_FAILED", message: "Baseline mismatch" };
+  const obligations = commitPrepareFailure(panel, { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  assert.equal(panel.state.preparedReceipt, null);
+  assert.equal(panel.state.leaseNonce, null);
+  assert.ok(obligations.render);
+});
+
+test("commitVerifyCanvasStarted sets CANVAS_VERIFIED phase", () => {
+  const panel = makePanel({
+    turnId: "turn-v2",
+    mutationPlanHash: "deadbeef".repeat(8),
+    phase: PANEL_STATE.APPLY_PREPARED,
+  });
+  const obligations = commitVerifyCanvasStarted(panel, {});
+
+  assert.equal(panel.state.phase, PANEL_STATE.CANVAS_VERIFIED);
+  assert.ok(obligations.render);
+});
+
+test("commitVerifyCanvasSuccess records verified receipt and persists session", () => {
+  const panel = makePanel({
+    turnId: "turn-v2",
+    sessionId: "sess-v2",
+    mutationPlanHash: "deadbeef".repeat(8),
+  });
+  const receipt = { post_apply_hash: "abcdef".repeat(10) + "1234" };
+  const obligations = commitVerifyCanvasSuccess(panel, {
+    receipt,
+    verifiedReceipt: receipt,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.CANVAS_VERIFIED);
+  assert.deepEqual(panel.state.verifiedReceipt, receipt);
+  assert.equal(panel.state.failure, null);
+  assert.ok(obligations.render);
+  assert.ok(obligations.persistSession);
+});
+
+test("commitVerifyCanvasFailure clears verifiedReceipt and goes to ERROR", () => {
+  const panel = makePanel({
+    turnId: "turn-v2",
+    mutationPlanHash: "deadbeef".repeat(8),
+    verifiedReceipt: { post_apply_hash: "wrong" },
+  });
+  const failure = { code: "HASH_MISMATCH", message: "Canvas hash mismatch" };
+  const obligations = commitVerifyCanvasFailure(panel, { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  assert.equal(panel.state.verifiedReceipt, null);
+  assert.ok(obligations.render);
+});
+
+test("commitFinalizeStarted sets FINALIZED phase", () => {
+  const panel = makePanel({
+    turnId: "turn-v2",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 1,
+    leaseNonce: "nonce-1",
+  });
+  const obligations = commitFinalizeStarted(panel, {});
+
+  assert.equal(panel.state.phase, PANEL_STATE.FINALIZED);
+  assert.equal(panel.state.failure, null);
+  assert.ok(obligations.render);
+});
+
+test("commitFinalizeSuccess syncs baseline, clears candidate, and records receipt", () => {
+  const panel = makePanel({
+    sessionId: "sess-finalize-v2",
+    turnId: "turn-v2",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 1,
+    candidateGraph: { nodes: [{ id: 1 }], links: [] },
+    candidateGraphHash: "candidate-hash",
+    baselineGraphHash: "old-baseline",
+    undoStack: [{ turn_id: "prev" }],
+  });
+  const receipt = { audit_ref: "audit-42", baseline_graph_hash: "new-baseline" };
+  const obligations = commitFinalizeSuccess(panel, {
+    receipt,
+    finalizedReceipt: receipt,
+    accepted: receipt,
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.FINALIZED);
+  assert.equal(panel.state.candidateGraph, null);
+  assert.equal(panel.state.candidateGraphHash, null);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+  assert.ok(obligations.render);
+  assert.ok(obligations.invalidateCandidate);
+  assert.ok(obligations.clearCandidatePreview);
+  assert.ok(obligations.persistSession);
+});
+
+test("commitFinalizeFailure syncs baseline from failure payload", () => {
+  const panel = makePanel({ turnId: "turn-v2" });
+  const failure = {
+    code: "FINALIZE_CAS_FAILED",
+    message: "Lease expired",
+    baseline_graph_hash: "server-baseline",
+  };
+  const obligations = commitFinalizeFailure(panel, { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  assert.equal(panel.state.baselineGraphHash, "server-baseline");
+  assert.ok(obligations.render);
+});
+
+test("commitRollbackStarted sets ROLLBACK_PREPARED phase", () => {
+  const panel = makePanel({
+    turnId: "turn-v2",
+    mutationPlanHash: "deadbeef".repeat(8),
+    generation: 1,
+  });
+  const obligations = commitRollbackStarted(panel, {});
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_PREPARED);
+  assert.equal(panel.state.failure, null);
+  assert.ok(obligations.render);
+});
+
+test("commitRollbackSuccess records receipt and clears candidate", () => {
+  const panel = makePanel({
+    sessionId: "sess-rollback",
+    turnId: "turn-v2",
+    candidateGraph: { nodes: [{ id: 1 }], links: [] },
+    candidateGraphHash: "candidate-hash",
+    undoStack: [{ turn_id: "prev" }],
+  });
+  const receipt = { rollback_at: "2026-07-14T12:05:00Z" };
+  const obligations = commitRollbackSuccess(panel, {
+    receipt,
+    rollbackReceipt: receipt,
+    message: "Rollback successful.",
+  });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
+  assert.deepEqual(panel.state.rollbackReceipt, receipt);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.equal(panel.state.candidateGraph, null);
+  assert.ok(obligations.render);
+  assert.ok(obligations.invalidateCandidate);
+  assert.ok(obligations.clearCandidatePreview);
+  assert.ok(obligations.persistSession);
+});
+
+test("commitRollbackFailure clears receipt and goes to ERROR", () => {
+  const panel = makePanel({ turnId: "turn-v2" });
+  const failure = { code: "ROLLBACK_FAILED", message: "Cannot rollback" };
+  const obligations = commitRollbackFailure(panel, { failure });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ERROR);
+  assert.equal(panel.state.failure, failure);
+  assert.equal(panel.state.rollbackReceipt, null);
+  assert.ok(obligations.render);
+});
+
+test("commitReconcileReceipts recovers prepared state from server receipts", () => {
+  const panel = makePanel({
+    sessionId: "sess-recon",
+    turnId: "turn-v2",
+  });
+  const receipts = {
+    preparedReceipt: {
+      plan_hash: "deadbeef".repeat(8),
+      generation: 3,
+      lease_nonce: "nonce-recon",
+    },
+  };
+  const obligations = commitReconcileReceipts(panel, { receipts });
+
+  assert.equal(panel.state.phase, PANEL_STATE.APPLY_PREPARED);
+  assert.equal(panel.state.mutationPlanHash, "deadbeef".repeat(8));
+  assert.equal(panel.state.generation, 3);
+  assert.equal(panel.state.leaseNonce, "nonce-recon");
+  assert.ok(obligations.render);
+});
+
+test("commitReconcileReceipts recovers canvas_verified when verifiedReceipt present", () => {
+  const panel = makePanel({ sessionId: "sess-recon-v", turnId: "turn-v2" });
+  const receipts = {
+    preparedReceipt: {
+      plan_hash: "deadbeef".repeat(8),
+      generation: 5,
+      lease_nonce: "nonce-v",
+    },
+    verifiedReceipt: { post_apply_hash: "abcdef".repeat(10) + "1234" },
+  };
+  commitReconcileReceipts(panel, { receipts });
+
+  assert.equal(panel.state.phase, PANEL_STATE.CANVAS_VERIFIED);
+  assert.ok(panel.state.verifiedReceipt);
+});
+
+test("commitReconcileReceipts recovers rollback_complete from rollback receipt", () => {
+  const panel = makePanel({ sessionId: "sess-recon-r", turnId: "turn-v2" });
+  const receipts = {
+    rollbackReceipt: { rollback_at: "2026-07-14T12:05:00Z" },
+  };
+  commitReconcileReceipts(panel, { receipts });
+
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
+  assert.ok(panel.state.rollbackReceipt);
+});
+
+test("commitReconcileReceipts merges server lifecycle events without duplicates", () => {
+  const panel = makePanel({
+    sessionId: "sess-recon-merge",
+    turnId: "turn-v2",
+    lifecycleEvents: [
+      { event_type: "prepare_started", timestamp: 1700000000000, turn_id: "turn-v2" },
+    ],
+  });
+  const receipts = {
+    preparedReceipt: { plan_hash: "deadbeef".repeat(8), generation: 3 },
+    lifecycleEvents: [
+      { event_type: "prepare_started", timestamp: 1700000000000, turn_id: "turn-v2" },
+      { event_type: "prepare_success", timestamp: 1700000001000, turn_id: "turn-v2" },
+    ],
+  };
+  commitReconcileReceipts(panel, { receipts });
+
+  // Server events merged without duplicates (2) + reconcile_receipts recorded by handler (1) = 3
+  assert.equal(panel.state.lifecycleEvents.length, 3);
+  assert.equal(panel.state.lifecycleEvents[0].event_type, "prepare_started");
+  assert.equal(panel.state.lifecycleEvents[1].event_type, "prepare_success");
+  assert.equal(panel.state.lifecycleEvents[2].event_type, "reconcile_receipts");
 });

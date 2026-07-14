@@ -490,6 +490,11 @@ class LayoutCandidatePatch:
     vibecomfy_version: str = "0"
     schema_hash: str = field(default_factory=_candidate_schema_hash)
     unkeyed: tuple[Any, ...] = ()
+    structural_hash_before: str = ""
+    structural_hash_after: str = ""
+    monotonic_generation: int = 0
+    lease_nonce: str = ""
+    plan_hash: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -504,6 +509,29 @@ class LayoutCandidatePatch:
         object.__setattr__(self, "definitions", _freeze_jsonish(self.definitions))
         object.__setattr__(self, "virtual_wires", _freeze_jsonish(self.virtual_wires))
         object.__setattr__(self, "unkeyed", tuple(self.unkeyed))
+        # Compute plan_hash from the full mutation-plan projection (core fields
+        # only, excluding the metadata fields added by this patch itself).
+        if not self.plan_hash:
+            projection = {
+                "store_version": self.store_version,
+                "vibecomfy_version": self.vibecomfy_version,
+                "schema_hash": self.schema_hash,
+                "entries": _thaw_jsonish(self.entries),
+                "groups": [_thaw_jsonish(group) for group in self.groups],
+                "extra": _thaw_jsonish(self.extra),
+                "lastRerouteId": self.last_reroute_id,
+                "definitions": _thaw_jsonish(self.definitions),
+                "virtual_wires": _thaw_jsonish(self.virtual_wires),
+                "unkeyed": list(self.unkeyed),
+            }
+            raw = json.dumps(
+                projection,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                default=str,
+            ).encode("utf-8")
+            object.__setattr__(self, "plan_hash", hashlib.sha256(raw).hexdigest())
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -517,6 +545,11 @@ class LayoutCandidatePatch:
             "definitions": _thaw_jsonish(self.definitions),
             "virtual_wires": _thaw_jsonish(self.virtual_wires),
             "unkeyed": list(self.unkeyed),
+            "structural_hash_before": self.structural_hash_before,
+            "structural_hash_after": self.structural_hash_after,
+            "monotonic_generation": self.monotonic_generation,
+            "lease_nonce": self.lease_nonce,
+            "plan_hash": self.plan_hash,
         }
 
 
@@ -866,8 +899,10 @@ def _patch_emission_phase(
     group_layouts: Sequence[CompiledGroupLayout],
     facts: GraphInventoryFacts,
     options: LayoutCompileOptions,
+    *,
+    structural_hash: str = "",
 ) -> LayoutCandidatePatch:
-    return _candidate_patch(node_layouts, group_layouts, facts, options)
+    return _candidate_patch(node_layouts, group_layouts, facts, options, structural_hash=structural_hash)
 
 
 def _validation_metrics_phase(
@@ -970,7 +1005,7 @@ def compile_layout_plan(
         opts,
         classification,
     ) if should_apply_existing_policy else (group_layouts, ())
-    candidate_patch = _patch_emission_phase(node_layouts, group_layouts, facts, opts)
+    candidate_patch = _patch_emission_phase(node_layouts, group_layouts, facts, opts, structural_hash=structural_hash)
     report = _validation_metrics_phase(
         sections=sections,
         classification=classification,
@@ -1055,6 +1090,33 @@ def structural_hash_for_layout_facts(facts: GraphInventoryFacts) -> str:
                 "flags": _thaw_jsonish(fact.flags),
             }
             for fact in sorted(facts.node_furniture, key=lambda f: _ref_sort_key(f.ref))
+        ],
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return hashlib.blake2b(raw, digest_size=16).hexdigest()
+
+
+def topology_hash_for_layout_facts(facts: GraphInventoryFacts) -> str:
+    """Return a position-invariant topology-only hash for structural-noop checks.
+
+    This hash covers canonical node identities, classes, helper status,
+    and effective topology facts *only*.  Furniture (group geometry, color,
+    node position, size, flags) is intentionally excluded so that pure
+    layout repositioning does not change the hash.
+    """
+
+    payload = {
+        "canonical_refs": [
+            {
+                "ref": fact.ref.to_json(),
+                "class_type": fact.class_type,
+                "is_helper": fact.is_helper,
+            }
+            for fact in sorted(facts.canonical_refs, key=lambda fact: _ref_sort_key(fact.ref))
+        ],
+        "scope_topologies": [
+            topology.to_json()
+            for topology in sorted(facts.scope_topologies, key=lambda topology: topology.scope_path)
         ],
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -4534,6 +4596,8 @@ def _candidate_patch(
     group_layouts: Sequence[CompiledGroupLayout],
     facts: GraphInventoryFacts,
     options: LayoutCompileOptions,
+    *,
+    structural_hash: str = "",
 ) -> LayoutCandidatePatch:
     furniture_by_ref = {fact.ref: fact for fact in facts.node_furniture}
     entries: dict[str, Mapping[str, Any]] = {}
@@ -4561,6 +4625,8 @@ def _candidate_patch(
         vibecomfy_version=str(sidecar.get("vibecomfy_version", "0")),
         schema_hash=_candidate_schema_hash(),
         unkeyed=_candidate_unkeyed(sidecar),
+        structural_hash_before=structural_hash,
+        structural_hash_after=structural_hash,
     )
 
 

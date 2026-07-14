@@ -23,6 +23,7 @@ from .compile import (
     LayoutCompileResult,
     compile_layout_plan,
     structural_hash_for_layout_facts,
+    topology_hash_for_layout_facts,
 )
 from .diagnostics import ReorganiseDiagnostic, ReorganiseDiagnosticReport
 from .graph_facts import GraphInventoryFacts, extract_graph_facts
@@ -368,6 +369,9 @@ class ReorganiseApplyData:
     structural_hash_before: str | None
     structural_hash_after: str | None
     layout_only_structural_noop: bool
+    monotonic_generation: int = 0
+    lease_nonce: str = ""
+    plan_hash: str = ""
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -379,6 +383,9 @@ class ReorganiseApplyData:
             "structural_hash_before": self.structural_hash_before,
             "structural_hash_after": self.structural_hash_after,
             "layout_only_structural_noop": self.layout_only_structural_noop,
+            "monotonic_generation": self.monotonic_generation,
+            "lease_nonce": self.lease_nonce,
+            "plan_hash": self.plan_hash,
         }
 
 
@@ -389,6 +396,9 @@ class ReorganisePatchApplyResult:
     structural_hash_before: str
     structural_hash_after: str
     layout_only_structural_noop: bool
+    plan_hash: str = ""
+    monotonic_generation: int = 0
+    lease_nonce: str = ""
     applied_entry_keys: tuple[str, ...] = ()
     skipped_entry_keys: tuple[str, ...] = ()
     applied_group_scopes: tuple[str, ...] = ()
@@ -405,6 +415,9 @@ class ReorganisePatchApplyResult:
             "structural_hash_before": self.structural_hash_before,
             "structural_hash_after": self.structural_hash_after,
             "layout_only_structural_noop": self.layout_only_structural_noop,
+            "plan_hash": self.plan_hash,
+            "monotonic_generation": self.monotonic_generation,
+            "lease_nonce": self.lease_nonce,
             "applied_entry_keys": list(self.applied_entry_keys),
             "skipped_entry_keys": list(self.skipped_entry_keys),
             "applied_group_scopes": list(self.applied_group_scopes),
@@ -1172,9 +1185,9 @@ def apply_layout_candidate_patch_to_ui(
 ) -> ReorganisePatchApplyResult:
     loaded = load_reorganise_ui_json(ui_json_or_path)
     patch = _candidate_patch_mapping(candidate_patch)
-    structural_hash_before = structural_hash_for_layout_facts(
-        extract_graph_facts(loaded.ui_json)
-    )
+    facts_before = extract_graph_facts(loaded.ui_json)
+    topology_hash_before = topology_hash_for_layout_facts(facts_before)
+    structural_hash_before = structural_hash_for_layout_facts(facts_before)
 
     ledger = EditLedger.ingest(loaded.ui_json)
     graph = ledger.graph
@@ -1182,20 +1195,28 @@ def apply_layout_candidate_patch_to_ui(
     applied_group_scopes = _apply_candidate_groups(ledger, patch)
     _apply_root_furniture_sections(graph, patch)
 
-    structural_hash_after = structural_hash_for_layout_facts(extract_graph_facts(graph))
-    layout_only_structural_noop = structural_hash_before == structural_hash_after
+    facts_after = extract_graph_facts(graph)
+    topology_hash_after = topology_hash_for_layout_facts(facts_after)
+    structural_hash_after = structural_hash_for_layout_facts(facts_after)
+    layout_only_structural_noop = topology_hash_before == topology_hash_after
     if require_structural_noop and not layout_only_structural_noop:
         raise ValueError(
             "layout candidate patch changed workflow structure: "
-            f"{structural_hash_before} != {structural_hash_after}"
+            f"{topology_hash_before} != {topology_hash_after}"
         )
 
+    plan_hash = str(patch.get("plan_hash", ""))
+    monotonic_generation = int(patch.get("monotonic_generation", 0))
+    lease_nonce = str(patch.get("lease_nonce", ""))
     return ReorganisePatchApplyResult(
         ui_json=graph,
         candidate_patch_sha256=_sha256(patch),
         structural_hash_before=structural_hash_before,
         structural_hash_after=structural_hash_after,
         layout_only_structural_noop=layout_only_structural_noop,
+        plan_hash=plan_hash,
+        monotonic_generation=monotonic_generation,
+        lease_nonce=lease_nonce,
         applied_entry_keys=tuple(applied_entry_keys),
         skipped_entry_keys=tuple(skipped_entry_keys),
         applied_group_scopes=tuple(applied_group_scopes),

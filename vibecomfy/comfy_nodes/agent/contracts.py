@@ -91,6 +91,40 @@ REBASELINE_RECOVERY_FIELDS: tuple[str, ...] = (
     "client_structural_graph_hash",
 )
 
+# ── Named temporary bridge: /vibecomfy/agent-edit/accept → /finalize ────
+# Bridge name: "accept-to-finalize"
+# Bridged route: POST /vibecomfy/agent-edit/accept
+# Delegates to: finalize_turn_transaction (session.py)
+# Bridge convention metadata — mirrors the deletion condition comments in
+# session.py and routes.py so contract-aware tooling can surface the bridge
+# lifecycle without parsing source comments.
+# Deletion condition: remove when every live browser client posts directly
+# to /vibecomfy/agent-edit/finalize for V2 applyable turns for one full
+# release cycle.  Tracked via per-session accept_bridge_v2_count counter
+# stored in session_state.json._bridge_counters.
+ACCEPT_TO_FINALIZE_BRIDGE: Mapping[str, Any] = MappingProxyType({
+    "bridge_name": "accept-to-finalize",
+    "bridged_route": "/vibecomfy/agent-edit/accept",
+    "delegates_to": "finalize_turn_transaction",
+    "v2_only": True,
+    "applyable_states": ("apply_prepared", "canvas_verified"),
+    "non_applyable_behavior": "fail_closed",
+    "independent_commit_path": False,
+    "observability_key": "accept_bridge_v2_count",
+    "deletion_condition": (
+        "Delete when every live browser client posts directly to "
+        "/vibecomfy/agent-edit/finalize for V2 applyable turns and the "
+        "per-session accept_bridge_v2_count counter no longer increments "
+        "across all deployed sessions for one release cycle."
+    ),
+    "deletion_scope": [
+        "accept_turn() in session.py",
+        "/vibecomfy/agent-edit/accept route in routes.py",
+        "this ACCEPT_TO_FINALIZE_BRIDGE metadata",
+        "_ACCEPT_BRIDGE_V2_KEY and _increment_accept_bridge_counter in session.py",
+    ],
+})
+
 # Maps internal TurnOutcome kinds to their canonical public outcome kind.
 # Sourced from public_outcome_from_turn_outcome and cross-checked against the
 # JS INTERNAL_OUTCOME_KIND_MAP.
@@ -343,6 +377,11 @@ class ApplyCandidate:
     submit_graph_hash: str | None = None
     submit_structural_graph_hash: str | None = None
     turn_identity: TurnIdentity | None = None
+    plan_hash: str | None = None
+    structural_hash_before: str | None = None
+    structural_hash_after: str | None = None
+    monotonic_generation: int | None = None
+    lease_nonce: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "graph", _freeze_jsonish(self.graph))
@@ -356,10 +395,104 @@ class ApplyCandidate:
             "baseline_graph_hash": self.baseline_graph_hash,
             "submit_graph_hash": self.submit_graph_hash,
             "submit_structural_graph_hash": self.submit_structural_graph_hash,
+            "plan_hash": self.plan_hash,
+            "structural_hash_before": self.structural_hash_before,
+            "structural_hash_after": self.structural_hash_after,
+            "monotonic_generation": self.monotonic_generation,
+            "lease_nonce": self.lease_nonce,
         }
         if self.turn_identity is not None:
             payload["turn_identity"] = self.turn_identity.to_dict()
         return payload
+
+
+@dataclass(frozen=True)
+class TransactionPrepareRequest:
+    turn_id: str
+    plan_hash: str
+    candidate_graph_hash: str
+    structural_hash_before: str | None
+    generation: int | None
+    apply_eligibility: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "apply_eligibility",
+            _freeze_jsonish(self.apply_eligibility),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "turn_id": self.turn_id,
+            "plan_hash": self.plan_hash,
+            "candidate_graph_hash": self.candidate_graph_hash,
+            "structural_hash_before": self.structural_hash_before,
+            "generation": self.generation,
+            "apply_eligibility": _thaw_jsonish(self.apply_eligibility),
+        }
+
+
+@dataclass(frozen=True)
+class TransactionFinalizeRequest:
+    turn_id: str
+    plan_hash: str
+    generation: int
+    lease_nonce: str
+    post_apply_hash: str
+    post_apply_hash_verified: bool
+    structural_hash_after: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "turn_id": self.turn_id,
+            "plan_hash": self.plan_hash,
+            "generation": self.generation,
+            "lease_nonce": self.lease_nonce,
+            "post_apply_hash": self.post_apply_hash,
+            "post_apply_hash_verified": self.post_apply_hash_verified,
+            "structural_hash_after": self.structural_hash_after,
+        }
+
+
+@dataclass(frozen=True)
+class TransactionRollbackRequest:
+    turn_id: str
+    plan_hash: str | None = None
+    generation: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "turn_id": self.turn_id,
+            "plan_hash": self.plan_hash,
+            "generation": self.generation,
+        }
+
+
+@dataclass(frozen=True)
+class TransactionReceiptEnvelope:
+    action: str
+    session_id: str
+    turn_id: str | None
+    plan_hash: str | None
+    generation: int | None
+    phase: str | None
+    receipt: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.receipt is not None:
+            object.__setattr__(self, "receipt", _freeze_jsonish(self.receipt))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "plan_hash": self.plan_hash,
+            "generation": self.generation,
+            "phase": self.phase,
+            "receipt": _thaw_jsonish(self.receipt) if self.receipt is not None else None,
+        }
 
 
 @dataclass(frozen=True)
@@ -2387,6 +2520,10 @@ __all__ = [
     "StageResult",
     "StageSnapshot",
     "TURN_OUTCOME_KINDS",
+    "TransactionFinalizeRequest",
+    "TransactionPrepareRequest",
+    "TransactionReceiptEnvelope",
+    "TransactionRollbackRequest",
     "TurnContext",
     "TurnIdentity",
     "TurnOutcome",

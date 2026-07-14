@@ -43,6 +43,16 @@ export const PANEL_STATE = Object.freeze({
   SUBMITTING: "SUBMITTING",
   CLARIFY: "CLARIFY",
   AWAITING_REVIEW: "AWAITING_REVIEW",
+  // ── V2 transaction lifecycle states (mirrors Python TurnState) ──────────
+  // submitted        → SUBMITTING (existing)
+  // candidate_ready  → AWAITING_REVIEW (existing)
+  REVIEW_BOUND: "REVIEW_BOUND",
+  APPLY_PREPARED: "APPLY_PREPARED",
+  CANVAS_VERIFIED: "CANVAS_VERIFIED",
+  FINALIZED: "FINALIZED",
+  ROLLBACK_PREPARED: "ROLLBACK_PREPARED",
+  ROLLBACK_COMPLETE: "ROLLBACK_COMPLETE",
+  // ── Legacy ─────────────────────────────────────────────────────────────
   APPLYING: "APPLYING",
   ERROR: "ERROR",
 });
@@ -203,6 +213,22 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
 
   // V2 delta ops (mutation intent from submit response)
   "deltaOps",
+
+  // ── T24: Transaction lifecycle fields (store-owned, mirror Python contracts) ─
+  // mutationPlanHash — the deterministic plan hash for the mutation plan
+  "mutationPlanHash",
+  // generation — monotonic global generation counter from the server
+  "generation",
+  // leaseNonce — lease nonce assigned at prepare time
+  "leaseNonce",
+  // preparedReceipt — durable receipt from the prepare route (CAS without baseline advance)
+  "preparedReceipt",
+  // verifiedReceipt — durable receipt after browser canvas hash verification
+  "verifiedReceipt",
+  // rollbackReceipt — durable receipt from the rollback route
+  "rollbackReceipt",
+  // lifecycleEvents — append-only log of transaction lifecycle events for recovery
+  "lifecycleEvents",
 ]);
 
 // ── createAgentEditState ───────────────────────────────────────────────────
@@ -307,6 +333,15 @@ export function createAgentEditState() {
 
     // V2 delta ops (mutation intent from submit response)
     deltaOps: null,
+
+    // ── T24: Transaction lifecycle fields ──────────────────────────────
+    mutationPlanHash: null,
+    generation: null,
+    leaseNonce: null,
+    preparedReceipt: null,
+    verifiedReceipt: null,
+    rollbackReceipt: null,
+    lifecycleEvents: [],
   };
 }
 
@@ -545,6 +580,46 @@ export function transition(panel, event, payload = {}) {
         panel.state.inFlightApply = null;
       }
       return { render: false };
+
+    // ── T24: Transaction lifecycle (prepare / verify / finalize / rollback) ─
+    case "PREPARE_STARTED":
+      return _handlePrepareStarted(panel, payload);
+
+    case "PREPARE_SUCCESS":
+      return _handlePrepareSuccess(panel, payload);
+
+    case "PREPARE_FAILURE":
+      return _handlePrepareFailure(panel, payload);
+
+    case "VERIFY_CANVAS_STARTED":
+      return _handleVerifyCanvasStarted(panel, payload);
+
+    case "VERIFY_CANVAS_SUCCESS":
+      return _handleVerifyCanvasSuccess(panel, payload);
+
+    case "VERIFY_CANVAS_FAILURE":
+      return _handleVerifyCanvasFailure(panel, payload);
+
+    case "FINALIZE_STARTED":
+      return _handleFinalizeStarted(panel, payload);
+
+    case "FINALIZE_SUCCESS":
+      return _handleFinalizeSuccess(panel, payload);
+
+    case "FINALIZE_FAILURE":
+      return _handleFinalizeFailure(panel, payload);
+
+    case "ROLLBACK_STARTED":
+      return _handleRollbackStarted(panel, payload);
+
+    case "ROLLBACK_SUCCESS":
+      return _handleRollbackSuccess(panel, payload);
+
+    case "ROLLBACK_FAILURE":
+      return _handleRollbackFailure(panel, payload);
+
+    case "RECONCILE_RECEIPTS":
+      return _handleReconcileReceipts(panel, payload);
 
     // ── Reject flow ────────────────────────────────────────────────────
     case "REJECT_STARTED":
@@ -966,6 +1041,17 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.lastSubmitFieldChanges = fieldChanges;
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
+  // ── T24: Capture mutation plan fields from candidate for transaction lifecycle ──
+  panel.state.mutationPlanHash = candidate?.planHash
+    || candidate?.plan_hash
+    || (typeof payload?.planHash === "string" ? payload.planHash : null);
+  panel.state.generation = candidate?.monotonicGeneration
+    ?? candidate?.monotonic_generation
+    ?? payload?.generation
+    ?? null;
+  panel.state.leaseNonce = candidate?.leaseNonce
+    || candidate?.lease_nonce
+    || (typeof payload?.leaseNonce === "string" ? payload.leaseNonce : null);
   panel.state.debugPayload = payload?.debugPayload || null;
   if (stageSnapshot) {
     panel.state.debugPayload = {
@@ -1085,6 +1171,17 @@ function _handleInvalidateCandidate(panel, payload) {
   // Clear V2 delta ops — mutation intent is invalidated with the candidate.
   panel.state.deltaOps = null;
 
+  // ── T25: Transaction lifecycle receipts survive candidate invalidation ──
+  // Prepared, verified, and rollback receipts are durable evidence of the
+  // transaction lifecycle — they must NOT be cleared during candidate
+  // invalidation, which is called from finalize/rollback success handlers
+  // AFTER the receipt has been recorded.  Clearing them here would undo
+  // the receipt recording and break reload recovery.
+  //
+  // mutationPlanHash, generation, and leaseNonce are also preserved across
+  // candidate invalidation so the panel composer can display recovery options
+  // for prepared-but-unfinalized transactions.
+
   // Clear preview diff caches (these are transient keys that live on state
   // but are not lifecycle-owned; we clean them up here as the candidate
   // invalidation logically invalidates any preview derived from it).
@@ -1152,6 +1249,14 @@ const LIFECYCLE_BASELINE_RESTORE_FIELDS = Object.freeze([
   "chatRehydrateCommittedEpoch",
   "syntheticAgentMessage",
   "deltaOps",
+  // ── T24: Transaction lifecycle fields ──────────────────────────────────
+  "mutationPlanHash",
+  "generation",
+  "leaseNonce",
+  "preparedReceipt",
+  "verifiedReceipt",
+  "rollbackReceipt",
+  "lifecycleEvents",
 ]);
 
 function _cloneLifecycleBaselineValue(value) {
@@ -1666,6 +1771,16 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = normalizeDeltaOpsFromSubmit(result);
+  // ── T24: Capture mutation plan fields from candidate for transaction lifecycle ──
+  panel.state.mutationPlanHash = projectedCandidate?.planHash
+    || projectedCandidate?.plan_hash
+    || null;
+  panel.state.generation = projectedCandidate?.monotonicGeneration
+    ?? projectedCandidate?.monotonic_generation
+    ?? null;
+  panel.state.leaseNonce = projectedCandidate?.leaseNonce
+    || projectedCandidate?.lease_nonce
+    || null;
   panel.state.debugPayload = payload?.debugPayload || {
     ...result,
     last_submit: panel.state.lastSubmit,
@@ -2544,6 +2659,300 @@ function _handleApplySuccess(panel, payload) {
     queueGuardClear: true,
     refreshQueueGuard: true,
     toast: payload?.toast || null,
+  });
+}
+
+// ── T24: Transaction lifecycle handlers ─────────────────────────────────────
+
+function _recordLifecycleEvent(panel, eventType, payload = {}) {
+  const event = {
+    event_type: eventType,
+    timestamp: Date.now(),
+    plan_hash: panel.state.mutationPlanHash || payload?.planHash || null,
+    generation: panel.state.generation ?? payload?.generation ?? null,
+    lease_nonce: panel.state.leaseNonce || payload?.leaseNonce || null,
+    turn_id: panel.state.turnId || payload?.turnId || null,
+    session_id: panel.state.sessionId || payload?.sessionId || null,
+  };
+  if (!Array.isArray(panel.state.lifecycleEvents)) {
+    panel.state.lifecycleEvents = [];
+  }
+  panel.state.lifecycleEvents.push(event);
+  return event;
+}
+
+function _handlePrepareStarted(panel, payload) {
+  const mutationPlanHash = payload?.mutationPlanHash
+    || payload?.planHash
+    || panel.state.mutationPlanHash
+    || null;
+  const generation = payload?.generation ?? panel.state.generation ?? null;
+  const leaseNonce = payload?.leaseNonce || null;
+
+  panel.state.phase = PANEL_STATE.APPLY_PREPARED;
+  panel.state.mutationPlanHash = mutationPlanHash;
+  panel.state.generation = generation;
+  panel.state.leaseNonce = leaseNonce;
+  panel.state.failure = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    preparing_turn_id: panel.state.turnId,
+    plan_hash: mutationPlanHash,
+    generation,
+    lease_nonce: leaseNonce,
+  };
+  _recordLifecycleEvent(panel, "prepare_started", payload);
+  return { render: true };
+}
+
+function _handlePrepareSuccess(panel, payload) {
+  const receipt = payload?.receipt || payload?.preparedReceipt || null;
+  panel.state.phase = PANEL_STATE.APPLY_PREPARED;
+  panel.state.preparedReceipt = receipt;
+  panel.state.mutationPlanHash = receipt?.plan_hash || receipt?.planHash || panel.state.mutationPlanHash;
+  panel.state.generation = receipt?.generation ?? panel.state.generation ?? null;
+  panel.state.leaseNonce = receipt?.lease_nonce || receipt?.leaseNonce || panel.state.leaseNonce;
+  panel.state.failure = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    prepared_receipt: receipt,
+  };
+  _recordLifecycleEvent(panel, "prepare_success", payload);
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+    persistSession: panel.state.sessionId || null,
+  });
+}
+
+function _handlePrepareFailure(panel, payload) {
+  const failure = payload?.failure || null;
+  panel.state.phase = PANEL_STATE.ERROR;
+  panel.state.failure = failure;
+  panel.state.preparedReceipt = null;
+  panel.state.leaseNonce = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    prepare_failure: failure,
+  };
+  _recordLifecycleEvent(panel, "prepare_failure", payload);
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+  });
+}
+
+function _handleVerifyCanvasStarted(panel, payload) {
+  panel.state.phase = PANEL_STATE.CANVAS_VERIFIED;
+  panel.state.failure = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    verifying_turn_id: panel.state.turnId,
+    expected_plan_hash: panel.state.mutationPlanHash,
+  };
+  _recordLifecycleEvent(panel, "verify_canvas_started", payload);
+  return { render: true };
+}
+
+function _handleVerifyCanvasSuccess(panel, payload) {
+  const receipt = payload?.receipt || payload?.verifiedReceipt || null;
+  panel.state.phase = PANEL_STATE.CANVAS_VERIFIED;
+  panel.state.verifiedReceipt = receipt;
+  panel.state.failure = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    verified_receipt: receipt,
+    post_apply_hash: receipt?.post_apply_hash || receipt?.postApplyHash || null,
+  };
+  _recordLifecycleEvent(panel, "verify_canvas_success", payload);
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+    persistSession: panel.state.sessionId || null,
+  });
+}
+
+function _handleVerifyCanvasFailure(panel, payload) {
+  const failure = payload?.failure || null;
+  panel.state.phase = PANEL_STATE.ERROR;
+  panel.state.failure = failure;
+  panel.state.verifiedReceipt = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    verify_canvas_failure: failure,
+  };
+  _recordLifecycleEvent(panel, "verify_canvas_failure", payload);
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+  });
+}
+
+function _handleFinalizeStarted(panel, payload) {
+  panel.state.phase = PANEL_STATE.FINALIZED;
+  panel.state.failure = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    finalizing_turn_id: panel.state.turnId,
+    plan_hash: panel.state.mutationPlanHash,
+    generation: panel.state.generation,
+    lease_nonce: panel.state.leaseNonce,
+  };
+  _recordLifecycleEvent(panel, "finalize_started", payload);
+  return { render: true };
+}
+
+function _handleFinalizeSuccess(panel, payload) {
+  const receipt = payload?.receipt || payload?.finalizedReceipt || null;
+  const accepted = payload?.accepted || receipt || {};
+  panel.state.phase = PANEL_STATE.FINALIZED;
+  _handleSyncBaseline(panel, accepted);
+  panel.state.baselineTurnId = panel.state.baselineTurnId || panel.state.turnId || null;
+  panel.state.auditRef = accepted.audit_ref || panel.state.auditRef;
+  _handleInvalidateCandidate(panel, { repaint: false });
+  panel.state.message = null;
+  panel.state.failure = null;
+  panel.state.queueAllowed = false;
+  panel.state.canvasApplyAllowed = false;
+  panel.state.applyAllowed = false;
+  panel.state.lastAppliedChanges = payload?.lastAppliedChanges || null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    finalized_receipt: receipt,
+    undo_stack_depth: Number.isFinite(payload?.undoStackDepth) ? payload.undoStackDepth : null,
+  };
+  _recordLifecycleEvent(panel, "finalize_success", payload);
+  return _obligations({
+    render: true,
+    dirtySections: [
+      ...STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
+      RENDER_SECTIONS.COMPOSER,
+    ],
+    invalidateCandidate: true,
+    clearCandidatePreview: true,
+    queueGuardClear: true,
+    refreshQueueGuard: true,
+    toast: payload?.toast || null,
+    persistSession: panel.state.sessionId || null,
+  });
+}
+
+function _handleFinalizeFailure(panel, payload) {
+  const failure = payload?.failure || null;
+  panel.state.phase = PANEL_STATE.ERROR;
+  panel.state.failure = failure;
+  panel.state.debugPayload = payload?.debugPayload || {
+    finalize_failure: failure,
+  };
+  _recordLifecycleEvent(panel, "finalize_failure", payload);
+  _handleSyncBaseline(panel, failure || {});
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+  });
+}
+
+function _handleRollbackStarted(panel, payload) {
+  panel.state.phase = PANEL_STATE.ROLLBACK_PREPARED;
+  panel.state.failure = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    rolling_back_turn_id: panel.state.turnId,
+    plan_hash: panel.state.mutationPlanHash,
+    generation: panel.state.generation,
+  };
+  _recordLifecycleEvent(panel, "rollback_started", payload);
+  return { render: true };
+}
+
+function _handleRollbackSuccess(panel, payload) {
+  const receipt = payload?.receipt || payload?.rollbackReceipt || null;
+  panel.state.phase = PANEL_STATE.ROLLBACK_COMPLETE;
+  panel.state.rollbackReceipt = receipt;
+  panel.state.failure = null;
+  _handleInvalidateCandidate(panel, { repaint: false });
+  panel.state.message = payload?.message || "Rollback complete. Baseline restored.";
+  panel.state.queueAllowed = false;
+  panel.state.canvasApplyAllowed = false;
+  panel.state.applyAllowed = false;
+  panel.state.debugPayload = payload?.debugPayload || {
+    rollback_receipt: receipt,
+  };
+  _recordLifecycleEvent(panel, "rollback_success", payload);
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: true,
+    clearCandidatePreview: true,
+    queueGuardClear: true,
+    refreshQueueGuard: true,
+    toast: payload?.toast || null,
+    persistSession: panel.state.sessionId || null,
+  });
+}
+
+function _handleRollbackFailure(panel, payload) {
+  const failure = payload?.failure || null;
+  panel.state.phase = PANEL_STATE.ERROR;
+  panel.state.failure = failure;
+  panel.state.rollbackReceipt = null;
+  panel.state.debugPayload = payload?.debugPayload || {
+    rollback_failure: failure,
+  };
+  _recordLifecycleEvent(panel, "rollback_failure", payload);
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_DIRTY_SECTIONS,
+  });
+}
+
+function _handleReconcileReceipts(panel, payload) {
+  // Recover durable receipts from the server for reload recovery.
+  // The server returns the latest receipts for the current turn.
+  const receipts = payload?.receipts || null;
+  if (receipts && typeof receipts === "object") {
+    if (receipts.preparedReceipt || receipts.prepared_receipt) {
+      panel.state.preparedReceipt = receipts.preparedReceipt || receipts.prepared_receipt;
+      panel.state.mutationPlanHash = panel.state.preparedReceipt?.plan_hash
+        || panel.state.preparedReceipt?.planHash
+        || panel.state.mutationPlanHash;
+      panel.state.generation = panel.state.preparedReceipt?.generation ?? panel.state.generation ?? null;
+      panel.state.leaseNonce = panel.state.preparedReceipt?.lease_nonce
+        || panel.state.preparedReceipt?.leaseNonce
+        || panel.state.leaseNonce;
+    }
+    if (receipts.verifiedReceipt || receipts.verified_receipt) {
+      panel.state.verifiedReceipt = receipts.verifiedReceipt || receipts.verified_receipt;
+    }
+    if (receipts.rollbackReceipt || receipts.rollback_receipt) {
+      panel.state.rollbackReceipt = receipts.rollbackReceipt || receipts.rollback_receipt;
+    }
+    if (Array.isArray(receipts.lifecycleEvents || receipts.lifecycle_events)) {
+      // Merge server lifecycle events with local ones (deduplicate by timestamp+event_type)
+      const serverEvents = receipts.lifecycleEvents || receipts.lifecycle_events;
+      const existingKeys = new Set(
+        (panel.state.lifecycleEvents || []).map(
+          (e) => `${e.event_type}:${e.timestamp}`,
+        ),
+      );
+      for (const event of serverEvents) {
+        const key = `${event.event_type}:${event.timestamp}`;
+        if (!existingKeys.has(key)) {
+          if (!Array.isArray(panel.state.lifecycleEvents)) {
+            panel.state.lifecycleEvents = [];
+          }
+          panel.state.lifecycleEvents.push(event);
+          existingKeys.add(key);
+        }
+      }
+    }
+    // Recover lifecycle state from the latest receipt
+    if (panel.state.verifiedReceipt && !panel.state.rollbackReceipt) {
+      panel.state.phase = PANEL_STATE.CANVAS_VERIFIED;
+    } else if (panel.state.preparedReceipt && !panel.state.verifiedReceipt) {
+      panel.state.phase = PANEL_STATE.APPLY_PREPARED;
+    } else if (panel.state.rollbackReceipt) {
+      panel.state.phase = PANEL_STATE.ROLLBACK_COMPLETE;
+    }
+  }
+  panel.state.debugPayload = payload?.debugPayload || {
+    reconciled_receipts: receipts,
+  };
+  _recordLifecycleEvent(panel, "reconcile_receipts", payload);
+  return _obligations({
+    render: true,
+    dirtySections: STATUS_AND_DEVELOPER_DIRTY_SECTIONS,
   });
 }
 
