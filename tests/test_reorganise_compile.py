@@ -1157,12 +1157,17 @@ def test_huge_wall_next_rank_packs_against_overlapping_section_not_widest_lower_
             (CanonicalNodeRef("", "prompt"),),
         ),
     )
+    # Topology rank encodes the data-flow processing order so the wall sorts
+    # Video Input above Loaders above Prompt.  The primary sort key is now
+    # topology rank (not kind-bucket rank), so equal ranks would fall back to
+    # scc_id which does not preserve the intended visual stacking order.
+    ranks_by_section = {"video": 0, "loaders": 1, "prompt": 2}
     topologies = tuple(
         compile_module.CompiledSectionTopology(
             section_id=section.id,
             scope_path="",
             island_index=0,
-            rank=0,
+            rank=ranks_by_section[section.id],
             scc_id=section.id,
             auto_name=section.title,
         )
@@ -1254,12 +1259,13 @@ def test_huge_wall_keeps_semantic_lane_at_one_x_when_lower_member_meets_wide_sec
             (CanonicalNodeRef("", "prompt-b"),),
         ),
     )
+    ranks_by_section = {"video": 0, "loaders": 1, "prompt_a": 2, "prompt_b": 2}
     topologies = tuple(
         compile_module.CompiledSectionTopology(
             section_id=section.id,
             scope_path="",
             island_index=0,
-            rank=0,
+            rank=ranks_by_section[section.id],
             scc_id=section.id,
             auto_name=section.title,
         )
