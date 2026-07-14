@@ -251,21 +251,155 @@ function layoutMoves(baselineGraph, candidateGraph) {
   return result;
 }
 
+/**
+ * Extract a group's bounding box from its serialized representation.
+ *
+ * ComfyUI represents group bounds as [x, y, width, height] stored under
+ * `bounding` or `_bounding`.  Returns null when the group has no valid
+ * bounding box (missing, non-finite, or non-positive dimensions).
+ *
+ * @param {object} group  serialized group object
+ * @returns {{x: number, y: number, w: number, h: number} | null}
+ */
+function readGroupBounds(group) {
+  const raw = group?.bounding || group?._bounding;
+  if (!raw) return null;
+  const x = Number(raw[0]);
+  const y = Number(raw[1]);
+  const w = Number(raw[2]);
+  const h = Number(raw[3]);
+  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) return null;
+  return { x, y, w, h };
+}
+
+/**
+ * Derive a stable lookup key for a group so candidate and baseline groups
+ * can be matched even when the group list order differs.
+ *
+ * Groups that carry an `id` field use `id:<id>`; otherwise the array index
+ * is used as a fallback key.
+ *
+ * @param {object} group  serialized group object
+ * @param {number} index  position in the groups array
+ * @returns {string}
+ */
+function groupLayoutKey(group, index) {
+  if (group?.id != null) return `id:${String(group.id)}`;
+  // Fall back to title when no id is present — this allows matching across
+  // baseline and candidate even when the group list order changes (e.g. a
+  // group is removed and indices shift).
+  if (typeof group?.title === "string" && group.title.trim()) {
+    return `title:${group.title.trim()}`;
+  }
+  return `index:${index}`;
+}
+
+/**
+ * Build a Map of group layout keys to their bounds for a given graph.
+ *
+ * @param {object} graph  serialized graph with optional `.groups` array
+ * @returns {Map<string, {x: number, y: number, w: number, h: number}>}
+ */
+function baselineGroupBoundsMap(graph) {
+  const result = new Map();
+  const groups = Array.isArray(graph?.groups) ? graph.groups : [];
+  for (let i = 0; i < groups.length; i += 1) {
+    const bounds = readGroupBounds(groups[i]);
+    if (bounds) {
+      result.set(groupLayoutKey(groups[i], i), bounds);
+    }
+  }
+  return result;
+}
+
+/**
+ * Compare two group bounding boxes for equality within a half-pixel tolerance.
+ *
+ * @param {object} left   {x, y, w, h}
+ * @param {object} right  {x, y, w, h}
+ * @returns {boolean}
+ */
+function groupBoundsEqual(left, right) {
+  return (
+    Math.abs(left.x - right.x) < 0.5
+    && Math.abs(left.y - right.y) < 0.5
+    && Math.abs(left.w - right.w) < 0.5
+    && Math.abs(left.h - right.h) < 0.5
+  );
+}
+
+/**
+ * Collect layout-group entries from the exact candidate patch, with optional
+ * baseline comparison data for group geometry parity.
+ *
+ * The function always renders from the candidate patch — the authoritative
+ * representation of the proposed layout.  When a baseline graph is provided,
+ * each returned entry also carries `_baselineBounds` (the baseline group
+ * bounds for the same key, or null when the group is new) and `_changed`
+ * (true when the candidate and baseline bounds differ).
+ *
+ * Groups present in the baseline but absent from the candidate are listed
+ * under `_removedGroupKeys` (an array of layout keys), so the overlay can
+ * render them as removed.
+ *
+ * The return value is a plain Array for backward compatibility with all
+ * existing consumers that iterate `layout_groups`.
+ *
+ * @param {object|null} baselineGraph   serialized baseline graph (live canvas)
+ * @param {object}      candidateGraph  serialized candidate graph (patch)
+ * @returns {Array<{key: string, title: string, color: string|null, bounds: {x,y,w,h}, _baselineBounds?: {x,y,w,h}|null, _changed?: boolean}>}
+ */
 function layoutGroups(baselineGraph, candidateGraph) {
-  if (!baselineGraph) return [];
-  return (Array.isArray(candidateGraph?.groups) ? candidateGraph.groups : [])
-    .map((group, index) => {
-      const raw = group?.bounding || group?._bounding;
-      const bounds = Array.from({ length: 4 }, (_unused, coordinate) => Number(raw?.[coordinate]));
-      if (!raw || !bounds.every(Number.isFinite) || bounds[2] <= 0 || bounds[3] <= 0) return null;
-      return {
-        key: group?.id != null ? `id:${String(group.id)}` : `index:${index}`,
-        title: typeof group?.title === "string" ? group.title : "Group",
-        color: typeof group?.color === "string" ? group.color : null,
-        bounds: { x: bounds[0], y: bounds[1], w: bounds[2], h: bounds[3] },
-      };
-    })
-    .filter(Boolean);
+  const candidateGroups = Array.isArray(candidateGraph?.groups) ? candidateGraph.groups : [];
+
+  // Always extract candidate groups from the exact candidate patch —
+  // even when no baseline is available for comparison.
+  const entries = [];
+  const candidateKeys = new Set();
+  for (let i = 0; i < candidateGroups.length; i += 1) {
+    const group = candidateGroups[i];
+    const bounds = readGroupBounds(group);
+    if (!bounds) continue;
+    const key = groupLayoutKey(group, i);
+    candidateKeys.add(key);
+    entries.push({
+      key,
+      title: typeof group?.title === "string" ? group.title : "Group",
+      color: typeof group?.color === "string" ? group.color : null,
+      bounds,
+      _baselineBounds: null,
+      _changed: false,
+    });
+  }
+
+  // When a baseline is available, compare against applied group geometry.
+  if (baselineGraph) {
+    const baselineMap = baselineGroupBoundsMap(baselineGraph);
+    const removedGroupKeys = [];
+    for (const [key] of baselineMap) {
+      if (!candidateKeys.has(key)) {
+        removedGroupKeys.push(key);
+      }
+    }
+    for (const entry of entries) {
+      const baselineBounds = baselineMap.get(entry.key) || null;
+      entry._baselineBounds = baselineBounds;
+      entry._changed = baselineBounds ? !groupBoundsEqual(entry.bounds, baselineBounds) : true;
+    }
+    if (removedGroupKeys.length > 0) {
+      // Attach removed-group keys as a non-enumerable sentinel so the overlay
+      // can optionally render removed-group indicators, but standard array
+      // iteration does not accidentally treat them as entries.
+      Object.defineProperty(entries, "_removedGroupKeys", {
+        value: removedGroupKeys,
+        writable: false,
+        enumerable: false,
+        configurable: false,
+      });
+    }
+  }
+
+  return entries;
 }
 
 export function computeSerializedGraphPreviewDiff({

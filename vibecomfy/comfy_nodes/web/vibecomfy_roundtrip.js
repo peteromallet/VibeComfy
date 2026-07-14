@@ -7127,24 +7127,84 @@ function readGroupBounding(group) {
   return { x, y, w, h };
 }
 
+function groupLayoutKey(group, index) {
+  if (group?.id != null) return `id:${String(group.id)}`;
+  // Fall back to title when no id is present — this allows matching across
+  // baseline and candidate even when the group list order changes (e.g. a
+  // group is removed and indices shift).
+  if (typeof group?.title === "string" && group.title.trim()) {
+    return `title:${group.title.trim()}`;
+  }
+  return `index:${index}`;
+}
+
+function groupBoundsEqual(left, right) {
+  return (
+    Math.abs(left.x - right.x) < 0.5
+    && Math.abs(left.y - right.y) < 0.5
+    && Math.abs(left.w - right.w) < 0.5
+    && Math.abs(left.h - right.h) < 0.5
+  );
+}
+
 function collectLayoutGroupsFromCandidate(baselineGraph, candidateGraph) {
-  if (!baselineGraph || !candidateGraph) {
+  if (!candidateGraph) {
     return [];
   }
-  return (Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [])
-    .map((group, index) => {
-      const bounds = readGroupBounding(group);
-      if (!bounds) {
-        return null;
+  const candidateGroups = Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [];
+
+  // Always extract candidate groups from the exact candidate patch —
+  // even when no baseline is available for comparison.
+  const entries = [];
+  const candidateKeys = new Set();
+  for (let i = 0; i < candidateGroups.length; i += 1) {
+    const group = candidateGroups[i];
+    const bounds = readGroupBounding(group);
+    if (!bounds) continue;
+    const key = groupLayoutKey(group, i);
+    candidateKeys.add(key);
+    entries.push({
+      key,
+      title: typeof group?.title === "string" ? group.title : "Group",
+      color: typeof group?.color === "string" ? group.color : null,
+      bounds,
+      _baselineBounds: null,
+      _changed: false,
+    });
+  }
+
+  // When a baseline is available, compare against applied group geometry.
+  if (baselineGraph) {
+    const baselineGroups = Array.isArray(baselineGraph.groups) ? baselineGraph.groups : [];
+    const baselineMap = new Map();
+    for (let i = 0; i < baselineGroups.length; i += 1) {
+      const bounds = readGroupBounding(baselineGroups[i]);
+      if (bounds) {
+        baselineMap.set(groupLayoutKey(baselineGroups[i], i), bounds);
       }
-      return {
-        key: group?.id != null ? `id:${String(group.id)}` : `index:${index}`,
-        title: typeof group?.title === "string" ? group.title : "Group",
-        color: typeof group?.color === "string" ? group.color : null,
-        bounds,
-      };
-    })
-    .filter(Boolean);
+    }
+    const removedGroupKeys = [];
+    for (const [key] of baselineMap) {
+      if (!candidateKeys.has(key)) {
+        removedGroupKeys.push(key);
+      }
+    }
+    for (const entry of entries) {
+      const baselineBounds = baselineMap.get(entry.key) || null;
+      entry._baselineBounds = baselineBounds;
+      entry._changed = baselineBounds ? !groupBoundsEqual(entry.bounds, baselineBounds) : true;
+    }
+    if (removedGroupKeys.length > 0) {
+      Object.defineProperty(entries, "_removedGroupKeys", {
+        value: removedGroupKeys,
+        writable: false,
+        enumerable: false,
+        configurable: false,
+      });
+    }
+  }
+
+  return entries;
 }
 
 function clearCandidateInvalidationSideEffects(repaint = true) {
@@ -10535,6 +10595,55 @@ async function applyAgentCandidate(panel) {
         return;
       }
 
+      // ── T26: Verify prepared mutation-plan hash ──────────────────────
+      // After prepare succeeds, confirm the server's prepared plan_hash
+      // matches the candidate's mutationPlanHash before mutating the
+      // canvas.  A mismatch means the server prepared a different plan;
+      // roll back the prepared transaction and fail closed.
+      {
+        const preparedPlanHash =
+          panel.state.preparedReceipt?.plan_hash
+          || panel.state.preparedReceipt?.planHash
+          || prepared?.receipt?.plan_hash
+          || prepared?.receipt?.planHash
+          || prepared?.plan_hash
+          || prepared?.planHash
+          || null;
+        if (
+          typeof panel.state.mutationPlanHash === "string"
+          && panel.state.mutationPlanHash
+          && typeof preparedPlanHash === "string"
+          && preparedPlanHash
+          && preparedPlanHash !== panel.state.mutationPlanHash
+        ) {
+          await rollbackPreparedAgentCandidate(panel, beforeApply);
+          const failure = agentPanelFailure(
+            "StaleStateMismatch",
+            "Prepared mutation-plan hash does not match the candidate plan hash.",
+            {
+              retryable: true,
+              graph_unchanged: true,
+              next_action: "Submit a new edit from the current canvas.",
+              expected_plan_hash: panel.state.mutationPlanHash,
+              prepared_plan_hash: preparedPlanHash,
+            },
+          );
+          const verifyObligations = commitVerifyCanvasFailure(panel, {
+            failure,
+            debugPayload: {
+              transactional_apply: true,
+              prepare_response: prepared.raw || prepared,
+              plan_hash_mismatch: true,
+              expected_plan_hash: panel.state.mutationPlanHash,
+              prepared_plan_hash: preparedPlanHash,
+            },
+          });
+          fulfillLifecycleTransitionObligations(panel, verifyObligations);
+          renderLifecycleTransition(panel, verifyObligations);
+          return;
+        }
+      }
+
       const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
       panel.state.undoStack.push({
         session_id: panel.state.sessionId,
@@ -10572,7 +10681,36 @@ async function applyAgentCandidate(panel) {
         return;
       }
 
-      const afterApply = await buildCanvasSnapshot();
+      // ── T26: Post-apply serialize/hash (try/catch with rollback) ──────
+      // After local mutation, serialize the live canvas and hash it.  If
+      // serialization fails the canvas is already mutated, so roll back
+      // the prepared transaction and report a verification failure.
+      let afterApply;
+      try {
+        afterApply = await buildCanvasSnapshot();
+      } catch (serializeErr) {
+        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const failure = agentPanelFailure(
+          "SerializeError",
+          `Could not serialize the canvas after Apply: ${String(serializeErr)}`,
+          {
+            retryable: true,
+            graph_unchanged: false,
+            next_action: "Retry Apply or Rebaseline from the current canvas.",
+          },
+        );
+        const serializeObligations = commitVerifyCanvasFailure(panel, {
+          failure,
+          debugPayload: {
+            transactional_apply: true,
+            prepare_response: prepared.raw || prepared,
+            post_apply_serialize_failure: failure,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, serializeObligations);
+        renderLifecycleTransition(panel, serializeObligations);
+        return;
+      }
       const verifyStarted = commitVerifyCanvasStarted(panel, {
         debugPayload: {
           expected_plan_hash: panel.state.mutationPlanHash,
@@ -10580,6 +10718,52 @@ async function applyAgentCandidate(panel) {
         },
       });
       fulfillLifecycleTransitionObligations(panel, verifyStarted);
+
+      // ── T26: Verify post-apply structural hash matches candidate ──────
+      // The live canvas structure after mutation must match the candidate
+      // graph structure.  A mismatch means the apply did not produce the
+      // expected graph; roll back and fail closed.
+      let expectedStructuralHashAfter = null;
+      try {
+        expectedStructuralHashAfter = await structuralGraphHash(panel.state.candidateGraph);
+      } catch (_hashErr) {
+        expectedStructuralHashAfter = null;
+      }
+      if (
+        typeof afterApply.structuralHash === "string"
+        && afterApply.structuralHash
+        && typeof expectedStructuralHashAfter === "string"
+        && expectedStructuralHashAfter
+        && afterApply.structuralHash !== expectedStructuralHashAfter
+      ) {
+        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const failure = agentPanelFailure(
+          "StaleStateMismatch",
+          "Post-apply canvas structural hash does not match the candidate structural hash.",
+          {
+            retryable: true,
+            graph_unchanged: false,
+            next_action: "Retry Apply or Rebaseline from the current canvas.",
+            expected_structural_hash: expectedStructuralHashAfter,
+            actual_structural_hash: afterApply.structuralHash,
+          },
+        );
+        const hashObligations = commitVerifyCanvasFailure(panel, {
+          failure,
+          debugPayload: {
+            transactional_apply: true,
+            prepare_response: prepared.raw || prepared,
+            post_apply_hash_mismatch: true,
+            expected_structural_hash: expectedStructuralHashAfter,
+            actual_structural_hash: afterApply.structuralHash,
+            post_apply_graph_hash: afterApply.graphHash,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, hashObligations);
+        renderLifecycleTransition(panel, hashObligations);
+        return;
+      }
+
       const verifyReceipt = {
         plan_hash: panel.state.mutationPlanHash,
         generation: panel.state.generation,
@@ -10661,9 +10845,16 @@ async function applyAgentCandidate(panel) {
               graph_unchanged: false,
               next_action: "Reload to recover the prepared transaction, then finalize or rollback.",
             });
+        // ── T26: Finalize failure boundary — rollback the prepared ──────
+        // transaction so the server baseline does not remain wedged in
+        // apply_prepared.  The canvas is already mutated; rollback cancels
+        // the server-side prepared transaction.
+        await rollbackPreparedAgentCandidate(panel, beforeApply);
         const obligations = commitFinalizeFailure(panel, {
           failure,
           debugPayload: {
+            transactional_apply: true,
+            finalize_boundary_rollback: true,
             prepare_response: prepared.raw || prepared,
             finalize_request: finalizeBody,
             finalize_failure: failure,

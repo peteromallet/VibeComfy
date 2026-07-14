@@ -13,11 +13,11 @@ import { sha256Hex, canonicalJsonString } from "../../vibecomfy/comfy_nodes/web/
 test("serialized reorganise preview includes candidate group furniture", () => {
   const baseline = {
     nodes: [{ id: 1, pos: [0, 0], properties: { vibecomfy_uid: "one" } }],
-    groups: [{ title: "Before", bounding: [0, 0, 100, 100] }],
+    groups: [{ title: "Main", bounding: [0, 0, 100, 100] }],
   };
   const candidate = {
     nodes: [{ id: 1, pos: [200, 0], properties: { vibecomfy_uid: "one" } }],
-    groups: [{ title: "After", color: "#123456", bounding: [180, -20, 300, 160] }],
+    groups: [{ title: "Main", color: "#123456", bounding: [180, -20, 300, 160] }],
   };
 
   const result = computeSerializedGraphPreviewDiff({
@@ -26,12 +26,17 @@ test("serialized reorganise preview includes candidate group furniture", () => {
     layoutBaselineGraph: baseline,
   });
 
-  assert.deepEqual(result.layout_groups, [{
-    key: "index:0",
-    title: "After",
-    color: "#123456",
-    bounds: { x: 180, y: -20, w: 300, h: 160 },
-  }]);
+  assert.equal(result.layout_groups.length, 1);
+  const group = result.layout_groups[0];
+  assert.equal(group.key, "title:Main");
+  assert.equal(group.title, "Main");
+  assert.equal(group.color, "#123456");
+  assert.deepEqual(group.bounds, { x: 180, y: -20, w: 300, h: 160 });
+  // T27: baseline comparison data is available when baseline is provided
+  assert.deepEqual(group._baselineBounds, { x: 0, y: 0, w: 100, h: 100 },
+    "baseline bounds should be recorded for parity comparison");
+  assert.equal(group._changed, true,
+    "group should be marked changed when bounds differ from baseline");
 });
 
 test("legacy preview intent suppresses whole-graph widget and link drift", () => {
@@ -533,4 +538,205 @@ test("mutation-plan hash stability: 50 iterations produce identical result", () 
     results.add(computeMutationPlanHash(structuredClone(FULL_PLAN_FIXTURE)));
   }
   assert.equal(results.size, 1, "All 50 iterations must produce the same plan hash");
+});
+
+// ── T27: Group preview parity and mutation-plan group geometry coverage ──────
+
+test("T27: layout_groups returns candidate groups even without baseline", () => {
+  const candidate = {
+    nodes: [],
+    groups: [
+      { title: "Group A", color: "#3f789e", bounding: [10, 20, 300, 200] },
+    ],
+  };
+
+  const result = computeSerializedGraphPreviewDiff({
+    liveGraph: { nodes: [] },
+    candidateGraph: candidate,
+    // layoutBaselineGraph is not passed — simulate no baseline available
+  });
+
+  assert.equal(result.layout_groups.length, 1,
+    "candidate groups should be returned even without baseline");
+  const group = result.layout_groups[0];
+  assert.equal(group.title, "Group A");
+  assert.equal(group.color, "#3f789e");
+  assert.deepEqual(group.bounds, { x: 10, y: 20, w: 300, h: 200 });
+  assert.equal(group._baselineBounds, null,
+    "no baseline bounds when baseline is absent");
+  assert.equal(group._changed, false,
+    "unchanged when no baseline for comparison");
+});
+
+test("T27: layout_groups marks unchanged groups with _changed=false", () => {
+  const sameGraph = {
+    nodes: [{ id: 1, pos: [100, 100], properties: { vibecomfy_uid: "n1" } }],
+    groups: [
+      { id: 5, title: "Fixed", color: "#00ff00", bounding: [0, 0, 400, 300] },
+    ],
+  };
+
+  const result = computeSerializedGraphPreviewDiff({
+    liveGraph: sameGraph,
+    candidateGraph: sameGraph,
+    layoutBaselineGraph: sameGraph,
+  });
+
+  assert.equal(result.layout_groups.length, 1);
+  const group = result.layout_groups[0];
+  assert.equal(group.key, "id:5");
+  assert.equal(group._changed, false,
+    "identical candidate and baseline bounds should not flag changed");
+  assert.deepEqual(group._baselineBounds, { x: 0, y: 0, w: 400, h: 300 });
+});
+
+test("T27: layout_groups detects new groups (absent from baseline)", () => {
+  const baseline = {
+    nodes: [],
+    groups: [],
+  };
+  const candidate = {
+    nodes: [],
+    groups: [
+      { title: "New Group", bounding: [50, 50, 200, 150] },
+    ],
+  };
+
+  const result = computeSerializedGraphPreviewDiff({
+    liveGraph: baseline,
+    candidateGraph: candidate,
+    layoutBaselineGraph: baseline,
+  });
+
+  assert.equal(result.layout_groups.length, 1);
+  assert.equal(result.layout_groups[0]._changed, true,
+    "new group should be marked changed");
+  assert.equal(result.layout_groups[0]._baselineBounds, null,
+    "new group has no baseline bounds");
+});
+
+test("T27: layout_groups detects resized groups", () => {
+  const baseline = {
+    nodes: [],
+    groups: [
+      { title: "Main", bounding: [0, 0, 200, 100] },
+    ],
+  };
+  const candidate = {
+    nodes: [],
+    groups: [
+      { title: "Main", bounding: [0, 0, 300, 150] },
+    ],
+  };
+
+  const result = computeSerializedGraphPreviewDiff({
+    liveGraph: baseline,
+    candidateGraph: candidate,
+    layoutBaselineGraph: baseline,
+  });
+
+  assert.equal(result.layout_groups.length, 1);
+  assert.equal(result.layout_groups[0]._changed, true,
+    "resized group should be flagged changed");
+  assert.deepEqual(result.layout_groups[0]._baselineBounds, { x: 0, y: 0, w: 200, h: 100 });
+});
+
+test("T27: layout_groups records removed group keys", () => {
+  const baseline = {
+    nodes: [],
+    groups: [
+      { title: "Will Be Removed", bounding: [10, 10, 100, 100] },
+      { title: "Kept", bounding: [200, 10, 100, 100] },
+    ],
+  };
+  const candidate = {
+    nodes: [],
+    groups: [
+      { title: "Kept", bounding: [200, 10, 100, 100] },
+    ],
+  };
+
+  const result = computeSerializedGraphPreviewDiff({
+    liveGraph: baseline,
+    candidateGraph: candidate,
+    layoutBaselineGraph: baseline,
+  });
+
+  assert.equal(result.layout_groups.length, 1);
+  assert.equal(result.layout_groups[0].title, "Kept");
+  assert.equal(result.layout_groups[0]._changed, false);
+  // _removedGroupKeys is non-enumerable
+  const removed = Object.getOwnPropertyDescriptor(result.layout_groups, "_removedGroupKeys");
+  assert.ok(removed, "_removedGroupKeys should be present for removed groups");
+  // Title-based key matching: "Will Be Removed" -> title:Will Be Removed
+  assert.deepEqual(removed.value, ["title:Will Be Removed"]);
+});
+
+test("T27: canvas projection hash covers group geometry changes", () => {
+  // Two canvas projections differing only in a group bounding box must
+  // produce different hashes, proving group geometry is in the hash domain.
+  const projA = {
+    entries: {
+      "node-1": { pos: [100, 200], size: [300, 400] },
+    },
+    groups: [
+      { title: "Pipeline", bounding: [0, 0, 500, 500] },
+    ],
+  };
+  const projB = {
+    entries: {
+      "node-1": { pos: [100, 200], size: [300, 400] },
+    },
+    groups: [
+      { title: "Pipeline", bounding: [10, 10, 500, 500] },
+    ],
+  };
+
+  const hashA = computeCanvasProjectionHash(projA);
+  const hashB = computeCanvasProjectionHash(projB);
+
+  assert.notEqual(hashA, hashB,
+    "group bounding change must produce different canvas projection hash");
+});
+
+test("T27: mutation-plan hash domain includes groups", () => {
+  // The full mutation-plan hash includes groups.  Changing a group's bounding
+  // box must change the plan hash.
+  const planA = structuredClone(FULL_PLAN_FIXTURE);
+  const planB = structuredClone(FULL_PLAN_FIXTURE);
+  planB.groups[0].bounding = [60, 60, 1200, 600]; // shifted by 10px
+
+  const hashA = computeMutationPlanHash(planA);
+  const hashB = computeMutationPlanHash(planB);
+
+  assert.notEqual(hashA, hashB,
+    "group bounding change in plan must produce different plan hash");
+  assert.equal(hashA.length, 64);
+  assert.equal(hashB.length, 64);
+});
+
+test("T27: group colors in the hash domain produce different hashes", () => {
+  const planA = structuredClone(FULL_PLAN_FIXTURE);
+  const planB = structuredClone(FULL_PLAN_FIXTURE);
+  planB.groups[0].color = "#ff0000";
+
+  assert.notEqual(computeMutationPlanHash(planA), computeMutationPlanHash(planB),
+    "group color change must produce different plan hash");
+});
+
+test("T27: group addition changes canvas projection hash", () => {
+  const projA = {
+    entries: { "n1": { pos: [0, 0], size: [100, 100] } },
+    groups: [{ title: "A", bounding: [0, 0, 500, 500] }],
+  };
+  const projB = {
+    entries: { "n1": { pos: [0, 0], size: [100, 100] } },
+    groups: [
+      { title: "A", bounding: [0, 0, 500, 500] },
+      { title: "B", bounding: [0, 520, 500, 300] },
+    ],
+  };
+
+  assert.notEqual(computeCanvasProjectionHash(projA), computeCanvasProjectionHash(projB),
+    "adding a group must change the canvas projection hash");
 });
