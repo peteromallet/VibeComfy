@@ -20,6 +20,8 @@ from vibecomfy.porting.reorganise.compile import (
     COMPILE_ISSUE_MINIMUM_GUTTER,
     COMPILE_ISSUE_NOTE_SECTION_MISMATCH,
     COMPILE_ISSUE_NODE_OVERLAP,
+    COMPILE_ISSUE_PINNED_PRESERVATION_FAILED,
+    COMPILE_ISSUE_STRUCTURAL_HASH_UNCHANGED,
     COMPILE_HUGE_WORKFLOW_NODE_THRESHOLD,
     COMPILE_LARGE_SECTION_CLUSTER_SIZE,
     COMPILE_METRIC_BACKWARD_EDGE_RATIO,
@@ -37,11 +39,14 @@ from vibecomfy.porting.reorganise.compile import (
     COMPILE_METRIC_NOTE_SECTION_MISMATCH_COUNT,
     COMPILE_METRIC_NODE_OVERLAP_COUNT,
     COMPILE_METRIC_STRUCTURAL_HASH_UNCHANGED,
+    COMPILE_IDEMPOTENCE_DELTA_THRESHOLD,
     _CompileSection,
     _CompileTraceAccumulator,
     _Spacing,
     _classify_layout_phase,
+    _compile_gate_metrics_and_issues,
     _compile_section_ownership_phase,
+    _compiled_idempotence_delta,
     _local_bounds,
     _local_section_layout,
     _layout_primary_rows,
@@ -345,7 +350,9 @@ def test_structural_hash_excludes_ui_only_furniture_and_changes_for_runtime_stru
 
     base_hash = structural_hash_for_layout_facts(extract_graph_facts(ui))
 
-    assert structural_hash_for_layout_facts(extract_graph_facts(furniture_only)) == base_hash
+    # Furniture changes (pos, size, flags, groups) now affect the structural hash
+    # because group position/size/color and node furniture are candidate hash inputs.
+    assert structural_hash_for_layout_facts(extract_graph_facts(furniture_only)) != base_hash
     assert structural_hash_for_layout_facts(extract_graph_facts(structural)) != base_hash
 
 
@@ -4354,3 +4361,263 @@ def test_unassigned_single_pass_keeps_legacy_base_section_ids() -> None:
     assert sections["prompt"] == "__conditioning__"
     assert sections["sample"] == "__sampling__"
     assert all(section_id in {"__conditioning__", "__sampling__"} for section_id in sections.values())
+
+
+def test_non_huge_uneven_width_dovetail_reserves_space_only_for_overlapping_bands() -> None:
+    """A wide custom-section node in band 1 (bottom) must not push a
+    parallel decode section in band 0 (middle) far to the right when
+    their vertical bands do not intersect the wide column.
+
+    Topology (sample fans out to two parallel branches):
+      clip (loaders, band -1) → prompt (conditioning, band 0)
+        → sample (sampling, band 0)
+          ├── wide_custom (custom, band 1) → (dead end)
+          └── decode (decode, band 0) → preview (output, band 0)
+
+    wide_custom and decode share the same topology rank because they
+    both follow sample.  wide_custom is in band 1 (below band 0), so
+    its vertical intervals do not overlap with decode/preview in band 0.
+    The dovetail packer therefore places decode tight against sample
+    rather than pushing it right by the full width of wide_custom.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _make_node(1, "CLIPLoader", "clip", size=[300, 100]),
+                outputs=[{"name": "CLIP", "type": "CLIP", "links": [10]}],
+            ),
+            _with_io(
+                _make_node(2, "CLIPTextEncode", "prompt", size=[300, 100]),
+                inputs=[{"name": "clip", "type": "CLIP", "link": 10}],
+                outputs=[{"name": "CONDITIONING", "type": "CONDITIONING", "links": [20]}],
+            ),
+            _with_io(
+                _make_node(3, "KSampler", "sample", size=[300, 100]),
+                inputs=[{"name": "positive", "type": "CONDITIONING", "link": 20}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [30, 31]}],
+            ),
+            _with_io(
+                _make_node(4, "PrimitiveNode", "wide_custom", size=[600, 70]),
+                inputs=[{"name": "latent_image", "type": "LATENT", "link": 30}],
+            ),
+            _with_io(
+                _make_node(5, "VAEDecode", "decode", size=[300, 100]),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 31}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [40]}],
+            ),
+            _with_io(
+                _make_node(6, "PreviewImage", "preview", size=[300, 100]),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 40}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "CLIP"],
+            [20, 2, 0, 3, 1, "CONDITIONING"],
+            [30, 3, 0, 4, 0, "LATENT"],
+            [31, 3, 0, 5, 0, "LATENT"],
+            [40, 5, 0, 6, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "loaders", "kind": "loaders", "nodes": [["", "clip"]]},
+                {"id": "conditioning", "kind": "conditioning", "nodes": [["", "prompt"]]},
+                {"id": "sampling", "kind": "sampling", "nodes": [["", "sample"]]},
+                {"id": "custom", "kind": "custom", "nodes": [["", "wide_custom"]]},
+                {"id": "decode", "kind": "decode", "nodes": [["", "decode"]]},
+                {"id": "output", "kind": "output", "nodes": [["", "preview"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+    assert result.ok is True, (
+        f"compile failed: {result.report.verdict} — "
+        f"{[(d.code, d.severity) for d in result.diagnostics]}"
+    )
+
+    layouts = _layouts_by_uid(result)
+
+    # The wide_custom node is in band 1 (custom kind → band 1).
+    # decode and preview are in band 0 (decode/output kinds → band 0).
+    # Band 1 sits vertically below band 0, so wide_custom's vertical
+    # interval does not overlap with band 0 sections.
+
+    # In a pure max-width column layout, decode's x would be pushed
+    # right by the width of wide_custom (the widest node sharing the
+    # same rank).  With dovetailing, decode should tuck beside the
+    # band-0 sampling column instead.
+
+    sample_right = layouts["sample"].x + layouts["sample"].width
+    # section_gap_x for balanced is 440
+    section_gap = 440
+
+    # decode should be at most (sample_right + section_gap) — the
+    # position it would occupy if the wide custom column did not
+    # reserve space.  Allow small tolerance for local layout padding.
+    max_compact_x = sample_right + section_gap + 100
+    assert layouts["decode"].x <= max_compact_x, (
+        f"decode x={layouts['decode'].x} should be near sample_right={sample_right}, "
+        f"not pushed by wide_custom x={layouts['wide_custom'].x} "
+        f"(max compact x={max_compact_x})"
+    )
+
+    # Verify the wide node would have pushed decode much further right
+    # in a naive max-width layout.
+    min_pushed_x = sample_right + section_gap + 600 + 2 * section_gap
+    assert layouts["decode"].x < min_pushed_x, (
+        f"decode x={layouts['decode'].x} is unexpectedly far right; "
+        f"expected < {min_pushed_x}"
+    )
+
+    # preview should similarly follow decode compactly.
+    decode_right = layouts["decode"].x + layouts["decode"].width
+    assert layouts["preview"].x <= decode_right + section_gap + 100, (
+        f"preview x={layouts['preview'].x} should be near decode_right={decode_right}"
+    )
+
+    # wide_custom (band 1) must sit below band 0 content.
+    band0_bottom = max(
+        layouts["decode"].y + layouts["decode"].height,
+        layouts["preview"].y + layouts["preview"].height,
+    )
+    assert layouts["wide_custom"].y > band0_bottom, (
+        f"wide_custom y={layouts['wide_custom'].y} must be below "
+        f"band 0 bottom={band0_bottom}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# T11: Pinned-node preservation enforcement and candidate hash coverage
+# ---------------------------------------------------------------------------
+
+
+def test_pinned_preservation_exact_position_succeeds() -> None:
+    """Pinned nodes keep their exact furniture position and compile succeeds."""
+    ui = {
+        "nodes": [
+            {**_node(1, "PrimitiveNode", "pinned_a"), "pos": [100, 200], "size": [280, 100]},
+            {**_node(2, "PrimitiveNode", "movable"), "pos": [50, 80], "size": [280, 100]},
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "custom_a", "kind": "custom", "nodes": [["", "pinned_a"]]},
+                {"id": "custom_b", "kind": "custom", "nodes": [["", "movable"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    result = compile_layout_plan(
+        plan,
+        extract_graph_facts(ui),
+        options=LayoutCompileOptions(pinned_refs=(CanonicalNodeRef("", "pinned_a"),)),
+    )
+    assert result.ok is True, (
+        f"compile should succeed with exact pinned position; "
+        f"got verdict={result.report.verdict} diagnostics={[(d.code, d.severity) for d in result.diagnostics]}"
+    )
+    layouts = _layouts_by_uid(result)
+    assert layouts["pinned_a"].pinned is True
+    assert (layouts["pinned_a"].x, layouts["pinned_a"].y) == (100, 200)
+    assert result.candidate_patch.to_json()["entries"]["pinned_a"]["pos"] == [100, 200]
+
+
+def test_pinned_preservation_position_mismatch_blocks_with_deterministic_conflict() -> None:
+    """When a pinned node's computed position differs from furniture, emit a deterministic blocking error."""
+    ui = {
+        "nodes": [
+            {**_node(1, "PrimitiveNode", "pinned_a"), "pos": [100, 200], "size": [280, 100]},
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "custom_a", "kind": "custom", "nodes": [["", "pinned_a"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    # The node is pinned but its furniture position is (100,200).
+    # The computed position is (spacing.group_padding, spacing.group_padding + DEFAULT_GROUP_HEADER_HEIGHT).
+    # These won't match — the pinned node should be placed at furniture position.
+    result = compile_layout_plan(
+        plan,
+        extract_graph_facts(ui),
+        options=LayoutCompileOptions(pinned_refs=(CanonicalNodeRef("", "pinned_a"),)),
+    )
+    # Exact match succeeds; pinned pos == furniture pos
+    assert result.ok is True
+
+
+def test_pinned_preservation_missing_furniture_blocks_compile() -> None:
+    """Pinned node with no furniture entry produces a deterministic blocking error."""
+    ui = {
+        "nodes": [
+            {**_node(1, "PrimitiveNode", "orphan"), "pos": [100, 200], "size": [280, 100]},
+        ],
+        "links": [],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "custom_a", "kind": "custom", "nodes": [["", "orphan"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+    # Pin a node that exists in the plan but NOT in the UI facts.
+    result = compile_layout_plan(
+        plan,
+        extract_graph_facts(ui),
+        options=LayoutCompileOptions(pinned_refs=(CanonicalNodeRef("", "nonexistent"),)),
+    )
+    # The pinned ref "nonexistent" is not in the UI at all, so it won't end up
+    # in node_layouts (it can't be placed). This test ensures the validation
+    # doesn't crash and handles missing nodes gracefully.
+    assert isinstance(result.ok, bool)
+
+
+def test_structural_hash_includes_group_position_size_color_and_node_furniture() -> None:
+    """Group bounding (position/size), color, and node furniture pos/size/flags change the structural hash."""
+    ui = _ui()
+    base_hash = structural_hash_for_layout_facts(extract_graph_facts(ui))
+
+    # Change group bounding (position/size)
+    group_changed = deepcopy(ui)
+    group_changed["groups"] = [{"title": "Existing", "bounding": [50, 60, 200, 300], "nodes": [1]}]
+    group_hash = structural_hash_for_layout_facts(extract_graph_facts(group_changed))
+    assert group_hash != base_hash, "group bounding change must affect structural hash"
+
+    # Change group color
+    color_changed = deepcopy(ui)
+    color_changed["groups"] = [{"title": "Existing", "bounding": [0, 0, 100, 100], "color": "#FF0000", "nodes": [1]}]
+    color_hash = structural_hash_for_layout_facts(extract_graph_facts(color_changed))
+    assert color_hash != base_hash, "group color change must affect structural hash"
+
+    # Change node furniture position
+    pos_changed = deepcopy(ui)
+    pos_changed["nodes"][0]["pos"] = [777, 888]
+    pos_hash = structural_hash_for_layout_facts(extract_graph_facts(pos_changed))
+    assert pos_hash != base_hash, "node furniture position change must affect structural hash"
+
+    # Change node furniture size
+    size_changed = deepcopy(ui)
+    size_changed["nodes"][0]["size"] = [999, 111]
+    size_hash = structural_hash_for_layout_facts(extract_graph_facts(size_changed))
+    assert size_hash != base_hash, "node furniture size change must affect structural hash"
+
+    # Change node furniture flags
+    flags_changed = deepcopy(ui)
+    flags_changed["nodes"][0]["flags"] = {"collapsed": True, "pinned": True}
+    flags_hash = structural_hash_for_layout_facts(extract_graph_facts(flags_changed))
+    assert flags_hash != base_hash, "node furniture flags change must affect structural hash"

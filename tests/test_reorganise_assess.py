@@ -212,3 +212,100 @@ def test_assessment_is_read_only_for_ui_sidecar_widgets_links_topology_and_node_
     assess_layout_facts(facts)
 
     assert facts.to_json() == facts_before
+
+
+# ---------------------------------------------------------------------------
+# T11: Group geometry/color/flags coverage in assessment
+# ---------------------------------------------------------------------------
+
+
+def test_assessment_group_overlap_detection_uses_group_geometry() -> None:
+    """Assessment detects overlapping nodes when group bounding boxes intersect."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "PrimitiveNode",
+                "class_type": "PrimitiveNode",
+                "properties": {"vibecomfy_uid": "a"},
+                "pos": [50, 50],
+                "size": [100, 80],
+            },
+            {
+                "id": 2,
+                "type": "PrimitiveNode",
+                "class_type": "PrimitiveNode",
+                "properties": {"vibecomfy_uid": "b"},
+                "pos": [80, 80],
+                "size": [100, 80],
+            },
+        ],
+        "links": [],
+        "groups": [
+            {"title": "G1", "bounding": [40, 40, 120, 100], "color": "#FF0000", "nodes": [1]},
+            {"title": "G2", "bounding": [70, 70, 120, 100], "color": "#00FF00", "nodes": [2]},
+        ],
+    }
+    report = assess_layout_from_ui(ui)
+    # Overlapping nodes should be detected
+    assert report.verdict == "needs_reorganise"
+    assert any(issue.code == ISSUE_OVERLAPPING_NODES for issue in report.issues)
+
+
+def test_assessment_group_color_is_preserved_in_facts() -> None:
+    """Group color from UI is carried through to extracted facts."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "PrimitiveNode",
+                "class_type": "PrimitiveNode",
+                "properties": {"vibecomfy_uid": "a"},
+                "pos": [100, 100],
+                "size": [100, 80],
+            },
+        ],
+        "links": [],
+        "groups": [
+            {"title": "Colored", "bounding": [90, 90, 120, 100], "color": "#ABCDEF", "nodes": [1]},
+        ],
+    }
+    facts = extract_graph_facts(ui)
+    group_colors = []
+    for scope in facts.scope_furniture:
+        for group in scope.groups:
+            group_colors.append(group.color)
+    assert "#ABCDEF" in group_colors, f"Expected group color #ABCDEF in facts, got {group_colors}"
+
+
+def test_assessment_group_bounding_preserved_in_facts() -> None:
+    """Group bounding (position/size) is preserved in extracted facts."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "PrimitiveNode",
+                "class_type": "PrimitiveNode",
+                "properties": {"vibecomfy_uid": "a"},
+                "pos": [100, 100],
+                "size": [100, 80],
+            },
+        ],
+        "links": [],
+        "groups": [
+            {"title": "Boxed", "bounding": [10, 20, 300, 400], "nodes": [1]},
+        ],
+    }
+    facts = extract_graph_facts(ui)
+    bounding_values = []
+    for scope in facts.scope_furniture:
+        for group in scope.groups:
+            bounding_values.append(_thaw_for_test(group.bounding))
+    assert [10, 20, 300, 400] in bounding_values, f"Expected bounding [10,20,300,400] in facts, got {bounding_values}"
+
+
+def _thaw_for_test(value: object) -> object:
+    """Helper to thaw frozen JSON-ish values for comparison."""
+    if isinstance(value, (tuple, list)):
+        return list(value)
+    return value

@@ -13,7 +13,7 @@ from vibecomfy.porting.canonical_coords import snap_pos, snap_size
 from vibecomfy.porting.layout_store import STORE_VERSION
 
 from .classify import ClassificationReport, classify_layout_facts
-from .diagnostics import ReorganiseDiagnosticReport
+from .diagnostics import DIAGNOSTIC_SEVERITY_ERROR, ReorganiseDiagnostic, ReorganiseDiagnosticReport
 from .graph_facts import GraphInventoryFacts, GroupFact, NodeFurnitureFact, extract_graph_facts
 from .plan_types import (
     HELPER_PLACEMENT_EDGE_PATH,
@@ -154,6 +154,7 @@ COMPILE_ISSUE_STRUCTURAL_HASH_CHANGED = "compiler_structural_hash_changed"
 COMPILE_ISSUE_EXISTING_GROUP_DISSOLVED = "existing_group_dissolved"
 COMPILE_ISSUE_EXISTING_GROUP_REBUILT = "existing_group_rebuilt"
 COMPILE_ISSUE_MIXED_CORE_ROLE = "compiler_mixed_core_role"
+COMPILE_ISSUE_PINNED_PRESERVATION_FAILED = "compiler_pinned_preservation_failed"
 COMPILE_BACKWARD_EDGE_RATIO_THRESHOLD = 0.15
 COMPILE_BACKWARD_EDGE_X_TOLERANCE = 8.0
 COMPILE_CROSSING_PROXY_THRESHOLD = 0
@@ -164,6 +165,14 @@ COMPILE_MAX_PRIMARY_ROW_COUNT_THRESHOLD = 3
 COMPILE_LONG_EDGE_DISTANCE_THRESHOLD = 2200.0
 COMPILE_HELPER_DISTANCE_THRESHOLD = 420.0
 COMPILE_IDEMPOTENCE_DELTA_THRESHOLD = 0
+# Fixed-point drift penalty applied when a scalar attribute (color, bgcolor,
+# mode, flags) changes between the compiler-owned sidecar and a recompilation.
+# It intentionally exceeds COMPILE_IDEMPOTENCE_DELTA_THRESHOLD so any value
+# change is treated as drift, not as a sub-threshold geometric wobble.
+_IDEMPOTENCE_DRIFT_PENALTY = float(COMPILE_IDEMPOTENCE_DELTA_THRESHOLD + 1)
+_ENTRY_DRIFT_SCALAR_KEYS = ("color", "bgcolor", "mode")
+_ENTRY_DRIFT_MAPPING_KEYS = ("flags",)
+_GROUP_DRIFT_SCALAR_KEYS = ("color",)
 COMPILE_METRIC_ORDER = (
     COMPILE_METRIC_NODE_LAYOUT_COUNT,
     COMPILE_METRIC_GROUP_LAYOUT_COUNT,
@@ -203,6 +212,7 @@ COMPILE_ISSUE_ORDER = (
     COMPILE_ISSUE_EXISTING_GROUP_DISSOLVED,
     COMPILE_ISSUE_EXISTING_GROUP_REBUILT,
     COMPILE_ISSUE_MIXED_CORE_ROLE,
+    COMPILE_ISSUE_PINNED_PRESERVATION_FAILED,
 )
 
 _ENTRY_KEYS = ("pos", "size", "flags", "color", "bgcolor", "mode", "properties")
@@ -942,6 +952,14 @@ def compile_layout_plan(
     )
     node_layouts = layout.node_layouts
     group_layouts = layout.group_layouts
+    # ---- pinned-node preservation gate ----
+    pinned_diagnostics = _validate_pinned_preservation(node_layouts, facts, opts)
+    if pinned_diagnostics:
+        validation_report = ReorganiseDiagnosticReport(
+            ok=False,
+            diagnostics=(*validation_report.diagnostics, *pinned_diagnostics),
+        )
+    # ---------------------------------------
     should_apply_existing_policy = (
         not _large_workflow_soft_quality_gate(facts)
         and _effective_grouping_policy(facts, opts) != "none"
@@ -997,7 +1015,8 @@ def structural_hash_for_layout_facts(facts: GraphInventoryFacts) -> str:
     Layout-store furniture sections such as entries, groups, extra,
     lastRerouteId, definitions payloads, and virtual_wires payloads are
     intentionally excluded. The hash is over canonical node identities, classes,
-    helper status, and effective topology facts available to the compiler.
+    helper status, effective topology facts, group geometry/color/position,
+    and node furniture position/size available to the compiler.
     """
 
     payload = {
@@ -1012,6 +1031,30 @@ def structural_hash_for_layout_facts(facts: GraphInventoryFacts) -> str:
         "scope_topologies": [
             topology.to_json()
             for topology in sorted(facts.scope_topologies, key=lambda topology: topology.scope_path)
+        ],
+        "scope_furniture": [
+            {
+                "scope_path": scope.scope_path,
+                "groups": [
+                    {
+                        "index": group.index,
+                        "title": group.title,
+                        "bounding": _thaw_jsonish(group.bounding),
+                        "color": group.color,
+                    }
+                    for group in sorted(scope.groups, key=lambda g: g.index)
+                ],
+            }
+            for scope in sorted(facts.scope_furniture, key=lambda s: s.scope_path)
+        ],
+        "node_furniture": [
+            {
+                "ref": fact.ref.to_json(),
+                "pos": _thaw_jsonish(fact.pos),
+                "size": _thaw_jsonish(fact.size),
+                "flags": _thaw_jsonish(fact.flags),
+            }
+            for fact in sorted(facts.node_furniture, key=lambda f: _ref_sort_key(f.ref))
         ],
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -2090,7 +2133,7 @@ def _layout_sections_with_phases(
         for layout in node_layouts:
             trace.record_global_layout(layout)
     group_layouts = _compiled_group_layouts(sections, node_layouts, facts, spacing, layout_options)
-    should_repair_generated_group_overlaps = huge_mode and _group_layout_overlap_count(group_layouts) > 0
+    should_repair_generated_group_overlaps = _group_layout_overlap_count(group_layouts) > 0
     if should_repair_huge_overlaps or should_repair_generated_group_overlaps:
         node_layouts, group_layouts = _resolve_group_collisions(
             sections,
@@ -2456,28 +2499,27 @@ def _section_placements(
         ),
     )
     lane_vertical_intervals: dict[tuple[str, int, int, int], list[tuple[int, int]]] = {}
-    if huge_mode:
-        preview_next_y_by_lane: dict[tuple[str, int, int, int], int] = {}
-        for section in ordered_sections:
-            topology = _topology_for(section, topology_by_section)
-            island_index = 0
-            rank = effective_ranks[section.id]
-            band = raw_band_by_section[section.id]
-            lane = (topology.scope_path, island_index, rank, band)
-            base_y = band_y_offsets[(topology.scope_path, island_index, band)]
-            y = base_y + preview_next_y_by_lane.get(lane, 0)
-            _width, height = _estimated_section_size(
-                section,
-                facts,
-                furniture_by_ref,
-                options,
-                spacing,
-                plan,
-            )
-            lane_vertical_intervals.setdefault(lane, []).append((y, y + height))
-            preview_next_y_by_lane[lane] = (
-                preview_next_y_by_lane.get(lane, 0) + height + spacing.section_gap_y
-            )
+    preview_next_y_by_lane: dict[tuple[str, int, int, int], int] = {}
+    for section in ordered_sections:
+        topology = _topology_for(section, topology_by_section)
+        island_index = 0 if huge_mode else topology.island_index
+        rank = effective_ranks[section.id]
+        band = raw_band_by_section[section.id]
+        lane = (topology.scope_path, island_index, rank, band)
+        base_y = band_y_offsets[(topology.scope_path, island_index, band)]
+        y = base_y + preview_next_y_by_lane.get(lane, 0)
+        _width, height = _estimated_section_size(
+            section,
+            facts,
+            furniture_by_ref,
+            options,
+            spacing,
+            plan,
+        )
+        lane_vertical_intervals.setdefault(lane, []).append((y, y + height))
+        preview_next_y_by_lane[lane] = (
+            preview_next_y_by_lane.get(lane, 0) + height + spacing.section_gap_y
+        )
 
     for section in ordered_sections:
         topology = _topology_for(section, topology_by_section)
@@ -2498,8 +2540,8 @@ def _section_placements(
         )
         if lane in x_by_lane:
             x = x_by_lane[lane]
-        elif huge_mode:
-            # Pack the whole semantic lane against the contour of earlier
+        else:
+            # Pack the whole lane against the contour of earlier
             # ranks, then keep every section in that lane on one straight x.
             # A lane may tuck beside a wide lower group only when none of its
             # vertical intervals reaches that group.
@@ -2512,9 +2554,6 @@ def _section_placements(
                 fallback=rank_x_offsets[(topology.scope_path, island_index, rank)],
                 gap_x=spacing.section_gap_x,
             )
-            x_by_lane[lane] = x
-        else:
-            x = rank_x_offsets[(topology.scope_path, island_index, rank)]
             x_by_lane[lane] = x
         placements[section.id] = _SectionPlacement(rank=rank, band=band, row=row, x=x, y=y)
         placed_lanes.append(
@@ -4260,6 +4299,77 @@ def _effective_pinned_refs(
     return pinned_refs
 
 
+def _validate_pinned_preservation(
+    node_layouts: Sequence[CompiledNodeLayout],
+    facts: GraphInventoryFacts,
+    options: LayoutCompileOptions,
+) -> tuple[ReorganiseDiagnostic, ...]:
+    """Emit deterministic blocking errors when pinned nodes are not at their exact furniture positions.
+
+    Pinned-node preservation is exact: every pinned node must have a known furniture
+    position and the compiler-assigned position must match it byte-for-byte.
+    """
+    if _force_existing_regroup(options):
+        return ()
+    furniture_by_ref: dict[CanonicalNodeRef, NodeFurnitureFact] = {
+        fact.ref: fact for fact in facts.node_furniture
+    }
+    pinned_refs: set[CanonicalNodeRef] = set(options.pinned_refs)
+    for furniture in facts.node_furniture:
+        if _truthy_flag(furniture.flags, "pinned") or _truthy_flag(furniture.sidecar_entry, "pinned"):
+            pinned_refs.add(furniture.ref)
+    diagnostics: list[ReorganiseDiagnostic] = []
+    for layout in node_layouts:
+        if layout.ref not in pinned_refs:
+            continue
+        furniture = furniture_by_ref.get(layout.ref)
+        if furniture is None:
+            diagnostics.append(
+                ReorganiseDiagnostic(
+                    code=COMPILE_ISSUE_PINNED_PRESERVATION_FAILED,
+                    message=(
+                        f"Pinned node {layout.ref.to_json()!r} has no furniture entry; "
+                        f"pinned positions can only be preserved when furniture is present."
+                    ),
+                    severity=DIAGNOSTIC_SEVERITY_ERROR,
+                    detail={"ref": layout.ref.to_json()},
+                )
+            )
+            continue
+        pinned_pos = _pos(furniture.pos)
+        if pinned_pos is None:
+            diagnostics.append(
+                ReorganiseDiagnostic(
+                    code=COMPILE_ISSUE_PINNED_PRESERVATION_FAILED,
+                    message=(
+                        f"Pinned node {layout.ref.to_json()!r} has no position in furniture; "
+                        f"pinned nodes require an exact furniture position."
+                    ),
+                    severity=DIAGNOSTIC_SEVERITY_ERROR,
+                    detail={"ref": layout.ref.to_json()},
+                )
+            )
+            continue
+        actual_pos = (layout.x, layout.y)
+        if actual_pos != pinned_pos:
+            diagnostics.append(
+                ReorganiseDiagnostic(
+                    code=COMPILE_ISSUE_PINNED_PRESERVATION_FAILED,
+                    message=(
+                        f"Pinned node {layout.ref.to_json()!r} position mismatch: "
+                        f"expected {pinned_pos}, got {actual_pos}."
+                    ),
+                    severity=DIAGNOSTIC_SEVERITY_ERROR,
+                    detail={
+                        "ref": layout.ref.to_json(),
+                        "expected": list(pinned_pos),
+                        "actual": list(actual_pos),
+                    },
+                )
+            )
+    return tuple(diagnostics)
+
+
 def _truthy_flag(value: Any, key: str) -> bool:
     if not isinstance(value, Mapping):
         return False
@@ -4728,7 +4838,7 @@ def _compile_gate_metrics_and_issues(
             AssessmentIssue(
                 code=COMPILE_ISSUE_NODE_OVERLAP,
                 message="Compiled primary node boxes overlap.",
-                severity="warning",
+                severity="warning" if large_workflow_soft_quality_gate else "error",
                 refs=tuple(ref for left, right in node_overlaps for ref in (left.ref, right.ref) if ref is not None),
                 detail={
                     "count": len(node_overlaps),
@@ -4744,7 +4854,7 @@ def _compile_gate_metrics_and_issues(
             AssessmentIssue(
                 code=COMPILE_ISSUE_GROUP_OVERLAP,
                 message="Compiled group boxes overlap without containment.",
-                severity="warning",
+                severity="warning" if large_workflow_soft_quality_gate else "error",
                 refs=tuple(
                     ref
                     for left, right in group_overlaps
@@ -5630,17 +5740,41 @@ def _candidate_group_match_key(group: Mapping[str, Any]) -> str:
 
 def _entry_layout_delta(current: Any, compiled: Any) -> float:
     if not isinstance(current, Mapping) or not isinstance(compiled, Mapping):
-        return float(COMPILE_IDEMPOTENCE_DELTA_THRESHOLD + 1)
-    return max(
+        return _IDEMPOTENCE_DRIFT_PENALTY
+    geometric = max(
         _sequence_delta(current.get("pos"), compiled.get("pos")),
         _sequence_delta(current.get("size"), compiled.get("size")),
+    )
+    return max(
+        geometric,
+        _scalar_attribute_delta(current, compiled, _ENTRY_DRIFT_SCALAR_KEYS),
+        _scalar_attribute_delta(current, compiled, _ENTRY_DRIFT_MAPPING_KEYS),
     )
 
 
 def _group_layout_delta(current: Any, compiled: Any) -> float:
     if not isinstance(current, Mapping) or not isinstance(compiled, Mapping):
-        return float(COMPILE_IDEMPOTENCE_DELTA_THRESHOLD + 1)
-    return _sequence_delta(current.get("bounding"), compiled.get("bounding"))
+        return _IDEMPOTENCE_DRIFT_PENALTY
+    return max(
+        _sequence_delta(current.get("bounding"), compiled.get("bounding")),
+        _scalar_attribute_delta(current, compiled, _GROUP_DRIFT_SCALAR_KEYS),
+    )
+
+
+def _scalar_attribute_delta(current: Any, compiled: Any, keys: Sequence[str]) -> float:
+    """Return the fixed drift penalty when any scalar attribute changes.
+
+    Fixed-point drift detection must be deterministic across snapped positions,
+    groups, colors, sizes, and flags.  ``None`` and missing keys compare equal so
+    that a sidecar written before an attribute existed never spuriously flags
+    drift; only an actual value change between compiles is treated as drift.
+    """
+    for key in keys:
+        left = current.get(key) if isinstance(current, Mapping) else None
+        right = compiled.get(key) if isinstance(compiled, Mapping) else None
+        if _freeze_jsonish(left) != _freeze_jsonish(right):
+            return _IDEMPOTENCE_DRIFT_PENALTY
+    return 0.0
 
 
 def _sequence_delta(left: Any, right: Any) -> float:
@@ -5861,6 +5995,8 @@ def _resolve_node_collisions(
     spacing: _Spacing,
 ) -> tuple[CompiledNodeLayout, ...]:
     helper_refs = {fact.ref for fact in facts.canonical_refs if fact.is_helper}
+    # Derive band assignments to keep cross-band nodes from needlessly pushing each other
+    band_by_ref = _derive_node_bands_for_collision(facts, node_layouts)
     rounded = tuple(_rounded_node_layout(layout) for layout in node_layouts)
     pinned = tuple(sorted((layout for layout in rounded if layout.pinned), key=_node_collision_sort_key))
     movable = tuple(sorted((layout for layout in rounded if not layout.pinned), key=_node_collision_sort_key))
@@ -5868,15 +6004,21 @@ def _resolve_node_collisions(
     obstacles = list(pinned)
 
     for layout in movable:
+        layout_band = band_by_ref.get(layout.ref)
+        # Filter obstacles to only those in vertically-intersecting bands
+        band_obstacles = [
+            obstacle for obstacle in obstacles
+            if _bands_intersect_vertically(layout_band, band_by_ref.get(obstacle.ref))
+        ]
         if layout.ref in helper_refs:
             candidate = _nudge_layout_clear_of_obstacles(
                 layout,
-                obstacles,
+                band_obstacles,
                 same_section_gutter=MIN_NODE_GUTTER,
                 cross_section_gutter=MIN_NODE_GUTTER,
             )
         else:
-            primary_obstacles = [obstacle for obstacle in obstacles if obstacle.ref not in helper_refs]
+            primary_obstacles = [obstacle for obstacle in band_obstacles if obstacle.ref not in helper_refs]
             candidate = _nudge_layout_clear_of_obstacles(
                 layout,
                 primary_obstacles,
@@ -5887,6 +6029,37 @@ def _resolve_node_collisions(
         obstacles.append(candidate)
 
     return tuple(resolved[layout.ref] for layout in rounded)
+
+
+def _derive_node_bands_for_collision(
+    facts: GraphInventoryFacts,
+    node_layouts: Sequence[CompiledNodeLayout],
+) -> dict[CanonicalNodeRef, int | None]:
+    """Assign band numbers to nodes using section-based and class-type heuristics.
+
+    Band -1: model-pipe loaders (checkpoints, VAEs, CLIP, etc.)
+    Band  0: primary pipeline nodes
+    Band  1: helpers / utility / UI nodes
+    """
+    section_by_id: dict[str, _CompileSection | None] = {}
+    # Use section_id from node layouts to look up band from the section (if we had sections)
+    # Fall back to class-type heuristics
+    bands: dict[CanonicalNodeRef, int | None] = {}
+    model_tokens = {"checkpoint", "clip", "lora", "unet", "vae", "model"}
+    helper_refs = {fact.ref for fact in facts.canonical_refs if fact.is_helper}
+    for fact in facts.canonical_refs:
+        ref = fact.ref
+        if ref in helper_refs:
+            bands[ref] = 1
+            continue
+        class_type = str(getattr(fact, "class_type", "")).lower()
+        if any(token in class_type for token in model_tokens):
+            bands[ref] = -1
+        elif getattr(fact, "is_helper", False) or getattr(fact, "is_note", False):
+            bands[ref] = 1
+        else:
+            bands[ref] = 0
+    return bands
 
 
 def _rounded_node_layout(layout: CompiledNodeLayout) -> CompiledNodeLayout:
@@ -6064,18 +6237,27 @@ def _resolve_group_collisions(
     spacing: _Spacing,
     options: LayoutCompileOptions,
 ) -> tuple[tuple[CompiledNodeLayout, ...], tuple[CompiledGroupLayout, ...]]:
-    """Move whole huge-wall sections down until generated group boxes clear.
+    """Move whole sections down until generated group boxes clear, band-aware.
 
-    The huge-wall packer preserves compact visual columns, so independent
-    semantic buckets can legitimately have overlapping vertical spans after
-    node-level collision resolution.  Since groups are derived from section
-    boxes, resolve that remaining conflict by translating the later section as
-    a unit and then recomputing groups from the shifted nodes.
+    Independent sections in non-overlapping vertical bands (e.g. model-pipes
+    in band -1 and sampling in band 0) are allowed to have overlapping group
+    boxes because they sit in separate vertical lanes.  Only groups whose
+    bands intersect vertically are pushed apart.  The horizontal minimum group
+    gutter is derived from the configured vertical band gap so group
+    separation stays proportional to inter-band spacing.
     """
     if not group_layouts:
         return tuple(node_layouts), tuple(group_layouts)
 
     section_by_id = {section.id: section for section in sections}
+    band_by_section = {
+        section.id: (
+            _huge_wall_band(section)
+            if getattr(options, "force_regroup", False)  # proxy for huge-mode path
+            else _section_band(section, facts)
+        )
+        for section in sections
+    }
     primary_group_by_section = {
         group.id: group
         for group in group_layouts
@@ -6083,6 +6265,8 @@ def _resolve_group_collisions(
     }
     if len(primary_group_by_section) < 2:
         return tuple(node_layouts), tuple(group_layouts)
+
+    group_gutter = max(spacing.band_gap_y, MIN_GROUP_GUTTER)
 
     shift_by_section: dict[str, int] = {}
     placed: list[CompiledGroupLayout] = []
@@ -6092,15 +6276,17 @@ def _resolve_group_collisions(
     ):
         shift = shift_by_section.get(group.id, 0)
         candidate = _shift_group_layout(group, shift)
+        group_band = band_by_section.get(group.id)
         for _pass in range(len(placed) + 1):
             colliding = [
                 obstacle
                 for obstacle in placed
-                if _group_layouts_violate_gutter(candidate, obstacle, MIN_GROUP_GUTTER)
+                if _bands_intersect_vertically(group_band, band_by_section.get(obstacle.id))
+                and _group_layouts_violate_gutter(candidate, obstacle, group_gutter)
             ]
             if not colliding:
                 break
-            next_y = max(obstacle.y + obstacle.height + MIN_GROUP_GUTTER for obstacle in colliding)
+            next_y = max(obstacle.y + obstacle.height + group_gutter for obstacle in colliding)
             delta = max(0, next_y - candidate.y)
             shift += delta
             candidate = _shift_group_layout(group, shift)
@@ -6116,6 +6302,18 @@ def _resolve_group_collisions(
     )
     shifted_groups = _compiled_group_layouts(sections, shifted_nodes, facts, spacing, options)
     return shifted_nodes, shifted_groups
+
+
+def _bands_intersect_vertically(band_a: int | None, band_b: int | None) -> bool:
+    """Two bands intersect vertically if they are the same or adjacent.
+
+    Bands are treated as layers stacked in y; band -1 (model pipes) sits
+    above band 0 (main), band 0 sits above band 1 (helpers/utility).
+    Non-overlapping bands never need collision resolution.
+    """
+    if band_a is None or band_b is None:
+        return True  # conservative: treat unknown bands as potentially colliding
+    return abs(band_a - band_b) <= 1
 
 
 def _shift_node_layout(layout: CompiledNodeLayout, dy: int) -> CompiledNodeLayout:
