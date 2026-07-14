@@ -14,6 +14,15 @@ import {
   ensureRootScopedOps,
 } from "../../vibecomfy/comfy_nodes/web/canonical_delta.js";
 
+import {
+  DELTA_DIAGNOSTIC_CORRUPTED,
+  DELTA_DIAGNOSTIC_TRUNCATED,
+  DELTA_DIAGNOSTIC_ABSENT,
+  DELTA_DIAGNOSTIC_REPLAY_MISMATCH,
+  DELTA_DIAGNOSTIC_CODES,
+  readDeltaEnvelope,
+} from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js";
+
 // ── Fixtures (mirror Python CANONICAL_OP_CASES) ─────────────────────────────
 
 const CANONICAL_OP_CASES = Object.freeze([
@@ -761,4 +770,226 @@ test("normalizeDeltaEnvelope rejects object without schema_version or ops", () =
       return true;
     },
   );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T16 — Malformed delta envelope, cumulative delta, and replay mismatch tests.
+//
+// These tests verify that the browser-side delta normalization correctly
+// rejects corrupted, truncated, absent, and mismatched delta evidence,
+// and correctly consumes cumulative delta envelopes from fixture responses.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Diagnostic code parity with Python ops.py ───────────────────────────
+
+test("DELTA_DIAGNOSTIC_CODES includes all seven diagnostic codes", () => {
+  assert.deepEqual(DELTA_DIAGNOSTIC_CODES, [
+    "malformed_delta",
+    "legacy_delta_shape",
+    "unsupported_scoped_apply",
+    "delta_corrupted",
+    "delta_truncated",
+    "delta_absent",
+    "delta_replay_mismatch",
+  ]);
+});
+
+test("individual delta diagnostic constants match Python values", () => {
+  assert.equal(DELTA_DIAGNOSTIC_CORRUPTED, "delta_corrupted");
+  assert.equal(DELTA_DIAGNOSTIC_TRUNCATED, "delta_truncated");
+  assert.equal(DELTA_DIAGNOSTIC_ABSENT, "delta_absent");
+  assert.equal(DELTA_DIAGNOSTIC_REPLAY_MISMATCH, "delta_replay_mismatch");
+});
+
+// ── Malformed delta: corrupted envelope (non-object ops) ────────────────
+
+test("normalizeDeltaEnvelope rejects corrupted envelope with non-object ops entry", () => {
+  // A corrupted op inside an otherwise valid envelope.
+  const corruptedOps = [
+    { op: "set_node_field", target: ["", "n", "w"], value: 1 },
+    "not-an-object",
+    { op: "set_mode", target: ["", "m"], mode: 4 },
+  ];
+
+  assert.throws(
+    () =>
+      normalizeDeltaEnvelope(
+        { schema_version: DELTA_SCHEMA_VERSION, ops: corruptedOps },
+        { strict: true },
+      ),
+    (err) => {
+      assert.ok(err instanceof DeltaDiagnosticError);
+      assert.equal(err.code, DELTA_DIAGNOSTIC_MALFORMED);
+      // The error should reference that an entry is not an object.
+      return true;
+    },
+  );
+});
+
+test("normalizeDeltaEnvelope lenient mode still validates each entry is an object", () => {
+  const corruptedOps = [
+    { op: "set_node_field", target: ["", "n", "w"], value: 1 },
+    "not-an-object",
+    { op: "set_mode", target: ["", "m"], mode: 4 },
+  ];
+
+  // Even lenient mode validates that each entry is an object (not a primitive).
+  assert.throws(
+    () =>
+      normalizeDeltaEnvelope(
+        { schema_version: DELTA_SCHEMA_VERSION, ops: corruptedOps },
+        { strict: false },
+      ),
+    (err) => {
+      assert.ok(err instanceof DeltaDiagnosticError);
+      assert.equal(err.code, DELTA_DIAGNOSTIC_MALFORMED);
+      assert.ok(err.message.includes("must be an object"));
+      return true;
+    },
+  );
+});
+
+// ── Malformed delta: truncated envelope (missing required fields) ───────
+
+test("normalizeDeltaEnvelope rejects truncated envelope with null schema_version", () => {
+  assert.throws(
+    () =>
+      normalizeDeltaEnvelope({
+        schema_version: null,
+        ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
+      }),
+    (err) => {
+      assert.ok(err instanceof DeltaDiagnosticError);
+      assert.equal(err.code, DELTA_DIAGNOSTIC_MALFORMED);
+      assert.ok(err.message.includes("schema_version"));
+      return true;
+    },
+  );
+});
+
+test("normalizeDeltaEnvelope rejects truncated envelope with missing schema_version key", () => {
+  assert.throws(
+    () =>
+      normalizeDeltaEnvelope({
+        ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
+      }),
+    (err) => {
+      assert.ok(err instanceof DeltaDiagnosticError);
+      // Missing schema_version + ops present → legacy shape.
+      assert.equal(err.code, DELTA_DIAGNOSTIC_LEGACY_SHAPE);
+      return true;
+    },
+  );
+});
+
+// ── Malformed delta: empty/null ops ─────────────────────────────────────
+
+test("normalizeDeltaEnvelope accepts empty ops array", () => {
+  const envelope = normalizeDeltaEnvelope(
+    { schema_version: DELTA_SCHEMA_VERSION, ops: [] },
+  );
+  assert.equal(envelope.schema_version, DELTA_SCHEMA_VERSION);
+  assert.deepEqual(envelope.ops, []);
+});
+
+test("normalizeDeltaEnvelope rejects null ops", () => {
+  assert.throws(
+    () =>
+      normalizeDeltaEnvelope({
+        schema_version: DELTA_SCHEMA_VERSION,
+        ops: null,
+      }),
+    (err) => {
+      assert.ok(err instanceof DeltaDiagnosticError);
+      assert.equal(err.code, DELTA_DIAGNOSTIC_MALFORMED);
+      return true;
+    },
+  );
+});
+
+// ── Cumulative delta envelope across batch turns ────────────────────────
+
+test("readDeltaEnvelope extracts cumulative delta from multi-turn fixture", () => {
+  const fixture = {
+    delta_ops_envelope: {
+      schema_version: "2.0.0",
+      ops: [
+        { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 },
+        { op: "add_node", scope_path: "", uid: "u1", node_id: "10", class_type: "KSampler", fields: {}, inputs: {} },
+        { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "u1", "images"] },
+      ],
+    },
+  };
+
+  const envelope = readDeltaEnvelope(fixture);
+  assert.ok(envelope);
+  assert.equal(envelope.schema_version, "2.0.0");
+  assert.equal(envelope.ops.length, 3);
+  assert.equal(envelope.ops[0].op, "set_node_field");
+  assert.equal(envelope.ops[1].op, "add_node");
+  assert.equal(envelope.ops[2].op, "upsert_link");
+});
+
+test("readDeltaEnvelope returns null for absent delta_ops_envelope", () => {
+  assert.equal(readDeltaEnvelope({ ok: true, outcome: { kind: "noop" } }), null);
+  assert.equal(readDeltaEnvelope({ delta_ops_envelope: null }), null);
+});
+
+// ── Replay mismatch: original vs replayed delta inequality ──────────────
+
+test("normalizeDeltaEnvelope produces deterministic output for replay comparison", () => {
+  // Two identical payloads must produce identical normalized envelopes
+  // so that replay verification (apply(submit, delta) == candidate) is
+  // deterministic across Python and JS consumers.
+  const payload = {
+    schema_version: DELTA_SCHEMA_VERSION,
+    ops: [
+      { op: "set_node_field", target: ["", "n", "widgets.cfg"], value: 8 },
+      { op: "set_mode", target: ["", "m"], mode: 4 },
+      { op: "add_node", scope_path: "", uid: "u99", node_id: "99", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+  };
+
+  const first = normalizeDeltaEnvelope(payload);
+  const second = normalizeDeltaEnvelope(payload);
+  assert.deepEqual(first, second, "identical payloads must produce identical normalized envelopes");
+
+  // Keys must be in sorted order within each op.
+  for (const op of first.ops) {
+    const keys = Object.keys(op);
+    assert.deepEqual(keys, [...keys].sort(), "op keys must be sorted for deterministic comparison");
+  }
+});
+
+test("normalizeDeltaEnvelope produces different output for different payloads", () => {
+  // Two different payloads must produce different normalized envelopes.
+  const a = normalizeDeltaEnvelope({
+    schema_version: DELTA_SCHEMA_VERSION,
+    ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 7 }],
+  });
+  const b = normalizeDeltaEnvelope({
+    schema_version: DELTA_SCHEMA_VERSION,
+    ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 8 }],
+  });
+  assert.notDeepEqual(a, b, "different payloads must produce different normalized envelopes");
+});
+
+test("normalizeDeltaEnvelope treats reordered ops as replay mismatch", () => {
+  // Reordered ops produce different envelopes — this is intentional:
+  // apply_delta applies ops in order, so order matters for candidate equality.
+  const ordered = normalizeDeltaEnvelope({
+    schema_version: DELTA_SCHEMA_VERSION,
+    ops: [
+      { op: "set_node_field", target: ["", "n", "w"], value: 1 },
+      { op: "set_mode", target: ["", "n"], mode: 4 },
+    ],
+  });
+  const reversed = normalizeDeltaEnvelope({
+    schema_version: DELTA_SCHEMA_VERSION,
+    ops: [
+      { op: "set_mode", target: ["", "n"], mode: 4 },
+      { op: "set_node_field", target: ["", "n", "w"], value: 1 },
+    ],
+  });
+  assert.notDeepEqual(ordered.ops, reversed.ops, "reordered ops must produce different envelopes");
 });

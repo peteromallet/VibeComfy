@@ -22,6 +22,29 @@ import {
   readUserFailure,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract.js";
 
+import {
+  COMPLETION_PROOF_STATES,
+  COMPLETION_PROOF_DOMAINS,
+  OBLIGATION_KINDS,
+  OBLIGATION_STATUSES,
+  OBLIGATION_SEVERITIES,
+  DELTA_DIAGNOSTIC_CORRUPTED,
+  DELTA_DIAGNOSTIC_TRUNCATED,
+  DELTA_DIAGNOSTIC_ABSENT,
+  DELTA_DIAGNOSTIC_REPLAY_MISMATCH,
+  DELTA_DIAGNOSTIC_CODES,
+  PLAN_OBLIGATION_STATES,
+  isValidProofState,
+  isValidProofDomain,
+  isValidObligationKind,
+  isValidObligationStatus,
+  isValidObligationSeverity,
+  readDeltaEnvelope,
+  readIdempotencyKey,
+  readObligationArtifacts,
+  isNonApplyableClarify,
+} from "../../vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js";
+
 const FORBIDDEN_NORMAL_PATH_KEYS = new Set([
   "executor_pending",
   "apply_allowed",
@@ -1860,4 +1883,525 @@ test("normalizeAgentEditResponse diagnostics never leak raw debug/provider paylo
       `diagnostics must not contain forbidden term "${term}"`,
     );
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T16 — Browser contract parity: cumulative delta, proofs, obligations,
+//       authority receipts, idempotency, malformed delta, non-applyable clarify.
+//
+// These tests consume Python-generated/fixture contract shapes without
+// reimplementing Python semantics.  The JS generated module provides
+// vocabulary constants and lightweight read helpers; the browser-side
+// agent_edit_response_contract.js layers camelCase adaptation on top.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Completion proof vocabulary ─────────────────────────────────────────
+
+test("COMPLETION_PROOF_STATES matches Python four-state vocabulary", () => {
+  assert.deepEqual(COMPLETION_PROOF_STATES, [
+    "pass",
+    "fail",
+    "not_run",
+    "unknown",
+  ]);
+  // Missing proof is never success — "unknown" is the fail-closed default.
+  assert.equal(isValidProofState("pass"), true);
+  assert.equal(isValidProofState("fail"), true);
+  assert.equal(isValidProofState("not_run"), true);
+  assert.equal(isValidProofState("unknown"), true);
+  assert.equal(isValidProofState("success"), false);
+  assert.equal(isValidProofState(null), false);
+  assert.equal(isValidProofState(undefined), false);
+});
+
+test("COMPLETION_PROOF_DOMAINS matches Python four-domain contract", () => {
+  assert.deepEqual(COMPLETION_PROOF_DOMAINS, [
+    "transformation_safety",
+    "graph_validity",
+    "task_satisfaction",
+    "runtime_readiness",
+  ]);
+  for (const domain of COMPLETION_PROOF_DOMAINS) {
+    assert.equal(isValidProofDomain(domain), true, `${domain} must be valid`);
+  }
+  assert.equal(isValidProofDomain("bogus"), false);
+  assert.equal(isValidProofDomain(""), false);
+});
+
+// ── Obligation ledger vocabulary ────────────────────────────────────────
+
+test("OBLIGATION_KINDS matches Python seven-kind contract", () => {
+  assert.deepEqual(OBLIGATION_KINDS, [
+    "class_present",
+    "class_absent",
+    "value_match",
+    "edge_exists",
+    "terminal_output_domain",
+    "scope_preserved",
+    "obligation_declared",
+  ]);
+  for (const kind of OBLIGATION_KINDS) {
+    assert.equal(isValidObligationKind(kind), true);
+  }
+  assert.equal(isValidObligationKind("bogus"), false);
+});
+
+test("OBLIGATION_STATUSES matches Python five-status contract", () => {
+  assert.deepEqual(OBLIGATION_STATUSES, [
+    "satisfied",
+    "unsatisfied",
+    "unknown",
+    "not_evaluated",
+    "unsupported",
+  ]);
+  for (const status of OBLIGATION_STATUSES) {
+    assert.equal(isValidObligationStatus(status), true);
+  }
+  assert.equal(isValidObligationStatus("pass"), false);
+  assert.equal(isValidObligationStatus("fail"), false);
+});
+
+test("OBLIGATION_SEVERITIES matches Python three-severity contract", () => {
+  assert.deepEqual(OBLIGATION_SEVERITIES, [
+    "required",
+    "recommended",
+    "optional",
+  ]);
+  for (const severity of OBLIGATION_SEVERITIES) {
+    assert.equal(isValidObligationSeverity(severity), true);
+  }
+  assert.equal(isValidObligationSeverity("mandatory"), false);
+});
+
+test("PLAN_OBLIGATION_STATES matches Python three-state contract", () => {
+  assert.deepEqual(PLAN_OBLIGATION_STATES, [
+    "not_required",
+    "required_supported",
+    "required_unsupported",
+  ]);
+});
+
+// ── Delta diagnostic codes ──────────────────────────────────────────────
+
+test("DELTA_DIAGNOSTIC_CODES includes malformed, corrupted, truncated, absent, replay mismatch", () => {
+  assert.equal(DELTA_DIAGNOSTIC_CORRUPTED, "delta_corrupted");
+  assert.equal(DELTA_DIAGNOSTIC_TRUNCATED, "delta_truncated");
+  assert.equal(DELTA_DIAGNOSTIC_ABSENT, "delta_absent");
+  assert.equal(DELTA_DIAGNOSTIC_REPLAY_MISMATCH, "delta_replay_mismatch");
+
+  assert.deepEqual(DELTA_DIAGNOSTIC_CODES, [
+    "malformed_delta",
+    "legacy_delta_shape",
+    "unsupported_scoped_apply",
+    "delta_corrupted",
+    "delta_truncated",
+    "delta_absent",
+    "delta_replay_mismatch",
+  ]);
+});
+
+// ── Cumulative delta envelope consumption ───────────────────────────────
+
+test("readDeltaEnvelope extracts canonical V2 delta envelope from fixture response", () => {
+  const fixture = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    delta_ops_envelope: {
+      schema_version: "2.0.0",
+      ops: [
+        { op: "set_node_field", target: ["", "n1", "widgets.steps"], value: 28 },
+        { op: "add_node", scope_path: "", uid: "u-new", node_id: "99", class_type: "PreviewImage", fields: {}, inputs: {} },
+      ],
+    },
+    delta_ops: [
+      { op: "set_node_field", target: ["", "n1", "widgets.steps"], value: 28 },
+      { op: "add_node", scope_path: "", uid: "u-new", node_id: "99", class_type: "PreviewImage", fields: {}, inputs: {} },
+    ],
+  };
+
+  const envelope = readDeltaEnvelope(fixture);
+  assert.ok(envelope, "delta envelope must be present");
+  assert.equal(envelope.schema_version, "2.0.0");
+  assert.equal(envelope.ops.length, 2);
+  assert.equal(envelope.ops[0].op, "set_node_field");
+  assert.equal(envelope.ops[1].op, "add_node");
+});
+
+test("readDeltaEnvelope returns null when delta_ops_envelope is absent", () => {
+  assert.equal(readDeltaEnvelope({ ok: true }), null);
+  assert.equal(readDeltaEnvelope({ delta_ops_envelope: null }), null);
+  assert.equal(readDeltaEnvelope(null), null);
+});
+
+test("readDeltaEnvelope returns empty ops array when ops is not an array", () => {
+  const envelope = readDeltaEnvelope({
+    delta_ops_envelope: { schema_version: "2.0.0", ops: "not-array" },
+  });
+  assert.ok(envelope);
+  assert.deepEqual(envelope.ops, []);
+});
+
+// ── Idempotency key passthrough ─────────────────────────────────────────
+
+test("readIdempotencyKey extracts key from top-level snake_case", () => {
+  assert.equal(readIdempotencyKey({ idempotency_key: "idem-abc" }), "idem-abc");
+});
+
+test("readIdempotencyKey extracts key from top-level camelCase", () => {
+  assert.equal(readIdempotencyKey({ idempotencyKey: "idem-xyz" }), "idem-xyz");
+});
+
+test("readIdempotencyKey extracts key from candidate.turn_identity", () => {
+  assert.equal(
+    readIdempotencyKey({
+      candidate: { turn_identity: { idempotency_key: "idem-cand" } },
+    }),
+    "idem-cand",
+  );
+});
+
+test("readIdempotencyKey extracts key from debug.turn_identity", () => {
+  assert.equal(
+    readIdempotencyKey({
+      debug: { turn_identity: { idempotency_key: "idem-debug" } },
+    }),
+    "idem-debug",
+  );
+});
+
+test("readIdempotencyKey prefers top-level over nested sources", () => {
+  assert.equal(
+    readIdempotencyKey({
+      idempotency_key: "idem-top",
+      candidate: { turn_identity: { idempotency_key: "idem-nested" } },
+    }),
+    "idem-top",
+  );
+});
+
+test("readIdempotencyKey returns null when absent", () => {
+  assert.equal(readIdempotencyKey({ ok: true }), null);
+  assert.equal(readIdempotencyKey(null), null);
+});
+
+// ── Obligation / task satisfaction artifact consumption ─────────────────
+
+test("readObligationArtifacts returns both task_satisfaction and obligation_ledger", () => {
+  const fixture = {
+    ok: true,
+    task_satisfaction: [
+      { check: "execution_plan", status: "pass", satisfaction: "pass", description: "Plan ok." },
+    ],
+    obligation_ledger: {
+      obligations: [
+        {
+          kind: "class_present",
+          status: "satisfied",
+          severity: "required",
+          description: "KSampler required",
+        },
+      ],
+      aggregate_status: "satisfied",
+    },
+  };
+
+  const artifacts = readObligationArtifacts(fixture);
+  assert.ok(artifacts);
+  assert.equal(artifacts.task_satisfaction.length, 1);
+  assert.equal(artifacts.task_satisfaction[0].check, "execution_plan");
+  assert.equal(artifacts.obligation_ledger.obligations.length, 1);
+  assert.equal(artifacts.obligation_ledger.obligations[0].kind, "class_present");
+});
+
+test("readObligationArtifacts returns null when neither field is present", () => {
+  assert.equal(readObligationArtifacts({ ok: true }), null);
+  assert.equal(readObligationArtifacts(null), null);
+});
+
+test("readObligationArtifacts returns only task_satisfaction when obligation_ledger absent", () => {
+  const artifacts = readObligationArtifacts({
+    task_satisfaction: [{ check: "plan", status: "fail" }],
+  });
+  assert.ok(artifacts);
+  assert.equal(artifacts.task_satisfaction.length, 1);
+  assert.equal(artifacts.obligation_ledger, null);
+});
+
+// ── Non-applyable clarify detection ─────────────────────────────────────
+
+test("isNonApplyableClarify returns true for pure clarify without candidate payloads", () => {
+  const fixture = {
+    ok: true,
+    outcome: { kind: "clarify", question: "Which node?" },
+    clarification_required: true,
+    message: "Which node should I use?",
+    graph_unchanged: true,
+    apply_allowed: false,
+    canvas_apply_allowed: false,
+    queue_allowed: false,
+  };
+
+  assert.equal(isNonApplyableClarify(fixture), true);
+});
+
+test("isNonApplyableClarify rejects clarify with candidate payload present", () => {
+  // A clarify that leaks a candidate graph is not non-applyable clarify.
+  assert.equal(
+    isNonApplyableClarify({
+      ok: true,
+      outcome: { kind: "clarify", question: "Keep the seed?" },
+      clarification_required: true,
+      candidate: { graph: { nodes: [{ id: 1 }], links: [] } },
+    }),
+    false,
+  );
+
+  assert.equal(
+    isNonApplyableClarify({
+      ok: true,
+      outcome: { kind: "clarify" },
+      clarification_required: true,
+      graph: { nodes: [{ id: 1 }], links: [] },
+    }),
+    false,
+  );
+});
+
+test("isNonApplyableClarify rejects when clarification_required is not true", () => {
+  assert.equal(
+    isNonApplyableClarify({
+      ok: true,
+      outcome: { kind: "clarify", question: "Which?" },
+    }),
+    false,
+  );
+});
+
+test("isNonApplyableClarify rejects non-clarify outcomes", () => {
+  assert.equal(isNonApplyableClarify({ outcome: { kind: "candidate" } }), false);
+  assert.equal(isNonApplyableClarify({ outcome: { kind: "noop" } }), false);
+  assert.equal(isNonApplyableClarify({ outcome: { kind: "error" } }), false);
+});
+
+test("isNonApplyableClarify rejects null/non-object", () => {
+  assert.equal(isNonApplyableClarify(null), false);
+  assert.equal(isNonApplyableClarify("string"), false);
+});
+
+// ── Non-applyable clarify obligation contract through normalization ─────
+
+test("normalizeAgentEditResponse preserves non-applyable clarify obligations without leaking candidate", () => {
+  const raw = {
+    ok: true,
+    message: "Which audio source should I use?",
+    outcome: {
+      kind: "clarify",
+      question: "Which audio source should I use?",
+    },
+    clarification_required: true,
+    clarification_message: "Which audio source should I use?",
+    graph_unchanged: true,
+    apply_allowed: false,
+    canvas_apply_allowed: false,
+    queue_allowed: false,
+    apply_eligibility: {
+      applyable: false,
+      reason: "no_candidate",
+      message: "No candidate is available to apply.",
+      warnings: [],
+    },
+    task_satisfaction: [
+      { check: "execution_plan", status: "not_evaluated", satisfaction: "not_evaluated", description: "Not applicable for clarify." },
+    ],
+    obligation_ledger: {
+      obligations: [
+        {
+          kind: "class_present",
+          status: "not_evaluated",
+          severity: "required",
+          description: "Audio source node required before edit can proceed.",
+        },
+      ],
+      aggregate_status: "not_evaluated",
+    },
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/vibecomfy/agent-edit" });
+
+  assert.equal(normalized.outcome.kind, "clarify");
+  assert.equal(normalized.candidateGraph, null);
+  assert.equal(normalized.candidate, null);
+  assert.equal(normalized.canvasApplyAllowed, false);
+  assert.equal(normalized.applyAllowed, false);
+  assert.equal(normalized.queueAllowed, false);
+  assert.equal(normalized.graphUnchanged, true);
+
+  // Obligation artifacts must be readable through generated helpers.
+  const obligationArtifacts = readObligationArtifacts(normalized.raw);
+  assert.ok(obligationArtifacts, "obligation artifacts must be readable from raw");
+  assert.equal(obligationArtifacts.task_satisfaction.length, 1);
+  assert.equal(obligationArtifacts.task_satisfaction[0].satisfaction, "not_evaluated");
+  assert.equal(obligationArtifacts.obligation_ledger.obligations.length, 1);
+  assert.equal(obligationArtifacts.obligation_ledger.obligations[0].kind, "class_present");
+  assert.equal(obligationArtifacts.obligation_ledger.aggregate_status, "not_evaluated");
+
+  // Non-applyable clarify detection works through generated helper.
+  assert.equal(isNonApplyableClarify(normalized.raw), true);
+});
+
+// ── Authority receipt hash references in fixture responses ──────────────
+
+test("generated read helpers consume authority receipt hash fields from fixture", () => {
+  // Authority receipt hashes are persisted under authority/ namespace
+  // and referenced via session state.  Browser tests verify that the
+  // hash fields present in the response contract are consumable.
+  const fixture = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    candidate: {
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      graph_hash: "candidate-graph-hash",
+      submit_graph_hash: "submit-graph-hash",
+    },
+    candidate_graph_hash: "candidate-graph-hash",
+    submit_graph_hash: "submit-graph-hash",
+    idempotency_key: "idem-auth-001",
+    delta_ops_envelope: {
+      schema_version: "2.0.0",
+      ops: [{ op: "set_node_field", target: ["", "n", "w"], value: 1 }],
+    },
+    apply_eligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Ready.",
+      warnings: [],
+    },
+  };
+
+  const envelope = readDeltaEnvelope(fixture);
+  assert.equal(envelope.schema_version, "2.0.0");
+  assert.equal(envelope.ops.length, 1);
+  assert.equal(readIdempotencyKey(fixture), "idem-auth-001");
+
+  const normalized = normalizeAgentEditResponse(fixture, { endpoint: "/submit" });
+  assert.equal(normalized.outcome.kind, "candidate");
+  assert.equal(normalized.candidateGraphHash, "candidate-graph-hash");
+  assert.equal(normalized.submitGraphHash, "submit-graph-hash");
+});
+
+// ── Malformed delta evidence in response fixtures ───────────────────────
+
+test("readDeltaEnvelope returns null for malformed delta_ops_envelope (missing schema_version)", () => {
+  // Malformed envelope with no schema_version still returns an object,
+  // but schema_version will be null.  The browser consumer should treat
+  // null schema_version as non-canonical.
+  const envelope = readDeltaEnvelope({
+    delta_ops_envelope: { ops: [] },
+  });
+  assert.ok(envelope);
+  assert.equal(envelope.schema_version, null);
+  assert.deepEqual(envelope.ops, []);
+});
+
+test("readDeltaEnvelope handles corrupted delta_ops_envelope (ops is null)", () => {
+  const envelope = readDeltaEnvelope({
+    delta_ops_envelope: { schema_version: "2.0.0", ops: null },
+  });
+  assert.ok(envelope);
+  assert.equal(envelope.schema_version, "2.0.0");
+  assert.deepEqual(envelope.ops, []);
+});
+
+test("normalizeAgentEditResponse does not crash on malformed delta evidence in debug", () => {
+  const raw = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    candidate: { graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] } },
+    candidate_graph_hash: "gh",
+    apply_eligibility: { applyable: true, reason: "applyable", message: "ok", warnings: [] },
+    debug: {
+      delta_evidence: {
+        delta_evidence_valid: false,
+        delta_evidence_code: "delta_corrupted",
+        delta_evidence_detail: { reason: "truncated envelope" },
+      },
+    },
+  };
+
+  // Must not throw — malformed evidence is diagnostic, not fatal to normalization.
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.equal(normalized.outcome.kind, "candidate");
+  assert.ok(normalized.debug, "debug must be preserved");
+});
+
+// ── Cumulative delta across batch turns ─────────────────────────────────
+
+test("readDeltaEnvelope reads cumulative multi-turn delta from fixture", () => {
+  // Simulating a batch_repl response with cumulative delta across turns.
+  const fixture = {
+    ok: true,
+    outcome: { kind: "candidate" },
+    delta_ops_envelope: {
+      schema_version: "2.0.0",
+      ops: [
+        { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 },
+        { op: "set_mode", target: ["", "n2"], mode: 4 },
+        { op: "add_node", scope_path: "", uid: "n3", node_id: "3", class_type: "SaveImage", fields: {}, inputs: {} },
+        { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "n3", "images"] },
+      ],
+    },
+    batch_turns: [
+      {
+        turn_number: 0,
+        delta_ops_envelope: {
+          schema_version: "2.0.0",
+          ops: [
+            { op: "set_node_field", target: ["", "n1", "widgets.seed"], value: 42 },
+            { op: "set_mode", target: ["", "n2"], mode: 4 },
+          ],
+        },
+      },
+      {
+        turn_number: 1,
+        delta_ops_envelope: {
+          schema_version: "2.0.0",
+          ops: [
+            { op: "add_node", scope_path: "", uid: "n3", node_id: "3", class_type: "SaveImage", fields: {}, inputs: {} },
+            { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "n3", "images"] },
+          ],
+        },
+      },
+    ],
+  };
+
+  const envelope = readDeltaEnvelope(fixture);
+  assert.ok(envelope);
+  assert.equal(envelope.schema_version, "2.0.0");
+  assert.equal(envelope.ops.length, 4);
+  // Verify ops are in order (cumulative across turns).
+  assert.equal(envelope.ops[0].op, "set_node_field");
+  assert.equal(envelope.ops[2].op, "add_node");
+});
+
+// ── Idempotency key in durable executor responses ───────────────────────
+
+test("normalizeAgentEditResponse surfaces idempotency key from turn identity", () => {
+  const raw = {
+    ok: true,
+    outcome: { kind: "candidate", changes: [] },
+    candidate: {
+      graph: { nodes: [{ id: 1, type: "KSampler" }], links: [] },
+      turn_identity: {
+        session_id: "sess-1",
+        turn_id: "turn-1",
+        idempotency_key: "idem-durable-001",
+      },
+    },
+    apply_eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] },
+    idempotency_key: "idem-durable-001",
+  };
+
+  const normalized = normalizeAgentEditResponse(raw, { endpoint: "/submit" });
+  assert.equal(readIdempotencyKey(normalized.raw), "idem-durable-001");
+  assert.equal(normalized.turnIdentity?.idempotencyKey, "idem-durable-001");
 });

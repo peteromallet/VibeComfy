@@ -425,15 +425,44 @@ _APPLYABILITY_FIELDS = (
 )
 
 
+def _response_claims_applyable(response: Mapping[str, Any]) -> bool:
+    """Return ``True`` when the response is asserting applyability.
+
+    Only responses that *claim* to be applyable are subject to fail-closed
+    stamping.  Responses that are already non-applyable (executor-only
+    routes, minimal candidate-only setups) receive only the receipt
+    reference — their non-applyable status is already correct and their
+    candidate graph must be preserved for downstream consumers (accept
+    path, audit).
+    """
+    if response.get("apply_eligible") is True:
+        return True
+    if response.get("canvas_apply_allowed") is True:
+        return True
+    if response.get("apply_allowed") is True:
+        return True
+    if response.get("queue_allowed") is True:
+        return True
+    eligibility = response.get("eligibility")
+    if isinstance(eligibility, Mapping) and eligibility.get("applyable") is True:
+        return True
+    return False
+
+
 def stamp_response_with_authority(
     response: dict[str, Any],
     receipt: AuthorityReceipt,
 ) -> dict[str, Any]:
     """Stamp the response with authority receipt reference and enforce fail-closed.
 
-    If the receipt is not applyable (replay failed or candidate mismatch), all
-    applyability fields are stripped/forced to ``False`` and the candidate is
-    removed, ensuring the response cannot authorize Apply or Queue.
+    The ``authority_receipt`` summary is always added so that every durable
+    edit turn carries an immutable receipt reference.
+
+    Fail-closed stamping (forcing applyability to ``False``) is applied **only**
+    when the response was claiming applyability *and* the receipt is not
+    applyable (replay failed or candidate mismatch).  The candidate graph is
+    preserved — downstream consumers (accept path, audit) may still need to
+    inspect it; the applyability fields are the authority gate.
     """
     stamped = dict(response)
     stamped["authority_receipt"] = {
@@ -451,8 +480,8 @@ def stamp_response_with_authority(
         "created_at": receipt.created_at,
     }
 
-    if not receipt.is_applyable:
-        # Fail closed: strip applyability and candidate.
+    if not receipt.is_applyable and _response_claims_applyable(response):
+        # Fail closed: force applyability fields to False.
         stamped["canvas_apply_allowed"] = False
         stamped["queue_allowed"] = False
         stamped["apply_allowed"] = False
@@ -468,13 +497,12 @@ def stamp_response_with_authority(
                 "Server replay verification failed; candidate is not authoritative."
             )
             stamped["eligibility"] = eligibility
-        # Remove the candidate graph to prevent Apply on a non-authoritative
-        # candidate.
-        stamped.pop("graph", None)
+        # Mark the candidate as rejected but do NOT remove the graph.
+        # Downstream consumers (accept path, audit) may still need to
+        # inspect the candidate; the applyability fields prevent Apply.
         candidate = stamped.get("candidate")
         if isinstance(candidate, dict):
             candidate = dict(candidate)
-            candidate["graph"] = None
             candidate["state"] = "rejected"
             stamped["candidate"] = candidate
 

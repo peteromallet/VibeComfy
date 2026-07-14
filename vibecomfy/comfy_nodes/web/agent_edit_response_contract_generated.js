@@ -45,6 +45,83 @@ export const FAILURE_HINT_KEYS = Object.freeze([
 
 export const NORMALIZED_RESPONSE_MARKER = "__agentEditResponseNormalized";
 
+// ── Completion proof states and domains (Python-sourced) ────────────────────
+// Source: vibecomfy/comfy_nodes/agent/completion_proofs.py
+
+/** Proof states: pass, fail, not_run, unknown.  Missing proof is never success. */
+export const COMPLETION_PROOF_STATES = Object.freeze([
+  "pass",
+  "fail",
+  "not_run",
+  "unknown",
+]);
+
+/** Proof domains that each report an independent four-state result. */
+export const COMPLETION_PROOF_DOMAINS = Object.freeze([
+  "transformation_safety",
+  "graph_validity",
+  "task_satisfaction",
+  "runtime_readiness",
+]);
+
+// ── Obligation ledger vocabulary (Python-sourced) ───────────────────────────
+// Source: vibecomfy/comfy_nodes/agent/obligation_ledger.py
+
+/** Structural obligation kinds. */
+export const OBLIGATION_KINDS = Object.freeze([
+  "class_present",
+  "class_absent",
+  "value_match",
+  "edge_exists",
+  "terminal_output_domain",
+  "scope_preserved",
+  "obligation_declared",
+]);
+
+/** Obligation evaluation statuses. */
+export const OBLIGATION_STATUSES = Object.freeze([
+  "satisfied",
+  "unsatisfied",
+  "unknown",
+  "not_evaluated",
+  "unsupported",
+]);
+
+/** Obligation severities (criticality). */
+export const OBLIGATION_SEVERITIES = Object.freeze([
+  "required",
+  "recommended",
+  "optional",
+]);
+
+// ── Delta diagnostic codes (Python-sourced) ─────────────────────────────────
+// Source: vibecomfy/porting/edit/ops.py
+
+export const DELTA_DIAGNOSTIC_CORRUPTED = "delta_corrupted";
+export const DELTA_DIAGNOSTIC_TRUNCATED = "delta_truncated";
+export const DELTA_DIAGNOSTIC_ABSENT = "delta_absent";
+export const DELTA_DIAGNOSTIC_REPLAY_MISMATCH = "delta_replay_mismatch";
+
+/** All delta diagnostic codes (including those from canonical_delta.js). */
+export const DELTA_DIAGNOSTIC_CODES = Object.freeze([
+  "malformed_delta",
+  "legacy_delta_shape",
+  "unsupported_scoped_apply",
+  DELTA_DIAGNOSTIC_CORRUPTED,
+  DELTA_DIAGNOSTIC_TRUNCATED,
+  DELTA_DIAGNOSTIC_ABSENT,
+  DELTA_DIAGNOSTIC_REPLAY_MISMATCH,
+]);
+
+// ── Plan obligation states (Python-sourced) ─────────────────────────────────
+// Source: vibecomfy/comfy_nodes/agent/obligation_ledger.py
+
+export const PLAN_OBLIGATION_STATES = Object.freeze([
+  "not_required",
+  "required_supported",
+  "required_unsupported",
+]);
+
 // ── Candidate-payload detection ─────────────────────────────────────────────
 
 /**
@@ -131,4 +208,153 @@ export function extractRebaselineRecovery(response) {
     }
   }
   return null;
+}
+
+// ── Proof state helpers ─────────────────────────────────────────────────────
+
+/**
+ * Check whether a value is a valid completion proof state.
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isValidProofState(value) {
+  return COMPLETION_PROOF_STATES.includes(value);
+}
+
+/**
+ * Check whether a value is a valid proof domain.
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isValidProofDomain(value) {
+  return COMPLETION_PROOF_DOMAINS.includes(value);
+}
+
+// ── Obligation ledger helpers ───────────────────────────────────────────────
+
+/**
+ * Check whether a value is a valid obligation kind.
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isValidObligationKind(value) {
+  return OBLIGATION_KINDS.includes(value);
+}
+
+/**
+ * Check whether a value is a valid obligation status.
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isValidObligationStatus(value) {
+  return OBLIGATION_STATUSES.includes(value);
+}
+
+/**
+ * Check whether a value is a valid obligation severity.
+ * @param {*} value
+ * @returns {boolean}
+ */
+export function isValidObligationSeverity(value) {
+  return OBLIGATION_SEVERITIES.includes(value);
+}
+
+// ── Delta envelope reader ───────────────────────────────────────────────────
+
+/**
+ * Read the cumulative V2 delta envelope from a response.
+ * Returns the canonical ``{schema_version, ops}`` envelope or null.
+ *
+ * @param {*} response - raw response object
+ * @returns {object|null}
+ */
+export function readDeltaEnvelope(response) {
+  if (!isObject(response)) {
+    return null;
+  }
+  const envelope = response.delta_ops_envelope;
+  if (!isObject(envelope)) {
+    return null;
+  }
+  return {
+    schema_version: asString(envelope.schema_version),
+    ops: Array.isArray(envelope.ops) ? envelope.ops : [],
+  };
+}
+
+/**
+ * Read the idempotency key from a response or its turn identity.
+ * @param {*} response - raw response object
+ * @returns {string|null}
+ */
+export function readIdempotencyKey(response) {
+  if (!isObject(response)) {
+    return null;
+  }
+  return asString(response.idempotency_key)
+    || asString(response.idempotencyKey)
+    || asString(response.candidate?.turn_identity?.idempotency_key)
+    || asString(response.candidate?.turnIdentity?.idempotencyKey)
+    || asString(response.debug?.turn_identity?.idempotency_key)
+    || asString(response.debug?.turnIdentity?.idempotencyKey)
+    || null;
+}
+
+// ── Obligation ledger reader ────────────────────────────────────────────────
+
+/**
+ * Read task satisfaction / obligation ledger entries from a response.
+ * These mirror the Python-side task_satisfaction and obligation_ledger fields
+ * that are serialized onto applyable and clarify responses.
+ *
+ * @param {*} response - raw response object
+ * @returns {object|null} { task_satisfaction, obligation_ledger } or null
+ */
+export function readObligationArtifacts(response) {
+  if (!isObject(response)) {
+    return null;
+  }
+  const taskSatisfaction = Array.isArray(response.task_satisfaction)
+    ? response.task_satisfaction
+    : null;
+  const obligationLedger = isObject(response.obligation_ledger)
+    ? response.obligation_ledger
+    : null;
+  if (!taskSatisfaction && !obligationLedger) {
+    return null;
+  }
+  return {
+    task_satisfaction: taskSatisfaction,
+    obligation_ledger: obligationLedger,
+  };
+}
+
+// ── Non-applyable clarify detection ─────────────────────────────────────────
+
+/**
+ * Detect whether a response represents a non-applyable clarify outcome.
+ * Non-applyable clarify responses must carry clarification_required=true
+ * and must NOT carry candidate, graph, apply_eligible, or eligibility fields
+ * that could be mistaken for applyable content.
+ *
+ * @param {*} response - raw response object
+ * @returns {boolean}
+ */
+export function isNonApplyableClarify(response) {
+  if (!isObject(response)) {
+    return false;
+  }
+  const outcomeKind = asString(response.outcome?.kind);
+  if (outcomeKind !== "clarify") {
+    return false;
+  }
+  // Non-applyable clarify must not carry candidate payloads.
+  if (isObject(response.candidate) || isObject(response.candidate_graph) || isObject(response.graph)) {
+    return false;
+  }
+  // Must carry clarification markers.
+  if (response.clarification_required !== true && response.clarificationRequired !== true) {
+    return false;
+  }
+  return true;
 }

@@ -2064,6 +2064,37 @@ def run_executor(
             )
             span.update(reply_preview=short_text(reply_text))
     except _ExecutorPhaseError as exc:
+        # Preserve durable candidate when reply narration fails.
+        # Narration failure is presentation-only (SD1): the durable
+        # edit work (candidate, gates, proofs, receipts, eligibility)
+        # must not be discarded when only the reply surface fails.
+        if (
+            implementation_result is not None
+            and implementation_result.durable_response is not None
+            and result_graph is not None
+        ):
+            LOGGER.warning(
+                "Reply narration failed after durable edit succeeded "
+                "(stage=%s, kind=%s); preserving implementation with "
+                "deterministic fallback narration.",
+                exc.stage,
+                exc.failure_kind,
+            )
+            report = _build_report(
+                plan=plan,
+                research=research_result,
+                implementation=implementation_result,
+            )
+            fallback_reply = (
+                implementation_result.message
+                or "Edit completed. The candidate is ready to review."
+            )
+            return _finish(ExecutorResult.success(
+                report=report,
+                graph=result_graph,
+                reply=fallback_reply,
+            ))
+
         report = _build_report(
             plan=plan,
             research=research_result,

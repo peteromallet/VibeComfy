@@ -1169,3 +1169,57 @@ class TestNarrativeRegression67785df94db647ca:
             "failed" in message.lower() or "error" in message.lower(), (
             f"Narrated message does not describe the failure: {message}"
         )
+
+
+# ── T14: Defensive narrator preserves durable state on catastrophic failure ──
+
+
+class TestNarratorCatastrophicFallback:
+    """Verify _narrate_final_message never raises — narration failure is presentation-only."""
+
+    def test_unrecoverable_error_returns_deterministic_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When an unexpected exception occurs inside the narrator,
+        a deterministic fallback message is returned instead of crashing."""
+        # Make _assemble_narrative_context raise an unexpected error.
+        def _failing_assemble(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("simulated catastrophic narrator failure")
+
+        monkeypatch.setattr(
+            "vibecomfy.comfy_nodes.agent.edit._assemble_narrative_context",
+            _failing_assemble,
+        )
+
+        state = _make_state(
+            graph={"nodes": [{"id": 1, "type": "SaveImage"}]},
+            ui_payload={"nodes": [{"id": 1, "type": "SaveImage"}]},
+            batch_field_changes=(
+                FieldChange(uid="1", field_path="filename_prefix", old="before", new="after"),
+            ),
+            batch_exit_mode="done",
+            session_dir=tmp_path / "session",
+            turn_dir=tmp_path / "turns" / "0001",
+            narrative_context_path=Path("narrative_context.json"),
+            narrative_request_path=Path("narrative_request.json"),
+            narrative_response_path=Path("narrative_response.json"),
+            narrative_validation_path=Path("narrative_validation.json"),
+            artifacts={},
+        )
+        state.turn_dir.mkdir(parents=True, exist_ok=True)
+        context = TurnContext(session_id="catastrophic", turn_id="0001")
+        for gate_name in context.gate_results:
+            context.set_gate(gate_name, True)
+
+        # Must not raise — narration failure is presentation-only.
+        message = _narrate_final_message(
+            state,
+            context,
+            outcome=TurnOutcome.edit(changes=state.batch_field_changes),
+            public_outcome="candidate",
+        )
+
+        assert isinstance(message, str)
+        assert len(message) > 0
+        # The message should be a deterministic fallback, not empty or an error.
+        assert "after" in message.lower()
