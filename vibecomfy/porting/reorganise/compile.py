@@ -715,6 +715,7 @@ class _TraceNodeState:
     class_type: str
     role_hint: RoleHint = ROLE_HINT_UNKNOWN
     layout_behavior: str = "unknown"
+    pipeline_stage: str | None = None
     section_id: str | None = None
     attachment_target: CanonicalNodeRef | None = None
     placement_choice: str | None = None
@@ -741,6 +742,7 @@ class _CompileTraceAccumulator:
             hint = classification.hint_for(ref)
             if hint is not None:
                 state.role_hint = hint.role_hint
+                state.pipeline_stage = hint.pipeline_stage
 
     def record_section_ownership(
         self,
@@ -812,6 +814,7 @@ class _CompileTraceAccumulator:
                 class_type=state.class_type,
                 role_hint=state.role_hint,
                 layout_behavior=state.layout_behavior,
+                pipeline_stage=state.pipeline_stage,
                 section_id=state.section_id,
                 attachment_target=state.attachment_target,
                 placement_choice=state.placement_choice,
@@ -1125,6 +1128,12 @@ def _compile_sections(
         UNASSIGNED_CLASSIFY_DETERMINISTICALLY,
         UNASSIGNED_PRESERVE_EXISTING,
     }:
+        node_layers = _node_topology_layers(facts)
+        # Topology-proven repeated stages (multipass, branch, join) must not be
+        # collapsed into a single role-bucket section. We key each unassigned
+        # node by (section-kind, topology-layer) so two samplers at different
+        # data-flow depths land in distinct generated section instances.
+        role_instance_sections: dict[tuple[str, int], str] = {}
         for ref in unassigned:
             if ref in primary_owned:
                 continue
@@ -1144,10 +1153,31 @@ def _compile_sections(
                 continue
             hint = classification.hint_for(ref)
             role = hint.role_hint if hint is not None else fact.role_hint if fact is not None else ROLE_HINT_UNKNOWN
-            primary_owned[ref] = _section_for_role(role, section_defs)
+            kind = _ROLE_TO_SECTION_KIND.get(role, SECTION_KIND_CUSTOM)
+            layer = node_layers.get(ref, 0)
+            instance_key = (kind, layer)
+            section_id = role_instance_sections.get(instance_key)
+            if section_id is None:
+                section_id = _role_instance_section_id(
+                    kind,
+                    layer,
+                    section_defs,
+                    claimed_base_kinds={
+                        _generated_section_kind(sid)
+                        for sid in role_instance_sections.values()
+                    },
+                )
+                role_instance_sections[instance_key] = section_id
+                if section_id not in generated_defs and section_id not in section_defs:
+                    generated_defs[section_id] = _GeneratedSection(
+                        kind=kind,
+                        title=_title_for(section_id, kind),
+                        role_hint=role,
+                    )
+            primary_owned[ref] = section_id
             ownership[ref] = _OwnershipDecision(
                 ref=ref,
-                section_id=primary_owned[ref],
+                section_id=section_id,
                 reason="primary_classified_role",
             )
     elif plan.unassigned_policy == UNASSIGNED_REJECT:
@@ -7509,10 +7539,69 @@ def _section_for_role(
     section_defs: Mapping[str, LayoutSection],
 ) -> str:
     kind = _ROLE_TO_SECTION_KIND.get(role, SECTION_KIND_CUSTOM)
+    return _section_for_role_kind(kind, section_defs)
+
+
+def _section_for_role_kind(kind: SectionKind, section_defs: Mapping[str, LayoutSection]) -> str:
     for section_id, section in sorted(section_defs.items()):
         if section.kind == kind:
             return section_id
     return f"__{kind}__"
+
+
+def _role_instance_section_id(
+    kind: SectionKind,
+    layer: int,
+    section_defs: Mapping[str, LayoutSection],
+    claimed_base_kinds: set[str],
+) -> str:
+    """Return a stable section id for one ``(kind, layer)`` stage instance.
+
+    The first instance of a given kind keeps the legacy base id (an existing
+    matching section or ``__<kind>__``) so single-pass layouts are unchanged.
+    Topology-proven repeated instances get a deterministic ``__<kind>__p<layer>__``
+    suffix so they are placed as distinct stage instances rather than merged
+    into one role-bucket section.
+    """
+    base = _section_for_role_kind(kind, section_defs)
+    if base in section_defs:
+        return base
+    base_kind = _generated_section_kind(base)
+    if base_kind not in claimed_base_kinds:
+        return base
+    return f"{base}__p{layer}__"
+
+
+def _node_topology_layers(facts: GraphInventoryFacts) -> dict[CanonicalNodeRef, int]:
+    """Longest-path layer (depth from sources) per canonical ref.
+
+    Computed from *effective* topology edges so muted/bypassed (mode=2/4)
+    nodes do not contribute phantom stages. Nodes with no effective edges
+    default to layer 0. This layer is used only to split repeated same-role
+    stages into distinct section instances; it never overrides section rank.
+    """
+    incoming: dict[CanonicalNodeRef, set[CanonicalNodeRef]] = {}
+    all_refs: set[CanonicalNodeRef] = set()
+    for topology in facts.scope_topologies:
+        for edge in topology.effective_edges:
+            all_refs.add(edge.source)
+            all_refs.add(edge.target)
+            incoming.setdefault(edge.target, set()).add(edge.source)
+    layer: dict[CanonicalNodeRef, int] = {}
+    refs = sorted(all_refs, key=_ref_sort_key)
+    for _ in range(len(refs) + 1):
+        changed = False
+        for ref in refs:
+            best = 0
+            for pred in incoming.get(ref, ()):
+                if pred in layer:
+                    best = max(best, layer[pred] + 1)
+            if layer.get(ref, -1) != best:
+                layer[ref] = best
+                changed = True
+        if not changed:
+            break
+    return layer
 
 
 def _generated_section_kind(section_id: str) -> SectionKind:

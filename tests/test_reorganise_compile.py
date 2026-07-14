@@ -3773,3 +3773,348 @@ def test_structural_expectations_reject_fake_helper_groups() -> None:
     )
     assert helper_count_metric.value == 2, \
         "must count the two real helpers (SetNode, GetNode)"
+
+
+# ---------------------------------------------------------------------------
+# T5: Topology-derived section ordering tests
+# ---------------------------------------------------------------------------
+
+
+def test_topology_rank_orders_resize_before_sampler() -> None:
+    """Prove preprocessor sections sort before sampler sections by topology,
+    not by kind-bucket walls.
+
+    All three sections use kind='custom' (same _SECTION_MIN_RANKS floor=2),
+    so if ordering were kind-bucket-derived they would tie-break on title
+    or id rather than data flow.  Topology rank alone must place the
+    ImageResize stage between LoadImage and KSampler.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "ImageResize", "resize"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "KSampler", "sample"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 11}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [12]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+            [12, 3, 0, -1, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "load_stage", "kind": "custom", "nodes": [["", "load"]]},
+                {"id": "resize_stage", "kind": "custom", "nodes": [["", "resize"]]},
+                {"id": "sample_stage", "kind": "custom", "nodes": [["", "sample"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+    # Topology ranks must follow data flow
+    assert topologies["load_stage"].rank < topologies["resize_stage"].rank
+    assert topologies["resize_stage"].rank < topologies["sample_stage"].rank
+    # All three share the same scope and island
+    scope = topologies["load_stage"].scope_path
+    island = topologies["load_stage"].island_index
+    assert topologies["resize_stage"].scope_path == scope
+    assert topologies["sample_stage"].scope_path == scope
+    assert topologies["resize_stage"].island_index == island
+    assert topologies["sample_stage"].island_index == island
+
+    # Layout x-positions must follow topology rank
+    layouts = _layouts_by_uid(result)
+    assert layouts["load"].x < layouts["resize"].x < layouts["sample"].x
+
+
+def test_topology_rank_orders_decode_output_after_sampler() -> None:
+    """Prove decode and output sections follow sampler in x-order because of
+    topology, not because their kind-bucket floor (decode=4, output=6) is
+    higher than sampling=3.
+
+    By using kind='custom' for every section we remove the kind wall so
+    only data-flow rank matters.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "KSampler", "sample"),
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "VAEDecode", "decode"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "SaveImage", "save"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 11}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "LATENT"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "sample_stage", "kind": "custom", "nodes": [["", "sample"]]},
+                {"id": "decode_stage", "kind": "custom", "nodes": [["", "decode"]]},
+                {"id": "output_stage", "kind": "custom", "nodes": [["", "save"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+    assert topologies["sample_stage"].rank < topologies["decode_stage"].rank
+    assert topologies["decode_stage"].rank < topologies["output_stage"].rank
+
+    layouts = _layouts_by_uid(result)
+    assert layouts["sample"].x < layouts["decode"].x < layouts["save"].x
+
+
+def test_topology_disconnected_islands_get_distinct_island_indices() -> None:
+    """Two independent linear chains must land in separate topology islands
+    with distinct island_index values, and within each island the rank
+    ordering must follow the local data flow.
+    """
+    ui = {
+        "nodes": [
+            # Chain A: load-a → resize-a
+            _with_io(
+                _node(1, "LoadImage", "load-a"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "ImageResize", "resize-a"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            ),
+            # Chain B: sample-b → decode-b
+            _with_io(
+                _node(3, "KSampler", "sample-b"),
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "VAEDecode", "decode-b"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 12}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13]}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, -1, 0, "IMAGE"],
+            [12, 3, 0, 4, 0, "LATENT"],
+            [13, 4, 0, -1, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "load_a", "kind": "custom", "nodes": [["", "load-a"]]},
+                {"id": "resize_a", "kind": "custom", "nodes": [["", "resize-a"]]},
+                {"id": "sample_b", "kind": "custom", "nodes": [["", "sample-b"]]},
+                {"id": "decode_b", "kind": "custom", "nodes": [["", "decode-b"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    # Chain A sections share the same island
+    assert topologies["load_a"].island_index == topologies["resize_a"].island_index
+    # Chain B sections share the same island
+    assert topologies["sample_b"].island_index == topologies["decode_b"].island_index
+    # The two islands must differ
+    assert topologies["load_a"].island_index != topologies["sample_b"].island_index
+
+    # Within each island, topology rank follows data flow
+    assert topologies["load_a"].rank < topologies["resize_a"].rank
+    assert topologies["sample_b"].rank < topologies["decode_b"].rank
+
+    # All sections in the same chain start at the same x-offset per rank,
+    # and ranks are 0-based within each island.
+    assert topologies["load_a"].rank == 0
+    assert topologies["resize_a"].rank == 1
+    assert topologies["sample_b"].rank == 0
+    assert topologies["decode_b"].rank == 1
+
+
+def test_topology_multipass_repeated_stages_ordered_by_data_flow() -> None:
+    """Two sampler stages and two decode stages in series must be ordered
+    by topology (first sampler before second sampler, first decode before
+    second decode) rather than by kind-bucket tie-breaking.
+
+    All sections use kind='custom' so the sole differentiator is the
+    data-flow rank.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "LoadImage", "load"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "KSampler", "sample-1"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 10}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            ),
+            _with_io(
+                _node(3, "VAEDecode", "decode-1"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 11}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            ),
+            _with_io(
+                _node(4, "ImageResize", "resize"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 12}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [13]}],
+            ),
+            _with_io(
+                _node(5, "KSampler", "sample-2"),
+                inputs=[{"name": "latent_image", "type": "IMAGE", "link": 13}],
+                outputs=[{"name": "LATENT", "type": "LATENT", "links": [14]}],
+            ),
+            _with_io(
+                _node(6, "VAEDecode", "decode-2"),
+                inputs=[{"name": "samples", "type": "LATENT", "link": 14}],
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [15]}],
+            ),
+            _with_io(
+                _node(7, "SaveImage", "save"),
+                inputs=[{"name": "images", "type": "IMAGE", "link": 15}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "LATENT"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+            [13, 4, 0, 5, 0, "IMAGE"],
+            [14, 5, 0, 6, 0, "LATENT"],
+            [15, 6, 0, 7, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "load_stage", "kind": "custom", "nodes": [["", "load"]]},
+                {"id": "sample_1", "kind": "custom", "nodes": [["", "sample-1"]]},
+                {"id": "decode_1", "kind": "custom", "nodes": [["", "decode-1"]]},
+                {"id": "resize_stage", "kind": "custom", "nodes": [["", "resize"]]},
+                {"id": "sample_2", "kind": "custom", "nodes": [["", "sample-2"]]},
+                {"id": "decode_2", "kind": "custom", "nodes": [["", "decode-2"]]},
+                {"id": "output_stage", "kind": "custom", "nodes": [["", "save"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    # All sections in the same island and same scope
+    island = topologies["load_stage"].island_index
+    scope = topologies["load_stage"].scope_path
+    for tid in topologies:
+        assert topologies[tid].island_index == island
+        assert topologies[tid].scope_path == scope
+
+    # Ranks must strictly increase along the data-flow chain
+    assert topologies["load_stage"].rank == 0
+    assert topologies["sample_1"].rank == 1
+    assert topologies["decode_1"].rank == 2
+    assert topologies["resize_stage"].rank == 3
+    assert topologies["sample_2"].rank == 4
+    assert topologies["decode_2"].rank == 5
+    assert topologies["output_stage"].rank == 6
+
+    # Repeated same-role stages must be ordered by topology, not kind
+    assert topologies["sample_1"].rank < topologies["sample_2"].rank
+    assert topologies["decode_1"].rank < topologies["decode_2"].rank
+
+    # Layout x-order must follow topology rank
+    layouts = _layouts_by_uid(result)
+    assert layouts["load"].x < layouts["sample-1"].x < layouts["decode-1"].x
+    assert layouts["decode-1"].x < layouts["resize"].x < layouts["sample-2"].x
+    assert layouts["sample-2"].x < layouts["decode-2"].x < layouts["save"].x
+
+
+def test_topology_rank_overrides_kind_wall_when_custom_before_loaders() -> None:
+    """When a custom preprocessor (kind='custom', min-rank=2) feeds into a
+    loader-style section (kind='loaders', min-rank=0), topology rank must
+    place the preprocessor LEFT of the loader even though the kind-bucket
+    floor suggests the opposite ordering.
+
+    This is the definitive proof that _section_placements() sort key has
+    switched from effective (kind-mixed) rank to pure topology rank.
+    """
+    ui = {
+        "nodes": [
+            _with_io(
+                _node(1, "ImageResize", "preprocess"),
+                outputs=[{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            ),
+            _with_io(
+                _node(2, "LoadImage", "load"),
+                inputs=[{"name": "image", "type": "IMAGE", "link": 10}],
+            ),
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {"id": "pre_stage", "kind": "custom", "nodes": [["", "preprocess"]]},
+                {"id": "load_stage", "kind": "loaders", "nodes": [["", "load"]]},
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    result = compile_layout_plan(plan, extract_graph_facts(ui))
+
+    assert result.ok is True
+    topologies = {t.section_id: t for t in result.section_topologies}
+
+    # Topology rank: preprocess (source) < load (target)
+    assert topologies["pre_stage"].rank < topologies["load_stage"].rank
+    assert topologies["pre_stage"].rank == 0
+    assert topologies["load_stage"].rank == 1
+
+    # Layout: preprocess must be left of load (topology order)
+    # even though kind-bucket floor for loaders=0 and custom=2
+    layouts = _layouts_by_uid(result)
+    assert layouts["preprocess"].x < layouts["load"].x

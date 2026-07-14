@@ -19,6 +19,15 @@ from .plan_types import (
     LAYOUT_BEHAVIOR_UNKNOWN,
     LAYOUT_BEHAVIOR_WALL,
     LAYOUT_BEHAVIORS,
+    PIPELINE_STAGE_CONDITIONING,
+    PIPELINE_STAGE_ISOLATED,
+    PIPELINE_STAGE_OUTPUT,
+    PIPELINE_STAGE_POST_SAMPLE,
+    PIPELINE_STAGE_PRE_SAMPLE,
+    PIPELINE_STAGE_SAMPLING,
+    PIPELINE_STAGE_SOURCE,
+    PIPELINE_STAGE_UNKNOWN,
+    PIPELINE_STAGES,
     ROLE_HINT_CONDITIONING,
     ROLE_HINT_CONTROL,
     ROLE_HINT_DECODE,
@@ -36,6 +45,7 @@ from .plan_types import (
     ROLE_HINTS,
     CanonicalNodeRef,
     LayoutBehavior,
+    PipelineStage,
     RoleHint,
 )
 
@@ -56,6 +66,10 @@ REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING = "simple_latent_source_to_sampling"
 REASON_UI_NODE = "ui_node"
 REASON_UNKNOWN_UNASSIGNED = "unknown_unassigned"
 REASON_VAE_DECODE_TO_OUTPUT_FOLD = "vae_decode_to_output_fold"
+REASON_TOPOLOGY_DERIVED_STAGE = "topology_derived_stage"
+REASON_TOPOLOGY_DERIVED_STAGE_SAMPLER_REACHABLE = "topology_derived_stage_sampler_reachable"
+REASON_TOPOLOGY_DERIVED_STAGE_TERMINAL = "topology_derived_stage_terminal"
+REASON_TOPOLOGY_DERIVED_STAGE_ISOLATED = "topology_derived_stage_isolated"
 
 # Layout-behavior derivation reasons (orthogonal to RoleHint stage decisions).
 REASON_LB_CLASS_NAME_OUTPUT = "lb_class_name_output"
@@ -117,6 +131,11 @@ class RoleClassificationHint:
     related_refs: tuple[CanonicalNodeRef, ...] = ()
     layout_behavior: LayoutBehavior = LAYOUT_BEHAVIOR_UNKNOWN
     detail: Mapping[str, Any] = field(default_factory=dict)
+    # Topology-derived contextual pipeline stage \u2014 separate from the intrinsic
+    # operation captured by ``role_hint``.  When topology evidence is available
+    # this field is filled from the effective topology edges; when unavailable it
+    # falls back to a soft preference derived from ``role_hint``.
+    pipeline_stage: PipelineStage = PIPELINE_STAGE_UNKNOWN
 
     def __post_init__(self) -> None:
         if self.role_hint not in ROLE_HINTS:
@@ -125,6 +144,8 @@ class RoleClassificationHint:
             raise ValueError(f"confidence must be in [0, 1]: {self.confidence!r}")
         if self.layout_behavior not in LAYOUT_BEHAVIORS:
             raise ValueError(f"unknown layout behavior: {self.layout_behavior!r}")
+        if self.pipeline_stage not in PIPELINE_STAGES:
+            raise ValueError(f"unknown pipeline stage: {self.pipeline_stage!r}")
         object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
         object.__setattr__(self, "related_refs", tuple(self.related_refs))
         object.__setattr__(self, "detail", _freeze_jsonish(self.detail))
@@ -138,6 +159,7 @@ class RoleClassificationHint:
             "reason_codes": list(self.reason_codes),
             "related_refs": [ref.to_json() for ref in self.related_refs],
             "layout_behavior": self.layout_behavior,
+            "pipeline_stage": self.pipeline_stage,
         }
         if self.detail:
             payload["detail"] = _thaw_jsonish(self.detail)
@@ -167,6 +189,12 @@ class _TopologyIndex:
     outgoing: Mapping[CanonicalNodeRef, tuple[TopologyEdgeFact, ...]]
     branch_terminal_refs: frozenset[CanonicalNodeRef]
     class_type_by_ref: Mapping[CanonicalNodeRef, str]
+    # Topology-derived stage evidence: which refs are samplers or reach samplers.
+    sampler_refs: frozenset[CanonicalNodeRef] = frozenset()
+    refs_reaching_sampler: frozenset[CanonicalNodeRef] = frozenset()
+    refs_reached_from_sampler: frozenset[CanonicalNodeRef] = frozenset()
+    terminal_refs: frozenset[CanonicalNodeRef] = frozenset()
+    fan_in_by_ref: Mapping[CanonicalNodeRef, int] = field(default_factory=dict)
 
 
 def classify_layout_facts(
@@ -205,6 +233,11 @@ def classify_layout_facts(
                 outgoing={},
                 branch_terminal_refs=frozenset(),
                 class_type_by_ref={},
+                sampler_refs=frozenset(),
+                refs_reaching_sampler=frozenset(),
+                refs_reached_from_sampler=frozenset(),
+                terminal_refs=frozenset(),
+                fan_in_by_ref={},
             ),
         )
         hints.append(_classify_node(fact, topology_index, pair_siblings.get(ref, ())))
@@ -223,11 +256,70 @@ def classify_layout_from_ui(
     )
 
 
+def _class_type_for_ref(
+    ref: CanonicalNodeRef,
+    canonical_by_ref: Mapping[CanonicalNodeRef, CanonicalRefFact],
+) -> str:
+    fact = canonical_by_ref.get(ref)
+    return fact.class_type if fact is not None else ""
+
+
+def _derive_pipeline_stage(
+    fact: CanonicalRefFact,
+    topology: _TopologyIndex,
+) -> tuple[PipelineStage, str | None]:
+    """Derive the contextual ``PipelineStage`` from topology evidence.
+
+    Returns ``(stage, reason_code_or_none)``.  The ``role_hint`` of *fact* is
+    NOT consulted -- this function only considers topology reachability and
+    fan-in / terminal facts, keeping the intrinsic-operation role separate.
+    """
+    ref = fact.ref
+
+    # Helpers (Reroute, Set/Get, Notes) are not assigned a pipeline stage.
+    if fact.is_helper:
+        return PIPELINE_STAGE_UNKNOWN, None
+
+    # Isolated: no effective edges in or out.
+    fan_in = topology.fan_in_by_ref.get(ref, 0)
+    fan_out = len(topology.outgoing.get(ref, ()))
+    if fan_in == 0 and fan_out == 0:
+        return PIPELINE_STAGE_ISOLATED, REASON_TOPOLOGY_DERIVED_STAGE_ISOLATED
+
+    # Sampler anchor: the node itself is a sampler.
+    if ref in topology.sampler_refs:
+        return PIPELINE_STAGE_SAMPLING, REASON_TOPOLOGY_DERIVED_STAGE
+
+    # Terminal output anchor.
+    if ref in topology.terminal_refs:
+        return PIPELINE_STAGE_OUTPUT, REASON_TOPOLOGY_DERIVED_STAGE_TERMINAL
+
+    # Source / entry point: no incoming edges (checked before pre_sample so
+    # that entry-point loaders are classified as source, not pre_sample).
+    if fan_in == 0:
+        # An entry point that also reaches a sampler is still a source.
+        return PIPELINE_STAGE_SOURCE, REASON_TOPOLOGY_DERIVED_STAGE
+
+    # Upstream of a sampler (can reach a sampler, but has incoming edges).
+    if ref in topology.refs_reaching_sampler:
+        return PIPELINE_STAGE_PRE_SAMPLE, REASON_TOPOLOGY_DERIVED_STAGE_SAMPLER_REACHABLE
+
+    # Downstream of a sampler (reachable from a sampler but not itself a sampler).
+    if ref in topology.refs_reached_from_sampler:
+        return PIPELINE_STAGE_POST_SAMPLE, REASON_TOPOLOGY_DERIVED_STAGE
+
+    return PIPELINE_STAGE_UNKNOWN, None
+
+
 def _classify_node(
     fact: CanonicalRefFact,
     topology: _TopologyIndex,
     sibling_refs: Sequence[CanonicalNodeRef],
 ) -> RoleClassificationHint:
+    # Derive the topology-evidenced pipeline stage BEFORE role_hint so the
+    # two remain independently observable.
+    pipeline_stage, stage_reason = _derive_pipeline_stage(fact, topology)
+
     if fact.is_helper:
         role = ROLE_HINT_UI if fact.class_type in UI_HELPER_CLASS_TYPES else ROLE_HINT_HELPER
         reason = REASON_UI_NODE if role == ROLE_HINT_UI else REASON_HELPER_NODE
@@ -239,6 +331,7 @@ def _classify_node(
             confidence=0.99,
             reason_codes=(reason,),
             layout_behavior=layout_behavior,
+            pipeline_stage=pipeline_stage,
         )
 
     outgoing = topology.outgoing.get(fact.ref, ())
@@ -255,6 +348,7 @@ def _classify_node(
             sibling_refs,
             {"branch_policy": "decode_output_terminals_remain_separate"},
             layout_behavior=layout_behavior,
+            pipeline_stage=pipeline_stage,
         )
     if branch_terminal and _is_output_class(fact.class_type):
         role = ROLE_HINT_OUTPUT
@@ -267,6 +361,7 @@ def _classify_node(
             sibling_refs,
             {"branch_policy": "decode_output_terminals_remain_separate"},
             layout_behavior=layout_behavior,
+            pipeline_stage=pipeline_stage,
         )
     if _is_vae_decode_class(fact.class_type) and _outgoing_only_to_outputs(outgoing, topology):
         role = ROLE_HINT_OUTPUT
@@ -278,6 +373,7 @@ def _classify_node(
             (REASON_VAE_DECODE_TO_OUTPUT_FOLD,),
             sibling_refs,
             layout_behavior=layout_behavior,
+            pipeline_stage=pipeline_stage,
         )
     if _is_simple_latent_source(fact, topology):
         role = ROLE_HINT_SAMPLER
@@ -289,6 +385,7 @@ def _classify_node(
             (REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING,),
             sibling_refs,
             layout_behavior=layout_behavior,
+            pipeline_stage=pipeline_stage,
         )
 
     downstream_samplers = _downstream_sampler_refs(fact, topology)
@@ -303,6 +400,7 @@ def _classify_node(
             downstream_samplers,
             {"pipeline_position": "pre_sampling_image_or_latent_prep"},
             layout_behavior=layout_behavior,
+            pipeline_stage=pipeline_stage,
         )
 
     role, confidence, reason = _class_name_role(fact.class_type)
@@ -317,8 +415,9 @@ def _classify_node(
             sibling_refs,
             {"pair_size": len(sibling_refs) + 1},
             layout_behavior=layout_behavior,
+            pipeline_stage=pipeline_stage,
         )
-    return _hint(fact, role, confidence, (reason,), (), layout_behavior=layout_behavior)
+    return _hint(fact, role, confidence, (reason,), (), layout_behavior=layout_behavior, pipeline_stage=pipeline_stage)
 
 
 def _hint(
@@ -330,12 +429,14 @@ def _hint(
     detail: Mapping[str, Any] | None = None,
     *,
     layout_behavior: LayoutBehavior | None = None,
+    pipeline_stage: PipelineStage | None = None,
 ) -> RoleClassificationHint:
     lb = (
         layout_behavior
         if layout_behavior is not None
         else _derive_layout_behavior(fact.class_type, is_helper=fact.is_helper, role_hint=role)
     )
+    ps = pipeline_stage if pipeline_stage is not None else PIPELINE_STAGE_UNKNOWN
     return RoleClassificationHint(
         ref=fact.ref,
         class_type=fact.class_type,
@@ -345,6 +446,7 @@ def _hint(
         related_refs=tuple(sorted(sibling_refs, key=lambda ref: ref.to_json())),
         layout_behavior=lb,
         detail=detail or {},
+        pipeline_stage=ps,
     )
 
 
@@ -432,6 +534,49 @@ def _topology_index(
             branch_refs.add(terminal)
         reachable = _reachable_refs(candidate.branch_roots, outgoing)
         branch_refs.update(reachable)
+    # Build topology-derived stage evidence from node_topology facts.
+    node_topology_by_ref: dict[CanonicalNodeRef, Any] = {
+        node.ref: node for node in topology.node_topology
+    }
+    sampler_refs: set[CanonicalNodeRef] = set()
+    terminal_refs: set[CanonicalNodeRef] = set()
+    fan_in_by_ref: dict[CanonicalNodeRef, int] = {}
+    for node in topology.node_topology:
+        if node.terminal:
+            terminal_refs.add(node.ref)
+        class_type = _class_type_for_ref(node.ref, canonical_by_ref)
+        if _is_sampler_class(class_type):
+            sampler_refs.add(node.ref)
+        fan_in_by_ref[node.ref] = node.fan_in
+    # Compute which refs can reach a sampler (forward reachability)
+    refs_reaching_sampler: set[CanonicalNodeRef] = set()
+    for sampler_ref in sampler_refs:
+        # Walk backwards from sampler to find all nodes that can reach it
+        reverse_outgoing: dict[CanonicalNodeRef, list[CanonicalNodeRef]] = {}
+        for edge in topology.effective_edges:
+            reverse_outgoing.setdefault(edge.target, []).append(edge.source)
+        stack = [sampler_ref]
+        while stack:
+            current = stack.pop()
+            if current in refs_reaching_sampler:
+                continue
+            refs_reaching_sampler.add(current)
+            for pred in reverse_outgoing.get(current, ()):
+                if pred not in refs_reaching_sampler:
+                    stack.append(pred)
+    # Compute which refs are reachable from samplers (forward reachability)
+    refs_reached_from_sampler: set[CanonicalNodeRef] = set()
+    for sampler_ref in sampler_refs:
+        stack = [sampler_ref]
+        while stack:
+            current = stack.pop()
+            if current in refs_reached_from_sampler:
+                continue
+            refs_reached_from_sampler.add(current)
+            succs: list[CanonicalNodeRef] = [edge.target for edge in outgoing.get(current, ())]
+            for succ in succs:
+                if succ not in refs_reached_from_sampler:
+                    stack.append(succ)
     return _TopologyIndex(
         incoming={ref: tuple(sorted(edges, key=_edge_sort_key)) for ref, edges in incoming.items()},
         outgoing={ref: tuple(sorted(edges, key=_edge_sort_key)) for ref, edges in outgoing.items()},
@@ -441,6 +586,11 @@ def _topology_index(
             for ref, fact in canonical_by_ref.items()
             if ref.scope_path == topology.scope_path
         },
+        sampler_refs=frozenset(sampler_refs),
+        refs_reaching_sampler=frozenset(refs_reaching_sampler),
+        refs_reached_from_sampler=frozenset(refs_reached_from_sampler),
+        terminal_refs=frozenset(terminal_refs),
+        fan_in_by_ref=fan_in_by_ref,
     )
 
 
@@ -631,6 +781,10 @@ __all__ = [
     "REASON_LB_PRIMARY_PIPELINE",
     "REASON_LB_WALL_OUTPUT",
     "REASON_SIMPLE_LATENT_SOURCE_TO_SAMPLING",
+    "REASON_TOPOLOGY_DERIVED_STAGE",
+    "REASON_TOPOLOGY_DERIVED_STAGE_ISOLATED",
+    "REASON_TOPOLOGY_DERIVED_STAGE_SAMPLER_REACHABLE",
+    "REASON_TOPOLOGY_DERIVED_STAGE_TERMINAL",
     "REASON_UI_NODE",
     "REASON_UNKNOWN_UNASSIGNED",
     "REASON_VAE_DECODE_TO_OUTPUT_FOLD",

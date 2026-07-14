@@ -126,6 +126,60 @@ ROLE_HINTS: frozenset[RoleHint] = frozenset(
     }
 )
 
+# ---------------------------------------------------------------------------
+# PipelineStage: topology-derived contextual pipeline position.
+#
+# Unlike RoleHint (which describes the *intrinsic operation* of a node),
+# PipelineStage describes *where* the node sits in the effective topology
+# relative to known anchor operations (samplers, outputs, loaders).
+# ---------------------------------------------------------------------------
+PipelineStage = Literal[
+    "source",         # Entry-point / loader region (rank-0 sources)
+    "conditioning",   # Conditioning nodes (CLIP, prompt, etc.)
+    "pre_sample",     # Image/latent preparation upstream of a sampler
+    "sampling",       # Sampler region (including scheduler nodes)
+    "post_sample",    # Post-sampling region (decode, upscale)
+    "output",         # Output / save / preview terminals
+    "isolated",       # No path to any core pipeline anchor
+    "unknown",        # Cannot determine (unclassifiable)
+]
+PIPELINE_STAGE_SOURCE: PipelineStage = "source"
+PIPELINE_STAGE_CONDITIONING: PipelineStage = "conditioning"
+PIPELINE_STAGE_PRE_SAMPLE: PipelineStage = "pre_sample"
+PIPELINE_STAGE_SAMPLING: PipelineStage = "sampling"
+PIPELINE_STAGE_POST_SAMPLE: PipelineStage = "post_sample"
+PIPELINE_STAGE_OUTPUT: PipelineStage = "output"
+PIPELINE_STAGE_ISOLATED: PipelineStage = "isolated"
+PIPELINE_STAGE_UNKNOWN: PipelineStage = "unknown"
+PIPELINE_STAGES: frozenset[PipelineStage] = frozenset(
+    {
+        PIPELINE_STAGE_SOURCE,
+        PIPELINE_STAGE_CONDITIONING,
+        PIPELINE_STAGE_PRE_SAMPLE,
+        PIPELINE_STAGE_SAMPLING,
+        PIPELINE_STAGE_POST_SAMPLE,
+        PIPELINE_STAGE_OUTPUT,
+        PIPELINE_STAGE_ISOLATED,
+        PIPELINE_STAGE_UNKNOWN,
+    }
+)
+
+# Default mapping from intrinsic RoleHint to a *preference* pipeline stage
+# (used when topology evidence is absent or ambiguous).
+_ROLE_HINT_TO_STAGE_PREFERENCE: Mapping[RoleHint, PipelineStage] = MappingProxyType(
+    {
+        ROLE_HINT_LOADER: PIPELINE_STAGE_SOURCE,
+        ROLE_HINT_CONDITIONING: PIPELINE_STAGE_CONDITIONING,
+        ROLE_HINT_LATENT: PIPELINE_STAGE_PRE_SAMPLE,
+        ROLE_HINT_SAMPLER: PIPELINE_STAGE_SAMPLING,
+        ROLE_HINT_DECODE: PIPELINE_STAGE_POST_SAMPLE,
+        ROLE_HINT_OUTPUT: PIPELINE_STAGE_OUTPUT,
+        ROLE_HINT_CONTROL: PIPELINE_STAGE_CONDITIONING,
+        ROLE_HINT_POSTPROCESS: PIPELINE_STAGE_POST_SAMPLE,
+        ROLE_HINT_UTILITY: PIPELINE_STAGE_UNKNOWN,
+    }
+)
+
 LayoutBehavior = Literal["primary", "sidecar", "wall", "note", "unknown"]
 LAYOUT_BEHAVIOR_PRIMARY: LayoutBehavior = "primary"
 LAYOUT_BEHAVIOR_SIDECAR: LayoutBehavior = "sidecar"
@@ -357,6 +411,8 @@ class LayoutTraceEntry:
     class_type: str
     role_hint: RoleHint = ROLE_HINT_UNKNOWN
     layout_behavior: LayoutBehavior = "unknown"
+    # Topology-derived contextual pipeline stage (separate from intrinsic role).
+    pipeline_stage: str | None = None
     section_id: str | None = None
     attachment_target: CanonicalNodeRef | None = None
     placement_choice: str | None = None
@@ -369,6 +425,8 @@ class LayoutTraceEntry:
             raise ValueError(f"unknown role hint: {self.role_hint!r}")
         if self.layout_behavior not in LAYOUT_BEHAVIORS:
             raise ValueError(f"unknown layout behavior: {self.layout_behavior!r}")
+        if self.pipeline_stage is not None and self.pipeline_stage not in PIPELINE_STAGES:
+            raise ValueError(f"unknown pipeline stage: {self.pipeline_stage!r}")
 
     def to_json(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -377,6 +435,8 @@ class LayoutTraceEntry:
             "role_hint": self.role_hint,
             "layout_behavior": self.layout_behavior,
         }
+        if self.pipeline_stage is not None:
+            payload["pipeline_stage"] = self.pipeline_stage
         if self.section_id is not None:
             payload["section_id"] = self.section_id
         if self.attachment_target is not None:
@@ -607,6 +667,16 @@ __all__ = [
     "LayoutPlanV1",
     "LayoutSection",
     "LayoutTraceEntry",
+    "PIPELINE_STAGE_CONDITIONING",
+    "PIPELINE_STAGE_ISOLATED",
+    "PIPELINE_STAGE_OUTPUT",
+    "PIPELINE_STAGE_POST_SAMPLE",
+    "PIPELINE_STAGE_PRE_SAMPLE",
+    "PIPELINE_STAGE_SAMPLING",
+    "PIPELINE_STAGE_SOURCE",
+    "PIPELINE_STAGE_UNKNOWN",
+    "PIPELINE_STAGES",
+    "PipelineStage",
     "RoleHint",
     "SamplerRelationClaim",
     "SamplerRelationKind",
