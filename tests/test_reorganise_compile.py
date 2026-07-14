@@ -21,7 +21,6 @@ from vibecomfy.porting.reorganise.compile import (
     COMPILE_ISSUE_NOTE_SECTION_MISMATCH,
     COMPILE_ISSUE_NODE_OVERLAP,
     COMPILE_ISSUE_PINNED_PRESERVATION_FAILED,
-    COMPILE_ISSUE_STRUCTURAL_HASH_UNCHANGED,
     COMPILE_HUGE_WORKFLOW_NODE_THRESHOLD,
     COMPILE_LARGE_SECTION_CLUSTER_SIZE,
     COMPILE_METRIC_BACKWARD_EDGE_RATIO,
@@ -138,6 +137,32 @@ def _group_templates_by_id(result) -> dict[str, str]:
 
 def _group_titles_by_id(result) -> dict[str, str]:
     return {group.id: group.title for group in result.group_layouts}
+
+
+def _apply_candidate_patch_to_ui(ui: dict, patch: dict) -> dict:
+    applied = deepcopy(ui)
+    entries = patch.get("entries", {})
+    for node in applied.get("nodes", []):
+        properties = node.get("properties")
+        uid = properties.get("vibecomfy_uid") if isinstance(properties, dict) else None
+        if not uid or uid not in entries:
+            continue
+        entry = entries[uid]
+        for key in ("pos", "size", "flags", "color", "bgcolor", "mode", "properties"):
+            if key in entry:
+                node[key] = deepcopy(entry[key])
+    if "groups" in patch:
+        applied["groups"] = deepcopy(patch["groups"])
+    extra = patch.get("extra")
+    if isinstance(extra, dict):
+        applied["extra"] = deepcopy(extra)
+    if "lastRerouteId" in patch:
+        state = applied.get("state")
+        if not isinstance(state, dict):
+            state = {}
+            applied["state"] = state
+        state["lastRerouteId"] = patch["lastRerouteId"]
+    return applied
 
 
 def _valid_plan() -> LayoutPlanV1:
@@ -366,6 +391,47 @@ def test_compile_layout_plan_candidate_patch_is_near_idempotent_with_sidecar_inp
     assert first.structural_hash_before == second.structural_hash_before
     assert first.structural_hash_after == second.structural_hash_after
     assert first.candidate_patch.to_json() == second.candidate_patch.to_json()
+
+
+def test_compile_layout_plan_recompiled_result_is_fixed_point_for_snapped_furniture() -> None:
+    first = compile_layout_plan(_valid_plan(), extract_graph_facts(_ui()))
+    compiler_sidecar = {**first.candidate_patch.to_json(), "reorganise_compiler": True}
+    compiled_ui = _apply_candidate_patch_to_ui(_ui(), first.candidate_patch.to_json())
+
+    second_facts = extract_graph_facts(compiled_ui, sidecar_envelope=compiler_sidecar)
+    second = compile_layout_plan(_valid_plan(), second_facts)
+    delta, detail = _compiled_idempotence_delta(second_facts, second.candidate_patch)
+
+    assert second.candidate_patch.to_json() == first.candidate_patch.to_json()
+    assert delta == COMPILE_IDEMPOTENCE_DELTA_THRESHOLD
+    assert detail == {"measured": True, "changed": [], "changed_count": 0}
+
+
+def test_compiled_idempotence_delta_flags_group_color_size_and_flag_drift() -> None:
+    result = compile_layout_plan(_valid_plan(), extract_graph_facts(_ui()))
+    base_patch = result.candidate_patch.to_json()
+    drift_cases = {
+        "entry_pos": ("entries", "checkpoint", "pos", [123, 456]),
+        "entry_size": ("entries", "checkpoint", "size", [333, 222]),
+        "entry_flags": ("entries", "checkpoint", "flags", {"collapsed": True}),
+        "entry_color": ("entries", "checkpoint", "color", "#ff00aa"),
+        "group_bounding": ("groups", 0, "bounding", [11, 22, 333, 444]),
+        "group_color": ("groups", 0, "color", "#00ffaa"),
+    }
+
+    for label, (section, key, field, value) in drift_cases.items():
+        mutated = deepcopy(base_patch)
+        mutated["reorganise_compiler"] = True
+        if section == "entries":
+            mutated[section][key][field] = value
+        else:
+            mutated[section][key][field] = value
+        facts = extract_graph_facts(_ui(), sidecar_envelope=mutated)
+        delta, detail = _compiled_idempotence_delta(facts, result.candidate_patch)
+
+        assert delta > COMPILE_IDEMPOTENCE_DELTA_THRESHOLD, label
+        assert detail["measured"] is True, label
+        assert detail["changed_count"] >= 1, label
 
 
 def test_compile_layout_plan_reports_validation_failures_without_patch() -> None:
