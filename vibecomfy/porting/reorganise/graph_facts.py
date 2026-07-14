@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from vibecomfy._compile._helpers import collect_broadcast_sources
 from vibecomfy.porting.layout.lanes import assign_lanes
-from vibecomfy.porting.layout.layering import _tarjan_scc_iterative, compute_layers
+from vibecomfy.porting.layout.layering import _tarjan_scc_iterative, compute_layers, compute_layers_with_scc
 from vibecomfy.porting.edit.ledger import EditLedger, ScopeState
 from vibecomfy.porting.layout_store import store_from_ui_json
 from vibecomfy.workflow import VibeEdge, VibeNode, VibeWorkflow, WorkflowSource
@@ -245,6 +245,7 @@ class TopologyEdgeFact:
     link_id: Any = None
     socket_type: str | None = None
     passthrough: bool = False
+    feedback: bool = False
 
     def to_json(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -259,6 +260,8 @@ class TopologyEdgeFact:
             payload["link_id"] = self.link_id
         if self.socket_type is not None:
             payload["socket_type"] = self.socket_type
+        if self.feedback:
+            payload["feedback"] = True
         return payload
 
 
@@ -817,12 +820,29 @@ def _scope_topology_facts(
         adapter = _topology_adapter(scope_path, scope, facts_by_scope.get(scope_path, ()))
         raw_edges = tuple(_edge_fact(adapter, edge, passthrough=False) for edge in adapter.raw_edges)
         effective_raw_edges = tuple(_effective_edges(adapter))
-        effective_edges = tuple(_edge_fact(adapter, edge, passthrough=True) for edge in effective_raw_edges)
         effective_workflow = _workflow_with_edges(adapter.workflow, effective_raw_edges)
-        layers = compute_layers(effective_workflow)
+        layers, scc_raw_roots = compute_layers_with_scc(effective_workflow)
         lanes = assign_lanes(effective_workflow, layers)
         fan_in, fan_out, adjacency, reverse_adjacency = _degree_maps(adapter, effective_raw_edges)
-        scc_by_uid = _scc_ids(adapter, adjacency)
+        # Build SCC-id map from raw roots returned by layering
+        all_uids = sorted(
+            (node.uid for node in adapter.workflow.nodes.values()),
+            key=lambda uid: uid.zfill(20),
+        )
+        ordered_roots = sorted(set(scc_raw_roots.get(uid, uid) for uid in all_uids), key=lambda uid: uid.zfill(20))
+        root_to_scc_id = {root: f"scc{index}" for index, root in enumerate(ordered_roots)}
+        scc_by_uid = {uid: root_to_scc_id.get(scc_raw_roots.get(uid, uid), "scc0") for uid in all_uids}
+        # Tag effective edges whose endpoints share an SCC as feedback
+        id_to_uid = {node.id: node.uid for node in adapter.workflow.nodes.values()}
+        effective_edges = tuple(
+            _edge_fact(
+                adapter,
+                edge,
+                passthrough=True,
+                feedback=_edge_is_feedback(edge, id_to_uid, scc_by_uid),
+            )
+            for edge in effective_raw_edges
+        )
         wcc_by_uid = _wcc_ids(lanes)
         node_topology = tuple(
             _node_topology_fact(
@@ -1010,7 +1030,13 @@ def _natural_id_key(value: str) -> str:
     return value.zfill(20) if value.isdigit() else value
 
 
-def _edge_fact(adapter: _ScopeTopologyAdapter, edge: _RawEdge, *, passthrough: bool) -> TopologyEdgeFact:
+def _edge_fact(
+    adapter: _ScopeTopologyAdapter,
+    edge: _RawEdge,
+    *,
+    passthrough: bool,
+    feedback: bool = False,
+) -> TopologyEdgeFact:
     return TopologyEdgeFact(
         scope_path=adapter.scope_path,
         source=adapter.id_to_ref[edge.from_node],
@@ -1020,13 +1046,58 @@ def _edge_fact(adapter: _ScopeTopologyAdapter, edge: _RawEdge, *, passthrough: b
         link_id=edge.link_id,
         socket_type=edge.socket_type,
         passthrough=passthrough,
+        feedback=feedback,
     )
+
+
+def _edge_is_feedback(
+    edge: _RawEdge,
+    id_to_uid: Mapping[str, str],
+    scc_by_uid: Mapping[str, str],
+) -> bool:
+    """Return True when both endpoints of *edge* belong to the same SCC."""
+    source_uid = id_to_uid.get(edge.from_node)
+    target_uid = id_to_uid.get(edge.to_node)
+    if source_uid is None or target_uid is None:
+        return False
+    source_scc = scc_by_uid.get(source_uid)
+    target_scc = scc_by_uid.get(target_uid)
+    if source_scc is None or target_scc is None:
+        return False
+    return source_scc == target_scc
 
 
 def _effective_edges(adapter: _ScopeTopologyAdapter) -> list[_RawEdge]:
     raw = list(adapter.raw_edges)
     after_broadcast = _resolve_broadcast_edges(adapter, raw)
-    return sorted(_resolve_reroute_edges(adapter, after_broadcast), key=_raw_edge_sort_key)
+    after_reroute = _resolve_reroute_edges(adapter, after_broadcast)
+    return sorted(_exclude_muted_bypassed_edges(adapter, after_reroute), key=_raw_edge_sort_key)
+
+
+def _exclude_muted_bypassed_edges(
+    adapter: _ScopeTopologyAdapter,
+    edges: list[_RawEdge],
+) -> list[_RawEdge]:
+    """Filter out edges where source or target node has mode 2 (muted) or mode 4 (bypassed).
+
+    Mode 2 (Never) and mode 4 (Muted/Bypassed) nodes are excluded from the effective
+    topology so that stage ordering and layout candidates only consider active nodes.
+    Edges that route *through* muted/bypassed helpers (Set/Get, Reroute) are already
+    resolved to direct passthrough edges by the broadcast and reroute resolvers before
+    this filter runs, so passthrough semantics are preserved.
+    """
+    muted_bypassed_ids: set[str] = set()
+    for node_id, node in adapter.id_to_node.items():
+        mode = node.get("mode")
+        if isinstance(mode, int) and mode in (2, 4):
+            muted_bypassed_ids.add(node_id)
+    if not muted_bypassed_ids:
+        return list(edges)
+    return [
+        edge
+        for edge in edges
+        if edge.from_node not in muted_bypassed_ids and edge.to_node not in muted_bypassed_ids
+    ]
 
 
 def _resolve_broadcast_edges(adapter: _ScopeTopologyAdapter, edges: list[_RawEdge]) -> list[_RawEdge]:

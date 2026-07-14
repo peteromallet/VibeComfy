@@ -73,16 +73,12 @@ def _role_precedence_rank(class_type: str) -> int:
     return 1
 
 
-def compute_layers(wf: Any) -> dict[str, int]:
-    """Return ``{uid: layer, ...}`` for every node in *wf*.
+def compute_layers_with_scc(wf: Any) -> tuple[dict[str, int], dict[str, str]]:
+    """Return ``(layers, scc_root_by_uid)`` for every node in *wf*.
 
-    The workflow object is expected to have ``wf.nodes`` (``dict[str, VibeNode]``)
-    and ``wf.edges`` (``list[VibeEdge]``).  Every edge's ``from_node`` / ``to_node``
-    is translated through ``id_to_uid`` before adjacency construction, so orphan
-    endpoints are dropped with a debug log.
-
-    The result is total: any uid present in ``wf.nodes`` that was not reached by
-    the longest-path walk receives layer ``0`` via ``setdefault`` and a warning.
+    Like :func:`compute_layers` but also exposes the raw SCC root mapping
+    (``{uid: root_uid, ...}``) from Tarjan, so callers can tag feedback edges
+    or build SCC-level metadata without recomputing the SCC decomposition.
     """
     # ── Build id → uid translation table ──────────────────────────────
     id_to_uid: dict[str, str] = {
@@ -90,7 +86,6 @@ def compute_layers(wf: Any) -> dict[str, int]:
     }
 
     # ── Build adjacency (uid → set of uid) ────────────────────────────
-    # We store neighbours as sorted lists to guarantee deterministic iteration.
     uid_neighbors: dict[str, list[str]] = {}
     referenced_uids: set[str] = set()
 
@@ -111,29 +106,24 @@ def compute_layers(wf: Any) -> dict[str, int]:
         if to_uid not in uid_neighbors.setdefault(from_uid, []):
             uid_neighbors.setdefault(from_uid, []).append(to_uid)
 
-    # Sort neighbour lists for deterministic ordering.
-    # Only process referenced uids through Tarjan; unreferenced orphans
-    # land in layer 0 via the soft-totality safety net below.
     all_uids = sorted(referenced_uids, key=lambda u: u.zfill(20))
     for uid in all_uids:
         uid_neighbors[uid].sort(key=lambda u: u.zfill(20))
 
     # ── Iterative Tarjan SCC ─────────────────────────────────────────
-    scc_id = _tarjan_scc_iterative(uid_neighbors, all_uids)
+    scc_root = _tarjan_scc_iterative(uid_neighbors, all_uids)
 
     # ── Build SCC DAG ────────────────────────────────────────────────
-    # scc_members: scc_root → list of member uids
     scc_members: dict[str, list[str]] = {}
     for uid in all_uids:
-        root = scc_id[uid]
+        root = scc_root[uid]
         scc_members.setdefault(root, []).append(uid)
 
-    # SCC adjacency: edges between different SCCs
     scc_adj: dict[str, set[str]] = {root: set() for root in scc_members}
     for uid in all_uids:
-        src_root = scc_id[uid]
+        src_root = scc_root[uid]
         for neighbor in uid_neighbors.get(uid, []):
-            dst_root = scc_id[neighbor]
+            dst_root = scc_root[neighbor]
             if dst_root != src_root:
                 scc_adj[src_root].add(dst_root)
 
@@ -183,7 +173,22 @@ def compute_layers(wf: Any) -> dict[str, int]:
             ", ".join(sorted(missed, key=lambda u: u.zfill(20))),
         )
 
-    return result
+    return result, scc_root
+
+
+def compute_layers(wf: Any) -> dict[str, int]:
+    """Return ``{uid: layer, ...}`` for every node in *wf*.
+
+    The workflow object is expected to have ``wf.nodes`` (``dict[str, VibeNode]``)
+    and ``wf.edges`` (``list[VibeEdge]``).  Every edge's ``from_node`` / ``to_node``
+    is translated through ``id_to_uid`` before adjacency construction, so orphan
+    endpoints are dropped with a debug log.
+
+    The result is total: any uid present in ``wf.nodes`` that was not reached by
+    the longest-path walk receives layer ``0`` via ``setdefault`` and a warning.
+    """
+    layers, _ = compute_layers_with_scc(wf)
+    return layers
 
 
 # ---------------------------------------------------------------------------

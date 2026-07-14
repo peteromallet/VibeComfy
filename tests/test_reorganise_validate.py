@@ -499,3 +499,147 @@ def test_validate_layout_plan_rejects_sampler_claims_contradicted_by_topology() 
     assert _codes(report) == ["sampler_relation_contradiction"]
     assert report.diagnostics[0].detail["claimed_source"] == ["", "sample-b"]
     assert report.diagnostics[0].detail["proven"][0]["source"] == ["", "sample-a"]
+
+
+def test_validate_topology_allows_scc_internal_feedback_edges() -> None:
+    """Two-node mutual cycle — both edges are feedback=True and pass validation."""
+    ui = {
+        "nodes": [
+            _node(1, "KSampler", "sampler-a"),
+            _node(2, "KSampler", "sampler-b"),
+        ],
+        "links": [
+            [1, 1, 0, 2, 0, "LATENT"],
+            [2, 2, 0, 1, 0, "LATENT"],
+        ],
+    }
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {
+                    "id": "sampling",
+                    "kind": "sampling",
+                    "nodes": [["", "sampler-a"], ["", "sampler-b"]],
+                }
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    report = validate_layout_plan(plan, extract_graph_facts(ui))
+
+    assert report.ok is True
+    assert "topology_contradiction" not in _codes(report)
+
+
+def test_validate_topology_blocks_inter_scc_backward_edges() -> None:
+    """Non-feedback edge source(rank-2)→target(rank-0) triggers contradiction.
+
+    Because Kahn longest-path layering always respects DAG ordering,
+    a real inter-SCC back-edge cannot arise from a correct layering.
+    This test constructs the facts manually to exercise the fail-closed gate.
+    """
+    from vibecomfy.porting.reorganise.graph_facts import (
+        CanonicalRefFact,
+        GraphInventoryFacts,
+        NodeFurnitureFact,
+        NodeTopologyFact,
+        ScopeFurnitureFact,
+        ScopeTopologyFacts,
+        TopologyEdgeFact,
+    )
+
+    ref_source = CanonicalNodeRef("", "sampler-c")
+    ref_target = CanonicalNodeRef("", "loader-d")
+
+    node_source = NodeTopologyFact(
+        ref=ref_source,
+        class_type="KSampler",
+        fan_in=0,
+        fan_out=1,
+        topological_rank=2,
+        lane_band=0,
+        lane_index=0,
+        scc_id="scc1",
+        wcc_id="wcc0",
+    )
+    node_target = NodeTopologyFact(
+        ref=ref_target,
+        class_type="CheckpointLoaderSimple",
+        fan_in=0,
+        fan_out=1,
+        topological_rank=0,
+        lane_band=0,
+        lane_index=1,
+        scc_id="scc2",
+        wcc_id="wcc0",
+    )
+
+    edge = TopologyEdgeFact(
+        scope_path="",
+        source=ref_source,
+        target=ref_target,
+        source_slot="0",
+        target_slot="0",
+        feedback=False,
+    )
+
+    scope_topo = ScopeTopologyFacts(
+        scope_path="",
+        effective_edges=(edge,),
+        node_topology=(node_source, node_target),
+    )
+
+    canon_source = CanonicalRefFact(
+        ref=ref_source,
+        display="sampler-c (KSampler)",
+        class_type="KSampler",
+        litegraph_id=1,
+        role_hint="sampler",
+        is_helper=False,
+    )
+    canon_target = CanonicalRefFact(
+        ref=ref_target,
+        display="loader-d (CheckpointLoaderSimple)",
+        class_type="CheckpointLoaderSimple",
+        litegraph_id=2,
+        role_hint="loader",
+        is_helper=False,
+    )
+
+    facts = GraphInventoryFacts(
+        canonical_refs=(canon_source, canon_target),
+        canonical_refs_by_key={("", "sampler-c"): ref_source, ("", "loader-d"): ref_target},
+        node_furniture=(
+            NodeFurnitureFact(ref=ref_source),
+            NodeFurnitureFact(ref=ref_target),
+        ),
+        scope_furniture=(ScopeFurnitureFact(scope_path=""),),
+        scope_topologies=(scope_topo,),
+    )
+
+    plan = parse_layout_plan(
+        {
+            "version": 1,
+            "sections": [
+                {
+                    "id": "all",
+                    "kind": "custom",
+                    "nodes": [["", "sampler-c"], ["", "loader-d"]],
+                }
+            ],
+            "unassigned_policy": "reject",
+        }
+    )
+
+    report = validate_layout_plan(plan, facts)
+
+    assert report.ok is False
+    assert "topology_contradiction" in _codes(report)
+    diag = next(d for d in report.diagnostics if d.code == "topology_contradiction")
+    assert diag.detail["source"] == ["", "sampler-c"]
+    assert diag.detail["target"] == ["", "loader-d"]
+    assert diag.detail["source_rank"] == 2
+    assert diag.detail["target_rank"] == 0
+    assert diag.detail["feedback"] is False

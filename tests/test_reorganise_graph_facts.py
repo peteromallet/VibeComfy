@@ -564,3 +564,623 @@ def test_canonical_refs_json_includes_layout_behavior() -> None:
     assert by_uid["save"]["layout_behavior"] == LAYOUT_BEHAVIOR_WALL
     assert by_uid["note-a"]["layout_behavior"] == LAYOUT_BEHAVIOR_NOTE
     assert by_uid["unk"]["layout_behavior"] == LAYOUT_BEHAVIOR_UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# Mode 2 (muted) and mode 4 (bypassed) exclusion from effective topology
+# ---------------------------------------------------------------------------
+
+
+def test_effective_topology_excludes_muted_sampler_alternative() -> None:
+    """When one parallel sampler branch is muted (mode=2), only the active
+    sampler reaches the effective topology. The muted sampler's edges are
+    absent from effective_edges but remain in raw_edges."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [100, 103]}],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample-active"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 100}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [104]}],
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample-muted"},
+                "mode": 2,
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 103}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [105]}],
+            },
+            {
+                "id": 4,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save-active"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 104}],
+            },
+            {
+                "id": 5,
+                "type": "PreviewImage",
+                "class_type": "PreviewImage",
+                "properties": {"vibecomfy_uid": "preview-muted"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 105}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": []}],
+            },
+        ],
+        "links": [
+            [100, 1, 0, 2, 0, "IMAGE"],
+            [103, 1, 0, 3, 0, "IMAGE"],
+            [104, 2, 0, 4, 0, "IMAGE"],
+            [105, 3, 0, 5, 0, "IMAGE"],
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    # Physical (raw) edges still include everything
+    raw_pairs = {(edge.source.uid, edge.target.uid) for edge in topology.raw_edges}
+    assert ("load", "sample-active") in raw_pairs
+    assert ("load", "sample-muted") in raw_pairs
+    assert ("sample-active", "save-active") in raw_pairs
+    assert ("sample-muted", "preview-muted") in raw_pairs
+
+    # Effective edges exclude the muted sampler and its downstream
+    effective_pairs = {(edge.source.uid, edge.target.uid) for edge in topology.effective_edges}
+    assert ("load", "sample-active") in effective_pairs
+    assert ("sample-active", "save-active") in effective_pairs
+    assert ("load", "sample-muted") not in effective_pairs
+    assert ("sample-muted", "preview-muted") not in effective_pairs
+
+    # The muted sampler's preview consumer is also disconnected
+    node_topology = {fact.ref.uid: fact for fact in topology.node_topology}
+    assert node_topology["sample-muted"].fan_in == 0
+    assert node_topology["sample-muted"].fan_out == 0
+    assert node_topology["preview-muted"].fan_in == 0
+
+    # The active sampler path is still connected
+    assert node_topology["sample-active"].fan_in == 1
+    assert node_topology["sample-active"].fan_out == 1
+    assert node_topology["save-active"].fan_in == 1
+
+
+def test_effective_topology_excludes_mode_4_bypassed_node() -> None:
+    """A bypassed (mode=4) node is excluded from effective edges, creating
+    disconnected islands on either side."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            },
+            {
+                "id": 2,
+                "type": "CLIPTextEncode",
+                "class_type": "CLIPTextEncode",
+                "properties": {"vibecomfy_uid": "bypass-me"},
+                "mode": 4,
+                "inputs": [{"name": "text", "type": "STRING", "link": 10}],
+                "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [11]}],
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample"},
+                "inputs": [{"name": "positive", "type": "CONDITIONING", "link": 11}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            },
+            {
+                "id": 4,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 12}],
+            },
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "STRING"],
+            [11, 2, 0, 3, 0, "CONDITIONING"],
+            [12, 3, 0, 4, 0, "IMAGE"],
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    # Physical edges are complete
+    raw_pairs = {(edge.source.uid, edge.target.uid) for edge in topology.raw_edges}
+    assert len(raw_pairs) == 3
+    assert ("load", "bypass-me") in raw_pairs
+    assert ("bypass-me", "sample") in raw_pairs
+    assert ("sample", "save") in raw_pairs
+
+    # Effective edges drop the bypassed node → two disconnected islands
+    effective_pairs = {(edge.source.uid, edge.target.uid) for edge in topology.effective_edges}
+    assert ("sample", "save") in effective_pairs
+    assert ("load", "bypass-me") not in effective_pairs
+    assert ("bypass-me", "sample") not in effective_pairs
+
+    node_topology = {fact.ref.uid: fact for fact in topology.node_topology}
+    # load is isolated (no outgoing effective edges)
+    assert node_topology["load"].fan_in == 0
+    assert node_topology["load"].fan_out == 0
+    # bypass-me is isolated
+    assert node_topology["bypass-me"].fan_in == 0
+    assert node_topology["bypass-me"].fan_out == 0
+    # sample→save chain is intact
+    assert node_topology["sample"].fan_in == 0
+    assert node_topology["sample"].fan_out == 1
+    assert node_topology["save"].fan_in == 1
+
+    # WCC count reflects the split
+    wcc_ids = {fact.wcc_id for fact in topology.node_topology}
+    assert len(wcc_ids) >= 2  # at least two weak components
+
+
+def test_effective_topology_preserves_reroute_passthrough_around_muted_node() -> None:
+    """A muted non-helper node breaks the chain, but Reroute passthrough
+    around a *non-muted* reroute still works correctly.
+
+    Graph: load → (muted clip-encode) → reroute → sampler → save
+    The clip-encode is muted so its edges are dropped, but reroute passthrough
+    from the remaining active nodes still operates.
+    """
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10, 20]}],
+            },
+            {
+                "id": 2,
+                "type": "VAEDecode",
+                "class_type": "VAEDecode",
+                "properties": {"vibecomfy_uid": "muted-decode"},
+                "mode": 2,
+                "inputs": [{"name": "samples", "type": "LATENT", "link": 10}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            },
+            {
+                "id": 3,
+                "type": "Reroute",
+                "class_type": "Reroute",
+                "properties": {"vibecomfy_uid": "rr"},
+                "inputs": [{"name": "", "type": "*", "link": 20}],
+                "outputs": [{"name": "", "type": "*", "links": [21]}],
+            },
+            {
+                "id": 4,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 21}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [22]}],
+            },
+            {
+                "id": 5,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 22}],
+            },
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [20, 1, 0, 3, 0, "IMAGE"],
+            [21, 3, 0, 4, 0, "IMAGE"],
+            [22, 4, 0, 5, 0, "IMAGE"],
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    effective_pairs = {(edge.source.uid, edge.target.uid) for edge in topology.effective_edges}
+    # Reroute passthrough: load → sample (via non-muted reroute)
+    assert ("load", "sample") in effective_pairs
+    # Muted decode edges are absent
+    assert ("load", "muted-decode") not in effective_pairs
+    assert ("muted-decode", "sample") not in effective_pairs
+    # Sample → save still connected
+    assert ("sample", "save") in effective_pairs
+
+    # Raw edges still show the reroute (passthrough flag distinguishes them)
+    passthrough_edges = [edge for edge in topology.effective_edges if edge.passthrough]
+    assert any(edge.source.uid == "load" and edge.target.uid == "sample" for edge in passthrough_edges)
+
+
+def test_effective_topology_set_get_passthrough_preserved_around_muted() -> None:
+    """SetNode/GetNode passthrough works correctly even when a muted sampler
+    sits between them — the Set/Get channel remains resolved."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [100, 200]}],
+            },
+            {
+                "id": 2,
+                "type": "SetNode",
+                "class_type": "SetNode",
+                "properties": {"vibecomfy_uid": "set-latent"},
+                "widgets_values": ["LATENT"],
+                "inputs": [{"name": "IMAGE", "type": "IMAGE", "link": 200}],
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "muted-sampler"},
+                "mode": 2,
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 100}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [101]}],
+            },
+            {
+                "id": 4,
+                "type": "GetNode",
+                "class_type": "GetNode",
+                "properties": {"vibecomfy_uid": "get-latent"},
+                "widgets_values": ["LATENT"],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [201]}],
+            },
+            {
+                "id": 5,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 201}],
+            },
+        ],
+        "links": [
+            [100, 1, 0, 3, 0, "IMAGE"],
+            [200, 1, 0, 2, 0, "IMAGE"],
+            [201, 4, 0, 5, 0, "IMAGE"],
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    effective_pairs = {(edge.source.uid, edge.target.uid) for edge in topology.effective_edges}
+    # Set/Get passthrough: load → save (broadcast source → GetNode consumer)
+    assert ("load", "save") in effective_pairs
+    # Muted sampler edges are excluded
+    assert ("load", "muted-sampler") not in effective_pairs
+    # Helper nodes (Set/Get) are already excluded by broadcast resolution
+    assert ("set-latent", "save") not in effective_pairs
+
+    # Raw edges are complete
+    raw_pairs = {(edge.source.uid, edge.target.uid) for edge in topology.raw_edges}
+    assert ("load", "muted-sampler") in raw_pairs
+    assert ("load", "set-latent") in raw_pairs
+
+
+def test_all_nodes_muted_produces_empty_effective_topology() -> None:
+    """When every node has mode=2, effective edges are empty but raw edges
+    and node_topology records are still populated."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "mode": 2,
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample"},
+                "mode": 2,
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 10}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            },
+            {
+                "id": 3,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "mode": 2,
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 11}],
+            },
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    assert len(topology.raw_edges) == 2
+    assert len(topology.effective_edges) == 0
+    # All nodes still appear in node_topology with zero fan
+    assert len(topology.node_topology) == 3
+    for fact in topology.node_topology:
+        assert fact.fan_in == 0
+        assert fact.fan_out == 0
+
+
+# ---------------------------------------------------------------------------
+# SCC feedback tagging — T2
+# ---------------------------------------------------------------------------
+
+
+def test_scc_feedback_tags_mutual_two_node_cycle() -> None:
+    """Two nodes with mutual edges (A→B and B→A) form one SCC, and both
+    effective edges are tagged as feedback=True."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sampler-a"},
+                "inputs": [{"name": "latent", "type": "LATENT", "link": 10}],
+                "outputs": [{"name": "LATENT", "type": "LATENT", "links": [11]}],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sampler-b"},
+                "inputs": [{"name": "latent", "type": "LATENT", "link": 11}],
+                "outputs": [{"name": "LATENT", "type": "LATENT", "links": [10]}],
+            },
+        ],
+        "links": [
+            [10, 2, 0, 1, 0, "LATENT"],  # B → A
+            [11, 1, 0, 2, 0, "LATENT"],  # A → B
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    # Both samplers share one SCC
+    node_topology = {fact.ref.uid: fact for fact in topology.node_topology}
+    assert node_topology["sampler-a"].scc_id == node_topology["sampler-b"].scc_id
+    assert node_topology["sampler-a"].scc_id.startswith("scc")
+
+    # Both effective edges are feedback
+    effective_edges = list(topology.effective_edges)
+    assert len(effective_edges) == 2
+    for edge in effective_edges:
+        assert edge.feedback is True, f"Edge {edge.source.uid}→{edge.target.uid} should be feedback"
+        # passthrough=True on all effective edges (distinguishes them from raw edges)
+
+    # SCC count in summary reflects one SCC
+    scope_summary = facts.summary.scopes[0]
+    assert scope_summary.scc_count == 1
+
+
+def test_scc_feedback_three_node_cycle_with_entrance_and_exit() -> None:
+    """A three-node cycle (A→B→C→A) with entrance (D→A) and exit (C→E):
+    the three cycle edges are feedback=True, entrance and exit are not."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "a"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 10}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "b"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 11}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            },
+            {
+                "id": 4,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "c"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 12}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [13, 14]}],
+            },
+            {
+                "id": 5,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 13}],
+            },
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],   # load → a (entrance, not feedback)
+            [11, 2, 0, 3, 0, "IMAGE"],   # a → b (cycle edge, feedback)
+            [12, 3, 0, 4, 0, "IMAGE"],   # b → c (cycle edge, feedback)
+            [14, 4, 0, 2, 0, "IMAGE"],   # c → a (cycle edge, feedback)
+            [13, 4, 0, 5, 0, "IMAGE"],   # c → save (exit, not feedback)
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    node_topology = {fact.ref.uid: fact for fact in topology.node_topology}
+    # a, b, c share the same SCC
+    assert node_topology["a"].scc_id == node_topology["b"].scc_id == node_topology["c"].scc_id
+    # load and save are in different SCCs
+    assert node_topology["load"].scc_id != node_topology["a"].scc_id
+    assert node_topology["save"].scc_id != node_topology["c"].scc_id
+
+    # Check feedback tags on effective edges
+    edge_feedback = {
+        (edge.source.uid, edge.target.uid): edge.feedback
+        for edge in topology.effective_edges
+    }
+    # Cycle edges: a→b, b→c, c→a are feedback
+    assert edge_feedback.get(("a", "b")) is True
+    assert edge_feedback.get(("b", "c")) is True
+    assert edge_feedback.get(("c", "a")) is True
+    # Entrance and exit are not feedback
+    assert edge_feedback.get(("load", "a")) is False
+    assert edge_feedback.get(("c", "save")) is False
+
+    # SCC count: load, (a,b,c), save = 3 SCCs
+    scope_summary = facts.summary.scopes[0]
+    assert scope_summary.scc_count == 3
+
+
+def test_scc_feedback_single_node_trivial_scc_no_feedback() -> None:
+    """A linear chain load→sample→save has zero feedback edges because
+    no edge connects nodes within the same SCC."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10]}],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "sample"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 10}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            },
+            {
+                "id": 3,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 11}],
+            },
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],
+            [11, 2, 0, 3, 0, "IMAGE"],
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    # Every node is its own SCC in a DAG
+    node_topology = {fact.ref.uid: fact for fact in topology.node_topology}
+    scc_ids = {fact.scc_id for fact in topology.node_topology}
+    assert len(scc_ids) == 3  # three trivial SCCs
+
+    # No edge should be tagged feedback
+    for edge in topology.effective_edges:
+        assert edge.feedback is False, f"Edge {edge.source.uid}→{edge.target.uid} should not be feedback"
+
+    scope_summary = facts.summary.scopes[0]
+    assert scope_summary.scc_count == 3
+
+
+def test_scc_feedback_cycle_via_passthrough_not_feedback() -> None:
+    """Passthrough edges (resolved through helpers) that happen to land
+    on the same SCC as the source via a different path should still not
+    be tagged feedback if source and target are in different SCCs."""
+    ui = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "LoadImage",
+                "class_type": "LoadImage",
+                "properties": {"vibecomfy_uid": "load"},
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [10, 30]}],
+            },
+            {
+                "id": 2,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "a"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 10}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+            },
+            {
+                "id": 3,
+                "type": "KSampler",
+                "class_type": "KSampler",
+                "properties": {"vibecomfy_uid": "b"},
+                "inputs": [{"name": "image", "type": "IMAGE", "link": 11}],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [12]}],
+            },
+            {
+                "id": 4,
+                "type": "Reroute",
+                "class_type": "Reroute",
+                "properties": {"vibecomfy_uid": "rr"},
+                "inputs": [{"name": "", "type": "*", "link": 30}],
+                "outputs": [{"name": "", "type": "*", "links": [31]}],
+            },
+            {
+                "id": 5,
+                "type": "SaveImage",
+                "class_type": "SaveImage",
+                "properties": {"vibecomfy_uid": "save"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": 31}],
+            },
+        ],
+        "links": [
+            [10, 1, 0, 2, 0, "IMAGE"],   # load → a
+            [11, 2, 0, 3, 0, "IMAGE"],   # a → b
+            [12, 3, 0, 1, 0, "IMAGE"],   # b → load (feedback cycle)
+            [30, 1, 0, 4, 0, "IMAGE"],   # load → reroute
+            [31, 4, 0, 5, 0, "IMAGE"],   # reroute → save
+        ],
+    }
+
+    facts = extract_graph_facts(ui)
+    topology = facts.scope_topologies[0]
+
+    node_topology = {fact.ref.uid: fact for fact in topology.node_topology}
+    # load, a, b form one SCC (cycle)
+    scc_cycle = node_topology["load"].scc_id
+    assert node_topology["a"].scc_id == scc_cycle
+    assert node_topology["b"].scc_id == scc_cycle
+    # save is separate
+    assert node_topology["save"].scc_id != scc_cycle
+
+    # Effective edges: load→a, a→b, b→load (feedback), load→save (passthrough via reroute)
+    edge_feedback = {
+        (edge.source.uid, edge.target.uid): edge.feedback
+        for edge in topology.effective_edges
+    }
+    # The passthrough edge load→save crosses SCCs → not feedback
+    assert edge_feedback.get(("load", "save")) is False
+    # Cycle edges are feedback
+    assert edge_feedback.get(("load", "a")) is True
+    assert edge_feedback.get(("a", "b")) is True
+    assert edge_feedback.get(("b", "load")) is True

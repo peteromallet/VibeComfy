@@ -2418,7 +2418,9 @@ def _section_placements(
         key=lambda item: (
             _topology_for(item, topology_by_section).scope_path,
             _topology_for(item, topology_by_section).island_index,
-            effective_ranks[item.id],
+            _topology_for(item, topology_by_section).rank,
+            _topology_for(item, topology_by_section).scc_id,
+            item.id,
             raw_band_by_section[item.id],
             *_section_semantic_sort_key(item),
         ),
