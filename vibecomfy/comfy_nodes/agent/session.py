@@ -1384,9 +1384,34 @@ def record_idempotent_response(
     lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
 ) -> dict[str, Any] | None:
     key = _record_key(scope, idempotency_key)
-    candidate_graph_hash = _mapping_graph_hash(response)
-    candidate_structural_graph_hash = _mapping_graph_structural_hash(response)
-    agent_edit_protocol = "v2_delta" if isinstance(response.get("delta_ops"), list) else "v1"
+    stamped_response = response
+    if scope == "edit" and turn_id is not None:
+        try:
+            turn_dir = response_path.parent
+            request_payload = _load_json(turn_dir / "request.json")
+            if isinstance(request_payload, Mapping):
+                from .authority_receipts import build_and_persist_authority_receipt
+
+                schema_version = ""
+                delta_envelope = response.get("delta_ops_envelope")
+                if isinstance(delta_envelope, Mapping):
+                    raw_schema_version = delta_envelope.get("schema_version")
+                    if isinstance(raw_schema_version, str):
+                        schema_version = raw_schema_version
+                _, stamped_response = build_and_persist_authority_receipt(
+                    turn_dir=turn_dir,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    request_payload=request_payload,
+                    response=response,
+                    schema_version=schema_version,
+                )
+        except Exception:
+            stamped_response = response
+    candidate_graph_hash = _mapping_graph_hash(stamped_response)
+    candidate_structural_graph_hash = _mapping_graph_structural_hash(stamped_response)
+    agent_edit_protocol = "v2_delta" if isinstance(stamped_response.get("delta_ops"), list) else "v1"
+    response_digest = payload_hash(stamped_response)
     # Persist state mutation and idempotency record BEFORE publishing
     # response.json so that durable state always precedes the response
     # artifact.  If state persistence fails the response never becomes
@@ -1410,9 +1435,8 @@ def record_idempotent_response(
                     turn_record["agent_edit_protocol"] = agent_edit_protocol
                     write_state_atomic(session_dir, state)
         # Atomically publish response.json after durable state completes.
-        _write_response_atomic(response_path, response)
+        _write_response_atomic(response_path, stamped_response)
         return None
-        response_digest = payload_hash(response)
     record = {
         "request_hash": request_hash,
         "response_hash": response_digest,
@@ -1442,7 +1466,7 @@ def record_idempotent_response(
         write_state_atomic(session_dir, state)
     # Atomically publish response.json after durable state + idempotency
     # record completes.
-    _write_response_atomic(response_path, response)
+    _write_response_atomic(response_path, stamped_response)
     return record
 
 

@@ -92,6 +92,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     write_state_atomic,
 )
 from vibecomfy.comfy_nodes.agent.session import SessionStateLock
+from vibecomfy.comfy_nodes.agent.authority_receipts import load_authority_receipt
 from vibecomfy.contracts import (
     INTENT_NODE_CONTRACT_INVALID_CODE,
     INTENT_NODE_EDITOR_ONLY_CODE,
@@ -10189,6 +10190,55 @@ def test_response_durability_keyed_success_consistent_conflict_after_replay(
     )
     assert conflict.conflict is not None, "Conflict must be returned for mismatched body"
     assert conflict.conflict.failure.kind is FailureKind.STALE_STATE_MISMATCH
+
+
+def test_record_idempotent_response_persists_authority_receipt_for_edit_turn(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    request = {
+        "task": "authority receipt",
+        "graph": {"nodes": [{"id": 1, "type": "Note"}], "links": []},
+    }
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="s1",
+        request_payload=request,
+        idempotency_key="authority-key-1",
+    )
+    turn_id = str(allocation.context.turn_id)
+    request_path = allocation.turn_dir / "request.json"
+    request_path.write_text(json.dumps(request), encoding="utf-8")
+    response = {
+        "ok": True,
+        "turn_id": turn_id,
+        "graph": request["graph"],
+        "delta_ops_envelope": {"schema_version": "2.0.0", "ops": []},
+        "delta_ops": [],
+        "eligibility": {"applyable": True},
+    }
+
+    record_idempotent_response(
+        session_root=root,
+        session_id="s1",
+        scope="edit",
+        idempotency_key="authority-key-1",
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    receipt = load_authority_receipt(allocation.turn_dir)
+    assert receipt is not None
+    assert receipt.schema_version == "2.0.0"
+    assert receipt.replay.replay_ok is True
+    assert receipt.replay.candidate_matches is True
+
+    written = json.loads((allocation.turn_dir / "response.json").read_text(encoding="utf-8"))
+    assert written["authority_receipt"]["candidate_matches"] is True
+    assert written["authority_receipt"]["replay_ok"] is True
 
 
 def test_response_durability_accept_state_failure_preserves_no_idempotency_record(

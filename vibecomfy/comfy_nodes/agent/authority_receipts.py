@@ -120,7 +120,6 @@ class AuthorityReceipt:
         created_at: ISO-8601 timestamp.
     """
 
-    contract_version: str = AUTHORITY_RECEIPT_CONTRACT_VERSION
     schema_version: str
     session_id: str
     turn_id: str
@@ -132,6 +131,10 @@ class AuthorityReceipt:
     replay: ReplayReceipt
     response_metadata: ResponseMetadataHashes
     created_at: str
+    contract_version: str = field(
+        default=AUTHORITY_RECEIPT_CONTRACT_VERSION,
+        init=False,
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -161,8 +164,7 @@ class AuthorityReceipt:
             response_hash=None, eligibility_hash=None, outcome_hash=None,
         )
         envelope = data.get("cumulative_delta_envelope")
-        return cls(
-            contract_version=data.get("contract_version", AUTHORITY_RECEIPT_CONTRACT_VERSION),
+        receipt = cls(
             schema_version=data.get("schema_version", ""),
             session_id=data.get("session_id", ""),
             turn_id=data.get("turn_id", ""),
@@ -175,6 +177,12 @@ class AuthorityReceipt:
             response_metadata=meta,
             created_at=data.get("created_at", ""),
         )
+        object.__setattr__(
+            receipt,
+            "contract_version",
+            data.get("contract_version", AUTHORITY_RECEIPT_CONTRACT_VERSION),
+        )
+        return receipt
 
     @property
     def is_applyable(self) -> bool:
