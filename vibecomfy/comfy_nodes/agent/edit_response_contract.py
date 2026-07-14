@@ -497,26 +497,44 @@ def _validate_delta_evidence_for_apply(
     state: AgentEditState,
     *,
     has_candidate: bool,
-) -> tuple[bool, dict[str, Any]]:
+) -> tuple[bool, dict[str, Any], dict[str, Any] | None]:
     """Validate cumulative delta evidence for Apply eligibility.
 
     Assembles the cumulative delta envelope and runs
     ``validate_apply_delta_evidence``.  For edit turns where a candidate
-    would otherwise be produced, absent or malformed delta evidence
-    blocks Apply (fail-closed).
+    would otherwise be produced, absent delta evidence is fail-closed:
+    a canonical empty V2 envelope is synthesized so that identity/no-op
+    apply carries explicit (empty) evidence rather than silently
+    accepting absent evidence.  Malformed or corrupted evidence blocks
+    Apply unconditionally.
 
-    Returns ``(delta_evidence_valid, diagnostics)``.
+    Returns ``(delta_evidence_valid, diagnostics, validated_envelope)``
+    where *validated_envelope* is the canonical envelope to emit in the
+    response (the real envelope, the synthesized empty envelope, or
+    ``None`` when no candidate is being considered).
     """
-    from vibecomfy.porting.edit.ops import validate_apply_delta_evidence
+    from vibecomfy.porting.edit.ops import (
+        DELTA_SCHEMA_VERSION,
+        validate_apply_delta_evidence,
+    )
 
     diagnostics: dict[str, Any] = {}
     cumulative = _build_cumulative_batch_repl_delta_envelope(state)
+    validated_envelope: dict[str, Any] | None = cumulative
 
-    # -- Only validate delta evidence when it is present.  Absent evidence --
-    # -- (None) is not treated as a blocker because legacy turns and test   --
-    # -- fixtures may not yet populate the delta envelope.  When evidence   --
-    # -- IS present, it must be structurally valid and normalizable.        --
-    allow_absent = True
+    # When a candidate would otherwise be produced, absent cumulative delta
+    # evidence is fail-closed: synthesize a canonical empty V2 envelope so
+    # that identity/no-op apply carries explicit (empty) evidence rather
+    # than silently accepting absent evidence.
+    if has_candidate and cumulative is None:
+        cumulative = {"schema_version": DELTA_SCHEMA_VERSION, "ops": []}
+        validated_envelope = cumulative
+        diagnostics["delta_evidence_synthesized_empty"] = True
+
+    # Absent evidence is acceptable only for non-applyable turns (no
+    # candidate).  When a candidate exists, the synthesized empty envelope
+    # ensures the payload is never None, so allow_absent=False is enforced.
+    allow_absent = not has_candidate
 
     valid, code, detail = validate_apply_delta_evidence(
         cumulative,
@@ -533,7 +551,11 @@ def _validate_delta_evidence_for_apply(
         diagnostics["delta_evidence_present"] = False
         diagnostics["delta_evidence_ops_count"] = 0
 
-    return valid, diagnostics
+    # Only return the envelope for response emission when validation passed.
+    if not valid:
+        validated_envelope = None
+
+    return valid, diagnostics, validated_envelope
 
 
 def _format_clarify_markdown_message(message: Any) -> str:
@@ -832,7 +854,7 @@ def _build_batch_repl_response(
         has_candidate = False
     # ── Delta evidence validation (fail-closed for applyable turns) ─────────
     _had_candidate_before_delta = has_candidate
-    delta_evidence_valid, delta_evidence_diagnostics = _validate_delta_evidence_for_apply(
+    delta_evidence_valid, delta_evidence_diagnostics, delta_evidence_envelope = _validate_delta_evidence_for_apply(
         state,
         has_candidate=has_candidate,
     )
@@ -1007,7 +1029,12 @@ def _build_batch_repl_response(
         )
     response["batch_turns"] = _json_safe(state.batch_turns)
     # ── Cumulative V2 delta envelope from landed batch_repl operations ──────
-    cumulative_delta_envelope = _build_cumulative_batch_repl_delta_envelope(state)
+    # Use the envelope validated by _validate_delta_evidence_for_apply rather
+    # than rebuilding it here.  For applyable turns with a candidate, the
+    # validated envelope includes any synthesized empty V2 envelope so that
+    # identity/no-op apply carries explicit evidence.  When delta evidence
+    # validation failed (has_candidate cleared), the envelope is None.
+    cumulative_delta_envelope = delta_evidence_envelope
     if cumulative_delta_envelope is not None:
         response["delta_ops_envelope"] = cumulative_delta_envelope
         # delta_ops is a read-only derived compatibility view from the canonical envelope.

@@ -17,14 +17,15 @@ def _to_serializable(result: Any) -> Any:
 def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Build presentation compatibility fields from a canonical executor envelope.
 
-    Durable ``outcome`` from the edit engine is preserved as-is when
-    present; compatibility adds only presentation aliases (``message``,
-    ``candidate_graph``, ``graph_unchanged``) and synthesizes ``outcome``
-    as a fallback.  Authority fields (``apply_eligibility``,
-    ``eligibility``, ``apply_allowed``, ``canvas_apply_allowed``,
-    ``queue_allowed``) are NEVER synthesized — only durable response data
-    already carrying those fields will expose them through the merge in
-    ``serialize_executor_result``.
+    Only presentation aliases (``message``, ``candidate_graph``,
+    ``graph_unchanged``, ``clarification_required``,
+    ``clarification_message``) are synthesized.  The ``outcome`` field is
+    **never** derived from ``candidate`` or ``apply_eligible`` — it is
+    preserved exclusively when durable response data already supplied it
+    (via the merge in ``serialize_executor_result``).  Authority fields
+    (``apply_eligibility``, ``eligibility``, ``apply_allowed``,
+    ``canvas_apply_allowed``, ``queue_allowed``) are likewise never
+    synthesized.
     """
     reply = payload.get("reply")
     message = reply if isinstance(reply, str) else ""
@@ -35,32 +36,12 @@ def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]
         if isinstance(candidate, Mapping) and isinstance(candidate.get("graph"), dict)
         else None
     )
-    apply_eligible = bool(payload.get("apply_eligible"))
-
-    has_durable_outcome = isinstance(payload.get("outcome"), Mapping)
 
     compatibility: dict[str, Any] = {
         "message": message,
     }
 
-    if not has_durable_outcome:
-        if candidate_graph is not None and apply_eligible:
-            outcome = {"kind": "candidate", "changes": []}
-        elif route == "clarify":
-            outcome = {
-                "kind": "clarify",
-                "question": message,
-                "clarification": {"message": message},
-            }
-        else:
-            reason = payload.get("no_candidate_reason")
-            outcome = {
-                "kind": "noop",
-                "reason": str(reason) if isinstance(reason, str) and reason else message,
-            }
-        compatibility["outcome"] = outcome
-
-    # Presentation aliases only — authority fields are never synthesized.
+    # Presentation aliases only — outcome and authority fields are never synthesized.
     if candidate_graph is not None:
         compatibility["candidate_graph"] = candidate_graph
     compatibility["graph_unchanged"] = candidate_graph is None
