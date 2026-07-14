@@ -50,6 +50,10 @@ DELTA_SCHEMA_VERSION = "2.0.0"
 DELTA_DIAGNOSTIC_MALFORMED = "malformed_delta"
 DELTA_DIAGNOSTIC_LEGACY_SHAPE = "legacy_delta_shape"
 DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY = "unsupported_scoped_apply"
+DELTA_DIAGNOSTIC_CORRUPTED = "corrupted_delta"
+DELTA_DIAGNOSTIC_TRUNCATED = "truncated_delta"
+DELTA_DIAGNOSTIC_ABSENT = "absent_delta"
+DELTA_DIAGNOSTIC_REPLAY_MISMATCH = "replay_mismatch"
 CANONICAL_DELTA_OP_NAMES = (
     "set_node_field",
     "set_mode",
@@ -881,14 +885,214 @@ def op_to_dict(op: EditOp) -> dict[str, Any]:
     raise TypeError(f"Unsupported edit op instance: {type(op)!r}")
 
 
+def validate_delta_envelope_structure(
+    payload: Any,
+) -> tuple[bool, str | None, dict[str, Any] | None]:
+    """Validate the structural envelope shape without full normalization.
+
+    Checks that the payload is a non-legacy V2 canonical envelope with the
+    correct schema_version and a list of ops.  Does not parse individual ops
+    (use `normalize_delta_envelope` for full validation), but catches
+    corrupted, truncated, absent, and legacy whole-graph shapes early so
+    consumers can fail closed before widening into Apply.
+
+    Returns ``(is_valid, diagnostic_code, detail)``.
+    """
+    if payload is None:
+        return False, DELTA_DIAGNOSTIC_ABSENT, {
+            "reason": "Delta evidence is absent (None).",
+        }
+
+    if isinstance(payload, CanonicalDeltaEnvelope):
+        return True, None, None
+
+    if not isinstance(payload, Mapping):
+        return False, DELTA_DIAGNOSTIC_CORRUPTED, {
+            "reason": f"Delta envelope must be a mapping, got {type(payload).__name__}.",
+            "type": type(payload).__name__,
+        }
+
+    data = dict(payload)
+
+    # ── Legacy whole-graph shapes ───────────────────────────────────────────
+    if "delta_ops" in data and "schema_version" not in data:
+        return False, DELTA_DIAGNOSTIC_LEGACY_SHAPE, {
+            "reason": "Legacy whole-graph delta_ops wrapper is not a canonical V2 envelope.",
+            "keys": sorted(data),
+        }
+
+    if "ops" in data and "schema_version" not in data:
+        return False, DELTA_DIAGNOSTIC_LEGACY_SHAPE, {
+            "reason": "Legacy wrapped shape with `ops` but no `schema_version`.",
+            "keys": sorted(data),
+        }
+
+    # ── Missing required fields ─────────────────────────────────────────────
+    if "schema_version" not in data:
+        return False, DELTA_DIAGNOSTIC_TRUNCATED, {
+            "reason": "Delta envelope is missing required field `schema_version`.",
+            "keys": sorted(data),
+        }
+
+    if "ops" not in data:
+        return False, DELTA_DIAGNOSTIC_TRUNCATED, {
+            "reason": "Delta envelope is missing required field `ops`.",
+            "keys": sorted(data),
+        }
+
+    # ── Schema version check ────────────────────────────────────────────────
+    schema_version = data.get("schema_version")
+    if not isinstance(schema_version, str) or schema_version != DELTA_SCHEMA_VERSION:
+        return False, DELTA_DIAGNOSTIC_MALFORMED, {
+            "reason": (
+                f"Unsupported schema_version {schema_version!r}; "
+                f"expected {DELTA_SCHEMA_VERSION!r}."
+            ),
+            "schema_version": schema_version,
+        }
+
+    # ── Ops must be a list ──────────────────────────────────────────────────
+    ops = data.get("ops")
+    if not isinstance(ops, list):
+        return False, DELTA_DIAGNOSTIC_TRUNCATED, {
+            "reason": f"`ops` must be a list, got {type(ops).__name__}.",
+            "ops_type": type(ops).__name__,
+        }
+
+    # ── Extra keys beyond canonical set ─────────────────────────────────────
+    extras = sorted(key for key in data if key not in _CANONICAL_DELTA_KEYS)
+    if extras:
+        if any(key in _LEGACY_DELTA_WRAPPER_KEYS for key in extras):
+            return False, DELTA_DIAGNOSTIC_LEGACY_SHAPE, {
+                "reason": "Legacy wrapped delta metadata found in envelope.",
+                "keys": extras,
+            }
+        return False, DELTA_DIAGNOSTIC_MALFORMED, {
+            "reason": (
+                "Canonical delta envelopes only accept `schema_version`, `ops`, "
+                f"and optional `legacy_bridge`; found extra keys: {extras}."
+            ),
+            "keys": extras,
+        }
+
+    return True, None, None
+
+
+def validate_apply_delta_evidence(
+    payload: Any,
+    *,
+    allow_absent: bool = False,
+) -> tuple[bool, str | None, dict[str, Any] | None]:
+    """Validate that delta evidence is sufficient for Apply eligibility.
+
+    Performs structural validation and then full normalization (which
+    parses and canonicalizes every op).  This is the authoritative gate
+    that must pass before delta evidence can widen into Apply.
+
+    Args:
+        payload: The delta envelope to validate (dict or CanonicalDeltaEnvelope).
+        allow_absent: If True, absent (None) evidence is treated as valid
+            rather than a blocking diagnostic.  Use this for non-edit routes
+            where delta evidence is not expected.
+
+    Returns:
+        ``(is_valid, diagnostic_code, detail)`` where *is_valid* is True
+        only when the evidence passes all checks, and *diagnostic_code* is
+        a stable ``DELTA_DIAGNOSTIC_*`` constant on failure.
+    """
+    # ── Absent evidence ─────────────────────────────────────────────────────
+    if payload is None:
+        if allow_absent:
+            return True, None, None
+        return False, DELTA_DIAGNOSTIC_ABSENT, {
+            "reason": "Delta evidence is absent; cannot validate for Apply.",
+        }
+
+    # ── Structural validation ───────────────────────────────────────────────
+    struct_valid, struct_code, struct_detail = validate_delta_envelope_structure(payload)
+    if not struct_valid:
+        return False, struct_code, struct_detail
+
+    # ── Full normalization (parse + canonicalize every op) ──────────────────
+    try:
+        normalize_delta_envelope(payload, strict=True)
+    except EditOpParseError as exc:
+        return False, exc.code, dict(exc.detail or {}, reason=str(exc))
+    except Exception as exc:
+        return False, DELTA_DIAGNOSTIC_CORRUPTED, {
+            "reason": f"Delta normalization failed: {exc}",
+            "error_type": type(exc).__name__,
+        }
+
+    return True, None, None
+
+
+def validate_delta_replay_equality(
+    original: dict[str, Any] | None,
+    replay: dict[str, Any] | None,
+) -> tuple[bool, str | None, dict[str, Any] | None]:
+    """Verify that a replayed delta envelope matches the original.
+
+    Both payloads are normalized through ``normalize_delta_envelope(strict=True)``
+    and compared for structural equality.  Missing identity fields (uid/node_id)
+    in the replay are treated as a mismatch because the canonical contract
+    requires them for applyable turns.
+
+    Returns ``(is_equal, diagnostic_code, detail)``.
+    """
+    if original is None and replay is None:
+        return True, None, None
+
+    if original is None:
+        return False, DELTA_DIAGNOSTIC_REPLAY_MISMATCH, {
+            "reason": "Original delta evidence is absent but replay has data.",
+        }
+
+    if replay is None:
+        return False, DELTA_DIAGNOSTIC_REPLAY_MISMATCH, {
+            "reason": "Replay delta evidence is absent but original had data.",
+        }
+
+    try:
+        orig_env = normalize_delta_envelope(original, strict=True)
+    except EditOpParseError as exc:
+        return False, DELTA_DIAGNOSTIC_CORRUPTED, {
+            "reason": f"Original delta envelope failed normalization: {exc}",
+            "side": "original",
+            "code": exc.code,
+        }
+
+    try:
+        replay_env = normalize_delta_envelope(replay, strict=True)
+    except EditOpParseError as exc:
+        return False, DELTA_DIAGNOSTIC_REPLAY_MISMATCH, {
+            "reason": f"Replay delta envelope failed normalization: {exc}",
+            "side": "replay",
+            "code": exc.code,
+        }
+
+    if orig_env.to_dict() != replay_env.to_dict():
+        return False, DELTA_DIAGNOSTIC_REPLAY_MISMATCH, {
+            "reason": "Replay delta envelope does not match original.",
+            "original_ops_count": len(orig_env.ops),
+            "replay_ops_count": len(replay_env.ops),
+        }
+
+    return True, None, None
+
+
 __all__ = [
     "AddNodeOp",
     "AgentDeltaTurnResult",
     "AnchorRef",
     "CANONICAL_DELTA_OP_NAMES",
     "CanonicalDeltaEnvelope",
+    "DELTA_DIAGNOSTIC_ABSENT",
+    "DELTA_DIAGNOSTIC_CORRUPTED",
     "DELTA_DIAGNOSTIC_LEGACY_SHAPE",
     "DELTA_DIAGNOSTIC_MALFORMED",
+    "DELTA_DIAGNOSTIC_REPLAY_MISMATCH",
+    "DELTA_DIAGNOSTIC_TRUNCATED",
     "DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY",
     "DELTA_SCHEMA_VERSION",
     "EDIT_OP_CANONICAL_ENVELOPE_SCHEMA_V2",
@@ -914,4 +1118,7 @@ __all__ = [
     "op_to_dict",
     "parse_edit_delta",
     "parse_edit_op",
+    "validate_apply_delta_evidence",
+    "validate_delta_envelope_structure",
+    "validate_delta_replay_equality",
 ]

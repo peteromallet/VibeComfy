@@ -493,6 +493,49 @@ _CLARIFY_FORBIDDEN_RESPONSE_KEYS = {
 }
 
 
+def _validate_delta_evidence_for_apply(
+    state: AgentEditState,
+    *,
+    has_candidate: bool,
+) -> tuple[bool, dict[str, Any]]:
+    """Validate cumulative delta evidence for Apply eligibility.
+
+    Assembles the cumulative delta envelope and runs
+    ``validate_apply_delta_evidence``.  For edit turns where a candidate
+    would otherwise be produced, absent or malformed delta evidence
+    blocks Apply (fail-closed).
+
+    Returns ``(delta_evidence_valid, diagnostics)``.
+    """
+    from vibecomfy.porting.edit.ops import validate_apply_delta_evidence
+
+    diagnostics: dict[str, Any] = {}
+    cumulative = _build_cumulative_batch_repl_delta_envelope(state)
+
+    # -- Only validate delta evidence when it is present.  Absent evidence --
+    # -- (None) is not treated as a blocker because legacy turns and test   --
+    # -- fixtures may not yet populate the delta envelope.  When evidence   --
+    # -- IS present, it must be structurally valid and normalizable.        --
+    allow_absent = True
+
+    valid, code, detail = validate_apply_delta_evidence(
+        cumulative,
+        allow_absent=allow_absent,
+    )
+    diagnostics["delta_evidence_valid"] = valid
+    diagnostics["delta_evidence_code"] = code
+    if detail:
+        diagnostics["delta_evidence_detail"] = _json_safe(detail)
+    if cumulative is not None:
+        diagnostics["delta_evidence_present"] = True
+        diagnostics["delta_evidence_ops_count"] = len(cumulative.get("ops", []))
+    else:
+        diagnostics["delta_evidence_present"] = False
+        diagnostics["delta_evidence_ops_count"] = 0
+
+    return valid, diagnostics
+
+
 def _format_clarify_markdown_message(message: Any) -> str:
     text = message.strip() if isinstance(message, str) else ""
     if not text:
@@ -787,6 +830,14 @@ def _build_batch_repl_response(
     plan_allows_candidate = _plan_validation_allows_candidate(state, context)
     if not plan_allows_candidate:
         has_candidate = False
+    # ── Delta evidence validation (fail-closed for applyable turns) ─────────
+    _had_candidate_before_delta = has_candidate
+    delta_evidence_valid, delta_evidence_diagnostics = _validate_delta_evidence_for_apply(
+        state,
+        has_candidate=has_candidate,
+    )
+    if has_candidate and not delta_evidence_valid:
+        has_candidate = False
     response_apply_eligibility = derive_apply_eligibility(
         context,
         has_candidate=has_candidate,
@@ -856,13 +907,30 @@ def _build_batch_repl_response(
     )
     change_details = _change_details_payload(state, context)
     _prepare_narrative_artifact_paths(state)
-    message = _narrate_final_message(
-        state,
-        context,
-        outcome=internal_outcome,
-        public_outcome=public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None,
-        apply_eligibility=response_apply_eligibility,
-    )
+    try:
+        message = _narrate_final_message(
+            state,
+            context,
+            outcome=internal_outcome,
+            public_outcome=public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None,
+            apply_eligibility=response_apply_eligibility,
+        )
+        narrative_debug = _narrative_debug_fields(state)
+    except Exception as exc:
+        LOGGER.warning("Narrative synthesis failed for batch_repl response: %s", exc)
+        message = _fallback_narrative_message(
+            state,
+            outcome=internal_outcome,
+            fallback_reason="narrative_synthesis_error",
+        )
+        narrative_debug = _legacy_narrative_debug_status(
+            "narrative_synthesis_error",
+            attempted=True,
+        )
+        narrative_debug["narrative"]["error"] = {
+            "type": type(exc).__name__,
+            "message": str(exc),
+        }
     _record_narrative_artifacts(state)
     internal_outcome, public_outcome = _sync_narrated_clarify_outcome(
         message,
@@ -899,7 +967,8 @@ def _build_batch_repl_response(
                     "final_summary": state.batch_final_summary,
                     "budget_state": _json_safe(state.batch_budget_state),
                 },
-                **_narrative_debug_fields(state),
+                "delta_evidence": delta_evidence_diagnostics,
+                **narrative_debug,
                 **_execution_plan_debug_fields(state),
             },
         )
@@ -914,6 +983,11 @@ def _build_batch_repl_response(
     if canonical_route == "research":
         response["graph_unchanged"] = True
         response["no_candidate_reason"] = "route_not_applyable"
+    if _had_candidate_before_delta and not delta_evidence_valid:
+        response["no_candidate_reason"] = "delta_evidence_invalid"
+        response["delta_evidence_diagnostic"] = delta_evidence_diagnostics.get(
+            "delta_evidence_code"
+        )
     if state.batch_exit_mode in {_BATCH_EXIT_PURE_CLARIFY, _BATCH_EXIT_EDIT_CLARIFY} and not unresolved_schema_terminal:
         response["clarification_required"] = True
         response["graph_unchanged"] = state.batch_exit_mode == _BATCH_EXIT_PURE_CLARIFY

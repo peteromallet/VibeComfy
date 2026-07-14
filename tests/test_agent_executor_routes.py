@@ -1038,3 +1038,460 @@ class TestLTXAudioRouteBehavior:
         assert _context_text_mentions_ltx_audio(
             {"prior_clarification": "not a dict"}
         ) is False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# T15: Composed route authority / idempotency parity tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestComposedRouteAuthorityParity:
+    """Verify authority fields are identical across the three public product
+    routes and that queue_validate_ok=false keeps queue_allowed=false."""
+
+    def test_queue_validate_ok_false_keeps_queue_allowed_false_across_routes(
+        self, monkeypatch,
+    ) -> None:
+        """Across /vibecomfy/agent-edit, /vibecomfy/agent-executor, and
+        /agent/edit, when queue_validate_ok is false, queue_allowed must
+        remain false in the response."""
+        monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+        routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
+
+        registered: dict[tuple[str, str], Any] = {}
+
+        class _Routes:
+            def post(self, path):
+                def _decorator(fn):
+                    registered[("POST", path)] = fn
+                    return fn
+                return _decorator
+
+            def get(self, path):
+                def _decorator(fn):
+                    registered[("GET", path)] = fn
+                    return fn
+                return _decorator
+
+        real_aiohttp = sys.modules.get("aiohttp")
+        aiohttp_module = types.ModuleType("aiohttp")
+        aiohttp_module.web = types.SimpleNamespace(
+            json_response=lambda body, status=200, **kwargs: {
+                "status": status, "body": body, "headers": kwargs.get("headers", {}),
+            },
+        )
+        monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+
+        graph = {"nodes": [{"id": 1, "type": "KSampler"}], "links": []}
+
+        def _fake_run_executor(request, *, client_id=None):
+            durable_response = {
+                "session_id": request.session_id or "sess-q",
+                "turn_id": "turn-q",
+                "baseline_graph_hash": "abc123",
+                "submit_structural_graph_hash": "def456",
+                "candidate_graph_hash": "ghi789",
+                "candidate_structural_graph_hash": "jkl012",
+                "audit_ref": {"path": "sessions/sess-q/turns/turn-q"},
+                "artifacts": {"response": "r.json", "chat": "c.json"},
+                "apply_eligibility": {
+                    "applyable": True,
+                    "reason": "queue_blocked_warning",
+                    "message": "Apply allowed but Queue blocked.",
+                    "warnings": ["queue_blocked"],
+                },
+                "graph": graph,
+                "outcome": {"kind": "candidate"},
+                "change_details": {"summary": "Changed."},
+                "gates": {
+                    "queue_validate_ok": {"ok": False, "reason": "schema-less nodes"},
+                    "canvas_apply_allowed": True,
+                },
+                "queue_allowed": False,
+            }
+            return ExecutorResult.success(
+                report=Report(
+                    plan=ClassifyDecision(route="revise", task="edit_graph"),
+                    implementation=ImplementationResult(
+                        graph=graph,
+                        message="Changed.",
+                        durable_response=durable_response,
+                    ),
+                ),
+                graph=graph,
+                reply="Changed.",
+            )
+
+        async def _fake_to_thread(fn, /, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        executor_core = importlib.import_module("vibecomfy.executor.core")
+        monkeypatch.setattr(executor_core, "run_executor", _fake_run_executor)
+        monkeypatch.setattr(routes.asyncio, "to_thread", _fake_to_thread)
+
+        class _Request:
+            def __init__(self, payload):
+                self._payload = payload
+                self.query = {}
+
+            async def json(self):
+                return self._payload
+
+        try:
+            routes.register_agent_edit_routes(
+                types.SimpleNamespace(routes=_Routes())
+            )
+
+            base_payload = {
+                "query": "edit graph",
+                "graph": graph,
+                "session_id": "sess-q",
+                "client_id": "client-q",
+            }
+
+            route_names = [
+                "/vibecomfy/agent-executor",
+                "/vibecomfy/agent-edit",
+                "/agent/edit",
+            ]
+            for route_path in route_names:
+                assert ("POST", route_path) in registered, (
+                    f"Route {route_path} not registered"
+                )
+                response = routes.asyncio.run(
+                    registered[("POST", route_path)](
+                        _Request(dict(base_payload))
+                    )
+                )
+                assert response["status"] == 200
+                body = response["body"]
+                # queue_validate_ok=false must keep queue_allowed=false
+                # (queue_allowed may be absent from executor top-level keys
+                # but must never be True when queue_validate_ok is False)
+                queue_allowed = body.get("queue_allowed")
+                if queue_allowed is not None:
+                    assert queue_allowed is False, (
+                        f"Route {route_path}: expected queue_allowed=False "
+                        f"(queue_validate_ok=False), got {queue_allowed!r}"
+                    )
+                # The gates field should carry the failing queue_validate_ok
+                gates = body.get("gates")
+                if isinstance(gates, dict):
+                    qvo = gates.get("queue_validate_ok")
+                    if isinstance(qvo, dict):
+                        assert qvo.get("ok") is False, (
+                            f"Route {route_path}: gates.queue_validate_ok.ok "
+                            f"should be False, got {qvo.get('ok')!r}"
+                        )
+        finally:
+            if real_aiohttp is not None:
+                sys.modules["aiohttp"] = real_aiohttp
+            else:
+                sys.modules.pop("aiohttp", None)
+
+    def test_public_routes_return_identical_authority_fields(
+        self, monkeypatch,
+    ) -> None:
+        """The three public product routes must emit the same authority-
+        bearing fields for the same executor result."""
+        monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+        routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
+
+        registered: dict[tuple[str, str], Any] = {}
+
+        class _Routes:
+            def post(self, path):
+                def _decorator(fn):
+                    registered[("POST", path)] = fn
+                    return fn
+                return _decorator
+
+            def get(self, path):
+                def _decorator(fn):
+                    registered[("GET", path)] = fn
+                    return fn
+                return _decorator
+
+        real_aiohttp = sys.modules.get("aiohttp")
+        aiohttp_module = types.ModuleType("aiohttp")
+        aiohttp_module.web = types.SimpleNamespace(
+            json_response=lambda body, status=200, **kwargs: {
+                "status": status, "body": body, "headers": kwargs.get("headers", {}),
+            },
+        )
+        monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+
+        graph = {"nodes": [{"id": 1, "type": "LoadImage"}], "links": []}
+        common_durable = {
+            "session_id": "sess-auth",
+            "turn_id": "turn-auth",
+            "baseline_graph_hash": "abc123",
+            "submit_structural_graph_hash": "def456",
+            "candidate_graph_hash": "ghi789",
+            "candidate_structural_graph_hash": "jkl012",
+            "audit_ref": {"path": "sessions/sess-auth/turns/turn-auth"},
+            "artifacts": {"response": "r.json", "chat": "c.json"},
+            "apply_eligibility": {
+                "applyable": True,
+                "reason": "applyable",
+                "message": "Apply allowed.",
+            },
+            "graph": graph,
+            "outcome": {"kind": "candidate"},
+            "change_details": {"summary": "Changed."},
+            "gates": {
+                "queue_validate_ok": {"ok": True, "reason": "ok"},
+                "canvas_apply_allowed": True,
+            },
+            "queue_allowed": True,
+        }
+
+        def _fake_run_executor(request, *, client_id=None):
+            durable_response = dict(common_durable)
+            durable_response["session_id"] = request.session_id or "sess-auth"
+            return ExecutorResult.success(
+                report=Report(
+                    plan=ClassifyDecision(route="revise", task="edit_graph"),
+                    implementation=ImplementationResult(
+                        graph=graph,
+                        message="Changed.",
+                        durable_response=durable_response,
+                    ),
+                ),
+                graph=graph,
+                reply="Changed.",
+            )
+
+        async def _fake_to_thread(fn, /, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        executor_core = importlib.import_module("vibecomfy.executor.core")
+        monkeypatch.setattr(executor_core, "run_executor", _fake_run_executor)
+        monkeypatch.setattr(routes.asyncio, "to_thread", _fake_to_thread)
+
+        class _Request:
+            def __init__(self, payload):
+                self._payload = payload
+                self.query = {}
+
+            async def json(self):
+                return self._payload
+
+        try:
+            routes.register_agent_edit_routes(
+                types.SimpleNamespace(routes=_Routes())
+            )
+
+            base_payload = {
+                "query": "edit graph",
+                "graph": graph,
+                "session_id": "sess-auth",
+                "client_id": "client-auth",
+            }
+
+            route_paths = [
+                "/vibecomfy/agent-executor",
+                "/vibecomfy/agent-edit",
+                "/agent/edit",
+            ]
+
+            bodies: dict[str, dict] = {}
+            for rp in route_paths:
+                assert ("POST", rp) in registered
+                resp = routes.asyncio.run(
+                    registered[("POST", rp)](_Request(dict(base_payload)))
+                )
+                assert resp["status"] == 200
+                bodies[rp] = resp["body"]
+
+            # Authority-bearing keys that must be identical across routes
+            authority_keys = [
+                "apply_eligible",
+                "apply_eligibility",
+                "outcome",
+                "gates",
+                "queue_allowed",
+            ]
+            baseline = bodies["/vibecomfy/agent-executor"]
+            for rp in ["/vibecomfy/agent-edit", "/agent/edit"]:
+                body = bodies[rp]
+                for key in authority_keys:
+                    baseline_val = baseline.get(key)
+                    body_val = body.get(key)
+                    assert body_val == baseline_val, (
+                        f"Authority field mismatch for key={key!r}: "
+                        f"/vibecomfy/agent-executor={baseline_val!r} "
+                        f"vs {rp}={body_val!r}"
+                    )
+
+            # All three routes must return identical route/reply as well
+            for rp in ["/vibecomfy/agent-edit", "/agent/edit"]:
+                assert bodies[rp]["route"] == baseline["route"]
+                assert bodies[rp]["reply"] == baseline["reply"]
+
+            # Legacy deprecation header on /agent/edit
+            legacy_resp = routes.asyncio.run(
+                registered[("POST", "/agent/edit")](
+                    _Request(dict(base_payload, **{"client_id": "client-auth-legacy"}))
+                )
+            )
+            assert legacy_resp["headers"].get("X-VibeComfy-Legacy-Route") == "true", (
+                "Legacy /agent/edit must carry X-VibeComfy-Legacy-Route deprecation header"
+            )
+
+        finally:
+            if real_aiohttp is not None:
+                sys.modules["aiohttp"] = real_aiohttp
+            else:
+                sys.modules.pop("aiohttp", None)
+
+    def test_legacy_route_authority_parity_after_wrapping(
+        self, monkeypatch,
+    ) -> None:
+        """After wrapping through the canonical executor pipeline,
+        /agent/edit must return authority fields identical to
+        /vibecomfy/agent-edit and /vibecomfy/agent-executor."""
+        monkeypatch.setenv("VIBECOMFY_HEADLESS", "1")
+        routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
+
+        registered: dict[tuple[str, str], Any] = {}
+
+        class _Routes:
+            def post(self, path):
+                def _decorator(fn):
+                    registered[("POST", path)] = fn
+                    return fn
+                return _decorator
+
+            def get(self, path):
+                def _decorator(fn):
+                    registered[("GET", path)] = fn
+                    return fn
+                return _decorator
+
+        real_aiohttp = sys.modules.get("aiohttp")
+        aiohttp_module = types.ModuleType("aiohttp")
+        aiohttp_module.web = types.SimpleNamespace(
+            json_response=lambda body, status=200, **kwargs: {
+                "status": status, "body": body, "headers": kwargs.get("headers", {}),
+            },
+        )
+        monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+
+        def _fake_run_executor(request, *, client_id=None):
+            graph = {"nodes": [{"id": 99, "type": "SaveImage"}], "links": []}
+            durable_response = {
+                "session_id": request.session_id or "sess-legacy",
+                "turn_id": "turn-legacy",
+                "baseline_graph_hash": "bl-legacy",
+                "submit_structural_graph_hash": "ss-legacy",
+                "candidate_graph_hash": "cg-legacy",
+                "candidate_structural_graph_hash": "cs-legacy",
+                "audit_ref": {"path": "sessions/sess-legacy/turns/turn-legacy"},
+                "artifacts": {"response": "r.json", "chat": "c.json"},
+                "apply_eligibility": {
+                    "applyable": False,
+                    "reason": "no_candidate",
+                    "message": "No candidate.",
+                },
+                "graph": graph,
+                "outcome": {"kind": "noop", "reason": "no_changes"},
+                "change_details": {},
+                "gates": {
+                    "queue_validate_ok": {"ok": False, "reason": "schema-less"},
+                    "canvas_apply_allowed": False,
+                },
+                "queue_allowed": False,
+            }
+            return ExecutorResult.success(
+                report=Report(
+                    plan=ClassifyDecision(route="revise", task="edit_graph"),
+                    implementation=ImplementationResult(
+                        graph=None,
+                        message="No changes.",
+                        durable_response=durable_response,
+                    ),
+                ),
+                graph=None,
+                reply="No changes.",
+            )
+
+        async def _fake_to_thread(fn, /, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        executor_core = importlib.import_module("vibecomfy.executor.core")
+        monkeypatch.setattr(executor_core, "run_executor", _fake_run_executor)
+        monkeypatch.setattr(routes.asyncio, "to_thread", _fake_to_thread)
+
+        class _Request:
+            def __init__(self, payload):
+                self._payload = payload
+                self.query = {}
+
+            async def json(self):
+                return self._payload
+
+        try:
+            routes.register_agent_edit_routes(
+                types.SimpleNamespace(routes=_Routes())
+            )
+
+            base_payload = {
+                "query": "legacy test",
+                "graph": {"nodes": [], "links": []},
+                "session_id": "sess-legacy",
+                "client_id": "client-legacy",
+            }
+
+            # Collect responses from all three routes
+            responses: dict[str, dict] = {}
+            for rp in ["/vibecomfy/agent-executor", "/vibecomfy/agent-edit", "/agent/edit"]:
+                resp = routes.asyncio.run(
+                    registered[("POST", rp)](_Request(dict(base_payload)))
+                )
+                assert resp["status"] == 200
+                responses[rp] = resp["body"]
+
+            # ── Authority parity across all three routes ──
+            authority_fields = [
+                "apply_eligible",
+                "apply_eligibility",
+                "outcome",
+                "queue_allowed",
+            ]
+            ref = responses["/vibecomfy/agent-executor"]
+            for rp in ["/vibecomfy/agent-edit", "/agent/edit"]:
+                body = responses[rp]
+                for field in authority_fields:
+                    assert body.get(field) == ref.get(field), (
+                        f"Legacy parity violation: {rp}.{field}={body.get(field)!r} "
+                        f"!= /vibecomfy/agent-executor.{field}={ref.get(field)!r}"
+                    )
+
+            # ── Legacy marker header ──
+            legacy_resp2 = routes.asyncio.run(
+                registered[("POST", "/agent/edit")](
+                    _Request(dict(base_payload))
+                )
+            )
+            assert (
+                legacy_resp2["headers"].get("X-VibeComfy-Legacy-Route") == "true"
+            ), "Legacy route must include X-VibeComfy-Legacy-Route: true"
+
+            # ── Legacy route must NOT synthesize authority fields ──
+            legacy_body = responses["/agent/edit"]
+            # After T2, authority fields are not synthesized
+            for forbidden_synthesis in ("canvas_apply_allowed", "apply_allowed"):
+                # These may be absent or present from durable, but must not
+                # be synthesized to a different value than the canonical routes
+                assert legacy_body.get(forbidden_synthesis) == ref.get(forbidden_synthesis), (
+                    f"Legacy /agent/edit.{forbidden_synthesis} "
+                    f"({legacy_body.get(forbidden_synthesis)!r}) diverges from "
+                    f"/vibecomfy/agent-executor ({ref.get(forbidden_synthesis)!r})"
+                )
+
+        finally:
+            if real_aiohttp is not None:
+                sys.modules["aiohttp"] = real_aiohttp
+            else:
+                sys.modules.pop("aiohttp", None)

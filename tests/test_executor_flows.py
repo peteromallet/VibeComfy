@@ -1736,6 +1736,38 @@ class TestExecutorFailureHandling:
         assert result.ok is False
         assert result.failure_stage == "implement"
 
+    @mock.patch("vibecomfy.executor.core.run_classify_turn", side_effect=_fake_classify_simple_edit)
+    @mock.patch("vibecomfy.executor.core.run_reply_turn")
+    @mock.patch("vibecomfy.executor.core.handle_agent_edit", side_effect=_fake_handle_agent_edit)
+    def test_reply_failure_preserves_durable_candidate(
+        self, mock_edit, mock_reply, mock_classify, profile_dir: Path
+    ) -> None:
+        """When reply narration fails after durable edit work succeeds,
+        the candidate, graph, and implementation result are preserved.
+        Narration failure is presentation-only (T14)."""
+        from vibecomfy.comfy_nodes.agent.provider import ProviderError
+
+        mock_reply.side_effect = ProviderError("Reply narration failed")
+        input_graph = {"nodes": [{"id": 1, "type": "VAEDecode"}]}
+        request = ExecutorRequest(
+            query="add a KSampler node",
+            graph=input_graph,
+            profile="default",
+        )
+        result = run_executor(request)
+
+        # Durable edit work must be preserved — ok=True, not a failure.
+        assert result.ok is True
+        # Graph must be present (the edit succeeded).
+        assert result.graph is not None
+        assert len(result.graph["nodes"]) == 2
+        # Reply must be a deterministic fallback (implementation message).
+        assert result.reply is not None
+        assert len(result.reply) > 0
+        # Implementation result must be preserved in the report.
+        assert result.report.implementation is not None
+        assert result.report.implementation.durable_response is not None
+
 # ── Route gate flow tests (T5) ───────────────────────────────────────────────
 # Verify that explicit routes only invoke their allowed phases.
 

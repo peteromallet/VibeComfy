@@ -381,153 +381,168 @@ def _narrate_final_message(
     narrator_request.json and narrator_response.json.  All artifact writes
     are best-effort (failures logged and swallowed).
     """
-    # ── Assemble context ──────────────────────────────────────────────
-    narrative_context = _assemble_narrative_context(
-        state,
-        context,
-        outcome=outcome,
-        failure=failure,
-        public_outcome=public_outcome,
-        apply_eligibility=apply_eligibility,
-    )
+    try:
+        # ── Assemble context ──────────────────────────────────────────
+        narrative_context = _assemble_narrative_context(
+            state,
+            context,
+            outcome=outcome,
+            failure=failure,
+            public_outcome=public_outcome,
+            apply_eligibility=apply_eligibility,
+        )
 
-    # ── SD1: Fast-path for clean simple successes ─────────────────────
-    if _narrator_fast_path_applies(narrative_context):
-        message = _deterministic_narrative_fallback(
+        # ── SD1: Fast-path for clean simple successes ─────────────────
+        if _narrator_fast_path_applies(narrative_context):
+            message = _deterministic_narrative_fallback(
+                state,
+                outcome=outcome,
+                failure=failure,
+                narrative_context=narrative_context,
+            )
+            validation = _guard_narrative_message(message, narrative_context)
+            _write_narrative_artifacts(state, narrative_context, validation)
+
+            if validation.get("ok"):
+                return message
+
+            # Guard rejected fast-path message (should be extremely rare).
+            # Fall through to raw fallback without context.
+            LOGGER.warning(
+                "Narrator fast-path message failed guard: %s",
+                validation.get("issues", []),
+            )
+            raw_fallback = _deterministic_narrative_fallback(
+                state,
+                outcome=outcome,
+                failure=failure,
+                narrative_context=None,
+                fallback_reason="guard_rejected_fast_path",
+            )
+            # Write a secondary validation artifact for the raw fallback.
+            fallback_validation = _guard_narrative_message(
+                raw_fallback,
+                narrative_context,
+            )
+            _write_narrative_artifacts(
+                state,
+                narrative_context,
+                fallback_validation,
+            )
+            return raw_fallback
+
+        # ── SD2/SD3: LLM narrator path ───────────────────────────────
+
+        # Resolve route/model from env vars with defaults.
+        route = _narrator_route() or _NARRATOR_DEFAULT_ROUTE
+        model = _narrator_model() or _NARRATOR_DEFAULT_MODEL
+
+        # Pre-compute the deterministic fallback in case the LLM path fails.
+        fallback_message = _deterministic_narrative_fallback(
             state,
             outcome=outcome,
             failure=failure,
             narrative_context=narrative_context,
         )
-        validation = _guard_narrative_message(message, narrative_context)
-        _write_narrative_artifacts(state, narrative_context, validation)
 
-        if validation.get("ok"):
-            return message
+        llm_request: list[dict[str, str]] | None = None
+        llm_response: dict[str, Any] | None = None
+        llm_message: str | None = None
+        fallback_reason: str | None = None
 
-        # Guard rejected fast-path message (should be extremely rare).
-        # Fall through to raw fallback without context.
+        try:
+            raw_executor_message = " ".join((state.raw_executor_message or "").split())
+            llm_request = _build_narrator_messages(
+                narrative_context,
+                raw_executor_message=raw_executor_message,
+                fallback_message=fallback_message,
+            )
+            llm_message, llm_response = _call_narrator_llm(
+                narrative_context,
+                llm_request,
+                route=route,
+                model=model,
+            )
+        except ProviderError as exc:
+            LOGGER.warning("Narrator provider error (%s), falling back: %s", type(exc).__name__, exc)
+            fallback_reason = "provider_failure"
+        except MalformedModelJSON as exc:
+            LOGGER.warning("Narrator malformed response, falling back: %s", exc)
+            fallback_reason = "malformed_response"
+        except TimeoutError:
+            LOGGER.warning("Narrator LLM call timed out, falling back.")
+            fallback_reason = "provider_failure"
+        except Exception as exc:
+            LOGGER.warning(
+                "Narrator LLM unexpected error (%s), falling back: %s",
+                type(exc).__name__,
+                exc,
+            )
+            fallback_reason = "provider_failure"
+
+        # Guard LLM output when available.
+        validation: dict[str, Any] = {"ok": False, "message": "", "issues": ["llm_not_called"]}
+        if llm_message is not None and fallback_reason is None:
+            validation = _guard_narrative_message(llm_message, narrative_context)
+            if validation.get("ok"):
+                _write_narrative_artifacts(
+                    state,
+                    narrative_context,
+                    validation,
+                    request_messages=llm_request,
+                    llm_response=llm_response,
+                )
+                return llm_message
+
+            # LLM message failed guard checks — fall back.
+            LOGGER.warning(
+                "Narrator LLM message failed guard checks: %s",
+                validation.get("issues", []),
+            )
+            fallback_reason = "refused_narrative"
+        elif llm_message is not None:
+            # fallback_reason is set from an exception above.
+            validation = _guard_narrative_message(llm_message, narrative_context)
+
+        # ── Fallback: use deterministic message ───────────────────────
+        fallback_validation = _guard_narrative_message(fallback_message, narrative_context)
+
+        _write_narrative_artifacts(
+            state,
+            narrative_context,
+            fallback_validation,
+            request_messages=llm_request,
+            llm_response=llm_response,
+        )
+
+        if fallback_validation.get("ok"):
+            return fallback_message
+
+        # Guard rejected even the fallback — return raw fallback without context.
         LOGGER.warning(
-            "Narrator fast-path message failed guard: %s",
-            validation.get("issues", []),
+            "Narrator fallback message also failed guard: %s",
+            fallback_validation.get("issues", []),
         )
         raw_fallback = _deterministic_narrative_fallback(
             state,
             outcome=outcome,
             failure=failure,
             narrative_context=None,
-            fallback_reason="guard_rejected_fast_path",
-        )
-        # Write a secondary validation artifact for the raw fallback.
-        fallback_validation = _guard_narrative_message(
-            raw_fallback,
-            narrative_context,
-        )
-        _write_narrative_artifacts(
-            state,
-            narrative_context,
-            fallback_validation,
+            fallback_reason="guard_rejected_fallback",
         )
         return raw_fallback
 
-    # ── SD2/SD3: LLM narrator path ───────────────────────────────────
-
-    # Resolve route/model from env vars with defaults.
-    route = _narrator_route() or _NARRATOR_DEFAULT_ROUTE
-    model = _narrator_model() or _NARRATOR_DEFAULT_MODEL
-
-    # Pre-compute the deterministic fallback in case the LLM path fails.
-    fallback_message = _deterministic_narrative_fallback(
-        state,
-        outcome=outcome,
-        failure=failure,
-        narrative_context=narrative_context,
-    )
-
-    llm_request: list[dict[str, str]] | None = None
-    llm_response: dict[str, Any] | None = None
-    llm_message: str | None = None
-    fallback_reason: str | None = None
-
-    try:
-        raw_executor_message = " ".join((state.raw_executor_message or "").split())
-        llm_request = _build_narrator_messages(
-            narrative_context,
-            raw_executor_message=raw_executor_message,
-            fallback_message=fallback_message,
-        )
-        llm_message, llm_response = _call_narrator_llm(
-            narrative_context,
-            llm_request,
-            route=route,
-            model=model,
-        )
-    except ProviderError as exc:
-        LOGGER.warning("Narrator provider error (%s), falling back: %s", type(exc).__name__, exc)
-        fallback_reason = "provider_failure"
-    except MalformedModelJSON as exc:
-        LOGGER.warning("Narrator malformed response, falling back: %s", exc)
-        fallback_reason = "malformed_response"
-    except TimeoutError:
-        LOGGER.warning("Narrator LLM call timed out, falling back.")
-        fallback_reason = "provider_failure"
     except Exception as exc:
         LOGGER.warning(
-            "Narrator LLM unexpected error (%s), falling back: %s",
+            "Narrator unrecoverable error (%s), returning raw fallback: %s",
             type(exc).__name__,
             exc,
         )
-        fallback_reason = "provider_failure"
-
-    # Guard LLM output when available.
-    validation: dict[str, Any] = {"ok": False, "message": "", "issues": ["llm_not_called"]}
-    if llm_message is not None and fallback_reason is None:
-        validation = _guard_narrative_message(llm_message, narrative_context)
-        if validation.get("ok"):
-            _write_narrative_artifacts(
-                state,
-                narrative_context,
-                validation,
-                request_messages=llm_request,
-                llm_response=llm_response,
-            )
-            return llm_message
-
-        # LLM message failed guard checks — fall back.
-        LOGGER.warning(
-            "Narrator LLM message failed guard checks: %s",
-            validation.get("issues", []),
+        return _deterministic_narrative_fallback(
+            state,
+            outcome=outcome,
+            failure=failure,
+            narrative_context=None,
+            fallback_reason="narrator_unrecoverable_error",
         )
-        fallback_reason = "refused_narrative"
-    elif llm_message is not None:
-        # fallback_reason is set from an exception above.
-        validation = _guard_narrative_message(llm_message, narrative_context)
-
-    # ── Fallback: use deterministic message ───────────────────────────
-    fallback_validation = _guard_narrative_message(fallback_message, narrative_context)
-
-    _write_narrative_artifacts(
-        state,
-        narrative_context,
-        fallback_validation,
-        request_messages=llm_request,
-        llm_response=llm_response,
-    )
-
-    if fallback_validation.get("ok"):
-        return fallback_message
-
-    # Guard rejected even the fallback — return raw fallback without context.
-    LOGGER.warning(
-        "Narrator fallback message also failed guard: %s",
-        fallback_validation.get("issues", []),
-    )
-    raw_fallback = _deterministic_narrative_fallback(
-        state,
-        outcome=outcome,
-        failure=failure,
-        narrative_context=None,
-        fallback_reason="guard_rejected_fallback",
-    )
-    return raw_fallback
 '''

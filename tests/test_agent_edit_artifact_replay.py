@@ -700,3 +700,507 @@ class TestPreviewApplyParity:
         ops_via_envelope = normalize_delta_envelope(envelope).ops
         ops_via_shortcut = normalize_delta_ops(envelope)
         assert ops_via_envelope == ops_via_shortcut
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5. Delta evidence replay validation (fail-closed for Apply)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDeltaEvidenceReplayValidation:
+    """Verify that malformed, corrupted, truncated, absent, or legacy
+    whole-graph delta evidence is rejected before widening into Apply,
+    and that valid cumulative delta envelopes pass validation."""
+
+    # ── Valid cumulative delta ───────────────────────────────────────────────
+
+    def test_valid_cumulative_delta_passes_validation(self) -> None:
+        """A valid canonical V2 envelope passes apply-delta-evidence validation."""
+        from vibecomfy.porting.edit.ops import validate_apply_delta_evidence
+
+        envelope = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+            _make_set_mode_dict("9", 4),
+        ])
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is True
+        assert code is None
+        assert detail is None
+
+    def test_valid_empty_ops_passes_validation(self) -> None:
+        """An envelope with an empty ops list is structurally valid."""
+        from vibecomfy.porting.edit.ops import validate_apply_delta_evidence
+
+        envelope = _make_canonical_envelope([])
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is True
+        assert code is None
+
+    def test_valid_with_add_node_identity_passes(self) -> None:
+        """An envelope with a fully-identified add_node passes validation."""
+        from vibecomfy.porting.edit.ops import validate_apply_delta_evidence
+
+        envelope = _make_canonical_envelope([
+            _make_add_node_dict(
+                uid="n1", node_id="node_1",
+                class_type="SaveImage",
+                inputs={"images": ["", "8", "IMAGE"]},
+            ),
+        ])
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is True
+        assert code is None
+
+    # ── Malformed envelope ───────────────────────────────────────────────────
+
+    def test_wrong_schema_version_blocks_apply(self) -> None:
+        """Wrong schema_version is rejected as malformed_delta."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_MALFORMED,
+            validate_apply_delta_evidence,
+        )
+
+        envelope = {"schema_version": "1.0.0", "ops": []}
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_MALFORMED
+        assert detail is not None
+        assert "schema_version" in str(detail)
+
+    def test_missing_schema_version_blocks_apply(self) -> None:
+        """Missing schema_version with ops present is rejected as legacy_delta_shape."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+            validate_apply_delta_evidence,
+        )
+
+        envelope = {"ops": []}
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_LEGACY_SHAPE
+        assert "schema_version" in str(detail)
+
+    def test_extra_keys_in_envelope_block_apply(self) -> None:
+        """Extra keys beyond canonical set are rejected."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_MALFORMED,
+            validate_apply_delta_evidence,
+        )
+
+        envelope = {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [],
+            "diagnostics": [],
+        }
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is False
+        assert code in (DELTA_DIAGNOSTIC_MALFORMED, DELTA_DIAGNOSTIC_LEGACY_SHAPE)
+
+    # ── Missing ops ──────────────────────────────────────────────────────────
+
+    def test_missing_ops_field_blocks_apply(self) -> None:
+        """Missing `ops` field is rejected as truncated_delta."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_TRUNCATED,
+            validate_apply_delta_evidence,
+        )
+
+        envelope = {"schema_version": DELTA_SCHEMA_VERSION}
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_TRUNCATED
+        assert "ops" in str(detail)
+
+    def test_ops_not_a_list_blocks_apply(self) -> None:
+        """`ops` field that is not a list is rejected as truncated."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_TRUNCATED,
+            validate_apply_delta_evidence,
+        )
+
+        envelope = {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": "not-a-list",
+        }
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_TRUNCATED
+
+    # ── Replay mismatch ──────────────────────────────────────────────────────
+
+    def test_replay_mismatch_different_ops_detected(self) -> None:
+        """Two envelopes with different ops report replay_mismatch."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_REPLAY_MISMATCH,
+            validate_delta_replay_equality,
+        )
+
+        original = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+        ])
+        replay = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 99),
+        ])
+        ok, code, detail = validate_delta_replay_equality(original, replay)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_REPLAY_MISMATCH
+
+    def test_replay_mismatch_original_absent_replay_present(self) -> None:
+        """Original absent but replay present is a mismatch."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_REPLAY_MISMATCH,
+            validate_delta_replay_equality,
+        )
+
+        replay = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+        ])
+        ok, code, detail = validate_delta_replay_equality(None, replay)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_REPLAY_MISMATCH
+
+    def test_replay_mismatch_replay_absent_original_present(self) -> None:
+        """Replay absent but original present is a mismatch."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_REPLAY_MISMATCH,
+            validate_delta_replay_equality,
+        )
+
+        original = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+        ])
+        ok, code, detail = validate_delta_replay_equality(original, None)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_REPLAY_MISMATCH
+
+    def test_replay_match_identical_envelopes(self) -> None:
+        """Identical envelopes report equality."""
+        from vibecomfy.porting.edit.ops import validate_delta_replay_equality
+
+        envelope = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+            _make_add_node_dict(
+                uid="n1", node_id="node_1",
+                class_type="SaveImage",
+                inputs={"images": ["", "8", "IMAGE"]},
+            ),
+        ])
+        ok, code, detail = validate_delta_replay_equality(envelope, envelope)
+        assert ok is True
+        assert code is None
+
+    def test_replay_match_both_none(self) -> None:
+        """Both None is considered equal."""
+        from vibecomfy.porting.edit.ops import validate_delta_replay_equality
+
+        ok, code, detail = validate_delta_replay_equality(None, None)
+        assert ok is True
+        assert code is None
+
+    def test_replay_mismatch_corrupted_original(self) -> None:
+        """Corrupted original envelope reports corrupted_delta."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_CORRUPTED,
+            validate_delta_replay_equality,
+        )
+
+        original = {"schema_version": DELTA_SCHEMA_VERSION, "ops": [
+            {"op": "add_node", "scope_path": "", "class_type": "SaveImage",
+             "fields": {}, "inputs": {}}  # missing uid/node_id
+        ]}
+        replay = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+        ])
+        ok, code, detail = validate_delta_replay_equality(original, replay)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_CORRUPTED
+        assert detail is not None
+        assert detail.get("side") == "original"
+
+    # ── Corrupted ops ────────────────────────────────────────────────────────
+
+    def test_corrupted_op_in_envelope_blocks_apply(self) -> None:
+        """An envelope with a corrupted op (add_node without uid) fails validation."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_MALFORMED,
+            validate_apply_delta_evidence,
+        )
+
+        envelope = {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [
+                {"op": "add_node", "scope_path": "", "class_type": "SaveImage",
+                 "fields": {}, "inputs": {}, "node_id": "42"},  # missing uid
+            ],
+        }
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_MALFORMED
+
+    def test_unknown_op_blocks_apply(self) -> None:
+        """An unknown op type fails validation."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_MALFORMED,
+            validate_apply_delta_evidence,
+        )
+
+        envelope = _make_canonical_envelope([
+            {"op": "fake_operation", "x": 1},
+        ])
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_MALFORMED
+
+    # ── Absent delta ─────────────────────────────────────────────────────────
+
+    def test_absent_delta_blocks_apply_when_not_allowed(self) -> None:
+        """Absent delta evidence blocks Apply when allow_absent=False."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_ABSENT,
+            validate_apply_delta_evidence,
+        )
+
+        ok, code, detail = validate_apply_delta_evidence(None, allow_absent=False)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_ABSENT
+        assert detail is not None
+
+    def test_absent_delta_allowed_when_allow_absent(self) -> None:
+        """Absent delta evidence is valid when allow_absent=True."""
+        from vibecomfy.porting.edit.ops import validate_apply_delta_evidence
+
+        ok, code, detail = validate_apply_delta_evidence(None, allow_absent=True)
+        assert ok is True
+        assert code is None
+        assert detail is None
+
+    # ── Legacy whole-graph shapes ────────────────────────────────────────────
+
+    def test_legacy_delta_ops_wrapper_blocks_apply(self) -> None:
+        """Legacy whole-graph delta_ops wrapper is rejected."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+            validate_apply_delta_evidence,
+        )
+
+        legacy = {
+            "delta_ops": [
+                {"op": "set_node_field", "target": ["", "3", "seed"], "value": 42},
+            ],
+            "diagnostics": [],
+        }
+        ok, code, detail = validate_apply_delta_evidence(legacy)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_LEGACY_SHAPE
+
+    def test_legacy_ops_without_schema_version_blocks_apply(self) -> None:
+        """Legacy `ops` field without `schema_version` is rejected."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+            validate_apply_delta_evidence,
+        )
+
+        legacy = {
+            "ops": [
+                {"op": "set_node_field", "target": ["", "3", "seed"], "value": 42},
+            ],
+        }
+        ok, code, detail = validate_apply_delta_evidence(legacy)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_LEGACY_SHAPE
+
+    def test_legacy_wrapped_metadata_in_envelope_blocks_apply(self) -> None:
+        """Envelope with legacy wrapped metadata keys is rejected."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_LEGACY_SHAPE,
+            validate_apply_delta_evidence,
+        )
+
+        legacy = {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [],
+            "automatic_link_removals": [],
+        }
+        ok, code, detail = validate_apply_delta_evidence(legacy)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_LEGACY_SHAPE
+
+    # ── Non-dict envelope ────────────────────────────────────────────────────
+
+    def test_non_dict_envelope_blocks_apply(self) -> None:
+        """A non-dict payload is rejected as corrupted."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_CORRUPTED,
+            validate_apply_delta_evidence,
+        )
+
+        ok, code, detail = validate_apply_delta_evidence("not-an-envelope")
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_CORRUPTED
+
+    # ── Structural validation (lightweight, no full parse) ───────────────────
+
+    def test_structural_validation_accepts_valid_envelope(self) -> None:
+        """validate_delta_envelope_structure accepts valid envelope."""
+        from vibecomfy.porting.edit.ops import validate_delta_envelope_structure
+
+        envelope = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+        ])
+        ok, code, detail = validate_delta_envelope_structure(envelope)
+        assert ok is True
+        assert code is None
+
+    def test_structural_validation_rejects_none(self) -> None:
+        """validate_delta_envelope_structure rejects None."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_ABSENT,
+            validate_delta_envelope_structure,
+        )
+
+        ok, code, detail = validate_delta_envelope_structure(None)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_ABSENT
+
+    def test_structural_validation_accepts_canonical_delta_envelope_instance(self) -> None:
+        """validate_delta_envelope_structure accepts CanonicalDeltaEnvelope."""
+        from vibecomfy.porting.edit.ops import (
+            CanonicalDeltaEnvelope,
+            validate_delta_envelope_structure,
+        )
+        from vibecomfy.porting.edit.ops import parse_edit_op
+
+        op = parse_edit_op(_make_set_node_field_dict("3", "seed", 42))
+        env = CanonicalDeltaEnvelope(ops=(op,))
+        ok, code, detail = validate_delta_envelope_structure(env)
+        assert ok is True
+        assert code is None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6. T15: Composed replay / route idempotency cross-verification
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCrossRouteReplayIdempotency:
+    """Verify that delta evidence replay and idempotency guarantees compose
+    correctly: valid cumulative delta passes, mismatches block, and
+    duplicate requests with identical idempotency preserve work-at-most-once."""
+
+    def test_valid_cumulative_delta_survives_replay_roundtrip(self) -> None:
+        """A valid cumulative delta envelope should survive a full
+        canonicalize→serialize→re-parse roundtrip with identity."""
+        from vibecomfy.porting.edit.ops import (
+            validate_apply_delta_evidence,
+            validate_delta_replay_equality,
+        )
+
+        ops = [
+            _make_set_node_field_dict("3", "seed", 42),
+            _make_add_node_dict(
+                uid="n1",
+                node_id="node_1",
+                class_type="SaveImage",
+                inputs={"images": ["", "8", "IMAGE"]},
+            ),
+            _make_upsert_link_dict("n1", "IMAGE", "9", "images"),
+        ]
+        envelope = _make_canonical_envelope(ops)
+
+        # Validate the original
+        ok, code, detail = validate_apply_delta_evidence(envelope)
+        assert ok is True, f"Original failed validation: {code} {detail}"
+
+        # Normalize and re-serialize
+        result = normalize_delta_envelope(envelope)
+        re_serialized = result.to_dict()
+
+        # Validate the re-serialized
+        ok2, code2, detail2 = validate_apply_delta_evidence(re_serialized)
+        assert ok2 is True, f"Re-serialized failed validation: {code2} {detail2}"
+
+        # Replay equality between original and re-serialized
+        ok3, code3, detail3 = validate_delta_replay_equality(
+            envelope, re_serialized
+        )
+        assert ok3 is True, (
+            f"Replay mismatch after re-serialize: {code3} {detail3}"
+        )
+
+    def test_cumulative_delta_mismatch_blocked_at_replay(self) -> None:
+        """A cumulative delta that differs from the original must be
+        blocked at replay verification with replay_mismatch code."""
+        from vibecomfy.porting.edit.ops import (
+            DELTA_DIAGNOSTIC_REPLAY_MISMATCH,
+            validate_delta_replay_equality,
+        )
+
+        original = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+            _make_set_mode_dict("9", 4),
+        ])
+        different = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 99),
+            _make_set_mode_dict("9", 0),
+        ])
+        ok, code, detail = validate_delta_replay_equality(original, different)
+        assert ok is False
+        assert code == DELTA_DIAGNOSTIC_REPLAY_MISMATCH
+
+    def test_empty_delta_passes_replay_with_identity(self) -> None:
+        """An empty ops list delta must pass both validation and replay equality."""
+        from vibecomfy.porting.edit.ops import (
+            validate_apply_delta_evidence,
+            validate_delta_replay_equality,
+        )
+
+        empty = _make_canonical_envelope([])
+        ok, code, detail = validate_apply_delta_evidence(empty)
+        assert ok is True
+
+        ok2, code2, detail2 = validate_delta_replay_equality(empty, empty)
+        assert ok2 is True
+
+    def test_replay_failure_preserves_diagnostic_detail(self) -> None:
+        """When replay equality fails, the diagnostic detail must include
+        information about which side diverged."""
+        from vibecomfy.porting.edit.ops import validate_delta_replay_equality
+
+        original = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+        ])
+        # Corrupted original: missing uid on add_node
+        corrupted = {
+            "schema_version": DELTA_SCHEMA_VERSION,
+            "ops": [
+                {
+                    "op": "add_node",
+                    "scope_path": "",
+                    "class_type": "SaveImage",
+                    "fields": {},
+                    "inputs": {},
+                    "node_id": "42",
+                }
+            ],
+        }
+        ok, code, detail = validate_delta_replay_equality(corrupted, original)
+        assert ok is False
+        assert detail is not None
+        assert isinstance(detail, dict)
+        # The corrupted side should be identified
+        assert detail.get("side") is not None
+
+    def test_replay_equality_preserves_schema_version_mismatch(self) -> None:
+        """Two envelopes that differ only in schema_version must fail replay."""
+        from vibecomfy.porting.edit.ops import validate_delta_replay_equality
+
+        v2 = _make_canonical_envelope([
+            _make_set_node_field_dict("3", "seed", 42),
+        ])
+        # Schemaless ops (legacy shape)
+        legacy = {
+            "ops": [
+                {"op": "set_node_field", "target": ["", "3", "seed"], "value": 42},
+            ],
+        }
+        ok, code, detail = validate_delta_replay_equality(v2, legacy)
+        assert ok is False
