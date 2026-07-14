@@ -112,3 +112,106 @@ def test_routes_executor_serializer_matches_extracted_helper(monkeypatch) -> Non
     assert _canonical_json(routes._serialize_executor_result(payload)) == _canonical_json(
         serialize_executor_result(payload)
     )
+
+
+# ── Characterization: authority leak via non-durable executor results ──────
+
+AUTHORITY_SYNTHESIS_KEYS = frozenset(
+    {
+        "apply_eligibility",
+        "eligibility",
+        "apply_allowed",
+        "canvas_apply_allowed",
+        "queue_allowed",
+    }
+)
+
+
+def test_non_durable_executor_result_never_synthesizes_authority_fields() -> None:
+    """Prove that executor compatibility does NOT mint authority fields.
+
+    A non-durable executor result (no ``outcome``, ``apply_eligibility``,
+    ``eligibility``, or durable ``graph``) arrives with ``apply_eligible=True``
+    and a ``candidate`` graph.  The serializer may add presentation aliases
+    (``message``, ``outcome.kind``) but MUST NOT invent authority claims
+    like ``apply_allowed`` or ``canvas_apply_allowed`` — those are the edit
+    engine's responsibility.
+    """
+    non_durable_payload: dict = {
+        "ok": True,
+        "route": "edit",
+        "reply": "Here is the edit for you.",
+        "candidate": {
+            "graph": {"nodes": [{"id": 1}], "links": []},
+        },
+        "apply_eligible": True,
+    }
+
+    serialized = serialize_executor_result(non_durable_payload)
+
+    leaked = AUTHORITY_SYNTHESIS_KEYS & serialized.keys()
+    assert not leaked, (
+        f"Non-durable executor result leaked authority fields: {sorted(leaked)}. "
+        f"Full serialized keys: {sorted(serialized.keys())}"
+    )
+
+
+def test_non_durable_edit_result_preserves_presentation_aliases_only() -> None:
+    """Non-durable edit results keep message/graph_unchanged but no authority."""
+    non_durable_payload: dict = {
+        "ok": True,
+        "route": "edit",
+        "reply": "Edited the seed value.",
+        "candidate": {
+            "graph": {"nodes": [{"id": 9}], "links": []},
+        },
+        "apply_eligible": True,
+    }
+
+    serialized = serialize_executor_result(non_durable_payload)
+
+    # Presentation aliases are legitimate compatibility bridges.
+    assert isinstance(serialized.get("message"), str)
+    assert "message" in serialized
+    assert "graph_unchanged" in serialized
+
+    # Authority fields must not appear.
+    assert "apply_eligibility" not in serialized
+    assert "eligibility" not in serialized
+    assert "apply_allowed" not in serialized
+    assert "canvas_apply_allowed" not in serialized
+    assert "queue_allowed" not in serialized
+
+
+def test_non_durable_clarify_result_never_synthesizes_authority_fields() -> None:
+    """Clarify routes also suppress authority synthesis from non-durable data."""
+    non_durable_payload: dict = {
+        "ok": True,
+        "route": "clarify",
+        "reply": "Which model should I use?",
+        "candidate": {"graph": {"nodes": []}},
+        "apply_eligible": True,
+    }
+
+    serialized = serialize_executor_result(non_durable_payload)
+
+    leaked = AUTHORITY_SYNTHESIS_KEYS & serialized.keys()
+    assert not leaked, (
+        f"Non-durable clarify result leaked authority fields: {sorted(leaked)}"
+    )
+
+
+def test_non_durable_respond_result_never_synthesizes_authority_fields() -> None:
+    """Respond routes also suppress authority synthesis from non-durable data."""
+    non_durable_payload: dict = {
+        "ok": True,
+        "route": "respond",
+        "reply": "Nothing to change right now.",
+    }
+
+    serialized = serialize_executor_result(non_durable_payload)
+
+    leaked = AUTHORITY_SYNTHESIS_KEYS & serialized.keys()
+    assert not leaked, (
+        f"Non-durable respond result leaked authority fields: {sorted(leaked)}"
+    )

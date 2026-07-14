@@ -426,6 +426,90 @@ def test_turn_context_preserves_protocol_identity_fields() -> None:
     assert context.gate_snapshot() == {name: False for name in DEFAULT_GATE_NAMES}
 
 
+# ── Characterization: absent plan_validate_ok must fail closed ────────────
+
+
+def test_rehydrated_turn_context_without_plan_validate_ok_blocks_apply() -> None:
+    """Rehydrated TurnContext missing ``plan_validate_ok`` must block Apply.
+
+    When a ``TurnContext`` is rebuilt from durable storage (rehydrated) and the
+    serialized gate set omits ``plan_validate_ok``, the context MUST NOT
+    silently default the gate to passing.  ``canvas_apply_allowed`` requires
+    *every* gate in ``CANVAS_APPLY_GATE_NAMES`` to be ``True``, so a missing
+    ``plan_validate_ok`` must behave as ``False`` — fail-closed.
+
+    The existing ``__post_init__`` synthesizes ``plan_validate_ok=True`` with
+    evidence ``legacy_no_execution_plan`` when the gate is absent from a
+    non-empty ``gate_results`` dict.  This test documents that behaviour as a
+    leak: Apply should be **blocked** until the plan validator explicitly
+    sets the gate.
+    """
+    # All canvas-apply gates *except* plan_validate_ok are explicitly True.
+    rehydrated_gates: dict[str, bool] = {
+        name: True
+        for name in CANVAS_APPLY_GATE_NAMES
+        if name != PLAN_VALIDATE_GATE_NAME
+    }
+    # Ensure the test precondition is correct: plan_validate_ok is absent.
+    assert PLAN_VALIDATE_GATE_NAME not in rehydrated_gates
+
+    context = TurnContext(
+        session_id="s1",
+        turn_id="0023",
+        gate_results=rehydrated_gates,  # type: ignore[arg-type]
+    )
+
+    # The gate snapshot MUST include plan_validate_ok (it is a DEFAULT_GATE).
+    assert PLAN_VALIDATE_GATE_NAME in context.gate_snapshot()
+
+    # Characterisation: missing plan_validate_ok means Apply is blocked.
+    # The current code synthesizes ok=True, making this assertion fail.
+    assert context.canvas_apply_allowed is False, (
+        f"plan_validate_ok gate={context.gate_snapshot()[PLAN_VALIDATE_GATE_NAME]}, "
+        f"but canvas_apply_allowed should be False when plan_validate_ok is absent "
+        f"from rehydrated gates.  Evidence on plan_validate_ok: "
+        f"{context.gate_results[PLAN_VALIDATE_GATE_NAME].evidence}"
+    )
+
+    # apply_allowed delegates to derive_apply_eligibility which
+    # checks canvas_apply_allowed, so it should also be blocked.
+    assert context.apply_allowed is False
+
+
+def test_rehydrated_turn_context_absent_plan_shows_failing_evidence() -> None:
+    """The evidence on a rehydrated absent-plan gate must indicate failure."""
+    rehydrated_gates: dict[str, bool] = {
+        name: True
+        for name in CANVAS_APPLY_GATE_NAMES
+        if name != PLAN_VALIDATE_GATE_NAME
+    }
+
+    context = TurnContext(
+        session_id="s1",
+        turn_id="0024",
+        gate_results=rehydrated_gates,  # type: ignore[arg-type]
+    )
+
+    plan_gate = context.gate_results[PLAN_VALIDATE_GATE_NAME]
+    # The gate must be False (fail-closed) when absent from rehydrated data.
+    assert plan_gate.ok is False, (
+        f"plan_validate_ok should be False when absent from rehydrated gates. "
+        f"Got ok={plan_gate.ok} with evidence={plan_gate.evidence}"
+    )
+    # Evidence should clearly state the plan is missing, not that the
+    # absence is acceptable.
+    evidence = dict(plan_gate.evidence)
+    assert evidence.get("stage") == "rehydrate", (
+        f"Expected rehydrate stage in evidence, got {evidence}"
+    )
+    # The reason must not be 'legacy_no_execution_plan' which is a
+    # fail-open classification.
+    assert evidence.get("reason") != "legacy_no_execution_plan", (
+        "Absent plan_validate_ok must not be classified as "
+        f"'legacy_no_execution_plan' (fail-open). Got: {evidence}"
+    )
+
+
 def test_scan_code_mapping_is_exact_and_closed() -> None:
     assert dict(SCAN_CODE_FAILURE_KIND) == {
         "syntax_error": FailureKind.SYNTAX_ERROR,

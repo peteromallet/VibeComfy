@@ -1,0 +1,542 @@
+"""Authority receipts and replay verification for applyable agent-edit turns.
+
+This module implements the core Sprint 1 replay authority path.  Before any
+response becomes applyable, the server replays the immutable submit graph plus
+the cumulative normalized V2 delta envelope through ``apply_delta`` and requires
+exact equality with the persisted candidate.  The receipt (including all hashes
+and the replay verdict) is persisted under a per-turn immutable ``authority/``
+namespace so that redacted audit views never become replay authority.
+
+Fail-closed contract:
+    * If replay cannot be performed (missing submit graph, missing delta,
+      corrupted candidate, apply_delta error), the receipt records
+      ``replay_ok=False`` and the response must be made non-applyable.
+    * If replay succeeds but the recomputed candidate hash does not exactly
+      match the persisted candidate hash, the receipt records
+      ``replay_ok=False, candidate_matches=False`` and the response must be
+      made non-applyable.
+    * Only when ``replay_ok=True`` **and** ``candidate_matches=True`` may a
+      response carry applyability.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Mapping
+
+from .audit import write_json_artifact
+from .session import canonical_json_bytes, payload_hash
+
+_LOGGER = logging.getLogger(__name__)
+
+AUTHORITY_RECEIPT_CONTRACT_VERSION = "authority_receipt_v1"
+AUTHORITY_NAMESPACE = "authority"
+AUTHORITY_RECEIPT_FILENAME = "receipt.json"
+
+
+# ---------------------------------------------------------------------------
+# Receipt data model
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ReplayReceipt:
+    """Outcome of replaying ``apply(submit_graph, cumulative_delta)``."""
+
+    replay_ok: bool
+    candidate_matches: bool
+    recomputed_candidate_hash: str | None
+    persisted_candidate_hash: str | None
+    error: str | None = None
+    op_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "replay_ok": self.replay_ok,
+            "candidate_matches": self.candidate_matches,
+            "recomputed_candidate_hash": self.recomputed_candidate_hash,
+            "persisted_candidate_hash": self.persisted_candidate_hash,
+            "error": self.error,
+            "op_count": self.op_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ReplayReceipt":
+        return cls(
+            replay_ok=bool(data.get("replay_ok", False)),
+            candidate_matches=bool(data.get("candidate_matches", False)),
+            recomputed_candidate_hash=data.get("recomputed_candidate_hash"),
+            persisted_candidate_hash=data.get("persisted_candidate_hash"),
+            error=data.get("error"),
+            op_count=int(data.get("op_count", 0)),
+        )
+
+
+@dataclass(frozen=True)
+class ResponseMetadataHashes:
+    """Hashes of response metadata fields for tamper detection."""
+
+    response_hash: str | None
+    eligibility_hash: str | None
+    outcome_hash: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "response_hash": self.response_hash,
+            "eligibility_hash": self.eligibility_hash,
+            "outcome_hash": self.outcome_hash,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "ResponseMetadataHashes":
+        return cls(
+            response_hash=data.get("response_hash"),
+            eligibility_hash=data.get("eligibility_hash"),
+            outcome_hash=data.get("outcome_hash"),
+        )
+
+
+@dataclass(frozen=True)
+class AuthorityReceipt:
+    """Immutable authority receipt persisted under the per-turn ``authority/``
+    namespace.
+
+    Fields:
+        contract_version: Schema contract identifier.
+        schema_version: V2 delta schema version at receipt time.
+        session_id: Session identifier.
+        turn_id: Turn identifier.
+        submit_graph_hash: Hash of the submit graph (canonical JSON).
+        submit_graph_bytes_sha256: SHA-256 of the canonical submit graph bytes.
+        cumulative_delta_envelope: The normalized cumulative V2 delta envelope.
+        cumulative_delta_hash: Hash of the cumulative delta envelope.
+        candidate_hash: Hash of the persisted candidate graph.
+        replay: Replay verification result.
+        response_metadata: Hashes of response metadata fields.
+        created_at: ISO-8601 timestamp.
+    """
+
+    contract_version: str = AUTHORITY_RECEIPT_CONTRACT_VERSION
+    schema_version: str
+    session_id: str
+    turn_id: str
+    submit_graph_hash: str | None
+    submit_graph_bytes_sha256: str | None
+    cumulative_delta_envelope: dict[str, Any] | None
+    cumulative_delta_hash: str | None
+    candidate_hash: str | None
+    replay: ReplayReceipt
+    response_metadata: ResponseMetadataHashes
+    created_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "schema_version": self.schema_version,
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "submit_graph_hash": self.submit_graph_hash,
+            "submit_graph_bytes_sha256": self.submit_graph_bytes_sha256,
+            "cumulative_delta_envelope": self.cumulative_delta_envelope,
+            "cumulative_delta_hash": self.cumulative_delta_hash,
+            "candidate_hash": self.candidate_hash,
+            "replay": self.replay.to_dict(),
+            "response_metadata": self.response_metadata.to_dict(),
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "AuthorityReceipt":
+        replay_data = data.get("replay")
+        replay = ReplayReceipt.from_dict(replay_data) if isinstance(replay_data, Mapping) else ReplayReceipt(
+            replay_ok=False, candidate_matches=False,
+            recomputed_candidate_hash=None, persisted_candidate_hash=None,
+        )
+        meta_data = data.get("response_metadata")
+        meta = ResponseMetadataHashes.from_dict(meta_data) if isinstance(meta_data, Mapping) else ResponseMetadataHashes(
+            response_hash=None, eligibility_hash=None, outcome_hash=None,
+        )
+        envelope = data.get("cumulative_delta_envelope")
+        return cls(
+            contract_version=data.get("contract_version", AUTHORITY_RECEIPT_CONTRACT_VERSION),
+            schema_version=data.get("schema_version", ""),
+            session_id=data.get("session_id", ""),
+            turn_id=data.get("turn_id", ""),
+            submit_graph_hash=data.get("submit_graph_hash"),
+            submit_graph_bytes_sha256=data.get("submit_graph_bytes_sha256"),
+            cumulative_delta_envelope=dict(envelope) if isinstance(envelope, Mapping) else None,
+            cumulative_delta_hash=data.get("cumulative_delta_hash"),
+            candidate_hash=data.get("candidate_hash"),
+            replay=replay,
+            response_metadata=meta,
+            created_at=data.get("created_at", ""),
+        )
+
+    @property
+    def is_applyable(self) -> bool:
+        """Only ``True`` when replay succeeded and candidate matches exactly."""
+        return self.replay.replay_ok and self.replay.candidate_matches
+
+
+# ---------------------------------------------------------------------------
+# Replay verification
+# ---------------------------------------------------------------------------
+
+
+def _extract_submit_graph(request_payload: Any) -> dict[str, Any] | None:
+    """Extract the submit graph from a request payload."""
+    if not isinstance(request_payload, Mapping):
+        return None
+    graph = request_payload.get("graph")
+    if isinstance(graph, Mapping):
+        return dict(graph)
+    # Some payloads may use the payload itself as the graph.
+    if "nodes" in request_payload or "last_node_id" in request_payload:
+        return dict(request_payload)
+    return None
+
+
+def _extract_delta_ops_from_envelope(envelope: Any) -> tuple[Any, ...]:
+    """Parse delta ops from a cumulative V2 envelope dict."""
+    if not isinstance(envelope, Mapping):
+        return ()
+    ops = envelope.get("ops")
+    if not isinstance(ops, list):
+        return ()
+    try:
+        from vibecomfy.porting.edit.ops import normalize_delta_ops
+
+        return normalize_delta_ops({"ops": ops})
+    except Exception as exc:
+        _LOGGER.debug("Failed to normalize delta ops for replay: %s", exc)
+        return ()
+
+
+def recompute_apply(
+    submit_graph: Mapping[str, Any],
+    cumulative_delta_envelope: Mapping[str, Any] | None,
+) -> tuple[bool, Any, str | None, int]:
+    """Recompute ``apply(submit_graph, cumulative_delta)`` server-side.
+
+    Returns ``(ok, candidate, error, op_count)``.
+    """
+    from vibecomfy.porting.edit.apply_core import apply_delta
+
+    ops = _extract_delta_ops_from_envelope(cumulative_delta_envelope)
+    if cumulative_delta_envelope is None and not ops:
+        # No delta → candidate is the submit graph itself (identity apply).
+        return True, dict(submit_graph), None, 0
+
+    try:
+        result = apply_delta(submit_graph, ops)
+    except Exception as exc:
+        return False, None, f"apply_delta_error: {exc}", len(ops)
+
+    if not result.ok or result.candidate is None:
+        return False, None, "apply_delta_failed", len(ops)
+
+    return True, result.candidate, None, len(ops)
+
+
+def verify_replay(
+    submit_graph: Mapping[str, Any] | None,
+    cumulative_delta_envelope: Mapping[str, Any] | None,
+    candidate: Mapping[str, Any] | None,
+) -> ReplayReceipt:
+    """Verify that replaying the delta on the submit graph equals the candidate.
+
+    Returns a :class:`ReplayReceipt`.  The receipt is fail-closed: any missing
+    input, error, or hash mismatch produces ``replay_ok=False``.
+    """
+    if submit_graph is None:
+        return ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash=None,
+            error="missing_submit_graph",
+        )
+
+    persisted_hash = payload_hash(candidate) if candidate is not None else None
+
+    ok, recomputed, error, op_count = recompute_apply(
+        submit_graph, cumulative_delta_envelope
+    )
+    if not ok or recomputed is None:
+        return ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash=persisted_hash,
+            error=error or "recompute_failed",
+            op_count=op_count,
+        )
+
+    recomputed_hash = payload_hash(recomputed)
+    matches = persisted_hash is not None and recomputed_hash == persisted_hash
+    return ReplayReceipt(
+        replay_ok=True,
+        candidate_matches=matches,
+        recomputed_candidate_hash=recomputed_hash,
+        persisted_candidate_hash=persisted_hash,
+        error=None if matches else "candidate_hash_mismatch",
+        op_count=op_count,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Receipt building
+# ---------------------------------------------------------------------------
+
+
+def _now() -> str:
+    import time
+
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _compute_response_metadata_hashes(response: Mapping[str, Any]) -> ResponseMetadataHashes:
+    """Compute hashes of key response metadata fields."""
+    eligibility = response.get("eligibility") if isinstance(response.get("eligibility"), Mapping) else None
+    outcome = response.get("outcome") if isinstance(response.get("outcome"), Mapping) else None
+    return ResponseMetadataHashes(
+        response_hash=payload_hash(response),
+        eligibility_hash=payload_hash(eligibility) if eligibility is not None else None,
+        outcome_hash=payload_hash(outcome) if outcome is not None else None,
+    )
+
+
+def build_authority_receipt(
+    *,
+    session_id: str,
+    turn_id: str,
+    submit_graph: Mapping[str, Any] | None,
+    cumulative_delta_envelope: Mapping[str, Any] | None,
+    candidate: Mapping[str, Any] | None,
+    response: Mapping[str, Any],
+    schema_version: str = "",
+) -> AuthorityReceipt:
+    """Build an authority receipt by replaying the delta on the submit graph.
+
+    This is the canonical entry point.  The receipt records the replay verdict
+    and all hashes needed for tamper detection.
+    """
+    replay = verify_replay(submit_graph, cumulative_delta_envelope, candidate)
+
+    submit_graph_hash = payload_hash(submit_graph) if submit_graph is not None else None
+    submit_bytes = canonical_json_bytes(submit_graph) if submit_graph is not None else None
+    submit_graph_bytes_sha256 = (
+        hashlib.sha256(submit_bytes).hexdigest() if submit_bytes is not None else None
+    )
+
+    delta_envelope_dict = (
+        dict(cumulative_delta_envelope) if isinstance(cumulative_delta_envelope, Mapping) else None
+    )
+    cumulative_delta_hash = (
+        payload_hash(delta_envelope_dict) if delta_envelope_dict is not None else None
+    )
+    candidate_hash = payload_hash(candidate) if candidate is not None else None
+
+    return AuthorityReceipt(
+        schema_version=schema_version,
+        session_id=session_id,
+        turn_id=turn_id,
+        submit_graph_hash=submit_graph_hash,
+        submit_graph_bytes_sha256=submit_graph_bytes_sha256,
+        cumulative_delta_envelope=delta_envelope_dict,
+        cumulative_delta_hash=cumulative_delta_hash,
+        candidate_hash=candidate_hash,
+        replay=replay,
+        response_metadata=_compute_response_metadata_hashes(response),
+        created_at=_now(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
+
+def authority_dir_for(turn_dir: Path) -> Path:
+    """Return the immutable ``authority/`` namespace path for a turn."""
+    return turn_dir / AUTHORITY_NAMESPACE
+
+
+def authority_receipt_path(turn_dir: Path) -> Path:
+    """Return the path to the authority receipt JSON file."""
+    return authority_dir_for(turn_dir) / AUTHORITY_RECEIPT_FILENAME
+
+
+def write_authority_receipt(turn_dir: Path, receipt: AuthorityReceipt) -> Path:
+    """Persist the authority receipt under the per-turn ``authority/`` namespace.
+
+    The receipt is written once and is treated as immutable.  If a receipt
+    already exists it is **not** overwritten — the existing receipt is the
+    authority of record.
+    """
+    path = authority_receipt_path(turn_dir)
+    if path.exists():
+        _LOGGER.debug(
+            "Authority receipt already exists for turn_dir=%s; not overwriting.",
+            turn_dir,
+        )
+        return path
+    write_json_artifact(path, receipt.to_dict())
+    return path
+
+
+def load_authority_receipt(turn_dir: Path) -> AuthorityReceipt | None:
+    """Load the authority receipt from the per-turn ``authority/`` namespace."""
+    path = authority_receipt_path(turn_dir)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _LOGGER.warning("Failed to load authority receipt at %s: %s", path, exc)
+        return None
+    if not isinstance(data, Mapping):
+        return None
+    return AuthorityReceipt.from_dict(data)
+
+
+# ---------------------------------------------------------------------------
+# Response stamping (fail-closed)
+# ---------------------------------------------------------------------------
+
+#: Authority-bearing fields that must be stripped when replay fails.
+_APPLYABILITY_FIELDS = (
+    "canvas_apply_allowed",
+    "queue_allowed",
+    "apply_allowed",
+    "apply_eligible",
+)
+
+
+def stamp_response_with_authority(
+    response: dict[str, Any],
+    receipt: AuthorityReceipt,
+) -> dict[str, Any]:
+    """Stamp the response with authority receipt reference and enforce fail-closed.
+
+    If the receipt is not applyable (replay failed or candidate mismatch), all
+    applyability fields are stripped/forced to ``False`` and the candidate is
+    removed, ensuring the response cannot authorize Apply or Queue.
+    """
+    stamped = dict(response)
+    stamped["authority_receipt"] = {
+        "contract_version": receipt.contract_version,
+        "schema_version": receipt.schema_version,
+        "submit_graph_hash": receipt.submit_graph_hash,
+        "submit_graph_bytes_sha256": receipt.submit_graph_bytes_sha256,
+        "cumulative_delta_hash": receipt.cumulative_delta_hash,
+        "candidate_hash": receipt.candidate_hash,
+        "replay_ok": receipt.replay.replay_ok,
+        "candidate_matches": receipt.replay.candidate_matches,
+        "replay_error": receipt.replay.error,
+        "op_count": receipt.replay.op_count,
+        "response_hash": receipt.response_metadata.response_hash,
+        "created_at": receipt.created_at,
+    }
+
+    if not receipt.is_applyable:
+        # Fail closed: strip applyability and candidate.
+        stamped["canvas_apply_allowed"] = False
+        stamped["queue_allowed"] = False
+        stamped["apply_allowed"] = False
+        stamped["apply_eligible"] = False
+        stamped["graph_unchanged"] = True
+        stamped["no_candidate_reason"] = "authority_replay_mismatch"
+        eligibility = stamped.get("eligibility")
+        if isinstance(eligibility, dict):
+            eligibility = dict(eligibility)
+            eligibility["applyable"] = False
+            eligibility["reason"] = "authority_replay_mismatch"
+            eligibility["message"] = (
+                "Server replay verification failed; candidate is not authoritative."
+            )
+            stamped["eligibility"] = eligibility
+        # Remove the candidate graph to prevent Apply on a non-authoritative
+        # candidate.
+        stamped.pop("graph", None)
+        candidate = stamped.get("candidate")
+        if isinstance(candidate, dict):
+            candidate = dict(candidate)
+            candidate["graph"] = None
+            candidate["state"] = "rejected"
+            stamped["candidate"] = candidate
+
+    return stamped
+
+
+def build_and_persist_authority_receipt(
+    *,
+    turn_dir: Path,
+    session_id: str,
+    turn_id: str,
+    request_payload: Any,
+    response: dict[str, Any],
+    schema_version: str = "",
+) -> tuple[AuthorityReceipt, dict[str, Any]]:
+    """Build, persist, and stamp an authority receipt for a durable turn.
+
+    Returns ``(receipt, stamped_response)``.  The stamped response enforces
+    fail-closed semantics when replay verification fails.
+    """
+    submit_graph = _extract_submit_graph(request_payload)
+    cumulative_delta_envelope = response.get("delta_ops_envelope")
+    if not isinstance(cumulative_delta_envelope, Mapping):
+        cumulative_delta_envelope = None
+    candidate = response.get("graph")
+    if not isinstance(candidate, Mapping):
+        candidate = response.get("candidate", {}).get("graph") if isinstance(
+            response.get("candidate"), Mapping
+        ) else None
+        if not isinstance(candidate, Mapping):
+            candidate = None
+
+    receipt = build_authority_receipt(
+        session_id=session_id,
+        turn_id=turn_id,
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=cumulative_delta_envelope,
+        candidate=candidate,
+        response=response,
+        schema_version=schema_version,
+    )
+
+    try:
+        write_authority_receipt(turn_dir, receipt)
+    except Exception:
+        _LOGGER.warning(
+            "Failed to persist authority receipt for session=%s turn=%s (best-effort)",
+            session_id,
+            turn_id,
+            exc_info=True,
+        )
+
+    stamped = stamp_response_with_authority(response, receipt)
+    return receipt, stamped
+
+
+__all__ = [
+    "AUTHORITY_NAMESPACE",
+    "AUTHORITY_RECEIPT_CONTRACT_VERSION",
+    "AUTHORITY_RECEIPT_FILENAME",
+    "AuthorityReceipt",
+    "ReplayReceipt",
+    "ResponseMetadataHashes",
+    "authority_dir_for",
+    "authority_receipt_path",
+    "build_and_persist_authority_receipt",
+    "build_authority_receipt",
+    "load_authority_receipt",
+    "recompute_apply",
+    "stamp_response_with_authority",
+    "verify_replay",
+    "write_authority_receipt",
+]

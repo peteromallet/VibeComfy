@@ -31,7 +31,7 @@ _SET_MODE_VALUES = frozenset({0, 2, 4})
 _FORBIDDEN_RAW_NODE_KEYS = frozenset({"node", "raw_node", "node_payload"})
 _FORBIDDEN_RAW_LINK_KEYS = frozenset({"link", "raw_link", "link_payload"})
 _ALLOWED_RESPONSE_KEYS = frozenset({"delta", "message"})
-_CANONICAL_DELTA_KEYS = frozenset({"schema_version", "ops"})
+_CANONICAL_DELTA_KEYS = frozenset({"schema_version", "ops", "legacy_bridge"})
 _LEGACY_DELTA_WRAPPER_KEYS = frozenset(
     {
         "automatic_link_removals",
@@ -233,10 +233,13 @@ class CanonicalDeltaEnvelope:
     legacy_bridge: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "schema_version": self.schema_version,
             "ops": [canonical_op_to_dict(op) for op in self.ops],
         }
+        if self.legacy_bridge is not None:
+            payload["legacy_bridge"] = self.legacy_bridge
+        return payload
 
 
 @dataclass(frozen=True)
@@ -669,7 +672,7 @@ def normalize_delta_envelope(
                     message="Legacy wrapped delta metadata is not part of the canonical V2 envelope.",
                 )
             raise EditOpParseError(
-                "Canonical delta envelopes only accept `schema_version` and `ops`.",
+                "Canonical delta envelopes only accept `schema_version`, `ops`, and optional `legacy_bridge`.",
                 detail={"keys": extras},
             )
         schema_version = _require_string(data.get("schema_version"), path="schema_version")
@@ -684,6 +687,9 @@ def normalize_delta_envelope(
             # add-node identity before downstream consumers see the payload.
             for op in parsed_ops:
                 canonical_op_to_dict(op)
+        legacy_bridge = data.get("legacy_bridge")
+        if isinstance(legacy_bridge, str) and legacy_bridge:
+            return CanonicalDeltaEnvelope(ops=parsed_ops, legacy_bridge=legacy_bridge)
         return CanonicalDeltaEnvelope(ops=parsed_ops)
 
     if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes)):

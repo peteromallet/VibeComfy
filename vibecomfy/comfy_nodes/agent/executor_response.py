@@ -15,12 +15,16 @@ def _to_serializable(result: Any) -> Any:
 
 
 def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Build legacy compatibility fields from a canonical executor envelope.
+    """Build presentation compatibility fields from a canonical executor envelope.
 
-    Durable ``outcome`` and ``apply_eligibility`` from the edit engine are
-    preserved as-is when present; compatibility synthesis runs only as a
-    fallback for executors that produce results without durable metadata
-    (SD2: applyable == durable).
+    Durable ``outcome`` from the edit engine is preserved as-is when
+    present; compatibility adds only presentation aliases (``message``,
+    ``candidate_graph``, ``graph_unchanged``) and synthesizes ``outcome``
+    as a fallback.  Authority fields (``apply_eligibility``,
+    ``eligibility``, ``apply_allowed``, ``canvas_apply_allowed``,
+    ``queue_allowed``) are NEVER synthesized — only durable response data
+    already carrying those fields will expose them through the merge in
+    ``serialize_executor_result``.
     """
     reply = payload.get("reply")
     message = reply if isinstance(reply, str) else ""
@@ -34,8 +38,6 @@ def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]
     apply_eligible = bool(payload.get("apply_eligible"))
 
     has_durable_outcome = isinstance(payload.get("outcome"), Mapping)
-    has_durable_apply_eligibility = isinstance(payload.get("apply_eligibility"), Mapping)
-    has_durable_graph = isinstance(payload.get("graph"), dict)
 
     compatibility: dict[str, Any] = {
         "message": message,
@@ -58,41 +60,10 @@ def _executor_compatibility_fields(payload: Mapping[str, Any]) -> dict[str, Any]
             }
         compatibility["outcome"] = outcome
 
-    if not has_durable_apply_eligibility:
-        compatibility["apply_eligibility"] = {
-            "applyable": apply_eligible,
-            "reason": "applyable" if apply_eligible else "no_candidate",
-            "message": (
-                "Ready to apply." if apply_eligible
-                else "No candidate is available to apply."
-            ),
-            "warnings": [],
-        }
-
-    compatibility["eligibility"] = compatibility.get("apply_eligibility") or payload.get("eligibility")
-    if not isinstance(compatibility.get("eligibility"), Mapping):
-        compatibility["eligibility"] = {
-            "applyable": apply_eligible,
-            "reason": "applyable" if apply_eligible else "no_candidate",
-            "message": (
-                "Ready to apply." if apply_eligible
-                else "No candidate is available to apply."
-            ),
-            "warnings": [],
-        }
-
-    if candidate_graph is not None and not has_durable_graph:
-        compatibility["graph"] = candidate_graph
-    from .contracts import build_legacy_agent_edit_v1  # noqa: PLC0415
-
-    compatibility = build_legacy_agent_edit_v1(
-        {
-            **compatibility,
-            "candidate": candidate,
-            "canvas_apply_allowed": apply_eligible,
-            "queue_allowed": apply_eligible,
-        }
-    )
+    # Presentation aliases only — authority fields are never synthesized.
+    if candidate_graph is not None:
+        compatibility["candidate_graph"] = candidate_graph
+    compatibility["graph_unchanged"] = candidate_graph is None
 
     if route == "clarify":
         compatibility["clarification_required"] = True

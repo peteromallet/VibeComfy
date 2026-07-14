@@ -53,7 +53,15 @@ def handle_agent_edit(
         else None,
     )
     if allocation.replay is not None:
-        return _validated_agent_edit_response(allocation.replay.response, stage="replay")
+        replayed = dict(allocation.replay.response)
+        idempotency_key = (
+            payload.get("idempotency_key")
+            if isinstance(payload.get("idempotency_key"), str)
+            else None
+        )
+        if idempotency_key is not None and "idempotency_key" not in replayed:
+            replayed["idempotency_key"] = idempotency_key
+        return _validated_agent_edit_response(replayed, stage="replay")
     if allocation.conflict is not None:
         try:
             audit_ref = write_allocation_failure_audit(
@@ -228,6 +236,8 @@ def handle_agent_edit(
             )
             return _validated_agent_edit_response(_product_failure_response(failure), stage="audit")
         response = _validated_agent_edit_response(response, stage="submit")
+        if context.idempotency_key is not None:
+            response["idempotency_key"] = context.idempotency_key
         _write_turn_chat_artifact(state, context, response, contract)
         record_idempotent_response(
             session_root=root,
@@ -305,6 +315,8 @@ def handle_agent_edit(
             ),
             stage=stage_name,
         )
+        if context.idempotency_key is not None:
+            response["idempotency_key"] = context.idempotency_key
         _write_turn_chat_artifact(state, context, response, contract)
         record_idempotent_response(
             session_root=root,
@@ -371,6 +383,8 @@ def handle_agent_edit(
         )
         return _validated_agent_edit_response(_product_failure_response(failure), stage="audit")
     response = _validated_agent_edit_response(response, stage="submit")
+    if context.idempotency_key is not None:
+        response["idempotency_key"] = context.idempotency_key
     _write_turn_chat_artifact(state, context, response, contract)
     record_idempotent_response(
         session_root=root,

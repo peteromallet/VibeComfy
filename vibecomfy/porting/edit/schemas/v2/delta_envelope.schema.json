@@ -21,6 +21,10 @@
           { "$ref": "./remove_link.schema.json" }
         ]
       }
+    },
+    "legacy_bridge": {
+      "description": "Observable marker set when the envelope was normalized through the allow_legacy_list bridge. Absent for canonical envelopes.",
+      "type": "string"
     }
   }
 }

@@ -26,6 +26,18 @@ AGENT_EDIT_TURN_CONTRACT_VERSION = "agent_edit_turn_v2"
 
 PLAN_VALIDATE_GATE_NAME = "plan_validate_ok"
 
+# Plan obligation states — serialized representation of whether planning is
+# required for a turn and whether a required plan is supported by the current
+# execution-plan builder.  Only ``not_required`` may pass without a plan.
+PLAN_STATE_NOT_REQUIRED = "not_required"
+PLAN_STATE_REQUIRED_SUPPORTED = "required_supported"
+PLAN_STATE_REQUIRED_UNSUPPORTED = "required_unsupported"
+PLAN_STATES: tuple[str, ...] = (
+    PLAN_STATE_NOT_REQUIRED,
+    PLAN_STATE_REQUIRED_SUPPORTED,
+    PLAN_STATE_REQUIRED_UNSUPPORTED,
+)
+
 CANVAS_APPLY_GATE_NAMES: tuple[str, ...] = (
     "python_load_ok",
     "ir_validate_ok",
@@ -851,10 +863,11 @@ class TurnContext:
         if self.gate_results and PLAN_VALIDATE_GATE_NAME not in self.gate_results:
             merged[PLAN_VALIDATE_GATE_NAME] = GateResult(
                 name=PLAN_VALIDATE_GATE_NAME,
-                ok=True,
+                ok=False,
                 evidence={
                     "stage": "rehydrate",
-                    "reason": "legacy_no_execution_plan",
+                    "reason": PLAN_STATE_REQUIRED_UNSUPPORTED,
+                    "plan_state": PLAN_STATE_REQUIRED_UNSUPPORTED,
                 },
             )
         for name, gate in self.gate_results.items():
@@ -2362,6 +2375,10 @@ __all__ = [
     "FailureKind",
     "GateResult",
     "INTERNAL_TO_PUBLIC_OUTCOME",
+    "PLAN_STATE_NOT_REQUIRED",
+    "PLAN_STATE_REQUIRED_SUPPORTED",
+    "PLAN_STATE_REQUIRED_UNSUPPORTED",
+    "PLAN_STATES",
     "PLAN_VALIDATE_GATE_NAME",
     "ProviderStatus",
     "PUBLIC_OUTCOME_KINDS",

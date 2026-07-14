@@ -1412,7 +1412,7 @@ def record_idempotent_response(
         # Atomically publish response.json after durable state completes.
         _write_response_atomic(response_path, response)
         return None
-    response_digest = payload_hash(response)
+        response_digest = payload_hash(response)
     record = {
         "request_hash": request_hash,
         "response_hash": response_digest,

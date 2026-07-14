@@ -83,7 +83,10 @@ def maybe_write_executor_only_durable_turn(
         )
 
         if allocation.replay is not None:
-            return dict(allocation.replay.response)
+            replayed = dict(allocation.replay.response)
+            if idempotency_key is not None and "idempotency_key" not in replayed:
+                replayed["idempotency_key"] = idempotency_key
+            return replayed
         if allocation.conflict is not None:
             return response
 
@@ -103,6 +106,8 @@ def maybe_write_executor_only_durable_turn(
         stamped["task"] = query_text
         if context.baseline_turn_id is not None:
             stamped["baseline_turn_id"] = context.baseline_turn_id
+        if idempotency_key is not None:
+            stamped["idempotency_key"] = idempotency_key
 
         baseline_state = allocation.state
         baseline_graph_hash = baseline_state.get("baseline_graph_hash") if isinstance(baseline_state, dict) else None
