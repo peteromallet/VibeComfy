@@ -1000,7 +1000,23 @@ function _readApplyCandidateForTransition(payload) {
 }
 
 function _readCandidateTransactionForTransition(payload) {
-  return _strictSelectorRead(readCandidateTransaction, _canonicalSourceFromPayload(payload));
+  const projected = _strictSelectorRead(
+    readCandidateTransaction,
+    _canonicalSourceFromPayload(payload),
+  );
+  if (projected) {
+    return projected;
+  }
+  // Rehydrate carries the same authority in both latest_candidate and
+  // latest_turn_lifecycle. Keep the lifecycle projection as a defensive
+  // fallback so a bounded public-candidate projection cannot silently erase
+  // an otherwise valid review transaction.
+  return normalizeCandidateTransaction(
+    payload?.candidateTransaction
+      || payload?.candidate_transaction
+      || payload?.latestTurnLifecycle?.candidateTransaction
+      || payload?.latestTurnLifecycle?.candidate_transaction,
+  );
 }
 
 function _readFieldChangesForTransition(payload) {

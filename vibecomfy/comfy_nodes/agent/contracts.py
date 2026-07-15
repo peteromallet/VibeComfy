@@ -192,6 +192,7 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "graph",
     "report",
     "candidate",
+    "candidate_transaction",
     "turn_state",
     "agent_edit_protocol",
     "plan_hash",

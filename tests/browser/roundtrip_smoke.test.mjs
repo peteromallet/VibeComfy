@@ -11999,6 +11999,7 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
     candidateGraphHash: "rehydrated-candidate-hash",
   });
   const harness = await createBrowserHarness({
+    withGraphMutation: true,
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent/status?route=auto": {
@@ -12021,6 +12022,15 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
           ok: true,
           exists: true,
           session_id: SESSION_ID,
+          latest_turn_id: "0005",
+          latest_turn_lifecycle: {
+            turn_id: "0005",
+            state: "candidate_ready",
+            disposition: null,
+            agent_edit_protocol: "v2_delta",
+            candidate_transaction: candidateTransaction,
+            transaction_receipts: [],
+          },
           messages: [
             { role: "user", text: "add saver", turn_id: "0005" },
             { role: "agent", text: "Candidate restored.", turn_id: "0005" },
@@ -12031,7 +12041,6 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
             turn_id: "0005",
             graph: candidateGraph,
             candidate_graph_hash: "rehydrated-candidate-hash",
-            candidate_transaction: candidateTransaction,
             message: "Candidate restored.",
             report: { change: { content_edits: { edited: ["uid-2"] } }, recovery: [] },
             canvas_apply_allowed: true,
@@ -12044,6 +12053,14 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
               warnings: ["queue_blocked"],
             },
           },
+        },
+      },
+      "/vibecomfy/agent-edit/prepare": {
+        status: 409,
+        body: {
+          ok: false,
+          kind: "PrepareSentinel",
+          message: "Rehydrated candidate reached prepare.",
         },
       },
     },
@@ -12060,10 +12077,17 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
     assert.equal(panel.state.sessionId, SESSION_ID);
     assert.equal(panel.state.turnId, "0005");
     assert.equal(panel.state.candidateGraphHash, "rehydrated-candidate-hash");
+    assert.equal(panel.state.candidateTransaction?.plan_hash, "rehydrated-plan-hash");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.match(harness.textDump(), /Candidate restored/);
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Apply is allowed, but Queue remains blocked for this candidate\./);
+    await harness.clickButton("Apply");
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length,
+      1,
+      "rehydrated lifecycle authority must survive projection and reach prepare",
+    );
   } finally {
     await harness.dispose();
   }

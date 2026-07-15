@@ -2272,6 +2272,10 @@ def test_public_projection_helpers_do_not_leak_raw_rehydrate_fields() -> None:
     raw_latest_candidate = {
         **raw_response,
         "graph": {"nodes": [{"id": 1}], "links": []},
+        "candidate_transaction": {
+            "contract_version": "candidate_transaction_v1",
+            "state": "candidate_ready",
+        },
         "report": {
             "revision_evidence": {
                 "scoped_diff": {
@@ -2358,6 +2362,10 @@ def test_public_projection_helpers_do_not_leak_raw_rehydrate_fields() -> None:
     ]
     assert public_latest_candidate(raw_latest_candidate)["report"] == raw_latest_candidate["report"]
     assert (
+        public_latest_candidate(raw_latest_candidate)["candidate_transaction"]
+        == raw_latest_candidate["candidate_transaction"]
+    )
+    assert (
         public_chat_rehydrate_payload(
             {
                 "ok": True,
@@ -2367,6 +2375,17 @@ def test_public_projection_helpers_do_not_leak_raw_rehydrate_fields() -> None:
             }
         )["latest_candidate"]["report"]
         == raw_latest_candidate["report"]
+    )
+    assert (
+        public_chat_rehydrate_payload(
+            {
+                "ok": True,
+                "exists": True,
+                "session_id": "sess-1",
+                "latest_candidate": raw_latest_candidate,
+            }
+        )["latest_candidate"]["candidate_transaction"]
+        == raw_latest_candidate["candidate_transaction"]
     )
 
     for value in public_values:

@@ -4920,6 +4920,11 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
     candidateGraph
     && (latestApplyCandidate?.applyable === true || normalizedEligibility?.applyable === true),
   );
+  const candidateTransaction = readCandidateTransaction(latest)
+    || normalizeCandidateTransaction(
+      payload?.latestTurnLifecycle?.candidateTransaction
+        || payload?.latestTurnLifecycle?.candidate_transaction,
+    );
   const restoreObligations = transition(panel, "CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE", {
     // ── T8: Pass scope context so the lifecycle handler can enforce
     // cross-scope and cross-session boundary refusals.
@@ -4929,6 +4934,7 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
     turnId: latestIdentity?.turnId || null,
     baselineTurnId: latestIdentity?.baselineTurnId || null,
     baseline: latest,
+    candidateTransaction,
     candidateGraph,
     candidateGraphHash:
       latestApplyCandidate?.candidateGraphHash
@@ -4960,6 +4966,7 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
     turn_id: panel.state.turnId,
     session_id: panel.state.sessionId,
     candidateGraphPresent: true,
+    candidateTransaction: panel.state.candidateTransaction,
     candidateReport: panel.state.candidateReport,
     applyEligibility: panel.state.applyEligibility,
     queueAllowed: panel.state.queueAllowed,
