@@ -1806,6 +1806,29 @@ def _validate_current_baseline_for_prepare(
 ) -> dict[str, Any] | None:
     expected = _structural_before_from_request(payload)
     current = _current_structural_baseline_hash(state)
+    pristine_baseline = (
+        current is None
+        and state.get("baseline_graph_hash") is None
+        and state.get("baseline_turn_id") is None
+        and state.get("baseline_source") in {None, "none"}
+    )
+    if pristine_baseline:
+        # The first candidate has no accepted session baseline yet.  Its
+        # submit-time structural hash is the authoritative CAS boundary.
+        submitted = turn_record.get("submit_structural_graph_hash")
+        persisted_before = turn_record.get("candidate_structural_hash_before")
+        if expected == submitted and (
+            not isinstance(persisted_before, str) or persisted_before == submitted
+        ):
+            return None
+        return {
+            "reason": "pristine_submit_cas_mismatch",
+            "expected_baseline_graph_hash": expected,
+            "submitted_structural_graph_hash": submitted,
+            "persisted_candidate_structural_hash_before": persisted_before,
+            "current_baseline_graph_hash": None,
+            "current_baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
+        }
     if expected != current:
         return {
             "reason": "baseline_cas_mismatch",
@@ -1870,6 +1893,31 @@ def prepare_turn_transaction(
                 turn_id=turn_id,
                 state=state,
                 explanation="Prepare requires a mutation plan_hash.",
+            )
+        stored_plan_hash = turn_record.get("candidate_plan_hash")
+        if isinstance(stored_plan_hash, str) and plan_hash != stored_plan_hash:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Prepare mutation plan hash did not match the persisted candidate.",
+                evidence={
+                    "plan_hash": plan_hash,
+                    "persisted_candidate_plan_hash": stored_plan_hash,
+                },
+            )
+        if turn_record.get("agent_edit_protocol") == "v2_delta" and not isinstance(
+            stored_plan_hash, str
+        ):
+            return _transaction_failure(
+                kind=FailureKind.MISSING_REQUIRED_FIELD,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Persisted V2 candidate has no mutation plan hash.",
             )
         if candidate_hash != stored_candidate_hash:
             return _transaction_failure(
@@ -2542,6 +2590,146 @@ def _recorded_turn_state_for_response(
     return "candidate" if candidate_graph_hash is not None else "no_candidate"
 
 
+def v2_mutation_plan_hash(
+    *,
+    delta_ops_envelope: Mapping[str, Any],
+    structural_hash_before: str | None,
+    structural_hash_after: str | None,
+) -> str:
+    """Return the canonical transaction identity for a V2 graph mutation."""
+    return payload_hash(
+        {
+            "contract_version": "agent_edit_mutation_plan_v1",
+            "agent_edit_protocol": "v2_delta",
+            "delta_ops_envelope": dict(delta_ops_envelope),
+            "structural_hash_before": structural_hash_before,
+            "structural_hash_after": structural_hash_after,
+        }
+    )
+
+
+def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
+    """Resolve the durable protocol, validating explicit V2 evidence.
+
+    Legacy responses may still be inferred for compatibility.  New responses
+    that declare ``v2_delta`` must carry one canonical delta envelope and, when
+    applyable, a server-authored mutation-plan binding in the candidate.
+    """
+    explicit = response.get("agent_edit_protocol")
+    if explicit is not None and explicit not in {"v1", "v2_delta"}:
+        raise ValueError(f"Unsupported agent_edit_protocol {explicit!r}.")
+
+    delta_envelope = response.get("delta_ops_envelope")
+    flat_delta_ops = response.get("delta_ops")
+    canonical_ops: list[dict[str, Any]] | None = None
+    if isinstance(delta_envelope, Mapping):
+        from vibecomfy.porting.edit.ops import ensure_root_scoped_delta_envelope
+
+        canonical = ensure_root_scoped_delta_envelope(delta_envelope, strict=True)
+        canonical_payload = canonical.to_dict()
+        raw_ops = canonical_payload.get("ops")
+        canonical_ops = list(raw_ops) if isinstance(raw_ops, list) else []
+
+    if explicit == "v1":
+        if canonical_ops is not None or isinstance(flat_delta_ops, list):
+            raise ValueError("agent_edit_protocol 'v1' cannot carry V2 delta evidence.")
+        return "v1"
+
+    if explicit == "v2_delta":
+        if canonical_ops is None:
+            raise ValueError(
+                "agent_edit_protocol 'v2_delta' requires delta_ops_envelope."
+            )
+        if isinstance(flat_delta_ops, list) and flat_delta_ops != canonical_ops:
+            raise ValueError(
+                "delta_ops compatibility view does not match delta_ops_envelope."
+            )
+        candidate = response.get("candidate")
+        eligibility = response.get("eligibility")
+        if not isinstance(eligibility, Mapping):
+            eligibility = response.get("apply_eligibility")
+        if (
+            isinstance(candidate, Mapping)
+            and isinstance(eligibility, Mapping)
+            and eligibility.get("applyable") is True
+        ):
+            required = (
+                "plan_hash",
+                "structural_hash_before",
+                "structural_hash_after",
+            )
+            missing = [
+                field
+                for field in required
+                if not isinstance(candidate.get(field), str) or not candidate.get(field)
+            ]
+            if missing:
+                raise ValueError(
+                    "Applyable v2_delta candidate is missing transaction fields: "
+                    + ", ".join(missing)
+                )
+            response_structural_before = response.get("submit_structural_graph_hash")
+            response_structural_after = _mapping_graph_structural_hash(response)
+            if (
+                isinstance(response_structural_before, str)
+                and candidate.get("structural_hash_before") != response_structural_before
+            ):
+                raise ValueError(
+                    "Applyable v2_delta candidate structural_hash_before does not "
+                    "match the submitted graph."
+                )
+            if (
+                isinstance(response_structural_after, str)
+                and candidate.get("structural_hash_after") != response_structural_after
+            ):
+                raise ValueError(
+                    "Applyable v2_delta candidate structural_hash_after does not "
+                    "match the candidate graph."
+                )
+            expected_plan_hash = v2_mutation_plan_hash(
+                delta_ops_envelope=delta_envelope,
+                structural_hash_before=candidate.get("structural_hash_before"),
+                structural_hash_after=candidate.get("structural_hash_after"),
+            )
+            if candidate.get("plan_hash") != expected_plan_hash:
+                raise ValueError(
+                    "Applyable v2_delta candidate plan_hash does not match canonical "
+                    "delta and structural boundaries."
+                )
+        return "v2_delta"
+
+    # Compatibility inference for artifacts written before protocol stamping.
+    return (
+        "v2_delta"
+        if canonical_ops is not None or isinstance(flat_delta_ops, list)
+        else "v1"
+    )
+
+
+def _stamp_recorded_candidate(
+    turn_record: dict[str, Any],
+    *,
+    candidate_graph_hash: str | None,
+    candidate_structural_graph_hash: str | None,
+    agent_edit_protocol: str,
+    candidate_plan_hash: str | None,
+    candidate_structural_hash_before: str | None,
+    candidate_structural_hash_after: str | None,
+) -> None:
+    """Project one validated response into the durable turn index."""
+    turn_record["state"] = _recorded_turn_state_for_response(
+        candidate_graph_hash=candidate_graph_hash,
+        agent_edit_protocol=agent_edit_protocol,
+    )
+    turn_record["candidate_graph_hash"] = candidate_graph_hash
+    turn_record["candidate_structural_graph_hash"] = candidate_structural_graph_hash
+    turn_record["candidate_structural_graph_hash_version"] = STRUCTURAL_PROJECTION_VERSION
+    turn_record["agent_edit_protocol"] = agent_edit_protocol
+    turn_record["candidate_plan_hash"] = candidate_plan_hash
+    turn_record["candidate_structural_hash_before"] = candidate_structural_hash_before
+    turn_record["candidate_structural_hash_after"] = candidate_structural_hash_after
+
+
 def _client_graph_hash(payload: Any) -> str | None:
     if not isinstance(payload, Mapping):
         return None
@@ -2845,6 +3033,9 @@ def allocate_turn(
             "submitted_client_live_canvas_token": submitted_client_live_canvas_token,
             "candidate_graph_hash": None,
             "candidate_structural_graph_hash": None,
+            "candidate_plan_hash": None,
+            "candidate_structural_hash_before": None,
+            "candidate_structural_hash_after": None,
             "agent_edit_protocol": None,
             "client_graph_hash": None,
             "accepted_at": None,
@@ -2938,7 +3129,27 @@ def record_idempotent_response(
             stamped_response = response
     candidate_graph_hash = _mapping_graph_hash(stamped_response)
     candidate_structural_graph_hash = _mapping_graph_structural_hash(stamped_response)
-    agent_edit_protocol = "v2_delta" if isinstance(stamped_response.get("delta_ops"), list) else "v1"
+    agent_edit_protocol = _validated_agent_edit_protocol(stamped_response)
+    candidate_payload = (
+        stamped_response.get("candidate")
+        if isinstance(stamped_response.get("candidate"), Mapping)
+        else {}
+    )
+    candidate_plan_hash = (
+        candidate_payload.get("plan_hash")
+        if isinstance(candidate_payload.get("plan_hash"), str)
+        else None
+    )
+    candidate_structural_hash_before = (
+        candidate_payload.get("structural_hash_before")
+        if isinstance(candidate_payload.get("structural_hash_before"), str)
+        else None
+    )
+    candidate_structural_hash_after = (
+        candidate_payload.get("structural_hash_after")
+        if isinstance(candidate_payload.get("structural_hash_after"), str)
+        else None
+    )
     response_digest = payload_hash(stamped_response)
     # Persist state mutation and idempotency record BEFORE publishing
     # response.json so that durable state always precedes the response
@@ -2952,16 +3163,15 @@ def record_idempotent_response(
                 state = read_state(session_dir)
                 turn_record = state["turns"].get(turn_id)
                 if isinstance(turn_record, dict):
-                    turn_record["state"] = _recorded_turn_state_for_response(
+                    _stamp_recorded_candidate(
+                        turn_record,
                         candidate_graph_hash=candidate_graph_hash,
                         agent_edit_protocol=agent_edit_protocol,
+                        candidate_structural_graph_hash=candidate_structural_graph_hash,
+                        candidate_plan_hash=candidate_plan_hash,
+                        candidate_structural_hash_before=candidate_structural_hash_before,
+                        candidate_structural_hash_after=candidate_structural_hash_after,
                     )
-                    turn_record["candidate_graph_hash"] = candidate_graph_hash
-                    turn_record["candidate_structural_graph_hash"] = candidate_structural_graph_hash
-                    turn_record[
-                        "candidate_structural_graph_hash_version"
-                    ] = STRUCTURAL_PROJECTION_VERSION
-                    turn_record["agent_edit_protocol"] = agent_edit_protocol
                     write_state_atomic(session_dir, state)
         # Atomically publish response.json after durable state completes.
         _write_response_atomic(response_path, stamped_response)
@@ -2982,16 +3192,15 @@ def record_idempotent_response(
         if scope == "edit" and turn_id is not None:
             turn_record = state["turns"].get(turn_id)
             if isinstance(turn_record, dict):
-                turn_record["state"] = _recorded_turn_state_for_response(
+                _stamp_recorded_candidate(
+                    turn_record,
                     candidate_graph_hash=candidate_graph_hash,
                     agent_edit_protocol=agent_edit_protocol,
+                    candidate_structural_graph_hash=candidate_structural_graph_hash,
+                    candidate_plan_hash=candidate_plan_hash,
+                    candidate_structural_hash_before=candidate_structural_hash_before,
+                    candidate_structural_hash_after=candidate_structural_hash_after,
                 )
-                turn_record["candidate_graph_hash"] = candidate_graph_hash
-                turn_record["candidate_structural_graph_hash"] = candidate_structural_graph_hash
-                turn_record[
-                    "candidate_structural_graph_hash_version"
-                ] = STRUCTURAL_PROJECTION_VERSION
-                turn_record["agent_edit_protocol"] = agent_edit_protocol
         state["idempotency_records"][key] = record
         write_state_atomic(session_dir, state)
     # Atomically publish response.json after durable state + idempotency
@@ -5131,5 +5340,6 @@ __all__ = [
     "rollback_turn_transaction",
     "session_dir_for",
     "turn_dir_for",
+    "v2_mutation_plan_hash",
     "write_state_atomic",
 ]

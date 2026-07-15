@@ -1418,6 +1418,7 @@ const CURATED_PROJECTION_FIELDS = [
   "exists",
   "message",
   "route",
+  "agentEditProtocol",
   "reply",
   "evidence",
   "outcome",

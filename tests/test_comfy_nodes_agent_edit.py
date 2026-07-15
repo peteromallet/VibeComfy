@@ -69,6 +69,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     session_dir_for,
     structural_graph_hash,
     turn_dir_for,
+    v2_mutation_plan_hash,
 )
 from vibecomfy.porting.convert import ConversionWriteError
 from vibecomfy.porting.lowering import LoweringDiagnostic, LoweringEvidence, LoweringResult
@@ -999,6 +1000,14 @@ def test_batch_response_default_off_does_not_add_reorganisation_advisory(
     assert payload_hash(response["graph"]) == after_hash
     assert payload_hash(before) == before_hash
     assert response["candidate_graph_hash"] == after_hash
+    assert response["agent_edit_protocol"] == "v2_delta"
+    assert response["candidate"]["structural_hash_before"] == structural_graph_hash(before)
+    assert response["candidate"]["structural_hash_after"] == structural_graph_hash(after)
+    assert response["candidate"]["plan_hash"] == v2_mutation_plan_hash(
+        delta_ops_envelope=response["delta_ops_envelope"],
+        structural_hash_before=structural_graph_hash(before),
+        structural_hash_after=structural_graph_hash(after),
+    )
     assert "layout_reorganisation" not in response["change_details"]
     assert "layout_reorganisation" not in response
     assert "/reorganise_comfy_workflow" not in response["message"]

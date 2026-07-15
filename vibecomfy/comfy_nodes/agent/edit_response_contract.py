@@ -117,6 +117,47 @@ def _build_compatibility_response_fields(state: AgentEditState) -> dict[str, Any
     }
 
 
+def _v2_candidate_mutation_plan_fields(
+    *,
+    compatibility_fields: Mapping[str, Any],
+    delta_ops_envelope: Mapping[str, Any] | None,
+) -> dict[str, str | None]:
+    """Bind a reviewable V2 candidate to its canonical mutation evidence.
+
+    The plan identity covers both the canonical delta and the structural graph
+    boundary it is expected to cross.  Keeping this derivation on the server
+    prevents the browser from inventing an arbitrary transaction identity and
+    makes ordinary adapt/revise candidates use the same prepare/finalize path
+    as layout candidates.
+    """
+    if not isinstance(delta_ops_envelope, Mapping):
+        return {
+            "plan_hash": None,
+            "structural_hash_before": None,
+            "structural_hash_after": None,
+        }
+    structural_hash_before = compatibility_fields.get("submit_structural_graph_hash")
+    structural_hash_after = compatibility_fields.get("candidate_structural_graph_hash")
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=delta_ops_envelope,
+        structural_hash_before=(
+            structural_hash_before if isinstance(structural_hash_before, str) else None
+        ),
+        structural_hash_after=(
+            structural_hash_after if isinstance(structural_hash_after, str) else None
+        ),
+    )
+    return {
+        "plan_hash": plan_hash,
+        "structural_hash_before": (
+            structural_hash_before if isinstance(structural_hash_before, str) else None
+        ),
+        "structural_hash_after": (
+            structural_hash_after if isinstance(structural_hash_after, str) else None
+        ),
+    }
+
+
 def _build_candidate_payload(
     state: AgentEditState,
     *,
@@ -894,11 +935,16 @@ def _build_batch_repl_response(
     )
     stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
+    candidate_plan_fields = _v2_candidate_mutation_plan_fields(
+        compatibility_fields=compatibility_fields,
+        delta_ops_envelope=delta_evidence_envelope if has_candidate else None,
+    )
     candidate_payload = _build_candidate_payload(
         state,
         compatibility_fields=compatibility_fields,
         has_candidate=has_candidate,
         turn_identity=turn_identity,
+        **candidate_plan_fields,
     )
     resolver_candidates = _resolver_candidates_from_batch_turns(state)
     # A run that landed an edit AND still flagged unresolved schema-backed
@@ -1050,6 +1096,7 @@ def _build_batch_repl_response(
     # validation failed (has_candidate cleared), the envelope is None.
     cumulative_delta_envelope = delta_evidence_envelope
     if cumulative_delta_envelope is not None:
+        response["agent_edit_protocol"] = "v2_delta"
         response["delta_ops_envelope"] = cumulative_delta_envelope
         # delta_ops is a read-only derived compatibility view from the canonical envelope.
         response["delta_ops"] = list(cumulative_delta_envelope["ops"])
@@ -1125,6 +1172,15 @@ def _build_dev_success_response(
     )
     stage_snapshots = _stage_snapshot_payloads(context)
     compatibility_fields = _build_compatibility_response_fields(state)
+    delta_envelope = (
+        _canonical_delta_ops_envelope_payload(state.delta_ops)
+        if contract == "delta" and has_candidate
+        else None
+    )
+    candidate_plan_fields = _v2_candidate_mutation_plan_fields(
+        compatibility_fields=compatibility_fields,
+        delta_ops_envelope=delta_envelope,
+    )
     public_outcome_kind = public_outcome.get("kind") if isinstance(public_outcome, Mapping) else None
     if _has_enough_grounded_facts_for_dev_narrative(state):
         _prepare_narrative_artifact_paths(state)
@@ -1174,6 +1230,7 @@ def _build_dev_success_response(
         compatibility_fields=compatibility_fields,
         has_candidate=has_candidate,
         turn_identity=turn_identity,
+        **candidate_plan_fields,
     )
     public_outcome = public_outcome_from_turn_outcome(
         internal_outcome,
@@ -1203,8 +1260,8 @@ def _build_dev_success_response(
         response["layout_reorganisation"] = _json_safe(
             dict(state.post_edit_reorganisation_advisory)
         )
-    if contract == "delta":
-        delta_envelope = _canonical_delta_ops_envelope_payload(state.delta_ops)
+    if delta_envelope is not None:
+        response["agent_edit_protocol"] = "v2_delta"
         response["delta_ops_envelope"] = delta_envelope
         response["delta_ops"] = list(delta_envelope["ops"])
     # adapt carries semantic checks as advisory/not_evaluated.

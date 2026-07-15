@@ -4736,7 +4736,7 @@ async function _rehydrateChat(panel) {
       // ── T8: Pass requestScopeId so restoreLatestCandidateFromChat can
       // refuse cross-scope / cross-session candidate restores.
       await restoreLatestCandidateFromChat(panel, payload, requestScopeId);
-      if (isTransactionalApplyCandidate(panel)) {
+      if (isV2ApplyCandidate(panel)) {
         try {
           await reconcilePreparedTransactionState(panel);
         } catch (error) {
@@ -10581,7 +10581,34 @@ async function applyAgentCandidate(panel) {
     return;
   }
 
-  if (isTransactionalApplyCandidate(panel)) {
+  if (isV2ApplyCandidate(panel)) {
+    const missingTransactionFields = [];
+    if (!(typeof panel.state.mutationPlanHash === "string" && panel.state.mutationPlanHash)) {
+      missingTransactionFields.push("plan_hash");
+    }
+    if (!(typeof panel.state.candidateGraphHash === "string" && panel.state.candidateGraphHash)) {
+      missingTransactionFields.push("candidate_graph_hash");
+    }
+    if (missingTransactionFields.length) {
+      const failure = agentPanelFailure(
+        "MissingRequiredField",
+        `Cannot apply this V2 candidate because transaction metadata is incomplete (missing ${missingTransactionFields.join(", ")}).`,
+        {
+          retryable: false,
+          graph_unchanged: true,
+          next_action: "Submit the edit again after the backend publishes complete transaction metadata.",
+          agent_edit_protocol: panel.state.agentEditProtocol,
+          missing_transaction_fields: missingTransactionFields,
+        },
+      );
+      const obligations = transition(panel, "APPLY_MISSING_FIELDS", {
+        failure,
+        debugPayload: failure,
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
+      return;
+    }
     const applyPromise = (async () => {
       let beforeApply;
       try {
@@ -11571,13 +11598,10 @@ async function applyAgentCandidate(panel) {
   }
 }
 
-function isTransactionalApplyCandidate(panel) {
+function isV2ApplyCandidate(panel) {
   return Boolean(
     panel?.state?.candidateGraph
-    && typeof panel?.state?.mutationPlanHash === "string"
-    && panel.state.mutationPlanHash
-    && typeof panel?.state?.candidateGraphHash === "string"
-    && panel.state.candidateGraphHash,
+    && panel.state.agentEditProtocol === "v2_delta",
   );
 }
 
@@ -11744,7 +11768,7 @@ async function rejectAgentCandidate(panel) {
   }
 
   if (
-    isTransactionalApplyCandidate(panel)
+    isV2ApplyCandidate(panel)
     && (panel.state.phase === PANEL_STATE.APPLY_PREPARED || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED)
   ) {
     await rollbackPreparedAgentCandidate(panel, snapshot);

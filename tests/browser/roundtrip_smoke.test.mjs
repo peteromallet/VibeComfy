@@ -2144,6 +2144,159 @@ test("Lifecycle A5 backend accept rejected disables an applyable candidate", asy
   }
 });
 
+test("V2 candidate routes Apply to prepare and never to legacy accept", async () => {
+  const sessionId = "session-v2-apply-routing";
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          agent_edit_protocol: "v2_delta",
+          session_id: sessionId,
+          turn_id: "0001",
+          outcome: { kind: "candidate", changes: [] },
+          candidate: {
+            state: "candidate",
+            graph: candidateGraph,
+            graph_hash: "candidate-v2-hash",
+            plan_hash: "plan-v2-hash",
+          },
+          eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
+          apply_allowed: true,
+          canvas_apply_allowed: true,
+          queue_allowed: true,
+          message: "V2 candidate ready.",
+        },
+      },
+      "/vibecomfy/agent-edit/prepare": {
+        status: 409,
+        body: {
+          ok: false,
+          kind: "PrepareError",
+          message: "Prepared-route sentinel.",
+        },
+      },
+    },
+  });
+
+  try {
+    await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
+    await harness.clickButton("Submit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+
+    await harness.clickButton("Apply");
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("V2 delta candidate missing plan metadata fails locally without legacy accept", async () => {
+  const sessionId = "session-v2-missing-plan";
+  const initialGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+          },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          session_id: sessionId,
+          turn_id: "0001",
+          outcome: { kind: "candidate", changes: [] },
+          candidate: {
+            state: "candidate",
+            graph: candidateGraph,
+            graph_hash: "candidate-v2-missing-plan-hash",
+          },
+          delta_ops: [],
+          eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
+          apply_allowed: true,
+          canvas_apply_allowed: true,
+          queue_allowed: true,
+          message: "Incomplete V2 candidate ready.",
+        },
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
+    await harness.clickButton("Submit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+
+    await harness.clickButton("Apply");
+
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
+    assert.match(
+      extensionModule.ensureAgentPanel().state.failure?.user_facing_message || "",
+      /transaction metadata is incomplete \(missing plan_hash\)/,
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task", async () => {
   const SESSION_ID = "session-accept-stale-recovery";
   const originalTask = "set KSampler steps to 12";

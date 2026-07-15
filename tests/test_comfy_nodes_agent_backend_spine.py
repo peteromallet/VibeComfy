@@ -94,6 +94,7 @@ from vibecomfy.comfy_nodes.agent.session import (
     structural_graph_hash,
     session_dir_for,
     turn_dir_for,
+    v2_mutation_plan_hash,
     write_state_atomic,
 )
 from vibecomfy.comfy_nodes.agent.session import SessionStateLock
@@ -10343,6 +10344,124 @@ def test_response_durability_v2_delta_protocol_detection_after_success(
     assert turn_record.get("agent_edit_protocol") == "v2_delta"
 
 
+def test_response_durability_explicit_v2_persists_canonical_plan_binding(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    submit_graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Note",
+                "properties": {"vibecomfy_uid": "1"},
+                "widgets_values": ["before"],
+            }
+        ],
+        "links": [],
+    }
+    candidate_graph = json.loads(json.dumps(submit_graph))
+    candidate_graph["nodes"][0]["widgets_values"][0] = "after"
+    request = {"task": "update note", "graph": submit_graph}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="explicit-v2",
+        request_payload=request,
+    )
+    turn_id = str(allocation.context.turn_id)
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "1", "widgets_values.0"],
+                "value": "after",
+            }
+        ],
+    }
+    structural_before = structural_graph_hash(submit_graph)
+    structural_after = structural_graph_hash(candidate_graph)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=structural_before,
+        structural_hash_after=structural_after,
+    )
+    response = {
+        "ok": True,
+        "turn_id": turn_id,
+        "graph": candidate_graph,
+        "candidate": {
+            "graph": candidate_graph,
+            "plan_hash": plan_hash,
+            "structural_hash_before": structural_before,
+            "structural_hash_after": structural_after,
+        },
+        "eligibility": {"applyable": True},
+        "agent_edit_protocol": "v2_delta",
+        "delta_ops_envelope": envelope,
+        "delta_ops": list(envelope["ops"]),
+    }
+
+    record_idempotent_response(
+        session_root=root,
+        session_id="explicit-v2",
+        scope="edit",
+        idempotency_key=None,
+        request_hash=allocation.request_hash,
+        response=response,
+        response_path=allocation.turn_dir / "response.json",
+        operation="edit",
+        turn_id=turn_id,
+    )
+
+    turn_record = read_state(session_dir_for(root, "explicit-v2"))["turns"][turn_id]
+    assert turn_record["state"] == "candidate_ready"
+    assert turn_record["agent_edit_protocol"] == "v2_delta"
+    assert turn_record["candidate_plan_hash"] == plan_hash
+    assert turn_record["candidate_structural_hash_before"] == structural_before
+    assert turn_record["candidate_structural_hash_after"] == structural_after
+
+
+def test_response_durability_explicit_v2_rejects_unbound_plan_hash(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "sessions"
+    graph = {"nodes": [], "links": []}
+    allocation = allocate_turn(
+        session_root=root,
+        session_id="bad-v2-plan",
+        request_payload={"task": "noop", "graph": graph},
+    )
+    turn_id = str(allocation.context.turn_id)
+    envelope = {"schema_version": "2.0.0", "ops": []}
+    structural = structural_graph_hash(graph)
+
+    with pytest.raises(ValueError, match="plan_hash does not match"):
+        record_idempotent_response(
+            session_root=root,
+            session_id="bad-v2-plan",
+            scope="edit",
+            idempotency_key=None,
+            request_hash=allocation.request_hash,
+            response={
+                "ok": True,
+                "graph": graph,
+                "candidate": {
+                    "graph": graph,
+                    "plan_hash": "not-canonical",
+                    "structural_hash_before": structural,
+                    "structural_hash_after": structural,
+                },
+                "eligibility": {"applyable": True},
+                "agent_edit_protocol": "v2_delta",
+                "delta_ops_envelope": envelope,
+                "delta_ops": [],
+            },
+            response_path=allocation.turn_dir / "response.json",
+            operation="edit",
+            turn_id=turn_id,
+        )
+
+
 # ── T2: executor durability / idempotency tests ─────────────────────────
 
 
@@ -11777,6 +11896,9 @@ def _setup_v2_session_with_candidate(
     state["turns"][turn_id]["candidate_structural_graph_hash_version"] = (
         STRUCTURAL_PROJECTION_VERSION
     )
+    state["turns"][turn_id]["candidate_plan_hash"] = plan_hash
+    state["turns"][turn_id]["candidate_structural_hash_before"] = structural_hash
+    state["turns"][turn_id]["candidate_structural_hash_after"] = structural_hash
     state["baseline_graph_hash"] = structural_hash
     state["baseline_graph_hash_kind"] = "structural"
     state["baseline_turn_id"] = turn_id
@@ -11851,6 +11973,45 @@ class TestPrepareTransaction:
         assert prepared is not None
         assert prepared["plan_hash"] == plan_hash
         assert prepared["generation"] == result["generation"]
+
+    def test_first_turn_prepare_uses_submit_hash_when_baseline_is_pristine(
+        self, tmp_path: Path
+    ) -> None:
+        root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+            _setup_v2_session_with_candidate(tmp_path)
+        )
+        session_dir = session_dir_for(root, session_id)
+        state = read_state(session_dir)
+        turn_record = state["turns"][turn_id]
+        submit_structural_hash = turn_record["submit_structural_graph_hash"]
+        turn_record["candidate_structural_hash_before"] = submit_structural_hash
+        state["baseline_graph_hash"] = None
+        state["baseline_graph_hash_kind"] = None
+        state["baseline_turn_id"] = None
+        state["baseline_source"] = "none"
+        write_state_atomic(session_dir, state)
+
+        result = prepare_turn_transaction(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_payload={
+                "plan_hash": plan_hash,
+                "candidate_graph_hash": cand_hash,
+                "apply_eligibility": {"applyable": True},
+                "candidate": {
+                    "graph_hash": cand_hash,
+                    "plan_hash": plan_hash,
+                    "structural_hash_before": submit_structural_hash,
+                    "structural_hash_after": structural_hash,
+                },
+            },
+        )
+
+        assert isinstance(result, dict)
+        assert result["ok"] is True
+        assert result["phase"] == "prepared"
+        assert result["baseline_graph_hash"] is None
 
     def test_prepare_fails_on_unknown_turn(self, tmp_path: Path) -> None:
         """Prepare on a non-existent turn returns a failure envelope."""

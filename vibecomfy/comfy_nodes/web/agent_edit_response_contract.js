@@ -959,6 +959,8 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     exists: asBooleanOrNull(raw.exists),
     message: asString(raw.message) || asString(raw.reply),
     route: normalizePublicRoute(raw.route, outcome),
+    agentEditProtocol:
+      asString(raw.agentEditProtocol) || asString(raw.agent_edit_protocol),
     reply: asString(raw.reply) || asString(raw.message),
     evidence: isObject(raw.evidence) || Array.isArray(raw.evidence) ? clonePlainData(raw.evidence) : null,
     outcome,
@@ -1158,6 +1160,10 @@ export function readApplyCandidate(value, options) {
         : typeof candidate.monotonicGeneration === "number" ? candidate.monotonicGeneration : null,
     leaseNonce:
       asString(candidate.lease_nonce) || asString(candidate.leaseNonce) || null,
+    agentEditProtocol:
+      asString(candidate.agent_edit_protocol)
+      || asString(candidate.agentEditProtocol)
+      || normalized.agentEditProtocol,
   });
 }
 

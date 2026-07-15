@@ -249,9 +249,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 62 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 63 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 62);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 63);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -297,6 +297,7 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 62 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatRehydrateCommittedEpoch"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("syntheticAgentMessage"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("agentEditProtocol"));
   // ── T24: Transaction lifecycle fields ─────────────────────────────────────
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("mutationPlanHash"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("generation"));
@@ -307,12 +308,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 62 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 62);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 63);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 62 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 63 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -323,9 +324,9 @@ test("createAgentEditState initializes all 62 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 62 fields
+  // No extra own keys beyond the 63 fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 62);
+  assert.equal(ownKeys.length, 63);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -333,6 +334,7 @@ test("createAgentEditState initializes all 62 lifecycle fields to defaults", () 
   // Session / turn identity
   assert.equal(state.sessionId, null);
   assert.equal(state.turnId, null);
+  assert.equal(state.agentEditProtocol, null);
 
   // Baseline defaults
   assertBaselineDefaults(state);
@@ -524,6 +526,7 @@ test("OK_CANDIDATE_RESPONSE extracts and stores deltaOps from V2 submit result",
   assert.equal(panel.state.deltaOps[0].value, "a cat");
   assert.equal(panel.state.deltaOps[1].op, "set_mode");
   assert.equal(panel.state.deltaOps[1].value, 4);
+  assert.equal(panel.state.agentEditProtocol, "v2_delta");
 });
 
 test("REQUIRES_CUSTOM_NODES_RESPONSE stores evidence and keeps apply controls disabled", () => {
@@ -978,6 +981,7 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE can restore from canonical latest-
   const panel = makePanel({ phase: PANEL_STATE.IDLE });
   const latestCandidate = {
     ok: true,
+    agent_edit_protocol: "v2_delta",
     message: "Restored canonical candidate.",
     outcome: {
       kind: "candidate",
@@ -1021,6 +1025,7 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE can restore from canonical latest-
   assert.deepEqual(panel.state.candidateGraph, latestCandidate.candidate.graph);
   assert.equal(panel.state.candidateGraphHash, "rehydrate-candidate-hash");
   assert.equal(panel.state.serverSubmitGraphHash, "rehydrate-submit-hash");
+  assert.equal(panel.state.agentEditProtocol, "v2_delta");
   assert.equal(panel.state.applyAllowed, true);
   assert.deepEqual(panel.state.lastSubmitFieldChanges.all, [
     { uid: "save", fieldPath: "filename_prefix", old: "old", new: "new" },

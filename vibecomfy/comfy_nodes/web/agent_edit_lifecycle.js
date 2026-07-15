@@ -214,6 +214,9 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   // V2 delta ops (mutation intent from submit response)
   "deltaOps",
 
+  // Authoritative edit protocol for the currently reviewable candidate.
+  "agentEditProtocol",
+
   // ── T24: Transaction lifecycle fields (store-owned, mirror Python contracts) ─
   // mutationPlanHash — the deterministic plan hash for the mutation plan
   "mutationPlanHash",
@@ -333,6 +336,7 @@ export function createAgentEditState() {
 
     // V2 delta ops (mutation intent from submit response)
     deltaOps: null,
+    agentEditProtocol: null,
 
     // ── T24: Transaction lifecycle fields ──────────────────────────────
     mutationPlanHash: null,
@@ -806,6 +810,27 @@ export function normalizeDeltaOpsFromSubmit(result) {
   }
 }
 
+function _candidateEditProtocol(result, candidate, deltaOps) {
+  const raw = result?.raw && typeof result.raw === "object" ? result.raw : result;
+  const explicit = candidate?.agentEditProtocol
+    || result?.agentEditProtocol
+    || raw?.agentEditProtocol
+    || raw?.agent_edit_protocol
+    || null;
+  if (typeof explicit === "string" && explicit) {
+    return explicit;
+  }
+  const rawEnvelopeOps = raw?.delta_ops_envelope?.ops;
+  if (
+    Array.isArray(deltaOps)
+    || Array.isArray(rawEnvelopeOps)
+    || Array.isArray(raw?.delta_ops)
+  ) {
+    return "v2_delta";
+  }
+  return null;
+}
+
 // ── T10: Scope-aware event routing guard ───────────────────────────────────
 // Pure predicate used by the websocket event handlers in vibecomfy_roundtrip.js
 // to decide whether an incoming agent-turn or executor-phase event may mutate
@@ -1041,6 +1066,11 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.lastSubmitFieldChanges = fieldChanges;
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
+  panel.state.agentEditProtocol = _candidateEditProtocol(
+    payload?.result || payload?.baseline || {},
+    candidate,
+    panel.state.deltaOps,
+  );
   // ── T24: Capture mutation plan fields from candidate for transaction lifecycle ──
   panel.state.mutationPlanHash = candidate?.planHash
     || candidate?.plan_hash
@@ -1170,6 +1200,7 @@ function _handleInvalidateCandidate(panel, payload) {
 
   // Clear V2 delta ops — mutation intent is invalidated with the candidate.
   panel.state.deltaOps = null;
+  panel.state.agentEditProtocol = null;
 
   // ── T25: Transaction lifecycle receipts survive candidate invalidation ──
   // Prepared, verified, and rollback receipts are durable evidence of the
@@ -1249,6 +1280,7 @@ const LIFECYCLE_BASELINE_RESTORE_FIELDS = Object.freeze([
   "chatRehydrateCommittedEpoch",
   "syntheticAgentMessage",
   "deltaOps",
+  "agentEditProtocol",
   // ── T24: Transaction lifecycle fields ──────────────────────────────────
   "mutationPlanHash",
   "generation",
@@ -1771,6 +1803,11 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
   panel.state.deltaOps = normalizeDeltaOpsFromSubmit(result);
+  panel.state.agentEditProtocol = _candidateEditProtocol(
+    result,
+    projectedCandidate,
+    panel.state.deltaOps,
+  );
   // ── T24: Capture mutation plan fields from candidate for transaction lifecycle ──
   panel.state.mutationPlanHash = projectedCandidate?.planHash
     || projectedCandidate?.plan_hash

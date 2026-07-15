@@ -103,6 +103,7 @@ from .session import (
     session_dir_for,
     structural_graph_hash,
     turn_dir_for,
+    v2_mutation_plan_hash,
 )
 from vibecomfy.executor.contracts import (
     ReadinessReport,
