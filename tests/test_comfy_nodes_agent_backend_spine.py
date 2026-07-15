@@ -12605,6 +12605,84 @@ class TestRollbackTransaction:
         assert not isinstance(result, dict)
         assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
 
+    def test_rollback_persists_browser_compensation_evidence(self, tmp_path: Path) -> None:
+        """Automatic rollback cause and verified canvas restore survive rehydration."""
+        root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+            _setup_v2_session_with_candidate(tmp_path)
+        )
+        prep = self._prepare(root, session_id, turn_id, cand_hash, structural_hash, plan_hash)
+        assert isinstance(prep, dict)
+        compensation = {
+            "trigger_stage": "post_apply_verification",
+            "failure_kind": "StaleStateMismatch",
+            "failure_message": "Post-apply structure differed from the candidate.",
+            "canvas_was_mutated": True,
+            "canvas_restore_attempted": True,
+            "canvas_restore_succeeded": True,
+            "pre_apply_graph_hash": "graph-before",
+            "post_restore_graph_hash": "graph-before",
+            "pre_apply_structural_hash": structural_hash,
+            "post_restore_structural_hash": structural_hash,
+        }
+
+        result = rollback_turn_transaction(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_payload={
+                "plan_hash": plan_hash,
+                "generation": prep["generation"],
+                "compensation": compensation,
+            },
+        )
+
+        assert isinstance(result, dict)
+        persisted = result["receipt"]["receipt"]["compensation"]
+        assert persisted == {**compensation, "canvas_restoration_verified": True}
+        receipt_path = (
+            root
+            / session_id
+            / "turns"
+            / turn_id
+            / "transactions"
+            / plan_hash
+            / "rollback.json"
+        )
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        assert receipt["receipt"]["compensation"] == persisted
+
+    def test_rollback_rejects_false_canvas_restoration_proof(self, tmp_path: Path) -> None:
+        """A browser cannot label a mismatched structural restore successful."""
+        root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+            _setup_v2_session_with_candidate(tmp_path)
+        )
+        prep = self._prepare(root, session_id, turn_id, cand_hash, structural_hash, plan_hash)
+        assert isinstance(prep, dict)
+
+        result = rollback_turn_transaction(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_payload={
+                "plan_hash": plan_hash,
+                "generation": prep["generation"],
+                "compensation": {
+                    "trigger_stage": "post_apply_verification",
+                    "canvas_was_mutated": True,
+                    "canvas_restore_attempted": True,
+                    "canvas_restore_succeeded": True,
+                    "pre_apply_structural_hash": structural_hash,
+                    "post_restore_structural_hash": "different-structure",
+                },
+            },
+        )
+
+        assert not isinstance(result, dict)
+        assert result.kind is FailureKind.VALIDATION_ERROR
+        state = read_state(root / session_id)
+        assert state["turns"][turn_id]["state"] == "apply_prepared"
+        assert turn_id in state["prepared_transactions"]
+
 
 class TestReconcileTransactions:
     """Tests for reconcile_turn_transactions."""

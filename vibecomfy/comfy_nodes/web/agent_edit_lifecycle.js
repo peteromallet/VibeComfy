@@ -2868,8 +2868,16 @@ function _handleFinalizeSuccess(panel, payload) {
 
 function _handleFinalizeFailure(panel, payload) {
   const failure = payload?.failure || null;
+  const rolledBack = payload?.rolledBack === true;
   panel.state.phase = PANEL_STATE.ERROR;
   panel.state.failure = failure;
+  if (rolledBack) {
+    panel.state.rollbackReceipt = payload?.rollbackReceipt || panel.state.rollbackReceipt;
+    _handleInvalidateCandidate(panel, { repaint: false });
+    panel.state.queueAllowed = false;
+    panel.state.canvasApplyAllowed = false;
+    panel.state.applyAllowed = false;
+  }
   panel.state.debugPayload = payload?.debugPayload || {
     finalize_failure: failure,
   };
@@ -2878,6 +2886,10 @@ function _handleFinalizeFailure(panel, payload) {
   return _obligations({
     render: true,
     dirtySections: STATUS_DIRTY_SECTIONS,
+    invalidateCandidate: rolledBack,
+    clearCandidatePreview: rolledBack,
+    queueGuardClear: rolledBack,
+    refreshQueueGuard: rolledBack,
   });
 }
 

@@ -10739,7 +10739,15 @@ async function applyAgentCandidate(panel) {
           && preparedPlanHash
           && preparedPlanHash !== panel.state.mutationPlanHash
         ) {
-          await rollbackPreparedAgentCandidate(panel, beforeApply);
+          const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+            silent: true,
+            triggerStage: "plan_hash_verification",
+            triggerFailure: {
+              kind: "StaleStateMismatch",
+              message: "Prepared mutation-plan hash does not match the candidate plan hash.",
+            },
+            canvasWasMutated: false,
+          });
           const failure = agentPanelFailure(
             "StaleStateMismatch",
             "Prepared mutation-plan hash does not match the candidate plan hash.",
@@ -10749,6 +10757,7 @@ async function applyAgentCandidate(panel) {
               next_action: "Submit a new edit from the current canvas.",
               expected_plan_hash: panel.state.mutationPlanHash,
               prepared_plan_hash: preparedPlanHash,
+              transaction_rollback: transactionRollback,
             },
           );
           const verifyObligations = commitVerifyCanvasFailure(panel, {
@@ -10785,11 +10794,18 @@ async function applyAgentCandidate(panel) {
       try {
         applyGraphInPlaceWithIntentDecoration(panel.state.candidateGraph);
       } catch (error) {
-        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+          restoreCanvas: true,
+          silent: true,
+          triggerStage: "canvas_apply",
+          triggerFailure: error,
+          canvasWasMutated: true,
+        });
         const failure = agentPanelFailure("CanvasApplyError", String(error), {
           retryable: true,
-          graph_unchanged: true,
+          graph_unchanged: transactionRollback.canvas_restore?.restored === true,
           next_action: "Retry Apply or Rebaseline from the current canvas.",
+          transaction_rollback: transactionRollback,
         });
         const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
           failure,
@@ -10812,14 +10828,21 @@ async function applyAgentCandidate(panel) {
       try {
         afterApply = await buildCanvasSnapshot();
       } catch (serializeErr) {
-        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+          restoreCanvas: true,
+          silent: true,
+          triggerStage: "post_apply_serialize",
+          triggerFailure: serializeErr,
+          canvasWasMutated: true,
+        });
         const failure = agentPanelFailure(
           "SerializeError",
           `Could not serialize the canvas after Apply: ${String(serializeErr)}`,
           {
             retryable: true,
-            graph_unchanged: false,
+            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
             next_action: "Retry Apply or Rebaseline from the current canvas.",
+            transaction_rollback: transactionRollback,
           },
         );
         const serializeObligations = commitVerifyCanvasFailure(panel, {
@@ -10837,7 +10860,8 @@ async function applyAgentCandidate(panel) {
       const verifyStarted = commitVerifyCanvasStarted(panel, {
         debugPayload: {
           expected_plan_hash: panel.state.mutationPlanHash,
-          post_apply_hash: afterApply.graphHash,
+          post_apply_hash: afterApply.structuralHash,
+          post_apply_graph_hash: afterApply.graphHash,
         },
       });
       fulfillLifecycleTransitionObligations(panel, verifyStarted);
@@ -10859,16 +10883,26 @@ async function applyAgentCandidate(panel) {
         && expectedStructuralHashAfter
         && afterApply.structuralHash !== expectedStructuralHashAfter
       ) {
-        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+          restoreCanvas: true,
+          silent: true,
+          triggerStage: "post_apply_verification",
+          triggerFailure: {
+            kind: "StaleStateMismatch",
+            message: "Post-apply canvas structural hash does not match the candidate structural hash.",
+          },
+          canvasWasMutated: true,
+        });
         const failure = agentPanelFailure(
           "StaleStateMismatch",
           "Post-apply canvas structural hash does not match the candidate structural hash.",
           {
             retryable: true,
-            graph_unchanged: false,
+            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
             next_action: "Retry Apply or Rebaseline from the current canvas.",
             expected_structural_hash: expectedStructuralHashAfter,
             actual_structural_hash: afterApply.structuralHash,
+            transaction_rollback: transactionRollback,
           },
         );
         const hashObligations = commitVerifyCanvasFailure(panel, {
@@ -10891,7 +10925,7 @@ async function applyAgentCandidate(panel) {
         plan_hash: panel.state.mutationPlanHash,
         generation: panel.state.generation,
         lease_nonce: panel.state.leaseNonce,
-        post_apply_hash: afterApply.graphHash,
+        post_apply_hash: afterApply.structuralHash,
       };
       const verifySuccess = commitVerifyCanvasSuccess(panel, {
         verifiedReceipt: verifyReceipt,
@@ -10908,7 +10942,7 @@ async function applyAgentCandidate(panel) {
         plan_hash: panel.state.mutationPlanHash,
         generation: panel.state.generation,
         lease_nonce: panel.state.leaseNonce,
-        post_apply_hash: afterApply.graphHash,
+        post_apply_hash: afterApply.structuralHash,
         post_apply_hash_verified: true,
         browser_verified: true,
         verified: true,
@@ -10968,16 +11002,29 @@ async function applyAgentCandidate(panel) {
               graph_unchanged: false,
               next_action: "Reload to recover the prepared transaction, then finalize or rollback.",
             });
-        // ── T26: Finalize failure boundary — rollback the prepared ──────
-        // transaction so the server baseline does not remain wedged in
-        // apply_prepared.  The canvas is already mutated; rollback cancels
-        // the server-side prepared transaction.
-        await rollbackPreparedAgentCandidate(panel, beforeApply);
+        // ── T26: Finalize failure boundary — compensate atomically ────
+        // Restore and verify the pre-apply canvas before cancelling the
+        // prepared server transaction. Preserve the finalize failure as the
+        // single user-visible outcome; rollback is supporting evidence only.
+        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+          restoreCanvas: true,
+          silent: true,
+          triggerStage: "finalize",
+          triggerFailure: failure,
+          canvasWasMutated: true,
+        });
+        if (failure && typeof failure === "object") {
+          failure.graph_unchanged = transactionRollback.canvas_restore?.restored === true;
+          failure.transaction_rollback = transactionRollback;
+        }
         const obligations = commitFinalizeFailure(panel, {
           failure,
+          rolledBack: transactionRollback.ok === true,
+          rollbackReceipt: transactionRollback.response?.receipt || null,
           debugPayload: {
             transactional_apply: true,
             finalize_boundary_rollback: true,
+            transaction_rollback: transactionRollback,
             prepare_response: prepared.raw || prepared,
             finalize_request: finalizeBody,
             finalize_failure: failure,
@@ -11611,6 +11658,23 @@ function isV2ApplyCandidate(panel) {
   );
 }
 
+function rollbackFailureKind(value) {
+  return typeof value?.kind === "string" && value.kind
+    ? value.kind
+    : typeof value?.failure_kind === "string" && value.failure_kind
+      ? value.failure_kind
+      : null;
+}
+
+function rollbackFailureMessage(value) {
+  for (const candidate of [value?.user_facing_message, value?.message, value?.error]) {
+    if (typeof candidate === "string" && candidate) {
+      return candidate.slice(0, 2048);
+    }
+  }
+  return null;
+}
+
 function normalizeLifecycleReceiptsFromEvents(events) {
   const receipts = {
     preparedReceipt: null,
@@ -11683,7 +11747,87 @@ async function reconcilePreparedTransactionState(panel) {
   return payload;
 }
 
-async function rollbackPreparedAgentCandidate(panel, snapshot) {
+async function rollbackPreparedAgentCandidate(
+  panel,
+  snapshot,
+  {
+    restoreCanvas = false,
+    silent = false,
+    triggerStage = "manual",
+    triggerFailure = null,
+    canvasWasMutated = restoreCanvas,
+  } = {},
+) {
+  const canvasRestore = {
+    attempted: Boolean(restoreCanvas),
+    restored: !restoreCanvas,
+    expected_structural_hash: snapshot?.structuralHash || null,
+    actual_structural_hash: null,
+    expected_graph_hash: snapshot?.graphHash || null,
+    actual_graph_hash: null,
+    error: null,
+  };
+  if (restoreCanvas) {
+    try {
+      if (!snapshot?.graph || typeof snapshot.graph !== "object") {
+        throw new Error("Rollback has no pre-apply canvas snapshot.");
+      }
+      applyGraphInPlaceWithIntentDecoration(snapshot.graph);
+      const restoredSnapshot = await buildCanvasSnapshot();
+      canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
+      canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
+      canvasRestore.restored = Boolean(
+        snapshot.structuralHash
+        && restoredSnapshot.structuralHash === snapshot.structuralHash,
+      );
+      if (!canvasRestore.restored) {
+        canvasRestore.error = "Restored canvas did not match the pre-apply structural hash.";
+      }
+    } catch (error) {
+      canvasRestore.restored = false;
+      canvasRestore.error = String(error);
+    }
+  }
+  if (restoreCanvas && !canvasRestore.restored) {
+    return {
+      ok: false,
+      server_rolled_back: false,
+      canvas_restore: canvasRestore,
+      failure: agentPanelFailure(
+        "CanvasRestoreError",
+        canvasRestore.error || "Could not verify restoration of the pre-apply canvas.",
+        {
+          retryable: true,
+          graph_unchanged: false,
+          next_action: "Keep the prepared transaction open and retry canvas restoration before rollback.",
+        },
+      ),
+    };
+  }
+  const compensation = {
+    trigger_stage: triggerStage,
+    canvas_was_mutated: Boolean(canvasWasMutated),
+    canvas_restore_attempted: canvasRestore.attempted,
+    canvas_restore_succeeded: canvasRestore.restored && canvasRestore.attempted,
+    ...(rollbackFailureKind(triggerFailure)
+      ? { failure_kind: rollbackFailureKind(triggerFailure).slice(0, 128) }
+      : {}),
+    ...(rollbackFailureMessage(triggerFailure)
+      ? { failure_message: rollbackFailureMessage(triggerFailure) }
+      : {}),
+    ...(canvasRestore.expected_graph_hash
+      ? { pre_apply_graph_hash: canvasRestore.expected_graph_hash }
+      : {}),
+    ...(canvasRestore.actual_graph_hash
+      ? { post_restore_graph_hash: canvasRestore.actual_graph_hash }
+      : {}),
+    ...(canvasRestore.expected_structural_hash
+      ? { pre_apply_structural_hash: canvasRestore.expected_structural_hash }
+      : {}),
+    ...(canvasRestore.actual_structural_hash
+      ? { post_restore_structural_hash: canvasRestore.actual_structural_hash }
+      : {}),
+  };
   const rollbackBody = {
     session_id: panel.state.sessionId,
     turn_id: panel.state.turnId,
@@ -11692,6 +11836,7 @@ async function rollbackPreparedAgentCandidate(panel, snapshot) {
     lease_nonce: panel.state.leaseNonce || undefined,
     client_graph_hash: snapshot?.graphHash || undefined,
     client_structural_graph_hash: snapshot?.structuralHash || undefined,
+    compensation,
     idempotency_key: buildActionIdempotencyKey({
       action: "rollback",
       sessionId: panel.state.sessionId,
@@ -11699,26 +11844,36 @@ async function rollbackPreparedAgentCandidate(panel, snapshot) {
       graphHash: snapshot?.graphHash || panel.state.candidateGraphHash,
     }),
   };
-  const started = commitRollbackStarted(panel, {
-    debugPayload: { rollback_request: rollbackBody },
-  });
-  fulfillLifecycleTransitionObligations(panel, started);
-  renderLifecycleTransition(panel, started);
+  if (!silent) {
+    const started = commitRollbackStarted(panel, {
+      debugPayload: { rollback_request: rollbackBody, canvas_restore: canvasRestore },
+    });
+    fulfillLifecycleTransitionObligations(panel, started);
+    renderLifecycleTransition(panel, started);
+  }
   try {
     const rolledBack = await postAgentLifecycleAction("rollback", rollbackBody, "rollback");
-    const obligations = commitRollbackSuccess(panel, {
-      rollbackReceipt: rolledBack.receipt || null,
-      message: rolledBack.message || "Prepared transaction rolled back.",
-      toast: "Prepared transaction rolled back",
-      debugPayload: {
-        rollback_request: rollbackBody,
-        rollback_response: rolledBack.raw || rolledBack,
-      },
-    });
-    fulfillLifecycleTransitionObligations(panel, obligations);
-    clearLayoutPreviewState(panel);
-    renderLifecycleTransition(panel, obligations);
-    return true;
+    if (!silent) {
+      const obligations = commitRollbackSuccess(panel, {
+        rollbackReceipt: rolledBack.receipt || null,
+        message: rolledBack.message || "Prepared transaction rolled back.",
+        toast: "Prepared transaction rolled back",
+        debugPayload: {
+          rollback_request: rollbackBody,
+          rollback_response: rolledBack.raw || rolledBack,
+          canvas_restore: canvasRestore,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      clearLayoutPreviewState(panel);
+      renderLifecycleTransition(panel, obligations);
+    }
+    return {
+      ok: true,
+      server_rolled_back: true,
+      canvas_restore: canvasRestore,
+      response: rolledBack.raw || rolledBack,
+    };
   } catch (error) {
     const failure = error?.ok === false
       ? error
@@ -11727,16 +11882,24 @@ async function rollbackPreparedAgentCandidate(panel, snapshot) {
           graph_unchanged: true,
           next_action: "Retry rollback or Rebaseline from the current canvas.",
         });
-    const obligations = commitRollbackFailure(panel, {
+    if (!silent) {
+      const obligations = commitRollbackFailure(panel, {
+        failure,
+        debugPayload: {
+          rollback_request: rollbackBody,
+          rollback_failure: failure,
+          canvas_restore: canvasRestore,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
+    }
+    return {
+      ok: false,
+      server_rolled_back: false,
+      canvas_restore: canvasRestore,
       failure,
-      debugPayload: {
-        rollback_request: rollbackBody,
-        rollback_failure: failure,
-      },
-    });
-    fulfillLifecycleTransitionObligations(panel, obligations);
-    renderLifecycleTransition(panel, obligations);
-    return false;
+    };
   }
 }
 
@@ -11777,7 +11940,23 @@ async function rejectAgentCandidate(panel) {
     isV2ApplyCandidate(panel)
     && (panel.state.phase === PANEL_STATE.APPLY_PREPARED || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED)
   ) {
-    await rollbackPreparedAgentCandidate(panel, snapshot);
+    const canvasWasMutated = panel.state.phase === PANEL_STATE.CANVAS_VERIFIED;
+    const undoSnapshot = canvasWasMutated && Array.isArray(panel.state.undoStack)
+      ? panel.state.undoStack.at(-1)
+      : null;
+    const rollbackSnapshot = undoSnapshot?.graph
+      ? {
+          graph: undoSnapshot.graph,
+          graphHash: undoSnapshot.client_graph_hash || null,
+          structuralHash: undoSnapshot.canvas_structural_hash || null,
+          liveCanvasToken: snapshot.liveCanvasToken,
+        }
+      : snapshot;
+    await rollbackPreparedAgentCandidate(panel, rollbackSnapshot, {
+      restoreCanvas: canvasWasMutated,
+      triggerStage: "manual",
+      canvasWasMutated,
+    });
     return;
   }
 

@@ -1521,6 +1521,7 @@ def record_rolled_back_transaction(
     plan_hash: str,
     generation: int,
     restored_structural_hash: str | None,
+    compensation: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     """Persist the authoritative ``rolled_back`` artifact and update the index.
@@ -1535,6 +1536,8 @@ def record_rolled_back_transaction(
         "restored_structural_hash": restored_structural_hash,
         "phase": "rolled_back",
     }
+    if compensation:
+        receipt["compensation"] = dict(compensation)
     return _record_resolved_transaction(
         state=state,
         turn_dir=turn_dir,
@@ -1545,6 +1548,121 @@ def record_rolled_back_transaction(
         receipt=receipt,
         now_fn=now_fn,
     )
+
+
+_ROLLBACK_TRIGGER_STAGES = frozenset(
+    {
+        "plan_hash_verification",
+        "canvas_apply",
+        "post_apply_serialize",
+        "post_apply_verification",
+        "finalize",
+        "manual",
+        "unknown",
+    }
+)
+_ROLLBACK_COMPENSATION_HASH_FIELDS = (
+    "pre_apply_graph_hash",
+    "post_restore_graph_hash",
+    "pre_apply_structural_hash",
+    "post_restore_structural_hash",
+)
+
+
+def _rollback_compensation_from_request(
+    payload: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate optional browser compensation evidence for a rollback.
+
+    The server cannot inspect or restore the browser canvas.  This bounded,
+    explicit receipt records why an automatic rollback happened and whether
+    the browser proved that its compensating canvas restore reached the
+    pre-apply structural state.
+    """
+    raw = payload.get("compensation")
+    if raw is None:
+        return None, None
+    if not isinstance(raw, Mapping):
+        return None, "compensation must be an object."
+
+    allowed = {
+        "trigger_stage",
+        "failure_kind",
+        "failure_message",
+        "canvas_was_mutated",
+        "canvas_restore_attempted",
+        "canvas_restore_succeeded",
+        *_ROLLBACK_COMPENSATION_HASH_FIELDS,
+    }
+    unknown = sorted(str(key) for key in raw if key not in allowed)
+    if unknown:
+        return None, (
+            f"compensation contains unsupported fields: {', '.join(unknown)}."
+        )
+
+    trigger_stage = raw.get("trigger_stage")
+    if trigger_stage not in _ROLLBACK_TRIGGER_STAGES:
+        return None, (
+            "compensation.trigger_stage must be one of: "
+            + ", ".join(sorted(_ROLLBACK_TRIGGER_STAGES))
+            + "."
+        )
+
+    result: dict[str, Any] = {"trigger_stage": trigger_stage}
+    for field, limit in (("failure_kind", 128), ("failure_message", 2048)):
+        value = raw.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip() or len(value) > limit:
+            return None, (
+                f"compensation.{field} must be a non-empty string of at most "
+                f"{limit} characters."
+            )
+        result[field] = value
+
+    for field in (
+        "canvas_was_mutated",
+        "canvas_restore_attempted",
+        "canvas_restore_succeeded",
+    ):
+        value = raw.get(field)
+        if not isinstance(value, bool):
+            return None, f"compensation.{field} must be a boolean."
+        result[field] = value
+
+    for field in _ROLLBACK_COMPENSATION_HASH_FIELDS:
+        value = raw.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip() or len(value) > 256:
+            return None, (
+                f"compensation.{field} must be a non-empty string of at most "
+                "256 characters."
+            )
+        result[field] = value
+
+    attempted = result["canvas_restore_attempted"]
+    succeeded = result["canvas_restore_succeeded"]
+    if succeeded and not attempted:
+        return None, (
+            "compensation cannot claim canvas_restore_succeeded without "
+            "attempting restoration."
+        )
+    before = result.get("pre_apply_structural_hash")
+    after = result.get("post_restore_structural_hash")
+    if succeeded and (before is None or after is None):
+        return None, (
+            "successful canvas restoration requires pre_apply_structural_hash "
+            "and post_restore_structural_hash."
+        )
+    if succeeded and before != after:
+        return None, (
+            "successful canvas restoration requires matching pre-apply and "
+            "post-restore structural hashes."
+        )
+
+    result["canvas_restoration_verified"] = bool(succeeded and before == after)
+    return result, None
 
 
 def record_cancelled_transaction(
@@ -2231,6 +2349,18 @@ def rollback_turn_transaction(
         state = read_state(session_dir)
         reconcile_transaction_index_from_artifacts(state, session_dir)
         turn_dir = turn_dir_for(session_root, session_id, turn_id)
+        compensation, compensation_error = _rollback_compensation_from_request(
+            payload
+        )
+        if compensation_error is not None:
+            return _transaction_failure(
+                kind=FailureKind.VALIDATION_ERROR,
+                stage="rollback",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation=compensation_error,
+            )
         if isinstance(plan_hash, str) and isinstance(generation, int):
             replay = lookup_apply_idempotency_record(
                 state, plan_hash=plan_hash, generation=generation
@@ -2311,6 +2441,7 @@ def rollback_turn_transaction(
             plan_hash=str(prepared_plan),
             generation=int(prepared_generation),
             restored_structural_hash=_current_structural_baseline_hash(state),
+            compensation=compensation,
         )
         write_state_atomic(session_dir, state)
         return {
