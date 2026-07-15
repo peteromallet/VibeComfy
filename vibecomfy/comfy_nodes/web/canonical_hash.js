@@ -19,9 +19,98 @@
 // All lifecycle consumers (preview, apply, verify) must produce hashes that
 // match the Python backend byte-for-byte for equivalent plan/canvas data.
 
-import crypto from "node:crypto";
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+// Keep this module directly loadable by ComfyUI's browser runtime.  A Node
+// builtin import here prevents the entire VibeComfy extension entrypoint from
+// evaluating, so the synchronous hash API uses a small SHA-256 implementation
+// over UTF-8 bytes instead of `node:crypto`.  Web Crypto is intentionally not
+// used because `crypto.subtle.digest()` is asynchronous and these helpers are
+// consumed synchronously by preview/apply verification.
+const _SHA256_INITIAL = Object.freeze([
+  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+  0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+]);
+
+const _SHA256_CONSTANTS = Object.freeze([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+  0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+  0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+  0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+  0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+  0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+]);
+
+function _rotateRight(value, bits) {
+  return (value >>> bits) | (value << (32 - bits));
+}
+
+function _sha256HexUtf8(text) {
+  const bytes = new TextEncoder().encode(String(text));
+  const paddedLength = Math.ceil((bytes.length + 9) / 64) * 64;
+  const padded = new Uint8Array(paddedLength);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+
+  const bitLength = bytes.length * 8;
+  const paddedView = new DataView(padded.buffer);
+  paddedView.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000), false);
+  paddedView.setUint32(paddedLength - 4, bitLength >>> 0, false);
+
+  const state = _SHA256_INITIAL.slice();
+  const words = new Uint32Array(64);
+  for (let offset = 0; offset < paddedLength; offset += 64) {
+    for (let index = 0; index < 16; index += 1) {
+      words[index] = paddedView.getUint32(offset + index * 4, false);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const prior15 = words[index - 15];
+      const prior2 = words[index - 2];
+      const sigma0 = _rotateRight(prior15, 7) ^ _rotateRight(prior15, 18) ^ (prior15 >>> 3);
+      const sigma1 = _rotateRight(prior2, 17) ^ _rotateRight(prior2, 19) ^ (prior2 >>> 10);
+      words[index] = (words[index - 16] + sigma0 + words[index - 7] + sigma1) >>> 0;
+    }
+
+    let [a, b, c, d, e, f, g, h] = state;
+    for (let index = 0; index < 64; index += 1) {
+      const choice = (e & f) ^ (~e & g);
+      const majority = (a & b) ^ (a & c) ^ (b & c);
+      const sum0 = _rotateRight(a, 2) ^ _rotateRight(a, 13) ^ _rotateRight(a, 22);
+      const sum1 = _rotateRight(e, 6) ^ _rotateRight(e, 11) ^ _rotateRight(e, 25);
+      const temp1 = (h + sum1 + choice + _SHA256_CONSTANTS[index] + words[index]) >>> 0;
+      const temp2 = (sum0 + majority) >>> 0;
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) >>> 0;
+    }
+
+    state[0] = (state[0] + a) >>> 0;
+    state[1] = (state[1] + b) >>> 0;
+    state[2] = (state[2] + c) >>> 0;
+    state[3] = (state[3] + d) >>> 0;
+    state[4] = (state[4] + e) >>> 0;
+    state[5] = (state[5] + f) >>> 0;
+    state[6] = (state[6] + g) >>> 0;
+    state[7] = (state[7] + h) >>> 0;
+  }
+
+  return state.map((word) => word.toString(16).padStart(8, "0")).join("");
+}
 
 function _isObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -201,7 +290,7 @@ export function canonicalJsonBytes(value) {
  */
 export function sha256Hex(value) {
   const str = canonicalJsonString(value);
-  return crypto.createHash("sha256").update(str, "utf8").digest("hex");
+  return _sha256HexUtf8(str);
 }
 
 /**
@@ -212,5 +301,5 @@ export function sha256Hex(value) {
  * @returns {string}
  */
 export function sha256HexFromString(canonicalJson) {
-  return crypto.createHash("sha256").update(canonicalJson, "utf8").digest("hex");
+  return _sha256HexUtf8(canonicalJson);
 }

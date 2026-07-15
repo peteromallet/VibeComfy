@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   canonicalizeJsonLike,
@@ -8,6 +9,29 @@ import {
   sha256Hex,
   sha256HexFromString,
 } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+
+test("browser canonical hash authority does not import Node-only builtins", async () => {
+  const source = await readFile(
+    new URL("../../vibecomfy/comfy_nodes/web/canonical_hash.js", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /(?:from|import\s*\()\s*["']node:/);
+});
+
+test("browser-compatible SHA-256 matches standard UTF-8 vectors", () => {
+  assert.equal(
+    sha256HexFromString(""),
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  );
+  assert.equal(
+    sha256HexFromString("abc"),
+    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+  );
+  assert.equal(
+    sha256HexFromString("café 漢字"),
+    "fc66759ac2df3f128edc4aa992b29b7a486db987b60f017acbb15db47a79ad80",
+  );
+});
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
