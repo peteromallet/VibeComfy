@@ -14220,6 +14220,105 @@ def test_discarded_v2_candidate_is_not_rehydrated(tmp_path: Path) -> None:
 
     result = read_session_chat(tmp_path, session_id, max_messages=5)
     assert result["latest_candidate"] is None
+    assert result["latest_turn_lifecycle"]["state"] == "discarded"
+    assert result["latest_turn_lifecycle"]["disposition"] == "discarded"
+
+
+def test_terminal_rollback_lifecycle_rehydrates_without_open_candidate(
+    tmp_path: Path,
+) -> None:
+    session_id = "rehydrate-rolled-back-v2"
+    session_dir = session_dir_for(tmp_path, session_id)
+    turn_dir = session_dir / "turns" / "0001"
+    transaction_dir = turn_dir / "transactions" / ("a" * 64)
+    transaction_dir.mkdir(parents=True)
+    graph = {"nodes": [{"id": 2, "type": "SaveImage"}], "links": []}
+    (turn_dir / "request.json").write_text(
+        json.dumps({"task": "edit"}), encoding="utf-8"
+    )
+    (turn_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph": graph,
+                "outcome": {"kind": "candidate", "changes": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "session_state.json").write_text(
+        json.dumps(
+            {
+                "turns": {
+                    "0001": {
+                        "state": "rollback_complete",
+                        "agent_edit_protocol": "v2_delta",
+                        "candidate_graph_hash": "candidate-hash",
+                        "candidate_plan_hash": "a" * 64,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    compensation = {
+        "trigger_stage": "post_apply_verification",
+        "failure_kind": "StaleStateMismatch",
+        "failure_message": "The post-apply structure differed.",
+        "canvas_was_mutated": True,
+        "canvas_restore_attempted": True,
+        "canvas_restore_succeeded": True,
+        "canvas_restoration_verified": True,
+        "pre_apply_structural_hash": "before-structural",
+        "post_restore_structural_hash": "before-structural",
+    }
+    events = [
+        {
+            "seq": 1,
+            "event_type": "prepared",
+            "turn_id": "0001",
+            "plan_hash": "a" * 64,
+            "generation": 1,
+            "timestamp": "2026-07-15T13:37:49Z",
+            "receipt": {"phase": "prepared", "lease_nonce": "private-nonce"},
+        },
+        {
+            "seq": 2,
+            "event_type": "rolled_back",
+            "turn_id": "0001",
+            "plan_hash": "a" * 64,
+            "generation": 1,
+            "timestamp": "2026-07-15T13:37:50Z",
+            "receipt": {
+                "phase": "rolled_back",
+                "restored_structural_hash": "before-structural",
+                "compensation": compensation,
+            },
+        },
+    ]
+    (transaction_dir / "lifecycle_events.jsonl").write_text(
+        "".join(json.dumps(event) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    result = read_session_chat(tmp_path, session_id, max_messages=5)
+
+    assert result["latest_candidate"] is None
+    lifecycle = result["latest_turn_lifecycle"]
+    assert lifecycle["turn_id"] == "0001"
+    assert lifecycle["state"] == "rollback_complete"
+    assert lifecycle["agent_edit_protocol"] == "v2_delta"
+    assert lifecycle["disposition"] == "rolled_back"
+    assert [event["event_type"] for event in lifecycle["transaction_receipts"]] == [
+        "prepared",
+        "rolled_back",
+    ]
+
+    public = public_chat_rehydrate_payload(result)["latest_turn_lifecycle"]
+    assert public["state"] == "rollback_complete"
+    assert public["disposition"] == "rolled_back"
+    assert public["transaction_receipts"][-1]["receipt"]["compensation"] == compensation
+    assert "lease_nonce" not in public["transaction_receipts"][0]["receipt"]
 
 
 def test_conversation_with_candidate_reference_appends_compact_context() -> None:

@@ -214,6 +214,47 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "rebaseline_recovery",
 )
 
+PUBLIC_LATEST_TURN_LIFECYCLE_FIELDS: tuple[str, ...] = (
+    "turn_id",
+    "state",
+    "agent_edit_protocol",
+    "candidate_plan_hash",
+    "candidate_graph_hash",
+    "disposition",
+)
+
+PUBLIC_TRANSACTION_EVENT_FIELDS: tuple[str, ...] = (
+    "seq",
+    "event_type",
+    "turn_id",
+    "plan_hash",
+    "generation",
+    "timestamp",
+)
+
+PUBLIC_TRANSACTION_RECEIPT_FIELDS: tuple[str, ...] = (
+    "turn_id",
+    "plan_hash",
+    "generation",
+    "phase",
+    "restored_structural_hash",
+    "structural_hash_after",
+)
+
+PUBLIC_ROLLBACK_COMPENSATION_FIELDS: tuple[str, ...] = (
+    "trigger_stage",
+    "failure_kind",
+    "failure_message",
+    "canvas_was_mutated",
+    "canvas_restore_attempted",
+    "canvas_restore_succeeded",
+    "canvas_restoration_verified",
+    "pre_apply_graph_hash",
+    "post_restore_graph_hash",
+    "pre_apply_structural_hash",
+    "post_restore_structural_hash",
+)
+
 PUBLIC_SESSION_TURN_SUMMARY_FIELDS: tuple[str, ...] = (
     "turn_id",
     "message_count",
@@ -1875,6 +1916,38 @@ def public_latest_candidate(candidate: Mapping[str, Any] | None) -> dict[str, An
     return payload
 
 
+def public_latest_turn_lifecycle(
+    lifecycle: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Project the latest durable turn disposition and bounded receipts."""
+    if not isinstance(lifecycle, Mapping):
+        return None
+    public = _project_mapping(lifecycle, PUBLIC_LATEST_TURN_LIFECYCLE_FIELDS)
+    public["transaction_receipts"] = []
+    receipts = lifecycle.get("transaction_receipts")
+    if not isinstance(receipts, list):
+        return public
+    for raw_event in receipts:
+        if not isinstance(raw_event, Mapping):
+            continue
+        event = _project_mapping(raw_event, PUBLIC_TRANSACTION_EVENT_FIELDS)
+        raw_receipt = raw_event.get("receipt")
+        if isinstance(raw_receipt, Mapping):
+            receipt = _project_mapping(
+                raw_receipt,
+                PUBLIC_TRANSACTION_RECEIPT_FIELDS,
+            )
+            compensation = raw_receipt.get("compensation")
+            if isinstance(compensation, Mapping):
+                receipt["compensation"] = _project_mapping(
+                    compensation,
+                    PUBLIC_ROLLBACK_COMPENSATION_FIELDS,
+                )
+            event["receipt"] = receipt
+        public["transaction_receipts"].append(event)
+    return public
+
+
 def public_session_turn_summary(turn: Mapping[str, Any]) -> dict[str, Any]:
     """Project one session-json turn summary with boolean artifact presence."""
     payload = _project_mapping(turn, PUBLIC_SESSION_TURN_SUMMARY_FIELDS)
@@ -1897,6 +1970,9 @@ def public_chat_rehydrate_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         "latest_turn_id": payload.get("latest_turn_id"),
         "messages": [],
         "latest_candidate": public_latest_candidate(payload.get("latest_candidate")),
+        "latest_turn_lifecycle": public_latest_turn_lifecycle(
+            payload.get("latest_turn_lifecycle")
+        ),
         "diagnostics": [],
         "audit_artifacts": [],
     }
@@ -2556,6 +2632,7 @@ __all__ = [
     "public_chat_rehydrate_payload",
     "public_compact_diagnostic",
     "public_latest_candidate",
+    "public_latest_turn_lifecycle",
     "public_outcome_from_turn_outcome",
     "public_response_details",
     "public_session_json_payload",

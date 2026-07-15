@@ -207,6 +207,7 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   // Epoch
   "chatRehydrateEpoch",
   "chatRehydrateCommittedEpoch",
+  "chatRehydratePending",
 
   // Synthetic chat
   "syntheticAgentMessage",
@@ -330,6 +331,7 @@ export function createAgentEditState() {
     // Epoch
     chatRehydrateEpoch: 0,
     chatRehydrateCommittedEpoch: 0,
+    chatRehydratePending: false,
 
     // Synthetic chat
     syntheticAgentMessage: null,
@@ -1278,6 +1280,7 @@ const LIFECYCLE_BASELINE_RESTORE_FIELDS = Object.freeze([
   "compartmentIndexes",
   "chatRehydrateEpoch",
   "chatRehydrateCommittedEpoch",
+  "chatRehydratePending",
   "syntheticAgentMessage",
   "deltaOps",
   "agentEditProtocol",
@@ -2034,7 +2037,17 @@ function _handleChatRehydrateStart(panel) {
   const requestEpoch =
     (Number.isFinite(panel.state.chatRehydrateEpoch) ? panel.state.chatRehydrateEpoch : 0) + 1;
   panel.state.chatRehydrateEpoch = requestEpoch;
-  return { render: false, requestEpoch };
+  // The browser may retain a candidate across a backend restart. Until the
+  // durable chat response confirms that candidate is still reviewable, its
+  // Apply/Reject actions must be treated as unauthoritative. Rendering here
+  // closes the window where a stale button remains clickable while fetch is
+  // in flight; the action handlers enforce the same rule at dispatch time.
+  panel.state.chatRehydratePending = true;
+  return _obligations({
+    render: true,
+    dirtySections: REVIEW_DIRTY_SECTIONS,
+    requestEpoch,
+  });
 }
 
 function _handleChatRehydrateNoSession(panel, payload) {
@@ -2044,6 +2057,7 @@ function _handleChatRehydrateNoSession(panel, payload) {
   panel.state.chatMessages = [];
   Object.assign(panel.state, createAgentStateCompartments());
   panel.state.chatLoaded = false;
+  panel.state.chatRehydratePending = false;
   panel.state.chatError = null;
   panel.state.chatSessionPath = null;
   panel.state.chatDetailJsonPath = null;
@@ -2066,6 +2080,7 @@ function _handleChatRehydrateMissingSession(panel, payload) {
   panel.state.chatMessages = [];
   Object.assign(panel.state, createAgentStateCompartments());
   panel.state.chatLoaded = true;
+  panel.state.chatRehydratePending = false;
   panel.state.chatError = null;
   panel.state.chatSessionPath = null;
   panel.state.chatDetailJsonPath = null;
@@ -2076,6 +2091,79 @@ function _handleChatRehydrateMissingSession(panel, payload) {
     dirtySections: confirmedSessionId ? META_AND_THREAD_DIRTY_SECTIONS : THREAD_DIRTY_SECTIONS,
     forgetSession: true,
   });
+}
+
+function _receiptFromLifecycleEvents(events, expectedType) {
+  if (!Array.isArray(events)) {
+    return null;
+  }
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    const eventType = String(event?.event_type || event?.eventType || "");
+    if (eventType === expectedType) {
+      return event?.receipt && typeof event.receipt === "object" ? event.receipt : event;
+    }
+  }
+  return null;
+}
+
+function _commitRehydratedTerminalDisposition(panel, lifecycle) {
+  if (!lifecycle || typeof lifecycle !== "object") {
+    return false;
+  }
+  const disposition = String(lifecycle.disposition || "");
+  const state = String(lifecycle.state || "");
+  const turnId = typeof lifecycle.turnId === "string" && lifecycle.turnId
+    ? lifecycle.turnId
+    : null;
+  const receipts = Array.isArray(lifecycle.transactionReceipts)
+    ? lifecycle.transactionReceipts
+    : [];
+  if (turnId) {
+    panel.state.turnId = turnId;
+  }
+  if (receipts.length) {
+    panel.state.lifecycleEvents = receipts.slice();
+  }
+
+  if (disposition === "rolled_back" || state === "rollback_complete") {
+    panel.state.phase = PANEL_STATE.ROLLBACK_COMPLETE;
+    panel.state.rollbackReceipt = _receiptFromLifecycleEvents(receipts, "rolled_back")
+      || panel.state.rollbackReceipt
+      || null;
+    panel.state.message = "This transaction was rolled back and its candidate is no longer available.";
+  } else if (disposition === "finalized" || state === "finalized") {
+    panel.state.phase = PANEL_STATE.FINALIZED;
+    const finalizedReceipt = _receiptFromLifecycleEvents(receipts, "finalized");
+    if (finalizedReceipt) {
+      panel.state.verifiedReceipt = {
+        plan_hash: finalizedReceipt.plan_hash || null,
+        generation: finalizedReceipt.generation ?? null,
+        post_apply_hash: finalizedReceipt.applied_payload?.post_apply_hash || null,
+        finalized_receipt: finalizedReceipt,
+      };
+    }
+    panel.state.message = "This transaction was already finalized and its candidate is no longer available.";
+  } else if (disposition === "discarded" || state === "discarded") {
+    panel.state.phase = PANEL_STATE.IDLE;
+    panel.state.message = "This candidate was discarded and is no longer available.";
+  } else if (disposition === "rejected" || state === "rejected") {
+    panel.state.phase = PANEL_STATE.IDLE;
+    panel.state.message = "This candidate was rejected and is no longer available.";
+  } else {
+    return false;
+  }
+  panel.state.failure = null;
+  panel.state.applyAllowed = false;
+  panel.state.canvasApplyAllowed = false;
+  panel.state.queueAllowed = false;
+  panel.state.debugPayload = {
+    ...(panel.state.debugPayload && typeof panel.state.debugPayload === "object"
+      ? panel.state.debugPayload
+      : {}),
+    rehydrated_terminal_disposition: lifecycle,
+  };
+  return true;
 }
 
 function _handleChatRehydrateSuccess(panel, payload) {
@@ -2138,6 +2226,7 @@ function _handleChatRehydrateSuccess(panel, payload) {
     },
   };
   panel.state.chatLoaded = true;
+  panel.state.chatRehydratePending = false;
   panel.state.chatError = null;
   panel.state.chatSessionPath = typeof payload?.chatSessionPath === "string" ? payload.chatSessionPath : null;
   panel.state.chatDetailJsonPath = typeof payload?.chatDetailJsonPath === "string" ? payload.chatDetailJsonPath : null;
@@ -2161,12 +2250,15 @@ function _handleChatRehydrateSuccess(panel, payload) {
   const rehydrateCaughtUpToCandidate =
     !currentCandidateTurnId
     || (latestTurnId && latestTurnId >= currentCandidateTurnId);
+  let invalidatedAuthoritativeCandidate = false;
+  let terminalDispositionCommitted = false;
   if (
     !latestCandidateIsReviewable
     && rehydrateCaughtUpToCandidate
     && panel.state.phase !== PANEL_STATE.SUBMITTING
     && panel.state.phase !== PANEL_STATE.APPLYING
   ) {
+    invalidatedAuthoritativeCandidate = Boolean(panel.state.candidateGraph);
     _handleInvalidateCandidate(panel, { repaint: false });
     if (panel.state.phase === PANEL_STATE.AWAITING_REVIEW) {
       panel.state.phase = PANEL_STATE.IDLE;
@@ -2174,6 +2266,10 @@ function _handleChatRehydrateSuccess(panel, payload) {
     panel.state.applyAllowed = false;
     panel.state.canvasApplyAllowed = false;
     panel.state.queueAllowed = false;
+    terminalDispositionCommitted = _commitRehydratedTerminalDisposition(
+      panel,
+      payload?.latestTurnLifecycle || null,
+    );
   }
   if (Number.isFinite(payload?.requestEpoch)) {
     panel.state.chatRehydrateCommittedEpoch = Math.max(
@@ -2181,10 +2277,21 @@ function _handleChatRehydrateSuccess(panel, payload) {
       payload.requestEpoch,
     );
   }
+  const candidateInvalidationRequired = invalidatedAuthoritativeCandidate || terminalDispositionCommitted;
   return _obligations({
     render: false,
-    dirtySections: sessionId ? META_AND_THREAD_DIRTY_SECTIONS : THREAD_DIRTY_SECTIONS,
+    dirtySections: terminalDispositionCommitted || invalidatedAuthoritativeCandidate
+      ? REVIEW_DIRTY_SECTIONS
+      : (sessionId ? META_AND_THREAD_DIRTY_SECTIONS : THREAD_DIRTY_SECTIONS),
     persistSession: sessionId,
+    ...(candidateInvalidationRequired
+      ? {
+          invalidateCandidate: true,
+          clearCandidatePreview: true,
+          queueGuardClear: true,
+          refreshQueueGuard: true,
+        }
+      : {}),
   });
 }
 
@@ -2566,6 +2673,7 @@ function _handleChatRehydrateFailure(panel, payload) {
     : [];
   panel.state.transcriptMessages = panel.state.chatMessages.slice();
   panel.state.chatLoaded = false;
+  panel.state.chatRehydratePending = false;
   panel.state.chatError = payload?.chatError || null;
   panel.state.chatSessionPath = null;
   panel.state.chatDetailJsonPath = null;

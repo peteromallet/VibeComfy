@@ -249,9 +249,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 63 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 64 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 63);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 64);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -295,6 +295,7 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 63 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("compartmentIndexes"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatRehydrateEpoch"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatRehydrateCommittedEpoch"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("chatRehydratePending"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("syntheticAgentMessage"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("agentEditProtocol"));
@@ -308,12 +309,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 63 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 63);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 64);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 63 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 64 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -324,9 +325,9 @@ test("createAgentEditState initializes all 63 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 63 fields
+  // No extra own keys beyond the 64 fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 63);
+  assert.equal(ownKeys.length, 64);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -1933,6 +1934,80 @@ test("transition table: chat rehydrate reconciles fresh, stale, missing-session,
   }
 });
 
+test("chat rehydrate atomically replaces a stale candidate with durable rollback disposition", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    sessionId: "sess-terminal-rehydrate",
+    turnId: "0001",
+    chatRehydrateEpoch: 4,
+    chatRehydratePending: true,
+    candidateGraph: { nodes: [{ id: 1 }], links: [] },
+    candidateGraphHash: "stale-candidate",
+    applyAllowed: true,
+    canvasApplyAllowed: true,
+    queueAllowed: true,
+    applyEligibility: {
+      applyable: true,
+      reason: "applyable",
+      message: "Previously ready.",
+      warnings: [],
+    },
+  });
+  const rolledBackReceipt = {
+    event_type: "rolled_back",
+    timestamp: "2026-07-15T12:00:00Z",
+    receipt: { plan_hash: "plan-terminal", rollback_at: "2026-07-15T12:00:00Z" },
+  };
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_SUCCESS", {
+    requestEpoch: 4,
+    sessionId: "sess-terminal-rehydrate",
+    latestTurnId: "0001",
+    latestCandidate: null,
+    latestTurnLifecycle: {
+      turnId: "0001",
+      state: "rollback_complete",
+      disposition: "rolled_back",
+      agentEditProtocol: "v2_delta",
+      transactionReceipts: [rolledBackReceipt],
+    },
+    messages: [],
+  });
+
+  assert.equal(panel.state.chatRehydratePending, false);
+  assert.equal(panel.state.candidateGraph, null);
+  assert.equal(panel.state.applyAllowed, false);
+  assert.equal(panel.state.canvasApplyAllowed, false);
+  assert.equal(panel.state.queueAllowed, false);
+  assert.equal(panel.state.phase, PANEL_STATE.ROLLBACK_COMPLETE);
+  assert.deepEqual(panel.state.rollbackReceipt, rolledBackReceipt.receipt);
+  assert.match(panel.state.message, /rolled back.*no longer available/i);
+  assert.deepEqual(panel.state.debugPayload.rehydrated_terminal_disposition.transactionReceipts, [rolledBackReceipt]);
+  assert.equal(obligations.render, false, "chat success remains one atomic commit before the caller's render");
+  assert.equal(obligations.invalidateCandidate, true);
+  assert.equal(obligations.clearCandidatePreview, true);
+  assert.equal(obligations.queueGuardClear, true);
+  assert.equal(obligations.refreshQueueGuard, true);
+  assert.ok(obligations.dirtySections.includes("NOTICE"));
+  assert.ok(obligations.dirtySections.includes("COMPOSER"));
+});
+
+test("chat rehydrate start immediately suspends candidate actions until authority resolves", () => {
+  const panel = makePanel({
+    phase: PANEL_STATE.AWAITING_REVIEW,
+    chatRehydrateEpoch: 2,
+    chatRehydratePending: false,
+    candidateGraph: { nodes: [{ id: 1 }], links: [] },
+  });
+
+  const obligations = transition(panel, "CHAT_REHYDRATE_START");
+
+  assert.equal(panel.state.chatRehydrateEpoch, 3);
+  assert.equal(panel.state.chatRehydratePending, true);
+  assert.equal(obligations.requestEpoch, 3);
+  assert.equal(obligations.render, true);
+});
+
 test("OK_CANDIDATE_RESPONSE preserves deltaOps through review (survives non-clearing transitions)", () => {
   const panel = makePanel({ phase: PANEL_STATE.SUBMITTING });
   const deltaOps = [
@@ -3100,8 +3175,10 @@ test("CHAT_REHYDRATE_START increments epoch without disturbing current candidate
 
   const obligations = transition(panel, "CHAT_REHYDRATE_START");
 
-  assert.deepEqual(obligations, { render: false, requestEpoch: 5 });
+  assert.equal(obligations.render, true);
+  assert.equal(obligations.requestEpoch, 5);
   assert.equal(panel.state.chatRehydrateEpoch, 5);
+  assert.equal(panel.state.chatRehydratePending, true);
   assert.equal(panel.state.candidateGraphHash, "candidate-hash");
   assert.deepEqual(panel.state.candidateGraph, { nodes: [1] });
   assert.deepEqual(panel.state.failure, { code: "KeepMe" });

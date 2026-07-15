@@ -109,6 +109,30 @@ test("candidateActionState keeps active and historical candidate semantics", () 
   assert.equal(staleHistorical.rejectDisabled, true);
 });
 
+test("candidateActionState suspends stale candidate actions while durable authority rehydrates", () => {
+  const panel = {
+    state: {
+      phase: "AWAITING_REVIEW",
+      chatRehydratePending: true,
+      candidateGraph: { nodes: [] },
+      turnId: "0001",
+      applyEligibility: {
+        applyable: true,
+        reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
+        message: "Previously ready.",
+        warnings: [],
+      },
+    },
+  };
+
+  const state = candidateActionState(panel);
+  assert.equal(state.visible, true);
+  assert.equal(state.active, true);
+  assert.equal(state.applyDisabled, true);
+  assert.equal(state.rejectDisabled, true);
+  assert.equal(state.blockerMessage, "Checking whether this candidate is still available.");
+});
+
 test("candidateActionState preserves optional reorganise candidate eligibility and stale history", () => {
   const panel = {
     state: {

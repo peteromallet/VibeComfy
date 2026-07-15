@@ -13906,6 +13906,136 @@ test("Lifecycle J3 rehydrated V2 Reject discards candidate and null rehydrate ca
   }
 });
 
+test("V2 terminal rehydrate disables stale Apply then exposes rollback disposition atomically", async () => {
+  const SESSION_ID = "session-v2-terminal-rehydrate";
+  const TURN_ID = "0001";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+  const candidateGraph = {
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-terminal" } }],
+    links: [],
+  };
+  let chatRequestCount = 0;
+  let resolveTerminalChat;
+  const terminalChat = new Promise((resolve) => { resolveTerminalChat = resolve; });
+  const harness = await createBrowserHarness({
+    graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-base" } }], links: [] },
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          ready: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+          },
+        },
+      },
+      [CHAT_URL]: () => {
+        chatRequestCount += 1;
+        if (chatRequestCount > 1) return terminalChat;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            exists: true,
+            session_id: SESSION_ID,
+            latest_turn_id: TURN_ID,
+            messages: [],
+            latest_candidate: {
+              agent_edit_protocol: "v2_delta",
+              session_id: SESSION_ID,
+              turn_id: TURN_ID,
+              outcome: { kind: "candidate", changes: [] },
+              candidate: {
+                state: "candidate_ready",
+                graph: candidateGraph,
+                graph_hash: "terminal-candidate-hash",
+                plan_hash: "terminal-plan-hash",
+              },
+              graph: candidateGraph,
+              candidate_graph_hash: "terminal-candidate-hash",
+              apply_eligibility: {
+                applyable: true,
+                reason: "applyable",
+                message: "Ready before restart.",
+                warnings: [],
+              },
+            },
+          },
+        };
+      },
+      "/vibecomfy/agent-edit/reconcile": {
+        status: 200,
+        body: { ok: true, receipts_by_turn: { [TURN_ID]: [] } },
+      },
+      "/vibecomfy/agent-edit/prepare": {
+        status: 500,
+        body: { ok: false, kind: "ShouldNotDispatch", message: "stale Apply escaped rehydrate guard" },
+      },
+    },
+  });
+  globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => chatRequestCount === 1);
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+
+    const root = harness.document.getElementById("vibecomfy-agent-panel-root");
+    root.dataset.open = "0";
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => chatRequestCount === 2);
+
+    const applyButton = harness.document.getElementById("vibecomfy-agent-panel-apply");
+    assert.equal(applyButton.disabled, true, "stale Apply must suspend before durable rehydrate resolves");
+    await harness.clickButton("Apply");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
+
+    resolveTerminalChat({
+      status: 200,
+      body: {
+        ok: true,
+        exists: true,
+        session_id: SESSION_ID,
+        latest_turn_id: TURN_ID,
+        messages: [],
+        latest_candidate: null,
+        latest_turn_lifecycle: {
+          turn_id: TURN_ID,
+          state: "rollback_complete",
+          agent_edit_protocol: "v2_delta",
+          disposition: "rolled_back",
+          transaction_receipts: [
+            {
+              event_type: "rolled_back",
+              timestamp: "2026-07-15T12:00:00Z",
+              receipt: { plan_hash: "terminal-plan-hash", rollback_at: "2026-07-15T12:00:00Z" },
+            },
+          ],
+        },
+      },
+    });
+
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "ROLLBACK_COMPLETE");
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.chatRehydratePending, false);
+    assert.equal(panel.state.candidateGraph, null);
+    assert.equal(panel.state.rollbackReceipt.plan_hash, "terminal-plan-hash");
+    assert.match(harness.textDump(), /Rollback complete/i);
+    assert.match(harness.textDump(), /rolled back.*no longer available/i);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
+  } finally {
+    await harness.dispose();
+    globalThis.localStorage.removeItem("vibecomfy_active_session_id");
+  }
+});
+
 test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
   const SESSION_ID = "session-reject-success";
   const candidateGraph = {

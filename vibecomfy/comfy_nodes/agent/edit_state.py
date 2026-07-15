@@ -95,6 +95,7 @@ from .execution_plan_runtime import (
 )
 from .session import (
     REVIEWABLE_CANDIDATE_STATES,
+    _transaction_receipts_for_turn,
     allocate_turn,
     normalize_session_id,
     payload_hash,

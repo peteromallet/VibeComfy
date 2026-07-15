@@ -4722,6 +4722,7 @@ async function _rehydrateChat(panel) {
         sessionId: payload.sessionId,
         latestTurnId: payload.latestTurnId,
         latestCandidate: payload.latestCandidate,
+        latestTurnLifecycle: payload.latestTurnLifecycle,
       });
       if (successObligations.stale) {
         return;
@@ -5483,6 +5484,28 @@ function normalizeChatRehydratePayload(rawPayload) {
     latestTurnId: typeof rawPayload.latestTurnId === "string"
       ? rawPayload.latestTurnId
       : (typeof rawPayload.latest_turn_id === "string" ? rawPayload.latest_turn_id : null),
+    latestTurnLifecycle: (() => {
+      const lifecycle = rawPayload.latestTurnLifecycle && typeof rawPayload.latestTurnLifecycle === "object"
+        ? rawPayload.latestTurnLifecycle
+        : (rawPayload.latest_turn_lifecycle && typeof rawPayload.latest_turn_lifecycle === "object"
+          ? rawPayload.latest_turn_lifecycle
+          : null);
+      if (!lifecycle) return null;
+      return {
+        ...lifecycle,
+        turnId: typeof lifecycle.turnId === "string"
+          ? lifecycle.turnId
+          : (typeof lifecycle.turn_id === "string" ? lifecycle.turn_id : null),
+        state: typeof lifecycle.state === "string" ? lifecycle.state : null,
+        disposition: typeof lifecycle.disposition === "string" ? lifecycle.disposition : null,
+        agentEditProtocol: typeof lifecycle.agentEditProtocol === "string"
+          ? lifecycle.agentEditProtocol
+          : (typeof lifecycle.agent_edit_protocol === "string" ? lifecycle.agent_edit_protocol : null),
+        transactionReceipts: Array.isArray(lifecycle.transactionReceipts)
+          ? lifecycle.transactionReceipts
+          : (Array.isArray(lifecycle.transaction_receipts) ? lifecycle.transaction_receipts : []),
+      };
+    })(),
     latestCandidate:
       rawPayload.latestCandidate && typeof rawPayload.latestCandidate === "object"
         ? normalizeAgentEditResponse(rawPayload.latestCandidate, { endpoint: "chat:latest_candidate", allowLegacy: true })
@@ -10544,6 +10567,13 @@ async function applyAgentCandidate(panel) {
     transition(panel, "APPLY_PREFLIGHT_BLOCKED", { reason: "no_candidate" });
     return;
   }
+  // Rehydration is the authority boundary after reload/restart. A candidate
+  // retained by the live browser is only provisional until the server says it
+  // remains reviewable, so never dispatch Apply during that window.
+  if (panel.state.chatRehydratePending === true) {
+    transition(panel, "APPLY_PREFLIGHT_BLOCKED", { reason: "rehydrating" });
+    return;
+  }
   if (!panel.state.sessionId || !panel.state.turnId) {
     const failure = agentPanelFailure("MissingRequiredField", "Cannot apply a candidate without session_id and turn_id.", {
       retryable: false,
@@ -11915,6 +11945,9 @@ async function rejectAgentCandidate(panel) {
   }
 
   if (!panel?.state?.candidateGraph || !panel.state.sessionId || !panel.state.turnId) {
+    return;
+  }
+  if (panel.state.chatRehydratePending === true) {
     return;
   }
 

@@ -8,6 +8,7 @@ export const APPLY_ELIGIBILITY_REASON = Object.freeze({
   SERVER_BLOCKED: "server_blocked",
   STALE_CANVAS: "stale_canvas",
   QUEUE_BLOCKED_WARNING: "queue_blocked_warning",
+  REHYDRATING: "rehydrating",
 });
 
 const PANEL_PHASE = Object.freeze({
@@ -150,6 +151,7 @@ function snapshotEligibilityForBubble(message, snapshot = null) {
 export function candidateActionState(panel, message = null, snapshot = null) {
   const submitting = panel?.state?.phase === PANEL_PHASE.SUBMITTING;
   const applying = panel?.state?.phase === PANEL_PHASE.APPLYING;
+  const rehydrating = panel?.state?.chatRehydratePending === true;
   const activeTurnId =
     panel?.state?.candidateGraph && typeof panel.state.turnId === "string" && panel.state.turnId
       ? panel.state.turnId
@@ -193,7 +195,9 @@ export function candidateActionState(panel, message = null, snapshot = null) {
   }
 
   const blockerMessage =
-    !eligibility.applyable
+    rehydrating
+      ? "Checking whether this candidate is still available."
+      : !eligibility.applyable
       ? (eligibility.message || (Array.isArray(eligibility.warnings) ? eligibility.warnings[0] : "") || "")
       : "";
 
@@ -203,7 +207,7 @@ export function candidateActionState(panel, message = null, snapshot = null) {
     turnId,
     eligibility,
     blockerMessage,
-    applyDisabled: applying || !active || !eligibility.applyable,
-    rejectDisabled: submitting || applying || !active,
+    applyDisabled: rehydrating || applying || !active || !eligibility.applyable,
+    rejectDisabled: rehydrating || submitting || applying || !active,
   };
 }

@@ -236,6 +236,68 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
     return None
 
 
+def _latest_turn_lifecycle_payload(
+    session_dir: Path,
+    turn_ids: list[str],
+) -> dict[str, Any] | None:
+    """Project the latest durable turn state even when no candidate is open.
+
+    ``latest_candidate`` intentionally excludes terminal candidates.  This
+    companion projection explains that absence so a reconnecting browser can
+    atomically discard stale review state and render the durable disposition.
+    Transaction receipts use the same event schema as the reconcile endpoint.
+    """
+    try:
+        state = read_state(session_dir)
+    except Exception:
+        return None
+    turns_state = state.get("turns") if isinstance(state, Mapping) else None
+    if not isinstance(turns_state, Mapping):
+        return None
+
+    disposition_by_state = {
+        "apply_prepared": "prepared",
+        "finalized": "finalized",
+        "rollback_complete": "rolled_back",
+        "discarded": "discarded",
+        "rejected": "rejected",
+        "accepted": "finalized",
+    }
+    for turn_id in reversed(turn_ids):
+        turn = turns_state.get(turn_id)
+        if not isinstance(turn, Mapping):
+            continue
+        turn_state = turn.get("state")
+        if turn_state in REVIEWABLE_CANDIDATE_STATES:
+            disposition = "reviewable"
+        else:
+            disposition = disposition_by_state.get(str(turn_state), "other")
+        return {
+            "turn_id": turn_id,
+            "state": turn_state if isinstance(turn_state, str) else None,
+            "agent_edit_protocol": (
+                turn.get("agent_edit_protocol")
+                if isinstance(turn.get("agent_edit_protocol"), str)
+                else None
+            ),
+            "candidate_plan_hash": (
+                turn.get("candidate_plan_hash")
+                if isinstance(turn.get("candidate_plan_hash"), str)
+                else None
+            ),
+            "candidate_graph_hash": (
+                turn.get("candidate_graph_hash")
+                if isinstance(turn.get("candidate_graph_hash"), str)
+                else None
+            ),
+            "disposition": disposition,
+            "transaction_receipts": _transaction_receipts_for_turn(
+                session_dir / "turns" / turn_id
+            ),
+        }
+    return None
+
+
 # Bounds for the reasoning trim attached to rehydrated chat messages. The chat
 # endpoint is fetched on every page reload, so the embedded reasoning must stay
 # lean — keep enough per-step context to diagnose a turn (what the agent tried
@@ -428,6 +490,7 @@ def read_session_chat(
             "detail_json_path_resolved": None,
             "messages": [],
             "latest_candidate": None,
+            "latest_turn_lifecycle": None,
         }
 
     # Sort turn directories deterministically (zero-padded integers).
@@ -566,6 +629,7 @@ def read_session_chat(
         ),
         "messages": display_messages,
         "latest_candidate": _latest_session_candidate_payload(session_dir, turn_ids),
+        "latest_turn_lifecycle": _latest_turn_lifecycle_payload(session_dir, turn_ids),
     }
 
 
