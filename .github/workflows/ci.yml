@@ -53,3 +53,36 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: warn
+
+  browser-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install VibeComfy and ComfyUI
+        run: |
+          uv venv --seed
+          make PYTHON=.venv/bin/python install-ci
+
+      - name: Install Chromium test runtime
+        working-directory: tests/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Prove the extension boots in a real browser
+        env:
+          VIBECOMFY_DEMO_PICKER: "1"
+          PYBIN: ${{ github.workspace }}/.venv/bin/python
+        run: |
+          export PATH="$PWD/.venv/bin:$PATH"
+          node tests/e2e/run.mjs --no-seed -- \
+            --config tests/e2e/playwright.config.mjs \
+            tests/e2e/specs/extension_boot.spec.mjs

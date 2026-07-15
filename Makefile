@@ -46,6 +46,7 @@ BROWSER_CONTRACT_TESTS := \
 	tests/browser/canonical_delta.test.mjs \
 	tests/browser/agent_lifecycle_commit.test.mjs \
 	tests/browser/agent_lifecycle_parity.test.mjs \
+	tests/browser/frontend_browser_boundary.test.mjs \
 	tests/browser/render_section_safety.test.mjs
 
 E2E_PREVIEW_SPECS := \
