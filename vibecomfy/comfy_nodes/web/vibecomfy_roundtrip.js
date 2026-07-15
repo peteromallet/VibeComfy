@@ -66,6 +66,7 @@ import { api } from "../../scripts/api.js";
 import {
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
+  detectGraphDeltaApply,
   installQueueGuard as installQueueGuardAdapter,
   preflightDeltaPlan,
   projectCandidateGraphToRuntimeLayout,
@@ -10618,12 +10619,22 @@ async function applyAgentCandidate(panel) {
   }
 
   if (isV2ApplyCandidate(panel)) {
+    const v2DeltaOps = Array.isArray(panel.state.deltaOps) && panel.state.deltaOps.length
+      ? clonePlainData(panel.state.deltaOps)
+      : null;
+    const v2DeltaCapability = detectGraphDeltaApply(app);
     const missingTransactionFields = [];
     if (!(typeof panel.state.mutationPlanHash === "string" && panel.state.mutationPlanHash)) {
       missingTransactionFields.push("plan_hash");
     }
     if (!(typeof panel.state.candidateGraphHash === "string" && panel.state.candidateGraphHash)) {
       missingTransactionFields.push("candidate_graph_hash");
+    }
+    if (!v2DeltaOps) {
+      missingTransactionFields.push("delta_ops");
+    }
+    if (!v2DeltaCapability.available || v2DeltaCapability.strategy !== "live-litegraph-mutate") {
+      missingTransactionFields.push("scoped_delta_apply_capability");
     }
     if (missingTransactionFields.length) {
       const failure = agentPanelFailure(
@@ -10635,6 +10646,7 @@ async function applyAgentCandidate(panel) {
           next_action: "Submit the edit again after the backend publishes complete transaction metadata.",
           agent_edit_protocol: panel.state.agentEditProtocol,
           missing_transaction_fields: missingTransactionFields,
+          scoped_delta_apply_capability: clonePlainData(v2DeltaCapability),
         },
       );
       const obligations = transition(panel, "APPLY_MISSING_FIELDS", {
@@ -10821,8 +10833,24 @@ async function applyAgentCandidate(panel) {
       panel.state.undoStack = panel.state.undoStack.slice(-16);
       markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
 
+      let canvasApplyResult = null;
       try {
-        applyGraphInPlaceWithIntentDecoration(panel.state.candidateGraph);
+        // V2 authority is the persisted mutation intent, not a replacement
+        // graph. Applying the canonical ops keeps unrelated live canvas state
+        // intact and avoids graph.clear()/graph.configure() recursion in
+        // complex ComfyUI graphs. There is deliberately no whole-graph
+        // forward fallback: missing ops/capability fail before prepare above.
+        canvasApplyResult = applyGraphDeltaInPlace(app, {
+          deltaOps: v2DeltaOps,
+          candidateGraph: panel.state.candidateGraph,
+        }, {
+          decorateCandidateNodePayload(nodePayload) {
+            decorateIntentNode(nodePayload);
+          },
+          decorateLiveNode(liveNode) {
+            decorateIntentNode(liveNode);
+          },
+        });
       } catch (error) {
         const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
           restoreCanvas: true,
@@ -10836,6 +10864,11 @@ async function applyAgentCandidate(panel) {
           graph_unchanged: transactionRollback.canvas_restore?.restored === true,
           next_action: "Retry Apply or Rebaseline from the current canvas.",
           transaction_rollback: transactionRollback,
+          canvas_apply: {
+            mode: "scoped_delta",
+            delta_ops: clonePlainData(v2DeltaOps),
+            capability: clonePlainData(canvasApplyResult?.capability || v2DeltaCapability),
+          },
         });
         const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
           failure,
@@ -10843,6 +10876,7 @@ async function applyAgentCandidate(panel) {
             transactional_apply: true,
             prepare_response: prepared.raw || prepared,
             canvas_apply_failure: failure,
+            canvas_apply: failure.canvas_apply,
           },
         });
         fulfillLifecycleTransitionObligations(panel, obligations);
@@ -10892,6 +10926,12 @@ async function applyAgentCandidate(panel) {
           expected_plan_hash: panel.state.mutationPlanHash,
           post_apply_hash: afterApply.structuralHash,
           post_apply_graph_hash: afterApply.graphHash,
+          canvas_apply: {
+            mode: "scoped_delta",
+            delta_ops: clonePlainData(v2DeltaOps),
+            capability: clonePlainData(canvasApplyResult?.capability || v2DeltaCapability),
+            applied_plan: clonePlainData(canvasApplyResult?.plan || null),
+          },
         },
       });
       fulfillLifecycleTransitionObligations(panel, verifyStarted);

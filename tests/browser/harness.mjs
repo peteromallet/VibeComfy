@@ -535,7 +535,12 @@ export async function createBrowserHarness({
       if (Object.prototype.hasOwnProperty.call(serialized, "inputs")) serialized.inputs = clone(node.inputs || []);
       if (Object.prototype.hasOwnProperty.call(serialized, "outputs")) serialized.outputs = clone(node.outputs || []);
       if (Object.prototype.hasOwnProperty.call(serialized, "widgets")) serialized.widgets = clone(node.widgets || null);
-      if (Object.prototype.hasOwnProperty.call(serialized, "widgets_values")) serialized.widgets_values = clone(node.widgets_values || null);
+      // Native LiteGraph factories create widget state before a serialized
+      // candidate payload is configured onto the new node. Preserve the live
+      // value even when the factory's minimal original shape omitted the key.
+      if (node.widgets_values != null || Object.prototype.hasOwnProperty.call(serialized, "widgets_values")) {
+        serialized.widgets_values = clone(node.widgets_values || null);
+      }
       if (node.mode !== undefined || Object.prototype.hasOwnProperty.call(serialized, "mode")) serialized.mode = node.mode;
       if (Array.isArray(node.pos) || Array.isArray(serialized.pos)) serialized.pos = Array.isArray(node.pos) ? [...node.pos] : [0, 0];
       if (Object.prototype.hasOwnProperty.call(serialized, "size")) serialized.size = Array.isArray(node.size) ? [...node.size] : [200, 100];
