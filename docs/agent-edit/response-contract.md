@@ -165,10 +165,14 @@ only.  No consumer outside the boundary module should read `snake_case` fields d
 The normalized object carries an internal marker (`__agentEditResponseNormalized`) so
 that passing an already‑normalized response through the function again is a no‑op.
 
-### 4.4 Accept request wire fields
+### 4.4 Legacy accept bridge wire fields
 
-`POST /vibecomfy/agent-edit/accept` uses a distinct request body from submit and
-rebaseline:
+`POST /vibecomfy/agent-edit/accept` is a temporary compatibility bridge for a
+transaction that is already `prepared` or `canvas_verified`. New V2 clients
+use `/prepare`, scoped canvas mutation, then `/finalize`; `candidate_ready`
+cannot be committed through `/accept`. The bridge accepts the finalize proof
+fields in addition to the historical evidence below and never owns an
+independent baseline-advance path.
 
 ```json
 {

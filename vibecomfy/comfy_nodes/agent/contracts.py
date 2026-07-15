@@ -108,7 +108,7 @@ ACCEPT_TO_FINALIZE_BRIDGE: Mapping[str, Any] = MappingProxyType({
     "bridged_route": "/vibecomfy/agent-edit/accept",
     "delegates_to": "finalize_turn_transaction",
     "v2_only": True,
-    "applyable_states": ("apply_prepared", "canvas_verified"),
+    "applyable_states": ("prepared", "canvas_verified"),
     "non_applyable_behavior": "fail_closed",
     "independent_commit_path": False,
     "observability_key": "accept_bridge_v2_count",

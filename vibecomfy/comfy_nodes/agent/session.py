@@ -5244,13 +5244,14 @@ def _build_v2_accept_evidence(
 _V2_VALID_TRANSITIONS: dict[TurnState, frozenset[TurnState]] = {
     "submitted": frozenset({"candidate_ready"}),
     "candidate_ready": frozenset({"review_bound", "discarded"}),
-    "review_bound": frozenset({"apply_prepared", "discarded"}),
-    "apply_prepared": frozenset({"canvas_verified", "rollback_prepared"}),
-    "canvas_verified": frozenset({"finalized", "rollback_prepared"}),
+    "review_bound": frozenset({"prepared", "discarded"}),
+    "prepared": frozenset({"canvas_verified", "rollback_complete", "recoverable_error"}),
+    "canvas_verified": frozenset({"finalized", "rollback_complete", "recoverable_error"}),
+    "recoverable_error": frozenset({"prepared", "canvas_verified", "rollback_complete"}),
     "finalized": frozenset(),  # terminal
-    "rollback_prepared": frozenset({"rollback_complete"}),
     "rollback_complete": frozenset(),  # terminal
     "discarded": frozenset(),  # terminal
+    "superseded": frozenset(),  # terminal
 }
 
 
@@ -5830,7 +5831,7 @@ def accept_turn(
     response_writer: Callable[[dict[str, Any]], Path] | None = None,
 ) -> dict[str, Any] | FailureEnvelope:
     # ── Accept→Finalize bridge for V2 applyable turns ──────────────────
-    # If the turn is in a V2 applyable state (apply_prepared or canvas_verified),
+    # If the turn is in a V2 applyable state (prepared or canvas_verified),
     # delegate to finalize_turn_transaction with browser verification proof.
     # The request_payload MUST carry the same fields that /finalize expects:
     # plan_hash, generation, lease_nonce, post_apply_hash, and a verification
@@ -5840,45 +5841,20 @@ def accept_turn(
     # the authoritative commit path including CAS, post-apply hash matching,
     # and idempotency replay.
     session_dir = session_dir_for(session_root, session_id)
+    bridge_count: int | None = None
     try:
         with SessionStateLock(session_dir, timeout_seconds=DEFAULT_LOCK_TIMEOUT_SECONDS):
             state = read_state(session_dir)
             turn_record = state["turns"].get(turn_id)
             if isinstance(turn_record, dict):
                 current_state = turn_record.get("state")
-                # V2 applyable states: delegate to the finalize transaction path.
-                if current_state in ("apply_prepared", "canvas_verified"):
+                # Record bridge use under the session lock, then release it
+                # before finalize acquires the same non-reentrant lock.
+                if current_state in ("prepared", "canvas_verified"):
                     bridge_count = _increment_accept_bridge_counter(state)
                     write_state_atomic(session_dir, state)
-                    result = finalize_turn_transaction(
-                        session_root=session_root,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        request_payload=request_payload,
-                        idempotency_key=idempotency_key,
-                        lock_timeout_seconds=DEFAULT_LOCK_TIMEOUT_SECONDS,
-                    )
-                    if isinstance(result, dict):
-                        result.setdefault(
-                            "bridge",
-                            {
-                                "name": "accept-to-finalize",
-                                "route": "/vibecomfy/agent-edit/accept",
-                                "delegated_to": "finalize_turn_transaction",
-                                "bridge_use_count": bridge_count,
-                                "deletion_condition": (
-                                    "Delete when every live browser client posts "
-                                    "directly to /vibecomfy/agent-edit/finalize "
-                                    "for V2 applyable turns and the per-session "
-                                    "accept_bridge_v2_count counter no longer "
-                                    "increments across all deployed sessions for "
-                                    "one release cycle."
-                                ),
-                            },
-                        )
-                    return result
                 # V2 non-applyable pre-finalize states: fail closed.
-                if current_state in _V2_PRE_FINALIZE_STATES:
+                elif current_state in _V2_PRE_FINALIZE_STATES:
                     return failure_envelope(
                         FailureKind.EDITOR_AHEAD_CONFLICT,
                         "accept",
@@ -5891,7 +5867,7 @@ def accept_turn(
                         agent_failure_context={
                             "explanation": (
                                 f"Turn {turn_id} is in V2 lifecycle state {current_state!r}, "
-                                f"which is not applyable.  Applyable V2 states (apply_prepared, "
+                                f"which is not applyable.  Applyable V2 states (prepared, "
                                 f"canvas_verified) delegate to /finalize via the accept→finalize "
                                 f"bridge.  Non-applyable V2 states ({', '.join(sorted(_V2_PRE_FINALIZE_STATES))}) "
                                 f"must use the V2 prepare / finalize / rollback endpoints directly."
@@ -5899,11 +5875,40 @@ def accept_turn(
                             "accepted_state": current_state,
                         },
                     )
-    except Exception:
+    except (OSError, TimeoutError, KeyError, TypeError, ValueError):
         # If the quick state check fails for any reason, fall through to the
         # standard _mutate_turn_state path which performs its own state reads
         # under lock and has V2 guards for the remaining edge cases.
         pass
+
+    if bridge_count is not None:
+        result = finalize_turn_transaction(
+            session_root=session_root,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_payload=request_payload,
+            idempotency_key=idempotency_key,
+            lock_timeout_seconds=DEFAULT_LOCK_TIMEOUT_SECONDS,
+        )
+        if isinstance(result, dict):
+            result.setdefault(
+                "bridge",
+                {
+                    "name": "accept-to-finalize",
+                    "route": "/vibecomfy/agent-edit/accept",
+                    "delegated_to": "finalize_turn_transaction",
+                    "bridge_use_count": bridge_count,
+                    "deletion_condition": (
+                        "Delete when every live browser client posts "
+                        "directly to /vibecomfy/agent-edit/finalize "
+                        "for V2 applyable turns and the per-session "
+                        "accept_bridge_v2_count counter no longer "
+                        "increments across all deployed sessions for "
+                        "one release cycle."
+                    ),
+                },
+            )
+        return result
 
     # ── Standard V1 accept path (also catches any unhandled edge cases) ──
     return _mutate_turn_state(

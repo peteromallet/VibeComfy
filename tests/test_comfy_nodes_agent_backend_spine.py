@@ -12080,7 +12080,7 @@ class TestPrepareTransaction:
         assert result["baseline_advanced"] is False
         assert "receipt" in result
 
-        # Verify state: turn is now apply_prepared, baseline unchanged
+        # Verify state: turn is now prepared, baseline unchanged
         state = read_state(root / session_id)
         assert state["turns"][turn_id]["state"] == "prepared"
         assert state["turns"][turn_id]["prepared_plan_hash"] == plan_hash
@@ -12263,7 +12263,7 @@ class TestPrepareTransaction:
         )
         assert isinstance(result1, dict)
 
-        # Second prepare should fail (turn already in apply_prepared)
+        # Second prepare should fail (turn already in prepared)
         result2 = prepare_turn_transaction(
             session_root=root,
             session_id=session_id,
@@ -12982,6 +12982,25 @@ class TestReconcileTransactions:
 class TestAcceptNoBaselineAdvance:
     """Prove accept does NOT advance baseline before browser verification."""
 
+    def test_canonical_transition_vocabulary_has_no_legacy_write_states(self) -> None:
+        from vibecomfy.comfy_nodes.agent.session import _validate_v2_transition
+
+        assert _validate_v2_transition(
+            current_state="review_bound",
+            target_state="prepared",
+            turn_id="0001",
+        ) is None
+        assert _validate_v2_transition(
+            current_state="prepared",
+            target_state="canvas_verified",
+            turn_id="0001",
+        ) is None
+        assert _validate_v2_transition(
+            current_state="prepared",
+            target_state="apply_prepared",  # type: ignore[arg-type]
+            turn_id="0001",
+        ) is not None
+
     def test_accept_on_candidate_ready_fails_closed(self, tmp_path: Path) -> None:
         """Accept on a V2 candidate_ready turn fails closed (bridge blocks it)."""
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
@@ -13011,10 +13030,10 @@ class TestAcceptNoBaselineAdvance:
         assert state["baseline_graph_hash"] == baseline_before
         assert state["turns"][turn_id]["state"] == "candidate_ready"
 
-    def test_accept_on_apply_prepared_delegates_to_finalize(
+    def test_accept_on_prepared_delegates_to_finalize(
         self, tmp_path: Path
     ) -> None:
-        """Accept on apply_prepared delegates to finalize when browser verification
+        """Accept on prepared delegates to finalize when browser verification
         proof is present, advancing baseline only after finalize succeeds."""
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
             _setup_v2_session_with_candidate(tmp_path)
@@ -13046,13 +13065,11 @@ class TestAcceptNoBaselineAdvance:
 
         baseline_before = read_state(root / session_id)["baseline_graph_hash"]
 
-        # Now accept with browser verification proof.
-        # Note: the accept bridge delegates to finalize but acquires the lock
-        # first, and finalize also acquires the lock. Due to SessionStateLock
-        # not being re-entrant across calls, the delegation may fall through
-        # to the V2 guard. Either path proves accept does NOT independently
-        # advance baseline — it either delegates or fails closed.
-        post_apply_hash = "post-apply-" + "e" * 48
+        # Now accept with the same browser verification proof required by
+        # finalize. The bridge must release its inspection lock before it
+        # delegates to finalize's authoritative commit path.
+        post_apply_hash = structural_hash
+        post_apply_graph = canonical_candidate_graph(root, session_id, turn_id)
         result = accept_turn(
             session_root=root,
             session_id=session_id,
@@ -13065,6 +13082,8 @@ class TestAcceptNoBaselineAdvance:
                 "generation": prep["generation"],
                 "lease_nonce": prep["lease_nonce"],
                 "post_apply_hash": post_apply_hash,
+                "post_apply_graph": post_apply_graph,
+                "applied_delta_hash": prep["candidate_transaction"]["plan"]["delta_hash"],
                 "post_apply_hash_verified": True,
                 "browser_verified": True,
                 "verified": True,
@@ -13074,23 +13093,14 @@ class TestAcceptNoBaselineAdvance:
             },
         )
 
-        # The accept call either succeeds (bridge delegation worked) or returns
-        # a FailureEnvelope (V2 guard kicked in). In both cases, verify the
-        # baseline was NOT advanced by the accept call alone — the accept
-        # endpoint no longer has independent commit authority.
+        # The compatibility route delegates successfully; it owns no separate
+        # baseline mutation path.
         state_after = read_state(root / session_id)
-        # Baseline should not have advanced from accept alone
-        # (it may have advanced if finalize succeeded through the bridge)
-        if isinstance(result, dict):
-            assert result["ok"] is True
-            assert "bridge" in result
-            assert result["bridge"]["name"] == "accept-to-finalize"
-            assert state_after["turns"][turn_id]["state"] == "finalized"
-        else:
-            # Bridge blocked, baseline unchanged
-            assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
-            assert state_after["baseline_graph_hash"] == baseline_before
-            assert state_after["turns"][turn_id]["state"] == "prepared"
+        assert isinstance(result, dict)
+        assert result["ok"] is True
+        assert result["bridge"]["name"] == "accept-to-finalize"
+        assert state_after["turns"][turn_id]["state"] == "finalized"
+        assert state_after["baseline_graph_hash"] != baseline_before
 
     def test_accept_bridge_increments_counter(self, tmp_path: Path) -> None:
         """The accept-to-finalize bridge counter observable is present when
@@ -13122,7 +13132,8 @@ class TestAcceptNoBaselineAdvance:
         )
         assert isinstance(prep, dict)
 
-        post_apply_hash = "post-apply-" + "f" * 48
+        post_apply_hash = structural_hash
+        post_apply_graph = canonical_candidate_graph(root, session_id, turn_id)
         result = accept_turn(
             session_root=root,
             session_id=session_id,
@@ -13135,17 +13146,14 @@ class TestAcceptNoBaselineAdvance:
                 "generation": prep["generation"],
                 "lease_nonce": prep["lease_nonce"],
                 "post_apply_hash": post_apply_hash,
+                "post_apply_graph": post_apply_graph,
+                "applied_delta_hash": prep["candidate_transaction"]["plan"]["delta_hash"],
                 "post_apply_hash_verified": True,
                 "browser_verified": True,
             },
         )
 
-        # Either the bridge worked (result is dict with bridge info) or
-        # it was blocked (FailureEnvelope). Both prove accept doesn't
-        # independently advance baseline.
-        if isinstance(result, dict):
-            bridge = result.get("bridge")
-            assert bridge is not None
-            assert bridge["bridge_use_count"] >= 1
-        else:
-            assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+        assert isinstance(result, dict)
+        bridge = result.get("bridge")
+        assert bridge is not None
+        assert bridge["bridge_use_count"] >= 1

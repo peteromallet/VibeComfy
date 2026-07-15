@@ -178,33 +178,33 @@ checks for `edit+clarify` — all handlers dispatch on `outcome.kind ===
 | A1 | Apply preflight blocked (no candidate) | `AWAITING_REVIEW` | (return) | None — early return | None | — | None | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
 | A2 | Apply preflight blocked (missing session/turn) | `AWAITING_REVIEW` | `ERROR` | Set failure `MissingRequiredField` | None | — | Repaint | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
 | A3 | Apply preflight blocked (eligibility) | `AWAITING_REVIEW` | `ERROR` | Set failure with eligibility reason, clear preview | None | Canvas snapshot captured for diagnostic structural parity check only; `applyEligibility()` gates on canonical backend eligibility, not on the structural hash | Repaint | "VibeComfy disables Apply and warns when a candidate arrives without canonical eligibility" |
-| A4 | Apply started | `AWAITING_REVIEW` | `APPLYING` | Set `inFlightApply`, clear failure, set debug payload with accept request (including `live_graph` serialized from `beforeApply.graph`); for V2, resolve `deltaOps` from accept echo or panel state | `POST /vibecomfy/agent-edit/accept` | — | Repaint | "VibeComfy Apply requires explicit canvas allowance, rechecks canvas hash, accepts the turn before in-place configure, and blocks failed accepts" |
-| A5 | Backend accept rejected | `APPLYING` | `ERROR` | Set failure, synthesize an agent failure bubble when the candidate turn already has an agent bubble, disable authoritative rejects as superseded, clear queue guard, sync baseline; if rejection carries or implies stale rebaseline recovery, store it | None further (rejection received) | — | Repaint all sections so thread, controls, and recovery notice stay in sync | "Lifecycle A5 backend accept rejected disables an applyable candidate"; "Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task" |
-| A6 | Stale canvas during accept (live token changed) | `APPLYING` | `ERROR` | Set failure `StaleStateMismatch`, synthesize failure bubble and stale rebaseline recovery, clear preview | None | `liveCanvasToken` comparison before canvas load | Repaint all sections | "VibeComfy v2 Apply blocks if the live canvas token changes after backend accept but before configure" |
+| A4 | Prepare started | `AWAITING_REVIEW` | `APPLYING` | Set `inFlightApply`, clear failure, capture the pre-apply canvas | `POST /vibecomfy/agent-edit/prepare` | Prepared generation and lease fence the transaction | Repaint | Canonical transaction prepare tests |
+| A5 | Prepare rejected | `APPLYING` | `ERROR` | Preserve the candidate when recoverable; render the authoritative failure and available actions | None further | No canvas mutation has occurred | Repaint all sections | Prepare conflict and persisted-plan mismatch tests |
+| A6 | Canvas changed after prepare | `APPLYING` | `ERROR` | Refuse forward mutation and request transaction rollback when required | `POST /vibecomfy/agent-edit/rollback` when a lease exists | Live token and touched-region preconditions are checked before mutation | Repaint all sections | Stale prepared transaction tests |
 | A7 | Local canvas-apply failure | `APPLYING` | `ERROR` | Set failure `CanvasApplyError`, synthesize failure bubble, attempt inverse-delta rollback to pre-apply snapshot (see §3.3.1); if rollback fails, preserve undo snapshot and attach rollback diagnostics | None | — | Repaint all sections | "VibeComfy surfaces network and malformed accept failures with retry guidance and without canvas mutation" |
-| A8 | Apply success (V1 whole-graph or V2 scoped delta) | `APPLYING` | `IDLE` | Push undo stack entry, apply graph in place (whole-graph `applyGraphInPlaceWithIntentDecoration` for V1, scoped `applyGraphDeltaInPlace` for V2), perform post-apply verification (see §3.3.1), announce changed nodes (`Applied - N changes verified on canvas.` for V2), sync baseline, invalidate candidate, clear queue guard, push applied history/turn; emit `canvas_apply_verification` debug data | None further | `liveCanvasToken` passes pre-configure check | Repaint; toast | "VibeComfy in-place apply decorates intent nodes with persistent styling, typed labels, and read-only previews" |
+| A8 | Apply success | `APPLYING` | `IDLE` | Apply the exact plan returned by prepare through scoped LiteGraph mutation, verify the serialized post-apply graph, push undo state, and clear the candidate only after finalize succeeds | `POST /vibecomfy/agent-edit/finalize` | Plan hash, delta hash, generation, lease, and backend-computed graph hashes must agree | Repaint; toast | Canonical transaction and custom-node no-configure tests |
 
 #### 3.3.1 V2 scoped apply lifecycle
 
-When the candidate carries `agent_edit_protocol == "v2_delta"` and
-`panel.state.deltaOps` is populated, Apply follows a **scoped delta** path
-instead of whole-graph replacement. The flow has four stages:
+An applyable candidate carries `candidate_transaction_v1`. Apply follows the
+persisted **scoped delta** path below; browser-cached delta data is never
+mutation authority.
 
-##### Stage 1 — Accept request
+##### Stage 1 — Prepare
 
-The current canvas (`beforeApply.graph`) is serialized into the accept
-request's `live_graph` field. The backend performs scoped validation (see
-`contracts.md`) and returns `scoped_accept_verification` plus an
-echoed `delta_ops` on success.
+The browser posts the candidate identity to `/prepare`. The backend loads the
+immutable candidate transaction and returns its exact persisted delta plan,
+generation, and lease. The browser hard-fails if that plan disagrees with the
+candidate or landed-operation evidence.
 
 ##### Stage 2 — Local pre-mutation recheck (`validateScopedCanvasPreconditions`)
 
-After backend accept succeeds, the browser captures the current canvas again
+After prepare succeeds, the browser captures the current canvas again
 (`currentBeforeLoad.graph`) and **re-validates the touched region locally**:
 
 - For each `delta_op`, it resolves `actual_before` from the current canvas.
 - It compares `actual_before` against `expected_old` (from the server's
-  `scoped_accept_verification.entries[]`).
+  prepared transaction plan).
 - If `actual_before` already equals `desired_new`, status is `already_applied`
   (not a conflict).
 - If any entry status is `conflict`, the touched region changed between backend
@@ -224,14 +224,15 @@ referenced by the delta ops using live LiteGraph mutation primitives. Unrelated
 nodes, fields, and positions are preserved. No `graph.clear()` or wholesale
 `graph.configure()` call occurs.
 
-##### Stage 4 — Post-mutation verification (`verifyScopedCanvasResults`)
+##### Stage 4 — Verify and finalize
 
 After mutation, the browser re-reads each touched location and verifies
 `actual_after == desired_new`. Results are recorded in
 `canvas_apply_verification.local_postcheck`.
 
-- **All pass**: The success message is `Applied - N changes verified on canvas.`
-  (where N is the number of verified entries).
+- **All pass**: the browser posts the serialized graph and applied delta hash
+  to `/finalize`; the backend computes both graph hashes, records
+  `canvas_verified`, then atomically records `finalized` and advances baseline.
 - **Any fail**: The browser attempts **inverse-delta rollback** — restoring the
   pre-apply graph snapshot for the touched region only, falling back to
   whole-graph restore if needed. It then emits a `CanvasApplyError` failure with
@@ -260,12 +261,11 @@ The `debugPayload` for scoped Apply carries:
 - `rollback` — present only on rollback; `restored` indicates success, `method`
   is `"inverse_delta"` or `"whole_graph"`.
 
-##### V1 fallback
+##### Legacy candidates
 
-When `deltaOps` is unavailable (V1 candidate or missing evidence), Apply falls
-back to the existing whole-graph path (`applyGraphInPlaceWithIntentDecoration`).
-The mode is recorded in `canvasApplyMeta.mode` (`"scoped_delta"` or
-`"whole_graph"`).
+Aggregate-free V1 candidates are display-only and non-applyable. They must be
+rejected or resubmitted to create a canonical transaction. There is no
+whole-graph forward-Apply fallback.
 
 ### 3.4 Reject transitions
 
@@ -306,7 +306,7 @@ The mode is recorded in `canvasApplyMeta.mode` (`"scoped_delta"` or
 | # | Event | From | To | Local invalidations | Backend obligation | Epoch/race | Render | Covering test |
 |---|---|---|---|---|---|---|---|---|
 | H1 | Hand-edit detection at submit | `SUBMITTING` | `ERROR` on backend CAS mismatch | `client_structural_graph_hash` submitted for backend CAS comparison; stale failure stores `rebaselineRecovery` (extracted by the response-contract boundary) and renders `Rebaseline & retry` | Backend CAS rejects structural mismatch as `StaleStateMismatch`; recovery button calls `/rebaseline` with current canvas then resubmits the failed prompt | — | Repaint on failure and after recovery | "VibeComfy stale-canvas submit failure renders Rebaseline & retry and auto-resubmits" |
-| H2 | Stale canvas at apply | `AWAITING_REVIEW` | `ERROR` | Diagnostic structural parity check (live structural hash vs `lastSubmit.client_structural_graph_hash`); `applyEligibility()` gates on canonical backend eligibility, not on the structural hash. Accept-stage stale failures use the same `Rebaseline & retry` flow as submit-stage stale failures; if the backend omits `rebaselineRecovery`, the client synthesizes the stale recovery descriptor from the live panel state and accept request. | Backend CAS via `POST /accept` | `liveCanvasToken` double-checked before configure | Repaint | "VibeComfy Apply relies on backend CAS to block structural drift even when the live canvas revision is unchanged"; "Accept-stage stale mismatch renders one failure bubble and rebaseline-retries the original task" |
+| H2 | Stale canvas at apply | `AWAITING_REVIEW` | `ERROR` | Preserve authoritative candidate state and render the prepare/rollback conflict; rebaseline only after the transaction is safely terminated | Backend CAS via `/prepare`, with lease-fenced `/rollback` after preparation | `liveCanvasToken` and scoped preconditions checked before mutation | Repaint | Prepared transaction conflict and rollback ownership tests |
 
 ### 3.9 Superseded candidate invalidation
 
