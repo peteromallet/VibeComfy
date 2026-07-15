@@ -81,6 +81,7 @@ OperationScope = Literal["edit", "accept", "reject", "rebaseline"]
 #   finalized         – finalize route succeeded; baseline advanced
 #   rollback_prepared – rollback route completed (CAS restore prepared)
 #   rollback_complete – rollback confirmed and baseline restored
+#   discarded         – unprepared candidate explicitly rejected by the user
 #
 # Valid V2 forward transitions (every state reachable from submitted):
 #   submitted       → candidate_ready
@@ -91,6 +92,7 @@ OperationScope = Literal["edit", "accept", "reject", "rebaseline"]
 #   finalized       → (terminal)
 #   rollback_prepared → rollback_complete
 #   rollback_complete → (terminal)
+#   candidate_ready / review_bound → discarded (terminal, baseline unchanged)
 # V2 turns can also transition to unknown (superseded) from any pre-finalized state.
 TurnState = Literal[
     # V1 historical (read-only migration)
@@ -108,10 +110,13 @@ TurnState = Literal[
     "finalized",
     "rollback_prepared",
     "rollback_complete",
+    "discarded",
 ]
 
 # V2 states that are terminal / should not be mutated further by accept/reject.
-_V2_TERMINAL_STATES: frozenset[TurnState] = frozenset({"finalized", "rollback_complete"})
+_V2_TERMINAL_STATES: frozenset[TurnState] = frozenset(
+    {"finalized", "rollback_complete", "discarded"}
+)
 
 # V2 states that are pre-finalize / still mutable.
 _V2_PRE_FINALIZE_STATES: frozenset[TurnState] = frozenset({
@@ -864,6 +869,8 @@ def iter_turn_records(
             outcome = "\u2705 APPLIED"
         elif lifecycle == "rejected":
             outcome = "\u2717 rejected"
+        elif lifecycle == "discarded":
+            outcome = "\u2717 discarded"
         elif lifecycle == "unknown" and life.get("superseded_by_turn_id"):
             outcome = "\u21b7 superseded"
         elif lifecycle == "finalized":
@@ -4402,13 +4409,14 @@ def _build_v2_accept_evidence(
 # allocate_turn and _mutate_turn_state.
 _V2_VALID_TRANSITIONS: dict[TurnState, frozenset[TurnState]] = {
     "submitted": frozenset({"candidate_ready"}),
-    "candidate_ready": frozenset({"review_bound"}),
-    "review_bound": frozenset({"apply_prepared"}),
+    "candidate_ready": frozenset({"review_bound", "discarded"}),
+    "review_bound": frozenset({"apply_prepared", "discarded"}),
     "apply_prepared": frozenset({"canvas_verified", "rollback_prepared"}),
     "canvas_verified": frozenset({"finalized", "rollback_prepared"}),
     "finalized": frozenset(),  # terminal
     "rollback_prepared": frozenset({"rollback_complete"}),
     "rollback_complete": frozenset(),  # terminal
+    "discarded": frozenset(),  # terminal
 }
 
 
@@ -5076,6 +5084,137 @@ def accept_turn(
     )
 
 
+def _discard_v2_candidate_if_applicable(
+    *,
+    session_root: Path,
+    session_id: str,
+    turn_id: str,
+    client_graph_hash: str | None,
+    request_payload: Any,
+    idempotency_key: str | None,
+    response_writer: Callable[[dict[str, Any]], Path] | None,
+    lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
+) -> dict[str, Any] | FailureEnvelope | None:
+    """Discard an unprepared V2 candidate without advancing the baseline.
+
+    Returns ``None`` only when the turn belongs to the legacy V1 lifecycle, so
+    the caller can preserve the historical reject implementation.
+    """
+    session_dir = session_dir_for(session_root, session_id)
+    request_digest = payload_hash(request_payload)
+    key = _record_key("reject", idempotency_key)
+    with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
+        state = read_state(session_dir)
+        turn_record = state["turns"].get(turn_id)
+        if not isinstance(turn_record, dict):
+            return failure_envelope(
+                FailureKind.STALE_STATE_MISMATCH,
+                "reject",
+                TurnContext(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    baseline_turn_id=state.get("baseline_turn_id"),
+                    idempotency_key=idempotency_key,
+                ),
+                agent_failure_context={"explanation": f"Unknown turn_id {turn_id!r}."},
+            )
+        current_state = turn_record.get("state")
+        protocol = turn_record.get("agent_edit_protocol")
+        if protocol != "v2_delta" and current_state not in (
+            _V2_PRE_FINALIZE_STATES | _V2_TERMINAL_STATES
+        ):
+            return None
+
+        context = TurnContext(
+            session_id=session_id,
+            turn_id=turn_id,
+            baseline_turn_id=state.get("baseline_turn_id"),
+            idempotency_key=idempotency_key,
+        )
+        if key is not None:
+            existing = state["idempotency_records"].get(key)
+            if isinstance(existing, dict):
+                if existing.get("request_hash") == request_digest:
+                    response = _load_response(existing.get("response_path"))
+                    if response is not None:
+                        return response
+                return failure_envelope(
+                    FailureKind.EDITOR_AHEAD_CONFLICT,
+                    "reject",
+                    context,
+                    agent_failure_context={
+                        "explanation": "Idempotency key was reused with a different request hash.",
+                        "idempotency_key": idempotency_key,
+                        "existing_request_hash": existing.get("request_hash"),
+                        "request_hash": request_digest,
+                    },
+                )
+
+        if current_state not in {"candidate_ready", "review_bound", "discarded"}:
+            explanation = (
+                "Prepared V2 candidates must use rollback instead of Reject."
+                if current_state in {"apply_prepared", "canvas_verified", "rollback_prepared"}
+                else f"V2 turn {turn_id} in state {current_state!r} cannot be discarded."
+            )
+            return failure_envelope(
+                FailureKind.EDITOR_AHEAD_CONFLICT,
+                "reject",
+                context,
+                agent_failure_context={
+                    "explanation": explanation,
+                    "current_state": current_state,
+                    "required_action": (
+                        "rollback"
+                        if current_state in {"apply_prepared", "canvas_verified", "rollback_prepared"}
+                        else None
+                    ),
+                },
+            )
+
+        already_discarded = current_state == "discarded"
+        discarded_at = turn_record.get("discarded_at") or turn_record.get("rejected_at") or _now()
+        if not already_discarded:
+            turn_record["state"] = "discarded"
+            turn_record["discarded_at"] = discarded_at
+            turn_record["rejected_at"] = discarded_at
+            turn_record["discard_request_hash"] = request_digest
+            turn_record["action_request_hash"] = request_digest
+            turn_record["action_client_graph_hash"] = client_graph_hash
+            turn_record["client_graph_hash"] = client_graph_hash
+
+        response = {
+            "ok": True,
+            "action": "reject",
+            "disposition": "discarded",
+            "candidate_state": "discarded",
+            "accepted_state": "discarded",
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "baseline_turn_id": state.get("baseline_turn_id"),
+            "baseline_graph_hash": state.get("baseline_graph_hash"),
+            "baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
+            "baseline_advanced": False,
+            "graph_unchanged": True,
+            "client_graph_hash": client_graph_hash,
+            "candidate_graph_hash": turn_record.get("candidate_graph_hash"),
+            "discarded_at": discarded_at,
+            "idempotency_key": idempotency_key,
+            "idempotent_replay": already_discarded,
+        }
+        if key is not None and response_writer is not None:
+            response_path = response_writer(response)
+            state["idempotency_records"][key] = {
+                "request_hash": request_digest,
+                "response_hash": payload_hash(response),
+                "response_path": str(response_path),
+                "created_at": _now(),
+                "operation": "reject",
+                "turn_id": turn_id,
+            }
+        write_state_atomic(session_dir, state)
+        return response
+
+
 def reject_turn(
     *,
     session_root: Path,
@@ -5086,6 +5225,17 @@ def reject_turn(
     idempotency_key: str | None = None,
     response_writer: Callable[[dict[str, Any]], Path] | None = None,
 ) -> dict[str, Any] | FailureEnvelope:
+    discarded = _discard_v2_candidate_if_applicable(
+        session_root=session_root,
+        session_id=session_id,
+        turn_id=turn_id,
+        client_graph_hash=client_graph_hash,
+        request_payload=request_payload,
+        idempotency_key=idempotency_key,
+        response_writer=response_writer,
+    )
+    if discarded is not None:
+        return discarded
     return _mutate_turn_state(
         session_root=session_root,
         session_id=session_id,

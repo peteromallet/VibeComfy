@@ -89,6 +89,19 @@ def test_iter_turn_records_yields_diagnostic_records(editor_sessions: Path) -> N
     assert record.fidelity_ok is True
 
 
+def test_iter_turn_records_labels_discarded_v2_terminal_state(
+    editor_sessions: Path,
+) -> None:
+    state_path = editor_sessions / "abc123session" / "session_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["turns"]["0001"]["state"] = "discarded"
+    _write_json(state_path, state)
+
+    record = list(iter_turn_records(editor_sessions, "abc123session"))[0]
+    assert record.lifecycle == "discarded"
+    assert record.outcome == "✗ discarded"
+
+
 def test_cli_iter_turns_matches_diagnostic_records(
     editor_sessions: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

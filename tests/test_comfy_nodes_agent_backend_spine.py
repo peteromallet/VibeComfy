@@ -3412,6 +3412,10 @@ def test_apply_eligibility_reasons_are_defined_once_and_preserve_compat_fields()
     assert superseded.applyable is False
     assert superseded.reason == "superseded"
 
+    discarded = derive_apply_eligibility(context, candidate_state="discarded")
+    assert discarded.applyable is False
+    assert discarded.reason == "superseded"
+
 
 def test_queue_diagnostics_schema_less_only_blocks_queue_when_canvas_passes() -> None:
     context = TurnContext(session_id="s1")
@@ -12199,6 +12203,97 @@ class TestPrepareTransaction:
         )
         assert not isinstance(result, dict)
         assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+
+
+class TestDiscardV2Candidate:
+    @pytest.mark.parametrize("review_state", ["candidate_ready", "review_bound"])
+    def test_reject_discards_unprepared_candidate_without_advancing_baseline(
+        self, tmp_path: Path, review_state: str
+    ) -> None:
+        root, session_id, turn_id, _cand_hash, _structural_hash, _plan_hash = (
+            _setup_v2_session_with_candidate(tmp_path)
+        )
+        session_dir = session_dir_for(root, session_id)
+        state_before = read_state(session_dir)
+        state_before["turns"][turn_id]["state"] = review_state
+        write_state_atomic(session_dir, state_before)
+        baseline_before = state_before["baseline_graph_hash"]
+        payload = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "client_graph_hash": "live-editor-hash",
+            "idempotency_key": "discard-v2-1",
+        }
+        writer = _response_writer(tmp_path / "responses")
+        result = reject_turn(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            client_graph_hash="live-editor-hash",
+            request_payload=payload,
+            idempotency_key="discard-v2-1",
+            response_writer=writer,
+        )
+
+        assert isinstance(result, dict)
+        assert result["ok"] is True
+        assert result["disposition"] == "discarded"
+        assert result["baseline_advanced"] is False
+        state = read_state(session_dir)
+        assert state["turns"][turn_id]["state"] == "discarded"
+        assert state["turns"][turn_id]["rejected_at"]
+        assert state["baseline_graph_hash"] == baseline_before
+        assert turn_id not in state.get("prepared_transactions", {})
+
+        replay = reject_turn(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            client_graph_hash="live-editor-hash",
+            request_payload=payload,
+            idempotency_key="discard-v2-1",
+            response_writer=writer,
+        )
+        assert isinstance(replay, dict)
+        assert replay == result
+
+    def test_reject_refuses_prepared_v2_candidate_and_requires_rollback(
+        self, tmp_path: Path
+    ) -> None:
+        root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+            _setup_v2_session_with_candidate(tmp_path)
+        )
+        prepared = prepare_turn_transaction(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_payload={
+                "plan_hash": plan_hash,
+                "candidate_graph_hash": cand_hash,
+                "apply_eligibility": {"applyable": True},
+                "candidate": {
+                    "graph_hash": cand_hash,
+                    "plan_hash": plan_hash,
+                    "structural_hash_before": structural_hash,
+                    "structural_hash_after": structural_hash,
+                },
+            },
+        )
+        assert isinstance(prepared, dict)
+
+        rejected = reject_turn(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            client_graph_hash="live-editor-hash",
+            request_payload={"turn_id": turn_id},
+        )
+
+        assert not isinstance(rejected, dict)
+        assert rejected.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+        assert rejected.agent_failure_context["required_action"] == "rollback"
+        state = read_state(session_dir_for(root, session_id))
+        assert state["turns"][turn_id]["state"] == "apply_prepared"
 
 
 class TestFinalizeTransaction:

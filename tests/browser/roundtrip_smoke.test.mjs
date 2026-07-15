@@ -11478,7 +11478,7 @@ test("Lifecycle E2 chat rehydrate ignores latest_candidate entries whose public 
   }
 });
 
-test("Lifecycle E2 chat rehydrate refuses terminal latest_candidate payloads with candidate graphs", async () => {
+test("Lifecycle E2 chat rehydrate refuses discarded latest_candidate payloads with candidate graphs", async () => {
   const SESSION_ID = "sess-rehydrate-terminal-candidate";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
   const graph = {
@@ -11517,7 +11517,7 @@ test("Lifecycle E2 chat rehydrate refuses terminal latest_candidate payloads wit
             session_id: SESSION_ID,
             turn_id: "0005",
             outcome: { kind: "candidate", changes: [] },
-            candidate: { state: "rejected", graph },
+            candidate: { state: "discarded", graph },
             graph,
             candidate_graph_hash: "terminal-should-not-restore",
             canvas_apply_allowed: false,
@@ -13528,6 +13528,139 @@ test("VibeComfy agent submit on failure path still persists session_id for recov
 });
 
 // ── Lifecycle Contract: J3 Reject success invalidates the candidate ──────
+
+test("Lifecycle J3 rehydrated V2 Reject discards candidate and null rehydrate cannot resurrect it", async () => {
+  const SESSION_ID = "session-v2-discard-rehydrate";
+  const TURN_ID = "0002";
+  const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
+  const candidateGraph = {
+    nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-v2-discard" } }],
+    links: [],
+  };
+  let chatRequestCount = 0;
+  const harness = await createBrowserHarness({
+    graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-v2-base" } }], links: [] },
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          ready: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      [CHAT_URL]: () => {
+        chatRequestCount += 1;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            exists: true,
+            session_id: SESSION_ID,
+            messages: [
+              { role: "user", text: "discard this V2 candidate", turn_id: TURN_ID },
+              { role: "agent", text: "V2 candidate ready.", turn_id: TURN_ID },
+            ],
+            latest_candidate: chatRequestCount === 1
+              ? {
+                  agent_edit_protocol: "v2_delta",
+                  session_id: SESSION_ID,
+                  turn_id: TURN_ID,
+                  outcome: { kind: "candidate", changes: [] },
+                  candidate: {
+                    state: "candidate_ready",
+                    graph: candidateGraph,
+                    graph_hash: "v2-discard-candidate-hash",
+                    plan_hash: "v2-discard-plan-hash",
+                  },
+                  graph: candidateGraph,
+                  candidate_graph_hash: "v2-discard-candidate-hash",
+                  canvas_apply_allowed: false,
+                  apply_allowed: false,
+                  queue_allowed: false,
+                  apply_eligibility: {
+                    applyable: false,
+                    reason: "server_blocked",
+                    message: "Apply is blocked, but Reject remains available.",
+                    warnings: [],
+                  },
+                }
+              : null,
+          },
+        };
+      },
+      "/vibecomfy/agent-edit/reject": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        assert.equal(body.session_id, SESSION_ID);
+        assert.equal(body.turn_id, TURN_ID);
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "reject",
+            disposition: "discarded",
+            candidate_state: "discarded",
+            session_id: SESSION_ID,
+            turn_id: TURN_ID,
+            apply_allowed: false,
+            canvas_apply_allowed: false,
+            queue_allowed: false,
+            apply_eligibility: {
+              applyable: false,
+              reason: "no_candidate",
+              message: "No candidate is available to apply.",
+              warnings: [],
+            },
+          },
+        };
+      },
+    },
+  });
+  globalThis.localStorage.setItem("vibecomfy_active_session_id", SESSION_ID);
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => chatRequestCount === 1);
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled === false);
+
+    let panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.agentEditProtocol, "v2_delta");
+    assert.deepEqual(panel.state.candidateGraph, candidateGraph);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
+
+    await harness.clickButton("Reject");
+
+    panel = extensionModule.ensureAgentPanel();
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/reject").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 0);
+    assert.equal(panel.state.candidateGraph, null);
+    assert.equal(panel.state.candidateGraphHash, null);
+    assert.equal(panel.state.agentEditProtocol, null);
+
+    const root = harness.document.getElementById("vibecomfy-agent-panel-root");
+    root.dataset.open = "0";
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => chatRequestCount >= 2);
+
+    panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.candidateGraph, null);
+    assert.equal(panel.state.candidateGraphHash, null);
+    assert.equal(panel.state.agentEditProtocol, null);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled, true);
+  } finally {
+    await harness.dispose();
+    globalThis.localStorage.removeItem("vibecomfy_active_session_id");
+  }
+});
 
 test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
   const SESSION_ID = "session-reject-success";

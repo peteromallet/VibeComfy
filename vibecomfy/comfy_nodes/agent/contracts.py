@@ -190,6 +190,15 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "graph",
     "report",
     "candidate",
+    "turn_state",
+    "agent_edit_protocol",
+    "plan_hash",
+    "structural_hash_before",
+    "structural_hash_after",
+    "monotonic_generation",
+    "lease_nonce",
+    "delta_ops_envelope",
+    "delta_ops",
     "apply_eligibility",
     "eligibility",
     "canvas_apply_allowed",
@@ -1059,7 +1068,15 @@ def derive_apply_eligibility(
             reason="not_latest",
             message="Only the latest candidate can be applied.",
         )
-    if candidate_state in {"unknown", "rejected", "accepted", "superseded"}:
+    if candidate_state in {
+        "unknown",
+        "rejected",
+        "accepted",
+        "superseded",
+        "discarded",
+        "finalized",
+        "rollback_complete",
+    }:
         return ApplyEligibility(
             applyable=False,
             reason="superseded",

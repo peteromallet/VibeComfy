@@ -5116,7 +5116,13 @@ const BATCH_SOURCE_PRIORITY = {
   response: 2,
 };
 const BATCH_TERMINAL_STATUSES = new Set(["clarify", "done", "budget_exhausted"]);
-const TERMINAL_CANDIDATE_STATES = new Set(["accepted", "rejected", "superseded", "unknown"]);
+const TERMINAL_CANDIDATE_STATES = new Set([
+  "accepted",
+  "rejected",
+  "discarded",
+  "superseded",
+  "unknown",
+]);
 const TERMINAL_CANDIDATE_ELIGIBILITY_REASONS = new Set(["no_candidate", "superseded", "not_latest"]);
 
 function stableTurnSessionId(value) {

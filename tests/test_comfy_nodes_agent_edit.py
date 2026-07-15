@@ -66,6 +66,7 @@ from vibecomfy.executor.contracts import (
 from vibecomfy.comfy_nodes.agent.provider import ProviderError
 from vibecomfy.comfy_nodes.agent.session import (
     payload_hash,
+    read_state,
     session_dir_for,
     structural_graph_hash,
     turn_dir_for,
@@ -11294,6 +11295,97 @@ def test_route_reject_idempotency_replays_same_request_body(
     assert second == first
 
 
+def test_route_reject_idempotency_keys_use_distinct_durable_responses(
+    tmp_path: Path,
+) -> None:
+    from vibecomfy.comfy_nodes.agent.routes import _handle_agent_edit_reject
+
+    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="t-idem-reject-distinct",
+        label="reject-distinct-route",
+    )
+    first_payload = {
+        "session_id": "t-idem-reject-distinct",
+        "turn_id": turn_id,
+        "client_graph_hash": submit_graph_hash,
+        "idempotency_key": "reject-distinct-a",
+    }
+    second_payload = {
+        **first_payload,
+        "idempotency_key": "reject-distinct-b",
+    }
+
+    first = _handle_agent_edit_reject(first_payload, session_root=tmp_path)
+    second = _handle_agent_edit_reject(second_payload, session_root=tmp_path)
+    replay_first = _handle_agent_edit_reject(first_payload, session_root=tmp_path)
+
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert replay_first == first
+    records = read_state(session_dir_for(tmp_path, "t-idem-reject-distinct"))[
+        "idempotency_records"
+    ]
+    first_path = records["reject:reject-distinct-a"]["response_path"]
+    second_path = records["reject:reject-distinct-b"]["response_path"]
+    assert first_path != second_path
+    assert Path(first_path).is_file()
+    assert Path(second_path).is_file()
+
+
+def test_registered_reject_route_uses_durable_handler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    routes = importlib.import_module("vibecomfy.comfy_nodes.agent.routes")
+    edit_module = importlib.import_module("vibecomfy.comfy_nodes.agent.edit")
+    monkeypatch.setattr(edit_module, "_SESSION_ROOT", tmp_path)
+    registered = {}
+
+    class _Routes:
+        def post(self, path):
+            def _decorator(fn):
+                registered[("POST", path)] = fn
+                return fn
+            return _decorator
+
+        def get(self, path):
+            def _decorator(fn):
+                registered[("GET", path)] = fn
+                return fn
+            return _decorator
+
+    aiohttp_module = types.ModuleType("aiohttp")
+    aiohttp_module.web = types.SimpleNamespace(
+        json_response=lambda body, status=200: {"status": status, "body": body},
+    )
+    monkeypatch.setitem(sys.modules, "aiohttp", aiohttp_module)
+    turn_id, submit_graph_hash, _candidate_graph_hash = _allocate_action_candidate(
+        tmp_path,
+        session_id="registered-reject",
+        label="registered-reject-route",
+    )
+    payload = {
+        "session_id": "registered-reject",
+        "turn_id": turn_id,
+        "client_graph_hash": submit_graph_hash,
+        "idempotency_key": "registered-reject-key",
+    }
+
+    class _Request:
+        async def json(self):
+            return payload
+
+    routes.register_agent_edit_routes(types.SimpleNamespace(routes=_Routes()))
+    route = registered[("POST", "/vibecomfy/agent-edit/reject")]
+    response = asyncio.run(route(_Request()))
+
+    assert response["body"]["ok"] is True
+    state = read_state(session_dir_for(tmp_path, "registered-reject"))
+    record = state["idempotency_records"]["reject:registered-reject-key"]
+    assert Path(record["response_path"]).is_file()
+
+
 def test_route_reject_idempotency_conflicts_on_different_request_body(
     tmp_path: Path,
 ) -> None:
@@ -14010,6 +14102,124 @@ def test_read_session_chat_returns_latest_open_candidate_state(tmp_path: Path) -
     assert latest["candidate_graph_hash"] == "candidate-hash"
     assert latest["apply_eligibility"]["reason"] == "queue_blocked_warning"
     assert latest["queue_allowed"] is False
+    assert latest["agent_edit_protocol"] is None
+    assert latest["delta_ops"] is None
+
+
+def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
+    tmp_path: Path,
+) -> None:
+    session_id = "rehydrate-v2-transaction"
+    session_dir = session_dir_for(tmp_path, session_id)
+    turn_dir = session_dir / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    graph = {"nodes": [{"id": 2, "type": "SaveImage"}], "links": []}
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "2", "widgets_values.0"],
+                "value": "after",
+            }
+        ],
+    }
+    candidate = {
+        "state": "candidate",
+        "graph": graph,
+        "plan_hash": "plan-hash",
+        "structural_hash_before": "before-hash",
+        "structural_hash_after": "after-hash",
+        "monotonic_generation": None,
+        "lease_nonce": None,
+    }
+    response = {
+        "ok": True,
+        "session_id": session_id,
+        "turn_id": "0001",
+        "message": "Candidate ready.",
+        "graph": graph,
+        "candidate": candidate,
+        "agent_edit_protocol": "v2_delta",
+        "delta_ops_envelope": envelope,
+        "delta_ops": list(envelope["ops"]),
+        "candidate_graph_hash": "candidate-hash",
+        "apply_eligibility": {"applyable": True, "reason": "applyable"},
+        "outcome": {"kind": "candidate", "changes": []},
+    }
+    (turn_dir / "request.json").write_text(json.dumps({"task": "edit"}), encoding="utf-8")
+    (turn_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    (turn_dir / "candidate.ui.json").write_text(json.dumps(graph), encoding="utf-8")
+    (session_dir / "session_state.json").write_text(
+        json.dumps(
+            {
+                "turns": {
+                    "0001": {
+                        "state": "candidate_ready",
+                        "agent_edit_protocol": "v2_delta",
+                        "candidate_graph_hash": "candidate-hash",
+                        "candidate_plan_hash": "plan-hash",
+                        "candidate_structural_hash_before": "before-hash",
+                        "candidate_structural_hash_after": "after-hash",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    latest = read_session_chat(tmp_path, session_id, max_messages=5)["latest_candidate"]
+    assert latest["turn_state"] == "candidate_ready"
+    assert latest["agent_edit_protocol"] == "v2_delta"
+    assert latest["plan_hash"] == "plan-hash"
+    assert latest["structural_hash_before"] == "before-hash"
+    assert latest["structural_hash_after"] == "after-hash"
+    assert latest["delta_ops_envelope"] == envelope
+    assert latest["delta_ops"] == envelope["ops"]
+
+    public = public_chat_rehydrate_payload(
+        {"ok": True, "exists": True, "latest_candidate": latest}
+    )["latest_candidate"]
+    assert public["agent_edit_protocol"] == "v2_delta"
+    assert public["plan_hash"] == "plan-hash"
+    assert public["delta_ops_envelope"] == envelope
+    assert public["delta_ops"] == envelope["ops"]
+
+
+def test_discarded_v2_candidate_is_not_rehydrated(tmp_path: Path) -> None:
+    session_id = "rehydrate-discarded-v2"
+    session_dir = session_dir_for(tmp_path, session_id)
+    turn_dir = session_dir / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    graph = {"nodes": [{"id": 2, "type": "SaveImage"}], "links": []}
+    (turn_dir / "request.json").write_text(json.dumps({"task": "edit"}), encoding="utf-8")
+    (turn_dir / "response.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "graph": graph,
+                "outcome": {"kind": "candidate", "changes": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "session_state.json").write_text(
+        json.dumps(
+            {
+                "turns": {
+                    "0001": {
+                        "state": "discarded",
+                        "agent_edit_protocol": "v2_delta",
+                        "candidate_graph_hash": "candidate-hash",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = read_session_chat(tmp_path, session_id, max_messages=5)
+    assert result["latest_candidate"] is None
 
 
 def test_conversation_with_candidate_reference_appends_compact_context() -> None:

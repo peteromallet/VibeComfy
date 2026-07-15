@@ -186,6 +186,9 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             continue
         candidate = response.get("candidate")
         eligibility = response.get("apply_eligibility") or response.get("eligibility")
+        candidate_transaction = candidate if isinstance(candidate, Mapping) else {}
+        delta_ops_envelope = response.get("delta_ops_envelope")
+        delta_ops = response.get("delta_ops")
         latest_candidate = {
             "turn_id": turn_id,
             "session_id": session_dir.name,
@@ -194,6 +197,25 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "graph": _json_safe(graph),
             "report": _json_safe(response.get("report")) if isinstance(response.get("report"), Mapping) else None,
             "candidate": _json_safe(candidate) if isinstance(candidate, Mapping) else None,
+            "turn_state": turn_state.get("state"),
+            "agent_edit_protocol": turn_state.get("agent_edit_protocol"),
+            "plan_hash": turn_state.get("candidate_plan_hash")
+            or candidate_transaction.get("plan_hash"),
+            "structural_hash_before": turn_state.get("candidate_structural_hash_before")
+            or candidate_transaction.get("structural_hash_before"),
+            "structural_hash_after": turn_state.get("candidate_structural_hash_after")
+            or candidate_transaction.get("structural_hash_after"),
+            "monotonic_generation": candidate_transaction.get("monotonic_generation"),
+            "lease_nonce": candidate_transaction.get("lease_nonce"),
+            "delta_ops_envelope": (
+                _json_safe(delta_ops_envelope)
+                if isinstance(delta_ops_envelope, Mapping)
+                else None
+            ),
+            # Keep absence distinct from an intentionally empty V2 delta.  The
+            # browser uses an array as protocol evidence; emitting [] for a V1
+            # response would incorrectly upgrade it to v2_delta on rehydrate.
+            "delta_ops": _json_safe(delta_ops) if isinstance(delta_ops, list) else None,
             "apply_eligibility": _json_safe(eligibility) if isinstance(eligibility, Mapping) else None,
             "canvas_apply_allowed": bool(response.get("canvas_apply_allowed")),
             "apply_allowed": response.get("apply_allowed") is not False,

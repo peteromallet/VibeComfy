@@ -1406,6 +1406,15 @@ def _handle_agent_edit_reject(
     # it reaches durable reject_turn() or the response-writer path builder.
     session_id = normalize_session_id(raw_session_id) if isinstance(raw_session_id, str) else ""
     safe_turn_id = normalize_path_component(turn_id) if isinstance(turn_id, str) and turn_id.strip() else turn_id
+    reject_idempotency_key = (
+        payload.get("idempotency_key")
+        if isinstance(payload.get("idempotency_key"), str)
+        else None
+    )
+    reject_response_name = "reject_response.json"
+    if reject_idempotency_key:
+        key_digest = hashlib.sha256(reject_idempotency_key.encode("utf-8")).hexdigest()[:16]
+        reject_response_name = f"reject_response.{key_digest}.json"
     try:
         result = reject_turn(
             session_root=root,
@@ -1415,10 +1424,10 @@ def _handle_agent_edit_reject(
             if isinstance(payload.get("client_graph_hash"), str)
             else None,
             request_payload=payload,
-            idempotency_key=payload.get("idempotency_key")
-            if isinstance(payload.get("idempotency_key"), str)
-            else None,
-            response_writer=_json_response_writer(root / session_id / "turns" / safe_turn_id / "reject_response.json")
+            idempotency_key=reject_idempotency_key,
+            response_writer=_json_response_writer(
+                root / session_id / "turns" / safe_turn_id / reject_response_name
+            )
             if session_id
             else None,
         )
@@ -1730,7 +1739,6 @@ def register_agent_edit_routes(app) -> None:
     from .session import (  # noqa: PLC0415
         accept_turn,
         normalize_session_id as _safe_session_id,
-        reject_turn,
         rebaseline_session,
     )
     from .contracts import (
@@ -2007,21 +2015,11 @@ def register_agent_edit_routes(app) -> None:
             return _json_error(f"Request body must be valid JSON: {exc}", stage="reject")
         if not isinstance(payload, dict):
             return _json_error("Request body must be a JSON object.", stage="reject")
-        session_id = _safe_session_id(payload.get("session_id"))
-        turn_id = payload.get("turn_id")
-        if not isinstance(turn_id, str) or not turn_id.strip():
-            return _json_error("turn_id is required.", stage="reject")
         try:
             result = await asyncio.to_thread(
-                reject_turn,
+                _handle_agent_edit_reject,
+                payload,
                 session_root=_SESSION_ROOT,
-                session_id=session_id,
-                turn_id=turn_id,
-                client_graph_hash=payload.get("client_graph_hash"),
-                request_payload=payload,
-                idempotency_key=payload.get("idempotency_key")
-                if isinstance(payload.get("idempotency_key"), str)
-                else None,
             )
         except Exception as exc:
             failure = _classify_failure("reject", exc)
