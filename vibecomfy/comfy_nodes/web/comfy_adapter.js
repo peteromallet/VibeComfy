@@ -1382,6 +1382,171 @@ export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, option
   return { graph, capability, plan, nextGraph };
 }
 
+function serializedGroupKey(group, index) {
+  if (group?.id !== null && group?.id !== undefined) return `id:${String(group.id)}`;
+  if (typeof group?.title === "string" && group.title.trim()) return `title:${group.title.trim()}`;
+  return `index:${index}`;
+}
+
+function configureLiveGroup(group, serialized) {
+  const payload = cloneJson(serialized);
+  if (typeof group?.configure === "function") {
+    group.configure(payload);
+    return;
+  }
+  group.id = payload.id ?? group.id;
+  group.title = payload.title || "Group";
+  group.color = payload.color;
+  group.flags = cloneJson(payload.flags || {});
+  const bounding = Array.isArray(payload.bounding) ? payload.bounding : null;
+  if (!bounding || bounding.length < 4) {
+    throw new Error(`Layout group ${String(group.title)} is missing canonical bounding geometry.`);
+  }
+  if (group?._bounding && typeof group._bounding.set === "function") {
+    group._bounding.set(bounding);
+  } else {
+    group.pos = [bounding[0], bounding[1]];
+    group.size = [bounding[2], bounding[3]];
+    group.bounding = bounding.slice(0, 4);
+  }
+}
+
+function setLiveNodeGeometry(liveNode, candidateNode) {
+  const pos = Array.isArray(candidateNode?.pos) ? candidateNode.pos : null;
+  const size = Array.isArray(candidateNode?.size) ? candidateNode.size : null;
+  if (!pos || pos.length < 2 || !size || size.length < 2) {
+    throw new Error(`Layout candidate node ${String(candidateNode?.id)} is missing position or size.`);
+  }
+  if (Array.isArray(liveNode.pos)) {
+    liveNode.pos[0] = pos[0];
+    liveNode.pos[1] = pos[1];
+  } else {
+    liveNode.pos = pos.slice(0, 2);
+  }
+  if (typeof liveNode.setSize === "function") {
+    liveNode.setSize(size.slice(0, 2));
+  } else if (Array.isArray(liveNode.size)) {
+    liveNode.size[0] = size[0];
+    liveNode.size[1] = size[1];
+  } else {
+    liveNode.size = size.slice(0, 2);
+  }
+}
+
+export function detectGraphLayoutApply(app) {
+  const graph = getLiveGraph(app);
+  const available = Boolean(
+    graph
+    && typeof graph.serialize === "function"
+    && Array.isArray(graph._nodes)
+    && Array.isArray(graph._groups)
+    && typeof graph.add === "function"
+    && typeof graph.remove === "function",
+  );
+  return {
+    available,
+    detail: available
+      ? "Live graph supports geometry/group-only in-place mutation."
+      : "Layout apply requires serialized live nodes, native groups, and graph add/remove hooks.",
+    path: "app.canvas.graph",
+    strategy: available ? "live-layout-mutate" : null,
+    fallback: false,
+  };
+}
+
+/**
+ * Apply an authority-verified layout candidate without configuring the graph.
+ * Only node position/size and native group objects may change; nodes, widgets,
+ * modes, and links retain their live object identity.
+ */
+export function applyGraphLayoutInPlace(app, { candidateGraph }, options = {}) {
+  const graph = getLiveGraph(app);
+  const capability = detectGraphLayoutApply(app);
+  if (!capability.available || !graph) {
+    const error = new Error("The live LiteGraph instance does not support authoritative in-place layout application.");
+    error.code = "GRAPH_LAYOUT_APPLY_UNAVAILABLE";
+    error.capability = capability;
+    throw error;
+  }
+  if (!candidateGraph || typeof candidateGraph !== "object") {
+    throw new Error("candidateGraph must be an object.");
+  }
+
+  const liveSnapshot = graph.serialize();
+  const liveNodes = Array.isArray(liveSnapshot?.nodes) ? liveSnapshot.nodes : [];
+  const candidateNodes = Array.isArray(candidateGraph.nodes) ? candidateGraph.nodes : [];
+  const liveKeys = liveNodes.map((node) => canonicalNodeUid(node) || `id:${String(node?.id)}`);
+  const candidateKeys = candidateNodes.map((node) => canonicalNodeUid(node) || `id:${String(node?.id)}`);
+  if (
+    liveKeys.length !== candidateKeys.length
+    || liveKeys.some((key) => !candidateKeys.includes(key))
+    || candidateKeys.some((key) => !liveKeys.includes(key))
+  ) {
+    throw new Error("Layout candidate node identities differ from the live graph.");
+  }
+
+  const candidateByKey = new Map(candidateNodes.map((node) => [
+    canonicalNodeUid(node) || `id:${String(node?.id)}`,
+    node,
+  ]));
+  const plan = [];
+  for (const liveNode of graph._nodes) {
+    const key = canonicalNodeUid(liveNode) || `id:${String(liveNode?.id)}`;
+    const candidateNode = candidateByKey.get(key);
+    if (!candidateNode) throw new Error(`Could not resolve live layout node ${key}.`);
+    const before = {
+      pos: Array.isArray(liveNode.pos) ? liveNode.pos.slice(0, 2) : null,
+      size: Array.isArray(liveNode.size) ? liveNode.size.slice(0, 2) : null,
+    };
+    setLiveNodeGeometry(liveNode, candidateNode);
+    plan.push({
+      op: "set_node_geometry",
+      uidOrId: key,
+      before,
+      after: { pos: candidateNode.pos.slice(0, 2), size: candidateNode.size.slice(0, 2) },
+    });
+  }
+
+  const candidateGroups = Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [];
+  const liveGroups = graph._groups.slice();
+  const liveByKey = new Map(liveGroups.map((group, index) => [serializedGroupKey(
+    typeof group.serialize === "function" ? group.serialize() : group,
+    index,
+  ), group]));
+  const nextGroups = [];
+  for (let index = 0; index < candidateGroups.length; index += 1) {
+    const serialized = candidateGroups[index];
+    const key = serializedGroupKey(serialized, index);
+    let group = liveByKey.get(key) || null;
+    if (group) {
+      liveByKey.delete(key);
+    } else {
+      const GroupCtor = liveGroups.find((entry) => entry?.constructor && entry.constructor !== Object)?.constructor
+        || globalThis.LiteGraph?.LGraphGroup
+        || globalThis.window?.LiteGraph?.LGraphGroup;
+      if (typeof GroupCtor !== "function") {
+        throw new Error(`Cannot create layout group ${key}; LGraphGroup constructor is unavailable.`);
+      }
+      group = new GroupCtor(serialized.title, serialized.id);
+      graph.add(group, true);
+    }
+    configureLiveGroup(group, serialized);
+    nextGroups.push(group);
+  }
+  for (const obsolete of liveByKey.values()) {
+    graph.remove(obsolete);
+  }
+  graph._groups.splice(0, graph._groups.length, ...nextGroups);
+  for (const group of nextGroups) {
+    if (typeof group.recomputeInsideNodes === "function") group.recomputeInsideNodes();
+  }
+  plan.push({ op: "replace_layout_groups", count: nextGroups.length });
+
+  if (typeof graph.change === "function") graph.change();
+  if (options.repaint !== false) repaintGraph(app, graph);
+  return { graph, capability, plan };
+}
+
 /**
  * Detect preview-foreground capability.
  * Requires instance-level app.canvas.onDrawForeground or a prototype hook.

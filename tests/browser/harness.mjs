@@ -489,6 +489,47 @@ export async function createBrowserHarness({
     };
   }
 
+  class FakeGraphGroup {
+    constructor(title = "Group", id = undefined) {
+      this.__isGraphGroup = true;
+      this.id = id;
+      this.title = title;
+      this.bounding = [0, 0, 140, 80];
+      this.color = undefined;
+      this.font_size = undefined;
+      this.flags = {};
+    }
+
+    configure(serialized = {}) {
+      if (serialized.id !== undefined) this.id = serialized.id;
+      this.title = serialized.title || "Group";
+      this.bounding = clone(serialized.bounding || [0, 0, 140, 80]);
+      this.color = serialized.color;
+      this.font_size = serialized.font_size;
+      this.flags = clone(serialized.flags || {});
+    }
+
+    serialize() {
+      const serialized = {
+        title: this.title,
+        bounding: clone(this.bounding),
+      };
+      if (this.id !== undefined) serialized.id = this.id;
+      if (this.color !== undefined) serialized.color = this.color;
+      if (this.font_size !== undefined) serialized.font_size = this.font_size;
+      if (this.flags && Object.keys(this.flags).length) serialized.flags = clone(this.flags);
+      return serialized;
+    }
+
+    recomputeInsideNodes() {}
+  }
+
+  function _buildLiveGroup(group) {
+    const live = new FakeGraphGroup(group?.title, group?.id);
+    live.configure(group || {});
+    return live;
+  }
+
   function _resetGraphLinks(sourceLinks) {
     app.canvas.graph.links = _buildLiveLinkMap(sourceLinks);
   }
@@ -506,6 +547,7 @@ export async function createBrowserHarness({
     app.canvas.graph._vibecomfyLiveCanvasToken = `rev:${liveCanvasRevision}`;
     _initGraphLinks(currentGraph?.links);
     app.canvas.graph._nodes = (currentGraph?.nodes || []).map(_buildLiveNode);
+    app.canvas.graph._groups = (currentGraph?.groups || []).map(_buildLiveGroup);
   }
 
   function _serializeLiveGraphState() {
@@ -552,9 +594,18 @@ export async function createBrowserHarness({
     });
     var liveLinks = app.canvas.graph.links;
     if (liveLinks && typeof liveLinks === "object" && !Array.isArray(liveLinks)) {
-      snapshot.links = Object.values(liveLinks).map((link) => clone(link));
+      snapshot.links = Object.values(liveLinks).map((link) => clone(
+        typeof link?.serialize === "function" ? link.serialize() : link,
+      ));
     } else {
       snapshot.links = clone(snapshot.links || []);
+    }
+    if (Object.prototype.hasOwnProperty.call(currentGraph || {}, "groups") || app.canvas.graph._groups.length > 0) {
+      snapshot.groups = (app.canvas.graph._groups || []).map((group) => clone(
+        typeof group?.serialize === "function" ? group.serialize() : group,
+      ));
+    } else {
+      delete snapshot.groups;
     }
     currentGraph = clone(snapshot);
     return snapshot;
@@ -573,6 +624,7 @@ export async function createBrowserHarness({
           return snapshot;
         },
         _nodes: [],
+        _groups: [],
         clear() {
           graphClearCalls.push(clone(currentGraph));
           operationLog.push({ kind: "graph.clear" });
@@ -606,6 +658,11 @@ export async function createBrowserHarness({
             throw new Error("graph.add requires a valid node object.");
           }
           graphAddCalls.push(clone(node));
+          if (node.__isGraphGroup === true) {
+            operationLog.push({ kind: "graph.addGroup", title: node.title });
+            app.canvas.graph._groups.push(node);
+            return;
+          }
           operationLog.push({ kind: "graph.add", nodeId: node.id, type: node.type });
           app.canvas.graph._nodes.push(node);
         },
@@ -615,6 +672,13 @@ export async function createBrowserHarness({
           }
           if (!node || typeof node !== "object") {
             throw new Error("graph.remove requires a valid node object.");
+          }
+          if (node.__isGraphGroup === true) {
+            const groupIndex = app.canvas.graph._groups.indexOf(node);
+            if (groupIndex >= 0) app.canvas.graph._groups.splice(groupIndex, 1);
+            graphRemoveCalls.push(clone(node));
+            operationLog.push({ kind: "graph.removeGroup", title: node.title });
+            return;
           }
           const nodeId = node.id;
           const index = app.canvas.graph._nodes.indexOf(node);
@@ -900,7 +964,11 @@ export async function createBrowserHarness({
   globalThis.window = {
     document,
     LiteGraph: withGraphMutation
-      ? { LGraphCanvas: LiteGraphCanvas, createNode: LiteGraphFactory.createNode.bind(LiteGraphFactory) }
+      ? {
+          LGraphCanvas: LiteGraphCanvas,
+          LGraphGroup: FakeGraphGroup,
+          createNode: LiteGraphFactory.createNode.bind(LiteGraphFactory),
+        }
       : { LGraphCanvas: LiteGraphCanvas },
   };
   globalThis.fetch = fetchImpl;
@@ -1134,6 +1202,9 @@ export async function createBrowserHarness({
     },
     getLiveLinks() {
       return app.canvas.graph.links;
+    },
+    getLiveGroups() {
+      return app.canvas.graph._groups;
     },
     recordFieldWrite(nodeUid, fieldPath, value) {
       var entry = { nodeUid, fieldPath: [...fieldPath], value: clone(value), timestamp: Date.now() };

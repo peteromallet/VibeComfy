@@ -85,7 +85,7 @@ function pageUrlForReport() {
   return "(unknown URL)";
 }
 
-function compactPanelPreviewDiff(panel) {
+export function compactPanelPreviewDiff(panel) {
   const diff = panel?.state?._previewDiff;
   if (!diff || typeof diff !== "object") return null;
   return {
@@ -101,6 +101,18 @@ function compactPanelPreviewDiff(panel) {
     removed: (Array.isArray(diff.removed) ? diff.removed : []).map((entry) => entry?.uid || null).filter(Boolean),
     addedLinks: Array.isArray(diff.added_links) ? diff.added_links.slice() : [],
     removedLinks: Array.isArray(diff.removed_links) ? diff.removed_links.slice() : [],
+    layoutMoved: (Array.isArray(diff.layout_moved) ? diff.layout_moved : []).map((entry) => ({
+      uid: entry?.uid || null,
+      before: entry?.before || null,
+      after: entry?.after || null,
+      resized: entry?.resized === true,
+    })),
+    layoutGroups: (Array.isArray(diff.layout_groups) ? diff.layout_groups : []).map((entry) => ({
+      key: entry?.key || null,
+      title: entry?.title || null,
+      bounds: entry?.bounds || null,
+      changed: entry?._changed === true,
+    })),
     deltaOpsDerived: Boolean(diff._deltaOpsDerived),
     candidateGraphHash: panel?.state?._previewDiffGraphHash || null,
     liveCanvasRevision: panel?.state?._previewDiffLiveCanvasRevision ?? null,

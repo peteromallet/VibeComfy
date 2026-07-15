@@ -364,6 +364,7 @@ def build_candidate_transaction(
     replay_ok: bool,
     candidate_matches: bool,
     applyable: bool,
+    verification_kind: str = "delta_replay",
     state: str = "candidate_ready",
 ) -> dict[str, Any]:
     canonical_state = canonical_transaction_state(state)
@@ -398,6 +399,7 @@ def build_candidate_transaction(
         "authority": {
             "replay_ok": replay_ok,
             "candidate_matches": candidate_matches,
+            "verification_kind": verification_kind,
             "schema_witness_hash": schema_witness.get("witness_hash"),
         },
         "available_actions": list(actions),

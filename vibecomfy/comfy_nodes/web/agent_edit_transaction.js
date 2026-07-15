@@ -61,6 +61,16 @@ export function transactionAllows(transaction, action) {
     && transaction.available_actions.includes(action);
 }
 
+export function isLayoutAuthorityTransaction(transaction) {
+  const normalized = normalizeCandidateTransaction(transaction);
+  return Boolean(
+    normalized
+    && normalized.authority?.verification_kind === "layout_structural_noop"
+    && normalized.authority?.replay_ok === true
+    && normalized.authority?.candidate_matches === true,
+  );
+}
+
 function canonicalActionsForState(state, resumeState = null) {
   const effective = state === TRANSACTION_STATE.RECOVERABLE_ERROR
     ? canonicalTransactionState(resumeState)
@@ -140,10 +150,16 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
   if (canonicalJson(candidate.plan.delta_ops_envelope) !== canonicalJson(prepared.plan.delta_ops_envelope)) {
     throw new Error("Prepared operations differ from persisted candidate operations.");
   }
+  const candidateVerificationKind = candidate.authority?.verification_kind || "delta_replay";
+  const preparedVerificationKind = prepared.authority?.verification_kind || "delta_replay";
+  if (candidateVerificationKind !== preparedVerificationKind) {
+    throw new Error("Prepared verification mode differs from candidate authority.");
+  }
   return {
     envelope: clonePlainData(prepared.plan.delta_ops_envelope),
     deltaOps: clonePlainData(prepared.plan.delta_ops_envelope.ops),
     deltaHash: prepared.plan.delta_hash,
+    verificationKind: preparedVerificationKind,
   };
 }
 

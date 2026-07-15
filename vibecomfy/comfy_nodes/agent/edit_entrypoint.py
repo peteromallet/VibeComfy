@@ -251,7 +251,14 @@ def handle_agent_edit(
             turn_id=context.turn_id,
             schema_provider=state.schema_provider,
         )
-        return response
+        # Publication adds immutable authority and (for V2) the canonical
+        # candidate transaction. Return that exact published envelope to the
+        # browser; returning the pre-publication draft made freshly-created
+        # layout candidates look like legacy/read-only candidates until reload.
+        published_response = json.loads(
+            (turn_dir / "response.json").read_text(encoding="utf-8")
+        )
+        return _validated_agent_edit_response(published_response, stage="submit")
 
     # Load session-local last-five conversation messages for prompt memory.
     # Only the batch_repl product path injects them (SD2); delta/full-dev

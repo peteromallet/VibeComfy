@@ -50,6 +50,7 @@ function candidateTransactionFixture({
   generation = null,
   leaseNonce = null,
   availableActions = null,
+  verificationKind = "delta_replay",
 }) {
   const resolvedActions = availableActions || (
     state === "candidate_ready"
@@ -81,7 +82,7 @@ function candidateTransactionFixture({
       candidate_structural_graph_hash: candidateStructuralGraphHash,
       authority_receipt_hash: "authority-receipt-hash",
     },
-    authority: { replay_ok: true, candidate_matches: true },
+    authority: { replay_ok: true, candidate_matches: true, verification_kind: verificationKind },
     available_actions: resolvedActions,
     terminal: ["finalized", "discarded", "rollback_complete", "superseded"].includes(state),
     last_error: null,
@@ -2223,7 +2224,6 @@ test("V2 candidate routes Apply to prepare and never to legacy accept", async ()
   });
   const harness = await createBrowserHarness({
     graph: initialGraph,
-    withGraphMutation: true,
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
       "/vibecomfy/agent/status?route=auto": {
@@ -2483,6 +2483,160 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
       [[1, "Input", "uid-1"]],
     );
     assert.equal(panel.state.undoStack.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("V2 layout transaction applies the exact authoritative layout candidate", async () => {
+  const sessionId = "session-v2-layout-authority";
+  const planHash = "plan-v2-layout-authority";
+  const initialGraph = {
+    nodes: [
+      { id: 1, type: "Input", pos: [20, 30], size: [200, 100], properties: { vibecomfy_uid: "uid-1" } },
+      { id: 2, type: "Output", pos: [40, 200], size: [200, 100], properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [[1, 1, 0, 2, 0, "IMAGE"]],
+    groups: [{ id: 1, title: "Before", bounding: [0, 0, 300, 340] }],
+  };
+  const candidateGraph = {
+    ...initialGraph,
+    nodes: [
+      { ...initialGraph.nodes[0], pos: [400, 80] },
+      { ...initialGraph.nodes[1], pos: [700, 80] },
+    ],
+    groups: [{ id: 1, title: "After", bounding: [370, 40, 560, 180] }],
+  };
+  const candidateGraphHash = sha256HexUtf8(candidateGraph);
+  const transactionArgs = {
+    sessionId,
+    planHash,
+    deltaOps: [],
+    candidateGraphHash,
+    verificationKind: "layout_structural_noop",
+  };
+  const candidateTransaction = candidateTransactionFixture(transactionArgs);
+  const preparedTransaction = candidateTransactionFixture({
+    ...transactionArgs,
+    state: "prepared",
+    generation: 1,
+    leaseNonce: "lease-v2-layout",
+  });
+  const finalizedTransaction = candidateTransactionFixture({
+    ...transactionArgs,
+    state: "finalized",
+    generation: 1,
+    leaseNonce: "lease-v2-layout",
+  });
+  const harness = await createBrowserHarness({
+    graph: initialGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: { auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false } },
+        },
+      },
+      "/vibecomfy/agent-executor": {
+        status: 200,
+        body: {
+          ok: true,
+          agent_edit_protocol: "v2_delta",
+          session_id: sessionId,
+          turn_id: "0001",
+          outcome: { kind: "candidate", changes: [] },
+          candidate: {
+            state: "candidate_ready",
+            graph: candidateGraph,
+            graph_hash: candidateGraphHash,
+            plan_hash: planHash,
+          },
+          delta_ops_envelope: { schema_version: "2.0.0", ops: [] },
+          delta_ops: [],
+          candidate_transaction: candidateTransaction,
+          eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
+          apply_allowed: true,
+          canvas_apply_allowed: true,
+          queue_allowed: false,
+          report: { kind: "reorganise" },
+          message: "Layout candidate ready.",
+        },
+      },
+      "/vibecomfy/agent-edit/prepare": {
+        status: 200,
+        body: {
+          ok: true,
+          action: "prepare",
+          session_id: sessionId,
+          turn_id: "0001",
+          receipt: { plan_hash: planHash, generation: 1, lease_nonce: "lease-v2-layout" },
+          candidate_transaction: preparedTransaction,
+        },
+      },
+      "/vibecomfy/agent-edit/finalize": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        assert.equal(body.client_graph_hash, candidateGraphHash);
+        assert.deepEqual(body.post_apply_graph, candidateGraph);
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "finalize",
+            session_id: sessionId,
+            turn_id: "0001",
+            baseline_turn_id: "0001",
+            baseline_graph_hash: body.client_structural_graph_hash,
+            baseline_graph_hash_kind: "structural",
+            candidate_transaction: finalizedTransaction,
+            receipt: { plan_hash: planHash, generation: 1, phase: "finalized" },
+          },
+        };
+      },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, preparedTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, finalizedTransaction, candidateGraph);
+    candidateTransaction.hashes.submit_graph_hash = sha256HexUtf8(initialGraph);
+    preparedTransaction.hashes.submit_graph_hash = sha256HexUtf8(initialGraph);
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "reorganise this";
+    await harness.clickButton("Submit");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+    assert.deepEqual(harness.getCurrentGraph().nodes, initialGraph.nodes, "layout preview must not move nodes");
+    assert.deepEqual(harness.getCurrentGraph().groups, initialGraph.groups, "layout preview must not replace groups");
+    const liveNodeRefs = harness.getLiveNodes().slice();
+    const liveLinkRefs = Object.values(harness.getLiveLinks());
+    const liveGroupRefs = harness.getLiveGroups().slice();
+
+    await harness.clickButton("Apply");
+
+    const panel = extensionModule.ensureAgentPanel();
+    assert.equal(panel.state.phase, "FINALIZED", JSON.stringify(panel.state.failure || panel.state.debugPayload));
+    assert.deepEqual(harness.getCurrentGraph(), candidateGraph);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
+    harness.getLiveNodes().forEach((node, index) => {
+      assert.strictEqual(node, liveNodeRefs[index], "layout Apply must preserve native node identity");
+    });
+    Object.values(harness.getLiveLinks()).forEach((link, index) => {
+      assert.strictEqual(link, liveLinkRefs[index], "layout Apply must preserve native link identity");
+    });
+    harness.getLiveGroups().forEach((group, index) => {
+      assert.strictEqual(group, liveGroupRefs[index], "matched native groups must be mutated, not replaced");
+    });
+    harness.assertNoWholeGraphOps("authoritative layout Apply must only mutate node geometry and groups");
   } finally {
     await harness.dispose();
   }
@@ -4244,54 +4398,55 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
   };
   const originalGraphHash = sha256HexUtf8(originalGraph);
   const reorganisedGraphHash = sha256HexUtf8(reorganisedGraph);
+  const planHash = "plan-layout-preview";
+  const candidateTransaction2 = candidateTransactionFixture({
+    sessionId: "session-layout-preview",
+    turnId: "0002",
+    planHash,
+    deltaOps: [],
+    candidateGraphHash: reorganisedGraphHash,
+    verificationKind: "layout_structural_noop",
+  });
+  const preparedTransaction2 = candidateTransactionFixture({
+    sessionId: "session-layout-preview",
+    turnId: "0002",
+    planHash,
+    deltaOps: [],
+    candidateGraphHash: reorganisedGraphHash,
+    verificationKind: "layout_structural_noop",
+    state: "prepared",
+    generation: 1,
+    leaseNonce: "lease-layout-preview",
+  });
+  const finalizedTransaction2 = candidateTransactionFixture({
+    sessionId: "session-layout-preview",
+    turnId: "0002",
+    planHash,
+    deltaOps: [],
+    candidateGraphHash: reorganisedGraphHash,
+    verificationKind: "layout_structural_noop",
+    state: "finalized",
+    generation: 1,
+    leaseNonce: "lease-layout-preview",
+  });
   const submitResponses = [
     {
       status: 200,
       body: {
         ok: true,
-        route: "reorganise",
-        session_id: "session-layout-preview",
-        turn_id: "0001",
-        canvas_apply_allowed: true,
-        apply_allowed: true,
-        queue_allowed: false,
-        apply_eligibility: {
-          applyable: true,
-          reason: "applyable",
-          message: "Reorganise candidate is ready.",
-          warnings: [],
-        },
-        message: "Reorganised layout candidate ready to review.",
-        graph: reorganisedGraph,
-        submit_graph_hash: originalGraphHash,
-        candidate_graph_hash: reorganisedGraphHash,
-        report: {
-          kind: "reorganise",
-          change: { content_edits: { preserved: ["uid-1", "uid-2"], edited: [], removed_named: [] } },
-          recovery: [],
-        },
-      },
-    },
-    {
-      status: 200,
-      body: {
-        ok: true,
-        route: "reorganise",
+        agent_edit_protocol: "v2_delta",
         session_id: "session-layout-preview",
         turn_id: "0002",
+        outcome: { kind: "candidate", changes: [] },
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
-        apply_eligibility: {
-          applyable: true,
-          reason: "applyable",
-          message: "Reorganise candidate is ready.",
-          warnings: [],
-        },
+        eligibility: { applyable: true, reason: "applyable", message: "Reorganise candidate is ready.", warnings: [] },
         message: "Reorganised layout candidate ready to review.",
-        graph: reorganisedGraph,
-        submit_graph_hash: originalGraphHash,
-        candidate_graph_hash: reorganisedGraphHash,
+        candidate: { state: "candidate_ready", graph: reorganisedGraph, graph_hash: reorganisedGraphHash, plan_hash: planHash },
+        delta_ops_envelope: { schema_version: "2.0.0", ops: [] },
+        delta_ops: [],
+        candidate_transaction: candidateTransaction2,
         report: {
           kind: "reorganise",
           change: { content_edits: { preserved: ["uid-1", "uid-2"], edited: [], removed_named: [] } },
@@ -4302,6 +4457,7 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
   ];
   const harness = await createBrowserHarness({
     graph: originalGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -4320,33 +4476,42 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
         },
       },
       "/vibecomfy/agent-executor": () => submitResponses.shift(),
-      "/vibecomfy/agent-edit/reject": () => ({
+      "/vibecomfy/agent-edit/prepare": {
         status: 200,
         body: {
           ok: true,
-          action: "reject",
+          action: "prepare",
           session_id: "session-layout-preview",
-          turn_id: "0001",
+          turn_id: "0002",
+          receipt: { plan_hash: planHash, generation: 1, lease_nonce: "lease-layout-preview" },
+          candidate_transaction: preparedTransaction2,
         },
-      }),
-      "/vibecomfy/agent-edit/accept": () => ({
+      },
+      "/vibecomfy/agent-edit/finalize": {
         status: 200,
         body: {
           ok: true,
-          action: "accept",
+          action: "finalize",
           session_id: "session-layout-preview",
           turn_id: "0002",
           baseline_turn_id: "0002",
           baseline_graph_hash: "baseline-after-layout-preview",
           baseline_graph_hash_kind: "structural",
-          baseline_graph_hash_version: 2,
+          candidate_transaction: finalizedTransaction2,
+          receipt: { plan_hash: planHash, generation: 1, phase: "finalized" },
         },
-      }),
+      },
     },
   });
 
   try {
     const extensionModule = await harness.loadExtension();
+    for (const transaction of [candidateTransaction2, preparedTransaction2, finalizedTransaction2]) {
+      bindTransactionStructuralHash(extensionModule, transaction, reorganisedGraph);
+    }
+    for (const transaction of [candidateTransaction2, preparedTransaction2]) {
+      transaction.hashes.submit_graph_hash = originalGraphHash;
+    }
     await harness.setup();
     harness.app.canvas.canvas = {
       width: canvasSize.width,
@@ -4363,6 +4528,9 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
     prompt.value = "reorganise this";
     await harness.clickButton("Submit");
     await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
+    assert.ok(panel.state.candidateTransaction, JSON.stringify(candidateTransaction2));
+    assert.equal(panel.state.candidateTransaction.state, "candidate_ready");
+    assert.equal(panel.state.applyEligibilityWarning, null, JSON.stringify(panel.state.applyEligibilityWarning));
     // Non-destructive preview: the live canvas must keep the ORIGINAL layout —
     // nodes do not move until the user Applies.
     assert.deepEqual(harness.getCurrentGraph(), originalGraph, "preview must not move nodes — canvas keeps the original layout");
@@ -4400,21 +4568,18 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
       "review overlay should not draw per-node moved badges",
     );
 
-    await harness.clickButton("Reject");
-    assert.deepEqual(harness.getCurrentGraph(), originalGraph, "reject leaves the original layout untouched (nothing was moved)");
-    assertViewportClose(harness.app.canvas.ds, staleViewport, "reject leaves the viewport unchanged");
-
-    prompt.value = "reorganise this again";
-    await harness.clickButton("Submit");
-    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
-    assert.deepEqual(harness.getCurrentGraph(), originalGraph, "second preview must also keep the original layout in place");
-    assertViewportClose(harness.app.canvas.ds, staleViewport, "second preview must not change the viewport");
-
-    await harness.clickButton("Apply");
+    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
+    const enabledApply = harness.document.getElementById("vibecomfy-agent-panel-apply");
+    await enabledApply.click();
+    assert.equal(panel.state.phase, "FINALIZED", JSON.stringify({
+      failure: panel.state.failure || panel.state.debugPayload,
+      requests: harness.requests.map((entry) => entry.url),
+    }));
     assert.deepEqual(harness.getCurrentGraph(), reorganisedGraph, "apply should commit the reorganised layout");
     assertViewportClose(harness.app.canvas.ds, staleViewport, "apply leaves the viewport as-is");
     assert.equal(panel.state.undoStack.length, 1);
     assert.deepEqual(panel.state.undoStack[0].graph, originalGraph, "undo should restore the layout before the change");
+    harness.assertNoWholeGraphOps("reorganisation Apply must preserve live graph identity");
   } finally {
     await harness.dispose();
   }
@@ -20518,6 +20683,18 @@ test("diagnostic report rebuilds turn history from explicit rehydrate diagnostic
           removed: [],
           added_links: [],
           removed_links: [],
+          layout_moved: [{
+            uid: "layout-131",
+            before: { x: 10, y: 20, w: 200, h: 100 },
+            after: { x: 310, y: 220, w: 200, h: 100 },
+            resized: false,
+          }],
+          layout_groups: [{
+            key: "title:Sampling",
+            title: "Sampling",
+            bounds: { x: 280, y: 180, w: 640, h: 420 },
+            _changed: true,
+          }],
           _deltaOpsDerived: false,
         },
         _previewDiffGraphHash: "preview-candidate-hash",
@@ -20555,7 +20732,9 @@ test("diagnostic report rebuilds turn history from explicit rehydrate diagnostic
     assert.ok(
       prompt.includes("Browser-computed preview diff")
         && prompt.includes('"uid":"131"')
-        && prompt.includes('"changedWidgetIndices":[2]'),
+        && prompt.includes('"changedWidgetIndices":[2]')
+        && prompt.includes('"layoutMoved":[{"uid":"layout-131"')
+        && prompt.includes('"layoutGroups":[{"key":"title:Sampling"'),
       "solve prompt must capture the browser's actual preview classification",
     );
     assert.ok(report.includes("messages.jsonl"), "issue report must point to messages.jsonl");

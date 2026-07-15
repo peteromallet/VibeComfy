@@ -33,7 +33,12 @@ from .candidate_transaction import (
     schema_provider_from_witness,
     validate_schema_witness,
 )
-from .session import _write_response_immutable, canonical_json_bytes, payload_hash
+from .session import (
+    _write_response_immutable,
+    canonical_json_bytes,
+    payload_hash,
+    structural_graph_hash,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +62,7 @@ class ReplayReceipt:
     persisted_candidate_hash: str | None
     error: str | None = None
     op_count: int = 0
+    verification_kind: str = "delta_replay"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +72,7 @@ class ReplayReceipt:
             "persisted_candidate_hash": self.persisted_candidate_hash,
             "error": self.error,
             "op_count": self.op_count,
+            "verification_kind": self.verification_kind,
         }
 
     @classmethod
@@ -77,6 +84,7 @@ class ReplayReceipt:
             persisted_candidate_hash=data.get("persisted_candidate_hash"),
             error=data.get("error"),
             op_count=int(data.get("op_count", 0)),
+            verification_kind=str(data.get("verification_kind") or "delta_replay"),
         )
 
 
@@ -329,6 +337,96 @@ def verify_replay(
     )
 
 
+def _layout_authority_evidence(response: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return server-produced layout-only evidence for a prepared candidate.
+
+    Layout reorganisation is deliberately outside the semantic V2 delta
+    language: it changes node geometry and groups, not executable workflow
+    state.  Such candidates therefore need a distinct authority proof instead
+    of being misinterpreted as an empty/identity semantic delta.
+    """
+    change_details = response.get("change_details")
+    if (
+        response.get("route") == "reorganise"
+        and isinstance(change_details, Mapping)
+        and change_details.get("layout_only") is True
+    ):
+        evidence = change_details.get("structural_noop_evidence")
+        return evidence if isinstance(evidence, Mapping) else None
+
+    layout = response.get("layout_reorganisation")
+    if (
+        isinstance(layout, Mapping)
+        and layout.get("candidate_prepared") is True
+        and layout.get("advisory") is False
+    ):
+        evidence = layout.get("evidence")
+        return evidence if isinstance(evidence, Mapping) else None
+    return None
+
+
+def verify_layout_candidate(
+    submit_graph: Mapping[str, Any] | None,
+    cumulative_delta_envelope: Mapping[str, Any] | None,
+    candidate: Mapping[str, Any] | None,
+    response: Mapping[str, Any],
+    *,
+    schema_provider: Any = None,
+) -> ReplayReceipt | None:
+    """Verify a layout-only candidate on top of the semantic replay result.
+
+    Returns ``None`` when the response does not claim the dedicated layout
+    contract.  A claimed but invalid layout contract returns a fail-closed
+    receipt.  The semantic delta is replayed first (identity for an explicit
+    reorganise turn), then the server structural projection must be identical
+    before and after layout application.  That projection includes node types,
+    modes, wired endpoints, and widget values while intentionally excluding
+    positions and groups.
+    """
+    evidence = _layout_authority_evidence(response)
+    if evidence is None:
+        return None
+
+    persisted_hash = payload_hash(candidate) if candidate is not None else None
+    ok, semantic_candidate, error, op_count = recompute_apply(
+        submit_graph or {},
+        cumulative_delta_envelope,
+        schema_provider=schema_provider,
+    )
+    if not ok or semantic_candidate is None:
+        return ReplayReceipt(
+            replay_ok=False,
+            candidate_matches=False,
+            recomputed_candidate_hash=None,
+            persisted_candidate_hash=persisted_hash,
+            error=error or "layout_semantic_replay_failed",
+            op_count=op_count,
+            verification_kind="layout_structural_noop",
+        )
+
+    evidence_ok = (
+        evidence.get("candidate_available") is True
+        and evidence.get("layout_only_structural_noop") is True
+        and evidence.get("patch_apply_error") in (None, {})
+    )
+    before_structural = structural_graph_hash(semantic_candidate)
+    after_structural = structural_graph_hash(candidate)
+    structural_match = (
+        isinstance(before_structural, str)
+        and before_structural == after_structural
+    )
+    matches = bool(candidate is not None and evidence_ok and structural_match)
+    return ReplayReceipt(
+        replay_ok=matches,
+        candidate_matches=matches,
+        recomputed_candidate_hash=persisted_hash if matches else payload_hash(semantic_candidate),
+        persisted_candidate_hash=persisted_hash,
+        error=None if matches else "layout_authority_mismatch",
+        op_count=op_count,
+        verification_kind="layout_structural_noop",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Receipt building
 # ---------------------------------------------------------------------------
@@ -374,7 +472,13 @@ def build_authority_receipt(
         delta_envelope=cumulative_delta_envelope,
     )
     persisted_schema_provider = schema_provider_from_witness(schema_witness)
-    replay = verify_replay(
+    replay = verify_layout_candidate(
+        submit_graph,
+        cumulative_delta_envelope,
+        candidate,
+        response,
+        schema_provider=persisted_schema_provider,
+    ) or verify_replay(
         submit_graph,
         cumulative_delta_envelope,
         candidate,
@@ -530,6 +634,7 @@ def stamp_response_with_authority(
         "candidate_matches": receipt.replay.candidate_matches,
         "replay_error": receipt.replay.error,
         "op_count": receipt.replay.op_count,
+        "verification_kind": receipt.replay.verification_kind,
         "response_hash": receipt.response_metadata.response_hash,
         "created_at": receipt.created_at,
     }

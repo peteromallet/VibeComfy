@@ -80,7 +80,7 @@ def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> N
     assert result["ok"] is True
     assert result["route"] == "reorganise"
     assert result["outcome"]["kind"] == "candidate"
-    assert result["candidate"]["state"] == "candidate"
+    assert result["candidate"]["state"] == "candidate_ready"
     assert result["candidate"]["turn_identity"]["session_id"] == "reorganise-session"
     assert result["candidate"]["turn_identity"]["turn_id"] == result["turn_id"]
     assert result["apply_eligibility"]["applyable"] is True
@@ -97,7 +97,10 @@ def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> N
     assert metrics["assessment"] == metrics["after_assessment"]
     assert "Assessed graph: candidate" in result["report"]["report"]
     patch_apply = result["report"]["evidence"]["patch_apply"]
-    assert patch_apply["structural_hash_before"] == patch_apply["structural_hash_after"]
+    assert patch_apply["layout_only_structural_noop"] is True
+    assert result["authority_receipt"]["verification_kind"] == "layout_structural_noop"
+    assert result["authority_receipt"]["replay_ok"] is True
+    assert result["authority_receipt"]["candidate_matches"] is True
 
     turn_dir = tmp_path / "reorganise-session" / "turns" / result["turn_id"]
     for artifact in (
@@ -117,7 +120,7 @@ def test_explicit_reorganise_skill_runs_inside_durable_agent_turn(tmp_path) -> N
     persisted = json.loads((turn_dir / "response.json").read_text(encoding="utf-8"))
     assert persisted["candidate"]["graph"] == result["candidate"]["graph"]
     state = read_state(tmp_path / "reorganise-session")
-    assert state["turns"][result["turn_id"]]["state"] == "candidate"
+    assert state["turns"][result["turn_id"]]["state"] == "candidate_ready"
 
 
 def test_reorganise_accepts_litegraph_indexed_geometry(tmp_path) -> None:
@@ -141,7 +144,7 @@ def test_reorganise_accepts_litegraph_indexed_geometry(tmp_path) -> None:
     assert result["ok"] is True
     assert result["route"] == "reorganise"
     assert result["outcome"]["kind"] == "candidate"
-    assert result["candidate"]["state"] == "candidate"
+    assert result["candidate"]["state"] == "candidate_ready"
 
 
 def test_reorganise_metrics_thaw_mappingproxy_diagnostics() -> None:
@@ -278,7 +281,7 @@ def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
     assert persisted["candidate"]["graph"] == result["candidate"]["graph"]
     assert persisted_candidate == result["candidate"]["graph"]
     state = read_state(tmp_path / "auto-reorganise-session")
-    assert state["turns"][result["turn_id"]]["state"] == "candidate"
+    assert state["turns"][result["turn_id"]]["state"] == "candidate_ready"
     assert state["turns"][result["turn_id"]]["candidate_graph_hash"] == result["candidate_graph_hash"]
 
     chat = read_session_chat(tmp_path, "auto-reorganise-session")
@@ -295,9 +298,9 @@ def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
         session_root=tmp_path,
     )
     assert stale["ok"] is False
-    assert stale["kind"] == "StaleStateMismatch"
+    assert stale["kind"] == "EditorAheadConflict"
 
-    accepted = _handle_agent_edit_accept(
+    legacy_accept = _handle_agent_edit_accept(
         {
             "session_id": "auto-reorganise-session",
             "turn_id": result["turn_id"],
@@ -306,9 +309,10 @@ def test_candidate_mode_reorganise_uses_durable_candidate_lifecycle(
         },
         session_root=tmp_path,
     )
-    assert accepted["ok"] is True
-    assert accepted["candidate_graph_hash"] == result["candidate_graph_hash"]
-    assert accepted["baseline_graph_hash"] == result["candidate_structural_graph_hash"]
+    assert legacy_accept["ok"] is False
+    assert legacy_accept["kind"] == "EditorAheadConflict"
+    state_after_legacy_accept = read_state(tmp_path / "auto-reorganise-session")
+    assert state_after_legacy_accept["turns"][result["turn_id"]]["state"] == "candidate_ready"
 
 
 def test_reorganise_route_bad_plan_fails_closed_without_candidate(tmp_path) -> None:

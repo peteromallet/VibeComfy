@@ -1109,7 +1109,11 @@ def structural_graph_projection(graph: Any) -> dict[str, Any]:
             {
                 "id": node.get("id"),
                 "type": node.get("type"),
-                "mode": node.get("mode"),
+                # LiteGraph materializes its default mode as integer zero when
+                # a graph is loaded/configured. Missing/null and zero are the
+                # same executable state and must not make a layout-only round
+                # trip look like a semantic mutation.
+                "mode": 0 if node.get("mode") is None else node.get("mode"),
                 "inputs": wired_inputs,
                 "outputs": live_outputs,
                 "widgets_values": _normalize_node_structural_widget_values(node),
@@ -2662,6 +2666,27 @@ def finalize_turn_transaction(
                     "expected_post_apply_hash": expected_post_hash,
                 },
             )
+        authority = _payload_mapping(transaction.get("authority"))
+        if (
+            authority.get("verification_kind") == "layout_structural_noop"
+            and post_apply_graph_hash != hashes.get("candidate_graph_hash")
+        ):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation=(
+                    "Finalize layout graph did not exactly match the prepared "
+                    "layout candidate."
+                ),
+                evidence={
+                    "post_apply_graph_hash": post_apply_graph_hash,
+                    "expected_candidate_graph_hash": hashes.get("candidate_graph_hash"),
+                    "verification_kind": "layout_structural_noop",
+                },
+            )
         claimed_post_hash = _payload_str(
             payload, "post_apply_hash", "browser_verified_post_apply_hash", "canvas_hash"
         )
@@ -3980,6 +4005,7 @@ def record_idempotent_response(
             schema_witness=authority_receipt.schema_witness,
             replay_ok=authority_receipt.replay.replay_ok,
             candidate_matches=authority_receipt.replay.candidate_matches,
+            verification_kind=authority_receipt.replay.verification_kind,
             applyable=applyable,
             state="candidate_ready" if applyable else "recoverable_error",
         )

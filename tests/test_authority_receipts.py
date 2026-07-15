@@ -81,6 +81,74 @@ def test_malformed_nonempty_v2_envelope_fails_closed() -> None:
     assert receipt.error.startswith("invalid_delta_envelope:")
 
 
+def test_layout_only_candidate_uses_structural_noop_authority() -> None:
+    submit_graph = _submit_graph()
+    candidate = json.loads(json.dumps(submit_graph))
+    candidate["nodes"][0]["pos"] = [1234, 567]
+    candidate["groups"] = [
+        {"title": "Generated layout group", "bounding": [1200, 500, 400, 300]}
+    ]
+    response = {
+        "route": "reorganise",
+        "change_details": {
+            "layout_only": True,
+            "structural_noop_evidence": {
+                "candidate_available": True,
+                "layout_only_structural_noop": True,
+                "patch_apply_error": None,
+            },
+        },
+        "outcome": {"kind": "candidate"},
+    }
+
+    receipt = build_authority_receipt(
+        session_id="layout-session",
+        turn_id="0001",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=None,
+        candidate=candidate,
+        response=response,
+    )
+
+    assert receipt.is_applyable is True
+    assert receipt.replay.replay_ok is True
+    assert receipt.replay.candidate_matches is True
+    assert receipt.replay.verification_kind == "layout_structural_noop"
+    assert receipt.replay.op_count == 0
+
+
+def test_layout_authority_rejects_semantic_change_despite_forged_layout_evidence() -> None:
+    submit_graph = _submit_graph()
+    candidate = json.loads(json.dumps(submit_graph))
+    candidate["nodes"][0]["widgets_values"] = ["semantic mutation"]
+    response = {
+        "route": "reorganise",
+        "change_details": {
+            "layout_only": True,
+            "structural_noop_evidence": {
+                "candidate_available": True,
+                "layout_only_structural_noop": True,
+                "patch_apply_error": None,
+            },
+        },
+        "outcome": {"kind": "candidate"},
+    }
+
+    receipt = build_authority_receipt(
+        session_id="layout-session",
+        turn_id="0001",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=None,
+        candidate=candidate,
+        response=response,
+    )
+
+    assert receipt.is_applyable is False
+    assert receipt.replay.replay_ok is False
+    assert receipt.replay.candidate_matches is False
+    assert receipt.replay.error == "layout_authority_mismatch"
+
+
 def test_authority_receipt_persists_exact_operational_delta_evidence(
     tmp_path: Path,
 ) -> None:

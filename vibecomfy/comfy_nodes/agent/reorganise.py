@@ -28,7 +28,7 @@ from .contracts import (
     turn_envelope,
 )
 from .gates import update_state_match_gate
-from .session import payload_hash, structural_graph_hash
+from .session import payload_hash, structural_graph_hash, v2_mutation_plan_hash
 
 _SKILL_TRIGGER = "/reorganise_comfy_workflow"
 _ROUTE_ALIASES = {
@@ -220,9 +220,13 @@ def build_reorganise_agent_response(
             submit_graph_hash=compatibility_fields["submit_graph_hash"],
             submit_structural_graph_hash=compatibility_fields["submit_structural_graph_hash"],
             turn_identity=turn_identity,
-            plan_hash=getattr(candidate_patch, "plan_hash", None) or None,
-            structural_hash_before=getattr(candidate_patch, "structural_hash_before", None) or None,
-            structural_hash_after=getattr(candidate_patch, "structural_hash_after", None) or None,
+            plan_hash=v2_mutation_plan_hash(
+                delta_ops_envelope={"schema_version": "2.0.0", "ops": []},
+                structural_hash_before=structural_graph_hash(state.graph),
+                structural_hash_after=structural_graph_hash(state.ui_payload),
+            ),
+            structural_hash_before=structural_graph_hash(state.graph),
+            structural_hash_after=structural_graph_hash(state.ui_payload),
             monotonic_generation=getattr(candidate_patch, "monotonic_generation", 0) or 0,
             lease_nonce=getattr(candidate_patch, "lease_nonce", None) or None,
         ).to_dict()
@@ -279,6 +283,15 @@ def build_reorganise_agent_response(
         "layout_only": True,
         "structural_noop_evidence": evidence_payload,
     }
+    if has_candidate:
+        # Layout mutations are governed by the same durable transaction spine
+        # as semantic edits, but their forward mutation is the independently
+        # verified candidate layout rather than a semantic delta operation.
+        # The explicit empty envelope records that no executable graph edit is
+        # being smuggled into the layout transaction.
+        response["agent_edit_protocol"] = "v2_delta"
+        response["delta_ops_envelope"] = {"schema_version": "2.0.0", "ops": []}
+        response["delta_ops"] = []
     if not has_candidate:
         response["no_candidate_reason"] = "reorganise_preview_failed"
         response["graph_unchanged"] = True

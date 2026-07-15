@@ -66,7 +66,9 @@ import { api } from "../../scripts/api.js";
 import {
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
+  applyGraphLayoutInPlace,
   detectGraphDeltaApply,
+  detectGraphLayoutApply,
   installQueueGuard as installQueueGuardAdapter,
   preflightDeltaPlan,
   projectCandidateGraphToRuntimeLayout,
@@ -122,6 +124,7 @@ import {
 import {
   auditLandedMutationPlan,
   boundedBrowserTransactionError,
+  isLayoutAuthorityTransaction,
   normalizeCandidateTransaction,
   resolvePreparedMutationPlan,
   transactionAllows,
@@ -139,6 +142,7 @@ import {
   submitRating,
   installBrowserDiagnosticsCapture,
   commitSessionArtifactPathsFromResponse,
+  compactPanelPreviewDiff,
   downloadTurnAudit,
   downloadTurnAuditEntry,
 } from "./diagnostics_reporting.js";
@@ -2221,32 +2225,37 @@ async function attemptScopedCanvasRollback(preApplyGraph, deltaOps, scopedVerifi
     strategy: "inverse_delta",
     delta_ops: clonePlainData(inverseDeltaOps),
   };
-  try {
-    const result = applyGraphDeltaInPlace(app, {
-      deltaOps: inverseDeltaOps,
-      candidateGraph: clonePlainData(preApplyGraph),
-    });
-    const snapshot = await buildCanvasSnapshot();
-    const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
-    Object.assign(inverseAttempt, {
-      ok: restoreCheck.ok,
-      capability: clonePlainData(result?.capability || null),
-      applied_plan: clonePlainData(result?.plan || null),
-      restore_check: clonePlainData(restoreCheck),
-      client_graph_hash: snapshot.graphHash,
-      client_structural_graph_hash: snapshot.structuralHash,
-      client_live_canvas_token: snapshot.liveCanvasToken,
-    });
-    rollback.attempts.push(inverseAttempt);
-    if (restoreCheck.ok) {
-      rollback.restored = true;
-      rollback.restored_via = "inverse_delta";
-      return rollback;
+  // An empty semantic delta may represent an authoritative layout transaction.
+  // A no-op inverse cannot prove that whole-graph layout mutation was undone,
+  // so skip directly to the exact pre-apply graph restore in that case.
+  if (deltaOps.length > 0) {
+    try {
+      const result = applyGraphDeltaInPlace(app, {
+        deltaOps: inverseDeltaOps,
+        candidateGraph: clonePlainData(preApplyGraph),
+      });
+      const snapshot = await buildCanvasSnapshot();
+      const restoreCheck = validateScopedCanvasPreconditions(snapshot.graph, deltaOps, scopedVerification);
+      Object.assign(inverseAttempt, {
+        ok: restoreCheck.ok,
+        capability: clonePlainData(result?.capability || null),
+        applied_plan: clonePlainData(result?.plan || null),
+        restore_check: clonePlainData(restoreCheck),
+        client_graph_hash: snapshot.graphHash,
+        client_structural_graph_hash: snapshot.structuralHash,
+        client_live_canvas_token: snapshot.liveCanvasToken,
+      });
+      rollback.attempts.push(inverseAttempt);
+      if (restoreCheck.ok) {
+        rollback.restored = true;
+        rollback.restored_via = "inverse_delta";
+        return rollback;
+      }
+    } catch (error) {
+      inverseAttempt.ok = false;
+      inverseAttempt.error = String(error?.message || error);
+      rollback.attempts.push(inverseAttempt);
     }
-  } catch (error) {
-    inverseAttempt.ok = false;
-    inverseAttempt.error = String(error?.message || error);
-    rollback.attempts.push(inverseAttempt);
   }
 
   const fullRestoreAttempt = {
@@ -5991,6 +6000,7 @@ function rememberTurnDetailSnapshot(panel, detail = {}) {
     clarification: clonePlainData(detail.clarification ?? panel.state.clarification ?? null),
     failure: clonePlainData(detail.failure ?? panel.state.failure ?? null),
     candidateGraphPresent: Boolean(detail.candidateGraphPresent ?? panel.state.candidateGraph),
+    candidateTransaction: clonePlainData(detail.candidateTransaction ?? panel.state.candidateTransaction ?? null),
     candidateReport: clonePlainData(detail.candidateReport ?? panel.state.candidateReport ?? null),
     applyEligibility: clonePlainData(detail.applyEligibility ?? panel.state.applyEligibility ?? null),
     queueAllowed: detail.queueAllowed ?? panel.state.queueAllowed,
@@ -6868,26 +6878,7 @@ function buildAgentPanelDebugSnapshot(panel = currentAgentPanel()) {
   } catch (err) {
     debugError = String(err);
   }
-  const previewDiff = panel?.state?._previewDiff;
-  const previewDiffSummary = previewDiff && typeof previewDiff === "object"
-    ? {
-        edited: (Array.isArray(previewDiff.edited) ? previewDiff.edited : []).map((entry) => ({
-          uid: entry?.uid || null,
-          changedWidgetIndices: Array.isArray(entry?.changedWidgetIndices) ? entry.changedWidgetIndices.slice() : [],
-        })),
-        editedFields: (Array.isArray(previewDiff.edited_fields) ? previewDiff.edited_fields : []).map((entry) => ({
-          uid: entry?.uid || null,
-          fieldPath: entry?.field_path || null,
-        })),
-        added: (Array.isArray(previewDiff.added) ? previewDiff.added : []).map((entry) => entry?.uid || null).filter(Boolean),
-        removed: (Array.isArray(previewDiff.removed) ? previewDiff.removed : []).map((entry) => entry?.uid || null).filter(Boolean),
-        addedLinks: Array.isArray(previewDiff.added_links) ? previewDiff.added_links.slice() : [],
-        removedLinks: Array.isArray(previewDiff.removed_links) ? previewDiff.removed_links.slice() : [],
-        deltaOpsDerived: Boolean(previewDiff._deltaOpsDerived),
-        candidateGraphHash: panel?.state?._previewDiffGraphHash || null,
-        liveCanvasRevision: panel?.state?._previewDiffLiveCanvasRevision ?? null,
-      }
-    : null;
+  const previewDiffSummary = compactPanelPreviewDiff(panel);
   return {
     panelId: panel?.panelId || null,
     panelsCreated: panelsCreatedCount(),
@@ -10535,6 +10526,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
       turn_id: resultTurnId,
       session_id: resultSessionId,
       candidateGraphPresent: Boolean(candidateGraph),
+      candidateTransaction: panel.state.candidateTransaction,
       candidateReport: result.report || null,
       applyEligibility: normalizedEligibility,
       queueAllowed: Boolean(result.queueAllowed),
@@ -10685,14 +10677,19 @@ async function applyAgentCandidate(panel) {
       ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
       : null;
     const v2DeltaCapability = detectGraphDeltaApply(app);
+    const layoutTransaction = isLayoutAuthorityTransaction(candidateTransaction);
+    const layoutCapability = detectGraphLayoutApply(app);
     const missingTransactionFields = [];
     if (!candidateTransaction) missingTransactionFields.push("candidate_transaction");
     if (!transactionAllows(candidateTransaction, "apply")) missingTransactionFields.push("apply_authorization");
     if (!v2DeltaOps) {
       missingTransactionFields.push("delta_ops");
     }
-    if (!v2DeltaCapability.available || v2DeltaCapability.strategy !== "live-litegraph-mutate") {
+    if (!layoutTransaction && (!v2DeltaCapability.available || v2DeltaCapability.strategy !== "live-litegraph-mutate")) {
       missingTransactionFields.push("scoped_delta_apply_capability");
+    }
+    if (layoutTransaction && (!layoutCapability.available || layoutCapability.strategy !== "live-layout-mutate")) {
+      missingTransactionFields.push("scoped_layout_apply_capability");
     }
     if (missingTransactionFields.length) {
       const failure = agentPanelFailure(
@@ -10705,6 +10702,7 @@ async function applyAgentCandidate(panel) {
           agent_edit_protocol: panel.state.agentEditProtocol,
           missing_transaction_fields: missingTransactionFields,
           scoped_delta_apply_capability: clonePlainData(v2DeltaCapability),
+          scoped_layout_apply_capability: clonePlainData(layoutCapability),
         },
       );
       const obligations = transition(panel, "APPLY_MISSING_FIELDS", {
@@ -10859,18 +10857,24 @@ async function applyAgentCandidate(panel) {
         // intact and avoids graph.clear()/graph.configure() recursion in
         // complex ComfyUI graphs. There is deliberately no whole-graph
         // forward fallback: missing ops/capability fail before prepare above.
-        canvasApplyResult = applyGraphDeltaInPlace(app, {
-          deltaOps: preparedMutationPlan.deltaOps,
-          candidateGraph: panel.state.candidateGraph,
-        }, {
-          decorateCandidateNodePayload(nodePayload) {
-            decorateIntentNode(nodePayload);
-          },
-          decorateLiveNode(liveNode) {
-            decorateIntentNode(liveNode);
-          },
-        });
-        auditLandedMutationPlan(preparedMutationPlan.deltaOps, canvasApplyResult.plan);
+        if (preparedMutationPlan.verificationKind === "layout_structural_noop") {
+          canvasApplyResult = applyGraphLayoutInPlace(app, {
+            candidateGraph: panel.state.candidateGraph,
+          });
+        } else {
+          canvasApplyResult = applyGraphDeltaInPlace(app, {
+            deltaOps: preparedMutationPlan.deltaOps,
+            candidateGraph: panel.state.candidateGraph,
+          }, {
+            decorateCandidateNodePayload(nodePayload) {
+              decorateIntentNode(nodePayload);
+            },
+            decorateLiveNode(liveNode) {
+              decorateIntentNode(liveNode);
+            },
+          });
+          auditLandedMutationPlan(preparedMutationPlan.deltaOps, canvasApplyResult.plan);
+        }
       } catch (error) {
         const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
           restoreCanvas: true,
@@ -11007,6 +11011,45 @@ async function applyAgentCandidate(panel) {
         });
         fulfillLifecycleTransitionObligations(panel, hashObligations);
         renderLifecycleTransition(panel, hashObligations);
+        return;
+      }
+      const expectedLayoutGraphHash = candidateTransaction.hashes.candidate_graph_hash;
+      if (
+        preparedMutationPlan.verificationKind === "layout_structural_noop"
+        && afterApply.graphHash !== expectedLayoutGraphHash
+      ) {
+        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+          restoreCanvas: true,
+          silent: true,
+          triggerStage: "post_apply_layout_verification",
+          triggerFailure: {
+            kind: "StaleStateMismatch",
+            message: "Applied layout does not exactly match the authoritative candidate.",
+          },
+          canvasWasMutated: true,
+        });
+        const failure = agentPanelFailure(
+          "StaleStateMismatch",
+          "Applied layout does not exactly match the authoritative candidate.",
+          {
+            retryable: true,
+            graph_unchanged: transactionRollback.canvas_restore?.restored === true,
+            expected_graph_hash: expectedLayoutGraphHash,
+            actual_graph_hash: afterApply.graphHash,
+            transaction_rollback: transactionRollback,
+          },
+        );
+        const obligations = commitVerifyCanvasFailure(panel, {
+          failure,
+          debugPayload: {
+            transactional_apply: true,
+            verification_kind: "layout_structural_noop",
+            expected_graph_hash: expectedLayoutGraphHash,
+            actual_graph_hash: afterApply.graphHash,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
         return;
       }
 
@@ -11959,6 +12002,7 @@ async function rollbackPreparedAgentCandidate(
       }
       const transaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
       if (!transaction) throw new Error("Rollback has no canonical transaction plan.");
+      const layoutTransaction = isLayoutAuthorityTransaction(transaction);
       const inverseDeltaOps = buildInverseDeltaOps(
         snapshot.graph,
         transaction.plan.delta_ops_envelope.ops,
@@ -11966,12 +12010,19 @@ async function rollbackPreparedAgentCandidate(
       canvasRestore.scoped_inverse = {
         attempted: true,
         inverse_op_count: inverseDeltaOps.length,
+        strategy: layoutTransaction ? "native_layout_restore" : "inverse_delta",
       };
       try {
-        applyGraphDeltaInPlace(app, {
-          deltaOps: inverseDeltaOps,
-          candidateGraph: clonePlainData(snapshot.graph),
-        });
+        if (layoutTransaction) {
+          applyGraphLayoutInPlace(app, {
+            candidateGraph: clonePlainData(snapshot.graph),
+          });
+        } else {
+          applyGraphDeltaInPlace(app, {
+            deltaOps: inverseDeltaOps,
+            candidateGraph: clonePlainData(snapshot.graph),
+          });
+        }
       } catch (inverseError) {
         canvasRestore.scoped_inverse.error = boundedBrowserTransactionError(
           inverseError,
@@ -11982,10 +12033,11 @@ async function rollbackPreparedAgentCandidate(
       let restoredSnapshot = await buildCanvasSnapshot();
       canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
       canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
-      canvasRestore.restored = Boolean(snapshot.structuralHash
-        && restoredSnapshot.structuralHash === snapshot.structuralHash);
+      canvasRestore.restored = layoutTransaction
+        ? Boolean(snapshot.graphHash && restoredSnapshot.graphHash === snapshot.graphHash)
+        : Boolean(snapshot.structuralHash && restoredSnapshot.structuralHash === snapshot.structuralHash);
       canvasRestore.scoped_inverse.restored = canvasRestore.restored;
-      if (!canvasRestore.restored) {
+      if (!canvasRestore.restored && !layoutTransaction) {
         canvasRestore.whole_graph_last_resort = { attempted: true };
         applyGraphInPlaceWithIntentDecoration(snapshot.graph);
         restoredSnapshot = await buildCanvasSnapshot();
@@ -11996,7 +12048,9 @@ async function rollbackPreparedAgentCandidate(
         canvasRestore.whole_graph_last_resort.restored = canvasRestore.restored;
       }
       if (!canvasRestore.restored) {
-        canvasRestore.error = "Restored canvas did not match the pre-apply structural hash.";
+        canvasRestore.error = layoutTransaction
+          ? "Restored layout did not match the exact pre-apply graph hash."
+          : "Restored canvas did not match the pre-apply structural hash.";
       }
     } catch (error) {
       canvasRestore.restored = false;
