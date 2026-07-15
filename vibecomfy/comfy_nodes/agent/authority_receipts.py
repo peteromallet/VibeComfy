@@ -28,12 +28,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from .audit import write_json_artifact
-from .session import canonical_json_bytes, payload_hash
+from .candidate_transaction import (
+    build_schema_witness,
+    schema_provider_from_witness,
+    validate_schema_witness,
+)
+from .session import _write_response_immutable, canonical_json_bytes, payload_hash
 
 _LOGGER = logging.getLogger(__name__)
 
-AUTHORITY_RECEIPT_CONTRACT_VERSION = "authority_receipt_v1"
+AUTHORITY_RECEIPT_CONTRACT_VERSION = "authority_receipt_v2"
 AUTHORITY_NAMESPACE = "authority"
 AUTHORITY_RECEIPT_FILENAME = "receipt.json"
 
@@ -128,6 +132,8 @@ class AuthorityReceipt:
     cumulative_delta_envelope: dict[str, Any] | None
     cumulative_delta_hash: str | None
     candidate_hash: str | None
+    schema_witness: dict[str, Any] | None
+    schema_witness_hash: str | None
     replay: ReplayReceipt
     response_metadata: ResponseMetadataHashes
     created_at: str
@@ -147,6 +153,8 @@ class AuthorityReceipt:
             "cumulative_delta_envelope": self.cumulative_delta_envelope,
             "cumulative_delta_hash": self.cumulative_delta_hash,
             "candidate_hash": self.candidate_hash,
+            "schema_witness": self.schema_witness,
+            "schema_witness_hash": self.schema_witness_hash,
             "replay": self.replay.to_dict(),
             "response_metadata": self.response_metadata.to_dict(),
             "created_at": self.created_at,
@@ -164,6 +172,7 @@ class AuthorityReceipt:
             response_hash=None, eligibility_hash=None, outcome_hash=None,
         )
         envelope = data.get("cumulative_delta_envelope")
+        schema_witness = data.get("schema_witness")
         receipt = cls(
             schema_version=data.get("schema_version", ""),
             session_id=data.get("session_id", ""),
@@ -173,6 +182,10 @@ class AuthorityReceipt:
             cumulative_delta_envelope=dict(envelope) if isinstance(envelope, Mapping) else None,
             cumulative_delta_hash=data.get("cumulative_delta_hash"),
             candidate_hash=data.get("candidate_hash"),
+            schema_witness=(
+                dict(schema_witness) if isinstance(schema_witness, Mapping) else None
+            ),
+            schema_witness_hash=data.get("schema_witness_hash"),
             replay=replay,
             response_metadata=meta,
             created_at=data.get("created_at", ""),
@@ -187,7 +200,14 @@ class AuthorityReceipt:
     @property
     def is_applyable(self) -> bool:
         """Only ``True`` when replay succeeded and candidate matches exactly."""
-        return self.replay.replay_ok and self.replay.candidate_matches
+        witness_ok, _ = validate_schema_witness(self.schema_witness)
+        return (
+            self.contract_version == AUTHORITY_RECEIPT_CONTRACT_VERSION
+            and witness_ok
+            and self.schema_witness_hash == self.schema_witness.get("witness_hash")
+            and self.replay.replay_ok
+            and self.replay.candidate_matches
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -347,11 +367,18 @@ def build_authority_receipt(
     This is the canonical entry point.  The receipt records the replay verdict
     and all hashes needed for tamper detection.
     """
+    schema_witness = build_schema_witness(
+        schema_provider=schema_provider,
+        submit_graph=submit_graph,
+        candidate_payload=candidate,
+        delta_envelope=cumulative_delta_envelope,
+    )
+    persisted_schema_provider = schema_provider_from_witness(schema_witness)
     replay = verify_replay(
         submit_graph,
         cumulative_delta_envelope,
         candidate,
-        schema_provider=schema_provider,
+        schema_provider=persisted_schema_provider,
     )
 
     submit_graph_hash = payload_hash(submit_graph) if submit_graph is not None else None
@@ -377,6 +404,8 @@ def build_authority_receipt(
         cumulative_delta_envelope=delta_envelope_dict,
         cumulative_delta_hash=cumulative_delta_hash,
         candidate_hash=candidate_hash,
+        schema_witness=schema_witness,
+        schema_witness_hash=schema_witness.get("witness_hash"),
         replay=replay,
         response_metadata=_compute_response_metadata_hashes(response),
         created_at=_now(),
@@ -406,13 +435,19 @@ def write_authority_receipt(turn_dir: Path, receipt: AuthorityReceipt) -> Path:
     authority of record.
     """
     path = authority_receipt_path(turn_dir)
-    if path.exists():
-        _LOGGER.debug(
-            "Authority receipt already exists for turn_dir=%s; not overwriting.",
-            turn_dir,
-        )
+    if not _write_response_immutable(path, receipt.to_dict()):
+        existing = load_authority_receipt(turn_dir)
+        if existing is None or existing.to_dict() != receipt.to_dict():
+            raise ValueError(
+                f"Authority receipt collision for turn_dir={turn_dir}."
+            )
         return path
-    write_json_artifact(path, receipt.to_dict())
+    # Authority evidence is operational state, not a redacted audit view. The
+    # create-exclusive publish above also prevents concurrent writers from
+    # replacing authority after both observed an absent path.
+    persisted = load_authority_receipt(turn_dir)
+    if persisted is None or persisted.to_dict() != receipt.to_dict():
+        raise OSError(f"Authority receipt did not persist exactly at {path}.")
     return path
 
 
@@ -566,15 +601,7 @@ def build_and_persist_authority_receipt(
         schema_provider=schema_provider,
     )
 
-    try:
-        write_authority_receipt(turn_dir, receipt)
-    except Exception:
-        _LOGGER.warning(
-            "Failed to persist authority receipt for session=%s turn=%s (best-effort)",
-            session_id,
-            turn_id,
-            exc_info=True,
-        )
+    write_authority_receipt(turn_dir, receipt)
 
     stamped = stamp_response_with_authority(response, receipt)
     return receipt, stamped

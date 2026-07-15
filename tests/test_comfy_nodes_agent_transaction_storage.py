@@ -199,7 +199,7 @@ def test_rollback_appends_event_clears_pointer_records_idempotency(tmp_path):
     assert (txn_dir / S.TRANSACTION_ROLLBACK_RECEIPT_NAME).exists()
     assert turn_id not in state["prepared_transactions"]
     rec = S.lookup_apply_idempotency_record(state, plan_hash=plan_hash, generation=generation)
-    assert rec["phase"] == "rolled_back"
+    assert rec["phase"] == "rollback_complete"
     assert rec["receipt_path"] == S.TRANSACTION_ROLLBACK_RECEIPT_NAME
 
 
@@ -223,7 +223,7 @@ def test_cancel_marks_terminal_no_receipt_snapshot(tmp_path):
     assert not (txn_dir / "cancelled.json").exists()
     assert turn_id not in state["prepared_transactions"]
     rec = S.lookup_apply_idempotency_record(state, plan_hash=plan_hash, generation=generation)
-    assert rec["phase"] == "cancelled"
+    assert rec["phase"] == "superseded"
     assert rec["receipt_path"] is None
 
 
@@ -358,11 +358,8 @@ def test_read_drops_partial_trailing_line(tmp_path):
     with log.open("a", encoding="utf-8") as fh:
         fh.write('{"event_type":"finalized","receipt":')  # truncated
 
-    events = S.read_transaction_lifecycle(txn_dir)
-    assert len(events) == 1
-    assert events[0]["event_type"] == "prepared"
-    # Latest phase ignores the corrupt trailing fragment.
-    assert S.latest_transaction_phase(txn_dir) == "prepared"
+    assert S.read_transaction_lifecycle(txn_dir) == []
+    assert S.latest_transaction_phase(txn_dir) is None
 
 
 def test_read_transaction_lifecycle_returns_empty_for_missing_dir(tmp_path):
@@ -372,7 +369,7 @@ def test_read_transaction_lifecycle_returns_empty_for_missing_dir(tmp_path):
     assert S.latest_transaction_phase(missing) is None
 
 
-def test_read_transaction_lifecycle_drops_malformed_json_lines(tmp_path):
+def test_read_transaction_lifecycle_fails_closed_on_malformed_json_lines(tmp_path):
     session_dir, turn_dir, turn_id = _make_session(tmp_path)
     state = _state()
     plan_hash = "q" * 64
@@ -382,9 +379,8 @@ def test_read_transaction_lifecycle_drops_malformed_json_lines(tmp_path):
     # Inject garbage between valid lines.
     original = log.read_text(encoding="utf-8")
     log.write_text("not json at all\n" + original + "\n{broken\n", encoding="utf-8")
-    events = S.read_transaction_lifecycle(txn_dir)
-    assert len(events) == 1
-    assert events[0]["event_type"] == "prepared"
+    assert S.read_transaction_lifecycle(txn_dir) == []
+    assert S.latest_transaction_phase(txn_dir) is None
 
 
 # ── Path safety ─────────────────────────────────────────────────────────────
@@ -483,7 +479,7 @@ def test_full_prepare_finalize_then_rollback_of_next_attempt(tmp_path):
 
     # Both resolved transactions are durable idempotency records.
     assert S.lookup_apply_idempotency_record(state, plan_hash="aa" * 32, generation=p1["generation"])["phase"] == "finalized"
-    assert S.lookup_apply_idempotency_record(state, plan_hash="bb" * 32, generation=p2["generation"])["phase"] == "rolled_back"
+    assert S.lookup_apply_idempotency_record(state, plan_hash="bb" * 32, generation=p2["generation"])["phase"] == "rollback_complete"
 
     # Recovery reconstructs both.
     recovered = S.recover_transaction_index(session_dir)

@@ -14311,7 +14311,7 @@ def test_terminal_rollback_lifecycle_rehydrates_without_open_candidate(
     assert lifecycle["disposition"] == "rolled_back"
     assert [event["event_type"] for event in lifecycle["transaction_receipts"]] == [
         "prepared",
-        "rolled_back",
+        "rollback_complete",
     ]
 
     public = public_chat_rehydrate_payload(result)["latest_turn_lifecycle"]

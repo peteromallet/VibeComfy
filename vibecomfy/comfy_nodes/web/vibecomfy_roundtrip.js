@@ -105,6 +105,7 @@ import {
   normalizeAgentEditResponse,
   outcomeRequiresCustomNodes,
   readApplyCandidate,
+  readCandidateTransaction,
   readCustomNodeResolution,
   readFieldChanges,
   readLatestCandidate,
@@ -118,6 +119,13 @@ import {
   selectAuditArtifacts,
   selectExecutionEvents,
 } from "./agent_edit_response_contract.js";
+import {
+  auditLandedMutationPlan,
+  boundedBrowserTransactionError,
+  normalizeCandidateTransaction,
+  resolvePreparedMutationPlan,
+  transactionAllows,
+} from "./agent_edit_transaction.js";
 
 import {
   configureDiagnosticsDeps,
@@ -5505,6 +5513,9 @@ function normalizeChatRehydratePayload(rawPayload) {
         transactionReceipts: Array.isArray(lifecycle.transactionReceipts)
           ? lifecycle.transactionReceipts
           : (Array.isArray(lifecycle.transaction_receipts) ? lifecycle.transaction_receipts : []),
+        candidateTransaction: readCandidateTransaction({
+          candidate_transaction: lifecycle.candidate_transaction || lifecycle.candidateTransaction,
+        }),
       };
     })(),
     latestCandidate:
@@ -5575,6 +5586,7 @@ function normalizeAuxiliaryAgentPayload(rawPayload, endpoint) {
       ? clonePlainData(rawPayload.auditRef)
       : (rawPayload.audit_ref && typeof rawPayload.audit_ref === "object" ? clonePlainData(rawPayload.audit_ref) : null),
     rebaselineRecovery: extractRebaselineRecovery(rawPayload),
+    candidateTransaction: readCandidateTransaction(rawPayload),
   };
 }
 
@@ -10619,17 +10631,14 @@ async function applyAgentCandidate(panel) {
   }
 
   if (isV2ApplyCandidate(panel)) {
-    const v2DeltaOps = Array.isArray(panel.state.deltaOps) && panel.state.deltaOps.length
-      ? clonePlainData(panel.state.deltaOps)
+    const candidateTransaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
+    const v2DeltaOps = candidateTransaction
+      ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
       : null;
     const v2DeltaCapability = detectGraphDeltaApply(app);
     const missingTransactionFields = [];
-    if (!(typeof panel.state.mutationPlanHash === "string" && panel.state.mutationPlanHash)) {
-      missingTransactionFields.push("plan_hash");
-    }
-    if (!(typeof panel.state.candidateGraphHash === "string" && panel.state.candidateGraphHash)) {
-      missingTransactionFields.push("candidate_graph_hash");
-    }
+    if (!candidateTransaction) missingTransactionFields.push("candidate_transaction");
+    if (!transactionAllows(candidateTransaction, "apply")) missingTransactionFields.push("apply_authorization");
     if (!v2DeltaOps) {
       missingTransactionFields.push("delta_ops");
     }
@@ -10693,17 +10702,17 @@ async function applyAgentCandidate(panel) {
       const prepareBody = {
         session_id: panel.state.sessionId,
         turn_id: panel.state.turnId,
-        plan_hash: panel.state.mutationPlanHash,
-        candidate_graph_hash: panel.state.candidateGraphHash,
+        plan_hash: candidateTransaction.plan_hash,
+        candidate_graph_hash: candidateTransaction.hashes.candidate_graph_hash,
         client_graph_hash: beforeApply.graphHash,
         client_structural_graph_hash: beforeApply.structuralHash,
         client_live_canvas_token: beforeApply.liveCanvasToken,
         apply_eligibility: clonePlainData(panel.state.applyEligibility || eligibility),
         candidate: {
-          graph_hash: panel.state.candidateGraphHash,
-          plan_hash: panel.state.mutationPlanHash,
-          structural_hash_before: beforeApply.structuralHash,
-          structural_hash_after: await structuralGraphHash(panel.state.candidateGraph),
+          graph_hash: candidateTransaction.hashes.candidate_graph_hash,
+          plan_hash: candidateTransaction.plan_hash,
+          structural_hash_before: candidateTransaction.hashes.submit_structural_graph_hash,
+          structural_hash_after: candidateTransaction.hashes.candidate_structural_graph_hash,
         },
         idempotency_key: buildActionIdempotencyKey({
           action: "prepare",
@@ -10723,99 +10732,58 @@ async function applyAgentCandidate(panel) {
       });
       fulfillLifecycleTransitionObligations(panel, startedObligations);
       const prepareStarted = commitPrepareStarted(panel, {
-        mutationPlanHash: panel.state.mutationPlanHash,
+        mutationPlanHash: candidateTransaction.plan_hash,
         debugPayload: { prepare_request: prepareBody },
       });
       fulfillLifecycleTransitionObligations(panel, prepareStarted);
       renderLifecycleTransition(panel, prepareStarted);
 
       let prepared;
+      let preparedMutationPlan;
       try {
         prepared = await postAgentLifecycleAction("prepare", prepareBody, "prepare");
         const obligations = commitPrepareSuccess(panel, {
           preparedReceipt: prepared.receipt || null,
+          candidateTransaction: prepared.candidateTransaction,
           debugPayload: {
             prepare_request: prepareBody,
             prepare_response: prepared.raw || prepared,
           },
         });
         fulfillLifecycleTransitionObligations(panel, obligations);
+        preparedMutationPlan = resolvePreparedMutationPlan(
+          candidateTransaction,
+          prepared.candidateTransaction,
+        );
       } catch (error) {
+        const transactionRollback = prepared
+          ? await rollbackPreparedAgentCandidate(panel, beforeApply, {
+              silent: true,
+              triggerStage: "prepared_plan_resolution",
+              triggerFailure: error,
+              canvasWasMutated: false,
+            })
+          : null;
         const failure = error?.ok === false
           ? error
           : agentPanelFailure("PrepareError", String(error), {
               retryable: true,
               graph_unchanged: true,
               next_action: "Retry Apply after the backend can prepare the transaction.",
+              transaction_rollback: transactionRollback,
             });
         const obligations = commitPrepareFailure(panel, {
           failure,
           debugPayload: {
             prepare_request: prepareBody,
-            prepare_failure: failure,
+            prepare_failure: boundedBrowserTransactionError(error, "prepare_or_plan_resolution", {
+              resumeState: "candidate_ready",
+            }),
           },
         });
         fulfillLifecycleTransitionObligations(panel, obligations);
         renderLifecycleTransition(panel, obligations);
         return;
-      }
-
-      // ── T26: Verify prepared mutation-plan hash ──────────────────────
-      // After prepare succeeds, confirm the server's prepared plan_hash
-      // matches the candidate's mutationPlanHash before mutating the
-      // canvas.  A mismatch means the server prepared a different plan;
-      // roll back the prepared transaction and fail closed.
-      {
-        const preparedPlanHash =
-          panel.state.preparedReceipt?.plan_hash
-          || panel.state.preparedReceipt?.planHash
-          || prepared?.receipt?.plan_hash
-          || prepared?.receipt?.planHash
-          || prepared?.plan_hash
-          || prepared?.planHash
-          || null;
-        if (
-          typeof panel.state.mutationPlanHash === "string"
-          && panel.state.mutationPlanHash
-          && typeof preparedPlanHash === "string"
-          && preparedPlanHash
-          && preparedPlanHash !== panel.state.mutationPlanHash
-        ) {
-          const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
-            silent: true,
-            triggerStage: "plan_hash_verification",
-            triggerFailure: {
-              kind: "StaleStateMismatch",
-              message: "Prepared mutation-plan hash does not match the candidate plan hash.",
-            },
-            canvasWasMutated: false,
-          });
-          const failure = agentPanelFailure(
-            "StaleStateMismatch",
-            "Prepared mutation-plan hash does not match the candidate plan hash.",
-            {
-              retryable: true,
-              graph_unchanged: true,
-              next_action: "Submit a new edit from the current canvas.",
-              expected_plan_hash: panel.state.mutationPlanHash,
-              prepared_plan_hash: preparedPlanHash,
-              transaction_rollback: transactionRollback,
-            },
-          );
-          const verifyObligations = commitVerifyCanvasFailure(panel, {
-            failure,
-            debugPayload: {
-              transactional_apply: true,
-              prepare_response: prepared.raw || prepared,
-              plan_hash_mismatch: true,
-              expected_plan_hash: panel.state.mutationPlanHash,
-              prepared_plan_hash: preparedPlanHash,
-            },
-          });
-          fulfillLifecycleTransitionObligations(panel, verifyObligations);
-          renderLifecycleTransition(panel, verifyObligations);
-          return;
-        }
       }
 
       const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
@@ -10841,7 +10809,7 @@ async function applyAgentCandidate(panel) {
         // complex ComfyUI graphs. There is deliberately no whole-graph
         // forward fallback: missing ops/capability fail before prepare above.
         canvasApplyResult = applyGraphDeltaInPlace(app, {
-          deltaOps: v2DeltaOps,
+          deltaOps: preparedMutationPlan.deltaOps,
           candidateGraph: panel.state.candidateGraph,
         }, {
           decorateCandidateNodePayload(nodePayload) {
@@ -10851,6 +10819,7 @@ async function applyAgentCandidate(panel) {
             decorateIntentNode(liveNode);
           },
         });
+        auditLandedMutationPlan(preparedMutationPlan.deltaOps, canvasApplyResult.plan);
       } catch (error) {
         const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
           restoreCanvas: true,
@@ -10866,7 +10835,8 @@ async function applyAgentCandidate(panel) {
           transaction_rollback: transactionRollback,
           canvas_apply: {
             mode: "scoped_delta",
-            delta_ops: clonePlainData(v2DeltaOps),
+            delta_hash: preparedMutationPlan.deltaHash,
+            op_count: preparedMutationPlan.deltaOps.length,
             capability: clonePlainData(canvasApplyResult?.capability || v2DeltaCapability),
           },
         });
@@ -10875,7 +10845,9 @@ async function applyAgentCandidate(panel) {
           debugPayload: {
             transactional_apply: true,
             prepare_response: prepared.raw || prepared,
-            canvas_apply_failure: failure,
+            canvas_apply_failure: boundedBrowserTransactionError(error, "canonical_canvas_apply", {
+              resumeState: "prepared",
+            }),
             canvas_apply: failure.canvas_apply,
           },
         });
@@ -10928,9 +10900,10 @@ async function applyAgentCandidate(panel) {
           post_apply_graph_hash: afterApply.graphHash,
           canvas_apply: {
             mode: "scoped_delta",
-            delta_ops: clonePlainData(v2DeltaOps),
+            delta_hash: preparedMutationPlan.deltaHash,
+            op_count: preparedMutationPlan.deltaOps.length,
             capability: clonePlainData(canvasApplyResult?.capability || v2DeltaCapability),
-            applied_plan: clonePlainData(canvasApplyResult?.plan || null),
+            landed_step_count: Array.isArray(canvasApplyResult?.plan) ? canvasApplyResult.plan.length : null,
           },
         },
       });
@@ -10940,12 +10913,7 @@ async function applyAgentCandidate(panel) {
       // The live canvas structure after mutation must match the candidate
       // graph structure.  A mismatch means the apply did not produce the
       // expected graph; roll back and fail closed.
-      let expectedStructuralHashAfter = null;
-      try {
-        expectedStructuralHashAfter = await structuralGraphHash(panel.state.candidateGraph);
-      } catch (_hashErr) {
-        expectedStructuralHashAfter = null;
-      }
+      const expectedStructuralHashAfter = candidateTransaction.hashes.candidate_structural_graph_hash;
       if (
         typeof afterApply.structuralHash === "string"
         && afterApply.structuralHash
@@ -11013,6 +10981,8 @@ async function applyAgentCandidate(panel) {
         generation: panel.state.generation,
         lease_nonce: panel.state.leaseNonce,
         post_apply_hash: afterApply.structuralHash,
+        post_apply_graph: afterApply.graph,
+        applied_delta_hash: preparedMutationPlan.deltaHash,
         post_apply_hash_verified: true,
         browser_verified: true,
         verified: true,
@@ -11026,12 +10996,22 @@ async function applyAgentCandidate(panel) {
         }),
       };
       const finalizeStarted = commitFinalizeStarted(panel, {
-        debugPayload: { finalize_request: finalizeBody },
+        debugPayload: {
+          finalize_request: {
+            session_id: finalizeBody.session_id,
+            turn_id: finalizeBody.turn_id,
+            plan_hash: finalizeBody.plan_hash,
+            applied_delta_hash: finalizeBody.applied_delta_hash,
+            post_apply_hash: finalizeBody.post_apply_hash,
+            post_apply_graph_node_count: Array.isArray(afterApply.graph?.nodes) ? afterApply.graph.nodes.length : null,
+          },
+        },
       });
       fulfillLifecycleTransitionObligations(panel, finalizeStarted);
 
+      let finalized = null;
       try {
-        const finalized = await postAgentLifecycleAction("finalize", finalizeBody, "finalize");
+        finalized = await postAgentLifecycleAction("finalize", finalizeBody, "finalize");
         const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
         pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
         pushTurnStatus(panel, "applied", {
@@ -11043,13 +11023,18 @@ async function applyAgentCandidate(panel) {
         });
         const obligations = commitFinalizeSuccess(panel, {
           finalizedReceipt: finalized.receipt || null,
+          candidateTransaction: finalized.candidateTransaction,
           accepted: finalized.raw || finalized,
           lastAppliedChanges,
           undoStackDepth: panel.state.undoStack.length,
           toast: "Agent candidate applied",
           debugPayload: {
             prepare_response: prepared.raw || prepared,
-            finalize_request: finalizeBody,
+            finalize_request: {
+              plan_hash: finalizeBody.plan_hash,
+              applied_delta_hash: finalizeBody.applied_delta_hash,
+              post_apply_hash: finalizeBody.post_apply_hash,
+            },
             finalize_response: finalized.raw || finalized,
           },
         });
@@ -11065,6 +11050,40 @@ async function applyAgentCandidate(panel) {
         });
         renderLifecycleTransition(panel, obligations);
       } catch (error) {
+        if (finalized) {
+          // The server has already committed the terminal aggregate. From
+          // this point onward presentation/history failures are never
+          // compensatable: restoring the canvas would diverge from the
+          // authoritative finalized baseline and rollback must be rejected.
+          const projectionFailure = boundedBrowserTransactionError(
+            error,
+            "post_finalize_projection",
+            { recoverable: true, resumeState: "finalized" },
+          );
+          try {
+            const terminalObligations = commitFinalizeSuccess(panel, {
+              finalizedReceipt: finalized.receipt || null,
+              candidateTransaction: finalized.candidateTransaction,
+              accepted: finalized.raw || finalized,
+              toast: "Agent candidate applied",
+              debugPayload: {
+                finalize_response: finalized.raw || finalized,
+                post_finalize_projection_failure: projectionFailure,
+              },
+            });
+            fulfillLifecycleTransitionObligations(panel, terminalObligations);
+            renderLifecycleTransition(panel, terminalObligations);
+          } catch (renderError) {
+            console.error(
+              "[vibecomfy] finalized transaction projection failed",
+              boundedBrowserTransactionError(renderError, "post_finalize_render", {
+                recoverable: true,
+                resumeState: "finalized",
+              }),
+            );
+          }
+          return;
+        }
         const failure = error?.ok === false
           ? error
           : agentPanelFailure("FinalizeError", String(error), {
@@ -11096,8 +11115,14 @@ async function applyAgentCandidate(panel) {
             finalize_boundary_rollback: true,
             transaction_rollback: transactionRollback,
             prepare_response: prepared.raw || prepared,
-            finalize_request: finalizeBody,
-            finalize_failure: failure,
+            finalize_request: {
+              plan_hash: finalizeBody.plan_hash,
+              applied_delta_hash: finalizeBody.applied_delta_hash,
+              post_apply_hash: finalizeBody.post_apply_hash,
+            },
+            finalize_failure: boundedBrowserTransactionError(error, "finalize", {
+              resumeState: "canvas_verified",
+            }),
           },
         });
         fulfillLifecycleTransitionObligations(panel, obligations);
@@ -11112,6 +11137,30 @@ async function applyAgentCandidate(panel) {
       transition(panel, "APPLY_FINALLY", { clearInFlightApply: true });
     }
   }
+
+  // Explicit migration adapter: a legacy candidate may be inspected or
+  // rejected, but it cannot enter the production forward-mutation path.
+  // Removal criterion: no supported session can rehydrate without a
+  // candidate_transaction_v1 aggregate.
+  const legacyFailure = agentPanelFailure(
+    "LegacyCandidateReadOnly",
+    "This candidate predates the canonical transaction contract and cannot be applied safely.",
+    {
+      retryable: false,
+      graph_unchanged: true,
+      next_action: "Reject it or submit the edit again to create a canonical transaction.",
+    },
+  );
+  const legacyObligations = transition(panel, "APPLY_MISSING_FIELDS", {
+    failure: legacyFailure,
+    debugPayload: {
+      migration_adapter: "legacy_candidate_read_only",
+      removal_criteria: "no supported session lacks candidate_transaction_v1",
+    },
+  });
+  fulfillLifecycleTransitionObligations(panel, legacyObligations);
+  renderLifecycleTransition(panel, legacyObligations);
+  return;
 
   const applyPromise = (async () => {
     let beforeApply;
@@ -11724,7 +11773,8 @@ async function applyAgentCandidate(panel) {
 function isV2ApplyCandidate(panel) {
   return Boolean(
     panel?.state?.candidateGraph
-    && panel.state.agentEditProtocol === "v2_delta",
+    && panel.state.agentEditProtocol === "v2_delta"
+    && normalizeCandidateTransaction(panel.state.candidateTransaction),
   );
 }
 
@@ -11842,14 +11892,44 @@ async function rollbackPreparedAgentCandidate(
       if (!snapshot?.graph || typeof snapshot.graph !== "object") {
         throw new Error("Rollback has no pre-apply canvas snapshot.");
       }
-      applyGraphInPlaceWithIntentDecoration(snapshot.graph);
-      const restoredSnapshot = await buildCanvasSnapshot();
+      const transaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
+      if (!transaction) throw new Error("Rollback has no canonical transaction plan.");
+      const inverseDeltaOps = buildInverseDeltaOps(
+        snapshot.graph,
+        transaction.plan.delta_ops_envelope.ops,
+      );
+      canvasRestore.scoped_inverse = {
+        attempted: true,
+        inverse_op_count: inverseDeltaOps.length,
+      };
+      try {
+        applyGraphDeltaInPlace(app, {
+          deltaOps: inverseDeltaOps,
+          candidateGraph: clonePlainData(snapshot.graph),
+        });
+      } catch (inverseError) {
+        canvasRestore.scoped_inverse.error = boundedBrowserTransactionError(
+          inverseError,
+          "scoped_inverse_recovery",
+          { resumeState: "prepared" },
+        );
+      }
+      let restoredSnapshot = await buildCanvasSnapshot();
       canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
       canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
-      canvasRestore.restored = Boolean(
-        snapshot.structuralHash
-        && restoredSnapshot.structuralHash === snapshot.structuralHash,
-      );
+      canvasRestore.restored = Boolean(snapshot.structuralHash
+        && restoredSnapshot.structuralHash === snapshot.structuralHash);
+      canvasRestore.scoped_inverse.restored = canvasRestore.restored;
+      if (!canvasRestore.restored) {
+        canvasRestore.whole_graph_last_resort = { attempted: true };
+        applyGraphInPlaceWithIntentDecoration(snapshot.graph);
+        restoredSnapshot = await buildCanvasSnapshot();
+        canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
+        canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
+        canvasRestore.restored = Boolean(snapshot.structuralHash
+          && restoredSnapshot.structuralHash === snapshot.structuralHash);
+        canvasRestore.whole_graph_last_resort.restored = canvasRestore.restored;
+      }
       if (!canvasRestore.restored) {
         canvasRestore.error = "Restored canvas did not match the pre-apply structural hash.";
       }
@@ -11926,6 +12006,7 @@ async function rollbackPreparedAgentCandidate(
     if (!silent) {
       const obligations = commitRollbackSuccess(panel, {
         rollbackReceipt: rolledBack.receipt || null,
+        candidateTransaction: rolledBack.candidateTransaction,
         message: rolledBack.message || "Prepared transaction rolled back.",
         toast: "Prepared transaction rolled back",
         debugPayload: {

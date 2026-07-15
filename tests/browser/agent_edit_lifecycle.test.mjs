@@ -49,6 +49,36 @@ function makePanel(overrides = {}) {
   return { state };
 }
 
+function canonicalTransaction(deltaOps = [], overrides = {}) {
+  return {
+    contract_version: "candidate_transaction_v1",
+    state: "candidate_ready",
+    resume_state: null,
+    session_id: "sess-canonical",
+    turn_id: "turn-canonical",
+    plan_hash: "plan-canonical",
+    generation: null,
+    lease_nonce: null,
+    plan: {
+      schema_version: "2.0.0",
+      delta_ops_envelope: { schema_version: "2.0.0", ops: deltaOps },
+      delta_hash: "delta-canonical",
+      op_count: deltaOps.length,
+      schema_provenance: {},
+    },
+    hashes: {
+      candidate_graph_hash: "candidate-hash-canonical",
+      candidate_structural_graph_hash: "candidate-structural-canonical",
+      authority_receipt_hash: "authority-canonical",
+    },
+    authority: { replay_ok: true, candidate_matches: true },
+    available_actions: ["apply", "reject"],
+    terminal: false,
+    last_error: null,
+    ...overrides,
+  };
+}
+
 function assertBaselineDefaults(state) {
   assert.equal(state.baselineTurnId, null);
   assert.equal(state.baselineGraphHash, null);
@@ -249,9 +279,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 64 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 65 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 64);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 65);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -299,6 +329,7 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 64 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("syntheticAgentMessage"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("agentEditProtocol"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("candidateTransaction"));
   // ── T24: Transaction lifecycle fields ─────────────────────────────────────
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("mutationPlanHash"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("generation"));
@@ -309,12 +340,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 64 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 64);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 65);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 64 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 65 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -325,9 +356,9 @@ test("createAgentEditState initializes all 64 lifecycle fields to defaults", () 
     );
   }
 
-  // No extra own keys beyond the 64 fields
+  // No extra own keys beyond the 65 fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 64);
+  assert.equal(ownKeys.length, 65);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -509,6 +540,7 @@ test("OK_CANDIDATE_RESPONSE extracts and stores deltaOps from V2 submit result",
       session_id: "sess-v2",
       turn_id: "t-v2",
       delta_ops: deltaOps,
+      candidate_transaction: canonicalTransaction(deltaOps),
       message: "V2 candidate ready",
       submit_graph_hash: "abc123",
       canvas_apply_allowed: true,
@@ -784,6 +816,7 @@ test("OK_CANDIDATE_RESPONSE gates Apply on apply eligibility plus candidate pres
       turn_id: "t-eligible",
       message: "Candidate can be applied.",
       apply_eligible: true,
+      candidate_transaction: canonicalTransaction(),
     },
     candidateGraph: { nodes: [{ id: 2 }] },
     candidateGraphHash: "hash-eligible",
@@ -826,6 +859,7 @@ test("OK_CANDIDATE_RESPONSE reduces canonical candidate, identity, stage, and fi
       reason: "applyable",
       warnings: [],
     },
+    candidate_transaction: canonicalTransaction(),
     debug: {
       stage_snapshots: [
         { stage: "plan", ok: true, blocking: false, duration_ms: 6 },
@@ -907,6 +941,7 @@ test("OK_CANDIDATE_RESPONSE keeps optional reorganise candidates applyable and l
         message: "Ready to apply layout candidate.",
         warnings: [],
       },
+      candidate_transaction: canonicalTransaction(),
       layout_reorganisation: layoutReorganisation,
       debug: {
         stage_snapshots: [
@@ -1005,6 +1040,7 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE can restore from canonical latest-
       reason: "applyable",
       warnings: [],
     },
+    candidate_transaction: canonicalTransaction(),
     debug: {
       stage_snapshots: [
         { stage: "apply_candidate", ok: true, blocking: false, duration_ms: 9 },
@@ -1276,6 +1312,7 @@ test("canonical candidate review apply path preserves stage through review then 
       reason: "applyable",
       warnings: [],
     },
+    candidate_transaction: canonicalTransaction(),
     outcome: {
       kind: "candidate",
       changes: [
@@ -3310,6 +3347,7 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE atomically restores candidate, bas
       action: "accept",
       ok: true,
       turn_id: "0005",
+      candidate_transaction: canonicalTransaction(),
     },
     candidateGraph,
     candidateGraphHash: "candidate-hash-new",
@@ -3411,6 +3449,7 @@ test("CHAT_REHYDRATE_RESTORE_LATEST_CANDIDATE restores optional reorganise candi
         message: "Restored candidate is still latest.",
         warnings: [],
       },
+      candidate_transaction: canonicalTransaction(),
       layout_reorganisation: layoutReorganisation,
     },
     baseline: {

@@ -11,6 +11,7 @@
 
 import {
   readApplyCandidate,
+  readCandidateTransaction,
   readCustomNodeResolution,
   readFieldChanges,
   readStageSnapshot,
@@ -21,6 +22,7 @@ import {
   projectTranscriptMessage,
   splitRehydrateProjectionInput,
 } from "./agent_edit_response_contract.js";
+import { normalizeCandidateTransaction, transactionAllows } from "./agent_edit_transaction.js";
 
 // ── T7: Runtime snapshot helpers for scope switching ─────────────────────
 import {
@@ -36,6 +38,14 @@ import {
   classifyDeltaShape,
   normalizeDeltaOpsFromSubmitPayload,
 } from "./canonical_delta.js";
+
+function clonePlainData(value) {
+  if (Array.isArray(value)) return value.map(clonePlainData);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clonePlainData(entry)]));
+  }
+  return value;
+}
 
 // ── Phase taxonomy ─────────────────────────────────────────────────────────
 export const PANEL_STATE = Object.freeze({
@@ -154,6 +164,7 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   "candidateBaselineGraph",
   "candidateGraphHash",
   "candidateReport",
+  "candidateTransaction",
   "serverSubmitGraphHash",
   "customNodeResolution",
   "nodePackInstallStates",
@@ -339,6 +350,7 @@ export function createAgentEditState() {
     // V2 delta ops (mutation intent from submit response)
     deltaOps: null,
     agentEditProtocol: null,
+    candidateTransaction: null,
 
     // ── T24: Transaction lifecycle fields ──────────────────────────────
     mutationPlanHash: null,
@@ -987,6 +999,10 @@ function _readApplyCandidateForTransition(payload) {
   };
 }
 
+function _readCandidateTransactionForTransition(payload) {
+  return _strictSelectorRead(readCandidateTransaction, _canonicalSourceFromPayload(payload));
+}
+
 function _readFieldChangesForTransition(payload) {
   const source = _canonicalSourceFromPayload(payload);
   const changes = _strictSelectorRead(readFieldChanges, source);
@@ -1021,6 +1037,7 @@ function _lastSubmitFieldChangesForTransition(payload) {
 
 function _writeLatestCandidateTransition(panel, payload) {
   const candidate = _readApplyCandidateForTransition(payload);
+  const candidateTransaction = _readCandidateTransactionForTransition(payload);
   const candidateGraph = candidate?.graph || null;
   if (!candidateGraph || typeof candidateGraph !== "object") {
     return null;
@@ -1035,12 +1052,13 @@ function _writeLatestCandidateTransition(panel, payload) {
   });
   const fieldChanges = _lastSubmitFieldChangesForTransition(payload);
   const applyEligibility = candidate?.eligibility || payload?.applyEligibility || null;
-  const applyAllowed = Boolean(candidateGraph && applyEligibility?.applyable === true);
+  const applyAllowed = Boolean(candidateGraph && transactionAllows(candidateTransaction, "apply"));
 
   panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
   _handleSyncBaseline(panel, payload?.baseline || payload?.result || {});
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.candidateGraph = candidateGraph;
+  panel.state.candidateTransaction = candidateTransaction;
   panel.state.candidateBaselineGraph =
     payload?.baselineGraph && typeof payload.baselineGraph === "object"
       ? payload.baselineGraph
@@ -1067,17 +1085,21 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.auditRef = payload?.auditRef || payload?.result?.audit_ref || panel.state.auditRef || null;
   panel.state.lastSubmitFieldChanges = fieldChanges;
   panel.state.changeDetails = payload?.changeDetails || null;
-  panel.state.deltaOps = normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
+  panel.state.deltaOps = candidateTransaction
+    ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
+    : normalizeDeltaOpsFromSubmit(payload?.baseline?.raw || payload?.baseline || payload?.result || {});
   panel.state.agentEditProtocol = _candidateEditProtocol(
     payload?.result || payload?.baseline || {},
     candidate,
     panel.state.deltaOps,
   );
   // ── T24: Capture mutation plan fields from candidate for transaction lifecycle ──
-  panel.state.mutationPlanHash = candidate?.planHash
+  panel.state.mutationPlanHash = candidateTransaction?.plan_hash
+    || candidate?.planHash
     || candidate?.plan_hash
     || (typeof payload?.planHash === "string" ? payload.planHash : null);
-  panel.state.generation = candidate?.monotonicGeneration
+  panel.state.generation = candidateTransaction?.generation
+    ?? candidate?.monotonicGeneration
     ?? candidate?.monotonic_generation
     ?? payload?.generation
     ?? null;
@@ -1203,6 +1225,7 @@ function _handleInvalidateCandidate(panel, payload) {
   // Clear V2 delta ops — mutation intent is invalidated with the candidate.
   panel.state.deltaOps = null;
   panel.state.agentEditProtocol = null;
+  panel.state.candidateTransaction = null;
 
   // ── T25: Transaction lifecycle receipts survive candidate invalidation ──
   // Prepared, verified, and rollback receipts are durable evidence of the
@@ -1743,6 +1766,7 @@ function _handleCandidateResponse(panel, payload) {
   const result = payload?.result || {};
   panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
   const projectedCandidate = _readApplyCandidateForTransition(payload);
+  const candidateTransaction = _readCandidateTransactionForTransition(payload);
   const projectedIdentity = projectedCandidate?.turnIdentity || _readDurableTurnIdentityForTransition(payload);
 
   // SD2: Applyable means durable. When a candidate response arrives but both
@@ -1775,6 +1799,7 @@ function _handleCandidateResponse(panel, payload) {
   _handleSyncBaseline(panel, result);
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.candidateGraph = candidateGraph;
+  panel.state.candidateTransaction = candidateTransaction;
   panel.state.candidateBaselineGraph =
     payload?.baselineGraph && typeof payload.baselineGraph === "object"
       ? payload.baselineGraph
@@ -1797,7 +1822,7 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.applyEligibility =
     missingDurableEligibility || projectedCandidate?.eligibility || payload?.applyEligibility || null;
   const candidateActionAllowed = Boolean(
-    candidateGraph && panel.state.applyEligibility?.applyable === true,
+    candidateGraph && transactionAllows(candidateTransaction, "apply"),
   );
   panel.state.applyAllowed = missingDurableEligibility ? false : candidateActionAllowed;
   panel.state.canvasApplyAllowed = missingDurableEligibility ? false : candidateActionAllowed;
@@ -1805,17 +1830,21 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.auditRef = payload?.auditRef || null;
   panel.state.lastSubmitFieldChanges = _lastSubmitFieldChangesForTransition(payload);
   panel.state.changeDetails = payload?.changeDetails || null;
-  panel.state.deltaOps = normalizeDeltaOpsFromSubmit(result);
+  panel.state.deltaOps = candidateTransaction
+    ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
+    : normalizeDeltaOpsFromSubmit(result);
   panel.state.agentEditProtocol = _candidateEditProtocol(
     result,
     projectedCandidate,
     panel.state.deltaOps,
   );
   // ── T24: Capture mutation plan fields from candidate for transaction lifecycle ──
-  panel.state.mutationPlanHash = projectedCandidate?.planHash
+  panel.state.mutationPlanHash = candidateTransaction?.plan_hash
+    || projectedCandidate?.planHash
     || projectedCandidate?.plan_hash
     || null;
-  panel.state.generation = projectedCandidate?.monotonicGeneration
+  panel.state.generation = candidateTransaction?.generation
+    ?? projectedCandidate?.monotonicGeneration
     ?? projectedCandidate?.monotonic_generation
     ?? null;
   panel.state.leaseNonce = projectedCandidate?.leaseNonce
@@ -2119,6 +2148,14 @@ function _commitRehydratedTerminalDisposition(panel, lifecycle) {
   const receipts = Array.isArray(lifecycle.transactionReceipts)
     ? lifecycle.transactionReceipts
     : [];
+  const transaction = normalizeCandidateTransaction(
+    lifecycle.candidateTransaction || lifecycle.candidate_transaction,
+  );
+  if (transaction) {
+    panel.state.candidateTransaction = transaction;
+    panel.state.mutationPlanHash = transaction.plan_hash;
+    panel.state.generation = transaction.generation ?? panel.state.generation;
+  }
   if (turnId) {
     panel.state.turnId = turnId;
   }
@@ -2128,7 +2165,8 @@ function _commitRehydratedTerminalDisposition(panel, lifecycle) {
 
   if (disposition === "rolled_back" || state === "rollback_complete") {
     panel.state.phase = PANEL_STATE.ROLLBACK_COMPLETE;
-    panel.state.rollbackReceipt = _receiptFromLifecycleEvents(receipts, "rolled_back")
+    panel.state.rollbackReceipt = _receiptFromLifecycleEvents(receipts, "rollback_complete")
+      || _receiptFromLifecycleEvents(receipts, "rolled_back")
       || panel.state.rollbackReceipt
       || null;
     panel.state.message = "This transaction was rolled back and its candidate is no longer available.";
@@ -2247,9 +2285,13 @@ function _handleChatRehydrateSuccess(panel, payload) {
   const currentCandidateTurnId = typeof panel.state.turnId === "string" && panel.state.turnId
     ? panel.state.turnId
     : null;
+  const lifecycleTurnId = typeof payload?.latestTurnLifecycle?.turnId === "string"
+    ? payload.latestTurnLifecycle.turnId
+    : null;
   const rehydrateCaughtUpToCandidate =
     !currentCandidateTurnId
-    || (latestTurnId && latestTurnId >= currentCandidateTurnId);
+    || latestTurnId === currentCandidateTurnId
+    || lifecycleTurnId === currentCandidateTurnId;
   let invalidatedAuthoritativeCandidate = false;
   let terminalDispositionCommitted = false;
   if (
@@ -2851,10 +2893,18 @@ function _handlePrepareStarted(panel, payload) {
 
 function _handlePrepareSuccess(panel, payload) {
   const receipt = payload?.receipt || payload?.preparedReceipt || null;
+  const transaction = payload?.candidateTransaction
+    || _readCandidateTransactionForTransition(payload);
   panel.state.phase = PANEL_STATE.APPLY_PREPARED;
   panel.state.preparedReceipt = receipt;
-  panel.state.mutationPlanHash = receipt?.plan_hash || receipt?.planHash || panel.state.mutationPlanHash;
-  panel.state.generation = receipt?.generation ?? panel.state.generation ?? null;
+  panel.state.candidateTransaction = transaction || panel.state.candidateTransaction;
+  panel.state.deltaOps = transaction
+    ? clonePlainData(transaction.plan.delta_ops_envelope.ops)
+    : panel.state.deltaOps;
+  panel.state.mutationPlanHash = transaction?.plan_hash
+    || receipt?.plan_hash || receipt?.planHash || panel.state.mutationPlanHash;
+  panel.state.generation = transaction?.generation
+    ?? receipt?.generation ?? panel.state.generation ?? null;
   panel.state.leaseNonce = receipt?.lease_nonce || receipt?.leaseNonce || panel.state.leaseNonce;
   panel.state.failure = null;
   panel.state.debugPayload = payload?.debugPayload || {
@@ -2943,11 +2993,14 @@ function _handleFinalizeStarted(panel, payload) {
 function _handleFinalizeSuccess(panel, payload) {
   const receipt = payload?.receipt || payload?.finalizedReceipt || null;
   const accepted = payload?.accepted || receipt || {};
+  const transaction = payload?.candidateTransaction
+    || _readCandidateTransactionForTransition(payload);
   panel.state.phase = PANEL_STATE.FINALIZED;
   _handleSyncBaseline(panel, accepted);
   panel.state.baselineTurnId = panel.state.baselineTurnId || panel.state.turnId || null;
   panel.state.auditRef = accepted.audit_ref || panel.state.auditRef;
   _handleInvalidateCandidate(panel, { repaint: false });
+  panel.state.candidateTransaction = transaction;
   panel.state.message = null;
   panel.state.failure = null;
   panel.state.queueAllowed = false;
@@ -3015,10 +3068,13 @@ function _handleRollbackStarted(panel, payload) {
 
 function _handleRollbackSuccess(panel, payload) {
   const receipt = payload?.receipt || payload?.rollbackReceipt || null;
+  const transaction = payload?.candidateTransaction
+    || _readCandidateTransactionForTransition(payload);
   panel.state.phase = PANEL_STATE.ROLLBACK_COMPLETE;
   panel.state.rollbackReceipt = receipt;
   panel.state.failure = null;
   _handleInvalidateCandidate(panel, { repaint: false });
+  panel.state.candidateTransaction = transaction;
   panel.state.message = payload?.message || "Rollback complete. Baseline restored.";
   panel.state.queueAllowed = false;
   panel.state.canvasApplyAllowed = false;
@@ -3058,6 +3114,14 @@ function _handleReconcileReceipts(panel, payload) {
   // Recover durable receipts from the server for reload recovery.
   // The server returns the latest receipts for the current turn.
   const receipts = payload?.receipts || null;
+  const transaction = payload?.candidateTransaction
+    || _readCandidateTransactionForTransition(payload);
+  if (transaction) {
+    panel.state.candidateTransaction = transaction;
+    panel.state.mutationPlanHash = transaction.plan_hash;
+    panel.state.generation = transaction.generation ?? panel.state.generation;
+    panel.state.deltaOps = clonePlainData(transaction.plan.delta_ops_envelope.ops);
+  }
   if (receipts && typeof receipts === "object") {
     if (receipts.preparedReceipt || receipts.prepared_receipt) {
       panel.state.preparedReceipt = receipts.preparedReceipt || receipts.prepared_receipt;

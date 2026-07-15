@@ -1,3 +1,5 @@
+import { normalizeCandidateTransaction, transactionAllows } from "./agent_edit_transaction.js";
+
 export const APPLY_ELIGIBILITY_REASON = Object.freeze({
   APPLYABLE: "applyable",
   NO_CANDIDATE: "no_candidate",
@@ -160,6 +162,14 @@ export function candidateActionState(panel, message = null, snapshot = null) {
   const candidatePresent = message || snapshot
     ? candidateGraphPresentForBubble(message, snapshot)
     : Boolean(panel?.state?.candidateGraph);
+  const projectedTransaction = normalizeCandidateTransaction(
+      snapshot?.candidateTransaction
+      || snapshot?.candidate_transaction
+      || message?.candidateTransaction
+      || message?.candidate_transaction
+      || message?.response?.candidateTransaction
+      || message?.response?.candidate_transaction,
+    );
 
   if (!candidatePresent) {
     return {
@@ -176,6 +186,9 @@ export function candidateActionState(panel, message = null, snapshot = null) {
     !message && !snapshot
       ? Boolean(candidatePresent && activeTurnId)
       : Boolean(activeTurnId && turnId && activeTurnId === turnId);
+  const transaction = active
+    ? normalizeCandidateTransaction(panel?.state?.candidateTransaction)
+    : projectedTransaction;
   let eligibility;
   if (!message && !snapshot) {
     eligibility = applyEligibility(panel);
@@ -193,6 +206,21 @@ export function candidateActionState(panel, message = null, snapshot = null) {
       );
     }
   }
+  if (!transaction) {
+    eligibility = missingContractApplyEligibility(panel, {
+      message: "Candidate transaction authority is missing. Apply and Reject are disabled until the session is reconciled.",
+    });
+  } else if (!transactionAllows(transaction, "apply")) {
+    eligibility = disabledApplyEligibility(
+      APPLY_ELIGIBILITY_REASON.SERVER_BLOCKED,
+      `Transaction state ${transaction.state} does not authorize Apply.`,
+      ["transaction_state_blocked"],
+    );
+  }
+
+  const applyAuthorized = transactionAllows(transaction, "apply");
+  const rejectAuthorized = transactionAllows(transaction, "reject")
+    || transactionAllows(transaction, "rollback");
 
   const blockerMessage =
     rehydrating
@@ -207,7 +235,7 @@ export function candidateActionState(panel, message = null, snapshot = null) {
     turnId,
     eligibility,
     blockerMessage,
-    applyDisabled: rehydrating || applying || !active || !eligibility.applyable,
-    rejectDisabled: rehydrating || submitting || applying || !active,
+    applyDisabled: rehydrating || applying || !active || !applyAuthorized || !eligibility.applyable,
+    rejectDisabled: rehydrating || submitting || applying || !active || !rejectAuthorized,
   };
 }

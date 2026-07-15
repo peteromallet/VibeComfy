@@ -39,6 +39,61 @@ function sha256HexUtf8(value) {
   return crypto.createHash("sha256").update(JSON.stringify(canonicalizeJsonValue(value)), "utf8").digest("hex");
 }
 
+function candidateTransactionFixture({
+  sessionId,
+  turnId = "0001",
+  planHash,
+  deltaOps,
+  candidateGraphHash,
+  candidateStructuralGraphHash = "pending-structural-hash",
+  state = "candidate_ready",
+  generation = null,
+  leaseNonce = null,
+  availableActions = null,
+}) {
+  const resolvedActions = availableActions || (
+    state === "candidate_ready"
+      ? ["apply", "reject"]
+      : ["prepared", "canvas_verified"].includes(state)
+        ? ["rollback"]
+        : []
+  );
+  return {
+    contract_version: "candidate_transaction_v1",
+    state,
+    resume_state: null,
+    session_id: sessionId,
+    turn_id: turnId,
+    plan_hash: planHash,
+    generation,
+    lease_nonce: leaseNonce,
+    plan: {
+      schema_version: "2.0.0",
+      delta_ops_envelope: { schema_version: "2.0.0", ops: deltaOps },
+      delta_hash: `${planHash}-delta`,
+      op_count: deltaOps.length,
+      schema_provenance: {},
+    },
+    hashes: {
+      submit_graph_hash: "submit-full-hash",
+      submit_structural_graph_hash: "submit-structural-hash",
+      candidate_graph_hash: candidateGraphHash,
+      candidate_structural_graph_hash: candidateStructuralGraphHash,
+      authority_receipt_hash: "authority-receipt-hash",
+    },
+    authority: { replay_ok: true, candidate_matches: true },
+    available_actions: resolvedActions,
+    terminal: ["finalized", "discarded", "rollback_complete", "superseded"].includes(state),
+    last_error: null,
+  };
+}
+
+function bindTransactionStructuralHash(extensionModule, transaction, graph) {
+  transaction.hashes.candidate_structural_graph_hash = sha256HexUtf8(
+    extensionModule.buildStructuralGraphProjection(graph),
+  );
+}
+
 const OVERLAY_FORBIDDEN_TEXT_PATTERNS = [
   /\b(?:canvas_apply_allowed|canvasApplyAllowed|queue_allowed|queueAllowed)\b/i,
   /\b(?:debug_payload|debugPayload|audit_ref|auditRef|raw_path|rawPath|artifact_path|artifactPath)\b/i,
@@ -2157,6 +2212,15 @@ test("V2 candidate routes Apply to prepare and never to legacy accept", async ()
     ],
     links: [],
   };
+  const deltaOps = [
+    { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash: "plan-v2-hash",
+    deltaOps,
+    candidateGraphHash: "candidate-v2-hash",
+  });
   const harness = await createBrowserHarness({
     graph: initialGraph,
     withGraphMutation: true,
@@ -2188,9 +2252,8 @@ test("V2 candidate routes Apply to prepare and never to legacy accept", async ()
             graph_hash: "candidate-v2-hash",
             plan_hash: "plan-v2-hash",
           },
-          delta_ops: [
-            { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
-          ],
+          delta_ops: deltaOps,
+          candidate_transaction: candidateTransaction,
           eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
           apply_allowed: true,
           canvas_apply_allowed: true,
@@ -2210,14 +2273,14 @@ test("V2 candidate routes Apply to prepare and never to legacy accept", async ()
   });
 
   try {
-    await harness.loadExtension();
+    const extensionModule = await harness.loadExtension();
+    bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
     await harness.clickButton("Submit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
-
     await harness.clickButton("Apply");
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
@@ -2241,6 +2304,33 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
     ],
     links: [],
   };
+  const deltaOps = [
+    { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-v2-structural-hash",
+  });
+  const preparedTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-v2-structural-hash",
+    state: "prepared",
+    generation: 1,
+    leaseNonce: "lease-v2-structural-hash",
+  });
+  const finalizedTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-v2-structural-hash",
+    state: "finalized",
+    generation: 1,
+    leaseNonce: "lease-v2-structural-hash",
+  });
   const harness = await createBrowserHarness({
     graph: initialGraph,
     withGraphMutation: true,
@@ -2272,9 +2362,8 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
             graph_hash: "candidate-v2-structural-hash",
             plan_hash: planHash,
           },
-          delta_ops: [
-            { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
-          ],
+          delta_ops: deltaOps,
+          candidate_transaction: candidateTransaction,
           eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
           apply_allowed: true,
           canvas_apply_allowed: true,
@@ -2294,6 +2383,7 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
             generation: 1,
             lease_nonce: "lease-v2-structural-hash",
           },
+          candidate_transaction: preparedTransaction,
         },
       },
       "/vibecomfy/agent-edit/finalize": async ({ options }) => {
@@ -2310,6 +2400,7 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
             baseline_turn_id: "0001",
             baseline_graph_hash: body.client_structural_graph_hash,
             baseline_graph_hash_kind: "structural",
+            candidate_transaction: finalizedTransaction,
             receipt: {
               plan_hash: planHash,
               generation: 1,
@@ -2323,6 +2414,9 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
 
   try {
     const extensionModule = await harness.loadExtension();
+    bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, preparedTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, finalizedTransaction, candidateGraph);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
@@ -2330,13 +2424,29 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
     await harness.clickButton("Submit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
 
+    // A presentation failure after the server has returned finalized must not
+    // compensate a durable terminal transaction or restore the old canvas.
+    const preFinalizePanel = extensionModule.ensureAgentPanel();
+    preFinalizePanel.state.candidateReport = {
+      change: {
+        get content_edits() {
+          throw new Error("post-finalize presentation sentinel");
+        },
+      },
+    };
+
     await harness.clickButton("Apply");
 
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 0);
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length,
+      0,
+      JSON.stringify(panel.state.failure || panel.state.debugPayload),
+    );
     assert.equal(panel.state.phase, "FINALIZED");
+    assert.equal(panel.state.debugPayload?.post_finalize_projection_failure?.substage, "post_finalize_projection");
     assert.equal(harness.graphConfigureCalls.length, 0, "V2 forward apply must not call graph.configure()");
     assert.equal(harness.graphAddCalls.length, 1);
     assert.deepEqual(
@@ -2428,6 +2538,30 @@ test("V2 applies same-batch ImageScale add plus two rewires without whole-graph 
     { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "12", "images"] },
     { op: "upsert_link", from: ["", "n1", "IMAGE"], to: ["", "74", "images"] },
   ];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-imagescale",
+  });
+  const preparedTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-imagescale",
+    state: "prepared",
+    generation: 1,
+    leaseNonce: "lease-imagescale",
+  });
+  const finalizedTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-imagescale",
+    state: "finalized",
+    generation: 1,
+    leaseNonce: "lease-imagescale",
+  });
   const harness = await createBrowserHarness({
     graph: initialGraph,
     withGraphMutation: true,
@@ -2453,6 +2587,7 @@ test("V2 applies same-batch ImageScale add plus two rewires without whole-graph 
           outcome: { kind: "candidate", changes: [] },
           candidate: { state: "candidate_ready", graph: candidateGraph, graph_hash: "candidate-imagescale", plan_hash: planHash },
           delta_ops: deltaOps,
+          candidate_transaction: candidateTransaction,
           eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
           apply_allowed: true,
           canvas_apply_allowed: true,
@@ -2468,6 +2603,7 @@ test("V2 applies same-batch ImageScale add plus two rewires without whole-graph 
           session_id: sessionId,
           turn_id: "0001",
           receipt: { plan_hash: planHash, generation: 1, lease_nonce: "lease-imagescale" },
+          candidate_transaction: preparedTransaction,
         },
       },
       "/vibecomfy/agent-edit/finalize": async ({ options }) => {
@@ -2483,6 +2619,7 @@ test("V2 applies same-batch ImageScale add plus two rewires without whole-graph 
             baseline_turn_id: "0001",
             baseline_graph_hash: body.post_apply_hash,
             baseline_graph_hash_kind: "structural",
+            candidate_transaction: finalizedTransaction,
             receipt: { plan_hash: planHash, generation: 1, phase: "finalized" },
           },
         };
@@ -2492,6 +2629,9 @@ test("V2 applies same-batch ImageScale add plus two rewires without whole-graph 
 
   try {
     const extensionModule = await harness.loadExtension();
+    bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, preparedTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, finalizedTransaction, candidateGraph);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
@@ -2543,6 +2683,33 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
     ],
     links: [],
   };
+  const deltaOps = [
+    { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-v2-finalize-compensation",
+  });
+  const preparedTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-v2-finalize-compensation",
+    state: "prepared",
+    generation: 1,
+    leaseNonce: "lease-v2-finalize-compensation",
+  });
+  const rolledBackTransaction = candidateTransactionFixture({
+    sessionId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-v2-finalize-compensation",
+    state: "rollback_complete",
+    generation: 1,
+    leaseNonce: "lease-v2-finalize-compensation",
+  });
   const harness = await createBrowserHarness({
     graph: initialGraph,
     withGraphMutation: true,
@@ -2574,9 +2741,8 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
             graph_hash: "candidate-v2-finalize-compensation",
             plan_hash: planHash,
           },
-          delta_ops: [
-            { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
-          ],
+          delta_ops: deltaOps,
+          candidate_transaction: candidateTransaction,
           eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
           apply_allowed: true,
           canvas_apply_allowed: true,
@@ -2596,6 +2762,7 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
             generation: 1,
             lease_nonce: "lease-v2-finalize-compensation",
           },
+          candidate_transaction: preparedTransaction,
         },
       },
       "/vibecomfy/agent-edit/finalize": {
@@ -2626,10 +2793,11 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
             action: "rollback",
             session_id: sessionId,
             turn_id: "0001",
+            candidate_transaction: rolledBackTransaction,
             receipt: {
               plan_hash: planHash,
               generation: 1,
-              phase: "rolled_back",
+              phase: "rollback_complete",
               compensation: body.compensation,
             },
           },
@@ -2640,6 +2808,9 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
 
   try {
     const extensionModule = await harness.loadExtension();
+    bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, preparedTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, rolledBackTransaction, candidateGraph);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
@@ -2659,7 +2830,7 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
     assert.equal(panel.state.failure?.graph_unchanged, true);
     assert.equal(panel.state.failure?.transaction_rollback?.canvas_restore?.restored, true);
     assert.equal(panel.state.candidateGraph, null);
-    assert.equal(panel.state.rollbackReceipt?.phase, "rolled_back");
+    assert.equal(panel.state.rollbackReceipt?.phase, "rollback_complete");
     assert.doesNotMatch(JSON.stringify(harness.toasts), /Prepared transaction rolled back/i);
   } finally {
     await harness.dispose();
@@ -2728,16 +2899,12 @@ test("V2 delta candidate missing plan metadata fails locally without legacy acce
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
     await harness.clickButton("Submit");
-    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
-
-    await harness.clickButton("Apply");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
 
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
-    assert.match(
-      extensionModule.ensureAgentPanel().state.failure?.user_facing_message || "",
-      /transaction metadata is incomplete \(missing plan_hash\)/,
-    );
+    assert.equal(extensionModule.ensureAgentPanel().state.candidateTransaction, null);
   } finally {
     await harness.dispose();
   }
@@ -2802,9 +2969,8 @@ test("V2 candidate missing persisted delta ops fails closed before prepare or ca
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-submit")?.disabled === false);
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add a saver";
     await harness.clickButton("Submit");
-    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
-
-    await harness.clickButton("Apply");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "AWAITING_REVIEW");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, true);
 
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
@@ -2812,7 +2978,7 @@ test("V2 candidate missing persisted delta ops fails closed before prepare or ca
     assert.equal(harness.graphClearCalls.length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.graphAddCalls.length, 0);
-    assert.match(panel.state.failure?.user_facing_message || "", /missing delta_ops/);
+    assert.equal(panel.state.candidateTransaction, null);
     assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [1]);
     assert.deepEqual(harness.getCurrentGraph().links, []);
   } finally {
@@ -11822,6 +11988,16 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
     nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } }],
     links: [],
   };
+  const deltaOps = [
+    { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0005",
+    planHash: "rehydrated-plan-hash",
+    deltaOps,
+    candidateGraphHash: "rehydrated-candidate-hash",
+  });
   const harness = await createBrowserHarness({
     responses: {
       "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
@@ -11850,10 +12026,12 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
             { role: "agent", text: "Candidate restored.", turn_id: "0005" },
           ],
           latest_candidate: {
+            agent_edit_protocol: "v2_delta",
             session_id: SESSION_ID,
             turn_id: "0005",
             graph: candidateGraph,
             candidate_graph_hash: "rehydrated-candidate-hash",
+            candidate_transaction: candidateTransaction,
             message: "Candidate restored.",
             report: { change: { content_edits: { edited: ["uid-2"] } }, recovery: [] },
             canvas_apply_allowed: true,
@@ -14060,6 +14238,23 @@ test("Lifecycle J3 rehydrated V2 Reject discards candidate and null rehydrate ca
     nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-v2-discard" } }],
     links: [],
   };
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: TURN_ID,
+    planHash: "v2-discard-plan-hash",
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-v2-discard", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+    candidateGraphHash: "v2-discard-candidate-hash",
+  });
+  const discardedTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: TURN_ID,
+    planHash: "v2-discard-plan-hash",
+    deltaOps: candidateTransaction.plan.delta_ops_envelope.ops,
+    candidateGraphHash: "v2-discard-candidate-hash",
+    state: "discarded",
+  });
   let chatRequestCount = 0;
   const harness = await createBrowserHarness({
     graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-v2-base" } }], links: [] },
@@ -14105,6 +14300,7 @@ test("Lifecycle J3 rehydrated V2 Reject discards candidate and null rehydrate ca
                   },
                   graph: candidateGraph,
                   candidate_graph_hash: "v2-discard-candidate-hash",
+                  candidate_transaction: candidateTransaction,
                   canvas_apply_allowed: false,
                   apply_allowed: false,
                   queue_allowed: false,
@@ -14130,6 +14326,7 @@ test("Lifecycle J3 rehydrated V2 Reject discards candidate and null rehydrate ca
             action: "reject",
             disposition: "discarded",
             candidate_state: "discarded",
+            candidate_transaction: discardedTransaction,
             session_id: SESSION_ID,
             turn_id: TURN_ID,
             apply_allowed: false,
@@ -14193,6 +14390,24 @@ test("V2 terminal rehydrate disables stale Apply then exposes rollback dispositi
     nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-terminal" } }],
     links: [],
   };
+  const deltaOps = [
+    { op: "add_node", scope_path: "", uid: "uid-terminal", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: TURN_ID,
+    planHash: "terminal-plan-hash",
+    deltaOps,
+    candidateGraphHash: "terminal-candidate-hash",
+  });
+  const rollbackCompleteTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: TURN_ID,
+    planHash: "terminal-plan-hash",
+    deltaOps,
+    candidateGraphHash: "terminal-candidate-hash",
+    state: "rollback_complete",
+  });
   let chatRequestCount = 0;
   let resolveTerminalChat;
   const terminalChat = new Promise((resolve) => { resolveTerminalChat = resolve; });
@@ -14237,6 +14452,7 @@ test("V2 terminal rehydrate disables stale Apply then exposes rollback dispositi
               },
               graph: candidateGraph,
               candidate_graph_hash: "terminal-candidate-hash",
+              candidate_transaction: candidateTransaction,
               apply_eligibility: {
                 applyable: true,
                 reason: "applyable",
@@ -14290,6 +14506,7 @@ test("V2 terminal rehydrate disables stale Apply then exposes rollback dispositi
           state: "rollback_complete",
           agent_edit_protocol: "v2_delta",
           disposition: "rolled_back",
+          candidate_transaction: rollbackCompleteTransaction,
           transaction_receipts: [
             {
               event_type: "rolled_back",
@@ -14321,6 +14538,23 @@ test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
     nodes: [{ id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-reject-2" } }],
     links: [],
   };
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0004",
+    planHash: "reject-plan-hash",
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-reject-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+    candidateGraphHash: "reject-candidate-hash",
+  });
+  const discardedTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0004",
+    planHash: "reject-plan-hash",
+    deltaOps: candidateTransaction.plan.delta_ops_envelope.ops,
+    candidateGraphHash: "reject-candidate-hash",
+    state: "discarded",
+  });
   const harness = await createBrowserHarness({
     graph: { nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-reject-1" } }], links: [] },
     responses: {
@@ -14354,6 +14588,7 @@ test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
           apply_allowed: true,
           queue_allowed: true,
           candidate_graph_hash: "reject-candidate-hash",
+          candidate_transaction: candidateTransaction,
           message: "Candidate ready to reject.",
         },
       },
@@ -14371,6 +14606,7 @@ test("Lifecycle J3 reject success leaves no applyable candidate", async () => {
           baseline_source: "turn",
           baseline_rebaseline_id: null,
           baseline_graph_source_path: "turns/0004/candidate.ui.json",
+          candidate_transaction: discardedTransaction,
           apply_allowed: false,
           canvas_apply_allowed: false,
           queue_allowed: false,
@@ -17675,7 +17911,7 @@ test("VibeComfy hides final batch row from the live log when ok response has a c
   }
 });
 
-test("VibeComfy bubble candidate controls only enable the latest canonical candidate and disable older candidates as not_latest", async () => {
+test("VibeComfy keeps aggregate-free historical candidates read-only while enabling the latest canonical candidate", async () => {
   const SESSION_ID = "session-inline-candidate-controls";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
   const historicalCandidateGraph = {
@@ -17692,6 +17928,15 @@ test("VibeComfy bubble candidate controls only enable the latest canonical candi
     ],
     links: [],
   };
+  const latestTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0007",
+    planHash: "inline-plan-0007",
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-3", node_id: "3", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+    candidateGraphHash: "inline-candidate-0007",
+  });
   let chatFetchCount = 0;
 
   const harness = await createBrowserHarness({
@@ -17724,6 +17969,7 @@ test("VibeComfy bubble candidate controls only enable the latest canonical candi
           candidate: {
             graph: latestCandidateGraph,
           },
+          candidate_transaction: latestTransaction,
           eligibility: {
             applyable: true,
             reason: "applyable",
@@ -17768,6 +18014,7 @@ test("VibeComfy bubble candidate controls only enable the latest canonical candi
               text: "Latest candidate ready for review.",
               turn_id: "0007",
               candidate: { graph: latestCandidateGraph },
+              candidate_transaction: latestTransaction,
               eligibility: {
                 applyable: true,
                 reason: "applyable",
@@ -17819,14 +18066,14 @@ test("VibeComfy bubble candidate controls only enable the latest canonical candi
       (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyCandidateAction === "reject" && node.dataset?.vibecomfyCandidateTurnId === "0006",
     )[0];
     const oldReason = chatRegion.querySelectorAll(
-      (node) => node.dataset?.vibecomfyCandidateReason === "not_latest" && node.dataset?.vibecomfyCandidateTurnId === "0006",
+      (node) => node.dataset?.vibecomfyCandidateReason === "missing_contract" && node.dataset?.vibecomfyCandidateTurnId === "0006",
     )[0];
     assert(oldApply, "historical candidate should render an inline Apply button");
     assert(oldReject, "historical candidate should render an inline Reject button");
-    assert(oldReason, "historical candidate should expose a not_latest reason label");
+    assert(oldReason, "aggregate-free historical candidate should expose a missing_contract reason");
     assert.equal(oldApply.disabled, true, "historical candidate Apply must be disabled");
     assert.equal(oldReject.disabled, true, "historical candidate Reject must be disabled");
-    assert.equal(oldReason.textContent, "not_latest");
+    assert.equal(oldReason.textContent, "missing_contract");
 
     const latestApply = chatRegion.querySelectorAll(
       (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyCandidateAction === "apply" && node.dataset?.vibecomfyCandidateTurnId === "0007",
@@ -17843,13 +18090,13 @@ test("VibeComfy bubble candidate controls only enable the latest canonical candi
     assert.equal(latestApply.disabled, false, "latest canonical candidate Apply must stay enabled");
     assert.equal(latestReject.disabled, false, "latest canonical candidate Reject must stay enabled");
     assert.equal(latestReason.textContent, "latest");
-    assert.match(harness.textDump(), /Only the latest candidate can be applied\./);
+    assert.match(harness.textDump(), /Candidate transaction authority is missing\./);
   } finally {
     await harness.dispose();
   }
 });
 
-test("VibeComfy historical superseded candidates keep their superseded Apply reason instead of degrading to not_latest", async () => {
+test("VibeComfy keeps aggregate-free superseded history read-only at the migration boundary", async () => {
   const SESSION_ID = "session-inline-superseded";
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
   const oldCandidateGraph = {
@@ -17866,6 +18113,15 @@ test("VibeComfy historical superseded candidates keep their superseded Apply rea
     ],
     links: [],
   };
+  const latestTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0007",
+    planHash: "superseded-plan-0007",
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-3", node_id: "3", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+    candidateGraphHash: "superseded-candidate-0007",
+  });
   let chatFetchCount = 0;
 
   const harness = await createBrowserHarness({
@@ -17898,6 +18154,7 @@ test("VibeComfy historical superseded candidates keep their superseded Apply rea
           candidate: {
             graph: latestCandidateGraph,
           },
+          candidate_transaction: latestTransaction,
           eligibility: {
             applyable: true,
             reason: "applyable",
@@ -17941,6 +18198,7 @@ test("VibeComfy historical superseded candidates keep their superseded Apply rea
               text: "Latest candidate ready for review.",
               turn_id: "0007",
               candidate: { graph: latestCandidateGraph },
+              candidate_transaction: latestTransaction,
               eligibility: {
                 applyable: true,
                 reason: "applyable",
@@ -17990,15 +18248,15 @@ test("VibeComfy historical superseded candidates keep their superseded Apply rea
       (node) => node.tagName === "BUTTON" && node.dataset?.vibecomfyCandidateAction === "reject" && node.dataset?.vibecomfyCandidateTurnId === "0005",
     )[0];
     const oldReason = chatRegion.querySelectorAll(
-      (node) => node.dataset?.vibecomfyCandidateReason === "superseded" && node.dataset?.vibecomfyCandidateTurnId === "0005",
+      (node) => node.dataset?.vibecomfyCandidateReason === "missing_contract" && node.dataset?.vibecomfyCandidateTurnId === "0005",
     )[0];
     assert(oldApply, "historical superseded candidate should render an inline Apply button");
     assert(oldReject, "historical superseded candidate should render an inline Reject button");
-    assert(oldReason, "historical superseded candidate should preserve its superseded reason");
+    assert(oldReason, "aggregate-free superseded history should expose a missing_contract reason");
     assert.equal(oldApply.disabled, true);
     assert.equal(oldReject.disabled, true);
-    assert.equal(oldReason.textContent, "superseded");
-    assert.match(harness.textDump(), /This candidate has been superseded\./);
+    assert.equal(oldReason.textContent, "missing_contract");
+    assert.match(harness.textDump(), /Candidate transaction authority is missing\./);
   } finally {
     await harness.dispose();
   }
@@ -20193,16 +20451,75 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
     ],
     links: [],
   };
-  // Drifted graph: same structural content as secondCandidateGraph but
-  // volatile fields (pos, size, order) differ.
+  // Drifted graph: same structural content as the accepted turn-0002 baseline,
+  // while volatile fields (pos, size, order) differ.
   const driftedGraph = {
     nodes: [
       { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" }, pos: [999, 888], size: [50, 30], order: 99 },
       { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" }, pos: [777, 666] },
-      { id: 3, type: "KSampler", properties: { vibecomfy_uid: "uid-3" }, pos: [555, 444] },
     ],
     links: [],
   };
+  const turn2Ops = [
+    { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const turn3Ops = [
+    { op: "add_node", scope_path: "", uid: "uid-3", node_id: "3", class_type: "KSampler", fields: {}, inputs: {} },
+  ];
+  const turn2CandidateTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0002",
+    planHash: "durable-plan-0002",
+    deltaOps: turn2Ops,
+    candidateGraphHash: "candidate-hash-0002",
+  });
+  const turn2PreparedTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0002",
+    planHash: "durable-plan-0002",
+    deltaOps: turn2Ops,
+    candidateGraphHash: "candidate-hash-0002",
+    state: "prepared",
+    generation: 1,
+    leaseNonce: "durable-lease-0002",
+  });
+  const turn2FinalizedTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0002",
+    planHash: "durable-plan-0002",
+    deltaOps: turn2Ops,
+    candidateGraphHash: "candidate-hash-0002",
+    state: "finalized",
+    generation: 1,
+    leaseNonce: "durable-lease-0002",
+  });
+  const turn3CandidateTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0003",
+    planHash: "durable-plan-0003",
+    deltaOps: turn3Ops,
+    candidateGraphHash: "candidate-hash-0003",
+  });
+  const turn3PreparedTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0003",
+    planHash: "durable-plan-0003",
+    deltaOps: turn3Ops,
+    candidateGraphHash: "candidate-hash-0003",
+    state: "prepared",
+    generation: 2,
+    leaseNonce: "durable-lease-0003",
+  });
+  const turn3FinalizedTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0003",
+    planHash: "durable-plan-0003",
+    deltaOps: turn3Ops,
+    candidateGraphHash: "candidate-hash-0003",
+    state: "finalized",
+    generation: 2,
+    leaseNonce: "durable-lease-0003",
+  });
 
   let submitSeq = 0;
   const chatHistory = [
@@ -20216,6 +20533,7 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
 
   const harness = await createBrowserHarness({
     graph: initialGraph,
+    withGraphMutation: true,
     responses: {
       "/system_stats": {
         status: 200,
@@ -20266,7 +20584,9 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
               baseline_graph_hash_kind: "structural",
               baseline_graph_hash_version: 2,
               baseline_source: "turn",
-              candidate: { state: "candidate", graph: candidateGraph, graph_hash: "candidate-hash-0002" },
+              agent_edit_protocol: "v2_delta",
+              candidate: { state: "candidate", graph: candidateGraph, graph_hash: "candidate-hash-0002", plan_hash: "durable-plan-0002" },
+              candidate_transaction: turn2CandidateTransaction,
               eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
               graph: candidateGraph,
               candidate_graph_hash: "candidate-hash-0002",
@@ -20294,7 +20614,9 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
             baseline_graph_hash_kind: "structural",
             baseline_graph_hash_version: 2,
             baseline_source: "turn",
-            candidate: { state: "candidate", graph: secondCandidateGraph, graph_hash: "candidate-hash-0003" },
+            agent_edit_protocol: "v2_delta",
+            candidate: { state: "candidate", graph: secondCandidateGraph, graph_hash: "candidate-hash-0003", plan_hash: "durable-plan-0003" },
+            candidate_transaction: turn3CandidateTransaction,
             eligibility: { applyable: true, reason: "applyable", message: "Apply is allowed.", warnings: [] },
             graph: secondCandidateGraph,
             candidate_graph_hash: "candidate-hash-0003",
@@ -20310,17 +20632,45 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
           },
         };
       },
-      "/vibecomfy/agent-edit/accept": {
-        status: 200,
-        body: {
-          ok: true,
-          action: "accept",
-          session_id: SESSION_ID,
-          turn_id: "0002",
-          baseline_turn_id: "0002",
-          queue_allowed: true,
-          audit_ref: { path: "/tmp/t14-accept-audit.json" },
-        },
+      "/vibecomfy/agent-edit/prepare": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        const isTurn2 = body.turn_id === "0002";
+        const transaction = isTurn2 ? turn2PreparedTransaction : turn3PreparedTransaction;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "prepare",
+            session_id: SESSION_ID,
+            turn_id: body.turn_id,
+            generation: transaction.generation,
+            lease_nonce: transaction.lease_nonce,
+            receipt: {
+              plan_hash: transaction.plan_hash,
+              generation: transaction.generation,
+              lease_nonce: transaction.lease_nonce,
+            },
+            candidate_transaction: transaction,
+          },
+        };
+      },
+      "/vibecomfy/agent-edit/finalize": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        const transaction = body.turn_id === "0002"
+          ? turn2FinalizedTransaction
+          : turn3FinalizedTransaction;
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "finalize",
+            session_id: SESSION_ID,
+            turn_id: body.turn_id,
+            disposition: "finalized",
+            receipt: { plan_hash: transaction.plan_hash },
+            candidate_transaction: transaction,
+          },
+        };
       },
       [CHAT_URL]: {
         status: 200,
@@ -20337,6 +20687,16 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
 
   try {
     const extensionModule = await harness.loadExtension();
+    for (const transaction of [
+      turn2CandidateTransaction,
+      turn2PreparedTransaction,
+      turn2FinalizedTransaction,
+    ]) bindTransactionStructuralHash(extensionModule, transaction, candidateGraph);
+    for (const transaction of [
+      turn3CandidateTransaction,
+      turn3PreparedTransaction,
+      turn3FinalizedTransaction,
+    ]) bindTransactionStructuralHash(extensionModule, transaction, secondCandidateGraph);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === STATUS_URL));
@@ -20378,11 +20738,13 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
 
     // ── Apply candidate ─────────────────────────────────────────────────────
     await harness.clickButton("Apply");
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 1,
-      "accept route must be called on Apply");
-    assert.deepEqual(harness.graphConfigureCalls[0], candidateGraph,
-      "graph.configure must receive the candidate graph");
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Ready");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1,
+      "prepare route must be called on Apply");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1,
+      "finalize route must commit verified Apply");
+    assert.equal(harness.graphConfigureCalls.length, 0,
+      "canonical forward Apply must not whole-graph configure");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "FINALIZED");
 
     // ── Rehydrate: simulate refresh/reopen ──────────────────────────────────
     // Pre-populate localStorage with the active session id.
@@ -20443,12 +20805,11 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
 
     // Apply still works
     await harness.clickButton("Apply");
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 2,
-      "accept route must be called on Apply after live-token-drift");
-    // The second accept call should reference turn_id "0003".
-    const acceptRequests = harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept");
-    const lastAcceptBody = JSON.parse(acceptRequests[acceptRequests.length - 1].body);
-    assert.equal(lastAcceptBody.turn_id, "0003", "accept must reference the drifted candidate turn_id");
+    const finalizeRequests = harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize");
+    assert.equal(finalizeRequests.length, 2,
+      "finalize route must commit Apply after live-token-drift");
+    const lastFinalizeBody = JSON.parse(finalizeRequests[finalizeRequests.length - 1].body);
+    assert.equal(lastFinalizeBody.turn_id, "0003", "finalize must reference the drifted candidate turn_id");
 
     // Verify localStorage still holds the session id.
     assert.equal(
@@ -20638,6 +20999,7 @@ test("VibeComfy research route renders answer-only with research evidence, no ca
 });
 
 test("VibeComfy multi-turn: respond → revise → research preserves candidate controls only for revise", async () => {
+  const SESSION_ID = "session-multi-rt";
   const initialGraph = {
     nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
     links: [],
@@ -20649,6 +21011,15 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId: SESSION_ID,
+    turnId: "0002",
+    planHash: "multi-plan-0002",
+    deltaOps: [
+      { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+    ],
+    candidateGraphHash: "multi-candidate-0002",
+  });
 
   let submitCount = 0;
   const harness = await createBrowserHarness({
@@ -20666,7 +21037,7 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
             status: 200,
             body: {
               ok: true,
-              session_id: "session-multi-rt",
+              session_id: SESSION_ID,
               turn_id: "0001",
               baseline_turn_id: null,
               route: "respond",
@@ -20691,16 +21062,18 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
             status: 200,
             body: {
               ok: true,
-              session_id: "session-multi-rt",
+              session_id: SESSION_ID,
               turn_id: "0002",
               baseline_turn_id: "0001",
               route: "revise",
               reply: "Added a SaveImage node to your graph.",
               mode: "revise",
+              agent_edit_protocol: "v2_delta",
               apply_eligible: true,
               apply_eligibility: { applyable: true, reason: "applyable", message: "Ready to apply." },
               graph: candidateGraph,
-              candidate: { state: "candidate", graph: candidateGraph },
+              candidate: { state: "candidate", graph: candidateGraph, graph_hash: "multi-candidate-0002", plan_hash: "multi-plan-0002" },
+              candidate_transaction: candidateTransaction,
               candidate_graph: candidateGraph,
               message: "Added a SaveImage node to your graph.",
               report: {
@@ -20717,7 +21090,7 @@ test("VibeComfy multi-turn: respond → revise → research preserves candidate 
           status: 200,
           body: {
             ok: true,
-            session_id: "session-multi-rt",
+            session_id: SESSION_ID,
             turn_id: "0003",
             baseline_turn_id: "0002",
             route: "research",

@@ -1,5 +1,10 @@
 # Agent-Edit Client Lifecycle Contract
 
+> **Transaction authority:** For V2 candidate actions, the canonical contract
+> is [candidate-transaction-contract.md](candidate-transaction-contract.md).
+> Older Apply tables below describe historical V1 compatibility behavior only;
+> an aggregate-free candidate is now read-only and cannot enter forward Apply.
+
 This document defines the VibeComfy agent-edit panel's client-side lifecycle
 contract. Every panel-state mutation for a listed transition flows through the
 lifecycle store (`vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js`); the
@@ -89,7 +94,8 @@ These fields are mutated exclusively through the lifecycle store. No ad-hoc
 | `lastAppliedChanges` | `array\|null` | Changed-node feedback from last apply |
 | `lastSubmitFieldChanges` | `array\|null` | Normalized field changes from submit response |
 | `changeDetails` | `object\|null` | Change detail metadata for preview overlay |
-| `deltaOps` | `array\|null` | V2 mutation intent (normalized `delta_ops` from submit response); authoritative for scoped apply |
+| `candidateTransaction` | `object\|null` | Canonical durable aggregate; sole action and plan authority |
+| `deltaOps` | `array\|null` | Derived compatibility projection of `candidateTransaction.plan.delta_ops_envelope.ops`; never independent authority |
 | `chatRehydrateEpoch` | `number` | Monotonic counter for stale rehydrate gating |
 | `syntheticAgentMessage` | `object\|null` | Locally generated agent chat message |
 

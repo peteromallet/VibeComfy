@@ -6,6 +6,7 @@ import os
 import re
 import time
 import socket
+import threading
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -14,6 +15,13 @@ from types import MappingProxyType
 from typing import Any, Callable, Iterator, Literal
 
 from .contracts import DiagnosticRecord, FailureEnvelope, FailureKind, TurnContext, failure_envelope
+from .candidate_transaction import (
+    CANDIDATE_TRANSACTION_FILENAME,
+    build_candidate_transaction,
+    canonical_transaction_state,
+    project_transaction_state,
+    validate_candidate_transaction,
+)
 from vibecomfy.porting.edit.ops import parse_edit_delta
 
 STATE_FILE_NAME = "session_state.json"
@@ -38,6 +46,7 @@ LOCK_POLL_SECONDS = 0.025
 TRANSACTIONS_DIR_NAME = "transactions"
 TRANSACTION_LIFECYCLE_LOG_NAME = "lifecycle_events.jsonl"
 TRANSACTION_PREPARED_RECEIPT_NAME = "prepared.json"
+TRANSACTION_VERIFIED_RECEIPT_NAME = "canvas_verified.json"
 TRANSACTION_FINALIZED_RECEIPT_NAME = "finalized.json"
 TRANSACTION_ROLLBACK_RECEIPT_NAME = "rollback.json"
 # Event-type → receipt snapshot filename (the snapshot is derived from the event).
@@ -45,12 +54,23 @@ TRANSACTION_RECEIPT_BY_EVENT: Mapping[str, str] = MappingProxyType(
     {
         "prepared": TRANSACTION_PREPARED_RECEIPT_NAME,
         "finalized": TRANSACTION_FINALIZED_RECEIPT_NAME,
+        "canvas_verified": TRANSACTION_VERIFIED_RECEIPT_NAME,
+        "rollback_complete": TRANSACTION_ROLLBACK_RECEIPT_NAME,
+        # Read-only historical adapter.
         "rolled_back": TRANSACTION_ROLLBACK_RECEIPT_NAME,
     }
 )
 # Lifecycle phases that resolve a transaction (no longer merely "prepared").
 _TRANSACTION_RESOLVED_PHASES: frozenset[str] = frozenset(
-    {"finalized", "rolled_back", "cancelled"}
+    {
+        "finalized",
+        "rollback_complete",
+        "discarded",
+        "superseded",
+        # Read-only historical adapter.
+        "rolled_back",
+        "cancelled",
+    }
 )
 
 def _process_alive(pid: int) -> bool:
@@ -76,21 +96,19 @@ OperationScope = Literal["edit", "accept", "reject", "rebaseline"]
 #   submitted         – turn allocated, no candidate yet
 #   candidate_ready   – candidate computed and persisted, ready for review
 #   review_bound      – candidate has been reviewed / previewed by browser
-#   apply_prepared    – prepare route completed (CAS without baseline advance)
+#   prepared          – prepare route completed (CAS without baseline advance)
 #   canvas_verified   – browser verified post-apply canvas hash matches plan hash
 #   finalized         – finalize route succeeded; baseline advanced
-#   rollback_prepared – rollback route completed (CAS restore prepared)
 #   rollback_complete – rollback confirmed and baseline restored
 #   discarded         – unprepared candidate explicitly rejected by the user
 #
 # Valid V2 forward transitions (every state reachable from submitted):
 #   submitted       → candidate_ready
 #   candidate_ready → review_bound
-#   review_bound    → apply_prepared
-#   apply_prepared  → canvas_verified  | rollback_prepared
-#   canvas_verified → finalized        | rollback_prepared
+#   review_bound    → prepared
+#   prepared        → canvas_verified  | rollback_complete
+#   canvas_verified → finalized        | rollback_complete
 #   finalized       → (terminal)
-#   rollback_prepared → rollback_complete
 #   rollback_complete → (terminal)
 #   candidate_ready / review_bound → discarded (terminal, baseline unchanged)
 # V2 turns can also transition to unknown (superseded) from any pre-finalized state.
@@ -105,17 +123,18 @@ TurnState = Literal[
     "submitted",
     "candidate_ready",
     "review_bound",
-    "apply_prepared",
+    "prepared",
     "canvas_verified",
     "finalized",
-    "rollback_prepared",
     "rollback_complete",
     "discarded",
+    "recoverable_error",
+    "superseded",
 ]
 
 # V2 states that are terminal / should not be mutated further by accept/reject.
 _V2_TERMINAL_STATES: frozenset[TurnState] = frozenset(
-    {"finalized", "rollback_complete", "discarded"}
+    {"finalized", "rollback_complete", "discarded", "superseded"}
 )
 
 # V2 states that are pre-finalize / still mutable.
@@ -123,9 +142,9 @@ _V2_PRE_FINALIZE_STATES: frozenset[TurnState] = frozenset({
     "submitted",
     "candidate_ready",
     "review_bound",
-    "apply_prepared",
+    "prepared",
     "canvas_verified",
-    "rollback_prepared",
+    "recoverable_error",
 })
 
 # Durable states whose turn still owns a candidate that the browser must be
@@ -136,9 +155,9 @@ REVIEWABLE_CANDIDATE_STATES: frozenset[TurnState] = frozenset({
     "candidate",
     "candidate_ready",
     "review_bound",
-    "apply_prepared",
+    "prepared",
     "canvas_verified",
-    "rollback_prepared",
+    "recoverable_error",
 })
 
 # Historical V1 states that may appear in persisted state files.
@@ -153,10 +172,14 @@ _V1_HISTORICAL_STATES: frozenset[TurnState] = frozenset({
 # pins the turn's authoritative lifecycle state after recovery).
 _TRANSACTION_EVENT_TO_TURN_STATE: Mapping[str, TurnState] = MappingProxyType(
     {
-        "prepared": "apply_prepared",
+        "prepared": "prepared",
         "finalized": "finalized",
         "rolled_back": "rollback_complete",
-        "cancelled": "unknown",
+        "rollback_complete": "rollback_complete",
+        "discarded": "discarded",
+        "cancelled": "superseded",
+        "superseded": "superseded",
+        "canvas_verified": "canvas_verified",
     }
 )
 BaselineSource = Literal["none", "turn", "rebaseline", "legacy"]
@@ -359,6 +382,8 @@ class SessionStateLock:
         self.timeout_seconds = timeout_seconds
         self._fd: int | None = None
         self._lock_id: str | None = None
+        self._heartbeat_stop: threading.Event | None = None
+        self._heartbeat_thread: threading.Thread | None = None
 
     # ------------------------------------------------------------------
     # helpers
@@ -390,6 +415,38 @@ class SessionStateLock:
         os.write(
             fd, (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
         )
+        os.fsync(fd)
+
+    def _refresh_lock_lease(self) -> None:
+        """Atomically renew this owner's cross-host lease."""
+        current = self._read_lock_metadata()
+        if not isinstance(current, dict) or current.get("lock_id") != self._lock_id:
+            raise RuntimeError("session lock ownership changed during lease renewal")
+        current["timestamp"] = time.time()
+        _write_response_atomic(self.lock_path, current)
+
+    def _heartbeat_lock_lease(self) -> None:
+        stop = self._heartbeat_stop
+        if stop is None:
+            return
+        interval = max(0.25, LOCK_LEASE_SECONDS / 3.0)
+        while not stop.wait(interval):
+            try:
+                self._refresh_lock_lease()
+            except Exception:
+                # Ownership verification on exit and competing acquisition
+                # remain fail-closed. A failed renewal must not touch a
+                # successor's lock file.
+                return
+
+    def _start_lock_heartbeat(self) -> None:
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_lock_lease,
+            name=f"vibecomfy-session-lock-{self._lock_id}",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
 
     def _quarantine_lock(self, reason: str) -> bool:
         """Rename *lock_path* to a ``.corrupt-<ts>-...`` sibling.
@@ -539,6 +596,7 @@ class SessionStateLock:
                     0o600,
                 )
                 self._write_lock_metadata(self._fd)
+                self._start_lock_heartbeat()
                 return self
             except FileExistsError:
                 if self._try_recover():
@@ -550,6 +608,12 @@ class SessionStateLock:
                 time.sleep(LOCK_POLL_SECONDS)
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if self._heartbeat_stop is not None:
+            self._heartbeat_stop.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=max(1.0, LOCK_LEASE_SECONDS / 2.0))
+        self._heartbeat_stop = None
+        self._heartbeat_thread = None
         if self._fd is not None:
             os.close(self._fd)
             self._fd = None
@@ -1141,6 +1205,48 @@ def _write_response_atomic(response_path: Path, response: dict[str, Any]) -> Non
     tmp.replace(response_path)
 
 
+def _write_response_immutable(
+    response_path: Path,
+    response: Mapping[str, Any],
+) -> bool:
+    """Publish immutable JSON without replacing an existing authority file.
+
+    Returns ``True`` for the winning publisher and ``False`` on collision.
+    A fully fsync'd sibling is hard-linked into place, so readers observe either
+    the complete old authority or the complete new authority, never a partial
+    direct ``O_EXCL`` write.
+    """
+    response_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = response_path.with_name(
+        f".{response_path.name}.{os.getpid()}.{time.monotonic_ns()}.immutable"
+    )
+    data = json.dumps(dict(response), indent=2, sort_keys=True) + "\n"
+    try:
+        with tmp.open("x", encoding="utf-8") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.link(tmp, response_path)
+        except FileExistsError:
+            return False
+        try:
+            directory_fd = os.open(response_path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        return True
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
 # ── Phase 4 transactional storage helpers (T19) ─────────────────────────────
 # Artifact layout (authoritative truth, per turn):
 #   turns/<turn_id>/transactions/<plan_hash>/lifecycle_events.jsonl  (append-only)
@@ -1159,13 +1265,22 @@ def _write_response_atomic(response_path: Path, response: dict[str, Any]) -> Non
 #     discoverable *cache* that ``recover_transaction_index`` can rebuild purely
 #     from the artifact logs.
 _TRANSACTION_VALID_EVENT_TYPES: frozenset[str] = frozenset(
-    {"prepared", "finalized", "rolled_back", "cancelled"}
+    {
+        "prepared",
+        "canvas_verified",
+        "finalized",
+        "rollback_complete",
+        "discarded",
+        "superseded",
+        "recoverable_error",
+    }
 )
 _PHASE_TO_RECEIPT_NAME: Mapping[str, str | None] = MappingProxyType(
     {
         "finalized": TRANSACTION_FINALIZED_RECEIPT_NAME,
-        "rolled_back": TRANSACTION_ROLLBACK_RECEIPT_NAME,
-        "cancelled": None,
+        "rollback_complete": TRANSACTION_ROLLBACK_RECEIPT_NAME,
+        "discarded": None,
+        "superseded": None,
     }
 )
 
@@ -1187,6 +1302,43 @@ def transaction_dir_for(turn_dir: Path, plan_hash: str) -> Path:
             f"{turn_resolved}: {candidate}"
         )
     return candidate
+
+
+def candidate_transaction_path(turn_dir: Path, plan_hash: str) -> Path:
+    return transaction_dir_for(turn_dir, plan_hash) / CANDIDATE_TRANSACTION_FILENAME
+
+
+def write_candidate_transaction(
+    turn_dir: Path,
+    transaction: Mapping[str, Any],
+) -> Path:
+    """Persist the immutable candidate aggregate before candidate publication."""
+    ok, error = validate_candidate_transaction(transaction)
+    if not ok:
+        raise ValueError(error or "invalid_candidate_transaction")
+    plan_hash = transaction.get("plan_hash")
+    if not isinstance(plan_hash, str) or not plan_hash:
+        raise ValueError("Candidate transaction requires plan_hash.")
+    path = candidate_transaction_path(turn_dir, plan_hash)
+    if not _write_response_immutable(path, transaction):
+        existing = _load_json(path)
+        if existing != dict(transaction):
+            raise ValueError(
+                f"Candidate transaction collision for turn_dir={turn_dir}."
+            )
+        return path
+    if _load_json(path) != dict(transaction):
+        raise OSError(f"Candidate transaction did not persist exactly at {path}.")
+    return path
+
+
+def load_candidate_transaction(
+    turn_dir: Path,
+    plan_hash: str,
+) -> dict[str, Any] | None:
+    payload = _load_json(candidate_transaction_path(turn_dir, plan_hash))
+    ok, _ = validate_candidate_transaction(payload)
+    return dict(payload) if ok and isinstance(payload, Mapping) else None
 
 
 def _transaction_log_path(transaction_dir: Path) -> Path:
@@ -1215,9 +1367,9 @@ def _next_transaction_seq(transaction_dir: Path) -> int:
 def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
     """Read all lifecycle events from the authoritative log in append order.
 
-    A trailing partial line (e.g. from a crash mid-write) and any malformed
-    line are dropped.  Returns an empty list if the log is absent.  Never
-    raises — a corrupt artifact must never block reads.
+    Returns an empty list if the log is absent or any line/identity/sequence is
+    corrupt. Recovery must fail closed: skipping an interior event could turn a
+    partial transaction into an apparently valid terminal baseline.
     """
     log_path = _transaction_log_path(transaction_dir)
     events: list[dict[str, Any]] = []
@@ -1230,12 +1382,57 @@ def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
                 try:
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
-                    continue
-                if isinstance(parsed, dict):
-                    events.append(parsed)
+                    return []
+                if not isinstance(parsed, dict):
+                    return []
+                legacy_event_type = parsed.get("event_type")
+                canonical_event_type = canonical_transaction_state(
+                    legacy_event_type
+                )
+                if not isinstance(canonical_event_type, str):
+                    return []
+                if canonical_event_type != legacy_event_type:
+                    parsed["legacy_event_type"] = legacy_event_type
+                    parsed["event_type"] = canonical_event_type
+                    receipt = parsed.get("receipt")
+                    if isinstance(receipt, dict):
+                        receipt.setdefault("legacy_phase", receipt.get("phase"))
+                        receipt["phase"] = canonical_event_type
+                events.append(parsed)
     except FileNotFoundError:
         return []
     except OSError:
+        return []
+    if not events:
+        return []
+    expected_turn = events[0].get("turn_id")
+    expected_plan = events[0].get("plan_hash")
+    expected_generation = events[0].get("generation")
+    if (
+        not isinstance(expected_turn, str)
+        or not isinstance(expected_plan, str)
+        or not isinstance(expected_generation, int)
+    ):
+        return []
+    terminal_seen = False
+    for expected_seq, event in enumerate(events, start=1):
+        if (
+            event.get("seq") != expected_seq
+            or event.get("turn_id") != expected_turn
+            or event.get("plan_hash") != expected_plan
+            or event.get("generation") != expected_generation
+            or event.get("event_type") not in _TRANSACTION_VALID_EVENT_TYPES
+            or terminal_seen
+        ):
+            return []
+        terminal_seen = event.get("event_type") in {
+            "finalized",
+            "rollback_complete",
+            "discarded",
+            "superseded",
+        }
+    first_type = events[0].get("event_type")
+    if first_type not in {"prepared", "discarded"}:
         return []
     return events
 
@@ -1408,6 +1605,9 @@ def record_prepared_transaction(
         "structural_hash_before": structural_hash_before,
         "baseline_snapshot": dict(baseline_snapshot) if baseline_snapshot else {},
         "candidate": dict(candidate_payload) if candidate_payload else {},
+        "candidate_transaction": (
+            dict(candidate_payload) if candidate_payload else {}
+        ),
         "phase": "prepared",
     }
     event = _append_transaction_lifecycle_event(
@@ -1513,6 +1713,51 @@ def record_finalized_transaction(
     )
 
 
+def record_canvas_verified_transaction(
+    *,
+    turn_dir: Path,
+    turn_id: str,
+    plan_hash: str,
+    generation: int,
+    lease_nonce: str,
+    post_apply_graph_hash: str,
+    post_apply_structural_hash: str,
+    applied_delta_hash: str,
+    now_fn: Callable[[], str] | None = None,
+) -> dict[str, Any]:
+    """Persist server-verified browser canvas evidence before finalization."""
+    receipt = {
+        "turn_id": turn_id,
+        "plan_hash": plan_hash,
+        "generation": generation,
+        "lease_nonce": lease_nonce,
+        "post_apply_graph_hash": post_apply_graph_hash,
+        "post_apply_structural_hash": post_apply_structural_hash,
+        "applied_delta_hash": applied_delta_hash,
+        "phase": "canvas_verified",
+    }
+    transaction_dir = transaction_dir_for(turn_dir, plan_hash)
+    latest = latest_transaction_event(transaction_dir)
+    if (
+        isinstance(latest, Mapping)
+        and latest.get("event_type") == "canvas_verified"
+        and latest.get("generation") == generation
+        and _safe_receipt(latest) == receipt
+    ):
+        return dict(latest)
+    event = _append_transaction_lifecycle_event(
+        transaction_dir,
+        event_type="canvas_verified",
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        generation=generation,
+        receipt=receipt,
+        now_fn=now_fn,
+    )
+    _write_transaction_receipt(transaction_dir, "canvas_verified", event)
+    return event
+
+
 def record_rolled_back_transaction(
     *,
     state: dict[str, Any],
@@ -1534,7 +1779,7 @@ def record_rolled_back_transaction(
         "plan_hash": plan_hash,
         "generation": generation,
         "restored_structural_hash": restored_structural_hash,
-        "phase": "rolled_back",
+        "phase": "rollback_complete",
     }
     if compensation:
         receipt["compensation"] = dict(compensation)
@@ -1544,7 +1789,7 @@ def record_rolled_back_transaction(
         turn_id=turn_id,
         plan_hash=plan_hash,
         generation=generation,
-        event_type="rolled_back",
+        event_type="rollback_complete",
         receipt=receipt,
         now_fn=now_fn,
     )
@@ -1686,7 +1931,7 @@ def record_cancelled_transaction(
         "plan_hash": plan_hash,
         "generation": generation,
         "reason": reason,
-        "phase": "cancelled",
+        "phase": "superseded",
     }
     return _record_resolved_transaction(
         state=state,
@@ -1694,7 +1939,35 @@ def record_cancelled_transaction(
         turn_id=turn_id,
         plan_hash=plan_hash,
         generation=generation,
-        event_type="cancelled",
+        event_type="superseded",
+        receipt=receipt,
+        now_fn=now_fn,
+    )
+
+
+def record_discarded_transaction(
+    *,
+    state: dict[str, Any],
+    turn_dir: Path,
+    turn_id: str,
+    plan_hash: str,
+    reason: str = "rejected_by_user",
+    now_fn: Callable[[], str] | None = None,
+) -> dict[str, Any]:
+    receipt = {
+        "turn_id": turn_id,
+        "plan_hash": plan_hash,
+        "generation": 0,
+        "reason": reason,
+        "phase": "discarded",
+    }
+    return _record_resolved_transaction(
+        state=state,
+        turn_dir=turn_dir,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        generation=0,
+        event_type="discarded",
         receipt=receipt,
         now_fn=now_fn,
     )
@@ -1863,6 +2136,60 @@ def _prepared_receipt_from_event(event: Mapping[str, Any] | None) -> dict[str, A
     return dict(receipt) if isinstance(receipt, Mapping) else {}
 
 
+def _load_authoritative_candidate_transaction(
+    *,
+    turn_dir: Path,
+    session_id: str,
+    turn_id: str,
+    plan_hash: str,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Load and cross-check the immutable aggregate and replay receipt."""
+    transaction = load_candidate_transaction(turn_dir, plan_hash)
+    if transaction is None:
+        return None, "missing_candidate_transaction"
+    if (
+        transaction.get("session_id") != session_id
+        or transaction.get("turn_id") != turn_id
+        or transaction.get("plan_hash") != plan_hash
+    ):
+        return None, "candidate_transaction_identity_mismatch"
+
+    from .authority_receipts import load_authority_receipt
+
+    authority = load_authority_receipt(turn_dir)
+    if authority is None:
+        return None, "missing_authority_receipt"
+    if not authority.is_applyable:
+        return None, "authority_receipt_not_applyable"
+    hashes = transaction.get("hashes")
+    plan = transaction.get("plan")
+    if not isinstance(hashes, Mapping) or not isinstance(plan, Mapping):
+        return None, "malformed_candidate_transaction"
+    if hashes.get("authority_receipt_hash") != payload_hash(authority.to_dict()):
+        return None, "authority_receipt_hash_mismatch"
+    envelope = plan.get("delta_ops_envelope")
+    if not isinstance(envelope, Mapping):
+        return None, "missing_persisted_delta_plan"
+    if authority.cumulative_delta_envelope != dict(envelope):
+        return None, "authority_delta_mismatch"
+    if plan.get("delta_hash") != authority.cumulative_delta_hash:
+        return None, "authority_delta_hash_mismatch"
+    if hashes.get("candidate_graph_hash") != authority.candidate_hash:
+        return None, "authority_candidate_hash_mismatch"
+    response = _load_turn_response_payload(
+        session_dir=turn_dir.parents[1],
+        turn_id=turn_id,
+    )
+    if not isinstance(response, Mapping):
+        return None, "missing_turn_response"
+    if response.get("delta_ops_envelope") != envelope:
+        return None, "response_delta_mismatch"
+    response_transaction = response.get("candidate_transaction")
+    if isinstance(response_transaction, Mapping) and dict(response_transaction) != transaction:
+        return None, "response_transaction_mismatch"
+    return transaction, None
+
+
 def _latest_prepared_event(turn_dir: Path, plan_hash: str, generation: int) -> dict[str, Any] | None:
     transaction_dir = transaction_dir_for(turn_dir, plan_hash)
     for event in reversed(read_transaction_lifecycle(transaction_dir)):
@@ -1894,15 +2221,19 @@ def _response_from_resolved_record(
     if not isinstance(phase, str) or not isinstance(plan_hash, str):
         return None
     receipt = _read_transaction_receipt(turn_dir, plan_hash, phase)
+    canonical_phase = canonical_transaction_state(phase) or phase
+    requested_phase = "finalized" if action == "finalize" else "rollback_complete"
+    same_terminal_action = canonical_phase == requested_phase
     return {
-        "ok": phase in {"finalized", "rolled_back"},
+        "ok": same_terminal_action,
         "action": action,
         "idempotent_replay": True,
+        "terminal_conflict": not same_terminal_action,
         "session_id": session_id,
         "turn_id": turn_id,
         "plan_hash": plan_hash,
         "generation": record.get("generation"),
-        "phase": phase,
+        "phase": canonical_phase,
         "receipt": receipt,
     }
 
@@ -1997,19 +2328,7 @@ def prepare_turn_transaction(
                 explanation=f"Unknown turn_id {turn_id!r}.",
             )
         current_state = turn_record.get("state")
-        if current_state not in {"candidate_ready", "review_bound"}:
-            return _transaction_failure(
-                kind=FailureKind.EDITOR_AHEAD_CONFLICT,
-                stage="prepare",
-                session_id=session_id,
-                turn_id=turn_id,
-                state=state,
-                explanation="Prepare requires a V2 candidate in candidate_ready or review_bound state.",
-                evidence={"current_state": current_state},
-            )
         plan_hash = _plan_hash_from_request(payload)
-        candidate_hash = _candidate_hash_from_request(payload)
-        stored_candidate_hash = turn_record.get("candidate_graph_hash")
         if not isinstance(plan_hash, str) or not plan_hash:
             return _transaction_failure(
                 kind=FailureKind.MISSING_REQUIRED_FIELD,
@@ -2020,7 +2339,7 @@ def prepare_turn_transaction(
                 explanation="Prepare requires a mutation plan_hash.",
             )
         stored_plan_hash = turn_record.get("candidate_plan_hash")
-        if isinstance(stored_plan_hash, str) and plan_hash != stored_plan_hash:
+        if plan_hash != stored_plan_hash:
             return _transaction_failure(
                 kind=FailureKind.STALE_STATE_MISMATCH,
                 stage="prepare",
@@ -2033,42 +2352,98 @@ def prepare_turn_transaction(
                     "persisted_candidate_plan_hash": stored_plan_hash,
                 },
             )
-        if turn_record.get("agent_edit_protocol") == "v2_delta" and not isinstance(
-            stored_plan_hash, str
-        ):
-            return _transaction_failure(
-                kind=FailureKind.MISSING_REQUIRED_FIELD,
-                stage="prepare",
-                session_id=session_id,
-                turn_id=turn_id,
-                state=state,
-                explanation="Persisted V2 candidate has no mutation plan hash.",
-            )
-        if candidate_hash != stored_candidate_hash:
-            return _transaction_failure(
-                kind=FailureKind.STALE_STATE_MISMATCH,
-                stage="prepare",
-                session_id=session_id,
-                turn_id=turn_id,
-                state=state,
-                explanation="Prepare candidate hash did not match the persisted candidate.",
-                evidence={
-                    "candidate_graph_hash": candidate_hash,
-                    "persisted_candidate_graph_hash": stored_candidate_hash,
-                },
-            )
-        if not _eligibility_applyable(payload):
+        turn_dir = turn_dir_for(session_root, session_id, turn_id)
+        if canonical_transaction_state(current_state) == "prepared":
+            previous = state.get("prepared_transactions", {}).get(turn_id)
+            if isinstance(previous, Mapping) and previous.get("plan_hash") == plan_hash:
+                previous_generation = previous.get("generation")
+                prepared_event = (
+                    _latest_prepared_event(turn_dir, plan_hash, previous_generation)
+                    if isinstance(previous_generation, int)
+                    else None
+                )
+                transaction = load_candidate_transaction(turn_dir, plan_hash)
+                if prepared_event is not None and transaction is not None:
+                    projected = project_transaction_state(
+                        transaction,
+                        state="prepared",
+                        generation=previous_generation,
+                        lease_nonce=(
+                            previous.get("lease_nonce")
+                            if isinstance(previous.get("lease_nonce"), str)
+                            else None
+                        ),
+                    )
+                    return {
+                        "ok": True,
+                        "action": "prepare",
+                        "idempotent_replay": True,
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "plan_hash": plan_hash,
+                        "generation": previous_generation,
+                        "lease_nonce": previous.get("lease_nonce"),
+                        "phase": "prepared",
+                        "candidate_transaction": projected,
+                        "receipt": prepared_event,
+                    }
+        if canonical_transaction_state(current_state) != "candidate_ready":
             return _transaction_failure(
                 kind=FailureKind.EDITOR_AHEAD_CONFLICT,
                 stage="prepare",
                 session_id=session_id,
                 turn_id=turn_id,
                 state=state,
-                explanation="Prepare requires an applyable eligibility snapshot.",
-                evidence={"apply_eligibility": payload.get("apply_eligibility") or payload.get("eligibility")},
+                explanation="Prepare requires a candidate_ready transaction.",
+                evidence={"current_state": current_state},
             )
+        transaction, transaction_error = _load_authoritative_candidate_transaction(
+            turn_dir=turn_dir,
+            session_id=session_id,
+            turn_id=turn_id,
+            plan_hash=plan_hash,
+        )
+        if transaction is None:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Persisted candidate transaction authority is unavailable or inconsistent.",
+                evidence={"transaction_error": transaction_error},
+            )
+        if "apply" not in transaction.get("available_actions", []):
+            return _transaction_failure(
+                kind=FailureKind.EDITOR_AHEAD_CONFLICT,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Persisted candidate transaction does not authorize Apply.",
+                evidence={"transaction_state": transaction.get("state")},
+            )
+        hashes = _payload_mapping(transaction.get("hashes"))
+        stored_candidate_hash = hashes.get("candidate_graph_hash")
+        candidate_hash = _candidate_hash_from_request(payload)
+        if candidate_hash is not None and candidate_hash != stored_candidate_hash:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Prepare candidate hash did not match durable authority.",
+                evidence={
+                    "candidate_graph_hash": candidate_hash,
+                    "persisted_candidate_graph_hash": stored_candidate_hash,
+                },
+            )
+        trusted_baseline_payload = {
+            "structural_hash_before": hashes.get("submit_structural_graph_hash")
+        }
         baseline_mismatch = _validate_current_baseline_for_prepare(
-            payload=payload, state=state, turn_record=turn_record
+            payload=trusted_baseline_payload, state=state, turn_record=turn_record
         )
         if baseline_mismatch is not None:
             return _transaction_failure(
@@ -2097,28 +2472,8 @@ def prepare_turn_transaction(
                     "next_generation": state.get("next_generation"),
                 },
             )
-        previous = state.get("prepared_transactions", {}).get(turn_id)
-        turn_dir = turn_dir_for(session_root, session_id, turn_id)
-        if isinstance(previous, Mapping):
-            old_plan = previous.get("plan_hash")
-            old_generation = previous.get("generation")
-            if isinstance(old_plan, str) and isinstance(old_generation, int):
-                record_cancelled_transaction(
-                    state=state,
-                    turn_dir=turn_dir,
-                    turn_id=turn_id,
-                    plan_hash=old_plan,
-                    generation=old_generation,
-                    reason="superseded_by_prepare",
-                )
         lease_nonce = uuid.uuid4().hex
         baseline_snapshot = _baseline_snapshot(state)
-        candidate_payload = _candidate_payload_from_request(payload)
-        candidate_payload.setdefault("plan_hash", plan_hash)
-        if _structural_after_from_payloads(payload) is not None:
-            candidate_payload.setdefault(
-                "structural_hash_after", _structural_after_from_payloads(payload)
-            )
         event = record_prepared_transaction(
             state=state,
             turn_dir=turn_dir,
@@ -2126,10 +2481,16 @@ def prepare_turn_transaction(
             plan_hash=plan_hash,
             lease_nonce=lease_nonce,
             structural_hash_before=_current_structural_baseline_hash(state),
-            candidate_payload=candidate_payload,
+            candidate_payload=transaction,
             baseline_snapshot=baseline_snapshot,
         )
-        turn_record["state"] = "apply_prepared"
+        projected_transaction = project_transaction_state(
+            transaction,
+            state="prepared",
+            generation=event["generation"],
+            lease_nonce=lease_nonce,
+        )
+        turn_record["state"] = "prepared"
         turn_record["prepared_plan_hash"] = plan_hash
         turn_record["prepared_generation"] = event["generation"]
         turn_record["prepared_lease_nonce"] = lease_nonce
@@ -2148,6 +2509,8 @@ def prepare_turn_transaction(
             "baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
             "baseline_advanced": False,
             "generation_cas_enforced": generation_cas_enforced,
+            "candidate_transaction": projected_transaction,
+            "delta_ops_envelope": projected_transaction["plan"]["delta_ops_envelope"],
             "receipt": event,
         }
 
@@ -2166,6 +2529,7 @@ def finalize_turn_transaction(
     payload = _payload_mapping(request_payload)
     plan_hash = _plan_hash_from_request(payload)
     generation = _payload_int(payload, "generation", "monotonic_generation")
+    lease_nonce = _payload_str(payload, "lease_nonce")
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
         reconcile_transaction_index_from_artifacts(state, session_dir)
@@ -2246,24 +2610,46 @@ def finalize_turn_transaction(
                     "current_baseline_graph_hash": current_baseline,
                 },
             )
-        post_apply_hash = _payload_str(
-            payload, "post_apply_hash", "browser_verified_post_apply_hash", "canvas_hash"
+        transaction, transaction_error = _load_authoritative_candidate_transaction(
+            turn_dir=turn_dir,
+            session_id=session_id,
+            turn_id=turn_id,
+            plan_hash=str(prepared_plan),
         )
-        if not post_apply_hash or not _payload_bool(
-            payload, "post_apply_hash_verified", "browser_verified", "verified"
-        ):
+        if transaction is None:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Finalize could not reload durable candidate authority.",
+                evidence={"transaction_error": transaction_error},
+            )
+        post_apply_graph = payload.get("post_apply_graph")
+        if not isinstance(post_apply_graph, Mapping):
             return _transaction_failure(
                 kind=FailureKind.MISSING_REQUIRED_FIELD,
                 stage="finalize",
                 session_id=session_id,
                 turn_id=turn_id,
                 state=state,
-                explanation="Finalize requires a browser-verified post-apply hash.",
+                explanation="Finalize requires the serialized post-apply graph.",
             )
-        expected_post_hash = _prepare_post_hash_expected(
-            payload=payload, prepared_receipt=prepared_receipt, plan_hash=str(prepared_plan)
-        )
-        if expected_post_hash is not None and post_apply_hash != expected_post_hash:
+        post_apply_graph_hash = payload_hash(post_apply_graph)
+        post_apply_structural_hash = structural_graph_hash(post_apply_graph)
+        if not isinstance(post_apply_structural_hash, str):
+            return _transaction_failure(
+                kind=FailureKind.VALIDATION_ERROR,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Finalize could not compute the post-apply structural hash.",
+            )
+        hashes = _payload_mapping(transaction.get("hashes"))
+        expected_post_hash = hashes.get("candidate_structural_graph_hash")
+        if post_apply_structural_hash != expected_post_hash:
             return _transaction_failure(
                 kind=FailureKind.STALE_STATE_MISMATCH,
                 stage="finalize",
@@ -2272,14 +2658,55 @@ def finalize_turn_transaction(
                 state=state,
                 explanation="Finalize post-apply hash did not match prepared transaction evidence.",
                 evidence={
-                    "post_apply_hash": post_apply_hash,
+                    "post_apply_hash": post_apply_structural_hash,
                     "expected_post_apply_hash": expected_post_hash,
                 },
             )
-        structural_hash_after = _structural_after_from_payloads(payload, prepared_receipt)
-        next_baseline_hash = structural_hash_after or post_apply_hash
+        claimed_post_hash = _payload_str(
+            payload, "post_apply_hash", "browser_verified_post_apply_hash", "canvas_hash"
+        )
+        if claimed_post_hash is not None and claimed_post_hash != post_apply_structural_hash:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Browser post-apply hash claim did not match the serialized graph.",
+                evidence={
+                    "claimed_post_apply_hash": claimed_post_hash,
+                    "computed_post_apply_hash": post_apply_structural_hash,
+                },
+            )
+        plan = _payload_mapping(transaction.get("plan"))
+        applied_delta_hash = _payload_str(payload, "applied_delta_hash")
+        if applied_delta_hash != plan.get("delta_hash"):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Landed operation evidence did not match the persisted plan.",
+                evidence={
+                    "applied_delta_hash": applied_delta_hash,
+                    "persisted_delta_hash": plan.get("delta_hash"),
+                },
+            )
+        verified_event = record_canvas_verified_transaction(
+            turn_dir=turn_dir,
+            turn_id=turn_id,
+            plan_hash=str(prepared_plan),
+            generation=int(prepared_generation),
+            lease_nonce=str(prepared_nonce),
+            post_apply_graph_hash=post_apply_graph_hash,
+            post_apply_structural_hash=post_apply_structural_hash,
+            applied_delta_hash=applied_delta_hash,
+        )
+        turn_record["state"] = "canvas_verified"
+        next_baseline_hash = post_apply_structural_hash
         turn_record["state"] = "finalized"
-        turn_record["client_graph_hash"] = post_apply_hash
+        turn_record["client_graph_hash"] = post_apply_graph_hash
         turn_record["finalized_at"] = _now()
         turn_record["finalized_plan_hash"] = prepared_plan
         turn_record["finalized_generation"] = prepared_generation
@@ -2301,20 +2728,42 @@ def finalize_turn_transaction(
             generation=int(prepared_generation),
             structural_hash_after=next_baseline_hash,
             applied_payload={
-                "post_apply_hash": post_apply_hash,
+                "post_apply_hash": post_apply_structural_hash,
+                "post_apply_graph_hash": post_apply_graph_hash,
                 "post_apply_hash_verified": True,
                 "expected_post_apply_hash": expected_post_hash,
+                "applied_delta_hash": applied_delta_hash,
+                "canvas_verified_event_seq": verified_event.get("seq"),
             },
         )
         for other_turn_id, other_record in state["turns"].items():
             if other_turn_id == turn_id or not isinstance(other_record, dict):
                 continue
             if other_record.get("state") in _V2_PRE_FINALIZE_STATES or other_record.get("state") == "candidate":
-                other_record["state"] = "unknown"
+                other_prepared = state.get("prepared_transactions", {}).get(other_turn_id)
+                if isinstance(other_prepared, Mapping):
+                    other_plan = other_prepared.get("plan_hash")
+                    other_generation = other_prepared.get("generation")
+                    if isinstance(other_plan, str) and isinstance(other_generation, int):
+                        record_cancelled_transaction(
+                            state=state,
+                            turn_dir=turn_dir_for(session_root, session_id, other_turn_id),
+                            turn_id=other_turn_id,
+                            plan_hash=other_plan,
+                            generation=other_generation,
+                            reason="superseded_by_finalize",
+                        )
+                other_record["state"] = "superseded"
                 other_record["unknown_at"] = other_record.get("unknown_at") or _now()
                 other_record["unknown_reason"] = "superseded_by_finalize"
                 other_record["superseded_by_turn_id"] = turn_id
         write_state_atomic(session_dir, state)
+        finalized_transaction = project_transaction_state(
+            transaction,
+            state="finalized",
+            generation=int(prepared_generation),
+            lease_nonce=str(prepared_nonce),
+        )
         return {
             "ok": True,
             "action": "finalize",
@@ -2326,7 +2775,10 @@ def finalize_turn_transaction(
             "baseline_turn_id": state.get("baseline_turn_id"),
             "baseline_graph_hash": state.get("baseline_graph_hash"),
             "baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
-            "post_apply_hash": post_apply_hash,
+            "post_apply_hash": post_apply_structural_hash,
+            "post_apply_graph_hash": post_apply_graph_hash,
+            "candidate_transaction": finalized_transaction,
+            "canvas_verified_receipt": verified_event,
             "receipt": event,
         }
 
@@ -2345,6 +2797,7 @@ def rollback_turn_transaction(
     payload = _payload_mapping(request_payload)
     plan_hash = _plan_hash_from_request(payload)
     generation = _payload_int(payload, "generation", "monotonic_generation")
+    lease_nonce = _payload_str(payload, "lease_nonce")
     with SessionStateLock(session_dir, timeout_seconds=lock_timeout_seconds):
         state = read_state(session_dir)
         reconcile_transaction_index_from_artifacts(state, session_dir)
@@ -2408,10 +2861,11 @@ def rollback_turn_transaction(
             )
         prepared_plan = prepared.get("plan_hash")
         prepared_generation = prepared.get("generation")
+        prepared_nonce = prepared.get("lease_nonce")
         if (
-            plan_hash is not None
-            and generation is not None
-            and (plan_hash != prepared_plan or generation != prepared_generation)
+            plan_hash != prepared_plan
+            or generation != prepared_generation
+            or lease_nonce != prepared_nonce
         ):
             return _transaction_failure(
                 kind=FailureKind.EDITOR_AHEAD_CONFLICT,
@@ -2425,11 +2879,58 @@ def rollback_turn_transaction(
                     "generation": generation,
                     "prepared_plan_hash": prepared_plan,
                     "prepared_generation": prepared_generation,
+                    "lease_nonce_matches": lease_nonce == prepared_nonce,
                 },
             )
         prepared_event = _latest_prepared_event(turn_dir, str(prepared_plan), int(prepared_generation))
         prepared_receipt = _prepared_receipt_from_event(prepared_event)
+        if (
+            isinstance(compensation, Mapping)
+            and compensation.get("canvas_was_mutated") is True
+            and compensation.get("canvas_restoration_verified") is not True
+        ):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="rollback",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation=(
+                    "Rollback cannot resolve the server transaction until the "
+                    "mutated canvas is restored and verified."
+                ),
+                evidence={
+                    "canvas_restoration_verified": False,
+                    "current_state": turn_record.get("state"),
+                },
+            )
         snapshot = _payload_mapping(prepared_receipt.get("baseline_snapshot"))
+        prepared_before = prepared_receipt.get("structural_hash_before")
+        current_baseline = _current_structural_baseline_hash(state)
+        if prepared_before != current_baseline:
+            record_cancelled_transaction(
+                state=state,
+                turn_dir=turn_dir,
+                turn_id=turn_id,
+                plan_hash=str(prepared_plan),
+                generation=int(prepared_generation),
+                reason="baseline_ownership_lost",
+            )
+            turn_record["state"] = "superseded"
+            turn_record["superseded_at"] = _now()
+            write_state_atomic(session_dir, state)
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="rollback",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Rollback baseline ownership was lost to a newer transaction.",
+                evidence={
+                    "prepared_structural_hash_before": prepared_before,
+                    "current_baseline_graph_hash": current_baseline,
+                },
+            )
         if snapshot:
             _restore_baseline_snapshot(state, snapshot)
         turn_record["state"] = "rollback_complete"
@@ -2444,6 +2945,21 @@ def rollback_turn_transaction(
             compensation=compensation,
         )
         write_state_atomic(session_dir, state)
+        transaction = load_candidate_transaction(turn_dir, str(prepared_plan))
+        projected_transaction = (
+            project_transaction_state(
+                transaction,
+                state="rollback_complete",
+                generation=int(prepared_generation),
+                lease_nonce=(
+                    prepared.get("lease_nonce")
+                    if isinstance(prepared.get("lease_nonce"), str)
+                    else None
+                ),
+            )
+            if isinstance(transaction, Mapping)
+            else None
+        )
         return {
             "ok": True,
             "action": "rollback",
@@ -2451,10 +2967,11 @@ def rollback_turn_transaction(
             "turn_id": turn_id,
             "plan_hash": prepared_plan,
             "generation": prepared_generation,
-            "phase": "rolled_back",
+            "phase": "rollback_complete",
             "baseline_turn_id": state.get("baseline_turn_id"),
             "baseline_graph_hash": state.get("baseline_graph_hash"),
             "baseline_graph_hash_kind": state.get("baseline_graph_hash_kind"),
+            "candidate_transaction": projected_transaction,
             "receipt": event,
         }
 
@@ -2468,6 +2985,45 @@ def _transaction_receipts_for_turn(turn_dir: Path) -> list[dict[str, Any]]:
         for event in read_transaction_lifecycle(plan_dir):
             receipts.append(dict(event))
     return receipts
+
+
+def candidate_transaction_for_turn(
+    turn_dir: Path,
+    plan_hash: str | None = None,
+) -> dict[str, Any] | None:
+    tx_root = turn_dir / TRANSACTIONS_DIR_NAME
+    if not tx_root.is_dir():
+        return None
+    plan_dirs = (
+        [transaction_dir_for(turn_dir, plan_hash)]
+        if isinstance(plan_hash, str) and plan_hash
+        else sorted((path for path in tx_root.iterdir() if path.is_dir()), reverse=True)
+    )
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for plan_dir in plan_dirs:
+        candidate = _load_json(plan_dir / CANDIDATE_TRANSACTION_FILENAME)
+        ok, _ = validate_candidate_transaction(candidate)
+        if not ok or not isinstance(candidate, Mapping):
+            continue
+        events = read_transaction_lifecycle(plan_dir)
+        if not events:
+            candidates.append((0, dict(candidate)))
+            continue
+        latest = events[-1]
+        receipt = _safe_receipt(latest)
+        generation = latest.get("generation")
+        projected = project_transaction_state(
+            candidate,
+            state=str(latest.get("event_type") or candidate.get("state")),
+            generation=generation if isinstance(generation, int) else None,
+            lease_nonce=(
+                receipt.get("lease_nonce")
+                if isinstance(receipt.get("lease_nonce"), str)
+                else None
+            ),
+        )
+        candidates.append((generation if isinstance(generation, int) else 0, projected))
+    return max(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
 def reconcile_turn_transactions(
@@ -2496,6 +3052,17 @@ def reconcile_turn_transactions(
             )
             for tid in turn_ids
         }
+        transactions_by_turn = {
+            tid: candidate_transaction_for_turn(
+                turn_dir_for(session_root, session_id, tid),
+                (
+                    state.get("turns", {}).get(tid, {}).get("candidate_plan_hash")
+                    if isinstance(state.get("turns", {}).get(tid), Mapping)
+                    else None
+                ),
+            )
+            for tid in turn_ids
+        }
         return {
             "ok": True,
             "action": "reconcile",
@@ -2505,6 +3072,7 @@ def reconcile_turn_transactions(
             "prepared_transactions": dict(state.get("prepared_transactions", {})),
             "apply_idempotency_records": dict(state.get("apply_idempotency_records", {})),
             "receipts_by_turn": receipts_by_turn,
+            "transactions_by_turn": transactions_by_turn,
         }
 
 
@@ -2560,7 +3128,7 @@ def _normalize_apply_idempotency_records(raw: Any) -> dict[str, Any]:
         phase = record.get("phase")
         if not isinstance(plan_hash, str) or not plan_hash:
             continue
-        if not isinstance(generation, int) or generation < 1:
+        if not isinstance(generation, int) or generation < 0:
             continue
         if phase not in _TRANSACTION_RESOLVED_PHASES:
             continue
@@ -2588,6 +3156,8 @@ def recover_transaction_index(session_dir: Path) -> dict[str, Any]:
     turns_root = session_dir / "turns"
     prepared: dict[str, Any] = {}
     idempotency: dict[str, Any] = {}
+    turn_states: dict[str, str] = {}
+    baseline_events: list[dict[str, Any]] = []
     max_generation = 0
     if turns_root.is_dir():
         for turn_dir in sorted(p for p in turns_root.iterdir() if p.is_dir()):
@@ -2603,18 +3173,32 @@ def recover_transaction_index(session_dir: Path) -> dict[str, Any]:
                 plan_hash = plan_dir.name
                 events = read_transaction_lifecycle(plan_dir)
                 if not events:
+                    candidate = _load_json(plan_dir / CANDIDATE_TRANSACTION_FILENAME)
+                    ok, _ = validate_candidate_transaction(candidate)
+                    if ok:
+                        turn_states[turn_id] = str(candidate.get("state"))
                     continue
                 latest = events[-1]
                 phase = latest.get("event_type")
                 generation = latest.get("generation")
                 if isinstance(generation, int) and generation > max_generation:
                     max_generation = generation
-                if phase == "prepared" and isinstance(generation, int):
+                if phase in {"prepared", "canvas_verified", "recoverable_error"} and isinstance(generation, int):
+                    prepared_event = next(
+                        (
+                            event
+                            for event in reversed(events)
+                            if event.get("event_type") == "prepared"
+                            and event.get("generation") == generation
+                        ),
+                        None,
+                    )
+                    prepared_receipt = _safe_receipt(prepared_event or {})
                     candidate = {
                         "plan_hash": plan_hash,
                         "generation": generation,
-                        "lease_nonce": _safe_receipt(latest).get("lease_nonce"),
-                        "structural_hash_before": _safe_receipt(latest).get(
+                        "lease_nonce": prepared_receipt.get("lease_nonce"),
+                        "structural_hash_before": prepared_receipt.get(
                             "structural_hash_before"
                         ),
                         "timestamp": latest.get("timestamp"),
@@ -2623,6 +3207,7 @@ def recover_transaction_index(session_dir: Path) -> dict[str, Any]:
                         "generation", 0
                     ):
                         latest_prepared = candidate
+                    turn_states[turn_id] = str(phase)
                 elif (
                     phase in _TRANSACTION_RESOLVED_PHASES
                     and isinstance(generation, int)
@@ -2635,12 +3220,28 @@ def recover_transaction_index(session_dir: Path) -> dict[str, Any]:
                         "receipt_path": _PHASE_TO_RECEIPT_NAME.get(phase),
                         "timestamp": latest.get("timestamp"),
                     }
+                    turn_states[turn_id] = str(
+                        canonical_transaction_state(phase) or phase
+                    )
+                    if phase in {"finalized", "rollback_complete"}:
+                        baseline_events.append(
+                            {
+                                "turn_id": turn_id,
+                                "plan_hash": plan_hash,
+                                "generation": generation,
+                                "phase": phase,
+                                "receipt": dict(_safe_receipt(latest)),
+                                "events": events,
+                            }
+                        )
             if latest_prepared is not None:
                 prepared[turn_id] = latest_prepared
     return {
         "next_generation": max_generation + 1,
         "prepared_transactions": prepared,
         "apply_idempotency_records": idempotency,
+        "turn_states": turn_states,
+        "baseline_events": baseline_events,
     }
 
 
@@ -2668,6 +3269,52 @@ def reconcile_transaction_index_from_artifacts(
     state["next_generation"] = recovered["next_generation"]
     state["prepared_transactions"] = recovered["prepared_transactions"]
     state["apply_idempotency_records"] = recovered["apply_idempotency_records"]
+    turns = state.get("turns")
+    if isinstance(turns, dict):
+        for turn_id, recovered_state in recovered["turn_states"].items():
+            turn = turns.get(turn_id)
+            if isinstance(turn, dict) and turn.get("state") != recovered_state:
+                turn["state"] = recovered_state
+                changed = True
+    baseline_events = sorted(
+        recovered["baseline_events"],
+        key=lambda event: int(event.get("generation", 0)),
+    )
+    if baseline_events:
+        latest = baseline_events[-1]
+        receipt = _payload_mapping(latest.get("receipt"))
+        if latest.get("phase") == "finalized":
+            recovered_hash = receipt.get("structural_hash_after")
+            if isinstance(recovered_hash, str) and (
+                state.get("baseline_graph_hash") != recovered_hash
+                or state.get("baseline_turn_id") != latest.get("turn_id")
+            ):
+                _set_baseline_authoritatively(
+                    state,
+                    next_hash=recovered_hash,
+                    next_kind="structural",
+                    next_source="turn",
+                    reason="transaction_recovery",
+                    source_turn_id=str(latest.get("turn_id")),
+                    source_path=_source_path_for_turn_baseline(
+                        session_dir, str(latest.get("turn_id"))
+                    ),
+                    projection_version=STRUCTURAL_PROJECTION_VERSION,
+                )
+                changed = True
+        elif latest.get("phase") == "rollback_complete":
+            prepared = next(
+                (
+                    event
+                    for event in reversed(latest.get("events", []))
+                    if event.get("event_type") == "prepared"
+                ),
+                None,
+            )
+            snapshot = _payload_mapping(_safe_receipt(prepared or {}).get("baseline_snapshot"))
+            if snapshot and any(state.get(key) != snapshot.get(key) for key in snapshot):
+                _restore_baseline_snapshot(state, snapshot)
+                changed = True
     return changed
 
 
@@ -3241,6 +3888,10 @@ def record_idempotent_response(
 ) -> dict[str, Any] | None:
     key = _record_key(scope, idempotency_key)
     stamped_response = response
+    authority_receipt: Any = None
+    requested_v2 = response.get("agent_edit_protocol") == "v2_delta" or isinstance(
+        response.get("delta_ops_envelope"), Mapping
+    )
     if scope == "edit" and turn_id is not None:
         try:
             turn_dir = response_path.parent
@@ -3254,7 +3905,7 @@ def record_idempotent_response(
                     raw_schema_version = delta_envelope.get("schema_version")
                     if isinstance(raw_schema_version, str):
                         schema_version = raw_schema_version
-                _, stamped_response = build_and_persist_authority_receipt(
+                authority_receipt, stamped_response = build_and_persist_authority_receipt(
                     turn_dir=turn_dir,
                     session_id=session_id,
                     turn_id=turn_id,
@@ -3264,6 +3915,10 @@ def record_idempotent_response(
                     schema_provider=schema_provider,
                 )
         except Exception:
+            if requested_v2:
+                # An applyable V2 candidate must never be published without
+                # durable replay authority.  V1 artifacts remain display-only.
+                raise
             stamped_response = response
     candidate_graph_hash = _mapping_graph_hash(stamped_response)
     candidate_structural_graph_hash = _mapping_graph_structural_hash(stamped_response)
@@ -3288,6 +3943,54 @@ def record_idempotent_response(
         if isinstance(candidate_payload.get("structural_hash_after"), str)
         else None
     )
+    if (
+        requested_v2
+        and turn_id is not None
+        and authority_receipt is not None
+        and isinstance(candidate_plan_hash, str)
+        and isinstance(candidate_graph_hash, str)
+        and isinstance(candidate_structural_graph_hash, str)
+        and isinstance(authority_receipt.cumulative_delta_envelope, Mapping)
+        and isinstance(authority_receipt.cumulative_delta_hash, str)
+        and isinstance(authority_receipt.schema_witness, Mapping)
+    ):
+        eligibility = stamped_response.get("eligibility")
+        if not isinstance(eligibility, Mapping):
+            eligibility = stamped_response.get("apply_eligibility")
+        applyable = (
+            authority_receipt.is_applyable
+            and isinstance(eligibility, Mapping)
+            and eligibility.get("applyable") is True
+        )
+        transaction = build_candidate_transaction(
+            session_id=session_id,
+            turn_id=turn_id,
+            plan_hash=candidate_plan_hash,
+            delta_ops_envelope=authority_receipt.cumulative_delta_envelope,
+            delta_hash=authority_receipt.cumulative_delta_hash,
+            submit_graph_hash=authority_receipt.submit_graph_hash,
+            submit_structural_graph_hash=(
+                stamped_response.get("submit_structural_graph_hash")
+                if isinstance(stamped_response.get("submit_structural_graph_hash"), str)
+                else candidate_structural_hash_before
+            ),
+            candidate_graph_hash=candidate_graph_hash,
+            candidate_structural_graph_hash=candidate_structural_graph_hash,
+            authority_receipt_hash=payload_hash(authority_receipt.to_dict()),
+            schema_witness=authority_receipt.schema_witness,
+            replay_ok=authority_receipt.replay.replay_ok,
+            candidate_matches=authority_receipt.replay.candidate_matches,
+            applyable=applyable,
+            state="candidate_ready" if applyable else "recoverable_error",
+        )
+        write_candidate_transaction(response_path.parent, transaction)
+        stamped_response = dict(stamped_response)
+        stamped_response["candidate_transaction"] = transaction
+        stamped_candidate = stamped_response.get("candidate")
+        if isinstance(stamped_candidate, Mapping):
+            stamped_candidate = dict(stamped_candidate)
+            stamped_candidate["state"] = transaction["state"]
+            stamped_response["candidate"] = stamped_candidate
     response_digest = payload_hash(stamped_response)
     # Persist state mutation and idempotency record BEFORE publishing
     # response.json so that durable state always precedes the response
@@ -5281,10 +5984,11 @@ def _discard_v2_candidate_if_applicable(
                     },
                 )
 
-        if current_state not in {"candidate_ready", "review_bound", "discarded"}:
+        canonical_state = canonical_transaction_state(current_state)
+        if canonical_state not in {"candidate_ready", "discarded"}:
             explanation = (
                 "Prepared V2 candidates must use rollback instead of Reject."
-                if current_state in {"apply_prepared", "canvas_verified", "rollback_prepared"}
+                if canonical_state in {"prepared", "canvas_verified", "recoverable_error"}
                 else f"V2 turn {turn_id} in state {current_state!r} cannot be discarded."
             )
             return failure_envelope(
@@ -5296,15 +6000,46 @@ def _discard_v2_candidate_if_applicable(
                     "current_state": current_state,
                     "required_action": (
                         "rollback"
-                        if current_state in {"apply_prepared", "canvas_verified", "rollback_prepared"}
+                        if canonical_state in {"prepared", "canvas_verified", "recoverable_error"}
                         else None
                     ),
                 },
             )
 
-        already_discarded = current_state == "discarded"
+        already_discarded = canonical_state == "discarded"
         discarded_at = turn_record.get("discarded_at") or turn_record.get("rejected_at") or _now()
         if not already_discarded:
+            plan_hash = turn_record.get("candidate_plan_hash")
+            if not isinstance(plan_hash, str):
+                return failure_envelope(
+                    FailureKind.MISSING_REQUIRED_FIELD,
+                    "reject",
+                    context,
+                    agent_failure_context={
+                        "explanation": "V2 discard requires the persisted candidate plan hash."
+                    },
+                )
+            transaction = load_candidate_transaction(
+                turn_dir_for(session_root, session_id, turn_id),
+                plan_hash,
+            )
+            if not isinstance(transaction, Mapping) or "reject" not in transaction.get(
+                "available_actions", []
+            ):
+                return failure_envelope(
+                    FailureKind.EDITOR_AHEAD_CONFLICT,
+                    "reject",
+                    context,
+                    agent_failure_context={
+                        "explanation": "Durable candidate transaction does not authorize Reject."
+                    },
+                )
+            discard_event = record_discarded_transaction(
+                state=state,
+                turn_dir=turn_dir_for(session_root, session_id, turn_id),
+                turn_id=turn_id,
+                plan_hash=plan_hash,
+            )
             turn_record["state"] = "discarded"
             turn_record["discarded_at"] = discarded_at
             turn_record["rejected_at"] = discarded_at
@@ -5313,6 +6048,19 @@ def _discard_v2_candidate_if_applicable(
             turn_record["action_client_graph_hash"] = client_graph_hash
             turn_record["client_graph_hash"] = client_graph_hash
 
+        plan_hash = turn_record.get("candidate_plan_hash")
+        transaction = (
+            load_candidate_transaction(
+                turn_dir_for(session_root, session_id, turn_id), plan_hash
+            )
+            if isinstance(plan_hash, str)
+            else None
+        )
+        projected_transaction = (
+            project_transaction_state(transaction, state="discarded", generation=0)
+            if isinstance(transaction, Mapping)
+            else None
+        )
         response = {
             "ok": True,
             "action": "reject",
@@ -5331,6 +6079,8 @@ def _discard_v2_candidate_if_applicable(
             "discarded_at": discarded_at,
             "idempotency_key": idempotency_key,
             "idempotent_replay": already_discarded,
+            "candidate_transaction": projected_transaction,
+            "receipt": discard_event if not already_discarded else None,
         }
         if key is not None and response_writer is not None:
             response_path = response_writer(response)

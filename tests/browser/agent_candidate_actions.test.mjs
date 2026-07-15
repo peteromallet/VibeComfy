@@ -12,6 +12,25 @@ const {
   candidateActionState,
 } = candidateActions;
 
+function candidateTransaction(state = "candidate_ready") {
+  return {
+    contract_version: "candidate_transaction_v1",
+    state,
+    plan_hash: "plan-1",
+    plan: {
+      delta_ops_envelope: { schema_version: "2.0.0", ops: [] },
+      delta_hash: "delta-1",
+    },
+    hashes: {
+      candidate_graph_hash: "graph-1",
+      candidate_structural_graph_hash: "structural-1",
+      authority_receipt_hash: "receipt-1",
+    },
+    authority: { replay_ok: true, candidate_matches: true },
+    available_actions: ["apply", "reject"],
+  };
+}
+
 test("agent_candidate_actions exposes the candidate action owner API", () => {
   assert.deepEqual(Object.keys(candidateActions).sort(), [
     "APPLY_ELIGIBILITY_REASON",
@@ -27,6 +46,7 @@ test("applyEligibility preserves canonical active eligibility behavior", () => {
   const panel = {
     state: {
       candidateGraph: { nodes: [] },
+      candidateTransaction: candidateTransaction(),
       applyEligibility: {
         applyable: true,
         reason: APPLY_ELIGIBILITY_REASON.APPLYABLE,
@@ -56,6 +76,7 @@ test("candidateActionState keeps active and historical candidate semantics", () 
     state: {
       phase: "AWAITING_REVIEW",
       candidateGraph: { nodes: [] },
+      candidateTransaction: candidateTransaction(),
       turnId: "0002",
       applyEligibility: {
         applyable: true,
@@ -96,15 +117,15 @@ test("candidateActionState keeps active and historical candidate semantics", () 
     ).eligibility,
     {
       applyable: false,
-      reason: APPLY_ELIGIBILITY_REASON.SUPERSEDED,
-      message: "Already replaced.",
-      warnings: ["superseded"],
+      reason: APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT,
+      message: "Candidate transaction authority is missing. Apply and Reject are disabled until the session is reconciled.",
+      warnings: ["missing_contract"],
     },
   );
 
   const staleHistorical = candidateActionState(panel, { turn_id: "0001", candidateGraph: { nodes: [] } });
   assert.equal(staleHistorical.active, false);
-  assert.equal(staleHistorical.eligibility.reason, APPLY_ELIGIBILITY_REASON.NOT_LATEST);
+  assert.equal(staleHistorical.eligibility.reason, APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT);
   assert.equal(staleHistorical.applyDisabled, true);
   assert.equal(staleHistorical.rejectDisabled, true);
 });
@@ -139,6 +160,7 @@ test("candidateActionState preserves optional reorganise candidate eligibility a
       phase: "AWAITING_REVIEW",
       candidateGraph: { nodes: [{ id: 3, type: "KSampler", pos: [320, 160] }], links: [] },
       candidateGraphHash: "layout-candidate-hash",
+      candidateTransaction: candidateTransaction(),
       turnId: "0003",
       applyEligibility: {
         applyable: true,
@@ -217,7 +239,7 @@ test("candidateActionState preserves optional reorganise candidate eligibility a
 
   assert.equal(staleFunctionalCandidate.visible, true);
   assert.equal(staleFunctionalCandidate.active, false);
-  assert.equal(staleFunctionalCandidate.eligibility.reason, APPLY_ELIGIBILITY_REASON.NOT_LATEST);
+  assert.equal(staleFunctionalCandidate.eligibility.reason, APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT);
   assert.equal(staleFunctionalCandidate.applyDisabled, true);
   assert.equal(staleFunctionalCandidate.rejectDisabled, true);
 
@@ -237,9 +259,9 @@ test("candidateActionState preserves optional reorganise candidate eligibility a
   assert.equal(supersededLayoutCandidate.active, false);
   assert.deepEqual(supersededLayoutCandidate.eligibility, {
     applyable: false,
-    reason: APPLY_ELIGIBILITY_REASON.SUPERSEDED,
-    message: "This layout candidate was rejected.",
-    warnings: ["superseded"],
+    reason: APPLY_ELIGIBILITY_REASON.MISSING_CONTRACT,
+    message: "Candidate transaction authority is missing. Apply and Reject are disabled until the session is reconciled.",
+    warnings: ["missing_contract"],
   });
   assert.equal(supersededLayoutCandidate.applyDisabled, true);
   assert.equal(supersededLayoutCandidate.rejectDisabled, true);

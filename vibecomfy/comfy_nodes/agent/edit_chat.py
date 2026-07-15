@@ -186,7 +186,15 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             continue
         candidate = response.get("candidate")
         eligibility = response.get("apply_eligibility") or response.get("eligibility")
-        candidate_transaction = candidate if isinstance(candidate, Mapping) else {}
+        candidate_fields = candidate if isinstance(candidate, Mapping) else {}
+        aggregate = response.get("candidate_transaction")
+        if not isinstance(aggregate, Mapping):
+            plan_hash = turn_state.get("candidate_plan_hash")
+            aggregate = (
+                load_candidate_transaction(turn_dir, plan_hash)
+                if isinstance(plan_hash, str)
+                else None
+            )
         delta_ops_envelope = response.get("delta_ops_envelope")
         delta_ops = response.get("delta_ops")
         latest_candidate = {
@@ -197,16 +205,23 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "graph": _json_safe(graph),
             "report": _json_safe(response.get("report")) if isinstance(response.get("report"), Mapping) else None,
             "candidate": _json_safe(candidate) if isinstance(candidate, Mapping) else None,
+            "candidate_transaction": (
+                _json_safe(aggregate) if isinstance(aggregate, Mapping) else None
+            ),
             "turn_state": turn_state.get("state"),
             "agent_edit_protocol": turn_state.get("agent_edit_protocol"),
             "plan_hash": turn_state.get("candidate_plan_hash")
-            or candidate_transaction.get("plan_hash"),
+            or candidate_fields.get("plan_hash"),
             "structural_hash_before": turn_state.get("candidate_structural_hash_before")
-            or candidate_transaction.get("structural_hash_before"),
+            or candidate_fields.get("structural_hash_before"),
             "structural_hash_after": turn_state.get("candidate_structural_hash_after")
-            or candidate_transaction.get("structural_hash_after"),
-            "monotonic_generation": candidate_transaction.get("monotonic_generation"),
-            "lease_nonce": candidate_transaction.get("lease_nonce"),
+            or candidate_fields.get("structural_hash_after"),
+            "monotonic_generation": (
+                aggregate.get("generation") if isinstance(aggregate, Mapping) else None
+            ),
+            "lease_nonce": (
+                aggregate.get("lease_nonce") if isinstance(aggregate, Mapping) else None
+            ),
             "delta_ops_envelope": (
                 _json_safe(delta_ops_envelope)
                 if isinstance(delta_ops_envelope, Mapping)
@@ -256,6 +271,7 @@ def _latest_turn_lifecycle_payload(
         return None
 
     disposition_by_state = {
+        "prepared": "prepared",
         "apply_prepared": "prepared",
         "finalized": "finalized",
         "rollback_complete": "rolled_back",
@@ -272,6 +288,36 @@ def _latest_turn_lifecycle_payload(
             disposition = "reviewable"
         else:
             disposition = disposition_by_state.get(str(turn_state), "other")
+        plan_hash = turn.get("candidate_plan_hash")
+        aggregate = (
+            load_candidate_transaction(
+                session_dir / "turns" / turn_id,
+                plan_hash,
+            )
+            if isinstance(plan_hash, str)
+            else None
+        )
+        receipts = _transaction_receipts_for_turn(
+            session_dir / "turns" / turn_id
+        )
+        if isinstance(aggregate, Mapping) and receipts:
+            latest_event = receipts[-1]
+            receipt = latest_event.get("receipt")
+            aggregate = project_transaction_state(
+                aggregate,
+                state=str(latest_event.get("event_type") or aggregate.get("state")),
+                generation=(
+                    latest_event.get("generation")
+                    if isinstance(latest_event.get("generation"), int)
+                    else None
+                ),
+                lease_nonce=(
+                    receipt.get("lease_nonce")
+                    if isinstance(receipt, Mapping)
+                    and isinstance(receipt.get("lease_nonce"), str)
+                    else None
+                ),
+            )
         return {
             "turn_id": turn_id,
             "state": turn_state if isinstance(turn_state, str) else None,
@@ -291,9 +337,10 @@ def _latest_turn_lifecycle_payload(
                 else None
             ),
             "disposition": disposition,
-            "transaction_receipts": _transaction_receipts_for_turn(
-                session_dir / "turns" / turn_id
+            "candidate_transaction": (
+                _json_safe(aggregate) if isinstance(aggregate, Mapping) else None
             ),
+            "transaction_receipts": receipts,
         }
     return None
 

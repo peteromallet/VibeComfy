@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
-from vibecomfy.comfy_nodes.agent.authority_receipts import verify_replay
+import pytest
+
+from vibecomfy.comfy_nodes.agent.authority_receipts import (
+    build_authority_receipt,
+    load_authority_receipt,
+    verify_replay,
+    write_authority_receipt,
+)
+from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+    build_schema_witness,
+    schema_provider_from_witness,
+)
 from vibecomfy.porting.edit.apply_core import apply_delta
 from vibecomfy.porting.edit.ops import normalize_delta_ops
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
@@ -67,6 +79,46 @@ def test_malformed_nonempty_v2_envelope_fails_closed() -> None:
     assert receipt.op_count == 1
     assert receipt.error is not None
     assert receipt.error.startswith("invalid_delta_envelope:")
+
+
+def test_authority_receipt_persists_exact_operational_delta_evidence(
+    tmp_path: Path,
+) -> None:
+    submit_graph = _submit_graph()
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "2", "text"],
+                "value": "durable evidence",
+            }
+        ],
+    }
+    applied = apply_delta(submit_graph, normalize_delta_ops(envelope))
+    assert applied.ok is True
+    assert applied.candidate is not None
+    receipt = build_authority_receipt(
+        session_id="session-exact",
+        turn_id="0001",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=applied.candidate,
+        response={"outcome": {"kind": "candidate"}},
+        schema_version="2.0.0",
+    )
+
+    turn_dir = tmp_path / "turns" / "0001"
+    path = write_authority_receipt(turn_dir, receipt)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    assert raw["cumulative_delta_envelope"] == envelope
+    assert raw["cumulative_delta_envelope"] != "<REDACTED>"
+    assert load_authority_receipt(turn_dir) == receipt
+    assert write_authority_receipt(turn_dir, receipt) == path
+    with pytest.raises(ValueError, match="collision"):
+        write_authority_receipt(turn_dir, replace(receipt, created_at="different"))
+    assert load_authority_receipt(turn_dir) == receipt
 
 
 class _Provider:
@@ -206,3 +258,40 @@ def test_add_node_and_dependent_upserts_replay_with_original_schema_provider() -
     assert receipt.candidate_matches is True
     assert receipt.op_count == 3
     assert receipt.error is None
+
+    witness = build_schema_witness(
+        schema_provider=provider,
+        submit_graph=submit_graph,
+        candidate_payload=applied.candidate,
+        delta_envelope=envelope,
+    )
+    frozen_provider = schema_provider_from_witness(witness)
+
+    # Ambient schema discovery may change after candidate publication. Replay
+    # remains tied to the persisted witness, while the changed ambient provider
+    # cannot silently redefine the authored plan.
+    provider._schemas["ImageScale"] = NodeSchema(
+        class_type="ImageScale",
+        pack=None,
+        inputs={
+            "image": InputSpec(type="IMAGE", required=True),
+            "width": InputSpec(type="INT", required=True, min=4096),
+        },
+        outputs=[OutputSpec(type="IMAGE", name="IMAGE")],
+    )
+    ambient_replay = verify_replay(
+        submit_graph,
+        envelope,
+        applied.candidate,
+        schema_provider=provider,
+    )
+    frozen_replay = verify_replay(
+        submit_graph,
+        envelope,
+        applied.candidate,
+        schema_provider=frozen_provider,
+    )
+
+    assert ambient_replay.replay_ok is False
+    assert frozen_replay.replay_ok is True
+    assert frozen_replay.candidate_matches is True

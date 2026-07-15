@@ -9578,6 +9578,25 @@ def test_session_lock_acquire_release_normal(tmp_path: Path) -> None:
     assert not lock_path.exists()
 
 
+def test_session_lock_renews_cross_host_lease_while_owned(
+    tmp_path: Path, monkeypatch
+) -> None:
+    session_dir = tmp_path / "session"
+    lock_path = session_dir / LOCK_FILE_NAME
+    monkeypatch.setattr(
+        "vibecomfy.comfy_nodes.agent.session.LOCK_LEASE_SECONDS",
+        0.3,
+    )
+
+    with SessionStateLock(session_dir):
+        first = json.loads(lock_path.read_text(encoding="utf-8"))["timestamp"]
+        time.sleep(0.4)
+        renewed = json.loads(lock_path.read_text(encoding="utf-8"))["timestamp"]
+        assert renewed > first
+
+    assert not lock_path.exists()
+
+
 def test_session_lock_live_owner_timeout(tmp_path: Path, monkeypatch) -> None:
     """When a lock is held by a live process on the same host, acquisition
     must time out rather than overwriting the live owner."""
@@ -10377,7 +10396,7 @@ def test_response_durability_explicit_v2_persists_canonical_plan_binding(
         "ops": [
             {
                 "op": "set_node_field",
-                "target": ["", "1", "widgets_values.0"],
+                "target": ["", "1", "filename_prefix"],
                 "value": "after",
             }
         ],
@@ -11859,13 +11878,30 @@ def _setup_v2_session_with_candidate(
     turn_id = str(allocation.context.turn_id)
     (allocation.turn_dir / "request.json").write_text(json.dumps(request), encoding="utf-8")
 
-    candidate_graph = {
-        "nodes": [{"id": 1, "type": "SaveImage", "widgets_values": ["v2-cand"]}],
-        "links": [],
+    submit_structural_hash = structural_graph_hash(request["graph"])
+    envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {
+                "op": "set_node_field",
+                "target": ["", "1", "filename_prefix"],
+                "value": "v2-cand",
+            }
+        ],
     }
+    from vibecomfy.porting.edit.apply_core import apply_delta
+    from vibecomfy.porting.edit.ops import normalize_delta_ops
+
+    applied = apply_delta(request["graph"], normalize_delta_ops(envelope))
+    assert applied.ok and applied.candidate is not None
+    candidate_graph = applied.candidate
     candidate_graph_hash = payload_hash(candidate_graph)
     structural_hash = structural_graph_hash(candidate_graph)
-    plan_hash = "a" * 64  # synthetic plan hash for testing (no special chars)
+    plan_hash = v2_mutation_plan_hash(
+        delta_ops_envelope=envelope,
+        structural_hash_before=submit_structural_hash,
+        structural_hash_after=structural_hash,
+    )
 
     record_idempotent_response(
         session_root=root,
@@ -11877,41 +11913,122 @@ def _setup_v2_session_with_candidate(
             "ok": True,
             "turn_id": turn_id,
             "graph": candidate_graph,
-            "delta_ops": [
-                {
-                    "op": "set_node_field",
-                    "target": ["nodes", "1", "widgets_values.0"],
-                    "value": "v2-cand",
-                }
-            ],
+            "candidate": {
+                "graph": candidate_graph,
+                "plan_hash": plan_hash,
+                "structural_hash_before": submit_structural_hash,
+                "structural_hash_after": structural_hash,
+            },
+            "eligibility": {"applyable": True},
+            "agent_edit_protocol": "v2_delta",
+            "delta_ops_envelope": envelope,
+            "delta_ops": list(envelope["ops"]),
         },
         response_path=allocation.turn_dir / "response.json",
         operation="edit",
         turn_id=turn_id,
     )
 
-    # Manually set the turn to candidate_ready state (V2 lifecycle).
-    # Also set the baseline to point to this turn so _normalize_baseline_state
-    # correctly resolves the structural baseline kind.
+    # Establish the pre-candidate submit graph as the accepted CAS baseline.
     state = read_state(root / session_id)
-    state["turns"][turn_id]["state"] = "candidate_ready"
-    state["turns"][turn_id]["candidate_graph_hash"] = candidate_graph_hash
-    state["turns"][turn_id]["candidate_structural_graph_hash"] = structural_hash
-    state["turns"][turn_id]["candidate_structural_graph_hash_version"] = (
-        STRUCTURAL_PROJECTION_VERSION
-    )
-    state["turns"][turn_id]["candidate_plan_hash"] = plan_hash
-    state["turns"][turn_id]["candidate_structural_hash_before"] = structural_hash
-    state["turns"][turn_id]["candidate_structural_hash_after"] = structural_hash
-    state["baseline_graph_hash"] = structural_hash
-    state["baseline_graph_hash_kind"] = "structural"
-    state["baseline_turn_id"] = turn_id
-    state["baseline_source"] = "turn"
-    state["baseline_graph_hash_version"] = STRUCTURAL_PROJECTION_VERSION
+    state["baseline_graph_hash"] = None
+    state["baseline_graph_hash_kind"] = None
+    state["baseline_turn_id"] = None
+    state["baseline_source"] = "none"
+    state["baseline_graph_hash_version"] = None
     state["next_generation"] = state.get("next_generation", 0) or 1
     write_state_atomic(root / session_id, state)
 
     return root, session_id, turn_id, candidate_graph_hash, structural_hash, plan_hash
+
+
+def prep_submit_hash(root: Path, session_id: str, turn_id: str) -> str:
+    return read_state(root / session_id)["turns"][turn_id]["submit_structural_graph_hash"]
+
+
+def canonical_candidate_graph(root: Path, session_id: str, turn_id: str) -> dict:
+    response = json.loads(
+        (root / session_id / "turns" / turn_id / "response.json").read_text(encoding="utf-8")
+    )
+    return response["candidate"]["graph"]
+
+
+def test_candidate_transaction_contract_survives_prepare_finalize_and_reload(
+    tmp_path: Path,
+) -> None:
+    root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+        _setup_v2_session_with_candidate(tmp_path)
+    )
+
+    candidate_reload = reconcile_turn_transactions(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+    candidate_tx = candidate_reload["transactions_by_turn"][turn_id]
+    assert candidate_tx["state"] == "candidate_ready"
+    assert candidate_tx["available_actions"] == ["apply", "reject"]
+
+    prepared = prepare_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={"plan_hash": plan_hash, "candidate_graph_hash": cand_hash},
+    )
+    assert isinstance(prepared, dict)
+    assert prepared["candidate_transaction"]["plan"] == candidate_tx["plan"]
+
+    # Mutable state is a rebuildable projection. Simulate an interrupted write
+    # and browser/backend restart, then require artifact reconciliation to
+    # recover the prepared lease and action set deterministically.
+    session_dir = root / session_id
+    stale_state = read_state(session_dir)
+    stale_state["turns"][turn_id]["state"] = "candidate_ready"
+    stale_state["prepared_transactions"] = {}
+    stale_state["apply_idempotency_records"] = {}
+    write_state_atomic(session_dir, stale_state)
+
+    prepared_reload = reconcile_turn_transactions(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+    prepared_tx = prepared_reload["transactions_by_turn"][turn_id]
+    assert prepared_tx["state"] == "prepared"
+    assert prepared_tx["available_actions"] == ["rollback"]
+    assert prepared_tx["generation"] == prepared["generation"]
+    assert turn_id in prepared_reload["prepared_transactions"]
+
+    post_apply_graph = canonical_candidate_graph(root, session_id, turn_id)
+    finalized = finalize_turn_transaction(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        request_payload={
+            "plan_hash": plan_hash,
+            "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
+            "post_apply_hash": structural_hash,
+            "post_apply_graph": post_apply_graph,
+            "applied_delta_hash": prepared_tx["plan"]["delta_hash"],
+            "post_apply_hash_verified": True,
+            "browser_verified": True,
+        },
+    )
+    assert isinstance(finalized, dict)
+    assert finalized["candidate_transaction"]["state"] == "finalized"
+
+    terminal_reload = reconcile_turn_transactions(
+        session_root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+    terminal_tx = terminal_reload["transactions_by_turn"][turn_id]
+    assert terminal_tx["state"] == "finalized"
+    assert terminal_tx["available_actions"] == []
+    recovered_state = read_state(session_dir)
+    assert recovered_state["turns"][turn_id]["state"] == "finalized"
+    assert recovered_state["baseline_graph_hash"] == structural_hash
 
 
 class TestPrepareTransaction:
@@ -11925,7 +12042,6 @@ class TestPrepareTransaction:
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
             _setup_v2_session_with_candidate(tmp_path)
         )
-
         prepare_payload = {
             "turn_id": turn_id,
             "plan_hash": plan_hash,
@@ -11966,11 +12082,11 @@ class TestPrepareTransaction:
 
         # Verify state: turn is now apply_prepared, baseline unchanged
         state = read_state(root / session_id)
-        assert state["turns"][turn_id]["state"] == "apply_prepared"
+        assert state["turns"][turn_id]["state"] == "prepared"
         assert state["turns"][turn_id]["prepared_plan_hash"] == plan_hash
         assert state["turns"][turn_id]["prepared_generation"] == result["generation"]
         assert state["turns"][turn_id]["prepared_lease_nonce"] == result["lease_nonce"]
-        assert state["baseline_graph_hash"] == structural_hash  # NOT advanced
+        assert state["baseline_graph_hash"] is None
 
         # Verify prepared_transactions index
         prepared = state.get("prepared_transactions", {}).get(turn_id)
@@ -12029,8 +12145,8 @@ class TestPrepareTransaction:
         assert not isinstance(result, dict)
         assert result.kind is FailureKind.STALE_STATE_MISMATCH
 
-    def test_prepare_fails_on_non_candidate_state(self, tmp_path: Path) -> None:
-        """Prepare on a turn not in candidate_ready/review_bound fails."""
+    def test_prepare_repairs_mutable_projection_from_durable_candidate(self, tmp_path: Path) -> None:
+        """A stale mutable turn projection cannot override durable authority."""
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
             _setup_v2_session_with_candidate(tmp_path)
         )
@@ -12045,8 +12161,8 @@ class TestPrepareTransaction:
             turn_id=turn_id,
             request_payload={"plan_hash": plan_hash},
         )
-        assert not isinstance(result, dict)
-        assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+        assert isinstance(result, dict)
+        assert result["phase"] == "prepared"
 
     def test_prepare_fails_on_candidate_hash_mismatch(self, tmp_path: Path) -> None:
         """Prepare fails when candidate_graph_hash does not match persisted."""
@@ -12072,8 +12188,7 @@ class TestPrepareTransaction:
         assert not isinstance(result, dict)
         assert result.kind is FailureKind.STALE_STATE_MISMATCH
 
-    def test_prepare_fails_on_not_applyable_eligibility(self, tmp_path: Path) -> None:
-        """Prepare fails when eligibility is not applyable."""
+    def test_prepare_ignores_browser_eligibility_as_authority(self, tmp_path: Path) -> None:
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
             _setup_v2_session_with_candidate(tmp_path)
         )
@@ -12093,11 +12208,10 @@ class TestPrepareTransaction:
                 },
             },
         )
-        assert not isinstance(result, dict)
-        assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+        assert isinstance(result, dict)
+        assert result["candidate_transaction"]["state"] == "prepared"
 
-    def test_prepare_fails_on_baseline_cas_mismatch(self, tmp_path: Path) -> None:
-        """Prepare fails when the current baseline does not match the CAS."""
+    def test_prepare_uses_persisted_baseline_not_browser_claim(self, tmp_path: Path) -> None:
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
             _setup_v2_session_with_candidate(tmp_path)
         )
@@ -12118,8 +12232,7 @@ class TestPrepareTransaction:
                 "structural_hash_before": "wrong-baseline-hash",
             },
         )
-        assert not isinstance(result, dict)
-        assert result.kind is FailureKind.STALE_STATE_MISMATCH
+        assert isinstance(result, dict)
 
     def test_prepare_rejects_already_prepared_turn(self, tmp_path: Path) -> None:
         """A second prepare on an already-prepared turn is rejected."""
@@ -12172,7 +12285,7 @@ class TestPrepareTransaction:
             },
         )
         assert not isinstance(result2, dict)
-        assert result2.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+        assert result2.kind is FailureKind.STALE_STATE_MISMATCH
 
     def test_prepare_generation_cas_fails_on_mismatch(self, tmp_path: Path) -> None:
         """Prepare with a generation expectation fails if it mismatches."""
@@ -12293,7 +12406,7 @@ class TestDiscardV2Candidate:
         assert rejected.kind is FailureKind.EDITOR_AHEAD_CONFLICT
         assert rejected.agent_failure_context["required_action"] == "rollback"
         state = read_state(session_dir_for(root, session_id))
-        assert state["turns"][turn_id]["state"] == "apply_prepared"
+        assert state["turns"][turn_id]["state"] == "prepared"
 
 
 class TestFinalizeTransaction:
@@ -12334,7 +12447,8 @@ class TestFinalizeTransaction:
         prep = self._prepare(root, session_id, turn_id, cand_hash, structural_hash, plan_hash)
         assert isinstance(prep, dict)
 
-        post_apply_hash = "post-apply-" + "c" * 48
+        post_apply_hash = structural_hash
+        post_apply_graph = canonical_candidate_graph(root, session_id, turn_id)
 
         result = finalize_turn_transaction(
             session_root=root,
@@ -12346,6 +12460,8 @@ class TestFinalizeTransaction:
                 "generation": prep["generation"],
                 "lease_nonce": prep["lease_nonce"],
                 "post_apply_hash": post_apply_hash,
+                "post_apply_graph": post_apply_graph,
+                "applied_delta_hash": prep["candidate_transaction"]["plan"]["delta_hash"],
                 "post_apply_hash_verified": True,
                 "browser_verified": True,
                 "expected_post_apply_hash": post_apply_hash,
@@ -12439,6 +12555,37 @@ class TestFinalizeTransaction:
         assert not isinstance(result, dict)
         assert result.kind is FailureKind.MISSING_REQUIRED_FIELD
 
+    def test_finalize_rejects_landed_delta_that_differs_from_persisted_plan(
+        self, tmp_path: Path
+    ) -> None:
+        root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+            _setup_v2_session_with_candidate(tmp_path)
+        )
+        prep = self._prepare(root, session_id, turn_id, cand_hash, structural_hash, plan_hash)
+        assert isinstance(prep, dict)
+
+        result = finalize_turn_transaction(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_payload={
+                "plan_hash": plan_hash,
+                "generation": prep["generation"],
+                "lease_nonce": prep["lease_nonce"],
+                "post_apply_hash": structural_hash,
+                "post_apply_graph": canonical_candidate_graph(root, session_id, turn_id),
+                "applied_delta_hash": "0" * 64,
+                "post_apply_hash_verified": True,
+                "browser_verified": True,
+            },
+        )
+
+        assert not isinstance(result, dict)
+        assert result.kind is FailureKind.STALE_STATE_MISMATCH
+        state = read_state(root / session_id)
+        assert state["turns"][turn_id]["state"] == "prepared"
+        assert state["baseline_graph_hash"] is None
+
     def test_finalize_idempotent_replay(self, tmp_path: Path) -> None:
         """Finalize replays the same result for identical (plan_hash, generation)."""
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
@@ -12448,7 +12595,7 @@ class TestFinalizeTransaction:
         prep = self._prepare(root, session_id, turn_id, cand_hash, structural_hash, plan_hash)
         assert isinstance(prep, dict)
 
-        post_apply_hash = "post-apply-" + "d" * 48
+        post_apply_hash = structural_hash
 
         payload = {
             "turn_id": turn_id,
@@ -12456,6 +12603,8 @@ class TestFinalizeTransaction:
             "generation": prep["generation"],
             "lease_nonce": prep["lease_nonce"],
             "post_apply_hash": post_apply_hash,
+            "post_apply_graph": canonical_candidate_graph(root, session_id, turn_id),
+            "applied_delta_hash": prep["candidate_transaction"]["plan"]["delta_hash"],
             "post_apply_hash_verified": True,
             "browser_verified": True,
             "expected_post_apply_hash": post_apply_hash,
@@ -12525,11 +12674,6 @@ class TestRollbackTransaction:
         prep = self._prepare(root, session_id, turn_id, cand_hash, structural_hash, plan_hash)
         assert isinstance(prep, dict)
 
-        # Modify baseline hash to simulate drift (this should be restored)
-        state = read_state(root / session_id)
-        state["baseline_graph_hash"] = "drifted-hash"
-        write_state_atomic(root / session_id, state)
-
         result = rollback_turn_transaction(
             session_root=root,
             session_id=session_id,
@@ -12537,13 +12681,14 @@ class TestRollbackTransaction:
             request_payload={
                 "plan_hash": plan_hash,
                 "generation": prep["generation"],
+                "lease_nonce": prep["lease_nonce"],
             },
         )
 
         assert isinstance(result, dict)
         assert result["ok"] is True
         assert result["action"] == "rollback"
-        assert result["phase"] == "rolled_back"
+        assert result["phase"] == "rollback_complete"
         assert "receipt" in result
 
         # Baseline should be restored to the prepare-time snapshot
@@ -12561,8 +12706,7 @@ class TestRollbackTransaction:
         assert isinstance(prep, dict)
 
         # Finalize the turn first
-        post_apply = "finalized-abc"
-        finalize_turn_transaction(
+        finalized = finalize_turn_transaction(
             session_root=root,
             session_id=session_id,
             turn_id=turn_id,
@@ -12570,12 +12714,15 @@ class TestRollbackTransaction:
                 "plan_hash": plan_hash,
                 "generation": prep["generation"],
                 "lease_nonce": prep["lease_nonce"],
-                "post_apply_hash": post_apply,
+                "post_apply_hash": structural_hash,
+                "post_apply_graph": canonical_candidate_graph(root, session_id, turn_id),
+                "applied_delta_hash": prep["candidate_transaction"]["plan"]["delta_hash"],
                 "post_apply_hash_verified": True,
                 "browser_verified": True,
-                "expected_post_apply_hash": post_apply,
+                "expected_post_apply_hash": structural_hash,
             },
         )
+        assert isinstance(finalized, dict) and finalized["ok"] is True
 
         # Now try to rollback — should fail
         result = rollback_turn_transaction(
@@ -12585,10 +12732,12 @@ class TestRollbackTransaction:
             request_payload={
                 "plan_hash": plan_hash,
                 "generation": prep["generation"],
+                "lease_nonce": prep["lease_nonce"],
             },
         )
-        assert not isinstance(result, dict)
-        assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+        assert isinstance(result, dict)
+        assert result["ok"] is False
+        assert result["terminal_conflict"] is True
 
     def test_rollback_fails_without_active_prepared(self, tmp_path: Path) -> None:
         """Rollback fails when no prepared transaction exists."""
@@ -12604,6 +12753,30 @@ class TestRollbackTransaction:
         )
         assert not isinstance(result, dict)
         assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+
+    def test_rollback_requires_the_prepared_lease_nonce(self, tmp_path: Path) -> None:
+        root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
+            _setup_v2_session_with_candidate(tmp_path)
+        )
+        prep = self._prepare(root, session_id, turn_id, cand_hash, structural_hash, plan_hash)
+        assert isinstance(prep, dict)
+
+        result = rollback_turn_transaction(
+            session_root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_payload={
+                "plan_hash": plan_hash,
+                "generation": prep["generation"],
+                "lease_nonce": "wrong-lease",
+            },
+        )
+
+        assert not isinstance(result, dict)
+        assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
+        state = read_state(root / session_id)
+        assert state["turns"][turn_id]["state"] == "prepared"
+        assert turn_id in state["prepared_transactions"]
 
     def test_rollback_persists_browser_compensation_evidence(self, tmp_path: Path) -> None:
         """Automatic rollback cause and verified canvas restore survive rehydration."""
@@ -12632,6 +12805,7 @@ class TestRollbackTransaction:
             request_payload={
                 "plan_hash": plan_hash,
                 "generation": prep["generation"],
+                "lease_nonce": prep["lease_nonce"],
                 "compensation": compensation,
             },
         )
@@ -12666,6 +12840,7 @@ class TestRollbackTransaction:
             request_payload={
                 "plan_hash": plan_hash,
                 "generation": prep["generation"],
+                "lease_nonce": prep["lease_nonce"],
                 "compensation": {
                     "trigger_stage": "post_apply_verification",
                     "canvas_was_mutated": True,
@@ -12680,7 +12855,7 @@ class TestRollbackTransaction:
         assert not isinstance(result, dict)
         assert result.kind is FailureKind.VALIDATION_ERROR
         state = read_state(root / session_id)
-        assert state["turns"][turn_id]["state"] == "apply_prepared"
+        assert state["turns"][turn_id]["state"] == "prepared"
         assert turn_id in state["prepared_transactions"]
 
 
@@ -12720,7 +12895,7 @@ class TestReconcileTransactions:
         )
         assert isinstance(prep, dict)
 
-        finalize_turn_transaction(
+        finalized = finalize_turn_transaction(
             session_root=root,
             session_id=session_id,
             turn_id=turn_id,
@@ -12728,12 +12903,15 @@ class TestReconcileTransactions:
                 "plan_hash": plan_hash,
                 "generation": prep["generation"],
                 "lease_nonce": prep["lease_nonce"],
-                "post_apply_hash": "reconcile-test-hash",
+                "post_apply_hash": structural_hash,
+                "post_apply_graph": canonical_candidate_graph(root, session_id, turn_id),
+                "applied_delta_hash": prep["candidate_transaction"]["plan"]["delta_hash"],
                 "post_apply_hash_verified": True,
                 "browser_verified": True,
-                "expected_post_apply_hash": "reconcile-test-hash",
+                "expected_post_apply_hash": structural_hash,
             },
         )
+        assert isinstance(finalized, dict)
 
         result = reconcile_turn_transactions(
             session_root=root,
@@ -12809,6 +12987,7 @@ class TestAcceptNoBaselineAdvance:
         root, session_id, turn_id, cand_hash, structural_hash, plan_hash = (
             _setup_v2_session_with_candidate(tmp_path)
         )
+        baseline_before = read_state(root / session_id)["baseline_graph_hash"]
 
         result = accept_turn(
             session_root=root,
@@ -12829,7 +13008,7 @@ class TestAcceptNoBaselineAdvance:
 
         # Baseline MUST NOT have advanced
         state = read_state(root / session_id)
-        assert state["baseline_graph_hash"] == structural_hash
+        assert state["baseline_graph_hash"] == baseline_before
         assert state["turns"][turn_id]["state"] == "candidate_ready"
 
     def test_accept_on_apply_prepared_delegates_to_finalize(
@@ -12911,7 +13090,7 @@ class TestAcceptNoBaselineAdvance:
             # Bridge blocked, baseline unchanged
             assert result.kind is FailureKind.EDITOR_AHEAD_CONFLICT
             assert state_after["baseline_graph_hash"] == baseline_before
-            assert state_after["turns"][turn_id]["state"] == "apply_prepared"
+            assert state_after["turns"][turn_id]["state"] == "prepared"
 
     def test_accept_bridge_increments_counter(self, tmp_path: Path) -> None:
         """The accept-to-finalize bridge counter observable is present when

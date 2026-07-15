@@ -745,6 +745,9 @@ export function commitFinalizeSuccess(panel, payload = {}) {
   return transition(panel, "FINALIZE_SUCCESS", {
     receipt: payload.receipt || payload.finalizedReceipt || null,
     accepted: payload.accepted || payload.receipt || null,
+    ...(payload.candidateTransaction !== undefined
+      ? { candidateTransaction: payload.candidateTransaction }
+      : {}),
     ...(payload.lastAppliedChanges !== undefined ? { lastAppliedChanges: payload.lastAppliedChanges } : {}),
     ...(payload.undoStackDepth !== undefined ? { undoStackDepth: payload.undoStackDepth } : {}),
     ...(payload.toast !== undefined ? { toast: payload.toast } : {}),
@@ -786,6 +789,9 @@ export function commitRollbackStarted(panel, payload = {}) {
 export function commitRollbackSuccess(panel, payload = {}) {
   return transition(panel, "ROLLBACK_SUCCESS", {
     receipt: payload.receipt || payload.rollbackReceipt || null,
+    ...(payload.candidateTransaction !== undefined
+      ? { candidateTransaction: payload.candidateTransaction }
+      : {}),
     ...(payload.message !== undefined ? { message: payload.message } : {}),
     ...(payload.toast !== undefined ? { toast: payload.toast } : {}),
     ...(payload.debugPayload !== undefined ? { debugPayload: payload.debugPayload } : {}),

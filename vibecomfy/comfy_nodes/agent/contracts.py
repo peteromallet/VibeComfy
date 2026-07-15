@@ -69,6 +69,7 @@ TURN_OUTCOME_KINDS: tuple[str, ...] = (
 
 PUBLIC_OUTCOME_KINDS: tuple[str, ...] = (
     "candidate",
+    "candidate_transaction",
     "noop",
     "clarify",
     "error",
@@ -164,6 +165,7 @@ PUBLIC_RESPONSE_DETAIL_FIELDS: tuple[str, ...] = (
     "user_facing_message",
     "outcome",
     "candidate",
+    "candidate_transaction",
     "graph",
     "apply_eligibility",
     "eligibility",
@@ -221,6 +223,7 @@ PUBLIC_LATEST_TURN_LIFECYCLE_FIELDS: tuple[str, ...] = (
     "candidate_plan_hash",
     "candidate_graph_hash",
     "disposition",
+    "candidate_transaction",
 )
 
 PUBLIC_TRANSACTION_EVENT_FIELDS: tuple[str, ...] = (

@@ -15,6 +15,21 @@ trigger.
 
 ## Backend compatibility paths
 
+### Aggregate-free agent-edit candidates (read-only)
+
+- **Owner**: `vibecomfy_roundtrip.js` migration adapter and response normalizer.
+- **Purpose**: Historical V1 candidates can still be displayed, but cannot
+  enter Apply or Reject action endpoints. All new V2 candidates require
+  `candidate_transaction_v1` and the live scoped executor.
+- **Caller evidence**: Old persisted sessions and characterization fixtures may
+  omit `candidate_transaction`.
+- **Fixture coverage**: missing-plan/read-only cases in
+  `tests/browser/roundtrip_smoke.test.mjs` and response-contract legacy fixtures.
+- **Deletion trigger**: Every supported persisted session has been migrated or
+  aged out, and no rehydrate fixture contains an aggregate-free candidate. At
+  that point delete the adapter and the unreachable legacy whole-graph Apply
+  implementation together.
+
 ### `build_legacy_agent_edit_v1`
 
 - **Owner**: `vibecomfy/comfy_nodes/agent/contracts.py`

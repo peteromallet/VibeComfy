@@ -1459,6 +1459,7 @@ const CURATED_PROJECTION_FIELDS = [
   "clientGraphHash",
   "clientStructuralGraphHash",
   "latestCandidate",
+  "candidateTransaction",
   "messages",
   "sessionPath",
   "sessionPathResolved",

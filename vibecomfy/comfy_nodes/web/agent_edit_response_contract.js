@@ -1,3 +1,5 @@
+import { readCandidateTransaction as readCanonicalCandidateTransaction } from "./agent_edit_transaction.js";
+
 const PUBLIC_OUTCOME_KINDS = Object.freeze([
   "candidate",
   "noop",
@@ -967,6 +969,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     customNodeResolution: normalizeCustomNodeResolutionPayload(outcome),
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
+    candidateTransaction: readCanonicalCandidateTransaction(raw),
     candidateGraphHash:
       asString(raw.candidateGraphHash) || asString(raw.candidate_graph_hash),
     eligibility,
@@ -1068,6 +1071,14 @@ export function readCandidate(value, options) {
 
 export function readCandidateGraph(value, options) {
   return normalizeIfNeeded(value, options).candidateGraph;
+}
+
+export function readCandidateTransaction(value) {
+  // Transaction authority is self-identifying and can be read from canonical
+  // response, rehydrate, or lifecycle envelopes directly. Do not force
+  // auxiliary payloads (for example rebaseline responses) through the edit
+  // outcome normalizer merely because they do not carry a transaction.
+  return readCanonicalCandidateTransaction(value);
 }
 
 export function readEligibility(value, options) {

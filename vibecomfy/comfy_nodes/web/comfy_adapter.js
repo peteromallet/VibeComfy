@@ -684,9 +684,8 @@ function withoutSerializedLinkReferences(nodePayload) {
 }
 
 function appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan) {
-  const addedIds = new Set(
-    plan.filter((step) => step.op === "add_node").map((step) => String(step.nodePayload.id)),
-  );
+  const addedSteps = plan.filter((step) => step.op === "add_node");
+  const addedIds = new Set(addedSteps.map((step) => String(step.nodePayload.id)));
   if (addedIds.size === 0) return;
   const links = iterateLinkRecords(candidateGraph)
     .filter((link) => addedIds.has(String(link.origin_id)) || addedIds.has(String(link.target_id)))
@@ -702,7 +701,22 @@ function appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan) {
       && String(step.link?.target_id) === String(link.target_id)
       && Number(step.link?.target_slot) === Number(link.target_slot));
     if (!alreadyPlanned) {
-      plan.push({ op: "upsert_link", link: { ...link }, derivedFromAddNode: true });
+      // Attribute a derived edge to the latest persisted add_node needed for
+      // that edge. This guarantees every endpoint exists before the edge is
+      // executed while preserving monotonic persisted-op provenance.
+      const sourceStep = addedSteps
+        .filter(
+          (step) => String(step.nodePayload.id) === String(link.origin_id)
+            || String(step.nodePayload.id) === String(link.target_id),
+        )
+        .sort((left, right) => right.source_op_index - left.source_op_index)[0];
+      plan.push({
+        op: "upsert_link",
+        link: { ...link },
+        derivedFromAddNode: true,
+        source_op_index: sourceStep?.source_op_index ?? null,
+        source_op_kind: "add_node",
+      });
     }
   }
 }
@@ -1033,8 +1047,10 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
 
   const workingGraph = cloneJson(liveGraphSnapshot) || { nodes: [], links: [] };
   const plan = [];
-  for (const op of deltaOps) {
+  for (let sourceOpIndex = 0; sourceOpIndex < deltaOps.length; sourceOpIndex += 1) {
+    const op = deltaOps[sourceOpIndex];
     const opKind = op.op;
+    const authority = { source_op_index: sourceOpIndex, source_op_kind: opKind };
     if (opKind === "set_node_field") {
       const parsed = parseNodeTarget(op.target);
       requireRootScope(parsed, opKind);
@@ -1045,7 +1061,7 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       const desiredValue = getNodeFieldValue(resolveNodeFromGraph(candidateGraph, parsed.uidOrId) || node, parsed.rest);
       const fieldPath = parsed.rest.slice();
       setNodeFieldValue(node, fieldPath, desiredValue);
-      plan.push({ op: opKind, uidOrId: parsed.uidOrId, fieldPath, value: cloneJson(desiredValue) });
+      plan.push({ op: opKind, uidOrId: parsed.uidOrId, fieldPath, value: cloneJson(desiredValue), ...authority });
       continue;
     }
     if (opKind === "set_mode") {
@@ -1057,13 +1073,13 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
         throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for set_mode.`);
       }
       node.mode = candidateNode.mode ?? op.mode ?? op.value;
-      plan.push({ op: opKind, uidOrId: parsed.uidOrId, mode: node.mode });
+      plan.push({ op: opKind, uidOrId: parsed.uidOrId, mode: node.mode, ...authority });
       continue;
     }
     if (opKind === "upsert_link") {
       const link = findCandidateLinkForOp(candidateGraph, op);
       upsertLinkInSerializedGraph(workingGraph, link);
-      plan.push({ op: opKind, link: cloneJson(link) });
+      plan.push({ op: opKind, link: cloneJson(link), ...authority });
       continue;
     }
     if (opKind === "remove_link") {
@@ -1071,11 +1087,11 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       const target = resolveEndpoint(workingGraph, targetRef, "to");
       const existing = findExistingLinkByTarget(workingGraph, target.nodeId, target.slotIndex);
       if (!existing) {
-        plan.push({ op: opKind, linkId: null, targetUidOrId: target.uid || String(target.nodeId), targetSlot: target.slotIndex });
+        plan.push({ op: opKind, linkId: null, targetUidOrId: target.uid || String(target.nodeId), targetSlot: target.slotIndex, ...authority });
         continue;
       }
       removeLinkFromSerializedGraph(workingGraph, existing.id);
-      plan.push({ op: opKind, linkId: existing.id, targetUidOrId: target.uid || String(target.nodeId), targetSlot: target.slotIndex });
+      plan.push({ op: opKind, linkId: existing.id, targetUidOrId: target.uid || String(target.nodeId), targetSlot: target.slotIndex, ...authority });
       continue;
     }
     if (opKind === "add_node") {
@@ -1092,7 +1108,7 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       // Links are applied as explicit follow-up operations once every endpoint
       // exists. Passing candidate link ids into native configure() first can
       // corrupt LiteGraph's link index (and has caused recursive failures).
-      plan.push({ op: opKind, nodePayload: withoutSerializedLinkReferences(nodePayload) });
+      plan.push({ op: opKind, nodePayload: withoutSerializedLinkReferences(nodePayload), ...authority });
       continue;
     }
     if (opKind === "remove_node") {
@@ -1100,7 +1116,7 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       requireRootScope(parsed, opKind);
       const node = resolveNodeFromGraph(workingGraph, parsed.uidOrId);
       if (!node) {
-        plan.push({ op: opKind, uidOrId: parsed.uidOrId, alreadyAbsent: true });
+        plan.push({ op: opKind, uidOrId: parsed.uidOrId, alreadyAbsent: true, ...authority });
         continue;
       }
       const linkRecords = iterateLinkRecords(workingGraph).filter(
@@ -1110,13 +1126,22 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
         removeLinkFromSerializedGraph(workingGraph, link.id);
       }
       workingGraph.nodes = workingGraph.nodes.filter((entry) => entry !== node);
-      plan.push({ op: opKind, uidOrId: parsed.uidOrId, alreadyAbsent: false });
+      plan.push({ op: opKind, uidOrId: parsed.uidOrId, alreadyAbsent: false, ...authority });
       continue;
     }
     throw new Error(`Unsupported delta op kind ${opKind}.`);
   }
 
   appendCandidateLinksForAddedNodes(workingGraph, candidateGraph, plan);
+  // Derived link materialization belongs to the add_node operation that
+  // authored it.  appendCandidateLinksForAddedNodes runs after every
+  // explicit op so all endpoints are known; restore persisted operation
+  // order before execution/audit while keeping the primary step first.
+  plan.sort((left, right) => {
+    const sourceOrder = left.source_op_index - right.source_op_index;
+    if (sourceOrder !== 0) return sourceOrder;
+    return Number(left.derivedFromAddNode === true) - Number(right.derivedFromAddNode === true);
+  });
 
   // Verify candidate graph consistency with the delta ops after planning.
   verifyCandidateGraphConsistency(candidateGraph, deltaOps);
