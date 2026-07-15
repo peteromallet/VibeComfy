@@ -51,6 +51,7 @@ from vibecomfy.porting.reorganise.compile import (
     _layout_primary_rows,
     _node_size_for_ref,
     _resolve_group_collisions,
+    _resolve_cross_band_section_collisions,
     _spacing,
     _validate_pinned_preservation,
     CompiledGroupLayout,
@@ -3734,6 +3735,100 @@ def test_group_collision_repair_recomputes_groups_with_compile_options(monkeypat
 
     assert seen["options"] is options
     assert seen["shifted_y"][1] > node_layouts[1].y
+
+
+def test_final_cross_band_repair_clears_collisions_reintroduced_by_group_reflow() -> None:
+    """Semantic bands cannot excuse overlap in the final physical layout."""
+    loader_ref = CanonicalNodeRef("", "loader")
+    custom_ref = CanonicalNodeRef("", "custom")
+    sections = (
+        _CompileSection(
+            id="loaders",
+            kind="loaders",
+            title="Loaders",
+            role_hint="loader",
+            node_refs=(loader_ref,),
+        ),
+        _CompileSection(
+            id="custom",
+            kind="custom",
+            title="Custom",
+            role_hint=ROLE_HINT_UNKNOWN,
+            node_refs=(custom_ref,),
+        ),
+    )
+    node_layouts = (
+        CompiledNodeLayout(
+            ref=loader_ref,
+            section_id="loaders",
+            role_hint="loader",
+            x=100,
+            y=100,
+            width=300,
+            height=100,
+        ),
+        CompiledNodeLayout(
+            ref=custom_ref,
+            section_id="custom",
+            role_hint=ROLE_HINT_UNKNOWN,
+            x=120,
+            y=120,
+            width=260,
+            height=100,
+        ),
+    )
+    group_layouts = (
+        CompiledGroupLayout(
+            id="loaders",
+            scope_path="",
+            title="Loaders",
+            kind="loaders",
+            role_hint="loader",
+            node_refs=(loader_ref,),
+            x=60,
+            y=24,
+            width=380,
+            height=216,
+            color="#686f78",
+        ),
+        CompiledGroupLayout(
+            id="custom",
+            scope_path="",
+            title="Custom",
+            kind="custom",
+            role_hint=ROLE_HINT_UNKNOWN,
+            node_refs=(custom_ref,),
+            x=80,
+            y=44,
+            width=340,
+            height=216,
+            color="#646464",
+        ),
+    )
+    facts = extract_graph_facts(
+        {
+            "nodes": [
+                _node(1, "VAELoader", "loader"),
+                _node(2, "LineArtPreprocessor", "custom"),
+            ],
+            "links": [],
+        }
+    )
+    spacing = _spacing("balanced")
+
+    repaired_nodes, repaired_groups = _resolve_cross_band_section_collisions(
+        sections,
+        node_layouts,
+        group_layouts,
+        facts,
+        spacing,
+        LayoutCompileOptions(),
+    )
+
+    layouts = {layout.ref.uid: layout for layout in repaired_nodes}
+    assert not _rects_overlap_or_touch(layouts["loader"], layouts["custom"], gutter=32)
+    groups = {group.id: group for group in repaired_groups}
+    assert not _rects_overlap_or_touch(groups["loaders"], groups["custom"], gutter=32)
 
 
 def test_structural_expectations_reject_overlaps_via_report() -> None:

@@ -2205,6 +2205,18 @@ def _layout_sections_with_phases(
             spacing,
             layout_options,
         )
+    # Group repair moves whole sections after the initial node-collision pass.
+    # If independently packed semantic bands now occupy the same real pixels,
+    # move the affected whole section sideways so both node and group geometry
+    # remain coherent.
+    node_layouts, group_layouts = _resolve_cross_band_section_collisions(
+        sections,
+        node_layouts,
+        group_layouts,
+        facts,
+        spacing,
+        layout_options,
+    )
     group_layouts = _filter_group_layouts_for_policy(group_layouts, facts, layout_options)
     return _CompiledLayoutPlacement(
         node_layouts=tuple(sorted(node_layouts, key=lambda layout: _ref_sort_key(layout.ref))),
@@ -6061,7 +6073,6 @@ def _resolve_node_collisions(
     spacing: _Spacing,
 ) -> tuple[CompiledNodeLayout, ...]:
     helper_refs = {fact.ref for fact in facts.canonical_refs if fact.is_helper}
-    # Derive band assignments to keep cross-band nodes from needlessly pushing each other
     band_by_ref = _derive_node_bands_for_collision(facts, node_layouts)
     rounded = tuple(_rounded_node_layout(layout) for layout in node_layouts)
     pinned = tuple(sorted((layout for layout in rounded if layout.pinned), key=_node_collision_sort_key))
@@ -6071,9 +6082,9 @@ def _resolve_node_collisions(
 
     for layout in movable:
         layout_band = band_by_ref.get(layout.ref)
-        # Filter obstacles to only those in vertically-intersecting bands
         band_obstacles = [
-            obstacle for obstacle in obstacles
+            obstacle
+            for obstacle in obstacles
             if _bands_intersect_vertically(layout_band, band_by_ref.get(obstacle.ref))
         ]
         if layout.ref in helper_refs:
@@ -6101,15 +6112,7 @@ def _derive_node_bands_for_collision(
     facts: GraphInventoryFacts,
     node_layouts: Sequence[CompiledNodeLayout],
 ) -> dict[CanonicalNodeRef, int | None]:
-    """Assign band numbers to nodes using section-based and class-type heuristics.
-
-    Band -1: model-pipe loaders (checkpoints, VAEs, CLIP, etc.)
-    Band  0: primary pipeline nodes
-    Band  1: helpers / utility / UI nodes
-    """
-    section_by_id: dict[str, _CompileSection | None] = {}
-    # Use section_id from node layouts to look up band from the section (if we had sections)
-    # Fall back to class-type heuristics
+    """Assign semantic band numbers used during the initial layout pass."""
     bands: dict[CanonicalNodeRef, int | None] = {}
     model_tokens = {"checkpoint", "clip", "lora", "unet", "vae", "model"}
     helper_refs = {fact.ref for fact in facts.canonical_refs if fact.is_helper}
@@ -6319,7 +6322,7 @@ def _resolve_group_collisions(
     band_by_section = {
         section.id: (
             _huge_wall_band(section)
-            if getattr(options, "force_regroup", False)  # proxy for huge-mode path
+            if getattr(options, "force_regroup", False)
             else _section_band(section, facts)
         )
         for section in sections
@@ -6370,15 +6373,143 @@ def _resolve_group_collisions(
     return shifted_nodes, shifted_groups
 
 
-def _bands_intersect_vertically(band_a: int | None, band_b: int | None) -> bool:
-    """Two bands intersect vertically if they are the same or adjacent.
+def _resolve_cross_band_section_collisions(
+    sections: Sequence[_CompileSection],
+    node_layouts: Sequence[CompiledNodeLayout],
+    group_layouts: Sequence[CompiledGroupLayout],
+    facts: GraphInventoryFacts,
+    spacing: _Spacing,
+    options: LayoutCompileOptions,
+) -> tuple[tuple[CompiledNodeLayout, ...], tuple[CompiledGroupLayout, ...]]:
+    """Repair real node collisions hidden by semantic-band placement hints."""
+    section_by_id = {section.id: section for section in sections}
+    groups = {
+        group.id: group
+        for group in group_layouts
+        if group.id in section_by_id
+    }
+    if len(groups) < 2:
+        return tuple(node_layouts), tuple(group_layouts)
 
-    Bands are treated as layers stacked in y; band -1 (model pipes) sits
-    above band 0 (main), band 0 sits above band 1 (helpers/utility).
-    Non-overlapping bands never need collision resolution.
-    """
+    nodes_by_section: dict[str, tuple[CompiledNodeLayout, ...]] = {
+        section_id: tuple(layout for layout in node_layouts if layout.section_id == section_id)
+        for section_id in groups
+    }
+    band_by_section = {
+        section.id: (
+            _huge_wall_band(section)
+            if getattr(options, "force_regroup", False)
+            else _section_band(section, facts)
+        )
+        for section in sections
+    }
+    pinned_by_section = {
+        section_id: any(layout.pinned for layout in layouts)
+        for section_id, layouts in nodes_by_section.items()
+    }
+    placed: list[tuple[CompiledGroupLayout, tuple[CompiledNodeLayout, ...]]] = []
+    shift_x_by_section: dict[str, int] = {}
+    for group in sorted(
+        groups.values(),
+        key=lambda item: (0 if pinned_by_section.get(item.id) else 1, item.x, item.y, item.id),
+    ):
+        shift_x = 0
+        candidate_group = group
+        candidate_nodes = nodes_by_section.get(group.id, ())
+        for _pass in range(len(placed) + 1):
+            collisions = [
+                (obstacle_group, obstacle_nodes)
+                for obstacle_group, obstacle_nodes in placed
+                if not _bands_intersect_vertically(
+                    band_by_section.get(group.id),
+                    band_by_section.get(obstacle_group.id),
+                )
+                and _node_sets_violate_gutter(candidate_nodes, obstacle_nodes)
+            ]
+            if not collisions:
+                break
+            if pinned_by_section.get(group.id):
+                # Pinned geometry is authoritative.  A later movable section
+                # can clear this obstacle; two pinned sections must fail the
+                # normal validation gate instead of being silently moved.
+                break
+            next_x = max(
+                obstacle_group.x
+                + obstacle_group.width
+                + MIN_GROUP_GUTTER
+                + spacing.group_padding * 2
+                for obstacle_group, _obstacle_nodes in collisions
+            )
+            delta = max(0, next_x - candidate_group.x)
+            shift_x += delta
+            candidate_group = _shift_group_layout_x(group, shift_x)
+            candidate_nodes = tuple(
+                _shift_node_layout_x(layout, shift_x)
+                for layout in nodes_by_section.get(group.id, ())
+            )
+        shift_x_by_section[group.id] = shift_x
+        placed.append((candidate_group, candidate_nodes))
+
+    if not any(shift_x_by_section.values()):
+        return tuple(node_layouts), tuple(group_layouts)
+    shifted_nodes = tuple(
+        _shift_node_layout_x(layout, shift_x_by_section.get(layout.section_id, 0))
+        for layout in node_layouts
+    )
+    shifted_groups = _compiled_group_layouts(sections, shifted_nodes, facts, spacing, options)
+    return shifted_nodes, shifted_groups
+
+
+def _node_sets_violate_gutter(
+    left: Sequence[CompiledNodeLayout],
+    right: Sequence[CompiledNodeLayout],
+) -> bool:
+    return any(
+        _layouts_violate_gutter(left_layout, right_layout, MIN_NODE_GUTTER)
+        for left_layout in left
+        for right_layout in right
+    )
+
+
+def _shift_node_layout_x(layout: CompiledNodeLayout, dx: int) -> CompiledNodeLayout:
+    if dx == 0:
+        return layout
+    return CompiledNodeLayout(
+        ref=layout.ref,
+        section_id=layout.section_id,
+        role_hint=layout.role_hint,
+        x=layout.x + dx,
+        y=layout.y,
+        width=layout.width,
+        height=layout.height,
+        pinned=layout.pinned,
+        auto_collapsed=layout.auto_collapsed,
+    )
+
+
+def _shift_group_layout_x(group: CompiledGroupLayout, dx: int) -> CompiledGroupLayout:
+    if dx == 0:
+        return group
+    return CompiledGroupLayout(
+        id=group.id,
+        scope_path=group.scope_path,
+        title=group.title,
+        kind=group.kind,
+        role_hint=group.role_hint,
+        node_refs=group.node_refs,
+        x=group.x + dx,
+        y=group.y,
+        width=group.width,
+        height=group.height,
+        color=group.color,
+        template=group.template,
+    )
+
+
+def _bands_intersect_vertically(band_a: int | None, band_b: int | None) -> bool:
+    """Return whether semantic bands should interact during initial packing."""
     if band_a is None or band_b is None:
-        return True  # conservative: treat unknown bands as potentially colliding
+        return True
     return abs(band_a - band_b) <= 1
 
 
