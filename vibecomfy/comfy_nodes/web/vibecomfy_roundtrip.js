@@ -346,7 +346,12 @@ console.log("[vibecomfy] vibecomfy_roundtrip_main.mjs module evaluated");
 // matching FailureKind.
 
 const SUPPORTED_FRONTEND = "1.39.x";
-export const DEFAULT_SUBMIT_DEADLINE_MS = 30000;
+// A single backend model worker may legitimately run for 180 seconds
+// (VIBECOMFY_AGENT_TURN_TIMEOUT).  The browser watchdog therefore measures
+// *inactivity*, not total request duration, and leaves a small transport / job
+// scheduling margin beyond the worker's own timeout.
+export const DEFAULT_SUBMIT_DEADLINE_MS = 210000;
+export const DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS = 900000;
 export const DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT = 1;
 
 const DEFAULT_SUBMIT_WATCHDOG_DEPS = Object.freeze({
@@ -365,12 +370,17 @@ const DEFAULT_SUBMIT_WATCHDOG_DEPS = Object.freeze({
     }
   },
   submitDeadlineMs: DEFAULT_SUBMIT_DEADLINE_MS,
+  submitAbsoluteDeadlineMs: DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS,
   submitAutomaticRetryCount: DEFAULT_SUBMIT_AUTOMATIC_RETRY_COUNT,
 });
 
 const submitWatchdogDepsState = {
   ...DEFAULT_SUBMIT_WATCHDOG_DEPS,
 };
+
+// Live watchdog timestamps intentionally stay outside lifecycle state: they
+// describe an in-memory fetch and must never be rehydrated after a reload.
+const submitActivityByPanel = new WeakMap();
 
 const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
@@ -510,6 +520,9 @@ export function configureSubmitWatchdogDeps(overrides = {}) {
   if (Number.isFinite(overrides.submitDeadlineMs) && Number(overrides.submitDeadlineMs) > 0) {
     submitWatchdogDepsState.submitDeadlineMs = Number(overrides.submitDeadlineMs);
   }
+  if (Number.isFinite(overrides.submitAbsoluteDeadlineMs) && Number(overrides.submitAbsoluteDeadlineMs) > 0) {
+    submitWatchdogDepsState.submitAbsoluteDeadlineMs = Number(overrides.submitAbsoluteDeadlineMs);
+  }
   if (Number.isFinite(overrides.submitAutomaticRetryCount) && Number(overrides.submitAutomaticRetryCount) >= 0) {
     submitWatchdogDepsState.submitAutomaticRetryCount = Number(overrides.submitAutomaticRetryCount);
   }
@@ -521,6 +534,7 @@ export function resetSubmitWatchdogDeps() {
   submitWatchdogDepsState.setTimeoutFn = DEFAULT_SUBMIT_WATCHDOG_DEPS.setTimeoutFn;
   submitWatchdogDepsState.clearTimeoutFn = DEFAULT_SUBMIT_WATCHDOG_DEPS.clearTimeoutFn;
   submitWatchdogDepsState.submitDeadlineMs = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitDeadlineMs;
+  submitWatchdogDepsState.submitAbsoluteDeadlineMs = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitAbsoluteDeadlineMs;
   submitWatchdogDepsState.submitAutomaticRetryCount = DEFAULT_SUBMIT_WATCHDOG_DEPS.submitAutomaticRetryCount;
   return { ...submitWatchdogDepsState };
 }
@@ -6558,6 +6572,7 @@ function handleAgentTurnEvent(event) {
   if (!normalized) {
     return;
   }
+  recordSubmitActivity(panel);
   // Use the canonical activity state for executor progress (derived compatibility).
   if (canonicalActivity?.phase_progress) {
     panel.state.executorProgress = canonicalActivity.phase_progress;
@@ -6611,6 +6626,7 @@ function handleExecutorPhaseEvent(event) {
   if (!progress) {
     return;
   }
+  recordSubmitActivity(panel);
 
   // Always update executor progress for the meta row (legacy compatibility).
   panel.state.executorProgress = progress;
@@ -9198,6 +9214,14 @@ function currentSubmitDeadlineMs(panel = null) {
   return DEFAULT_SUBMIT_DEADLINE_MS;
 }
 
+function currentSubmitAbsoluteDeadlineMs() {
+  const configuredDeadlineMs = Number(submitWatchdogDepsState.submitAbsoluteDeadlineMs);
+  if (Number.isFinite(configuredDeadlineMs) && configuredDeadlineMs > 0) {
+    return configuredDeadlineMs;
+  }
+  return DEFAULT_SUBMIT_ABSOLUTE_DEADLINE_MS;
+}
+
 function currentSubmitAutomaticRetryCount() {
   const configuredRetryCount = Number(submitWatchdogDepsState.submitAutomaticRetryCount);
   if (Number.isFinite(configuredRetryCount) && configuredRetryCount >= 0) {
@@ -9208,6 +9232,28 @@ function currentSubmitAutomaticRetryCount() {
 
 function currentSubmitNowMs() {
   return Number(submitWatchdogDepsState.nowMs());
+}
+
+function beginSubmitActivity(panel, submitEpoch) {
+  const nowMs = currentSubmitNowMs();
+  submitActivityByPanel.set(panel, {
+    submitEpoch,
+    startedAtMs: nowMs,
+    lastActivityAtMs: nowMs,
+  });
+  return nowMs;
+}
+
+function recordSubmitActivity(panel) {
+  if (!panel?.state || panel.state.phase !== PANEL_STATE.SUBMITTING) {
+    return false;
+  }
+  const activity = submitActivityByPanel.get(panel);
+  if (!activity || activity.submitEpoch !== panel.state.submitEpoch) {
+    return false;
+  }
+  activity.lastActivityAtMs = currentSubmitNowMs();
+  return true;
 }
 
 function readSubmitFailureMessage(error) {
@@ -9274,18 +9320,22 @@ function mergeSubmitFailureContext(error, diagnosticContext = {}) {
   return merged;
 }
 
-function buildSubmitTimeoutFailure(panel, snapshot, deadlineMs) {
+function buildSubmitTimeoutFailure(panel, snapshot, deadlineMs, timeoutKind = "inactivity") {
+  const absolute = timeoutKind === "absolute";
   return agentPanelFailure(
     "TimeoutError",
-    "The submit request timed out before the backend responded.",
+    absolute
+      ? "The submit request exceeded the maximum total execution time."
+      : "The submit request stopped reporting progress before the backend responded.",
     {
       stage: "agent-executor",
       retryable: true,
       graph_unchanged: true,
       ...buildSubmitFailureContext(panel, snapshot, {
         timeoutMs: deadlineMs,
-        nextAction: "Submit again. If it keeps timing out, inspect the route status and backend logs.",
+        nextAction: "Check the server turn artifacts before you Submit again; the backend may still be finishing the original request.",
       }),
+      timeout_kind: timeoutKind,
     },
   );
 }
@@ -9296,12 +9346,23 @@ function runSubmitFetchWithDeadline(fetchPromise, {
   submitAbortController,
   submitEpoch,
   deadlineMs,
+  absoluteDeadlineMs,
 }) {
   return new Promise((resolve, reject) => {
+    const existingActivity = submitActivityByPanel.get(panel);
+    if (!existingActivity || existingActivity.submitEpoch !== submitEpoch) {
+      beginSubmitActivity(panel, submitEpoch);
+    }
     let settled = false;
+    let timeoutId = null;
     const finalize = () => {
       if (timeoutId != null) {
         submitWatchdogDepsState.clearTimeoutFn(timeoutId);
+        timeoutId = null;
+      }
+      const activity = submitActivityByPanel.get(panel);
+      if (activity?.submitEpoch === submitEpoch) {
+        submitActivityByPanel.delete(panel);
       }
     };
     const settle = (callback, value) => {
@@ -9312,7 +9373,7 @@ function runSubmitFetchWithDeadline(fetchPromise, {
       finalize();
       callback(value);
     };
-    const timeoutId = submitWatchdogDepsState.setTimeoutFn(() => {
+    const expireOrRearm = () => {
       if (
         panel?.state?.submitEpoch !== submitEpoch
         || panel?.state?.submitAbortController !== submitAbortController
@@ -9322,13 +9383,33 @@ function runSubmitFetchWithDeadline(fetchPromise, {
         settle(reject, staleError);
         return;
       }
+      const nowMs = currentSubmitNowMs();
+      const activity = submitActivityByPanel.get(panel) || {
+        startedAtMs: nowMs,
+        lastActivityAtMs: nowMs,
+      };
+      const inactivityRemainingMs = deadlineMs - (nowMs - activity.lastActivityAtMs);
+      const absoluteRemainingMs = absoluteDeadlineMs - (nowMs - activity.startedAtMs);
+      if (inactivityRemainingMs > 0 && absoluteRemainingMs > 0) {
+        timeoutId = submitWatchdogDepsState.setTimeoutFn(
+          expireOrRearm,
+          Math.min(inactivityRemainingMs, absoluteRemainingMs),
+        );
+        return;
+      }
       try {
         submitAbortController?.abort();
       } catch (_error) {
         // Best-effort abort only.
       }
-      settle(reject, buildSubmitTimeoutFailure(panel, snapshot, deadlineMs));
-    }, deadlineMs);
+      const timeoutKind = absoluteRemainingMs <= 0 ? "absolute" : "inactivity";
+      const elapsedLimitMs = timeoutKind === "absolute" ? absoluteDeadlineMs : deadlineMs;
+      settle(reject, buildSubmitTimeoutFailure(panel, snapshot, elapsedLimitMs, timeoutKind));
+    };
+    timeoutId = submitWatchdogDepsState.setTimeoutFn(
+      expireOrRearm,
+      Math.min(deadlineMs, absoluteDeadlineMs),
+    );
     Promise.resolve(fetchPromise).then(
       (value) => settle(resolve, value),
       (error) => settle(reject, error),
@@ -9630,12 +9711,16 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     const staleSubmitEpoch = panel.state.submitEpoch;
     const submitStartedAtMs = Number(panel?.state?.submitStartedAtMs);
     const submitDeadlineMs = currentSubmitDeadlineMs(panel);
-    const submitAgeMs = currentSubmitNowMs() - submitStartedAtMs;
+    const nowMs = currentSubmitNowMs();
+    const activity = submitActivityByPanel.get(panel);
+    const submitAgeMs = nowMs - submitStartedAtMs;
+    const submitInactivityMs = nowMs - (activity?.lastActivityAtMs ?? submitStartedAtMs);
+    const submitAbsoluteDeadlineMs = currentSubmitAbsoluteDeadlineMs();
     if (
       Number.isFinite(submitStartedAtMs)
       && Number.isFinite(submitDeadlineMs)
       && submitDeadlineMs > 0
-      && submitAgeMs >= submitDeadlineMs
+      && (submitInactivityMs >= submitDeadlineMs || submitAgeMs >= submitAbsoluteDeadlineMs)
     ) {
       const staleAbortController = panel.state.submitAbortController;
       const recoveryObligations = transition(panel, "SUBMIT_STALE_IN_FLIGHT_RECOVERY", {
@@ -9643,7 +9728,9 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
         debugPayload: {
           stale_in_flight_submit: true,
           submit_age_ms: submitAgeMs,
+          submit_inactivity_ms: submitInactivityMs,
           submit_deadline_ms: submitDeadlineMs,
+          submit_absolute_deadline_ms: submitAbsoluteDeadlineMs,
           ...(panel?.state?.lastSubmit && typeof panel.state.lastSubmit === "object"
             ? { last_submit: clonePlainData(panel.state.lastSubmit) }
             : {}),
@@ -9665,6 +9752,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
   const submitRunPromise = (async () => {
     let submitHttpStatus = null;
     let submitDeadlineMs = currentSubmitDeadlineMs(panel);
+    const submitAbsoluteDeadlineMs = currentSubmitAbsoluteDeadlineMs();
     const isCurrentSubmit = () => panel?.state?.submitEpoch === submitEpoch;
     // Re-resolve the prompt element from the live DOM at submit time: a durable
     // panel re-render can replace the textarea, leaving panel.fields.prompt as a
@@ -9864,6 +9952,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     // Preserve the epoch allocated before serialization; SUBMIT_START above
     // returns the current epoch when payload.submitEpoch is supplied.
     submitEpoch = panel.state.submitEpoch;
+    beginSubmitActivity(panel, submitEpoch);
     // Optimistically surface the user's message in the chat thread the instant
     // they hit Submit, instead of waiting for the server round-trip + rehydrate.
     // Rehydrate replaces chatMessages wholesale and carries the server's own
@@ -9935,6 +10024,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
               submitAbortController,
               submitEpoch,
               deadlineMs: submitDeadlineMs,
+              absoluteDeadlineMs: submitAbsoluteDeadlineMs,
             },
           );
           submitHttpStatus = Number.isFinite(res?.status) ? Number(res.status) : null;

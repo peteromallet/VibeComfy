@@ -17496,6 +17496,92 @@ test("VibeComfy submit watchdog times out stalled submits with diagnostics and a
   }
 });
 
+test("VibeComfy submit watchdog renews on executor activity instead of aborting a healthy slow request", async () => {
+  const candidateGraph = {
+    nodes: [{ id: 1, type: "SaveImage", properties: { vibecomfy_uid: "uid-slow-progress" } }],
+    links: [],
+  };
+  let resolveSubmit;
+  const submitResponse = new Promise((resolve) => {
+    resolveSubmit = resolve;
+  });
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": {
+        status: 200,
+        body: { system: { comfyui_frontend_package: "1.39.19" } },
+      },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: {
+            auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false },
+            deepseek: { requested_route: "deepseek", normalized_route: "deepseek", browser_api_key_allowed: true },
+          },
+        },
+      },
+      "/vibecomfy/agent-executor": () => submitResponse,
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    extensionModule.configureSubmitWatchdogDeps({
+      submitDeadlineMs: 250,
+      submitAbsoluteDeadlineMs: 1000,
+    });
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent/status?route=auto"));
+
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.sessionId = "session-slow-progress";
+    harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "healthy slow request";
+    const submitPromise = harness.clickButton("Submit");
+    await waitFor(() => panel.state.phase === "SUBMITTING");
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    harness.dispatchApiEvent("vibecomfy.executor.phase", {
+      session_id: "session-slow-progress",
+      phase: "reply",
+      status: "start",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.equal(panel.state.phase, "SUBMITTING", "accepted progress must renew the inactivity window");
+
+    resolveSubmit({
+      status: 200,
+      body: {
+        ok: true,
+        session_id: "session-slow-progress",
+        turn_id: "0001",
+        baseline_turn_id: null,
+        candidate: { graph: candidateGraph },
+        eligibility: { applyable: true, reason: "applyable", message: "Ready to apply." },
+        canvas_apply_allowed: true,
+        apply_allowed: true,
+        queue_allowed: true,
+        message: "Healthy slow candidate ready.",
+      },
+    });
+    await submitPromise;
+    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
+    assert.equal(panel.state.failure, null);
+    assert.match(harness.textDump(), /Healthy slow candidate ready\./);
+  } finally {
+    try {
+      (await harness.loadExtension()).resetSubmitWatchdogDeps();
+    } catch (_error) {
+      // Best-effort test cleanup only.
+    }
+    await harness.dispose();
+  }
+});
+
 function makeSubmitRetryHarness(agentExecutorHandler) {
   return createBrowserHarness({
     responses: {
