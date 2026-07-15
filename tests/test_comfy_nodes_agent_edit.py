@@ -14186,6 +14186,69 @@ def test_latest_candidate_rehydrates_authoritative_v2_transaction_metadata(
     assert public["delta_ops"] == envelope["ops"]
 
 
+def test_prepared_latest_candidate_rehydrates_persisted_pre_apply_baseline(
+    tmp_path: Path,
+) -> None:
+    session_id = "rehydrate-prepared-baseline"
+    session_dir = session_dir_for(tmp_path, session_id)
+    turn_dir = session_dir / "turns" / "0001"
+    turn_dir.mkdir(parents=True)
+    original = {"nodes": [{"id": 1, "type": "Input"}], "links": []}
+    candidate = {
+        "nodes": [
+            {"id": 1, "type": "Input"},
+            {"id": 2, "type": "SaveImage"},
+        ],
+        "links": [],
+    }
+    response = {
+        "ok": True,
+        "session_id": session_id,
+        "turn_id": "0001",
+        "message": "Candidate ready.",
+        "graph": candidate,
+        "agent_edit_protocol": "v2_delta",
+        "candidate_graph_hash": "candidate-hash",
+        "candidate_structural_graph_hash": "candidate-structural",
+        "submit_graph_hash": "submit-hash",
+        "submit_structural_graph_hash": "submit-structural",
+        "apply_eligibility": {"applyable": True, "reason": "applyable"},
+        "outcome": {"kind": "candidate", "changes": []},
+    }
+    (turn_dir / "request.json").write_text(json.dumps({"task": "edit"}), encoding="utf-8")
+    (turn_dir / "response.json").write_text(json.dumps(response), encoding="utf-8")
+    (turn_dir / "candidate.ui.json").write_text(json.dumps(candidate), encoding="utf-8")
+    (turn_dir / "original.ui.json").write_text(json.dumps(original), encoding="utf-8")
+    (session_dir / "session_state.json").write_text(
+        json.dumps(
+            {
+                "turns": {
+                    "0001": {
+                        "state": "prepared",
+                        "agent_edit_protocol": "v2_delta",
+                        "candidate_graph_hash": "candidate-hash",
+                        "candidate_structural_graph_hash": "candidate-structural",
+                        "submit_graph_hash": "submit-hash",
+                        "submit_structural_graph_hash": "submit-structural",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    latest = read_session_chat(tmp_path, session_id, max_messages=5)["latest_candidate"]
+    assert latest["prepared_baseline"] == {
+        "graph": original,
+        "graph_hash": "submit-hash",
+        "structural_graph_hash": "submit-structural",
+    }
+    public = public_chat_rehydrate_payload(
+        {"ok": True, "exists": True, "latest_candidate": latest}
+    )["latest_candidate"]
+    assert public["prepared_baseline"] == latest["prepared_baseline"]
+
+
 def test_discarded_v2_candidate_is_not_rehydrated(tmp_path: Path) -> None:
     session_id = "rehydrate-discarded-v2"
     session_dir = session_dir_for(tmp_path, session_id)

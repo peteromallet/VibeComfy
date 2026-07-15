@@ -197,6 +197,25 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             )
         delta_ops_envelope = response.get("delta_ops_envelope")
         delta_ops = response.get("delta_ops")
+        prepared_baseline = None
+        if turn_state.get("state") in {"prepared", "apply_prepared"}:
+            original_path = turn_dir / "original.ui.json"
+            try:
+                original_graph = json.loads(original_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                original_graph = None
+            if isinstance(original_graph, Mapping):
+                # A prepared transaction can outlive the browser page that
+                # initiated it. Persisted pre-apply graph authority is needed
+                # to distinguish an untouched canvas from a canvas mutated
+                # before finalize, and to compensate the latter safely.
+                prepared_baseline = {
+                    "graph": _json_safe(original_graph),
+                    "graph_hash": response.get("submit_graph_hash")
+                    or turn_state.get("submit_graph_hash"),
+                    "structural_graph_hash": response.get("submit_structural_graph_hash")
+                    or turn_state.get("submit_structural_graph_hash"),
+                }
         latest_candidate = {
             "turn_id": turn_id,
             "session_id": session_dir.name,
@@ -242,6 +261,7 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "baseline_graph_hash": response.get("baseline_graph_hash") or state.get("baseline_graph_hash"),
             "baseline_graph_hash_kind": response.get("baseline_graph_hash_kind") or state.get("baseline_graph_hash_kind"),
             "baseline_graph_hash_version": response.get("baseline_graph_hash_version") or state.get("baseline_graph_hash_version"),
+            "prepared_baseline": prepared_baseline,
             "audit_ref": _json_safe(response.get("audit_ref")) if isinstance(response.get("audit_ref"), Mapping) else None,
             "change_details": _json_safe(response.get("change_details")) if isinstance(response.get("change_details"), Mapping) else None,
             "batch_turns": _json_safe(response.get("batch_turns")) if isinstance(response.get("batch_turns"), list) else [],

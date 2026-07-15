@@ -214,6 +214,7 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "baseline_graph_hash",
     "baseline_graph_hash_kind",
     "baseline_graph_hash_version",
+    "prepared_baseline",
     "rebaseline_recovery",
 )
 

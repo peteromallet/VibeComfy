@@ -390,6 +390,10 @@ const submitWatchdogDepsState = {
 // Live watchdog timestamps intentionally stay outside lifecycle state: they
 // describe an in-memory fetch and must never be rehydrated after a reload.
 const submitActivityByPanel = new WeakMap();
+// Pre-finalize canvas snapshots are transaction compensation state, not Undo
+// history. Keep them private to the live panel until finalize publishes a
+// durable accepted baseline or rollback consumes them.
+const pendingTransactionSnapshotByPanel = new WeakMap();
 
 const ALL_AGENT_PANEL_RENDER_SECTIONS = Object.freeze(Object.values(RENDER_SECTIONS));
 const AGENT_PANEL_SECTION_RENDER_ERROR_LIMIT = 20;
@@ -2125,10 +2129,15 @@ function nodeTargetRefForRollback(op) {
   if (Array.isArray(op?.target) || (op?.target && typeof op.target === "object")) {
     return clonePlainData(op.target);
   }
-  return ["nodes", op?.scope_path ?? op?.uid ?? op?.id ?? ""];
+  // Root-scoped canonical add_node ops persist scope_path as the empty string.
+  // Empty scope is location, not identity; choosing it before uid made inverse
+  // rollback target "" and left the newly-added node on the canvas.
+  const identity = [op?.uid, op?.node_id, op?.id, op?.scope_path]
+    .find((value) => value !== null && value !== undefined && String(value) !== "");
+  return ["nodes", identity ?? ""];
 }
 
-function buildInverseDeltaOps(preApplyGraph, deltaOps) {
+export function buildInverseDeltaOps(preApplyGraph, deltaOps) {
   const inverseOps = [];
   for (const op of deltaOps) {
     if (!op || typeof op !== "object" || typeof op.op !== "string") {
@@ -3956,7 +3965,7 @@ function createAgentPanelShell() {
   applyBtn.id = PANEL_IDS.apply;
   const rejectBtn = button("Reject", () => rejectAgentCandidate(currentAgentPanel()));
   rejectBtn.id = PANEL_IDS.reject;
-  const rollbackBtn = button("Rollback", () => rejectAgentCandidate(currentAgentPanel()));
+  const rollbackBtn = button("Cancel interrupted Apply", () => rejectAgentCandidate(currentAgentPanel()));
   rollbackBtn.id = PANEL_IDS.rollback;
   rollbackBtn.dataset.vibecomfyAction = "rollback";
   rollbackBtn.style.display = "none";
@@ -4972,6 +4981,28 @@ async function restoreLatestCandidateFromChat(panel, payload, requestScopeId = n
     return;
   }
   fulfillAgentPanelCommitObligations(panel, restoreObligations, "rehydrate");
+  const preparedBaseline = latest.raw?.prepared_baseline;
+  if (
+    ["prepared", "apply_prepared"].includes(String(latest.raw?.turn_state || ""))
+    && preparedBaseline?.graph
+    && typeof preparedBaseline.graph === "object"
+    && typeof preparedBaseline.structural_graph_hash === "string"
+    && preparedBaseline.structural_graph_hash
+  ) {
+    // This is transaction compensation authority, not user-visible Undo
+    // history. It survives reload through the server's original.ui.json and
+    // is consumed only when the interrupted prepare is cancelled.
+    pendingTransactionSnapshotByPanel.set(panel, {
+      graph: clonePlainData(preparedBaseline.graph),
+      graphHash: preparedBaseline.graph_hash || null,
+      structuralHash: preparedBaseline.structural_graph_hash,
+      candidateStructuralHash:
+        latest.raw?.candidate_structural_graph_hash
+        || candidateTransaction?.hashes?.candidate_structural_graph_hash
+        || null,
+      rehydrated: true,
+    });
+  }
   reconcileResponseBatchTurns(panel, latest);
   rememberTurnDetailSnapshot(panel, {
     turn_id: panel.state.turnId,
@@ -10819,9 +10850,7 @@ async function applyAgentCandidate(panel) {
         chat_scope_fingerprint: panel.state.chatScopeFingerprint || null,
         canvas_structural_hash: undoSnapshot.structuralHash || null,
       };
-      panel.state.undoStack.push(undoEntry);
-      panel.state.undoStack = panel.state.undoStack.slice(-16);
-      markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
+      pendingTransactionSnapshotByPanel.set(panel, clonePlainData(undoSnapshot));
 
       let canvasApplyResult = null;
       try {
@@ -11040,6 +11069,14 @@ async function applyAgentCandidate(panel) {
         undoEntry.accepted_baseline_turn_id = finalized.baselineTurnId
           || panel.state.turnId
           || null;
+        // A compensation snapshot is not user-visible Undo history. Publish it
+        // only after the server has durably finalized the Apply; otherwise an
+        // interrupted prepare appears as an Apply that can be undone even
+        // though no accepted baseline exists yet.
+        panel.state.undoStack.push(undoEntry);
+        panel.state.undoStack = panel.state.undoStack.slice(-16);
+        pendingTransactionSnapshotByPanel.delete(panel);
+        markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
         const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
         pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
         pushTurnStatus(panel, "applied", {
@@ -11967,19 +12004,31 @@ async function rollbackPreparedAgentCandidate(
     }
   }
   if (restoreCanvas && !canvasRestore.restored) {
+    const failure = agentPanelFailure(
+      "CanvasRestoreError",
+      canvasRestore.error || "Could not verify restoration of the pre-apply canvas.",
+      {
+        retryable: true,
+        graph_unchanged: false,
+        next_action: "Keep the prepared transaction open and retry canvas restoration before rollback.",
+      },
+    );
+    if (!silent) {
+      const obligations = commitRollbackFailure(panel, {
+        failure,
+        debugPayload: {
+          rollback_failure: failure,
+          canvas_restore: canvasRestore,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
+    }
     return {
       ok: false,
       server_rolled_back: false,
       canvas_restore: canvasRestore,
-      failure: agentPanelFailure(
-        "CanvasRestoreError",
-        canvasRestore.error || "Could not verify restoration of the pre-apply canvas.",
-        {
-          retryable: true,
-          graph_unchanged: false,
-          next_action: "Keep the prepared transaction open and retry canvas restoration before rollback.",
-        },
-      ),
+      failure,
     };
   }
   const compensation = {
@@ -12031,6 +12080,7 @@ async function rollbackPreparedAgentCandidate(
   }
   try {
     const rolledBack = await postAgentLifecycleAction("rollback", rollbackBody, "rollback");
+    pendingTransactionSnapshotByPanel.delete(panel);
     if (!silent) {
       const obligations = commitRollbackSuccess(panel, {
         rollbackReceipt: rolledBack.receipt || null,
@@ -12122,15 +12172,51 @@ async function rejectAgentCandidate(panel) {
     isV2ApplyCandidate(panel)
     && (panel.state.phase === PANEL_STATE.APPLY_PREPARED || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED)
   ) {
-    const canvasWasMutated = panel.state.phase === PANEL_STATE.CANVAS_VERIFIED;
-    const undoSnapshot = canvasWasMutated && Array.isArray(panel.state.undoStack)
-      ? panel.state.undoStack.at(-1)
-      : null;
-    const rollbackSnapshot = undoSnapshot?.graph
+    const compensationSnapshot = pendingTransactionSnapshotByPanel.get(panel) || null;
+    const liveStructuralHash = snapshot.structuralHash || null;
+    const baselineStructuralHash = compensationSnapshot?.structuralHash || null;
+    const candidateStructuralHash = compensationSnapshot?.candidateStructuralHash
+      || panel.state.candidateTransaction?.hashes?.candidate_structural_graph_hash
+      || null;
+    const canvasMatchesBaseline = Boolean(
+      baselineStructuralHash && liveStructuralHash === baselineStructuralHash,
+    );
+    const canvasMatchesCandidate = Boolean(
+      candidateStructuralHash && liveStructuralHash === candidateStructuralHash,
+    );
+    let canvasWasMutated = panel.state.phase === PANEL_STATE.CANVAS_VERIFIED;
+    if (canvasMatchesBaseline) {
+      canvasWasMutated = false;
+    } else if (canvasMatchesCandidate) {
+      canvasWasMutated = true;
+    } else if (compensationSnapshot?.rehydrated) {
+      const failure = agentPanelFailure(
+        "PreparedCanvasDiverged",
+        "The canvas differs from both the pre-Apply baseline and the prepared candidate.",
+        {
+          retryable: true,
+          graph_unchanged: true,
+          next_action: "Restore either the original or candidate canvas before cancelling this interrupted Apply.",
+        },
+      );
+      const obligations = transition(panel, "ROLLBACK_FAILURE", {
+        failure,
+        debugPayload: {
+          rollback_failure: failure,
+          live_structural_graph_hash: liveStructuralHash,
+          baseline_structural_graph_hash: baselineStructuralHash,
+          candidate_structural_graph_hash: candidateStructuralHash,
+        },
+      });
+      fulfillLifecycleTransitionObligations(panel, obligations);
+      renderLifecycleTransition(panel, obligations);
+      return;
+    }
+    const rollbackSnapshot = compensationSnapshot?.graph
       ? {
-          graph: undoSnapshot.graph,
-          graphHash: undoSnapshot.client_graph_hash || null,
-          structuralHash: undoSnapshot.canvas_structural_hash || null,
+          graph: compensationSnapshot.graph,
+          graphHash: compensationSnapshot.graphHash || null,
+          structuralHash: compensationSnapshot.structuralHash || null,
           liveCanvasToken: snapshot.liveCanvasToken,
         }
       : snapshot;

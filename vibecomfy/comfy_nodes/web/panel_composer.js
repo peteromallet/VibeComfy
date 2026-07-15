@@ -302,7 +302,7 @@ export function renderComposerNotice(panel, readinessState, deps = {}) {
     notice.appendChild(heading);
 
     if (!applyInFlight) {
-      const hint = el("div", "Rollback the interrupted transaction, then retry Apply.");
+      const hint = el("div", "Cancel this interrupted Apply, then submit the edit again.");
       hint.style.color = "#edf2f7";
       notice.appendChild(hint);
     }

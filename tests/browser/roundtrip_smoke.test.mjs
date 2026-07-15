@@ -2511,6 +2511,8 @@ test("prepared transaction keeps a compact pinned Rollback action instead of los
     assert.equal(rollback?.style.display, "inline-flex");
     assert.equal(rollback?.disabled, false);
     assert.equal(rollback?.dataset.vibecomfyAction, "rollback");
+    assert.equal(rollback?.textContent, "Cancel interrupted Apply");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
     assert.equal(notice?.style.maxHeight, "120px");
     assert.equal(notice?.style.overflowY, "auto");
     assert.match(harness.textDump(), /Apply paused after preparation/);
@@ -2518,6 +2520,168 @@ test("prepared transaction keeps a compact pinned Rollback action instead of los
     assert.equal(panel.composerButtons.parentNode.style.flexShrink, "0");
   } finally {
     await harness.dispose();
+  }
+});
+
+test("prepared transaction rehydrate restores candidate-mutated canvas before cancellation and never exposes Undo", async () => {
+  const sessionId = "session-prepared-rehydrate-cancel";
+  const turnId = "0001";
+  const planHash = "plan-prepared-rehydrate-cancel";
+  const chatUrl = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(sessionId)}`;
+  const originalGraph = {
+    nodes: [{ id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } }],
+    links: [],
+  };
+  const candidateGraph = {
+    nodes: [
+      originalGraph.nodes[0],
+      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+    ],
+    links: [],
+  };
+  const deltaOps = [
+    { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
+  ];
+  const candidateTransaction = candidateTransactionFixture({
+    sessionId, turnId, planHash, deltaOps, candidateGraphHash: "candidate-prepared-rehydrate",
+  });
+  const preparedTransaction = candidateTransactionFixture({
+    sessionId,
+    turnId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-prepared-rehydrate",
+    state: "prepared",
+    generation: 1,
+    leaseNonce: "lease-prepared-rehydrate",
+  });
+  const rolledBackTransaction = candidateTransactionFixture({
+    sessionId,
+    turnId,
+    planHash,
+    deltaOps,
+    candidateGraphHash: "candidate-prepared-rehydrate",
+    state: "rollback_complete",
+    generation: 1,
+    leaseNonce: "lease-prepared-rehydrate",
+  });
+  const preparedBaseline = {
+    graph: originalGraph,
+    graph_hash: "submit-graph-hash",
+    structural_graph_hash: null,
+  };
+  const harness = await createBrowserHarness({
+    // Simulate a reload after canvas mutation but before finalize.
+    graph: candidateGraph,
+    withGraphMutation: true,
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+      "/vibecomfy/agent/status?route=auto": {
+        status: 200,
+        body: {
+          ok: true,
+          provider_available: true,
+          route: "deepseek",
+          requested_route: "auto",
+          route_options: { auto: { requested_route: "auto", normalized_route: "deepseek", browser_api_key_allowed: false } },
+        },
+      },
+      [chatUrl]: {
+        status: 200,
+        body: {
+          ok: true,
+          exists: true,
+          session_id: sessionId,
+          latest_turn_id: turnId,
+          messages: [],
+          latest_candidate: {
+            agent_edit_protocol: "v2_delta",
+            session_id: sessionId,
+            turn_id: turnId,
+            turn_state: "prepared",
+            outcome: { kind: "candidate", changes: [] },
+            candidate: { state: "candidate_ready", graph: candidateGraph, graph_hash: "candidate-prepared-rehydrate", plan_hash: planHash },
+            graph: candidateGraph,
+            candidate_graph_hash: "candidate-prepared-rehydrate",
+            candidate_structural_graph_hash: null,
+            candidate_transaction: candidateTransaction,
+            prepared_baseline: preparedBaseline,
+            apply_eligibility: { applyable: true, reason: "applyable", message: "Ready.", warnings: [] },
+          },
+        },
+      },
+      "/vibecomfy/agent-edit/reconcile": {
+        status: 200,
+        body: {
+          ok: true,
+          receipts_by_turn: {
+            [turnId]: [{
+              event_type: "prepared",
+              timestamp: "2026-07-15T12:00:00Z",
+              receipt: { plan_hash: planHash, generation: 1, lease_nonce: "lease-prepared-rehydrate" },
+            }],
+          },
+          candidate_transaction: preparedTransaction,
+        },
+      },
+      "/vibecomfy/agent-edit/rollback": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        assert.equal(body.compensation.canvas_was_mutated, true);
+        assert.equal(body.compensation.canvas_restore_attempted, true);
+        assert.equal(body.compensation.canvas_restore_succeeded, true);
+        assert.equal(body.compensation.pre_apply_structural_hash, body.compensation.post_restore_structural_hash);
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            action: "rollback",
+            session_id: sessionId,
+            turn_id: turnId,
+            candidate_transaction: rolledBackTransaction,
+            receipt: { plan_hash: planHash, generation: 1, phase: "rollback_complete" },
+          },
+        };
+      },
+    },
+  });
+  globalThis.localStorage.setItem("vibecomfy_active_session_id", sessionId);
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, preparedTransaction, candidateGraph);
+    bindTransactionStructuralHash(extensionModule, rolledBackTransaction, candidateGraph);
+    preparedBaseline.structural_graph_hash = sha256HexUtf8(
+      extensionModule.buildStructuralGraphProjection(originalGraph),
+    );
+    await harness.setup();
+    await harness.invokeCommand("VibeComfy.AgentEdit");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "APPLY_PREPARED");
+
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
+    await harness.clickButton("Cancel interrupted Apply");
+
+    const panel = extensionModule.ensureAgentPanel();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [1]);
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length,
+      1,
+      JSON.stringify({
+        failure: panel.state.failure,
+        debug: panel.state.debugPayload,
+        expected: preparedBaseline.structural_graph_hash,
+        actual: sha256HexUtf8(extensionModule.buildStructuralGraphProjection(harness.getCurrentGraph())),
+        phase: panel.state.phase,
+      }),
+    );
+    await waitFor(() => panel.state.phase === "ROLLBACK_COMPLETE");
+    assert.equal(panel.state.phase, "ROLLBACK_COMPLETE");
+    assert.equal(panel.state.undoStack.length, 0);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
+  } finally {
+    await harness.dispose();
+    globalThis.localStorage.removeItem("vibecomfy_active_session_id");
   }
 });
 
@@ -2894,6 +3058,11 @@ test("V2 finalize failure restores canvas and reports one compensated terminal f
     assert.equal(panel.state.failure?.transaction_rollback?.canvas_restore?.restored, true);
     assert.equal(panel.state.candidateGraph, null);
     assert.equal(panel.state.rollbackReceipt?.phase, "rollback_complete");
+    assert.equal(panel.state.undoStack.length, 0, "a compensated, non-finalized Apply is not Undo history");
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display,
+      "none",
+    );
     assert.doesNotMatch(JSON.stringify(harness.toasts), /Prepared transaction rolled back/i);
   } finally {
     await harness.dispose();
@@ -14953,6 +15122,135 @@ test("VibeComfy comfy_adapter reports harness-only delta apply fallback when rea
     assert.equal(capability.strategy, "harness-serialize-configure");
     assert.equal(capability.fallback, true);
     assert.match(capability.detail, /Harness-only/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy comfy_adapter uses native LLink APIs for Proxy Map link stores", async () => {
+  const harness = await createBrowserHarness({ graph: { nodes: [], links: [] }, withGraphMutation: true });
+  try {
+    const adapter = await harness.loadAdapter();
+    class NativeLink {
+      constructor(id, originId, originSlot, targetId, targetSlot, type) {
+        Object.assign(this, {
+          id,
+          origin_id: originId,
+          origin_slot: originSlot,
+          target_id: targetId,
+          target_slot: targetSlot,
+          type,
+        });
+      }
+
+      serialize() {
+        return [this.id, this.origin_id, this.origin_slot, this.target_id, this.target_slot, this.type];
+      }
+    }
+
+    const graph = {
+      _nodes: [],
+      links: new Map(),
+      add() {},
+      remove() {},
+      removeLink(id) {
+        const existing = this.links.get(id);
+        if (!existing) return;
+        this.links.delete(id);
+        const source = this._nodes.find((node) => node.id === existing.origin_id);
+        const target = this._nodes.find((node) => node.id === existing.target_id);
+        source.outputs[existing.origin_slot].links = source.outputs[existing.origin_slot].links
+          .filter((entry) => entry !== id);
+        target.inputs[existing.target_slot].link = null;
+      },
+      serialize() {
+        return {
+          nodes: this._nodes.map((node) => ({
+            id: node.id,
+            type: node.type,
+            inputs: structuredClone(node.inputs),
+            outputs: structuredClone(node.outputs),
+            properties: structuredClone(node.properties),
+          })),
+          links: [...this.links.values()].map((link) => link.serialize()),
+        };
+      },
+    };
+    const source = {
+      id: 1,
+      type: "LoadImage",
+      inputs: [],
+      outputs: [{ name: "IMAGE", type: "IMAGE", links: [] }],
+      properties: { vibecomfy_uid: "source" },
+      connect(originSlot, target, targetSlot) {
+        const id = 41;
+        const link = new NativeLink(id, this.id, originSlot, target.id, targetSlot, "IMAGE");
+        graph.links.set(id, link);
+        this.outputs[originSlot].links.push(id);
+        target.inputs[targetSlot].link = id;
+        return link;
+      },
+    };
+    const target = {
+      id: 2,
+      type: "SaveImage",
+      inputs: [{ name: "images", type: "IMAGE", link: null }],
+      outputs: [],
+      properties: { vibecomfy_uid: "target" },
+    };
+    graph._nodes.push(source, target);
+    harness.app.canvas.graph = graph;
+    globalThis.window.LiteGraph.createNode = () => ({});
+
+    const candidateGraph = {
+      nodes: [
+        { ...graph.serialize().nodes[0], outputs: [{ name: "IMAGE", type: "IMAGE", links: [99] }] },
+        { ...graph.serialize().nodes[1], inputs: [{ name: "images", type: "IMAGE", link: 99 }] },
+      ],
+      links: [[99, 1, 0, 2, 0, "IMAGE"]],
+    };
+    adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [{ op: "upsert_link", from: ["", "source", "IMAGE"], to: ["", "target", "images"] }],
+      candidateGraph,
+    });
+
+    assert.equal(graph.links.get(41) instanceof NativeLink, true);
+    assert.deepEqual(graph.serialize().links, [[41, 1, 0, 2, 0, "IMAGE"]]);
+    assert.equal(graph.links.has(99), false, "candidate link ids are not inserted as plain objects");
+
+    adapter.applyGraphDeltaInPlace(harness.app, {
+      deltaOps: [{ op: "remove_link", to: ["", "target", "images"] }],
+      candidateGraph: {
+        nodes: [
+          { ...graph.serialize().nodes[0], outputs: [{ name: "IMAGE", type: "IMAGE", links: [] }] },
+          { ...graph.serialize().nodes[1], inputs: [{ name: "images", type: "IMAGE", link: null }] },
+        ],
+        links: [],
+      },
+    });
+    assert.deepEqual(graph.serialize().links, []);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("VibeComfy rollback inverse identifies root-scoped added nodes by uid", async () => {
+  const harness = await createBrowserHarness();
+  try {
+    const extensionModule = await harness.loadExtension();
+    const inverse = extensionModule.buildInverseDeltaOps(
+      { nodes: [], links: [] },
+      [{
+        op: "add_node",
+        scope_path: "",
+        uid: "n1",
+        node_id: "98",
+        class_type: "ImageScale",
+        fields: {},
+        inputs: {},
+      }],
+    );
+    assert.deepEqual(inverse, [{ op: "remove_node", target: ["nodes", "n1"] }]);
   } finally {
     await harness.dispose();
   }

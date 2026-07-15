@@ -876,16 +876,28 @@ function resolveLiveNode(graph, uidOrId) {
 }
 
 function liveLinkEntries(graph) {
-  if (Array.isArray(graph?.links)) {
-    return graph.links;
+  const links = graph?.links;
+  if (Array.isArray(links)) {
+    return links;
   }
-  if (graph?.links && typeof graph.links === "object") {
-    return Object.values(graph.links);
+  // Current LiteGraph exposes a Proxy-wrapped Map<LLink>. Its entries are not
+  // enumerable object properties, so Object.values() silently loses every
+  // link. Prefer the Map API whenever it is present.
+  if (links && typeof links.values === "function") {
+    return Array.from(links.values());
+  }
+  if (links && typeof links === "object") {
+    return Object.values(links);
   }
   return [];
 }
 
 function liveLinkMapSet(graph, link) {
+  if (graph?.links && typeof graph.links.set === "function") {
+    throw new Error(
+      "Live LiteGraph Map links must be created through the native node.connect() API.",
+    );
+  }
   if (!graph.links || typeof graph.links !== "object" || Array.isArray(graph.links)) {
     graph.links = {};
   }
@@ -897,6 +909,11 @@ function liveLinkMapDelete(graph, linkId) {
     graph.links = graph.links.filter((entry) => String(normalizeLinkRecord(entry)?.id) !== String(linkId));
     return;
   }
+  if (graph?.links && typeof graph.links.delete === "function") {
+    graph.links.delete(linkId);
+    graph.links.delete(String(linkId));
+    return;
+  }
   if (graph?.links && typeof graph.links === "object") {
     delete graph.links[String(linkId)];
   }
@@ -906,6 +923,12 @@ function removeLiveLink(graph, linkId) {
   const normalizedLinks = liveLinkEntries(graph).map((entry) => normalizeLinkRecord(entry)).filter(Boolean);
   const target = normalizedLinks.find((entry) => String(entry.id) === String(linkId));
   if (!target) {
+    return;
+  }
+  // Native removal owns all Map<LLink>, node-slot, reroute, and graph revision
+  // bookkeeping. Manually deleting a modern LLink leaves those indexes split.
+  if (typeof graph?.removeLink === "function") {
+    graph.removeLink(target.id);
     return;
   }
   const sourceNode = resolveLiveNode(graph, String(target.origin_id));
@@ -936,6 +959,20 @@ function upsertLiveLink(graph, link) {
   const input = Array.isArray(targetNode.inputs) ? targetNode.inputs[link.target_slot] : null;
   if (!output || !input) {
     throw new Error("Could not resolve live slots for link mutation.");
+  }
+  // Modern LiteGraph stores class instances in a Proxy-wrapped Map. A plain
+  // object inserted into graph.links makes the next graph.serialize() crash at
+  // LLink.serialize(). Let LiteGraph construct and register the link itself;
+  // structural transaction authority intentionally does not depend on link ids.
+  if (typeof sourceNode.connect === "function") {
+    const connected = sourceNode.connect(link.origin_slot, targetNode, link.target_slot);
+    if (connected === false || connected == null) {
+      throw new Error("LiteGraph node.connect() did not create the requested link.");
+    }
+    return;
+  }
+  if (graph?.links && typeof graph.links.set === "function") {
+    throw new Error("Modern LiteGraph link mutation requires node.connect().");
   }
   if (!Array.isArray(output.links)) {
     output.links = [];
