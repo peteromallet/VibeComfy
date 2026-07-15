@@ -43,7 +43,6 @@ from vibecomfy.porting.reorganise.compile import (
     _CompileTraceAccumulator,
     _Spacing,
     _classify_layout_phase,
-    _compile_gate_metrics_and_issues,
     _compile_section_ownership_phase,
     _compiled_idempotence_delta,
     _local_bounds,
@@ -51,7 +50,6 @@ from vibecomfy.porting.reorganise.compile import (
     _layout_primary_rows,
     _node_size_for_ref,
     _resolve_group_collisions,
-    _resolve_cross_band_section_collisions,
     _spacing,
     _validate_pinned_preservation,
     CompiledGroupLayout,
@@ -3737,100 +3735,6 @@ def test_group_collision_repair_recomputes_groups_with_compile_options(monkeypat
     assert seen["shifted_y"][1] > node_layouts[1].y
 
 
-def test_final_cross_band_repair_clears_collisions_reintroduced_by_group_reflow() -> None:
-    """Semantic bands cannot excuse overlap in the final physical layout."""
-    loader_ref = CanonicalNodeRef("", "loader")
-    custom_ref = CanonicalNodeRef("", "custom")
-    sections = (
-        _CompileSection(
-            id="loaders",
-            kind="loaders",
-            title="Loaders",
-            role_hint="loader",
-            node_refs=(loader_ref,),
-        ),
-        _CompileSection(
-            id="custom",
-            kind="custom",
-            title="Custom",
-            role_hint=ROLE_HINT_UNKNOWN,
-            node_refs=(custom_ref,),
-        ),
-    )
-    node_layouts = (
-        CompiledNodeLayout(
-            ref=loader_ref,
-            section_id="loaders",
-            role_hint="loader",
-            x=100,
-            y=100,
-            width=300,
-            height=100,
-        ),
-        CompiledNodeLayout(
-            ref=custom_ref,
-            section_id="custom",
-            role_hint=ROLE_HINT_UNKNOWN,
-            x=120,
-            y=120,
-            width=260,
-            height=100,
-        ),
-    )
-    group_layouts = (
-        CompiledGroupLayout(
-            id="loaders",
-            scope_path="",
-            title="Loaders",
-            kind="loaders",
-            role_hint="loader",
-            node_refs=(loader_ref,),
-            x=60,
-            y=24,
-            width=380,
-            height=216,
-            color="#686f78",
-        ),
-        CompiledGroupLayout(
-            id="custom",
-            scope_path="",
-            title="Custom",
-            kind="custom",
-            role_hint=ROLE_HINT_UNKNOWN,
-            node_refs=(custom_ref,),
-            x=80,
-            y=44,
-            width=340,
-            height=216,
-            color="#646464",
-        ),
-    )
-    facts = extract_graph_facts(
-        {
-            "nodes": [
-                _node(1, "VAELoader", "loader"),
-                _node(2, "LineArtPreprocessor", "custom"),
-            ],
-            "links": [],
-        }
-    )
-    spacing = _spacing("balanced")
-
-    repaired_nodes, repaired_groups = _resolve_cross_band_section_collisions(
-        sections,
-        node_layouts,
-        group_layouts,
-        facts,
-        spacing,
-        LayoutCompileOptions(),
-    )
-
-    layouts = {layout.ref.uid: layout for layout in repaired_nodes}
-    assert not _rects_overlap_or_touch(layouts["loader"], layouts["custom"], gutter=32)
-    groups = {group.id: group for group in repaired_groups}
-    assert not _rects_overlap_or_touch(groups["loaders"], groups["custom"], gutter=32)
-
-
 def test_structural_expectations_reject_overlaps_via_report() -> None:
     """Structural expectations must surface overlap issues in the compile
     report when nodes overlap.  The report's issues must include the overlap
@@ -4313,9 +4217,11 @@ def test_topology_rank_overrides_kind_wall_when_custom_before_loaders() -> None:
     assert layouts["preprocess"].x < layouts["load"].x
 
 
-def test_unassigned_multipass_classification_splits_repeated_sampler_and_output_stages() -> None:
-    """Deterministic classification must emit distinct stage instances when
-    topology proves repeated same-role passes in one connected workflow.
+def test_unassigned_multipass_classification_preserves_role_bucket_baseline() -> None:
+    """Unassigned nodes retain the stable pre-transaction-spine role buckets.
+
+    Effective topology remains available in graph facts and validation, but it
+    must not silently replace the established deterministic grouping policy.
     """
     ui = {
         "nodes": [
@@ -4370,23 +4276,8 @@ def test_unassigned_multipass_classification_splits_repeated_sampler_and_output_
 
     assert result.ok is True
     sections = _node_sections(result)
-    topologies = {t.section_id: t for t in result.section_topologies}
-    layouts = _layouts_by_uid(result)
-
-    sampling_sections = {sections["sample-1"], sections["sample-2"]}
-    output_sections = {sections["decode-2"], sections["save"]}
-    assert len(sampling_sections) == 2
-    assert len(output_sections) == 2
-
-    assert sections["sample-1"] == "__sampling__"
-    assert sections["sample-2"].startswith("__sampling____p")
-    assert sections["decode-2"] == "__output__"
-    assert sections["save"].startswith("__output____p")
-
-    assert topologies[sections["sample-1"]].rank < topologies[sections["sample-2"]].rank
-    assert topologies[sections["decode-2"]].rank < topologies[sections["save"]].rank
-    assert layouts["sample-1"].x < layouts["decode-1"].x < layouts["sample-2"].x
-    assert layouts["sample-2"].x < layouts["decode-2"].x < layouts["save"].x
+    assert sections["sample-1"] == sections["sample-2"] == "__sampling__"
+    assert sections["decode-2"] == sections["save"] == "__output__"
 
 
 def test_unassigned_late_sampler_is_not_grouped_with_conditioning() -> None:
@@ -4431,19 +4322,13 @@ def test_unassigned_late_sampler_is_not_grouped_with_conditioning() -> None:
 
     assert result.ok is True
     sections = _node_sections(result)
-    topologies = {t.section_id: t for t in result.section_topologies}
-
     assert sections["prompt"] == "__conditioning__"
-    assert sections["sample-1"] == "__sampling__"
-    assert sections["sample-2"].startswith("__sampling____p")
+    assert sections["sample-1"] == sections["sample-2"] == "__sampling__"
     assert sections["sample-2"] != sections["prompt"]
-    assert topologies[sections["prompt"]].rank < topologies[sections["sample-2"]].rank
 
 
-def test_unassigned_disconnected_islands_keep_same_layer_nodes_stable() -> None:
-    """Disconnected islands should not spuriously multiply same-layer stage
-    sections; only topology-deeper repeated passes get distinct instances.
-    """
+def test_unassigned_disconnected_islands_keep_role_buckets_stable() -> None:
+    """Disconnected islands must not multiply deterministic role sections."""
     ui = {
         "nodes": [
             _with_io(
@@ -4502,10 +4387,8 @@ def test_unassigned_disconnected_islands_keep_same_layer_nodes_stable() -> None:
 
     assert sections["sample-a1"] == "__sampling__"
     assert sections["sample-b"] == "__sampling__"
-    assert sections["sample-a2"].startswith("__sampling____p")
-    assert sections["sample-a2"] != sections["sample-a1"]
-    assert sections["save-a"] == "__output__"
-    assert sections["save-b"].startswith("__output____p")
+    assert sections["sample-a2"] == sections["sample-a1"]
+    assert sections["save-a"] == sections["save-b"] == "__output__"
 
 
 def test_unassigned_single_pass_keeps_legacy_base_section_ids() -> None:
@@ -4543,10 +4426,8 @@ def test_unassigned_single_pass_keeps_legacy_base_section_ids() -> None:
     assert all(section_id in {"__conditioning__", "__sampling__"} for section_id in sections.values())
 
 
-def test_non_huge_uneven_width_dovetail_reserves_space_only_for_overlapping_bands() -> None:
-    """A wide custom-section node in band 1 (bottom) must not push a
-    parallel decode section in band 0 (middle) far to the right when
-    their vertical bands do not intersect the wide column.
+def test_non_huge_uneven_width_uses_straight_fixed_rank_columns() -> None:
+    """Ordinary workflows retain the pre-Sprint-2 fixed-rank columns.
 
     Topology (sample fans out to two parallel branches):
       clip (loaders, band -1) → prompt (conditioning, band 0)
@@ -4554,11 +4435,9 @@ def test_non_huge_uneven_width_dovetail_reserves_space_only_for_overlapping_band
           ├── wide_custom (custom, band 1) → (dead end)
           └── decode (decode, band 0) → preview (output, band 0)
 
-    wide_custom and decode share the same topology rank because they
-    both follow sample.  wide_custom is in band 1 (below band 0), so
-    its vertical intervals do not overlap with decode/preview in band 0.
-    The dovetail packer therefore places decode tight against sample
-    rather than pushing it right by the full width of wide_custom.
+    Contour dovetailing is reserved for huge-wall layouts. In an ordinary
+    workflow, sections at the same effective rank share one x coordinate and
+    later ranks reserve the complete preceding column width.
     """
     ui = {
         "nodes": [
@@ -4621,43 +4500,8 @@ def test_non_huge_uneven_width_dovetail_reserves_space_only_for_overlapping_band
 
     layouts = _layouts_by_uid(result)
 
-    # The wide_custom node is in band 1 (custom kind → band 1).
-    # decode and preview are in band 0 (decode/output kinds → band 0).
-    # Band 1 sits vertically below band 0, so wide_custom's vertical
-    # interval does not overlap with band 0 sections.
-
-    # In a pure max-width column layout, decode's x would be pushed
-    # right by the width of wide_custom (the widest node sharing the
-    # same rank).  With dovetailing, decode should tuck beside the
-    # band-0 sampling column instead.
-
-    sample_right = layouts["sample"].x + layouts["sample"].width
-    # section_gap_x for balanced is 440
-    section_gap = 440
-
-    # decode should be at most (sample_right + section_gap) — the
-    # position it would occupy if the wide custom column did not
-    # reserve space.  Allow small tolerance for local layout padding.
-    max_compact_x = sample_right + section_gap + 100
-    assert layouts["decode"].x <= max_compact_x, (
-        f"decode x={layouts['decode'].x} should be near sample_right={sample_right}, "
-        f"not pushed by wide_custom x={layouts['wide_custom'].x} "
-        f"(max compact x={max_compact_x})"
-    )
-
-    # Verify the wide node would have pushed decode much further right
-    # in a naive max-width layout.
-    min_pushed_x = sample_right + section_gap + 600 + 2 * section_gap
-    assert layouts["decode"].x < min_pushed_x, (
-        f"decode x={layouts['decode'].x} is unexpectedly far right; "
-        f"expected < {min_pushed_x}"
-    )
-
-    # preview should similarly follow decode compactly.
-    decode_right = layouts["decode"].x + layouts["decode"].width
-    assert layouts["preview"].x <= decode_right + section_gap + 100, (
-        f"preview x={layouts['preview'].x} should be near decode_right={decode_right}"
-    )
+    assert layouts["wide_custom"].x == layouts["decode"].x
+    assert layouts["sample"].x < layouts["decode"].x < layouts["preview"].x
 
     # wide_custom (band 1) must sit below band 0 content.
     band0_bottom = max(

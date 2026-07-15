@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from math import hypot
 from typing import Any, Mapping, Sequence
 
-from .diagnostics import ReorganiseDiagnostic
 from .graph_facts import (
     GraphInventoryFacts,
     NodeFurnitureFact,
@@ -86,7 +85,6 @@ class _Rect:
 
 def assess_layout_facts(facts: GraphInventoryFacts) -> AssessmentReport:
     rects = _rects_by_ref(facts.node_furniture)
-    band_by_ref = _derive_bands_from_furniture(facts)
     helper_refs = {helper.ref for helper in facts.helper_nodes}
     primary_rects = {
         ref: rect
@@ -94,7 +92,7 @@ def assess_layout_facts(facts: GraphInventoryFacts) -> AssessmentReport:
         if ref not in helper_refs
     }
 
-    overlap_pairs = _overlap_pairs(primary_rects, band_by_ref)
+    overlap_pairs = _overlap_pairs(primary_rects)
     backward_count, directed_edges = _backward_edge_counts(facts.scope_topologies, rects)
     backward_ratio = _ratio(backward_count, directed_edges)
     spacing_density = _spacing_density(primary_rects)
@@ -253,17 +251,11 @@ def _number(value: Any) -> float | None:
 
 def _overlap_pairs(
     rects: Mapping[CanonicalNodeRef, _Rect],
-    band_by_ref: Mapping[CanonicalNodeRef, int] | None = None,
 ) -> tuple[tuple[CanonicalNodeRef, CanonicalNodeRef], ...]:
     ordered = sorted(rects.values(), key=lambda rect: rect.ref.to_json())
     pairs: list[tuple[CanonicalNodeRef, CanonicalNodeRef]] = []
     for index, left in enumerate(ordered):
-        left_band = band_by_ref.get(left.ref) if band_by_ref else None
         for right in ordered[index + 1 :]:
-            right_band = band_by_ref.get(right.ref) if band_by_ref else None
-            # Nodes in non-overlapping bands are allowed to share x/y space
-            if band_by_ref is not None and not _bands_intersect_vertically(left_band, right_band):
-                continue
             if left.x < right.right and left.right > right.x and left.y < right.bottom and left.bottom > right.y:
                 pairs.append((left.ref, right.ref))
     return tuple(pairs)
@@ -493,41 +485,6 @@ def _add_neighbor_from_edge(
 
 def _distance(left: tuple[float, float], right: tuple[float, float]) -> float:
     return hypot(left[0] - right[0], left[1] - right[1])
-
-
-def _derive_bands_from_furniture(facts: GraphInventoryFacts) -> dict[CanonicalNodeRef, int]:
-    """Derive vertical band assignments from node furniture facts.
-
-    Mirrors the band logic in compile.py: band -1 for model-pipe loaders,
-    band 0 for primary pipeline nodes, band 1 for helpers/utility/ui nodes.
-    """
-    bands: dict[CanonicalNodeRef, int] = {}
-    model_tokens = {"checkpoint", "clip", "lora", "unet", "vae", "model"}
-    helper_refs = {h.ref for h in facts.helper_nodes}
-    for fact in facts.canonical_refs:
-        ref = fact.ref
-        if ref in helper_refs:
-            bands[ref] = 1
-            continue
-        class_type = str(getattr(fact, "class_type", "")).lower()
-        if any(token in class_type for token in model_tokens):
-            bands[ref] = -1
-        elif getattr(fact, "is_helper", False) or getattr(fact, "is_note", False):
-            bands[ref] = 1
-        else:
-            bands[ref] = 0
-    return bands
-
-
-def _bands_intersect_vertically(band_a: int | None, band_b: int | None) -> bool:
-    """Two bands are considered to intersect vertically if they are the same or adjacent.
-
-    Band -1 (model pipes) sits above band 0 (main), band 0 above band 1 (helpers).
-    Non-overlapping bands do not need collision resolution.
-    """
-    if band_a is None or band_b is None:
-        return True  # conservative: treat unknown bands as potentially colliding
-    return abs(band_a - band_b) <= 1
 
 
 build_assessment = assess_layout_facts

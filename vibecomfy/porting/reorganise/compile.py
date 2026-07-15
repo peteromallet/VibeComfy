@@ -1233,12 +1233,6 @@ def _compile_sections(
         UNASSIGNED_CLASSIFY_DETERMINISTICALLY,
         UNASSIGNED_PRESERVE_EXISTING,
     }:
-        node_layers = _node_topology_layers(facts)
-        # Topology-proven repeated stages (multipass, branch, join) must not be
-        # collapsed into a single role-bucket section. We key each unassigned
-        # node by (section-kind, topology-layer) so two samplers at different
-        # data-flow depths land in distinct generated section instances.
-        role_instance_sections: dict[tuple[str, int], str] = {}
         for ref in unassigned:
             if ref in primary_owned:
                 continue
@@ -1258,31 +1252,10 @@ def _compile_sections(
                 continue
             hint = classification.hint_for(ref)
             role = hint.role_hint if hint is not None else fact.role_hint if fact is not None else ROLE_HINT_UNKNOWN
-            kind = _ROLE_TO_SECTION_KIND.get(role, SECTION_KIND_CUSTOM)
-            layer = node_layers.get(ref, 0)
-            instance_key = (kind, layer)
-            section_id = role_instance_sections.get(instance_key)
-            if section_id is None:
-                section_id = _role_instance_section_id(
-                    kind,
-                    layer,
-                    section_defs,
-                    claimed_base_kinds={
-                        _generated_section_kind(sid)
-                        for sid in role_instance_sections.values()
-                    },
-                )
-                role_instance_sections[instance_key] = section_id
-                if section_id not in generated_defs and section_id not in section_defs:
-                    generated_defs[section_id] = _GeneratedSection(
-                        kind=kind,
-                        title=_title_for(section_id, kind),
-                        role_hint=role,
-                    )
-            primary_owned[ref] = section_id
+            primary_owned[ref] = _section_for_role(role, section_defs)
             ownership[ref] = _OwnershipDecision(
                 ref=ref,
-                section_id=section_id,
+                section_id=primary_owned[ref],
                 reason="primary_classified_role",
             )
     elif plan.unassigned_policy == UNASSIGNED_REJECT:
@@ -2195,7 +2168,11 @@ def _layout_sections_with_phases(
         for layout in node_layouts:
             trace.record_global_layout(layout)
     group_layouts = _compiled_group_layouts(sections, node_layouts, facts, spacing, layout_options)
-    should_repair_generated_group_overlaps = _group_layout_overlap_count(group_layouts) > 0
+    # Preserve the proven pre-transaction-spine placement baseline for ordinary
+    # workflows.  Whole-section group reflow exists for the compact huge-wall
+    # path; applying it to every graph turns small overlaps into cascading
+    # vertical translations and destroys the established canvas shape.
+    should_repair_generated_group_overlaps = huge_mode and _group_layout_overlap_count(group_layouts) > 0
     if should_repair_huge_overlaps or should_repair_generated_group_overlaps:
         node_layouts, group_layouts = _resolve_group_collisions(
             sections,
@@ -2205,18 +2182,6 @@ def _layout_sections_with_phases(
             spacing,
             layout_options,
         )
-    # Group repair moves whole sections after the initial node-collision pass.
-    # If independently packed semantic bands now occupy the same real pixels,
-    # move the affected whole section sideways so both node and group geometry
-    # remain coherent.
-    node_layouts, group_layouts = _resolve_cross_band_section_collisions(
-        sections,
-        node_layouts,
-        group_layouts,
-        facts,
-        spacing,
-        layout_options,
-    )
     group_layouts = _filter_group_layouts_for_policy(group_layouts, facts, layout_options)
     return _CompiledLayoutPlacement(
         node_layouts=tuple(sorted(node_layouts, key=lambda layout: _ref_sort_key(layout.ref))),
@@ -2565,35 +2530,34 @@ def _section_placements(
         key=lambda item: (
             _topology_for(item, topology_by_section).scope_path,
             _topology_for(item, topology_by_section).island_index,
-            _topology_for(item, topology_by_section).rank,
-            _topology_for(item, topology_by_section).scc_id,
-            item.id,
+            effective_ranks[item.id],
             raw_band_by_section[item.id],
             *_section_semantic_sort_key(item),
         ),
     )
     lane_vertical_intervals: dict[tuple[str, int, int, int], list[tuple[int, int]]] = {}
-    preview_next_y_by_lane: dict[tuple[str, int, int, int], int] = {}
-    for section in ordered_sections:
-        topology = _topology_for(section, topology_by_section)
-        island_index = 0 if huge_mode else topology.island_index
-        rank = effective_ranks[section.id]
-        band = raw_band_by_section[section.id]
-        lane = (topology.scope_path, island_index, rank, band)
-        base_y = band_y_offsets[(topology.scope_path, island_index, band)]
-        y = base_y + preview_next_y_by_lane.get(lane, 0)
-        _width, height = _estimated_section_size(
-            section,
-            facts,
-            furniture_by_ref,
-            options,
-            spacing,
-            plan,
-        )
-        lane_vertical_intervals.setdefault(lane, []).append((y, y + height))
-        preview_next_y_by_lane[lane] = (
-            preview_next_y_by_lane.get(lane, 0) + height + spacing.section_gap_y
-        )
+    if huge_mode:
+        preview_next_y_by_lane: dict[tuple[str, int, int, int], int] = {}
+        for section in ordered_sections:
+            topology = _topology_for(section, topology_by_section)
+            island_index = 0
+            rank = effective_ranks[section.id]
+            band = raw_band_by_section[section.id]
+            lane = (topology.scope_path, island_index, rank, band)
+            base_y = band_y_offsets[(topology.scope_path, island_index, band)]
+            y = base_y + preview_next_y_by_lane.get(lane, 0)
+            _width, height = _estimated_section_size(
+                section,
+                facts,
+                furniture_by_ref,
+                options,
+                spacing,
+                plan,
+            )
+            lane_vertical_intervals.setdefault(lane, []).append((y, y + height))
+            preview_next_y_by_lane[lane] = (
+                preview_next_y_by_lane.get(lane, 0) + height + spacing.section_gap_y
+            )
 
     for section in ordered_sections:
         topology = _topology_for(section, topology_by_section)
@@ -2614,8 +2578,8 @@ def _section_placements(
         )
         if lane in x_by_lane:
             x = x_by_lane[lane]
-        else:
-            # Pack the whole lane against the contour of earlier
+        elif huge_mode:
+            # Pack the whole semantic lane against the contour of earlier
             # ranks, then keep every section in that lane on one straight x.
             # A lane may tuck beside a wide lower group only when none of its
             # vertical intervals reaches that group.
@@ -2628,6 +2592,9 @@ def _section_placements(
                 fallback=rank_x_offsets[(topology.scope_path, island_index, rank)],
                 gap_x=spacing.section_gap_x,
             )
+            x_by_lane[lane] = x
+        else:
+            x = rank_x_offsets[(topology.scope_path, island_index, rank)]
             x_by_lane[lane] = x
         placements[section.id] = _SectionPlacement(rank=rank, band=band, row=row, x=x, y=y)
         placed_lanes.append(
@@ -6073,7 +6040,6 @@ def _resolve_node_collisions(
     spacing: _Spacing,
 ) -> tuple[CompiledNodeLayout, ...]:
     helper_refs = {fact.ref for fact in facts.canonical_refs if fact.is_helper}
-    band_by_ref = _derive_node_bands_for_collision(facts, node_layouts)
     rounded = tuple(_rounded_node_layout(layout) for layout in node_layouts)
     pinned = tuple(sorted((layout for layout in rounded if layout.pinned), key=_node_collision_sort_key))
     movable = tuple(sorted((layout for layout in rounded if not layout.pinned), key=_node_collision_sort_key))
@@ -6081,21 +6047,15 @@ def _resolve_node_collisions(
     obstacles = list(pinned)
 
     for layout in movable:
-        layout_band = band_by_ref.get(layout.ref)
-        band_obstacles = [
-            obstacle
-            for obstacle in obstacles
-            if _bands_intersect_vertically(layout_band, band_by_ref.get(obstacle.ref))
-        ]
         if layout.ref in helper_refs:
             candidate = _nudge_layout_clear_of_obstacles(
                 layout,
-                band_obstacles,
+                obstacles,
                 same_section_gutter=MIN_NODE_GUTTER,
                 cross_section_gutter=MIN_NODE_GUTTER,
             )
         else:
-            primary_obstacles = [obstacle for obstacle in band_obstacles if obstacle.ref not in helper_refs]
+            primary_obstacles = [obstacle for obstacle in obstacles if obstacle.ref not in helper_refs]
             candidate = _nudge_layout_clear_of_obstacles(
                 layout,
                 primary_obstacles,
@@ -6106,29 +6066,6 @@ def _resolve_node_collisions(
         obstacles.append(candidate)
 
     return tuple(resolved[layout.ref] for layout in rounded)
-
-
-def _derive_node_bands_for_collision(
-    facts: GraphInventoryFacts,
-    node_layouts: Sequence[CompiledNodeLayout],
-) -> dict[CanonicalNodeRef, int | None]:
-    """Assign semantic band numbers used during the initial layout pass."""
-    bands: dict[CanonicalNodeRef, int | None] = {}
-    model_tokens = {"checkpoint", "clip", "lora", "unet", "vae", "model"}
-    helper_refs = {fact.ref for fact in facts.canonical_refs if fact.is_helper}
-    for fact in facts.canonical_refs:
-        ref = fact.ref
-        if ref in helper_refs:
-            bands[ref] = 1
-            continue
-        class_type = str(getattr(fact, "class_type", "")).lower()
-        if any(token in class_type for token in model_tokens):
-            bands[ref] = -1
-        elif getattr(fact, "is_helper", False) or getattr(fact, "is_note", False):
-            bands[ref] = 1
-        else:
-            bands[ref] = 0
-    return bands
 
 
 def _rounded_node_layout(layout: CompiledNodeLayout) -> CompiledNodeLayout:
@@ -6235,7 +6172,6 @@ def _compiled_group_layouts(
     layouts_by_section: dict[str, list[CompiledNodeLayout]] = {}
     for layout in node_layouts:
         layouts_by_section.setdefault(layout.section_id, []).append(layout)
-    section_by_id = {section.id: section for section in sections}
     templates = {
         section.id: _local_section_layout(
             section,
@@ -6306,27 +6242,17 @@ def _resolve_group_collisions(
     spacing: _Spacing,
     options: LayoutCompileOptions,
 ) -> tuple[tuple[CompiledNodeLayout, ...], tuple[CompiledGroupLayout, ...]]:
-    """Move whole sections down until generated group boxes clear, band-aware.
+    """Move whole huge-wall sections down until generated group boxes clear.
 
-    Independent sections in non-overlapping vertical bands (e.g. model-pipes
-    in band -1 and sampling in band 0) are allowed to have overlapping group
-    boxes because they sit in separate vertical lanes.  Only groups whose
-    bands intersect vertically are pushed apart.  The horizontal minimum group
-    gutter is derived from the configured vertical band gap so group
-    separation stays proportional to inter-band spacing.
+    The huge-wall packer preserves compact visual columns, so independent
+    semantic buckets can legitimately have overlapping vertical spans after
+    node-level collision resolution. Since groups are derived from section
+    boxes, translate the later section as a unit and recompute its group.
     """
     if not group_layouts:
         return tuple(node_layouts), tuple(group_layouts)
 
     section_by_id = {section.id: section for section in sections}
-    band_by_section = {
-        section.id: (
-            _huge_wall_band(section)
-            if getattr(options, "force_regroup", False)
-            else _section_band(section, facts)
-        )
-        for section in sections
-    }
     primary_group_by_section = {
         group.id: group
         for group in group_layouts
@@ -6334,8 +6260,6 @@ def _resolve_group_collisions(
     }
     if len(primary_group_by_section) < 2:
         return tuple(node_layouts), tuple(group_layouts)
-
-    group_gutter = max(spacing.band_gap_y, MIN_GROUP_GUTTER)
 
     shift_by_section: dict[str, int] = {}
     placed: list[CompiledGroupLayout] = []
@@ -6345,17 +6269,15 @@ def _resolve_group_collisions(
     ):
         shift = shift_by_section.get(group.id, 0)
         candidate = _shift_group_layout(group, shift)
-        group_band = band_by_section.get(group.id)
         for _pass in range(len(placed) + 1):
             colliding = [
                 obstacle
                 for obstacle in placed
-                if _bands_intersect_vertically(group_band, band_by_section.get(obstacle.id))
-                and _group_layouts_violate_gutter(candidate, obstacle, group_gutter)
+                if _group_layouts_violate_gutter(candidate, obstacle, MIN_GROUP_GUTTER)
             ]
             if not colliding:
                 break
-            next_y = max(obstacle.y + obstacle.height + group_gutter for obstacle in colliding)
+            next_y = max(obstacle.y + obstacle.height + MIN_GROUP_GUTTER for obstacle in colliding)
             delta = max(0, next_y - candidate.y)
             shift += delta
             candidate = _shift_group_layout(group, shift)
@@ -6371,146 +6293,6 @@ def _resolve_group_collisions(
     )
     shifted_groups = _compiled_group_layouts(sections, shifted_nodes, facts, spacing, options)
     return shifted_nodes, shifted_groups
-
-
-def _resolve_cross_band_section_collisions(
-    sections: Sequence[_CompileSection],
-    node_layouts: Sequence[CompiledNodeLayout],
-    group_layouts: Sequence[CompiledGroupLayout],
-    facts: GraphInventoryFacts,
-    spacing: _Spacing,
-    options: LayoutCompileOptions,
-) -> tuple[tuple[CompiledNodeLayout, ...], tuple[CompiledGroupLayout, ...]]:
-    """Repair real node collisions hidden by semantic-band placement hints."""
-    section_by_id = {section.id: section for section in sections}
-    groups = {
-        group.id: group
-        for group in group_layouts
-        if group.id in section_by_id
-    }
-    if len(groups) < 2:
-        return tuple(node_layouts), tuple(group_layouts)
-
-    nodes_by_section: dict[str, tuple[CompiledNodeLayout, ...]] = {
-        section_id: tuple(layout for layout in node_layouts if layout.section_id == section_id)
-        for section_id in groups
-    }
-    band_by_section = {
-        section.id: (
-            _huge_wall_band(section)
-            if getattr(options, "force_regroup", False)
-            else _section_band(section, facts)
-        )
-        for section in sections
-    }
-    pinned_by_section = {
-        section_id: any(layout.pinned for layout in layouts)
-        for section_id, layouts in nodes_by_section.items()
-    }
-    placed: list[tuple[CompiledGroupLayout, tuple[CompiledNodeLayout, ...]]] = []
-    shift_x_by_section: dict[str, int] = {}
-    for group in sorted(
-        groups.values(),
-        key=lambda item: (0 if pinned_by_section.get(item.id) else 1, item.x, item.y, item.id),
-    ):
-        shift_x = 0
-        candidate_group = group
-        candidate_nodes = nodes_by_section.get(group.id, ())
-        for _pass in range(len(placed) + 1):
-            collisions = [
-                (obstacle_group, obstacle_nodes)
-                for obstacle_group, obstacle_nodes in placed
-                if not _bands_intersect_vertically(
-                    band_by_section.get(group.id),
-                    band_by_section.get(obstacle_group.id),
-                )
-                and _node_sets_violate_gutter(candidate_nodes, obstacle_nodes)
-            ]
-            if not collisions:
-                break
-            if pinned_by_section.get(group.id):
-                # Pinned geometry is authoritative.  A later movable section
-                # can clear this obstacle; two pinned sections must fail the
-                # normal validation gate instead of being silently moved.
-                break
-            next_x = max(
-                obstacle_group.x
-                + obstacle_group.width
-                + MIN_GROUP_GUTTER
-                + spacing.group_padding * 2
-                for obstacle_group, _obstacle_nodes in collisions
-            )
-            delta = max(0, next_x - candidate_group.x)
-            shift_x += delta
-            candidate_group = _shift_group_layout_x(group, shift_x)
-            candidate_nodes = tuple(
-                _shift_node_layout_x(layout, shift_x)
-                for layout in nodes_by_section.get(group.id, ())
-            )
-        shift_x_by_section[group.id] = shift_x
-        placed.append((candidate_group, candidate_nodes))
-
-    if not any(shift_x_by_section.values()):
-        return tuple(node_layouts), tuple(group_layouts)
-    shifted_nodes = tuple(
-        _shift_node_layout_x(layout, shift_x_by_section.get(layout.section_id, 0))
-        for layout in node_layouts
-    )
-    shifted_groups = _compiled_group_layouts(sections, shifted_nodes, facts, spacing, options)
-    return shifted_nodes, shifted_groups
-
-
-def _node_sets_violate_gutter(
-    left: Sequence[CompiledNodeLayout],
-    right: Sequence[CompiledNodeLayout],
-) -> bool:
-    return any(
-        _layouts_violate_gutter(left_layout, right_layout, MIN_NODE_GUTTER)
-        for left_layout in left
-        for right_layout in right
-    )
-
-
-def _shift_node_layout_x(layout: CompiledNodeLayout, dx: int) -> CompiledNodeLayout:
-    if dx == 0:
-        return layout
-    return CompiledNodeLayout(
-        ref=layout.ref,
-        section_id=layout.section_id,
-        role_hint=layout.role_hint,
-        x=layout.x + dx,
-        y=layout.y,
-        width=layout.width,
-        height=layout.height,
-        pinned=layout.pinned,
-        auto_collapsed=layout.auto_collapsed,
-    )
-
-
-def _shift_group_layout_x(group: CompiledGroupLayout, dx: int) -> CompiledGroupLayout:
-    if dx == 0:
-        return group
-    return CompiledGroupLayout(
-        id=group.id,
-        scope_path=group.scope_path,
-        title=group.title,
-        kind=group.kind,
-        role_hint=group.role_hint,
-        node_refs=group.node_refs,
-        x=group.x + dx,
-        y=group.y,
-        width=group.width,
-        height=group.height,
-        color=group.color,
-        template=group.template,
-    )
-
-
-def _bands_intersect_vertically(band_a: int | None, band_b: int | None) -> bool:
-    """Return whether semantic bands should interact during initial packing."""
-    if band_a is None or band_b is None:
-        return True
-    return abs(band_a - band_b) <= 1
 
 
 def _shift_node_layout(layout: CompiledNodeLayout, dy: int) -> CompiledNodeLayout:
@@ -7934,69 +7716,10 @@ def _section_for_role(
     section_defs: Mapping[str, LayoutSection],
 ) -> str:
     kind = _ROLE_TO_SECTION_KIND.get(role, SECTION_KIND_CUSTOM)
-    return _section_for_role_kind(kind, section_defs)
-
-
-def _section_for_role_kind(kind: SectionKind, section_defs: Mapping[str, LayoutSection]) -> str:
     for section_id, section in sorted(section_defs.items()):
         if section.kind == kind:
             return section_id
     return f"__{kind}__"
-
-
-def _role_instance_section_id(
-    kind: SectionKind,
-    layer: int,
-    section_defs: Mapping[str, LayoutSection],
-    claimed_base_kinds: set[str],
-) -> str:
-    """Return a stable section id for one ``(kind, layer)`` stage instance.
-
-    The first instance of a given kind keeps the legacy base id (an existing
-    matching section or ``__<kind>__``) so single-pass layouts are unchanged.
-    Topology-proven repeated instances get a deterministic ``__<kind>__p<layer>__``
-    suffix so they are placed as distinct stage instances rather than merged
-    into one role-bucket section.
-    """
-    base = _section_for_role_kind(kind, section_defs)
-    if base in section_defs:
-        return base
-    base_kind = _generated_section_kind(base)
-    if base_kind not in claimed_base_kinds:
-        return base
-    return f"{base}__p{layer}__"
-
-
-def _node_topology_layers(facts: GraphInventoryFacts) -> dict[CanonicalNodeRef, int]:
-    """Longest-path layer (depth from sources) per canonical ref.
-
-    Computed from *effective* topology edges so muted/bypassed (mode=2/4)
-    nodes do not contribute phantom stages. Nodes with no effective edges
-    default to layer 0. This layer is used only to split repeated same-role
-    stages into distinct section instances; it never overrides section rank.
-    """
-    incoming: dict[CanonicalNodeRef, set[CanonicalNodeRef]] = {}
-    all_refs: set[CanonicalNodeRef] = set()
-    for topology in facts.scope_topologies:
-        for edge in topology.effective_edges:
-            all_refs.add(edge.source)
-            all_refs.add(edge.target)
-            incoming.setdefault(edge.target, set()).add(edge.source)
-    layer: dict[CanonicalNodeRef, int] = {}
-    refs = sorted(all_refs, key=_ref_sort_key)
-    for _ in range(len(refs) + 1):
-        changed = False
-        for ref in refs:
-            best = 0
-            for pred in incoming.get(ref, ()):
-                if pred in layer:
-                    best = max(best, layer[pred] + 1)
-            if layer.get(ref, -1) != best:
-                layer[ref] = best
-                changed = True
-        if not changed:
-            break
-    return layer
 
 
 def _generated_section_kind(section_id: str) -> SectionKind:

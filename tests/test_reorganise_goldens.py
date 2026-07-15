@@ -35,6 +35,7 @@ class GoldenThresholds:
     max_helper_distance_warnings: int
     allowed_group_coherence_drop: float = 0.0
     allowed_backward_edge_ratio_increase: float = 0.0
+    allowed_spacing_density_increase: float = 0.0
     expected_helper_count: int | None = None
     expected_min_scope_count: int = 1
     expected_min_component_count: int | None = None
@@ -47,6 +48,16 @@ class GoldenThresholds:
 # derived from the implementation. When the compiler's layout tradeoffs change,
 # reviewers can adjust one fixture's contract without weakening the whole gate.
 GOLDEN_THRESHOLDS: dict[str, GoldenThresholds] = {
+    "animatediff_controlnet_20_node.json": GoldenThresholds(
+        max_overlap_count=0,
+        max_backward_edge_ratio=0.10,
+        max_spacing_density=0.23,
+        min_group_signal_strength=1.0,
+        min_group_coherence=0.65,
+        max_helper_distance_warnings=0,
+        expected_min_patch_group_count=9,
+        allowed_spacing_density_increase=0.08,
+    ),
     "base_refiner_samplers.json": GoldenThresholds(
         max_overlap_count=0,
         max_backward_edge_ratio=0.0,
@@ -284,6 +295,44 @@ def test_reorganise_golden_matrix_preserves_topology_and_layout_contract(
     )
 
 
+def test_animatediff_controlnet_layout_preserves_pre_transaction_spine_shape() -> None:
+    """The representative browser workflow must not collapse into a tall tower."""
+    fixture_path = FIXTURE_DIR / "animatediff_controlnet_20_node.json"
+    preview = preview_reorganise_workflow(fixture_path)
+
+    assert preview.ok is True
+    assert preview.candidate_patch is not None
+    assert preview.apply_data.layout_only_structural_noop is True
+
+    applied = apply_layout_candidate_patch_to_ui(fixture_path, preview.candidate_patch)
+    nodes = applied.ui_json["nodes"]
+    left = min(node["pos"][0] for node in nodes)
+    top = min(node["pos"][1] for node in nodes)
+    right = max(node["pos"][0] + node["size"][0] for node in nodes)
+    bottom = max(node["pos"][1] + node["size"][1] for node in nodes)
+    width = right - left
+    height = bottom - top
+
+    assert height <= 2567
+    assert width / height >= 1.25
+
+    groups = {group["title"]: group["bounding"] for group in applied.ui_json["groups"]}
+    flow_titles = ("Loaders", "Prompt / Conditioning", "Sampling", "Output")
+    centers = {
+        title: (
+            groups[title][0] + groups[title][2] / 2,
+            groups[title][1] + groups[title][3] / 2,
+        )
+        for title in flow_titles
+    }
+    assert [centers[title][0] for title in flow_titles] == sorted(
+        centers[title][0] for title in flow_titles
+    )
+    assert max(centers[title][1] for title in flow_titles) - min(
+        centers[title][1] for title in flow_titles
+    ) <= 1200
+
+
 def test_reorganise_golden_thresholds_cover_every_fixture_explicitly() -> None:
     fixture_names = {path.name for path in _fixture_paths()}
 
@@ -317,7 +366,10 @@ def _assert_metric_improvement_or_fixture_local_no_regression(
         after[METRIC_BACKWARD_EDGE_RATIO]
         <= before[METRIC_BACKWARD_EDGE_RATIO] + thresholds.allowed_backward_edge_ratio_increase
     ), fixture_name
-    assert after[METRIC_SPACING_DENSITY] <= before[METRIC_SPACING_DENSITY], fixture_name
+    assert (
+        after[METRIC_SPACING_DENSITY]
+        <= before[METRIC_SPACING_DENSITY] + thresholds.allowed_spacing_density_increase
+    ), fixture_name
     assert (
         after[METRIC_HELPER_DISTANCE_WARNING_COUNT]
         <= before[METRIC_HELPER_DISTANCE_WARNING_COUNT]
