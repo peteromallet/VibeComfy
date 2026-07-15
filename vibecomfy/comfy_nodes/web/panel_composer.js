@@ -236,8 +236,9 @@ export function syncComposerButtons(
     panel.buttons.stop,
     panel.buttons.apply,
     panel.buttons.reject,
+    panel.buttons.rollback,
     panel.buttons.newConversation,
-  ];
+  ].filter(Boolean);
   for (const btn of orderedButtons) {
     if (btn.parentNode !== row) {
       row.appendChild(btn);
@@ -280,34 +281,29 @@ export function renderComposerNotice(panel, readinessState, deps = {}) {
   const allowsApply = !panelRoute || routeAllowsApplyAffordances(panelRoute);
 
   // ── V2: Prepared-but-unfinalized recovery notice ──────────────────────────
-  // APPLY_PREPARED and CANVAS_VERIFIED represent a prepared transaction that has
-  // NOT yet been finalized.  The user must either finalize (commit the prepared
-  // mutation) or rollback (restore the pre-prepare baseline).  These states are
-  // recoverable — not a terminal success or failure — so we surface actionable
-  // recovery controls rather than treating them as generic APPLYING/ERROR.
+  // APPLY_PREPARED and CANVAS_VERIFIED are normally brief internal phases. If
+  // the browser is interrupted, however, the durable prepare survives and must
+  // remain visibly recoverable. Keep this notice compact: transaction hashes
+  // belong in developer diagnostics, while the pinned action row owns recovery.
   const isPreparedUnfinalized =
     panel.state.phase === PANEL_STATE.APPLY_PREPARED
     || panel.state.phase === PANEL_STATE.CANVAS_VERIFIED;
 
   if (isPreparedUnfinalized && panel.state.preparedReceipt) {
+    const applyInFlight = Boolean(panel.state.inFlightApply);
     const heading = el("div", panel.state.phase === PANEL_STATE.CANVAS_VERIFIED
-      ? "Canvas verified — ready to finalize"
-      : "Transaction prepared — awaiting verification");
+      ? "Finalizing transaction…"
+      : applyInFlight
+        ? "Applying transaction…"
+        : "Apply paused after preparation");
     heading.style.color = "#50fa7b";
     heading.style.fontWeight = "700";
     heading.style.marginBottom = "4px";
     notice.appendChild(heading);
 
-    const detail = el("div", `Plan hash: ${(panel.state.mutationPlanHash || "").slice(0, 12)}...  Generation: ${panel.state.generation ?? "—"}`);
-    detail.style.color = "#9da1ac";
-    detail.style.fontSize = "11px";
-    detail.style.marginBottom = "6px";
-    notice.appendChild(detail);
-
-    if (panel.state.phase === PANEL_STATE.CANVAS_VERIFIED) {
-      const hint = el("div", "Click Finalize to commit this transaction to the baseline, or Rollback to restore the previous state.");
+    if (!applyInFlight) {
+      const hint = el("div", "Rollback the interrupted transaction, then retry Apply.");
       hint.style.color = "#edf2f7";
-      hint.style.marginBottom = "6px";
       notice.appendChild(hint);
     }
 
@@ -419,8 +415,8 @@ export function renderComposerActions(panel, deps = {}) {
   // ── V2: Prepared-but-unfinalized recovery phases ──────────────────────────
   // These states represent a prepared transaction that has not been finalized.
   // They are NOT equivalent to APPLYING, SUCCESS, or ERROR — the user must
-  // either finalize or rollback.  We surface Finalize / Rollback buttons
-  // instead of the legacy Apply / Reject affordances.
+  // roll it back. We surface a real Rollback control instead of silently
+  // removing Apply / Reject and leaving the transaction with no action.
   const v2Prepared = phase === PANEL_STATE.APPLY_PREPARED;
   const v2CanvasVerified = phase === PANEL_STATE.CANVAS_VERIFIED;
   const v2Finalized = phase === PANEL_STATE.FINALIZED;
@@ -484,19 +480,13 @@ export function renderComposerActions(panel, deps = {}) {
     panel.buttons.reject.disabled = actionState.rejectDisabled;
   }
 
-  // ── V2: Finalize button visibility ─────────────────────────────────────────
-  // Finalize commits the prepared transaction to the baseline.  Only shown during
-  // CANVAS_VERIFIED (post-verify) or APPLY_PREPARED (pre-verify but prepared).
-  if (panel.buttons.finalize) {
-    panel.buttons.finalize.style.display = v2Active ? "inline-flex" : "none";
-    panel.buttons.finalize.disabled = Boolean(panel.state.inFlightApply);
-  }
-
   // ── V2: Rollback button visibility ─────────────────────────────────────────
   // Rollback restores the pre-prepare baseline. Shown during any V2 active phase.
   if (panel.buttons.rollback) {
     panel.buttons.rollback.style.display = v2Active ? "inline-flex" : "none";
-    panel.buttons.rollback.disabled = Boolean(panel.state.inFlightRebaseline);
+    panel.buttons.rollback.disabled = Boolean(
+      panel.state.inFlightApply || panel.state.inFlightRebaseline,
+    );
   }
 
   panel.buttons.undo.disabled =
@@ -549,9 +539,6 @@ export function renderComposerActions(panel, deps = {}) {
   if (!v2Active) {
     setButtonEmphasis(panel.buttons.apply, reviewing || applying, "primary");
     setButtonEmphasis(panel.buttons.reject, reviewing || applying, "danger");
-  }
-  if (v2Active && panel.buttons.finalize) {
-    setButtonEmphasis(panel.buttons.finalize, true, "primary");
   }
   if (v2Active && panel.buttons.rollback) {
     setButtonEmphasis(panel.buttons.rollback, true, "danger");

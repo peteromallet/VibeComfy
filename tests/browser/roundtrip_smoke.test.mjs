@@ -2409,6 +2409,26 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
           },
         };
       },
+      "/vibecomfy/agent-edit/rebaseline": async ({ options }) => {
+        const body = JSON.parse(options.body);
+        assert.equal(
+          body.last_known_baseline_graph_hash,
+          candidateTransaction.hashes.candidate_structural_graph_hash,
+          "immediate Undo must CAS against the baseline accepted by finalize",
+        );
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            session_id: sessionId,
+            baseline_turn_id: "undo-0001",
+            baseline_graph_hash: body.client_structural_graph_hash,
+            baseline_graph_hash_kind: "structural",
+            baseline_graph_hash_version: 2,
+            baseline_source: "rebaseline",
+          },
+        };
+      },
     },
   });
 
@@ -2453,6 +2473,49 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
       harness.getCurrentGraph().nodes.map((node) => [node.id, node.type, node.properties?.vibecomfy_uid]),
       [[1, "Input", "uid-1"], [2, "SaveImage", "uid-2"]],
     );
+    const undoButton = harness.document.getElementById("vibecomfy-agent-panel-undo");
+    assert.notEqual(undoButton?.style.display, "none");
+    assert.equal(undoButton?.disabled, false);
+    await harness.clickButton("Undo Last Apply");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 1);
+    assert.deepEqual(
+      harness.getCurrentGraph().nodes.map((node) => [node.id, node.type, node.properties?.vibecomfy_uid]),
+      [[1, "Input", "uid-1"]],
+    );
+    assert.equal(panel.state.undoStack.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("prepared transaction keeps a compact pinned Rollback action instead of losing all controls", async () => {
+  const harness = await createBrowserHarness({
+    responses: {
+      "/system_stats": { status: 200, body: { system: { comfyui_frontend_package: "1.39.19" } } },
+    },
+  });
+
+  try {
+    const extensionModule = await harness.loadExtension();
+    await harness.setup();
+    const panel = extensionModule.ensureAgentPanel();
+    panel.state.phase = "APPLY_PREPARED";
+    panel.state.preparedReceipt = { plan_hash: "1be26c3bbcdee5b0", generation: 1 };
+    panel.state.mutationPlanHash = "1be26c3bbcdee5b046d8736d8686fb93";
+    panel.state.generation = 1;
+    panel.state.inFlightApply = null;
+    extensionModule.renderAgentPanel(panel, { dirtySections: ["COMPOSER", "NOTICE"] });
+
+    const rollback = harness.document.getElementById("vibecomfy-agent-panel-rollback");
+    const notice = harness.document.getElementById("vibecomfy-agent-panel-composer-notice");
+    assert.equal(rollback?.style.display, "inline-flex");
+    assert.equal(rollback?.disabled, false);
+    assert.equal(rollback?.dataset.vibecomfyAction, "rollback");
+    assert.equal(notice?.style.maxHeight, "120px");
+    assert.equal(notice?.style.overflowY, "auto");
+    assert.match(harness.textDump(), /Apply paused after preparation/);
+    assert.doesNotMatch(harness.textDump(), /Plan hash:/);
+    assert.equal(panel.composerButtons.parentNode.style.flexShrink, "0");
   } finally {
     await harness.dispose();
   }

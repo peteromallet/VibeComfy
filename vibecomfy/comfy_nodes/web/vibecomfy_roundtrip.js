@@ -419,6 +419,7 @@ const PANEL_IDS = Object.freeze({
   submit: "vibecomfy-agent-panel-submit",
   apply: "vibecomfy-agent-panel-apply",
   reject: "vibecomfy-agent-panel-reject",
+  rollback: "vibecomfy-agent-panel-rollback",
   undo: "vibecomfy-agent-panel-undo",
   havingIssues: "vibecomfy-agent-panel-having-issues",
   issueModal: "vibecomfy-agent-panel-issue-modal",
@@ -3909,6 +3910,7 @@ function createAgentPanelShell() {
   Object.assign(composer.style, {
     display: "flex",
     flexDirection: "column",
+    flexShrink: "0",
     gap: "8px",
     padding: "10px 14px 12px 14px",
     borderTop: "1px solid #282a32",
@@ -3954,6 +3956,10 @@ function createAgentPanelShell() {
   applyBtn.id = PANEL_IDS.apply;
   const rejectBtn = button("Reject", () => rejectAgentCandidate(currentAgentPanel()));
   rejectBtn.id = PANEL_IDS.reject;
+  const rollbackBtn = button("Rollback", () => rejectAgentCandidate(currentAgentPanel()));
+  rollbackBtn.id = PANEL_IDS.rollback;
+  rollbackBtn.dataset.vibecomfyAction = "rollback";
+  rollbackBtn.style.display = "none";
   const undoBtn = button("", () => undoLastApply(currentAgentPanel()));
   undoBtn.id = PANEL_IDS.undo;
   undoBtn.dataset.vibecomfyAction = "undo";
@@ -3971,7 +3977,7 @@ function createAgentPanelShell() {
 
   // Keep all action buttons on a single line; stretch them to share the width
   // and shrink (with an ellipsis) rather than wrap when the panel is narrow.
-  for (const b of [submitBtn, stopBtn, applyBtn, rejectBtn, undoBtn, newConvBtn]) {
+  for (const b of [submitBtn, stopBtn, applyBtn, rejectBtn, rollbackBtn, undoBtn, newConvBtn]) {
     b.style.flex = "1 1 0";
     b.style.minWidth = "0";
     b.style.whiteSpace = "nowrap";
@@ -3990,6 +3996,7 @@ function createAgentPanelShell() {
   composerButtons.appendChild(stopBtn);
   composerButtons.appendChild(applyBtn);
   composerButtons.appendChild(rejectBtn);
+  composerButtons.appendChild(rollbackBtn);
   composerButtons.appendChild(newConvBtn);
   const havingIssuesBtn = button("?", () => showIssueModal(currentAgentPanel()));
   havingIssuesBtn.id = PANEL_IDS.havingIssues;
@@ -4025,6 +4032,9 @@ function createAgentPanelShell() {
     fontSize: "11px",
     lineHeight: "1.45",
     whiteSpace: "pre-wrap",
+    maxHeight: "120px",
+    overflowY: "auto",
+    overflowX: "hidden",
   });
   composer.appendChild(composerNotice);
 
@@ -4321,6 +4331,7 @@ function createAgentPanelShell() {
       submit: submitBtn,
       apply: applyBtn,
       reject: rejectBtn,
+      rollback: rollbackBtn,
       undo: undoBtn,
       close: closeBtn,
       settingsTest,
@@ -10794,17 +10805,21 @@ async function applyAgentCandidate(panel) {
       }
 
       const undoSnapshot = layoutPreviewBaselineSnapshot(panel, beforeApply);
-      panel.state.undoStack.push({
+      const undoEntry = {
         session_id: panel.state.sessionId,
         turn_id: panel.state.turnId,
         graph: clonePlainData(undoSnapshot.graph),
         client_graph_hash: undoSnapshot.graphHash,
-        accepted_baseline_graph_hash: panel.state.baselineGraphHash || null,
+        // Filled with the newly accepted baseline after finalize succeeds. The
+        // pre-finalize baseline is not valid CAS authority for an immediate
+        // Undo and was the reason Undo only recovered after rehydration.
+        accepted_baseline_graph_hash: null,
         captured_at: new Date().toISOString(),
         chat_scope_id: panel.state.chatScopeId || null,
         chat_scope_fingerprint: panel.state.chatScopeFingerprint || null,
         canvas_structural_hash: undoSnapshot.structuralHash || null,
-      });
+      };
+      panel.state.undoStack.push(undoEntry);
       panel.state.undoStack = panel.state.undoStack.slice(-16);
       markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
 
@@ -11019,6 +11034,12 @@ async function applyAgentCandidate(panel) {
       let finalized = null;
       try {
         finalized = await postAgentLifecycleAction("finalize", finalizeBody, "finalize");
+        undoEntry.accepted_baseline_graph_hash = finalized.baselineGraphHash
+          || afterApply.structuralHash
+          || null;
+        undoEntry.accepted_baseline_turn_id = finalized.baselineTurnId
+          || panel.state.turnId
+          || null;
         const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
         pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
         pushTurnStatus(panel, "applied", {
