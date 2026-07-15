@@ -249,6 +249,7 @@ def handle_agent_edit(
             response_path=turn_dir / "response.json",
             operation="edit",
             turn_id=context.turn_id,
+            schema_provider=state.schema_provider,
         )
         return response
 
@@ -328,6 +329,7 @@ def handle_agent_edit(
             response_path=turn_dir / "response.json",
             operation="edit",
             turn_id=context.turn_id,
+            schema_provider=state.schema_provider,
         )
         return response
 
@@ -396,6 +398,7 @@ def handle_agent_edit(
         response_path=turn_dir / "response.json",
         operation="edit",
         turn_id=context.turn_id,
+        schema_provider=state.schema_provider,
     )
     return response
 

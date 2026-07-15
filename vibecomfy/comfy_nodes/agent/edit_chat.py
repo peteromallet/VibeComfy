@@ -165,7 +165,10 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
         turns_state = {}
     for turn_id in reversed(turn_ids):
         turn_state = turns_state.get(turn_id)
-        if not isinstance(turn_state, Mapping) or turn_state.get("state") != "candidate":
+        if (
+            not isinstance(turn_state, Mapping)
+            or turn_state.get("state") not in REVIEWABLE_CANDIDATE_STATES
+        ):
             continue
         turn_dir = session_dir / "turns" / turn_id
         response = _read_turn_response_payload(turn_dir)

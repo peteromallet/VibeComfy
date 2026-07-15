@@ -33,6 +33,7 @@ from .contracts import (
     ArtifactRef,
     FailureEnvelope,
     FailureKind,
+    PLAN_STATE_NOT_REQUIRED,
     StageSnapshot,
     StageResult,
     TurnIdentity,
@@ -93,6 +94,7 @@ from .execution_plan_runtime import (
     hydrate_execution_plan_from_protocol_notes,
 )
 from .session import (
+    REVIEWABLE_CANDIDATE_STATES,
     allocate_turn,
     normalize_session_id,
     payload_hash,

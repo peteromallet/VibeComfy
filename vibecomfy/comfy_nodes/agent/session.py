@@ -123,6 +123,19 @@ _V2_PRE_FINALIZE_STATES: frozenset[TurnState] = frozenset({
     "rollback_prepared",
 })
 
+# Durable states whose turn still owns a candidate that the browser must be
+# able to rehydrate.  Keep this separate from ``_V2_PRE_FINALIZE_STATES``:
+# ``submitted`` has no candidate yet, while the legacy ``candidate`` state is
+# still a reviewable persisted state during the V1 migration window.
+REVIEWABLE_CANDIDATE_STATES: frozenset[TurnState] = frozenset({
+    "candidate",
+    "candidate_ready",
+    "review_bound",
+    "apply_prepared",
+    "canvas_verified",
+    "rollback_prepared",
+})
+
 # Historical V1 states that may appear in persisted state files.
 _V1_HISTORICAL_STATES: frozenset[TurnState] = frozenset({
     "candidate",
@@ -2894,6 +2907,7 @@ def record_idempotent_response(
     response_path: Path,
     operation: str,
     turn_id: str | None,
+    schema_provider: Any = None,
     lock_timeout_seconds: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
 ) -> dict[str, Any] | None:
     key = _record_key(scope, idempotency_key)
@@ -2918,6 +2932,7 @@ def record_idempotent_response(
                     request_payload=request_payload,
                     response=response,
                     schema_version=schema_version,
+                    schema_provider=schema_provider,
                 )
         except Exception:
             stamped_response = response

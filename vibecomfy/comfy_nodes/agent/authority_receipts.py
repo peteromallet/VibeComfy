@@ -211,22 +211,23 @@ def _extract_submit_graph(request_payload: Any) -> dict[str, Any] | None:
 def _extract_delta_ops_from_envelope(envelope: Any) -> tuple[Any, ...]:
     """Parse delta ops from a cumulative V2 envelope dict."""
     if not isinstance(envelope, Mapping):
-        return ()
-    ops = envelope.get("ops")
-    if not isinstance(ops, list):
-        return ()
-    try:
-        from vibecomfy.porting.edit.ops import normalize_delta_ops
+        raise ValueError("delta envelope must be an object")
 
-        return normalize_delta_ops({"ops": ops})
-    except Exception as exc:
-        _LOGGER.debug("Failed to normalize delta ops for replay: %s", exc)
-        return ()
+    from vibecomfy.porting.edit.ops import normalize_delta_ops
+
+    # Pass the complete canonical envelope through the canonical parser.  In
+    # particular, dropping schema_version here turns every valid V2 envelope
+    # into a rejected legacy wrapper.  The old code then swallowed that parse
+    # error and replayed zero operations, making mutation evidence look like an
+    # identity apply.
+    return normalize_delta_ops(dict(envelope))
 
 
 def recompute_apply(
     submit_graph: Mapping[str, Any],
     cumulative_delta_envelope: Mapping[str, Any] | None,
+    *,
+    schema_provider: Any = None,
 ) -> tuple[bool, Any, str | None, int]:
     """Recompute ``apply(submit_graph, cumulative_delta)`` server-side.
 
@@ -234,13 +235,21 @@ def recompute_apply(
     """
     from vibecomfy.porting.edit.apply_core import apply_delta
 
-    ops = _extract_delta_ops_from_envelope(cumulative_delta_envelope)
-    if cumulative_delta_envelope is None and not ops:
+    if cumulative_delta_envelope is None:
         # No delta → candidate is the submit graph itself (identity apply).
         return True, dict(submit_graph), None, 0
 
+    raw_ops = cumulative_delta_envelope.get("ops")
+    declared_op_count = len(raw_ops) if isinstance(raw_ops, list) else 0
     try:
-        result = apply_delta(submit_graph, ops)
+        ops = _extract_delta_ops_from_envelope(cumulative_delta_envelope)
+    except Exception as exc:
+        # A present envelope is authority evidence.  If it is malformed, never
+        # reinterpret it as an empty/identity delta; fail the receipt closed.
+        return False, None, f"invalid_delta_envelope: {exc}", declared_op_count
+
+    try:
+        result = apply_delta(submit_graph, ops, schema_provider=schema_provider)
     except Exception as exc:
         return False, None, f"apply_delta_error: {exc}", len(ops)
 
@@ -254,6 +263,8 @@ def verify_replay(
     submit_graph: Mapping[str, Any] | None,
     cumulative_delta_envelope: Mapping[str, Any] | None,
     candidate: Mapping[str, Any] | None,
+    *,
+    schema_provider: Any = None,
 ) -> ReplayReceipt:
     """Verify that replaying the delta on the submit graph equals the candidate.
 
@@ -272,7 +283,9 @@ def verify_replay(
     persisted_hash = payload_hash(candidate) if candidate is not None else None
 
     ok, recomputed, error, op_count = recompute_apply(
-        submit_graph, cumulative_delta_envelope
+        submit_graph,
+        cumulative_delta_envelope,
+        schema_provider=schema_provider,
     )
     if not ok or recomputed is None:
         return ReplayReceipt(
@@ -327,13 +340,19 @@ def build_authority_receipt(
     candidate: Mapping[str, Any] | None,
     response: Mapping[str, Any],
     schema_version: str = "",
+    schema_provider: Any = None,
 ) -> AuthorityReceipt:
     """Build an authority receipt by replaying the delta on the submit graph.
 
     This is the canonical entry point.  The receipt records the replay verdict
     and all hashes needed for tamper detection.
     """
-    replay = verify_replay(submit_graph, cumulative_delta_envelope, candidate)
+    replay = verify_replay(
+        submit_graph,
+        cumulative_delta_envelope,
+        candidate,
+        schema_provider=schema_provider,
+    )
 
     submit_graph_hash = payload_hash(submit_graph) if submit_graph is not None else None
     submit_bytes = canonical_json_bytes(submit_graph) if submit_graph is not None else None
@@ -517,6 +536,7 @@ def build_and_persist_authority_receipt(
     request_payload: Any,
     response: dict[str, Any],
     schema_version: str = "",
+    schema_provider: Any = None,
 ) -> tuple[AuthorityReceipt, dict[str, Any]]:
     """Build, persist, and stamp an authority receipt for a durable turn.
 
@@ -543,6 +563,7 @@ def build_and_persist_authority_receipt(
         candidate=candidate,
         response=response,
         schema_version=schema_version,
+        schema_provider=schema_provider,
     )
 
     try:

@@ -197,6 +197,7 @@ def _plan_validation_allows_candidate(state: AgentEditState, context: TurnContex
             execution_plan=None,
             plan_evaluation=None,
             has_execution_plan=False,
+            plan_state=PLAN_STATE_NOT_REQUIRED,
         )
         return True
     plan_evaluation = getattr(state, "plan_evaluation", None)

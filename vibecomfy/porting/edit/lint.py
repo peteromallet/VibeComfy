@@ -1234,6 +1234,40 @@ def lint_delta(
 
     _SP_AWARE = frozenset({"add_node", "upsert_link", "remove_link"})
 
+    # Link/field ops may legitimately depend on nodes added earlier in the
+    # same ordered delta.  LintIndex is intentionally immutable and normally
+    # describes the submit graph, so linting every op against that one index
+    # incorrectly classifies those dependent ops as ``unknown_target``.  The
+    # apply engine already resolves AddNodeOps sequentially; mirror that
+    # contract here by validating the additions first and building a virtual
+    # post-add index for the remaining operations.
+    add_results: dict[int, tuple[EditOp | None, LintIssue | None, str]] = {}
+    passed_adds: list[EditOp] = []
+    for i, op in enumerate(delta):
+        if not isinstance(op, AddNodeOp):
+            continue
+        result = _lint_add_node(op, i, index, schema_provider=schema_provider)
+        add_results[i] = result
+        normalized, _issue, disposition = result
+        if disposition == "passed" and normalized is not None:
+            passed_adds.append(normalized)
+
+    dependency_index = index
+    if passed_adds:
+        # Local import avoids coupling the lint module's import graph to the
+        # apply engine.  Failure to materialise the virtual graph is left for
+        # the ordinary per-op checks/apply gate to report; it must never make
+        # lint more permissive than the authoritative apply path.
+        from .apply_core import apply_delta
+
+        virtual = apply_delta(
+            index.ledger.graph,
+            tuple(passed_adds),
+            schema_provider=schema_provider,
+        )
+        if virtual.ok and virtual.candidate is not None:
+            dependency_index = LintIndex.build(virtual.candidate)
+
     for i, op in enumerate(delta):
         linter = _LINTERS.get(op.op)  # type: ignore[union-attr]
         if linter is None:
@@ -1249,10 +1283,17 @@ def lint_delta(
             )
             continue
 
-        if op.op in _SP_AWARE:  # type: ignore[union-attr]
-            normalized, issue, disposition = linter(op, i, index, schema_provider=schema_provider)
+        if i in add_results:
+            normalized, issue, disposition = add_results[i]
+        elif op.op in _SP_AWARE:  # type: ignore[union-attr]
+            normalized, issue, disposition = linter(
+                op,
+                i,
+                dependency_index,
+                schema_provider=schema_provider,
+            )
         else:
-            normalized, issue, disposition = linter(op, i, index)
+            normalized, issue, disposition = linter(op, i, dependency_index)
         if issue is not None:
             issues.append(issue)
         normalizations.append(

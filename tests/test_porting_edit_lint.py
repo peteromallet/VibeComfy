@@ -509,6 +509,79 @@ def test_upsert_link_valid_passes() -> None:
     assert result.passed_count == 1
 
 
+def test_upsert_links_from_node_added_in_same_delta_survive_lint() -> None:
+    """Dependent rewires must be linted against the virtual post-add graph."""
+    from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec
+
+    graph = {
+        "nodes": [
+            {
+                "id": 1,
+                "type": "Source",
+                "properties": {"vibecomfy_uid": "source"},
+                "inputs": [],
+                "outputs": [{"name": "IMAGE", "type": "IMAGE", "slot_index": 0}],
+            },
+            {
+                "id": 2,
+                "type": "Sink",
+                "properties": {"vibecomfy_uid": "still"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": None}],
+                "outputs": [],
+            },
+            {
+                "id": 3,
+                "type": "Sink",
+                "properties": {"vibecomfy_uid": "video"},
+                "inputs": [{"name": "images", "type": "IMAGE", "link": None}],
+                "outputs": [],
+            },
+        ],
+        "links": [],
+        "last_node_id": 3,
+        "last_link_id": 0,
+    }
+
+    class _StubProvider:
+        def get_schema(self, class_type: str) -> NodeSchema | None:
+            if class_type == "ImageScale":
+                return NodeSchema(
+                    class_type="ImageScale",
+                    pack=None,
+                    inputs={"image": InputSpec(type="IMAGE")},
+                    outputs=[OutputSpec(name="IMAGE", type="IMAGE")],
+                )
+            return None
+
+    ops = [
+        AddNodeOp(
+            op="add_node",
+            scope_path="",
+            class_type="ImageScale",
+            fields={},
+            inputs={"image": LinkSourceRef(scope_path="", uid="source", output_slot="IMAGE")},
+            uid="n1",
+            node_id="4",
+        ),
+        UpsertLinkOp(
+            op="upsert_link",
+            source=LinkSourceRef(scope_path="", uid="n1", output_slot="IMAGE"),
+            target=LinkTargetRef(scope_path="", uid="still", input_field="images"),
+        ),
+        UpsertLinkOp(
+            op="upsert_link",
+            source=LinkSourceRef(scope_path="", uid="n1", output_slot="IMAGE"),
+            target=LinkTargetRef(scope_path="", uid="video", input_field="images"),
+        ),
+    ]
+
+    result = lint_delta(ops, LintIndex.build(graph), schema_provider=_StubProvider())
+
+    assert result.rejected_count == 0
+    assert result.dropped_count == 0
+    assert result.surviving == tuple(ops)
+
+
 def test_upsert_link_unknown_source_rejected() -> None:
     """upsert_link with unknown source is rejected."""
     idx = _index()

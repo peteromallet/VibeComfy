@@ -7197,6 +7197,10 @@ def test_batch_repl_response_no_plan_preserves_legacy_candidate_aliases() -> Non
     assert response["queue_allowed"] is True
     assert response["gates"]["plan_validate_ok"] is True
     assert response["debug"]["gates"]["plan_validate_ok"] is True
+    plan_gate = context.gate_results["plan_validate_ok"]
+    assert plan_gate.ok is True
+    assert plan_gate.evidence["reason"] == "not_required"
+    assert plan_gate.evidence["plan_state"] == "not_required"
 
 
 def test_batch_repl_response_passing_execution_plan_keeps_queue_warning_candidate(
@@ -14539,11 +14543,21 @@ def test_chat_agent_message_derives_outcome_from_turn_response_when_chat_json_om
     }
 
 
-def test_latest_candidate_in_chat_response_includes_outcome(
+@pytest.mark.parametrize(
+    "turn_state",
+    [
+        "candidate_ready",
+        "review_bound",
+        "apply_prepared",
+        "canvas_verified",
+        "rollback_prepared",
+    ],
+)
+def test_v2_reviewable_candidate_states_in_chat_response_include_outcome(
     tmp_path: Path,
+    turn_state: str,
 ) -> None:
-    """The /chat response's latest_candidate payload should include an
-    outcome when the underlying response.json has one."""
+    """Every non-terminal V2 state that owns a candidate can rehydrate it."""
     session_id = "latest-candidate-outcome"
     session_dir = session_dir_for(tmp_path, session_id)
     turn_dir = session_dir / "turns" / "0000"
@@ -14582,7 +14596,7 @@ def test_latest_candidate_in_chat_response_includes_outcome(
         json.dumps({
             "turns": {
                 "0000": {
-                    "state": "candidate",
+                    "state": turn_state,
                     "candidate_graph_hash": "hash-abc",
                 }
             }
