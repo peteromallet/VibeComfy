@@ -1,0 +1,123 @@
+{
+  "manifest_version": 1,
+  "plan": "M0 — Ratify and Freeze the Incident Foundation",
+  "repository": "vibecomfy",
+  "revisions": {
+    "pre_fix": {
+      "revision": "31412fb1d0e5b52dc3b69c56ba5842820a6b0398",
+      "description": "clean committed revision used as the pre-fix source baseline; M0 repairs and several exact selector modules remain uncommitted",
+      "comparison_method": "temporary git-archive snapshot plus current test/fixture overlay; no M0 source files were overlaid"
+    },
+    "current": {
+      "revision": "070a672d4090dd34bb663a061b781f6af1e72700",
+      "description": "committed M0 incident foundation with fully green focused evidence"
+    }
+  },
+  "paths": {
+    "included": [
+      "docs/agent-edit/candidate-transaction-contract.md",
+      "tests/browser/agent_edit_lifecycle.test.mjs",
+      "tests/browser/agent_edit_transaction.test.mjs",
+      "tests/browser/agent_lifecycle_commit.test.mjs",
+      "tests/browser/agent_lifecycle_parity.test.mjs",
+      "tests/browser/canonical_hash.test.mjs",
+      "tests/browser/graph_projection.test.mjs",
+      "tests/browser/harness.mjs",
+      "tests/browser/panel_runtime_scoped.test.mjs",
+      "tests/browser/roundtrip_smoke.test.mjs",
+      "tests/fixtures/agent_edit/a66422e6_layout_regression.json",
+      "tests/fixtures/agent_edit/m0_gate_manifest.json",
+      "tests/test_candidate_transaction_layout_contract.py",
+      "tests/test_reorganise_compile.py",
+      "vibecomfy/comfy_nodes/agent/candidate_transaction.py",
+      "vibecomfy/comfy_nodes/agent/session.py",
+      "vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js",
+      "vibecomfy/comfy_nodes/web/agent_edit_transaction.js",
+      "vibecomfy/comfy_nodes/web/canonical_hash.js",
+      "vibecomfy/comfy_nodes/web/comfy_adapter.js",
+      "vibecomfy/comfy_nodes/web/frontend_ownership_map.md",
+      "vibecomfy/comfy_nodes/web/graph_projection.js",
+      "vibecomfy/comfy_nodes/web/layout_verification_contract.js",
+      "vibecomfy/comfy_nodes/web/panel_composer.js",
+      "vibecomfy/comfy_nodes/web/panel_runtime.js",
+      "vibecomfy/comfy_nodes/web/scope_resolver.js",
+      "vibecomfy/comfy_nodes/web/vibecomfy_roundtrip.js",
+      "vibecomfy/porting/reorganise/compile.py"
+    ],
+    "excluded": [
+      { "path": ".megaplan/profiles.toml", "reason": "harness-local configuration" },
+      { "path": "scorecard.png", "reason": "unrelated artifact" }
+    ]
+  },
+  "selectors": {
+    "incident": [
+      { "id": "layout-a66422e6", "path": "tests/browser/graph_projection.test.mjs", "pattern": "a66422e6|stable IDs|root scope|duplicate titles", "expected_pre_fix": "fail", "expected_current": "pass" },
+      { "id": "dynamic-exec-eb45e", "path": "tests/browser/graph_projection.test.mjs", "pattern": "exec Apply verification ignores the duplicate dynamic-IO widget representation", "expected_pre_fix": "fail", "expected_current": "pass", "note": "eb45e… is the incident label; repository coverage is synthetic and must not be presented as a provider replay" },
+      { "id": "workflow-tab-isolation", "path": "tests/browser/roundtrip_smoke.test.mjs", "pattern": "new empty workflow tab is fresh immediately and ignores a late submit", "expected_pre_fix": "fail", "expected_current": "pass" },
+      { "id": "compiler-displays-labels", "path": "tests/test_reorganise_compile.py", "pattern": "Displays|Labels|in-place", "expected_pre_fix": "fail", "expected_current": "pass" }
+    ],
+    "focused_commands": [
+      "node --test tests/browser/graph_projection.test.mjs",
+      "node --test tests/browser/agent_edit_lifecycle.test.mjs",
+      "node --test tests/browser/agent_lifecycle_parity.test.mjs",
+      "node --test tests/browser/roundtrip_smoke.test.mjs",
+      "pytest -q tests/test_candidate_transaction_layout_contract.py tests/test_reorganise_compile.py",
+      "node --test tests/browser/agent_edit_transaction.test.mjs tests/browser/ownership_contract.test.mjs tests/browser/lifecycle_ownership_static.test.mjs tests/browser/frontend_ownership_regression.test.mjs"
+    ],
+    "make_gates": [
+      "make root-clean",
+      "make docs",
+      "make browser-contracts",
+      "make browser-smoke"
+    ]
+  },
+  "observed_results": {
+    "current": [
+      { "command": "pytest -q tests/test_candidate_transaction_layout_contract.py tests/test_reorganise_compile.py", "result": "pass", "summary": "97 passed" },
+      { "command": "node --test tests/browser/graph_projection.test.mjs", "result": "pass", "summary": "5 passed" },
+      { "command": "node --test tests/browser/agent_edit_lifecycle.test.mjs", "result": "pass", "summary": "263 passed" },
+      { "command": "node --test tests/browser/agent_lifecycle_parity.test.mjs", "result": "pass", "summary": "16 passed" },
+      { "command": "node --test tests/browser/roundtrip_smoke.test.mjs", "result": "pass", "summary": "238 passed, 2 skipped (legacy migration coverage superseded by active V2 compensation and recovery selectors)" },
+      { "command": "node --test tests/browser/agent_edit_transaction.test.mjs tests/browser/ownership_contract.test.mjs tests/browser/lifecycle_ownership_static.test.mjs tests/browser/frontend_ownership_regression.test.mjs", "result": "pass", "summary": "50 passed" },
+      { "command": "pytest -q tests/", "result": "ambient_collection_failure", "summary": "collection stopped: scripts/live_agentic_watchdog.py imports unavailable arnold.pipelines.megaplan" }
+    ],
+    "pre_fix": {
+      "result": "failed_as_expected",
+      "summary": "Clean revision plus current test/fixture overlays: graph projection failed to load because graph_projection.js is absent; roundtrip failed to import canonicalSessionJsonString; lifecycle ran 253 passed/8 failed including fresh scope switch; compiler ran 92 passed/2 failed including Displays/Labels placement. No M0 source was overlaid."
+    },
+    "make_gates": [
+      { "command": "make root-clean", "result": "ambient_failure", "summary": "excluded scorecard.png violates the root allowlist" },
+      { "command": "make docs", "result": "ambient_failure", "summary": "Makefile references missing .venv/bin/python" },
+      { "command": "make browser-contracts", "result": "pass", "summary": "463 passed" },
+      { "command": "make browser-smoke", "result": "pass", "summary": "238 passed, 2 skipped (legacy migration coverage; all V2 selectors green)" }
+    ]
+  },
+  "real_browser": {
+    "prerequisites": ["ComfyUI server", "Playwright/browser runtime", "configured model and custom-node environment", "provider or GPU availability if remote"],
+    "commands": ["node tests/e2e/run.mjs --launcher-only", "make e2e-browser"],
+    "status": "attempted_unavailable",
+    "observed": "node tests/e2e/run.mjs --launcher-only returned MISSING_COMFYUI during preflight; no ComfyUI checkout was available. Playwright package/browser were also absent, so make e2e-browser was not run because it performs npm installation before the prerequisite check.",
+    "policy": "missing prerequisites and third-party/provider failures are ambient evidence, not silent passes"
+  },
+  "ambient_failures": [
+    { "id": "root-clean-scorecard", "status": "observed", "description": "The known excluded scorecard.png causes make root-clean to fail its repository-root allowlist." },
+    { "id": "docs-python-venv", "status": "observed", "description": "make docs cannot start because the Makefile's .venv/bin/python does not exist." },
+    { "id": "broader-pytest-watchdog-import", "status": "observed", "description": "pytest -q tests/ stops during collection because scripts/live_agentic_watchdog.py imports unavailable arnold.pipelines.megaplan." },
+    { "id": "real-browser-comfyui", "status": "observed", "description": "The explicit real-browser launcher reported MISSING_COMFYUI before Playwright could run." }
+  ],
+  "supersession_mappings": [
+    { "skipped_selector": "legacy accept-path post-apply rollback diagnostics", "path": "tests/browser/roundtrip_smoke.test.mjs", "replacement_selector": "V2 native mutation throw compensates once, restores canvas, and retains the rollback receipt", "replacement_outcome": "rollback_complete with bounded diagnostics; legacy Apply/Reject authority remains disabled; V2 native mutation compensation is the active gate" },
+    { "skipped_selector": "legacy accept-path incomplete restore diagnostics", "path": "tests/browser/roundtrip_smoke.test.mjs", "replacement_selector": "V2 scoped postcheck mismatch compensates with one actionable bubble and a rollback receipt", "replacement_outcome": "scoped postcheck mismatch compensation delivers one actionable bubble and a rollback receipt; legacy incomplete-restore diagnostics retired" },
+    { "skipped_selector": "legacy accept-path incomplete restore diagnostics", "path": "tests/browser/roundtrip_smoke.test.mjs", "replacement_selector": "V2 rollback failure after a restored canvas remains RECOVERY_REQUIRED with the prepared lease", "replacement_outcome": "RECOVERY_REQUIRED with retained transaction/lease/recovery state and bounded diagnostics; V2 rollback failure path is the active gate" }
+  ],
+  "authoritative_counts": {
+    "browser_contracts": { "total": 463, "pass": 463, "fail": 0, "skip": 0 },
+    "graph_projection": { "total": 5, "pass": 5, "fail": 0, "skip": 0 },
+    "lifecycle": { "total": 263, "pass": 263, "fail": 0, "skip": 0 },
+    "parity": { "total": 16, "pass": 16, "fail": 0, "skip": 0 },
+    "transaction_ownership": { "total": 50, "pass": 50, "fail": 0, "skip": 0 },
+    "python_focused": { "total": 97, "pass": 97, "fail": 0, "skip": 0 },
+    "roundtrip": { "total": 240, "pass": 238, "fail": 0, "skip": 2 }
+  },
+  "update_owner": "T6 updates pre-fix/current, make, real-browser, and ambient observations after each gate"
+}

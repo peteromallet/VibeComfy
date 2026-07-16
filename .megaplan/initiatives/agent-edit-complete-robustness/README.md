@@ -15,6 +15,10 @@ The executable profile mapping is recorded in `chain.yaml`. If those names are
 not native runtime identifiers, the mapping must use the local aliases that
 resolve to them and must be proven before the first milestone starts.
 
+Historical context for why the regression cluster appeared after the prior
+transaction-spine epic is recorded in
+[`post-epic-regression-history.md`](post-epic-regression-history.md).
+
 ## Milestones
 
 | Label | Deliverable | Difficulty | Status |
