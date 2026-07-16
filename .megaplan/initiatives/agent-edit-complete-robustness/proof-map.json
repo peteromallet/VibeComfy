@@ -1,5 +1,21 @@
 {
-  "m0-foundation": [],
+  "m0-foundation": [
+    {
+      "implementation_commit": "070a672d",
+      "proof_commit": "41a83fb6",
+      "manifest": "tests/fixtures/agent_edit/m0_gate_manifest.json",
+      "verified": {
+        "browser_contracts": "463/463",
+        "graph_projection": "5/5",
+        "lifecycle": "263/263",
+        "lifecycle_parity": "16/16",
+        "transaction_ownership": "50/50",
+        "python_focused": "97/97",
+        "roundtrip": "238 passed, 0 failed, 2 documented legacy skips"
+      },
+      "excluded_artifact": "scorecard.png"
+    }
+  ],
   "m1-contracts": [],
   "m2-native-adapter": [],
   "m3-verifier": [],

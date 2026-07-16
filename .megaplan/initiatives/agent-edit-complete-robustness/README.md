@@ -23,8 +23,8 @@ transaction-spine epic is recorded in
 
 | Label | Deliverable | Difficulty | Status |
 | --- | --- | --- | --- |
-| M0 | Ratify and freeze the incident foundation | Medium | In progress |
-| M1 | Versioned operation, projection, identity, Undo, and migration contracts | Hard | Pending |
+| M0 | Ratify and freeze the incident foundation | Medium | Complete |
+| M1 | Versioned operation, projection, identity, Undo, and migration contracts | Hard | In progress |
 | M2 | Native graph adapter and canonical mutation path | Hard | Pending |
 | M3 | Single Apply/rollback verifier | Hard | Pending |
 | M4 | Workflow-scoped controller and transport boundary | Hard | Pending |

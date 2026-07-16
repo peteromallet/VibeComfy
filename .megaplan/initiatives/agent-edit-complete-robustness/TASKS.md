@@ -5,14 +5,14 @@ tasks, but they may not weaken these requirements.
 
 ## M0 — Incident foundation
 
-- [ ] Classify every dirty file as intended baseline or unrelated.
-- [ ] Keep `scorecard.png` out of all epic commits.
-- [ ] Restore or replace the two skipped rollback-diagnostic assertions.
-- [ ] Run and record focused browser, Python, and ownership suites.
-- [ ] Prove each exact incident fixture fails before its fix and passes now.
-- [ ] Record clean-environment versus ambient-extension browser results.
-- [ ] Add a machine-readable baseline gate manifest.
-- [ ] Commit the baseline independently before architecture extraction.
+- [x] Classify every dirty file as intended baseline or unrelated.
+- [x] Keep `scorecard.png` out of all epic commits.
+- [x] Restore or replace the two skipped rollback-diagnostic assertions.
+- [x] Run and record focused browser, Python, and ownership suites.
+- [x] Prove each exact incident fixture fails before its fix and passes now.
+- [x] Record clean-environment versus ambient-extension browser results.
+- [x] Add a machine-readable baseline gate manifest.
+- [x] Commit the baseline independently before architecture extraction.
 
 ## M1 — Contracts
 
