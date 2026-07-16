@@ -1,4 +1,5 @@
 import { getAgentPanelRuntime } from "./panel_runtime.js";
+import { isLegacyUndoCacheEntryV1 } from "./journal_durable_v1.js";
 import {
   readApplyCandidate,
   readStageSnapshot,
@@ -492,8 +493,9 @@ export function renderComposerActions(panel, deps = {}) {
     );
   }
 
+  const legacyUndoAvailable = isLegacyUndoCacheEntryV1(panel.state.undoStack.at(-1));
   panel.buttons.undo.disabled =
-    panel.state.undoStack.length < 1
+    !legacyUndoAvailable
     || submitting
     || applying
     || v2Active
@@ -527,7 +529,7 @@ export function renderComposerActions(panel, deps = {}) {
     submitting,
     applying: applying || v2Active,
     reviewing: reviewing || v2ReviewBound,
-    showUndo: panel.state.undoStack.length > 0,
+    showUndo: legacyUndoAvailable,
   });
 
   setButtonEmphasis(panel.buttons.submit, (canSubmit && readinessState.ready && !v2BlocksSubmit) || submitting, "primary");
@@ -546,7 +548,7 @@ export function renderComposerActions(panel, deps = {}) {
   if (v2Active && panel.buttons.rollback) {
     setButtonEmphasis(panel.buttons.rollback, true, "danger");
   }
-  setButtonEmphasis(panel.buttons.undo, panel.state.undoStack.length > 0, "neutral");
+  setButtonEmphasis(panel.buttons.undo, legacyUndoAvailable, "neutral");
   setButtonEmphasis(panel.buttons.close, true, "neutral");
   setButtonEmphasis(panel.buttons.settingsTest, true, "neutral");
 }

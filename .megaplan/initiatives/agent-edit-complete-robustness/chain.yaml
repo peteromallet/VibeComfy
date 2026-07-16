@@ -27,7 +27,7 @@ milestones:
       shape before freezing the contracts.
     notes: >-
       Difficulty 9/10. Contract mistakes can pass local tests and corrupt every
-      later owner, so use Terra planning and Sol only for tier-10 escalation.
+      later owner, so use Claude Code with GLM 5.2 planning and Sol only for tier-10 escalation.
 
   - label: m2-native-adapter
     idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-native-adapter.md

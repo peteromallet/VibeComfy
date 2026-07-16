@@ -188,12 +188,30 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
         eligibility = response.get("apply_eligibility") or response.get("eligibility")
         candidate_fields = candidate if isinstance(candidate, Mapping) else {}
         aggregate = response.get("candidate_transaction")
+        legacy_migration = None
+        if (
+            isinstance(aggregate, Mapping)
+            and aggregate.get("contract_version") != "candidate_transaction_v2"
+        ):
+            legacy_migration = classify_legacy_migration_v1(aggregate)
+            aggregate = None
         if not isinstance(aggregate, Mapping):
             plan_hash = turn_state.get("candidate_plan_hash")
-            aggregate = (
-                load_candidate_transaction(turn_dir, plan_hash)
-                if isinstance(plan_hash, str)
-                else None
+            if isinstance(plan_hash, str):
+                aggregate, persisted_migration = load_candidate_transaction_with_migration(
+                    turn_dir, plan_hash
+                )
+                if legacy_migration is None:
+                    legacy_migration = persisted_migration
+        if (
+            legacy_migration is None
+            and turn_state.get("agent_edit_protocol") != "v2_delta"
+        ):
+            legacy_migration = classify_legacy_migration_v1(
+                {
+                    "contract_version": "candidate_transaction_v1",
+                    "state": turn_state.get("state"),
+                }
             )
         delta_ops_envelope = response.get("delta_ops_envelope")
         delta_ops = response.get("delta_ops")
@@ -227,6 +245,11 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             "candidate_transaction": (
                 _json_safe(aggregate) if isinstance(aggregate, Mapping) else None
             ),
+            "legacy_migration": (
+                _json_safe(legacy_migration)
+                if isinstance(legacy_migration, Mapping)
+                else None
+            ),
             "turn_state": turn_state.get("state"),
             "agent_edit_protocol": turn_state.get("agent_edit_protocol"),
             "plan_hash": turn_state.get("candidate_plan_hash")
@@ -250,10 +273,28 @@ def _latest_session_candidate_payload(session_dir: Path, turn_ids: list[str]) ->
             # browser uses an array as protocol evidence; emitting [] for a V1
             # response would incorrectly upgrade it to v2_delta on rehydrate.
             "delta_ops": _json_safe(delta_ops) if isinstance(delta_ops, list) else None,
-            "apply_eligibility": _json_safe(eligibility) if isinstance(eligibility, Mapping) else None,
-            "canvas_apply_allowed": bool(response.get("canvas_apply_allowed")),
-            "apply_allowed": response.get("apply_allowed") is not False,
-            "queue_allowed": bool(response.get("queue_allowed")),
+            "apply_eligibility": (
+                {
+                    "applyable": False,
+                    "reason": legacy_migration.get("classification"),
+                    "message": "Legacy transaction authority cannot be resumed; rebaseline or cancel it.",
+                    "warnings": [],
+                }
+                if isinstance(legacy_migration, Mapping)
+                else (_json_safe(eligibility) if isinstance(eligibility, Mapping) else None)
+            ),
+            "canvas_apply_allowed": (
+                False if isinstance(legacy_migration, Mapping)
+                else bool(response.get("canvas_apply_allowed"))
+            ),
+            "apply_allowed": (
+                False if isinstance(legacy_migration, Mapping)
+                else response.get("apply_allowed") is not False
+            ),
+            "queue_allowed": (
+                False if isinstance(legacy_migration, Mapping)
+                else bool(response.get("queue_allowed"))
+            ),
             "candidate_graph_hash": response.get("candidate_graph_hash") or turn_state.get("candidate_graph_hash"),
             "candidate_structural_graph_hash": response.get("candidate_structural_graph_hash") or turn_state.get("candidate_structural_graph_hash"),
             "submit_graph_hash": response.get("submit_graph_hash") or turn_state.get("submit_graph_hash"),
@@ -309,14 +350,24 @@ def _latest_turn_lifecycle_payload(
         else:
             disposition = disposition_by_state.get(str(turn_state), "other")
         plan_hash = turn.get("candidate_plan_hash")
-        aggregate = (
-            load_candidate_transaction(
+        aggregate = None
+        legacy_migration = None
+        if isinstance(plan_hash, str):
+            aggregate, legacy_migration = load_candidate_transaction_with_migration(
                 session_dir / "turns" / turn_id,
                 plan_hash,
             )
-            if isinstance(plan_hash, str)
-            else None
-        )
+        if (
+            legacy_migration is None
+            and turn.get("agent_edit_protocol") != "v2_delta"
+            and isinstance(turn_state, str)
+        ):
+            legacy_migration = classify_legacy_migration_v1(
+                {
+                    "contract_version": "candidate_transaction_v1",
+                    "state": turn_state,
+                }
+            )
         receipts = _transaction_receipts_for_turn(
             session_dir / "turns" / turn_id
         )
@@ -359,6 +410,11 @@ def _latest_turn_lifecycle_payload(
             "disposition": disposition,
             "candidate_transaction": (
                 _json_safe(aggregate) if isinstance(aggregate, Mapping) else None
+            ),
+            "legacy_migration": (
+                _json_safe(legacy_migration)
+                if isinstance(legacy_migration, Mapping)
+                else None
             ),
             "transaction_receipts": receipts,
         }

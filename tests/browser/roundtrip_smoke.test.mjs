@@ -27,6 +27,7 @@ import {
   transition,
 } from "../../vibecomfy/comfy_nodes/web/agent_edit_lifecycle.js";
 import { boundedBrowserTransactionError } from "../../vibecomfy/comfy_nodes/web/agent_edit_transaction.js";
+import { projectionReferenceV1 } from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
 
 function sha256HexUtf8(value) {
   return crypto.createHash("sha256").update(canonicalSessionJsonString(value), "utf8").digest("hex");
@@ -39,21 +40,55 @@ function candidateTransactionFixture({
   deltaOps,
   candidateGraphHash,
   candidateStructuralGraphHash = "pending-structural-hash",
+  workflowId = "123e4567-e89b-12d3-a456-426614174000",
   state = "candidate_ready",
   generation = null,
   leaseNonce = null,
   availableActions = null,
   verificationKind = "delta_replay",
+  legacy = false,
 }) {
   const resolvedActions = availableActions || (
     state === "candidate_ready"
       ? ["apply", "reject"]
-      : ["prepared", "canvas_verified"].includes(state)
+      : state === "prepared"
         ? ["rollback"]
+        : state === "canvas_verified"
+          ? ["finalize", "rollback"]
         : []
   );
-  return {
-    contract_version: "candidate_transaction_v1",
+  const canonicalDeltaOps = deltaOps.map((op) => {
+    const normalized = structuredClone(op);
+    if (Array.isArray(normalized.target) && normalized.target[0] === "nodes") {
+      normalized.target[0] = "";
+    }
+    if (Array.isArray(normalized.from) && normalized.from[0] === "nodes") {
+      normalized.from[0] = "";
+    }
+    if (Array.isArray(normalized.to) && normalized.to[0] === "nodes") {
+      normalized.to[0] = "";
+    }
+    if (normalized.op === "set_node_field" && normalized.target?.length > 3) {
+      normalized.target = [
+        normalized.target[0],
+        normalized.target[1],
+        normalized.target.slice(2).join("."),
+      ];
+    }
+    if (normalized.op === "remove_node" && !Array.isArray(normalized.target)) {
+      normalized.target = [normalized.scope_path || "", String(normalized.uid ?? normalized.node_id)];
+      delete normalized.uid;
+      delete normalized.node_id;
+    }
+    if (normalized.op === "set_mode" && !Array.isArray(normalized.target)) {
+      normalized.target = [normalized.scope_path || "", String(normalized.uid ?? normalized.node_id)];
+      delete normalized.uid;
+      delete normalized.node_id;
+    }
+    return normalized;
+  });
+  const transaction = {
+    contract_version: legacy ? "candidate_transaction_v1" : "candidate_transaction_v2",
     state,
     resume_state: null,
     session_id: sessionId,
@@ -63,9 +98,12 @@ function candidateTransactionFixture({
     lease_nonce: leaseNonce,
     plan: {
       schema_version: "2.0.0",
-      delta_ops_envelope: { schema_version: "2.0.0", ops: deltaOps },
+      delta_ops_envelope: {
+        schema_version: "2.0.0",
+        ops: legacy ? deltaOps : canonicalDeltaOps,
+      },
       delta_hash: `${planHash}-delta`,
-      op_count: deltaOps.length,
+      op_count: canonicalDeltaOps.length,
       schema_provenance: {},
     },
     hashes: {
@@ -73,23 +111,93 @@ function candidateTransactionFixture({
       submit_structural_graph_hash: "submit-structural-hash",
       candidate_graph_hash: candidateGraphHash,
       candidate_structural_graph_hash: candidateStructuralGraphHash,
-      authority_receipt_hash: "authority-receipt-hash",
+      authority_receipt_hash: "c".repeat(64),
     },
     authority: { replay_ok: true, candidate_matches: true, verification_kind: verificationKind },
     available_actions: resolvedActions,
     terminal: ["finalized", "discarded", "rollback_complete", "superseded"].includes(state),
     last_error: null,
   };
+  if (legacy) return transaction;
+
+  const operationFamily = verificationKind === "layout_structural_noop" ? "layout" : "structural";
+  const projection = operationFamily === "layout" ? "layout_v1" : "structural_v1";
+  const candidateDigest = /^[0-9a-f]{64}$/.test(candidateStructuralGraphHash)
+    ? candidateStructuralGraphHash
+    : sha256HexUtf8(candidateStructuralGraphHash);
+  const projectionRef = { kind: "projection_ref_v1", projection, digest: candidateDigest };
+  const candidateAuthority = {
+    contract_version: "candidate_authority_v1",
+    transaction_id: `tx-${planHash}`,
+    candidate_id: `candidate-${planHash}`,
+    workflow_id: workflowId,
+    scope: { kind: "root", path: "" },
+    session_id: sessionId,
+    turn_id: turnId,
+    operation: { delta_contract: "delta_v1", wire_version: "2.0.0", ops: canonicalDeltaOps },
+    operation_family: operationFamily,
+    precondition: { ...projectionRef },
+    postcondition: { ...projectionRef },
+    rollback_projection: projection,
+    restoration_strategy: {
+      contract_version: "inverse_delta_v1",
+      digest: "b".repeat(64),
+      payload: [],
+    },
+    plan_hash: planHash,
+    authority_receipt_contract_version: "authority_receipt_v2",
+    authority_receipt_delta_schema: "2.0.0",
+    authority_receipt_digest: "c".repeat(64),
+  };
+  if (operationFamily === "layout") {
+    candidateAuthority.structural_witness = {
+      kind: "projection_ref_v1",
+      projection: "structural_v1",
+      digest: candidateDigest,
+      precondition_digest: candidateDigest,
+      postcondition_digest: candidateDigest,
+    };
+  }
+  transaction.candidate_authority = candidateAuthority;
+  transaction.prepared_authority = [
+    "prepared",
+    "canvas_verified",
+    "finalized",
+    "rollback_complete",
+    "superseded",
+  ].includes(state)
+    ? {
+        ...structuredClone(candidateAuthority),
+        contract_version: "prepared_authority_v1",
+        generation: generation ?? 1,
+        lease_nonce: leaseNonce || `${planHash}-lease`,
+      }
+    : null;
+  return transaction;
 }
 
-function bindTransactionStructuralHash(extensionModule, transaction, graph) {
-  transaction.hashes.candidate_structural_graph_hash = sha256HexUtf8(
-    extensionModule.buildStructuralGraphProjection(graph),
-  );
-  const layoutHash = sha256HexUtf8(
-    extensionModule.buildLayoutGraphProjection(graph),
-  );
+function bindTransactionStructuralHash(extensionModule, transaction, graph, preconditionGraph = null) {
+  const liveGraph = globalThis.__VIBECOMFY_BROWSER_APP__?.canvas?.graph?.serialize?.();
+  const evidencePreconditionGraph = preconditionGraph || liveGraph || graph;
+  const preconditionHash = projectionReferenceV1(evidencePreconditionGraph, "structural_v1").digest;
+  const structuralHash = projectionReferenceV1(graph, "structural_v1").digest;
+  transaction.hashes.submit_structural_graph_hash = preconditionHash;
+  transaction.hashes.candidate_structural_graph_hash = structuralHash;
+  const layoutHash = projectionReferenceV1(graph, "layout_v1").digest;
   transaction.hashes.candidate_layout_graph_hash = layoutHash;
+  for (const authority of [transaction.candidate_authority, transaction.prepared_authority]) {
+    if (!authority) continue;
+    const authorityDigest = authority.operation_family === "layout" ? layoutHash : structuralHash;
+    authority.precondition.digest = authority.operation_family === "layout"
+      ? projectionReferenceV1(evidencePreconditionGraph, "layout_v1").digest
+      : preconditionHash;
+    authority.postcondition.digest = authorityDigest;
+    if (authority.structural_witness) {
+      authority.structural_witness.digest = structuralHash;
+      authority.structural_witness.precondition_digest = preconditionHash;
+      authority.structural_witness.postcondition_digest = structuralHash;
+    }
+  }
   if (transaction.authority?.verification_kind === "layout_structural_noop") {
     transaction.authority.layout_verification = {
       contract_version: "layout_verification_v1",
@@ -171,8 +279,8 @@ function v2ApplyScenarioFixture({
       },
       graph: candidateGraph,
       candidate_graph_hash: candidateGraphHash,
-      delta_ops: deltaOps,
-      delta_ops_envelope: { schema_version: "2.0.0", ops: deltaOps },
+      delta_ops: candidateTransaction.plan.delta_ops_envelope.ops,
+      delta_ops_envelope: structuredClone(candidateTransaction.plan.delta_ops_envelope),
       candidate_transaction: candidateTransaction,
     },
     bind(extensionModule) {
@@ -1159,7 +1267,7 @@ test("VibeComfy agent executor submit posts the live graph, renders the reply, a
     assert.equal(payload.profile, "openai");
     assert.equal(payload.model, "gpt-5.1");
     assert.equal(payload.client_graph_hash, sha256HexUtf8(graph));
-    assert.equal(payload.client_structural_graph_hash, sha256HexUtf8((await harness.loadExtension()).buildStructuralGraphProjection(graph)));
+    assert.equal(payload.client_structural_graph_hash, projectionReferenceV1(graph, "structural_v1").digest);
     assert.equal(payload.client_live_canvas_token, "live:rev:1");
     assert.equal("baseline_turn_id" in payload, false);
     assert.match(payload.idempotency_key, /^submit:new:openai-codex:gpt-5\.1:[0-9a-f]{12}:[0-9a-f-]+$/);
@@ -1344,8 +1452,18 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
   };
   const changedGraph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
-      { id: 3, type: "SaveImage", properties: { vibecomfy_uid: "uid-3" } },
+      {
+        id: 1,
+        type: "Input",
+        properties: { vibecomfy_uid: "uid-1" },
+        outputs: [{ name: "IMAGE", links: [1] }],
+      },
+      {
+        id: 3,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "uid-3" },
+        inputs: [{ name: "images", link: 1 }],
+      },
     ],
     links: [[1, 1, 0, 3, 0, "IMAGE"]],
   };
@@ -1428,7 +1546,11 @@ test("VibeComfy does not use client structural hash drift as a local candidate b
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Review Changes");
     assert.match(harness.textDump(), /Candidate remains backend-CAS reviewable/);
     assert.doesNotMatch(harness.textDump(), /StaleResponseArrival/);
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled,
+      false,
+      JSON.stringify(extensionModule.ensureAgentPanel().state),
+    );
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.getCurrentGraph().nodes[1]?.id, 3);
@@ -2100,7 +2222,11 @@ test("VibeComfy preserves Apply controls for edit+clarify candidates", async () 
     await waitFor(() => extensionModule.ensureAgentPanel().state.chatRehydratePending === false);
 
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent, "Review Changes");
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
+    assert.equal(
+      harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled,
+      false,
+      JSON.stringify(extensionModule.ensureAgentPanel().state),
+    );
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-reject")?.disabled, false);
     assert.match(extensionModule.ensureAgentPanel().state.clarification?.message || "", /Should I also rename the file stem/);
     assert.match(harness.textDump(), /Should I also rename the file stem/);
@@ -2634,26 +2760,6 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
           },
         };
       },
-      "/vibecomfy/agent-edit/rebaseline": async ({ options }) => {
-        const body = JSON.parse(options.body);
-        assert.equal(
-          body.last_known_baseline_graph_hash,
-          candidateTransaction.hashes.candidate_structural_graph_hash,
-          "immediate Undo must CAS against the baseline accepted by finalize",
-        );
-        return {
-          status: 200,
-          body: {
-            ok: true,
-            session_id: sessionId,
-            baseline_turn_id: "undo-0001",
-            baseline_graph_hash: body.client_structural_graph_hash,
-            baseline_graph_hash_kind: "structural",
-            baseline_graph_hash_version: 2,
-            baseline_source: "rebaseline",
-          },
-        };
-      },
     },
   });
 
@@ -2698,17 +2804,9 @@ test("V2 transaction finalizes with the browser structural post-apply hash and n
       [[1, "Input", "uid-1"], [2, "SaveImage", "uid-2"]],
     );
     const undoButton = harness.document.getElementById("vibecomfy-agent-panel-undo");
-    await waitFor(() => panel.state.undoStack.length === 1);
-    assert.notEqual(undoButton?.style.display, "none");
-    assert.equal(undoButton?.disabled, false);
-    await harness.clickButton("Undo Last Apply");
-    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length === 1);
-    await waitFor(() => panel.state.undoStack.length === 0);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 1);
-    assert.deepEqual(
-      harness.getCurrentGraph().nodes.map((node) => [node.id, node.type, node.properties?.vibecomfy_uid]),
-      [[1, "Input", "uid-1"]],
-    );
+    assert.equal(panel.state.undoStack.length, 0, "v2 authority must not publish browser undoStack authority");
+    assert.equal(undoButton?.style.display, "none");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 0);
     assert.equal(panel.state.undoStack.length, 0);
   } finally {
     await harness.dispose();
@@ -2720,8 +2818,8 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
   const planHash = "plan-v2-layout-authority";
   const initialGraph = {
     nodes: [
-      { id: 1, type: "Input", pos: [20, 30], size: [200, 100], properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "Output", pos: [40, 200], size: [200, 100], properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [20, 30], size: [200, 100], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
+      { id: 2, type: "Output", pos: [40, 200], size: [200, 100], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images" }] },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
     groups: [
@@ -2736,15 +2834,23 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
       { ...initialGraph.nodes[1], pos: [700, 80] },
     ],
     groups: [
-      { id: "group-a", scope_path: "", title: "Prompt / Text", bounding: [370, 40, 260, 180], nodes: [1] },
-      { id: "group-b", scope_path: "", title: "Prompt / Text", bounding: [650, 40, 280, 180], nodes: [2] },
+      { id: "group-a", scope_path: "", title: "Prompt / Text", bounding: [370, 40, 260, 180] },
+      { id: "group-b", scope_path: "", title: "Prompt / Text", bounding: [650, 40, 280, 180] },
     ],
   };
   const nativeCandidateGraph = {
     ...candidateGraph,
-    groups: candidateGraph.groups.map(({ nodes: _nodes, scope_path: _scopePath, ...group }) => group),
+    groups: candidateGraph.groups.map(({ scope_path: _scopePath, ...group }) => group),
   };
-  const nativeCandidateGraphHash = sha256HexUtf8(nativeCandidateGraph);
+  const postApplyGraph = {
+    ...nativeCandidateGraph,
+    nodes: nativeCandidateGraph.nodes.map((node, index) => (
+      index === 1
+        ? { ...node, inputs: [{ ...node.inputs[0], link: 1 }] }
+        : node
+    )),
+  };
+  const postApplyGraphHash = sha256HexUtf8(postApplyGraph);
   const candidateGraphHash = sha256HexUtf8(candidateGraph);
   const transactionArgs = {
     sessionId,
@@ -2819,8 +2925,8 @@ test("V2 layout transaction applies the exact authoritative layout candidate", a
       },
       "/vibecomfy/agent-edit/finalize": async ({ options }) => {
         const body = JSON.parse(options.body);
-        assert.equal(body.client_graph_hash, nativeCandidateGraphHash);
-        assert.deepEqual(body.post_apply_graph, nativeCandidateGraph);
+        assert.deepEqual(body.post_apply_graph, postApplyGraph);
+        assert.equal(body.client_graph_hash, postApplyGraphHash);
         return {
           status: 200,
           body: {
@@ -3043,9 +3149,10 @@ test("prepared transaction rehydrate restores candidate-mutated canvas before ca
     bindTransactionStructuralHash(extensionModule, candidateTransaction, candidateGraph);
     bindTransactionStructuralHash(extensionModule, preparedTransaction, candidateGraph);
     bindTransactionStructuralHash(extensionModule, rolledBackTransaction, candidateGraph);
-    preparedBaseline.structural_graph_hash = sha256HexUtf8(
-      extensionModule.buildStructuralGraphProjection(originalGraph),
-    );
+    preparedBaseline.structural_graph_hash = projectionReferenceV1(
+      originalGraph,
+      "structural_v1",
+    ).digest;
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "APPLY_PREPARED");
@@ -3054,7 +3161,10 @@ test("prepared transaction rehydrate restores candidate-mutated canvas before ca
     await harness.clickButton("Cancel interrupted Apply");
 
     const panel = extensionModule.ensureAgentPanel();
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await waitFor(() => (
+      harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit/rollback")
+      && panel.state.phase === "ROLLBACK_COMPLETE"
+    ));
     assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [1]);
     assert.equal(
       harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length,
@@ -3490,8 +3600,13 @@ test("V2 native mutation throw compensates once, restores canvas, and retains th
     await harness.clickButton("Apply");
     const panel = extensionModule.ensureAgentPanel();
     await waitFor(() => panel.state.failure?.kind === "CanvasApplyError");
+    await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
+    assert.equal(
+      harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length,
+      1,
+      JSON.stringify(panel.state.failure),
+    );
     assert.deepEqual(harness.getCurrentGraph().nodes.map((node) => node.id), [1]);
     assert.equal(panel.state.rollbackReceipt?.phase, "rollback_complete");
     assert.equal(panel.state.syntheticAgentMessage?.synthetic, true);
@@ -3542,7 +3657,7 @@ test("V2 scoped postcheck mismatch compensates with one actionable bubble and a 
     assert.equal(panel.state.syntheticAgentMessage?.synthetic, true);
     assert.equal(
       [...harness.document.body.querySelectorAll("[data-vibecomfy-message-key]")]
-        .filter((bubble) => /authoritative touched-region result/.test(bubble.textContent || "")).length,
+        .filter((bubble) => /typed v2 postcondition witness|authoritative touched-region result/i.test(bubble.textContent || "")).length,
       1,
     );
   } finally { await harness.dispose(); }
@@ -3565,7 +3680,14 @@ test("V2 rollback failure after a restored canvas remains RECOVERY_REQUIRED with
     harness.document.getElementById("vibecomfy-agent-panel-prompt").value = "add save node";
     await harness.clickButton("Submit"); await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled === false);
     const add = harness.app.canvas.graph.add.bind(harness.app.canvas.graph);
-    harness.app.canvas.graph.add = (node) => { add(node); throw new Error("trigger rollback failure"); };
+    let threw = false;
+    harness.app.canvas.graph.add = (node) => {
+      add(node);
+      if (!threw) {
+        threw = true;
+        throw new Error("trigger rollback failure");
+      }
+    };
     await harness.clickButton("Apply");
     const panel = extensionModule.ensureAgentPanel();
     await waitFor(() => panel.state.phase === "RECOVERY_REQUIRED");
@@ -3590,6 +3712,7 @@ test("superseded rollback diagnostic uses canonical candidate_transaction_v1 com
     generation: 4,
     leaseNonce: "lease-canonical-compensation",
     availableActions: ["rollback"],
+    legacy: true,
   });
   const rolledBack = {
     ...transaction,
@@ -3641,6 +3764,7 @@ test("superseded incomplete-restore diagnostic retains canonical recovery state"
     generation: 5,
     leaseNonce: "lease-canonical-recovery",
     availableActions: ["rollback"],
+    legacy: true,
   });
   const originalGraph = { nodes: [{ id: 1, properties: { vibecomfy_uid: "saver-1" } }], links: [] };
   const panel = {
@@ -3827,7 +3951,7 @@ test("V2 candidate missing persisted delta ops fails closed before prepare or ca
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
-    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphClearCalls.length, 0, JSON.stringify(harness.operationLog));
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.graphAddCalls.length, 0);
     assert.equal(panel.state.candidateTransaction, null);
@@ -4094,7 +4218,7 @@ test("Prepare-stage stale mismatch renders one failure bubble and rebaseline-ret
       extensionModule.buildStructuralGraphProjection(changedGraph),
     );
     assert.equal(panel.state.candidateGraphHash, sha256HexUtf8(recoveredCandidateGraph));
-    assert.equal(panel.state.candidateTransaction?.contract_version, "candidate_transaction_v1");
+    assert.equal(panel.state.candidateTransaction?.contract_version, "candidate_transaction_v2");
     assert.equal(panel.state.candidateTransaction?.state, "candidate_ready");
     assert.equal(panel.state.rebaselineRecovery, null);
   } finally {
@@ -4489,10 +4613,10 @@ test("VibeComfy agent panel renders rich candidate and failure states without mu
   }
 });
 
-test("VibeComfy Apply requires explicit canvas allowance, prepares native mutation, and publishes durable Undo", async () => {
+test("VibeComfy Apply requires explicit canvas allowance, prepares native mutation, and leaves v2 Undo to the durable journal", async () => {
   const initialGraph = {
     extra: { ds: { scale: 1.25 }, reroutes: [{ id: "r1", pos: [4, 8] }] },
-    groups: [{ title: "seed", bounding: [10, 20, 30, 40], color: "#333333" }],
+    groups: [{ id: "group-seed", title: "seed", bounding: [10, 20, 30, 40], color: "#333333" }],
     config: { links_ontop: true },
     nodes: [{ id: 1, type: "Input", pos: [100, 200], size: [320, 80], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE", type: "IMAGE", links: null }] }],
     links: [],
@@ -4526,7 +4650,7 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
         canvas_apply_allowed: false,
         apply_allowed: true,
         queue_allowed: false,
-        apply_eligibility: {
+        eligibility: {
           applyable: false,
           reason: "server_blocked",
           message: "Server validation gates blocked Apply.",
@@ -4548,7 +4672,7 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
         canvas_apply_allowed: true,
         apply_allowed: true,
         queue_allowed: false,
-        apply_eligibility: {
+        eligibility: {
           applyable: true,
           reason: "queue_blocked_warning",
           message: "Apply is allowed, but Queue remains blocked for this candidate.",
@@ -4662,8 +4786,8 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
 
     prompt.value = "preview only";
     await harness.clickButton("Submit");
-    await waitFor(() => panel.state.phase === "AWAITING_REVIEW");
     await waitFor(() => panel.state.chatRehydratePending === false);
+    assert.equal(panel.state.phase, "AWAITING_REVIEW", JSON.stringify(panel.state.failure || panel.state.applyEligibilityWarning));
     assert.equal(applyButton.disabled, true);
     await harness.clickButton("Apply");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
@@ -4736,25 +4860,17 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback: changed nodes were highlighted on the canvas temporarily\./);
     assert.match(harness.textDump(), /Edited uid-2/);
-    await waitFor(() => panel.state.undoStack.length === 1);
-    assert.equal(panel.state.undoStack.length, 1, "undo stack should record the applied turn");
-    assert.equal(undoButton.disabled, false);
+    assert.equal(panel.state.undoStack.length, 0, "v2 authority must not enter the legacy browser undo stack");
+    assert.equal(undoButton.style.display, "none");
 
     const postApplyQueueResult = harness.app.queuePrompt("prompt-applied");
     assert.deepEqual(postApplyQueueResult, { queued: true, args: ["prompt-applied"] });
     assert.equal(harness.queuePromptCalls.length, 1);
 
-    await harness.clickButton("Undo Last Apply");
-    await waitFor(() => harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length === 1);
-    await waitFor(() => panel.state.undoStack.length === 0);
-    assert.equal(harness.loadGraphDataCalls.length, 1);
-    assert.deepEqual(harness.loadGraphDataCalls[0], initialGraph);
-    assert.deepEqual(harness.getCurrentGraph(), initialGraph);
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 1);
-    assert.equal(rebaselineBodies.length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 0);
     expandAgentBubbleDetails(harness.document.body);
     assert.match(harness.textDump(), /Applied candidate feedback/);
-    assert.equal(panel.state.undoStack.length, 0, "undo stack should be empty after undo");
+    assert.equal(panel.state.undoStack.length, 0);
     assert.equal(undoButton.disabled, true);
 
     const allowedQueueResult = harness.app.queuePrompt("prompt-2");
@@ -4766,14 +4882,14 @@ test("VibeComfy Apply requires explicit canvas allowance, prepares native mutati
   }
 });
 
-test("VibeComfy reorganisation candidates preview the candidate layout and preserve baseline undo", async () => {
+test("VibeComfy reorganisation candidates preview and apply authoritative layout without browser Undo authority", async () => {
   const canvasSize = { width: 1000, height: 800 };
   const staleViewport = { scale: 0.12, offset: [2750, -344] };
   const originalGraph = {
     extra: { prompt: { "1": { class_type: "Input" }, "11": { class_type: "Output" }, "2": { class_type: "Bridge" } } },
     nodes: [
-      { id: 1, type: "Input", pos: [40, 50], size: [210, 90], properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "Output", pos: [80, 210], size: [210, 90], properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [40, 50], size: [210, 90], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
+      { id: 2, type: "Output", pos: [80, 210], size: [210, 90], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images" }] },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
     groups: [{ id: "existing-root-0", title: "Before", bounding: [20, 30, 320, 330] }],
@@ -4781,11 +4897,11 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
   const reorganisedGraph = {
     extra: { prompt: { "1": { class_type: "Input" }, "11": { class_type: "Output" }, "2": { class_type: "Bridge" } } },
     nodes: [
-      { id: 1, type: "Input", pos: [500, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "Output", pos: [760, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [500, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
+      { id: 2, type: "Output", pos: [760, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images" }] },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
-    groups: [{ id: "stage-output", scope_path: "", title: "After", bounding: [480, 45, 520, 180], nodes: [1, 2] }],
+    groups: [{ id: "stage-output", scope_path: "", title: "After", bounding: [480, 45, 520, 180] }],
   };
   const nativeReorganisedGraph = {
     ...reorganisedGraph,
@@ -4976,8 +5092,7 @@ test("VibeComfy reorganisation candidates preview the candidate layout and prese
       "apply should commit native layout geometry without compiler-only group membership metadata",
     );
     assertViewportClose(harness.app.canvas.ds, staleViewport, "apply leaves the viewport as-is");
-    assert.equal(panel.state.undoStack.length, 1);
-    assert.deepEqual(panel.state.undoStack[0].graph, originalGraph, "undo should restore the layout before the change");
+    assert.equal(panel.state.undoStack.length, 0, "v2 layout authority must not enter the legacy browser undo stack");
     harness.assertNoWholeGraphOps("reorganisation Apply must preserve live graph identity");
   } finally {
     await harness.dispose();
@@ -5169,15 +5284,15 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
   const CHAT_URL = `/vibecomfy/agent-edit/chat?session_id=${encodeURIComponent(SESSION_ID)}`;
   const originalGraph = {
     nodes: [
-      { id: 1, type: "Input", pos: [40, 50], size: [210, 90], properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "Output", pos: [80, 210], size: [210, 90], properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [40, 50], size: [210, 90], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
+      { id: 2, type: "Output", pos: [80, 210], size: [210, 90], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images", link: 1 }] },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
   const reorganisedGraph = {
     nodes: [
-      { id: 1, type: "Input", pos: [500, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "Output", pos: [760, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [500, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
+      { id: 2, type: "Output", pos: [760, 80], size: [210, 90], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images" }] },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
@@ -5266,7 +5381,7 @@ test("VibeComfy rehydrate restores reorganise latest-candidate layout preview", 
     assert.deepEqual(harness.getCurrentGraph(), originalGraph, "rehydrated preview must keep the original layout in place");
     assert.equal(panel.state._layoutPreviewActive, true, "rehydrated reorganise candidate should activate layout preview state");
     assert.deepEqual(panel.state._layoutPreviewBaseline.graph, originalGraph, "rehydrated preview baseline should preserve the pre-preview layout");
-    assert.equal(panel.state.candidateTransaction?.contract_version, "candidate_transaction_v1");
+    assert.equal(panel.state.candidateTransaction?.contract_version, "candidate_transaction_v2");
     assert.equal(panel.state.candidateTransaction?.state, "candidate_ready");
   } finally {
     await harness.dispose();
@@ -5548,7 +5663,7 @@ test("VibeComfy Apply allows nonstructural drift even after the live canvas toke
   }
 });
 
-test("VibeComfy Apply relies on backend CAS to block structural drift even when the live canvas revision is unchanged", async () => {
+test("VibeComfy Apply blocks structural drift against the typed v2 precondition before prepare", async () => {
   const initialGraph = {
     nodes: [
       {
@@ -5662,14 +5777,13 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
 
     harness.setCurrentGraphWithoutRevisionBump(structurallyChangedGraph);
     await harness.clickButton("Apply");
-    await waitFor(() => harness.requests.some((entry) => entry.url === "/vibecomfy/agent-edit/prepare"));
-    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "RECOVERY_REQUIRED");
+    await waitFor(() => extensionModule.ensureAgentPanel().state.phase === "ERROR");
 
-    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 0);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(extensionModule.ensureAgentPanel().state.failure?.kind, "StaleStateMismatch");
-    assert.match(extensionModule.ensureAgentPanel().state.failure?.user_facing_message || "", /canvas changed after this candidate/i);
+    assert.match(extensionModule.ensureAgentPanel().state.failure?.user_facing_message || "", /typed v2 precondition witness/i);
   } finally {
     await harness.dispose();
   }
@@ -5677,13 +5791,13 @@ test("VibeComfy Apply relies on backend CAS to block structural drift even when 
 
 test("VibeComfy v2 Apply rolls back when a live-token race lands during prepare before native mutation", async () => {
   const initialGraph = {
-    nodes: [{ id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" } }],
+    nodes: [{ id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] }],
     links: [],
   };
   const candidateGraph = {
     nodes: [
-      { id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "SaveImage", pos: [0, 0], properties: { vibecomfy_uid: "uid-2" } },
+      { id: 1, type: "Input", pos: [0, 0], properties: { vibecomfy_uid: "uid-1" }, outputs: [{ name: "IMAGE" }] },
+      { id: 2, type: "SaveImage", pos: [0, 0], properties: { vibecomfy_uid: "uid-2" }, inputs: [{ name: "images" }] },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
@@ -6093,7 +6207,7 @@ test("VibeComfy v2 Apply blocks when the touched region drifts after backend acc
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 0);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rollback").length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/accept").length, 0);
-    assert.equal(harness.graphClearCalls.length, 0);
+    assert.equal(harness.graphClearCalls.length, 0, JSON.stringify(harness.operationLog));
     assert.equal(harness.graphConfigureCalls.length, 0);
     assert.equal(harness.loadGraphDataCalls.length, 0);
     assert.equal(harness.graphFieldWriteCalls.length, 0);
@@ -8703,7 +8817,7 @@ test("VibeComfy turn audits move from persistent history cards into expanded bub
 
     // Apply turn 1
     await harness.clickButton("Apply");
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.getAttribute("aria-label"), "Undo Last Apply");
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
     assert.ok(
       panel.state.auditArtifacts.some((artifact) => artifact.auditRef?.path === "/tmp/audit-turn-0001-finalize.json"),
       "finalize audit artifact should be retained",
@@ -13027,13 +13141,14 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
   const deltaOps = [
     { op: "add_node", scope_path: "", uid: "uid-2", node_id: "2", class_type: "SaveImage", fields: {}, inputs: {} },
   ];
-  const candidateTransaction = candidateTransactionFixture({
+  const rehydratedApply = v2ApplyScenarioFixture({
     sessionId: SESSION_ID,
     turnId: "0005",
     planHash: "rehydrated-plan-hash",
     deltaOps,
-    candidateGraphHash: "rehydrated-candidate-hash",
+    candidateGraph,
   });
+  const { candidateTransaction } = rehydratedApply;
   const harness = await createBrowserHarness({
     withGraphMutation: true,
     responses: {
@@ -13072,17 +13187,15 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
             { role: "agent", text: "Candidate restored.", turn_id: "0005" },
           ],
           latest_candidate: {
-            agent_edit_protocol: "v2_delta",
             session_id: SESSION_ID,
             turn_id: "0005",
-            graph: candidateGraph,
-            candidate_graph_hash: "rehydrated-candidate-hash",
+            ...rehydratedApply.candidateFields,
             message: "Candidate restored.",
             report: { change: { content_edits: { edited: ["uid-2"] } }, recovery: [] },
             canvas_apply_allowed: true,
             apply_allowed: true,
             queue_allowed: false,
-            apply_eligibility: {
+            eligibility: {
               applyable: true,
               reason: "queue_blocked_warning",
               message: "Apply is allowed, but Queue remains blocked for this candidate.",
@@ -13105,6 +13218,7 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
 
   try {
     const extensionModule = await harness.loadExtension();
+    rehydratedApply.bind(extensionModule);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-status")?.textContent === "Review Changes");
@@ -13112,7 +13226,7 @@ test("Lifecycle E2 page reload rehydrate restores the latest open candidate and 
     const panel = extensionModule.ensureAgentPanel();
     assert.equal(panel.state.sessionId, SESSION_ID);
     assert.equal(panel.state.turnId, "0005");
-    assert.equal(panel.state.candidateGraphHash, "rehydrated-candidate-hash");
+    assert.equal(panel.state.candidateGraphHash, candidateTransaction.hashes.candidate_graph_hash);
     assert.equal(panel.state.candidateTransaction?.plan_hash, "rehydrated-plan-hash");
     assert.equal(harness.document.getElementById("vibecomfy-agent-panel-apply")?.disabled, false);
     assert.match(harness.textDump(), /Candidate restored/);
@@ -14218,15 +14332,35 @@ test("VibeComfy scoped session persistence writes sessionStorage without refresh
 test("VibeComfy scoped workflow chats keep distinct sessions, rehydrate URLs, and rendered messages", async () => {
   const graphA = {
     nodes: [
-      { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "scope-a-load" } },
-      { id: 2, type: "PreviewImage", properties: { vibecomfy_uid: "scope-a-preview" } },
+      {
+        id: 1,
+        type: "LoadImage",
+        properties: { vibecomfy_uid: "scope-a-load" },
+        outputs: [{ name: "IMAGE", links: [1] }],
+      },
+      {
+        id: 2,
+        type: "PreviewImage",
+        properties: { vibecomfy_uid: "scope-a-preview" },
+        inputs: [{ name: "images", link: 1 }],
+      },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
   const graphB = {
     nodes: [
-      { id: 10, type: "CheckpointLoaderSimple", properties: { vibecomfy_uid: "scope-b-loader" } },
-      { id: 11, type: "KSampler", properties: { vibecomfy_uid: "scope-b-sampler" } },
+      {
+        id: 10,
+        type: "CheckpointLoaderSimple",
+        properties: { vibecomfy_uid: "scope-b-loader" },
+        outputs: [{ name: "MODEL", links: [1] }],
+      },
+      {
+        id: 11,
+        type: "KSampler",
+        properties: { vibecomfy_uid: "scope-b-sampler" },
+        inputs: [{ name: "model", link: 1 }],
+      },
     ],
     links: [[1, 10, 0, 11, 0, "MODEL"]],
   };
@@ -14486,15 +14620,17 @@ test("VibeComfy scoped workflow chats switch when Comfy configures a graph direc
 });
 
 test("VibeComfy scoped workflow chats switch for empty Comfy workflow tabs with workflow ids", async () => {
+  const workflowIdA = "123e4567-e89b-12d3-a456-426614174010";
+  const workflowIdB = "123e4567-e89b-12d3-a456-426614174011";
   const graphA = {
-    id: "workflow-store-a",
+    id: workflowIdA,
     nodes: [
       { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "scope-workflow-store-a-load" } },
     ],
     links: [],
   };
   const graphB = {
-    id: "workflow-store-b",
+    id: workflowIdB,
     nodes: [],
     links: [],
   };
@@ -14503,11 +14639,13 @@ test("VibeComfy scoped workflow chats switch for empty Comfy workflow tabs with 
   const chatUrlA = `/vibecomfy/agent-edit/chat?session_id=${sessionA}`;
   const chatUrlB = `/vibecomfy/agent-edit/chat?session_id=${sessionB}`;
   const workflowA = {
-    content: JSON.stringify({ ...graphA, id: "workflow-store-a" }),
+    id: workflowIdA,
+    content: JSON.stringify({ ...graphA, id: workflowIdA }),
     filename: "Workflow A",
   };
   const workflowB = {
-    content: JSON.stringify({ ...graphB, id: "workflow-store-b" }),
+    id: workflowIdB,
+    content: JSON.stringify({ ...graphB, id: workflowIdB }),
     filename: "Workflow B",
   };
 
@@ -14564,7 +14702,7 @@ test("VibeComfy scoped workflow chats switch for empty Comfy workflow tabs with 
     const panel = extensionModule.ensureAgentPanel();
     const scopeA = extensionModule.resolveActiveCanvasScope();
     assert.ok(scopeA?.scopeId, "workflow A should resolve a scoped chat identity");
-    assert.equal(scopeA.workflowId, "workflow-store-a");
+    assert.equal(scopeA.workflowId, workflowIdA);
     extensionModule.setScopedSessionId(scopeA.scopeId, sessionA);
     panel.state.chatScopeId = scopeA.scopeId;
     panel.state.chatScopeFingerprint = scopeA.fingerprint;
@@ -14574,7 +14712,7 @@ test("VibeComfy scoped workflow chats switch for empty Comfy workflow tabs with 
     await waitFor(() => /workflow store A answer/.test(harness.textDump()));
 
     harness.app.extensionManager.workflow.activeWorkflow = workflowB;
-    const expectedScopeB = extensionModule.computeScopeId(graphB, { workflowId: "workflow-store-b" });
+    const expectedScopeB = extensionModule.computeScopeId(graphB, { workflowId: workflowIdB });
     assert.ok(expectedScopeB, "empty workflow B should still have a workflow-window scope");
     extensionModule.setScopedSessionId(expectedScopeB, sessionB);
     harness.app.loadGraphData(graphB);
@@ -14595,25 +14733,27 @@ test("VibeComfy scoped workflow chats switch for empty Comfy workflow tabs with 
 });
 
 test("VibeComfy new empty workflow tab is fresh immediately and ignores a late submit from the departed tab", async () => {
+  const workflowIdA = "123e4567-e89b-12d3-a456-426614174020";
+  const workflowIdB = "123e4567-e89b-12d3-a456-426614174021";
   const graphA = {
-    id: "workflow-isolation-a",
+    id: workflowIdA,
     nodes: [
       { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "isolation-a-load" } },
     ],
     links: [],
   };
   const graphB = {
-    id: "workflow-isolation-new-empty",
+    id: workflowIdB,
     nodes: [],
     links: [],
   };
   const workflowA = {
-    id: "workflow-isolation-a",
+    id: workflowIdA,
     content: JSON.stringify(graphA),
     filename: "Isolation A",
   };
   const workflowB = {
-    id: "workflow-isolation-new-empty",
+    id: workflowIdB,
     content: JSON.stringify(graphB),
     filename: "New Empty Workflow",
   };
@@ -14952,15 +15092,35 @@ test("VibeComfy scoped workflow rehydrate ignores stale latest candidates after 
 test("VibeComfy scoped workflow event handlers ignore inactive session events and accept active scope events", async () => {
   const graphA = {
     nodes: [
-      { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "scope-event-a-load" } },
-      { id: 2, type: "PreviewImage", properties: { vibecomfy_uid: "scope-event-a-preview" } },
+      {
+        id: 1,
+        type: "LoadImage",
+        properties: { vibecomfy_uid: "scope-event-a-load" },
+        outputs: [{ name: "IMAGE", links: [1] }],
+      },
+      {
+        id: 2,
+        type: "PreviewImage",
+        properties: { vibecomfy_uid: "scope-event-a-preview" },
+        inputs: [{ name: "images", link: 1 }],
+      },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
   const graphB = {
     nodes: [
-      { id: 10, type: "CheckpointLoaderSimple", properties: { vibecomfy_uid: "scope-event-b-loader" } },
-      { id: 11, type: "KSampler", properties: { vibecomfy_uid: "scope-event-b-sampler" } },
+      {
+        id: 10,
+        type: "CheckpointLoaderSimple",
+        properties: { vibecomfy_uid: "scope-event-b-loader" },
+        outputs: [{ name: "MODEL", links: [1] }],
+      },
+      {
+        id: 11,
+        type: "KSampler",
+        properties: { vibecomfy_uid: "scope-event-b-sampler" },
+        inputs: [{ name: "model", link: 1 }],
+      },
     ],
     links: [[1, 10, 0, 11, 0, "MODEL"]],
   };
@@ -15151,8 +15311,18 @@ test("VibeComfy scoped workflow event handlers ignore inactive session events an
 test("Lifecycle C2 new conversation clears state and ignores late submit responses", async () => {
   const graph = {
     nodes: [
-      { id: 1, type: "Input", properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "SaveImage", properties: { vibecomfy_uid: "uid-2" } },
+      {
+        id: 1,
+        type: "Input",
+        properties: { vibecomfy_uid: "uid-1" },
+        outputs: [{ name: "IMAGE" }],
+      },
+      {
+        id: 2,
+        type: "SaveImage",
+        properties: { vibecomfy_uid: "uid-2" },
+        inputs: [{ name: "images" }],
+      },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };
@@ -19882,7 +20052,7 @@ test("VibeComfy blocks submit until status.ready is true and shows composer read
 
 // ── Lifecycle Contract: C1 Stop / abort submit ───────────────────────────
 
-test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and only shows Undo in the composer when available", async () => {
+test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and never exposes browser Undo for v2", async () => {
   const candidateGraph = {
     nodes: [
       { id: 1, type: "CheckpointLoaderSimple", properties: { vibecomfy_uid: "uid-1" } },
@@ -20016,12 +20186,10 @@ test("Lifecycle C1 stop aborts the in-flight submit, leaves no candidate, and on
     await harness.clickButton("Apply");
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/prepare").length, 1);
     assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/finalize").length, 1);
-    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display !== "none");
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.textContent, "");
-    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.getAttribute("aria-label"), "Undo Last Apply");
-
-    await harness.clickButton("Undo Last Apply");
-    await waitFor(() => harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display === "none");
+    assert.equal(extensionModule.ensureAgentPanel().state.phase, "FINALIZED");
+    assert.equal(extensionModule.ensureAgentPanel().state.undoStack.length, 0);
+    assert.equal(harness.document.getElementById("vibecomfy-agent-panel-undo")?.style.display, "none");
+    assert.equal(harness.requests.filter((entry) => entry.url === "/vibecomfy/agent-edit/rebaseline").length, 0);
   } finally {
     await harness.dispose();
   }
@@ -22153,7 +22321,7 @@ test("VibeComfy durable workflow: two messages → candidate → apply → rehyd
       turn3CandidateTransaction,
       turn3PreparedTransaction,
       turn3FinalizedTransaction,
-    ]) bindTransactionStructuralHash(extensionModule, transaction, secondCandidateGraph);
+    ]) bindTransactionStructuralHash(extensionModule, transaction, secondCandidateGraph, candidateGraph);
     await harness.setup();
     await harness.invokeCommand("VibeComfy.AgentEdit");
     await waitFor(() => harness.requests.some((entry) => entry.url === STATUS_URL));
@@ -22366,8 +22534,18 @@ test("VibeComfy respond route renders answer-only without candidate controls and
 test("VibeComfy research route renders answer-only with research evidence, no candidate controls", async () => {
   const initialGraph = {
     nodes: [
-      { id: 1, type: "LoadImage", properties: { vibecomfy_uid: "uid-1" } },
-      { id: 2, type: "VAEDecode", properties: { vibecomfy_uid: "uid-2" } },
+      {
+        id: 1,
+        type: "LoadImage",
+        properties: { vibecomfy_uid: "uid-1" },
+        outputs: [{ name: "IMAGE" }],
+      },
+      {
+        id: 2,
+        type: "VAEDecode",
+        properties: { vibecomfy_uid: "uid-2" },
+        inputs: [{ name: "samples" }],
+      },
     ],
     links: [[1, 1, 0, 2, 0, "IMAGE"]],
   };

@@ -16,7 +16,24 @@
       "excluded_artifact": "scorecard.png"
     }
   ],
-  "m1-contracts": [],
+  "m1-contracts": [
+    {
+      "verified": {
+        "browser_contracts": "467/467",
+        "roundtrip": "242 passed, 0 failed, 2 intentional legacy skips",
+        "python_backend_spine": "288/288",
+        "python_focused_m1": "69/69",
+        "python_fast": "584 passed, 1 intentional skip",
+        "concurrent_accept_reject_stress": "10/10",
+        "python_compile": "passed",
+        "diff_check": "passed",
+        "hard_acceptance": "Claude Code routed through GLM 5.2; sole stale-state test blocker corrected"
+      },
+      "contracts": "docs/agent-edit/m1-versioned-contracts.md",
+      "golden_fixture": "tests/fixtures/agent_edit/m1_projection_golden_v1.json",
+      "excluded_artifact": "scorecard.png"
+    }
+  ],
   "m2-native-adapter": [],
   "m3-verifier": [],
   "m4-controller-api": [],

@@ -316,8 +316,8 @@ test("replay selectors, stage projection, reverse navigation, and clear cleanup 
     assert.equal(originalGraphCalls.length, 3, "ready-to-apply keeps the original graph visible");
     assert.equal(panel.state.phase, PANEL_STATE.AWAITING_REVIEW, "ready-to-apply restores review state");
     assert.deepEqual(panel.state.candidateGraph, makeReplayScenario().body.candidate_graph);
-    assert.equal(panel.state.applyAllowed, true, "ready-to-apply exposes apply action");
-    assert.equal(panel.state.canvasApplyAllowed, true, "ready-to-apply exposes canvas apply");
+    assert.equal(panel.state.applyAllowed, false, "replay candidate carries no production Apply authority");
+    assert.equal(panel.state.canvasApplyAllowed, false, "replay candidate cannot authorize canvas Apply");
     assert.equal(
       panel.state.responseDetails?.["turn-replay-1"]?.turn?.turnId,
       "turn-replay-1",
@@ -335,8 +335,8 @@ test("replay selectors, stage projection, reverse navigation, and clear cleanup 
       PANEL_STATE.AWAITING_REVIEW,
       "applied without a resolved apply result remains a visualization-only candidate state",
     );
-    assert.equal(panel.state.applyAllowed, true, "visualization-only applied keeps candidate lifecycle state");
-    assert.equal(panel.state.canvasApplyAllowed, true, "visualization-only applied keeps canvas apply eligibility");
+    assert.equal(panel.state.applyAllowed, false, "visualization-only replay remains non-authoritative");
+    assert.equal(panel.state.canvasApplyAllowed, false, "visualization-only replay cannot authorize canvas Apply");
     assert.equal(panel.state.__demoMode, true, "applied remains in demo mode until clear");
     assert.equal(panel.state.lastAppliedChanges, null, "applied does not reflect apply success without fixture evidence");
 

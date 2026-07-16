@@ -177,9 +177,14 @@ def test_canonical_backend_contract_objects_serialize_snake_case() -> None:
         "graph_hash": "candidate-hash",
         "structural_graph_hash": "candidate-structural-hash",
         "baseline_graph_hash": "baseline-hash",
-        "submit_graph_hash": "submit-hash",
-        "submit_structural_graph_hash": "submit-structural-hash",
-        "turn_identity": identity.to_dict(),
+            "submit_graph_hash": "submit-hash",
+            "submit_structural_graph_hash": "submit-structural-hash",
+            "plan_hash": None,
+            "structural_hash_before": None,
+            "structural_hash_after": None,
+            "monotonic_generation": None,
+            "lease_nonce": None,
+            "turn_identity": identity.to_dict(),
     }
     assert snapshot.to_dict() == {
         "stage": "ui_emit",
@@ -590,6 +595,7 @@ def test_turn_outcome_kinds_are_closed_and_ordered() -> None:
 def test_public_outcome_kinds_are_closed_and_ordered() -> None:
     assert PUBLIC_OUTCOME_KINDS == (
         "candidate",
+        "candidate_transaction",
         "noop",
         "clarify",
         "error",
@@ -2059,13 +2065,14 @@ def test_public_outcome_kinds_are_the_closed_contract_set() -> None:
     """The public outcome kinds are exactly the contractual values."""
     assert PUBLIC_OUTCOME_KINDS == (
         "candidate",
+        "candidate_transaction",
         "noop",
         "clarify",
         "error",
         "requires_custom_nodes",
     )
-    assert len(PUBLIC_OUTCOME_KINDS) == 5
-    assert len(set(PUBLIC_OUTCOME_KINDS)) == 5
+    assert len(PUBLIC_OUTCOME_KINDS) == 6
+    assert len(set(PUBLIC_OUTCOME_KINDS)) == 6
 
 
 def test_internal_to_public_outcome_is_closed_authoritative_mapping() -> None:

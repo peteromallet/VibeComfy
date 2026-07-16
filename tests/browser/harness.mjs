@@ -33,6 +33,13 @@ const CANONICAL_DELTA_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", 
 const CANONICAL_HASH_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "canonical_hash.js");
 const GRAPH_PROJECTION_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "graph_projection.js");
 const LAYOUT_VERIFICATION_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "layout_verification_contract.js");
+const FIELD_REGISTRY_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "field_registry_v1.js");
+const ROOT_SCOPE_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "root_scope_v1.js");
+const IDENTITY_CONTRACT_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "identity_contract_v1.js");
+const PROJECTION_REGISTRY_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "projection_registry_v1.js");
+const PREPARED_AUTHORITY_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "prepared_authority_v1.js");
+const LEGACY_MIGRATION_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "legacy_migration_v1.js");
+const JOURNAL_DURABLE_V1_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "journal_durable_v1.js");
 
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -355,6 +362,7 @@ export async function createBrowserHarness({
   withQueuePrompt = true,
   withGraphMutation = false,
   enableVibeComfySidebarTab = true,
+  workflowId = "123e4567-e89b-12d3-a456-426614174000",
 } = {}) {
   const document = new FakeDocument();
   const requests = [];
@@ -812,6 +820,11 @@ export async function createBrowserHarness({
       },
     },
     extensionManager: {
+      workflow: workflowId ? {
+        activeWorkflow: null,
+        openWorkflows: [],
+        vibecomfyScopeMetadata: { workflow_id: workflowId },
+      } : undefined,
       toast: {
         add(entry) {
           toasts.push(clone(entry));
@@ -976,6 +989,13 @@ export async function createBrowserHarness({
   await writeFile(path.join(webRoot, "canonical_hash.js"), await readFile(CANONICAL_HASH_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "graph_projection.js"), await readFile(GRAPH_PROJECTION_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "layout_verification_contract.js"), await readFile(LAYOUT_VERIFICATION_CONTRACT_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "field_registry_v1.js"), await readFile(FIELD_REGISTRY_V1_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "root_scope_v1.js"), await readFile(ROOT_SCOPE_V1_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "identity_contract_v1.js"), await readFile(IDENTITY_CONTRACT_V1_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "projection_registry_v1.js"), await readFile(PROJECTION_REGISTRY_V1_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "prepared_authority_v1.js"), await readFile(PREPARED_AUTHORITY_V1_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "legacy_migration_v1.js"), await readFile(LEGACY_MIGRATION_V1_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "journal_durable_v1.js"), await readFile(JOURNAL_DURABLE_V1_SOURCE, "utf8"));
 
   const apiEventListeners = {};
   const mockApi = {
@@ -1013,6 +1033,7 @@ export async function createBrowserHarness({
   const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
+  const originalGlobalApp = globalThis.app;
   const originalApp = globalThis.__VIBECOMFY_BROWSER_APP__;
   const originalApi = globalThis.__VIBECOMFY_BROWSER_API__;
   const originalSidebarTabFlag = globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__;
@@ -1046,6 +1067,11 @@ export async function createBrowserHarness({
       : { LGraphCanvas: LiteGraphCanvas },
   };
   globalThis.fetch = fetchImpl;
+  // The scope guard reads Comfy's browser-global `app`, while the extension
+  // itself imports the complete app object. Expose persisted workflow metadata
+  // by default without inventing an active canvas scope; scope-focused tests
+  // explicitly install the full harness app when they model tab switching.
+  globalThis.app = { extensionManager: app.extensionManager };
   globalThis.__VIBECOMFY_BROWSER_APP__ = app;
   globalThis.__VIBECOMFY_BROWSER_API__ = mockApi;
   globalThis.__VIBECOMFY_ENABLE_SIDEBAR_TAB__ = enableVibeComfySidebarTab;
@@ -1337,6 +1363,8 @@ export async function createBrowserHarness({
       else globalThis.setTimeout = originalSetTimeout;
       if (originalClearTimeout === undefined) delete globalThis.clearTimeout;
       else globalThis.clearTimeout = originalClearTimeout;
+      if (originalGlobalApp === undefined) delete globalThis.app;
+      else globalThis.app = originalGlobalApp;
       if (originalApp === undefined) delete globalThis.__VIBECOMFY_BROWSER_APP__;
       else globalThis.__VIBECOMFY_BROWSER_APP__ = originalApp;
       if (originalApi === undefined) delete globalThis.__VIBECOMFY_BROWSER_API__;

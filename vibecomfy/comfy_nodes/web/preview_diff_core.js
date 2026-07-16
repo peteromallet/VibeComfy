@@ -1,31 +1,20 @@
 // Pure serialized-graph preview diff shared by the live review overlay and the
 // demo preview gallery. It deliberately has no app/panel/global canvas access.
 
-import { sha256Hex } from "./canonical_hash.js";
+import {
+  computeCanvasProjectionHash,
+  computeMutationPlanHash,
+  crossGraphNodeIdentityIndexV1,
+  extractCanvasProjection,
+  stableGroupIdentityOrNullV1,
+  stablePreviewLinkMapV1,
+} from "./projection_registry_v1.js";
 
-function uidOf(node) {
-  return node?.properties?.vibecomfy_uid || null;
-}
-
-function nodesByIdentity(liveGraph, candidateGraph) {
-  const candidateNodes = Array.isArray(candidateGraph?.nodes) ? candidateGraph.nodes : [];
-  const liveNodes = Array.isArray(liveGraph?.nodes) ? liveGraph.nodes : [];
-  const candidateUidById = new Map();
-  const candidateByUid = new Map();
-  for (const node of candidateNodes) {
-    const uid = uidOf(node) || (node?.id != null ? String(node.id) : null);
-    if (!uid) continue;
-    candidateByUid.set(uid, node);
-    if (node.id != null) candidateUidById.set(String(node.id), uid);
-  }
-  const liveByUid = new Map();
-  for (const node of liveNodes) {
-    const uid = uidOf(node)
-      || (node?.id != null ? candidateUidById.get(String(node.id)) || String(node.id) : null);
-    if (uid) liveByUid.set(uid, node);
-  }
-  return { candidateNodes, liveNodes, candidateUidById, candidateByUid, liveByUid };
-}
+export {
+  computeCanvasProjectionHash,
+  computeMutationPlanHash,
+  extractCanvasProjection,
+} from "./projection_registry_v1.js";
 
 function values(node) {
   return Array.isArray(node?.widgets_values) ? node.widgets_values : [];
@@ -33,43 +22,6 @@ function values(node) {
 
 function sameValue(left, right) {
   return Object.is(left, right) || JSON.stringify(left) === JSON.stringify(right);
-}
-
-function parseLink(link) {
-  const leadingId = Array.isArray(link) && link.length >= 6;
-  return {
-    originId: Array.isArray(link) ? link[leadingId ? 1 : 0] : link?.origin_id,
-    originSlot: Array.isArray(link) ? link[leadingId ? 2 : 1] : link?.origin_slot,
-    targetId: Array.isArray(link) ? link[leadingId ? 3 : 2] : link?.target_id,
-    targetSlot: Array.isArray(link) ? link[leadingId ? 4 : 3] : link?.target_slot,
-  };
-}
-
-function linkMaps(graph, uidById) {
-  const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
-  const nodeById = new Map(nodes.filter((node) => node?.id != null).map((node) => [String(node.id), node]));
-  const graphUidById = new Map();
-  for (const node of nodes) {
-    if (node?.id == null) continue;
-    graphUidById.set(String(node.id), uidOf(node) || uidById.get(String(node.id)) || String(node.id));
-  }
-  const rawLinks = Array.isArray(graph?.links)
-    ? graph.links
-    : graph?.links && typeof graph.links === "object" ? Object.values(graph.links) : [];
-  const result = new Map();
-  for (const rawLink of rawLinks) {
-    const link = parseLink(rawLink);
-    const fromUid = graphUidById.get(String(link.originId));
-    const toUid = graphUidById.get(String(link.targetId));
-    if (!fromUid || !toUid || link.originSlot == null || link.targetSlot == null) continue;
-    const fromNode = nodeById.get(String(link.originId));
-    const toNode = nodeById.get(String(link.targetId));
-    const fromName = fromNode?.outputs?.[link.originSlot]?.name || String(link.originSlot);
-    const toName = toNode?.inputs?.[link.targetSlot]?.name || String(link.targetSlot);
-    const physical = `${fromUid}::#${link.originSlot}->${toUid}::#${link.targetSlot}`;
-    result.set(physical, `${fromUid}::${fromName}->${toUid}::${toName}`);
-  }
-  return result;
 }
 
 function parseDisplayLink(key) {
@@ -238,15 +190,31 @@ function promoteChangedLinkTargets(edited, addedLinks, removedLinks, liveByUid, 
 
 function layoutMoves(baselineGraph, candidateGraph) {
   if (!baselineGraph) return [];
-  const baseline = nodesByIdentity(baselineGraph, candidateGraph).liveByUid;
-  const candidate = nodesByIdentity(baselineGraph, candidateGraph).candidateByUid;
+  const index = crossGraphNodeIdentityIndexV1(baselineGraph, candidateGraph);
+  const baseline = index.liveByUid;
+  const candidate = index.candidateByUid;
   const result = [];
   for (const [uid, before] of baseline) {
     const after = candidate.get(uid);
-    if (!after || !Array.isArray(before?.pos) || !Array.isArray(after?.pos)) continue;
-    if (Number(before.pos[0]) !== Number(after.pos[0]) || Number(before.pos[1]) !== Number(after.pos[1])) {
-      result.push({ uid, from: [Number(before.pos[0]), Number(before.pos[1])], to: [Number(after.pos[0]), Number(after.pos[1])] });
-    }
+    if (!after) continue;
+    const beforePos = [Number(before?.pos?.[0] ?? 0), Number(before?.pos?.[1] ?? 0)];
+    const afterPos = [Number(after?.pos?.[0] ?? 0), Number(after?.pos?.[1] ?? 0)];
+    const beforeSize = [Number(before?.size?.[0] ?? 200), Number(before?.size?.[1] ?? 100)];
+    const afterSize = [Number(after?.size?.[0] ?? 200), Number(after?.size?.[1] ?? 100)];
+    const dx = afterPos[0] - beforePos[0];
+    const dy = afterPos[1] - beforePos[1];
+    const dw = afterSize[0] - beforeSize[0];
+    const dh = afterSize[1] - beforeSize[1];
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dw) < 0.5 && Math.abs(dh) < 0.5) continue;
+    result.push({
+      uid,
+      class_type: after?.type || after?.class_type || before?.type || before?.class_type || null,
+      before: { x: beforePos[0], y: beforePos[1], w: beforeSize[0], h: beforeSize[1] },
+      after: { x: afterPos[0], y: afterPos[1], w: afterSize[0], h: afterSize[1] },
+      dx,
+      dy,
+      resized: Math.abs(dw) >= 0.5 || Math.abs(dh) >= 0.5,
+    });
   }
   return result;
 }
@@ -273,28 +241,6 @@ function readGroupBounds(group) {
 }
 
 /**
- * Derive a stable lookup key for a group so candidate and baseline groups
- * can be matched even when the group list order differs.
- *
- * Groups that carry an `id` field use `id:<id>`; otherwise the array index
- * is used as a fallback key.
- *
- * @param {object} group  serialized group object
- * @param {number} index  position in the groups array
- * @returns {string}
- */
-function groupLayoutKey(group, index) {
-  if (group?.id != null) return `id:${String(group.id)}`;
-  // Fall back to title when no id is present — this allows matching across
-  // baseline and candidate even when the group list order changes (e.g. a
-  // group is removed and indices shift).
-  if (typeof group?.title === "string" && group.title.trim()) {
-    return `title:${group.title.trim()}`;
-  }
-  return `index:${index}`;
-}
-
-/**
  * Build a Map of group layout keys to their bounds for a given graph.
  *
  * @param {object} graph  serialized graph with optional `.groups` array
@@ -306,7 +252,8 @@ function baselineGroupBoundsMap(graph) {
   for (let i = 0; i < groups.length; i += 1) {
     const bounds = readGroupBounds(groups[i]);
     if (bounds) {
-      result.set(groupLayoutKey(groups[i], i), bounds);
+      const key = stableGroupIdentityOrNullV1(groups[i]);
+      if (key) result.set(key, bounds);
     }
   }
   return result;
@@ -360,7 +307,8 @@ function layoutGroups(baselineGraph, candidateGraph) {
     const group = candidateGroups[i];
     const bounds = readGroupBounds(group);
     if (!bounds) continue;
-    const key = groupLayoutKey(group, i);
+    const key = stableGroupIdentityOrNullV1(group);
+    if (!key) continue;
     candidateKeys.add(key);
     entries.push({
       key,
@@ -408,7 +356,10 @@ export function computeSerializedGraphPreviewDiff({
   fieldChanges = [],
   layoutBaselineGraph = null,
 } = {}) {
-  const { candidateUidById, candidateByUid, liveByUid } = nodesByIdentity(liveGraph, candidateGraph);
+  const { candidateUidByNativeId, candidateByUid, liveByUid } = crossGraphNodeIdentityIndexV1(
+    liveGraph,
+    candidateGraph,
+  );
   const edited = [];
   for (const [uid, liveNode] of liveByUid) {
     const candidateNode = candidateByUid.get(uid);
@@ -437,8 +388,8 @@ export function computeSerializedGraphPreviewDiff({
   for (const [uid, node] of liveByUid) {
     if (!candidateByUid.has(uid)) removed.push({ uid, class_type: node?.type || node?.class_type || null });
   }
-  const liveLinks = linkMaps(liveGraph, candidateUidById);
-  const candidateLinks = linkMaps(candidateGraph, candidateUidById);
+  const liveLinks = stablePreviewLinkMapV1(liveGraph, candidateUidByNativeId);
+  const candidateLinks = stablePreviewLinkMapV1(candidateGraph, candidateUidByNativeId);
   const added_links = [...candidateLinks].filter(([physical]) => !liveLinks.has(physical)).map(([, display]) => display);
   const removed_links = [...liveLinks].filter(([physical]) => !candidateLinks.has(physical)).map(([, display]) => display);
   promoteChangedLinkTargets(edited, added_links, removed_links, liveByUid, candidateByUid);
@@ -508,13 +459,6 @@ export function computeSerializedGraphPreviewDiff({
  * @param {object} planProjection
  * @returns {string} 64-character lowercase hex digest
  */
-export function computeMutationPlanHash(planProjection) {
-  if (!planProjection || Array.isArray(planProjection) || typeof planProjection !== "object") {
-    return "";
-  }
-  return sha256Hex(planProjection);
-}
-
 /**
  * Compute the SHA-256 hex digest of a post-apply serialized canvas projection.
  *
@@ -536,13 +480,6 @@ export function computeMutationPlanHash(planProjection) {
  * @param {object} canvasProjection
  * @returns {string} 64-character lowercase hex digest
  */
-export function computeCanvasProjectionHash(canvasProjection) {
-  if (!canvasProjection || Array.isArray(canvasProjection) || typeof canvasProjection !== "object") {
-    return "";
-  }
-  return sha256Hex(canvasProjection);
-}
-
 /**
  * Extract the canvas-only projection from a candidate graph whose nodes carry
  * position / size / flags / color furniture.  This is the subset signed by the
@@ -552,58 +489,3 @@ export function computeCanvasProjectionHash(canvasProjection) {
  *                                 and optionally `.extra`.
  * @returns {object} canvas projection suitable for `computeCanvasProjectionHash`
  */
-export function extractCanvasProjection(candidateGraph) {
-  const nodes = Array.isArray(candidateGraph?.nodes) ? candidateGraph.nodes : [];
-  const groups = Array.isArray(candidateGraph?.groups) ? candidateGraph.groups : [];
-  const extra = candidateGraph?.extra && typeof candidateGraph.extra === "object"
-    ? candidateGraph.extra
-    : {};
-
-  const entries = {};
-  for (const node of nodes) {
-    const uid = uidOf(node) || (node?.id != null ? String(node.id) : null);
-    if (!uid) continue;
-    const entry = {};
-    if (Array.isArray(node.pos) && node.pos.length >= 2) {
-      entry.pos = [Number(node.pos[0]), Number(node.pos[1])];
-    } else if (Array.isArray(node?.properties?.pos) && node.properties.pos.length >= 2) {
-      entry.pos = [Number(node.properties.pos[0]), Number(node.properties.pos[1])];
-    }
-    if (node.size && (Array.isArray(node.size) ? node.size.length >= 2 : true)) {
-      entry.size = Array.isArray(node.size)
-        ? [Number(node.size[0]), Number(node.size[1])]
-        : node.size;
-    }
-    if (node.flags && typeof node.flags === "object") {
-      entry.flags = { ...node.flags };
-    }
-    if (typeof node.color === "string") entry.color = node.color;
-    if (typeof node.bgcolor === "string") entry.bgcolor = node.bgcolor;
-    if (node.mode != null) entry.mode = node.mode;
-    if (node.order != null) entry.order = node.order;
-    entries[uid] = entry;
-  }
-
-  const canvasGroups = groups.map((group) => {
-    const g = {};
-    if (typeof group.title === "string") g.title = group.title;
-    const raw = group?.bounding || group?._bounding;
-    if (raw) {
-      const bounds = [
-        Number(raw[0] ?? 0), Number(raw[1] ?? 0),
-        Number(raw[2] ?? 0), Number(raw[3] ?? 0),
-      ];
-      if (bounds.every(Number.isFinite)) g.bounding = bounds;
-    }
-    if (typeof group.color === "string") g.color = group.color;
-    if (group.font_size != null) g.font_size = group.font_size;
-    if (group.locked != null) g.locked = Boolean(group.locked);
-    return g;
-  }).filter((g) => Object.keys(g).length > 0);
-
-  const projection = { entries };
-  if (canvasGroups.length > 0) projection.groups = canvasGroups;
-  if (Object.keys(extra).length > 0) projection.extra = extra;
-
-  return projection;
-}

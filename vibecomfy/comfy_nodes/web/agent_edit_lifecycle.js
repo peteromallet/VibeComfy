@@ -23,6 +23,7 @@ import {
   splitRehydrateProjectionInput,
 } from "./agent_edit_response_contract.js";
 import { normalizeCandidateTransaction, transactionAllows } from "./agent_edit_transaction.js";
+import { isLegacyUndoCacheEntryV1 } from "./journal_durable_v1.js";
 import { createExecutorProgressSnapshot } from "./executor_progress.js";
 
 // ── T7: Runtime snapshot helpers for scope switching ─────────────────────
@@ -172,6 +173,7 @@ export const LIFECYCLE_STATE_FIELDS = Object.freeze([
   "candidateGraphHash",
   "candidateReport",
   "candidateTransaction",
+  "legacyMigration",
   "serverSubmitGraphHash",
   "customNodeResolution",
   "nodePackInstallStates",
@@ -361,6 +363,7 @@ export function createAgentEditState() {
     deltaOps: null,
     agentEditProtocol: null,
     candidateTransaction: null,
+    legacyMigration: null,
 
     // ── T24: Transaction lifecycle fields ──────────────────────────────
     mutationPlanHash: null,
@@ -1030,6 +1033,15 @@ function _readCandidateTransactionForTransition(payload) {
   );
 }
 
+function _readLegacyMigrationForTransition(payload) {
+  const direct = payload?.legacyMigration || payload?.legacy_migration;
+  if (direct && typeof direct === "object") return clonePlainData(direct);
+  const source = _canonicalSourceFromPayload(payload);
+  return source?.legacyMigration && typeof source.legacyMigration === "object"
+    ? clonePlainData(source.legacyMigration)
+    : null;
+}
+
 function _readFieldChangesForTransition(payload) {
   const source = _canonicalSourceFromPayload(payload);
   const changes = _strictSelectorRead(readFieldChanges, source);
@@ -1065,6 +1077,7 @@ function _lastSubmitFieldChangesForTransition(payload) {
 function _writeLatestCandidateTransition(panel, payload) {
   const candidate = _readApplyCandidateForTransition(payload);
   const candidateTransaction = _readCandidateTransactionForTransition(payload);
+  const legacyMigration = _readLegacyMigrationForTransition(payload);
   const candidateGraph = candidate?.graph || null;
   if (!candidateGraph || typeof candidateGraph !== "object") {
     return null;
@@ -1086,6 +1099,7 @@ function _writeLatestCandidateTransition(panel, payload) {
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.candidateGraph = candidateGraph;
   panel.state.candidateTransaction = candidateTransaction;
+  panel.state.legacyMigration = legacyMigration;
   panel.state.candidateBaselineGraph =
     payload?.baselineGraph && typeof payload.baselineGraph === "object"
       ? payload.baselineGraph
@@ -1105,7 +1119,14 @@ function _writeLatestCandidateTransition(panel, payload) {
   panel.state.message = payload?.message || payload?.result?.message || null;
   panel.state.failure = null;
   panel.state.clarification = payload?.clarification || null;
-  panel.state.applyEligibility = applyEligibility;
+  panel.state.applyEligibility = legacyMigration
+    ? {
+        applyable: false,
+        reason: legacyMigration.classification,
+        message: "Legacy transaction history is read-only and cannot authorize Apply.",
+        actions: clonePlainData(legacyMigration.actions || []),
+      }
+    : applyEligibility;
   panel.state.applyAllowed = applyAllowed;
   panel.state.canvasApplyAllowed = applyAllowed;
   panel.state.queueAllowed = Boolean(payload?.queueAllowed);
@@ -1253,6 +1274,7 @@ function _handleInvalidateCandidate(panel, payload) {
   panel.state.deltaOps = null;
   panel.state.agentEditProtocol = null;
   panel.state.candidateTransaction = null;
+  panel.state.legacyMigration = null;
 
   // ── T25: Transaction lifecycle receipts survive candidate invalidation ──
   // Prepared, verified, and rollback receipts are durable evidence of the
@@ -1794,6 +1816,7 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.phase = PANEL_STATE.AWAITING_REVIEW;
   const projectedCandidate = _readApplyCandidateForTransition(payload);
   const candidateTransaction = _readCandidateTransactionForTransition(payload);
+  const legacyMigration = _readLegacyMigrationForTransition(payload);
   const projectedIdentity = projectedCandidate?.turnIdentity || _readDurableTurnIdentityForTransition(payload);
 
   // SD2: Applyable means durable. When a candidate response arrives but both
@@ -1827,6 +1850,7 @@ function _handleCandidateResponse(panel, payload) {
   _handleInvalidateCandidate(panel, { repaint: false });
   panel.state.candidateGraph = candidateGraph;
   panel.state.candidateTransaction = candidateTransaction;
+  panel.state.legacyMigration = legacyMigration;
   panel.state.candidateBaselineGraph =
     payload?.baselineGraph && typeof payload.baselineGraph === "object"
       ? payload.baselineGraph
@@ -1846,8 +1870,14 @@ function _handleCandidateResponse(panel, payload) {
   panel.state.message = result.message || null;
   panel.state.failure = null;
   panel.state.clarification = payload?.clarification || null;
-  panel.state.applyEligibility =
-    missingDurableEligibility || projectedCandidate?.eligibility || payload?.applyEligibility || null;
+  panel.state.applyEligibility = legacyMigration
+    ? {
+        applyable: false,
+        reason: legacyMigration.classification,
+        message: "Legacy transaction history is read-only and cannot authorize Apply.",
+        actions: clonePlainData(legacyMigration.actions || []),
+      }
+    : missingDurableEligibility || projectedCandidate?.eligibility || payload?.applyEligibility || null;
   const candidateActionAllowed = Boolean(
     candidateGraph && transactionAllows(candidateTransaction, "apply"),
   );
@@ -3545,7 +3575,7 @@ function _handleUndoRebaselineSuccess(panel, payload) {
     restored_graph_hash: previous?.client_graph_hash || null,
     undo_stack_depth: Number.isFinite(payload?.undoStackDepth) ? payload.undoStackDepth : null,
   };
-  if (Array.isArray(panel.state.undoStack) && panel.state.undoStack.length > 0) {
+  if (isLegacyUndoCacheEntryV1(panel.state.undoStack?.at(-1))) {
     panel.state.undoStack = panel.state.undoStack.slice(0, -1);
   }
   return _obligations({

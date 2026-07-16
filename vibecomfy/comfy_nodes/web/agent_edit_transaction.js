@@ -5,8 +5,11 @@
 import { normalizeDeltaEnvelope } from "./canonical_delta.js";
 import { canonicalSessionJsonString } from "./canonical_hash.js";
 import { normalizeLayoutVerification } from "./layout_verification_contract.js";
+import { classifyLegacyMigrationV1 } from "./legacy_migration_v1.js";
+import { CANDIDATE_TRANSACTION_V2, PREPARED_AUTHORITY_V1, validateCandidateTransactionV2, validatePreparedAuthorityV1 } from "./prepared_authority_v1.js";
+export { CANDIDATE_TRANSACTION_V2, PREPARED_AUTHORITY_V1, validateCandidateTransactionV2, validatePreparedAuthorityV1 } from "./prepared_authority_v1.js";
 
-export const CANDIDATE_TRANSACTION_CONTRACT_VERSION = "candidate_transaction_v1";
+export const CANDIDATE_TRANSACTION_CONTRACT_VERSION = CANDIDATE_TRANSACTION_V2;
 
 export const TRANSACTION_STATE = Object.freeze({
   CANDIDATE_READY: "candidate_ready",
@@ -80,6 +83,7 @@ export function normalizeCandidateTransaction(value) {
   if (value.contract_version !== CANDIDATE_TRANSACTION_CONTRACT_VERSION) return null;
   const state = canonicalTransactionState(value.state);
   if (!state || !isObject(value.plan) || !isObject(value.hashes) || !isObject(value.authority)) return null;
+  try { validateCandidateTransactionV2(value); } catch (_error) { return null; }
   const envelope = normalizeDeltaEnvelope(value.plan.delta_ops_envelope, { strict: false });
   if (typeof value.plan.delta_hash !== "string" || !value.plan.delta_hash) return null;
   if (typeof value.plan_hash !== "string" || !value.plan_hash) return null;
@@ -119,17 +123,7 @@ export function normalizeCandidateTransaction(value) {
 }
 
 export function readCandidateTransaction(value) {
-  const candidates = [
-    value?.candidate_transaction,
-    value?.candidateTransaction,
-    value?.raw?.candidate_transaction,
-    value?.raw?.candidateTransaction,
-    value?.latest_candidate?.candidate_transaction,
-    value?.latestCandidate?.candidateTransaction,
-    value?.latest_turn_lifecycle?.candidate_transaction,
-    value?.latestTurnLifecycle?.candidateTransaction,
-  ];
-  for (const candidate of candidates) {
+  for (const candidate of candidateTransactionValues(value)) {
     try {
       const normalized = normalizeCandidateTransaction(candidate);
       if (normalized) return normalized;
@@ -139,6 +133,47 @@ export function readCandidateTransaction(value) {
     }
   }
   return null;
+}
+
+function candidateTransactionValues(value) {
+  return [
+    value?.candidate_transaction,
+    value?.candidateTransaction,
+    value?.raw?.candidate_transaction,
+    value?.raw?.candidateTransaction,
+    value?.latest_candidate?.candidate_transaction,
+    value?.latestCandidate?.candidateTransaction,
+    value?.latest_turn_lifecycle?.candidate_transaction,
+    value?.latestTurnLifecycle?.candidateTransaction,
+  ];
+}
+
+export function classifyCandidateTransactionBoundary(value) {
+  let transactionSeen = false;
+  for (const candidate of candidateTransactionValues(value)) {
+    if (!isObject(candidate)) continue;
+    transactionSeen = true;
+    const normalized = normalizeCandidateTransaction(candidate);
+    if (normalized) {
+      return Object.freeze({ classification: "v2_authority", actions: [...normalized.available_actions] });
+    }
+    if (candidate.contract_version === "candidate_transaction_v1") {
+      return Object.freeze(clonePlainData(classifyLegacyMigrationV1(candidate)));
+    }
+    return Object.freeze({
+      classification: candidate.contract_version === CANDIDATE_TRANSACTION_CONTRACT_VERSION
+        ? "invalid_v2_authority_fail_closed"
+        : "unsupported_authority_version_fail_closed",
+      actions: ["rebaseline", "cancel"],
+      rollback_allowed: false,
+    });
+  }
+  if (!transactionSeen) return null;
+  return Object.freeze({
+    classification: "unsupported_authority_version_fail_closed",
+    actions: ["rebaseline", "cancel"],
+    rollback_allowed: false,
+  });
 }
 
 export function resolvePreparedMutationPlan(candidateTransaction, preparedTransaction) {
@@ -156,9 +191,14 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
   ) {
     throw new Error("Prepared operations differ from persisted candidate operations.");
   }
-  const candidateVerificationKind = candidate.authority?.verification_kind || "delta_replay";
-  const preparedVerificationKind = prepared.authority?.verification_kind || "delta_replay";
-  if (candidateVerificationKind !== preparedVerificationKind) {
+  const candidateVerificationKind = candidate.authority?.verification_kind;
+  const preparedVerificationKind = prepared.authority?.verification_kind;
+  if (typeof candidateVerificationKind !== "string" || typeof preparedVerificationKind !== "string") {
+    throw new Error("Prepared authority must declare an explicit verification mode.");
+  }
+  const resolvedCandidateKind = candidateVerificationKind;
+  const resolvedPreparedKind = preparedVerificationKind;
+  if (resolvedCandidateKind !== resolvedPreparedKind) {
     throw new Error("Prepared verification mode differs from candidate authority.");
   }
   const candidateLayoutVerification = candidate.authority?.layout_verification || null;
@@ -173,7 +213,7 @@ export function resolvePreparedMutationPlan(candidateTransaction, preparedTransa
     envelope: clonePlainData(prepared.plan.delta_ops_envelope),
     deltaOps: clonePlainData(prepared.plan.delta_ops_envelope.ops),
     deltaHash: prepared.plan.delta_hash,
-    verificationKind: preparedVerificationKind,
+    verificationKind: resolvedPreparedKind,
     layoutVerification: preparedLayoutVerification,
   };
 }

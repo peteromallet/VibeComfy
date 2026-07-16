@@ -1,5 +1,6 @@
 import { currentAgentPanel, getAgentPanelRuntime } from "./panel_runtime.js";
 import { installPreviewForegroundOverlay } from "./comfy_adapter.js";
+import { nodeIdentityV1 } from "./projection_registry_v1.js";
 
 export function invalidateOverlayDrawModelCache() {
   getAgentPanelRuntime()._overlayDrawModelCache = null;
@@ -679,14 +680,11 @@ function buildOverlayDrawModel(ctx, diff, candidateGraph, deps = {}) {
     return runtime._overlayDrawModelCache.model;
   }
   const nodeOverlayKey = (node) => {
-    const uid = getUid(node);
-    if (uid) {
-      return String(uid);
+    try {
+      return nodeIdentityV1(node);
+    } catch (_error) {
+      return null;
     }
-    if (node?.id != null) {
-      return String(node.id);
-    }
-    return null;
   };
   const liveByUid = new Map();
   for (const node of getLiveGraphNodes(getLiveGraph())) {

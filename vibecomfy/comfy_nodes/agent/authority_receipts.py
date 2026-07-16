@@ -62,7 +62,7 @@ class ReplayReceipt:
     persisted_candidate_hash: str | None
     error: str | None = None
     op_count: int = 0
-    verification_kind: str = "delta_replay"
+    verification_kind: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,7 +84,7 @@ class ReplayReceipt:
             persisted_candidate_hash=data.get("persisted_candidate_hash"),
             error=data.get("error"),
             op_count=int(data.get("op_count", 0)),
-            verification_kind=str(data.get("verification_kind") or "delta_replay"),
+            verification_kind=(data.get("verification_kind") if isinstance(data.get("verification_kind"), str) else None),
         )
 
 
@@ -182,7 +182,11 @@ class AuthorityReceipt:
         envelope = data.get("cumulative_delta_envelope")
         schema_witness = data.get("schema_witness")
         receipt = cls(
-            schema_version=data.get("schema_version", ""),
+            schema_version=(
+                data.get("schema_version")
+                if isinstance(data.get("schema_version"), str)
+                else ""
+            ),
             session_id=data.get("session_id", ""),
             turn_id=data.get("turn_id", ""),
             submit_graph_hash=data.get("submit_graph_hash"),
@@ -201,7 +205,9 @@ class AuthorityReceipt:
         object.__setattr__(
             receipt,
             "contract_version",
-            data.get("contract_version", AUTHORITY_RECEIPT_CONTRACT_VERSION),
+            data.get("contract_version")
+            if isinstance(data.get("contract_version"), str)
+            else "",
         )
         return receipt
 
@@ -211,10 +217,16 @@ class AuthorityReceipt:
         witness_ok, _ = validate_schema_witness(self.schema_witness)
         return (
             self.contract_version == AUTHORITY_RECEIPT_CONTRACT_VERSION
+            and self.schema_version == "2.0.0"
+            and isinstance(self.cumulative_delta_envelope, Mapping)
+            and self.cumulative_delta_envelope.get("schema_version") == self.schema_version
+            and isinstance(self.cumulative_delta_envelope.get("ops"), list)
+            and self.cumulative_delta_hash == payload_hash(self.cumulative_delta_envelope)
             and witness_ok
             and self.schema_witness_hash == self.schema_witness.get("witness_hash")
             and self.replay.replay_ok
             and self.replay.candidate_matches
+            and isinstance(self.replay.verification_kind, str)
         )
 
 
@@ -237,18 +249,25 @@ def _extract_submit_graph(request_payload: Any) -> dict[str, Any] | None:
 
 
 def _extract_delta_ops_from_envelope(envelope: Any) -> tuple[Any, ...]:
-    """Parse delta ops from a cumulative V2 envelope dict."""
+    """Parse new authority through the explicit ``delta_v1`` boundary."""
     if not isinstance(envelope, Mapping):
         raise ValueError("delta envelope must be an object")
 
-    from vibecomfy.porting.edit.ops import normalize_delta_ops
+    from vibecomfy.porting.edit.ops import normalize_delta_v1
 
     # Pass the complete canonical envelope through the canonical parser.  In
     # particular, dropping schema_version here turns every valid V2 envelope
     # into a rejected legacy wrapper.  The old code then swallowed that parse
     # error and replayed zero operations, making mutation evidence look like an
     # identity apply.
-    return normalize_delta_ops(dict(envelope))
+    schema_version = envelope.get("schema_version")
+    if not isinstance(schema_version, str):
+        raise ValueError("delta_v1 requires an explicit schema_version")
+    return normalize_delta_v1({
+        "delta_contract": "delta_v1",
+        "wire_version": schema_version,
+        "ops": envelope.get("ops"),
+    }).ops
 
 
 def recompute_apply(
@@ -306,6 +325,7 @@ def verify_replay(
             recomputed_candidate_hash=None,
             persisted_candidate_hash=None,
             error="missing_submit_graph",
+            verification_kind="delta_replay",
         )
 
     persisted_hash = payload_hash(candidate) if candidate is not None else None
@@ -323,6 +343,7 @@ def verify_replay(
             persisted_candidate_hash=persisted_hash,
             error=error or "recompute_failed",
             op_count=op_count,
+            verification_kind="delta_replay",
         )
 
     recomputed_hash = payload_hash(recomputed)
@@ -334,6 +355,7 @@ def verify_replay(
         persisted_candidate_hash=persisted_hash,
         error=None if matches else "candidate_hash_mismatch",
         op_count=op_count,
+        verification_kind="delta_replay",
     )
 
 

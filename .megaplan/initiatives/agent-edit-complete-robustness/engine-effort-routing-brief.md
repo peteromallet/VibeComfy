@@ -21,8 +21,8 @@ Codex model effort values needed by this initiative.
 
 1. Preserve the complete tier-selected model and effort through both execution
    call paths in `execute/batch.py`.
-2. A tier entry such as `codex:gpt-5.6-terra:xhigh` must invoke Codex with
-   `model_reasoning_effort=xhigh`.
+2. A hard-tier entry such as `claude:glm-5.2` must invoke Claude Code
+   with that concrete model rather than silently routing back to Codex.
 3. Accept at least `xhigh` and `max` for Codex. Do not add `ultra` unless the
    parser and worker contract are deliberately extended and tested.
 4. Preserve phase fallback effort when a selected tier spec omits effort.

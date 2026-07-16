@@ -98,6 +98,7 @@ from .session import (
     _transaction_receipts_for_turn,
     allocate_turn,
     load_candidate_transaction,
+    load_candidate_transaction_with_migration,
     normalize_session_id,
     payload_hash,
     project_transaction_state,
@@ -108,6 +109,7 @@ from .session import (
     turn_dir_for,
     v2_mutation_plan_hash,
 )
+from .candidate_transaction import classify_legacy_migration_v1
 from vibecomfy.executor.contracts import (
     ReadinessReport,
     RevisionEvidence,

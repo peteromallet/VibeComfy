@@ -9,15 +9,47 @@ import {
   extractCanvasProjection,
 } from "../../vibecomfy/comfy_nodes/web/preview_diff_core.js";
 import { sha256Hex, canonicalJsonString } from "../../vibecomfy/comfy_nodes/web/canonical_hash.js";
+import {
+  crossGraphNodeIdentityIndexV1,
+  stablePreviewLinkMapV1,
+} from "../../vibecomfy/comfy_nodes/web/projection_registry_v1.js";
+
+test("registry owns native-locator cross-graph UID recovery", () => {
+  const live = { nodes: [{ id: 7, type: "Source" }] };
+  const candidate = {
+    nodes: [{ id: 7, type: "Source", properties: { vibecomfy_uid: "source-uid" } }],
+  };
+  const index = crossGraphNodeIdentityIndexV1(live, candidate);
+  assert.equal(index.liveByUid.get("source-uid"), live.nodes[0]);
+  assert.equal(index.candidateByUid.get("source-uid"), candidate.nodes[0]);
+  assert.equal([...index.liveByUid.keys()].includes("7"), false);
+});
+
+test("registry preview links require stable named ports", () => {
+  const graph = {
+    nodes: [
+      { id: 1, properties: { vibecomfy_uid: "from" }, outputs: [{}] },
+      { id: 2, properties: { vibecomfy_uid: "to" }, inputs: [{}] },
+    ],
+    links: [[9, 1, 0, 2, 0, "IMAGE"]],
+  };
+  assert.equal(stablePreviewLinkMapV1(graph).size, 0);
+  graph.nodes[0].outputs[0].name = "IMAGE";
+  graph.nodes[1].inputs[0].name = "images";
+  assert.deepEqual(
+    [...stablePreviewLinkMapV1(graph).values()],
+    ["from::IMAGE->to::images"],
+  );
+});
 
 test("serialized reorganise preview includes candidate group furniture", () => {
   const baseline = {
     nodes: [{ id: 1, pos: [0, 0], properties: { vibecomfy_uid: "one" } }],
-    groups: [{ title: "Main", bounding: [0, 0, 100, 100] }],
+    groups: [{ id: "group-main", title: "Main", bounding: [0, 0, 100, 100] }],
   };
   const candidate = {
     nodes: [{ id: 1, pos: [200, 0], properties: { vibecomfy_uid: "one" } }],
-    groups: [{ title: "Main", color: "#123456", bounding: [180, -20, 300, 160] }],
+    groups: [{ id: "group-main", title: "Main", color: "#123456", bounding: [180, -20, 300, 160] }],
   };
 
   const result = computeSerializedGraphPreviewDiff({
@@ -28,7 +60,7 @@ test("serialized reorganise preview includes candidate group furniture", () => {
 
   assert.equal(result.layout_groups.length, 1);
   const group = result.layout_groups[0];
-  assert.equal(group.key, "title:Main");
+  assert.equal(group.key, "group-main");
   assert.equal(group.title, "Main");
   assert.equal(group.color, "#123456");
   assert.deepEqual(group.bounds, { x: 180, y: -20, w: 300, h: 160 });
@@ -415,7 +447,7 @@ test("extractCanvasProjection extracts positions, sizes, flags, colors from cand
   assert.deepEqual(projection.extra, { canvas_scale: 1.0 });
 });
 
-test("extractCanvasProjection handles nodes without vibecomfy_uid via node id", () => {
+test("extractCanvasProjection never treats native node id as stable identity", () => {
   const graph = {
     nodes: [
       { id: 42, pos: [10, 20], size: [100, 200] },
@@ -424,11 +456,7 @@ test("extractCanvasProjection handles nodes without vibecomfy_uid via node id", 
     groups: [],
   };
   const projection = extractCanvasProjection(graph);
-  assert.ok(projection.entries["42"]);
-  assert.deepEqual(projection.entries["42"].pos, [10, 20]);
-  assert.deepEqual(projection.entries["42"].size, [100, 200]);
-  assert.ok(projection.entries["99"]);
-  assert.deepEqual(projection.entries["99"].flags, { pinned: false });
+  assert.deepEqual(projection.entries, {});
 });
 
 test("extractCanvasProjection: empty graph returns entries-only projection", () => {
@@ -546,7 +574,7 @@ test("T27: layout_groups returns candidate groups even without baseline", () => 
   const candidate = {
     nodes: [],
     groups: [
-      { title: "Group A", color: "#3f789e", bounding: [10, 20, 300, 200] },
+      { id: "group-a", title: "Group A", color: "#3f789e", bounding: [10, 20, 300, 200] },
     ],
   };
 
@@ -572,7 +600,7 @@ test("T27: layout_groups marks unchanged groups with _changed=false", () => {
   const sameGraph = {
     nodes: [{ id: 1, pos: [100, 100], properties: { vibecomfy_uid: "n1" } }],
     groups: [
-      { id: 5, title: "Fixed", color: "#00ff00", bounding: [0, 0, 400, 300] },
+      { id: "5", title: "Fixed", color: "#00ff00", bounding: [0, 0, 400, 300] },
     ],
   };
 
@@ -584,7 +612,7 @@ test("T27: layout_groups marks unchanged groups with _changed=false", () => {
 
   assert.equal(result.layout_groups.length, 1);
   const group = result.layout_groups[0];
-  assert.equal(group.key, "id:5");
+  assert.equal(group.key, "5");
   assert.equal(group._changed, false,
     "identical candidate and baseline bounds should not flag changed");
   assert.deepEqual(group._baselineBounds, { x: 0, y: 0, w: 400, h: 300 });
@@ -598,7 +626,7 @@ test("T27: layout_groups detects new groups (absent from baseline)", () => {
   const candidate = {
     nodes: [],
     groups: [
-      { title: "New Group", bounding: [50, 50, 200, 150] },
+      { id: "new-group", title: "New Group", bounding: [50, 50, 200, 150] },
     ],
   };
 
@@ -619,13 +647,13 @@ test("T27: layout_groups detects resized groups", () => {
   const baseline = {
     nodes: [],
     groups: [
-      { title: "Main", bounding: [0, 0, 200, 100] },
+      { id: "main-group", title: "Main", bounding: [0, 0, 200, 100] },
     ],
   };
   const candidate = {
     nodes: [],
     groups: [
-      { title: "Main", bounding: [0, 0, 300, 150] },
+      { id: "main-group", title: "Main", bounding: [0, 0, 300, 150] },
     ],
   };
 
@@ -645,14 +673,14 @@ test("T27: layout_groups records removed group keys", () => {
   const baseline = {
     nodes: [],
     groups: [
-      { title: "Will Be Removed", bounding: [10, 10, 100, 100] },
-      { title: "Kept", bounding: [200, 10, 100, 100] },
+      { id: "removed-group", title: "Will Be Removed", bounding: [10, 10, 100, 100] },
+      { id: "kept-group", title: "Kept", bounding: [200, 10, 100, 100] },
     ],
   };
   const candidate = {
     nodes: [],
     groups: [
-      { title: "Kept", bounding: [200, 10, 100, 100] },
+      { id: "kept-group", title: "Kept", bounding: [200, 10, 100, 100] },
     ],
   };
 
@@ -668,8 +696,7 @@ test("T27: layout_groups records removed group keys", () => {
   // _removedGroupKeys is non-enumerable
   const removed = Object.getOwnPropertyDescriptor(result.layout_groups, "_removedGroupKeys");
   assert.ok(removed, "_removedGroupKeys should be present for removed groups");
-  // Title-based key matching: "Will Be Removed" -> title:Will Be Removed
-  assert.deepEqual(removed.value, ["title:Will Be Removed"]);
+  assert.deepEqual(removed.value, ["removed-group"]);
 });
 
 test("T27: canvas projection hash covers group geometry changes", () => {

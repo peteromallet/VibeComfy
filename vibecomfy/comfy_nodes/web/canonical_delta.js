@@ -17,6 +17,9 @@
 // ── Constants (aligned with Python backend) ─────────────────────────────────
 
 export const DELTA_SCHEMA_VERSION = "2.0.0";
+// M1 authority name. The older schema_version remains wire-only; callers
+// preparing authority must name both values and may not use legacy bridges.
+export const DELTA_CONTRACT_V1 = "delta_v1";
 
 export const DELTA_DIAGNOSTIC_MALFORMED = "malformed_delta";
 export const DELTA_DIAGNOSTIC_LEGACY_SHAPE = "legacy_delta_shape";
@@ -190,9 +193,9 @@ function _validateCanonicalOpStrict(entry, index) {
   // Per-op structural validations (aligned with Python backend)
   switch (opName) {
     case "set_node_field": {
-      if (!Array.isArray(entry.target) || entry.target.length < 2) {
+      if (!Array.isArray(entry.target) || entry.target.length !== 3) {
         throw new DeltaDiagnosticError(
-          `set_node_field at index ${index} must have a "target" array of length >= 2.`,
+          `set_node_field at index ${index} must have a "target" array of length 3.`,
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
@@ -208,9 +211,9 @@ function _validateCanonicalOpStrict(entry, index) {
     }
 
     case "set_mode": {
-      if (!Array.isArray(entry.target) || entry.target.length < 2) {
+      if (!Array.isArray(entry.target) || entry.target.length !== 2) {
         throw new DeltaDiagnosticError(
-          `set_mode at index ${index} must have a "target" array of length >= 2.`,
+          `set_mode at index ${index} must have a "target" array of length 2.`,
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
@@ -251,16 +254,16 @@ function _validateCanonicalOpStrict(entry, index) {
     }
 
     case "upsert_link": {
-      if (!Array.isArray(entry.from) || entry.from.length < 3) {
+      if (!Array.isArray(entry.from) || entry.from.length !== 3) {
         throw new DeltaDiagnosticError(
-          `upsert_link at index ${index} must have a "from" array of length >= 3.`,
+          `upsert_link at index ${index} must have a "from" array of length 3.`,
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
       }
-      if (!Array.isArray(entry.to) || entry.to.length < 3) {
+      if (!Array.isArray(entry.to) || entry.to.length !== 3) {
         throw new DeltaDiagnosticError(
-          `upsert_link at index ${index} must have a "to" array of length >= 3.`,
+          `upsert_link at index ${index} must have a "to" array of length 3.`,
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
@@ -269,9 +272,9 @@ function _validateCanonicalOpStrict(entry, index) {
     }
 
     case "remove_node": {
-      if (!Array.isArray(entry.target) || entry.target.length < 2) {
+      if (!Array.isArray(entry.target) || entry.target.length !== 2) {
         throw new DeltaDiagnosticError(
-          `remove_node at index ${index} must have a "target" array of length >= 2.`,
+          `remove_node at index ${index} must have a "target" array of length 2.`,
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
@@ -292,6 +295,13 @@ function _validateCanonicalOpStrict(entry, index) {
       if (hasId && hasTo) {
         throw new DeltaDiagnosticError(
           `remove_link at index ${index} accepts only one of "id" or "to".`,
+          DELTA_DIAGNOSTIC_MALFORMED,
+          { index, op: opName },
+        );
+      }
+      if (hasTo && (!Array.isArray(entry.to) || entry.to.length !== 3)) {
+        throw new DeltaDiagnosticError(
+          `remove_link at index ${index} must have a "to" array of length 3.`,
           DELTA_DIAGNOSTIC_MALFORMED,
           { index, op: opName },
         );
@@ -497,6 +507,15 @@ export function normalizeDeltaEnvelope(payload, options = {}) {
   );
 }
 
+export function normalizeDeltaV1(payload) {
+  if (!payload || payload.delta_contract !== DELTA_CONTRACT_V1 || payload.wire_version !== DELTA_SCHEMA_VERSION || !Array.isArray(payload.ops)) {
+    throw new DeltaDiagnosticError("delta_v1 requires explicit wire_version 2.0.0 and ops.", DELTA_DIAGNOSTIC_MALFORMED);
+  }
+  const envelope = normalizeDeltaEnvelope({ schema_version: payload.wire_version, ops: payload.ops }, { strict: true });
+  ensureRootScopedOps(envelope.ops);
+  return Object.freeze({ delta_contract: DELTA_CONTRACT_V1, wire_version: DELTA_SCHEMA_VERSION, ops: envelope.ops });
+}
+
 export function normalizeDeltaOpsFromSubmitPayload(payload) {
   const shape = classifyDeltaShape(payload);
 
@@ -595,8 +614,18 @@ export function ensureRootScopedOps(ops) {
   }
 }
 
+export function decodeNodeFieldPathV1(path) {
+  if (!Array.isArray(path) || path.length !== 1 || typeof path[0] !== "string") {
+    return Array.isArray(path) ? [...path] : [];
+  }
+  return path[0].split(".").map((segment) => (
+    /^(?:0|[1-9][0-9]*)$/.test(segment) ? Number(segment) : segment
+  ));
+}
+
 export default {
   DELTA_SCHEMA_VERSION,
+  DELTA_CONTRACT_V1,
   DELTA_DIAGNOSTIC_MALFORMED,
   DELTA_DIAGNOSTIC_LEGACY_SHAPE,
   DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY,
@@ -604,6 +633,8 @@ export default {
   DeltaDiagnosticError,
   classifyDeltaShape,
   normalizeDeltaEnvelope,
+  normalizeDeltaV1,
   normalizeDeltaOpsFromSubmitPayload,
   ensureRootScopedOps,
+  decodeNodeFieldPathV1,
 };

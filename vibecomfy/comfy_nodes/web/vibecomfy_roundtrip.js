@@ -133,12 +133,16 @@ import {
 import {
   canonicalSessionJsonString,
 } from "./canonical_hash.js";
+import { decodeNodeFieldPathV1 } from "./canonical_delta.js";
 import {
   buildLayoutGraphProjection,
   buildStructuralGraphProjection,
-  layoutGraphProjectionJson,
-  structuralGraphProjectionJson,
 } from "./graph_projection.js";
+import {
+  crossGraphNodeIdentityIndexV1,
+  projectionReferenceV1,
+  stablePreviewLinkMapV1,
+} from "./projection_registry_v1.js";
 export {
   buildLayoutGraphProjection,
   buildStructuralGraphProjection,
@@ -213,6 +217,7 @@ import {
 } from "./agent_edit_node_pack_installer.js";
 import {
   resolveActiveCanvasScope,
+  resolveActiveWorkflowUuid,
   assertPanelScopeMatchesActiveCanvas,
   assertApplyScopeConsistency,
 } from "./active_canvas_scope_guard.js";
@@ -222,6 +227,7 @@ import {
   computeSerializedGraphPreviewDiff,
   constrainPreviewDiffToLegacyIntent,
 } from "./preview_diff_core.js";
+import { isLegacyUndoCacheEntryV1 } from "./journal_durable_v1.js";
 
 // Re-export diagnostics functions for tests and external callers.
 export {
@@ -532,6 +538,7 @@ export {
 // ── T11: Re-export active-canvas scope guards for tests ─────────────────
 export {
   resolveActiveCanvasScope,
+  resolveActiveWorkflowUuid,
   assertPanelScopeMatchesActiveCanvas,
   assertApplyScopeConsistency,
 };
@@ -1943,7 +1950,7 @@ function readGraphActualForOp(graph, op) {
   if (op.op === "set_node_field") {
     const parsed = resolveGraphTarget(op.target);
     const node = resolveGraphNode(graph, parsed.uidOrId);
-    return readNodeFieldValue(node, parsed.rest);
+    return readNodeFieldValue(node, decodeNodeFieldPathV1(parsed.rest));
   }
   if (op.op === "set_mode") {
     const parsed = resolveGraphTarget(op.target);
@@ -2238,7 +2245,7 @@ export function buildInverseDeltaOps(preApplyGraph, deltaOps) {
 async function attemptScopedCanvasRollback(preApplyGraph, deltaOps, scopedVerification) {
   const rollback = {
     attempted: true,
-    undo_snapshot_available: Array.isArray(currentAgentPanel()?.state?.undoStack) && currentAgentPanel().state.undoStack.length > 0,
+    undo_snapshot_available: isLegacyUndoCacheEntryV1(currentAgentPanel()?.state?.undoStack?.at(-1)),
     restored: false,
     attempts: [],
   };
@@ -3068,12 +3075,12 @@ function captureLiveCanvasRevision() {
 }
 
 async function structuralGraphHash(graph) {
-  return sha256HexUtf8(structuralGraphProjectionJson(graph));
+  return projectionReferenceV1(graph, "structural_v1").digest;
 }
 
 async function layoutGraphHash(graph) {
   try {
-    return sha256HexUtf8(layoutGraphProjectionJson(graph));
+    return projectionReferenceV1(graph, "layout_v1").digest;
   } catch (error) {
     if (error?.code === "UNSUPPORTED_NESTED_LAYOUT_SCOPE") return null;
     throw error;
@@ -3543,6 +3550,12 @@ function recoveryForPanelState(recovery) {
 
 async function buildSubmitSnapshot(panel) {
   const graph = captureSerializedGraphForAgent();
+  const workflowId = resolveActiveWorkflowUuid();
+  if (!workflowId) {
+    const error = new Error("Agent Edit requires the stable UUID of the active Comfy workflow tab.");
+    error.code = "missing_workflow_identity";
+    throw error;
+  }
   const graphJson = canonicalJsonString(graph);
   const graphHash = await sha256HexUtf8(graphJson);
   const structuralHash = await structuralGraphHash(graph);
@@ -3556,7 +3569,7 @@ async function buildSubmitSnapshot(panel) {
     route,
     model,
   });
-  return { graph, graphJson, graphHash, structuralHash, layoutHash, liveCanvasToken, route, model, idempotencyKey };
+  return { graph, workflowId, graphJson, graphHash, structuralHash, layoutHash, liveCanvasToken, route, model, idempotencyKey };
 }
 
 async function buildCanvasSnapshot() {
@@ -6993,170 +7006,6 @@ function isReorganiseReport(report) {
   );
 }
 
-function nodeLayoutKey(node) {
-  return getUid(node) || (node?.id != null ? `id:${String(node.id)}` : null);
-}
-
-function collectLayoutMovesFromBaseline(baselineGraph, candidateGraph) {
-  const baselineNodes = Array.isArray(baselineGraph?.nodes) ? baselineGraph.nodes : [];
-  const candidateNodes = Array.isArray(candidateGraph?.nodes) ? candidateGraph.nodes : [];
-  if (!baselineNodes.length || !candidateNodes.length) {
-    return [];
-  }
-
-  const candidateUidById = new Map();
-  for (const node of candidateNodes) {
-    const uid = getUid(node);
-    if (uid && node?.id != null) {
-      candidateUidById.set(String(node.id), uid);
-    }
-  }
-
-  const baselineByKey = new Map();
-  for (const node of baselineNodes) {
-    const uid = getUid(node) || (node?.id != null ? candidateUidById.get(String(node.id)) : null);
-    const key = uid || nodeLayoutKey(node);
-    if (key) {
-      baselineByKey.set(key, node);
-    }
-  }
-
-  const moves = [];
-  for (const candidateNode of candidateNodes) {
-    const key = nodeLayoutKey(candidateNode);
-    const baselineNode = key ? baselineByKey.get(key) : null;
-    if (!baselineNode) {
-      continue;
-    }
-    const beforePos = readNodePos(baselineNode);
-    const afterPos = readNodePos(candidateNode);
-    const beforeSize = readNodeSize(baselineNode);
-    const afterSize = readNodeSize(candidateNode);
-    const dx = afterPos.x - beforePos.x;
-    const dy = afterPos.y - beforePos.y;
-    const dw = afterSize.w - beforeSize.w;
-    const dh = afterSize.h - beforeSize.h;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dw) < 0.5 && Math.abs(dh) < 0.5) {
-      continue;
-    }
-    moves.push({
-      uid: getUid(candidateNode) || key,
-      class_type: candidateNode.type || candidateNode.class_type || baselineNode.type || baselineNode.class_type || null,
-      before: {
-        x: beforePos.x,
-        y: beforePos.y,
-        w: beforeSize.w,
-        h: beforeSize.h,
-      },
-      after: {
-        x: afterPos.x,
-        y: afterPos.y,
-        w: afterSize.w,
-        h: afterSize.h,
-      },
-      dx,
-      dy,
-      resized: Math.abs(dw) >= 0.5 || Math.abs(dh) >= 0.5,
-    });
-  }
-  return moves;
-}
-
-function readGroupBounding(group) {
-  const raw = group?.bounding || group?._bounding;
-  if (!raw) {
-    return null;
-  }
-  const x = vecNumber(raw, 0, NaN);
-  const y = vecNumber(raw, 1, NaN);
-  const w = vecNumber(raw, 2, NaN);
-  const h = vecNumber(raw, 3, NaN);
-  if (![x, y, w, h].every(Number.isFinite) || w <= 0 || h <= 0) {
-    return null;
-  }
-  return { x, y, w, h };
-}
-
-function groupLayoutKey(group, index) {
-  if (group?.id != null) return `id:${String(group.id)}`;
-  // Fall back to title when no id is present — this allows matching across
-  // baseline and candidate even when the group list order changes (e.g. a
-  // group is removed and indices shift).
-  if (typeof group?.title === "string" && group.title.trim()) {
-    return `title:${group.title.trim()}`;
-  }
-  return `index:${index}`;
-}
-
-function groupBoundsEqual(left, right) {
-  return (
-    Math.abs(left.x - right.x) < 0.5
-    && Math.abs(left.y - right.y) < 0.5
-    && Math.abs(left.w - right.w) < 0.5
-    && Math.abs(left.h - right.h) < 0.5
-  );
-}
-
-function collectLayoutGroupsFromCandidate(baselineGraph, candidateGraph) {
-  if (!candidateGraph) {
-    return [];
-  }
-  const candidateGroups = Array.isArray(candidateGraph.groups) ? candidateGraph.groups : [];
-
-  // Always extract candidate groups from the exact candidate patch —
-  // even when no baseline is available for comparison.
-  const entries = [];
-  const candidateKeys = new Set();
-  for (let i = 0; i < candidateGroups.length; i += 1) {
-    const group = candidateGroups[i];
-    const bounds = readGroupBounding(group);
-    if (!bounds) continue;
-    const key = groupLayoutKey(group, i);
-    candidateKeys.add(key);
-    entries.push({
-      key,
-      title: typeof group?.title === "string" ? group.title : "Group",
-      color: typeof group?.color === "string" ? group.color : null,
-      bounds,
-      _baselineBounds: null,
-      _changed: false,
-    });
-  }
-
-  // When a baseline is available, compare against applied group geometry.
-  if (baselineGraph) {
-    const baselineGroups = Array.isArray(baselineGraph.groups) ? baselineGraph.groups : [];
-    const baselineMap = new Map();
-    for (let i = 0; i < baselineGroups.length; i += 1) {
-      const bounds = readGroupBounding(baselineGroups[i]);
-      if (bounds) {
-        baselineMap.set(groupLayoutKey(baselineGroups[i], i), bounds);
-      }
-    }
-    const removedGroupKeys = [];
-    for (const [key] of baselineMap) {
-      if (!candidateKeys.has(key)) {
-        removedGroupKeys.push(key);
-      }
-    }
-    for (const entry of entries) {
-      const baselineBounds = baselineMap.get(entry.key) || null;
-      entry._baselineBounds = baselineBounds;
-      entry._changed = baselineBounds ? !groupBoundsEqual(entry.bounds, baselineBounds) : true;
-    }
-    if (removedGroupKeys.length > 0) {
-      Object.defineProperty(entries, "_removedGroupKeys", {
-        value: removedGroupKeys,
-        writable: false,
-        enumerable: false,
-        configurable: false,
-      });
-    }
-  }
-
-  return entries;
-}
-
 function clearCandidateInvalidationSideEffects(repaint = true) {
   // Roundtrip-owned side effect: clear overlay draw model cache.
   invalidateOverlayDrawModelCache();
@@ -7254,17 +7103,34 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     } catch (serializeErr) {
       console.warn("[vibecomfy] computePreviewDiff — live graph serialization failed; using runtime widgets:", safePreviewLogDetail(serializeErr));
     }
-    const liveSerializedNodes = Array.isArray(liveSerializedGraph?.nodes)
-      ? liveSerializedGraph.nodes
-      : [];
-    const candidateNodes = Array.isArray(previewCandidateGraph?.nodes) ? previewCandidateGraph.nodes : [];
+    const livePreviewGraph = liveSerializedGraph || {
+      nodes: liveNodes,
+      links: liveGraph?.links || [],
+    };
+    const layoutBaselineGraph = isReorganiseReport(candidateReport)
+      ? panel?.state?._layoutPreviewBaseline?.graph
+      : null;
+    const ownedGraphDiff = computeSerializedGraphPreviewDiff({
+      liveGraph: livePreviewGraph,
+      candidateGraph: previewCandidateGraph,
+      layoutBaselineGraph,
+    });
+    const identityIndex = crossGraphNodeIdentityIndexV1(livePreviewGraph, previewCandidateGraph);
+    const runtimeIdentityIndex = crossGraphNodeIdentityIndexV1(
+      { nodes: liveNodes, links: [] },
+      previewCandidateGraph,
+    );
+    const serializedIdentityIndex = crossGraphNodeIdentityIndexV1(
+      liveSerializedGraph || { nodes: [] },
+      previewCandidateGraph,
+    );
+    const { candidateByUid, liveByUid } = identityIndex;
+    const liveSerializedByUid = serializedIdentityIndex.liveByUid;
 
     // ── Delta-ops-derived diff entries (built before the graph-diff fallback) ──
     let deltaDerivedEdited = null;
     let deltaDerivedAdded = null;
     let deltaDerivedRemoved = null;
-    let deltaDerivedAddedLinks = null;
-    let deltaDerivedRemovedLinks = null;
 
     if (useDeltaOps) {
       try {
@@ -7279,51 +7145,12 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
         const planEditedMap = new Map();   // uidOrId -> Set<widgetIndex>
         const planAdded = [];
         const planRemoved = [];
-        const planAddedLinks = [];
-        const planRemovedLinks = [];
-
-        // Build lookup maps for link normalization.
-        const liveUidById = new Map();
-        for (const node of liveNodes) {
-          const uid = getUid(node);
-          if (uid && node.id != null) {
-            liveUidById.set(String(node.id), uid);
-          }
-        }
-        const candidateUidById = new Map();
-        const candidateById = new Map();
-        for (const node of candidateNodes) {
-          const uid = getUid(node);
-          if (uid) {
-            if (node.id != null) candidateUidById.set(String(node.id), uid);
-          }
-          if (node.id != null) candidateById.set(String(node.id), node);
-        }
 
         // Resolve uid-or-id to uid.
         const resolveUid = (uidOrId) => {
-          if (liveUidById.has(String(uidOrId))) return liveUidById.get(String(uidOrId));
-          if (candidateUidById.has(String(uidOrId))) return candidateUidById.get(String(uidOrId));
-          return String(uidOrId);
-        };
-
-        // Normalize a link object to the canonical link key used by the diff.
-        const normalizeLinkKey = (link) => {
-          if (!link || typeof link !== "object") return null;
-          const originId = link.origin_id;
-          const targetId = link.target_id;
-          const originUid = resolveUid(originId);
-          const targetUid = resolveUid(targetId);
-          if (!originUid || !targetUid) return null;
-          const fromNode = candidateById.get(String(originId));
-          const toNode = candidateById.get(String(targetId));
-          const fromPortName = Array.isArray(fromNode?.outputs) && fromNode.outputs[link.origin_slot]
-            ? (fromNode.outputs[link.origin_slot].name || String(link.origin_slot))
-            : String(link.origin_slot);
-          const toPortName = Array.isArray(toNode?.inputs) && toNode.inputs[link.target_slot]
-            ? (toNode.inputs[link.target_slot].name || String(link.target_slot))
-            : String(link.target_slot);
-          return `${originUid}::${fromPortName}->${targetUid}::${toPortName}`;
+          const key = String(uidOrId);
+          if (candidateByUid.has(key) || liveByUid.has(key)) return key;
+          return identityIndex.candidateUidByNativeId.get(key) || key;
         };
 
         // Resolve widget index from field path array.
@@ -7363,7 +7190,7 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
           } else if (step.op === "add_node") {
             const nodePayload = step.nodePayload;
             const uid = nodePayload?.properties?.vibecomfy_uid
-              || (nodePayload?.id != null ? candidateUidById.get(String(nodePayload.id)) : null)
+              || (nodePayload?.id != null ? identityIndex.candidateUidByNativeId.get(String(nodePayload.id)) : null)
               || null;
             const classType = nodePayload?.type || nodePayload?.class_type || null;
             const unwiredRequiredInputs = (Array.isArray(nodePayload?.inputs) ? nodePayload.inputs : [])
@@ -7382,50 +7209,12 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
               }
             }
             planRemoved.push({ uid, class_type: classType });
-          } else if (step.op === "upsert_link") {
-            const key = normalizeLinkKey(step.link);
-            if (key) planAddedLinks.push(key);
-          } else if (step.op === "remove_link") {
-            if (step.alreadyAbsent) continue;
-            // Build a synthetic link key from the target information.
-            const targetUid = step.targetUidOrId ? resolveUid(step.targetUidOrId) : null;
-            const targetSlot = step.targetSlot;
-            if (targetUid && targetSlot != null) {
-              // We need the source uid. Look up the existing link on the live graph.
-              // Since we only have target info, reconstruct from live graph.
-              let foundKey = null;
-              const liveGraph = getLiveGraph();
-              const liveLinks = liveGraph?.links;
-              const linkEntries = (() => {
-                if (!liveLinks) return [];
-                if (typeof liveLinks !== "object") return [];
-                return Array.isArray(liveLinks) ? liveLinks : Object.values(liveLinks);
-              })();
-              for (const link of linkEntries) {
-                if (!link) continue;
-                const hasLeadingLinkId = Array.isArray(link) && link.length >= 6;
-                const tId = Array.isArray(link) ? link[hasLeadingLinkId ? 3 : 2] : link?.target_id;
-                const tSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 4 : 3] : link?.target_slot;
-                const tUid = resolveUid(tId);
-                if (tUid === targetUid && Number(tSlot) === Number(targetSlot)) {
-                  foundKey = normalizeLinkKey(
-                    Array.isArray(link)
-                      ? { origin_id: link[hasLeadingLinkId ? 1 : 0], origin_slot: link[hasLeadingLinkId ? 2 : 1], target_id: tId, target_slot: tSlot }
-                      : link,
-                  );
-                  break;
-                }
-              }
-              if (foundKey) planRemovedLinks.push(foundKey);
-            }
           }
         }
 
         deltaDerivedEdited = Array.from(planEditedMap.values());
         deltaDerivedAdded = planAdded;
         deltaDerivedRemoved = planRemoved;
-        deltaDerivedAddedLinks = planAddedLinks;
-        deltaDerivedRemovedLinks = planRemovedLinks;
       } catch (planErr) {
         // If preflight fails (e.g., candidate graph inconsistency), log and
         // fall through to the legacy graph-diff path below.  The preview will
@@ -7434,52 +7223,11 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       }
     }
 
-    // ── Index by uid (used by both delta-derived and graph-diff paths) ─────
-
-    // ── Index by uid ──────────────────────────────────────────────────────
-    // The candidate (server round-trip) stamps vibecomfy_uid on every node, but a
-    // live canvas node may have none yet (a stock graph before any Apply). Map
-    // candidate uid by LiteGraph node id so a uid-less live node can recover its
-    // uid from its id — otherwise EVERY candidate node falsely looks "added".
-    const candidateByUid = new Map();
-    const candidateUidById = new Map();
-    for (const node of candidateNodes) {
-      const uid = getUid(node);
-      if (uid) {
-        candidateByUid.set(uid, node);
-        if (node.id != null) {
-          candidateUidById.set(String(node.id), uid);
-        }
-      }
-    }
-    const liveByUid = new Map();
-    for (const node of liveNodes) {
-      const uid = getUid(node)
-        || (node.id != null ? candidateUidById.get(String(node.id)) : null);
-      if (uid) {
-        liveByUid.set(uid, node);
-      }
-    }
-    const liveSerializedByUid = new Map();
-    for (const node of liveSerializedNodes) {
-      const uid = getUid(node)
-        || (node.id != null ? candidateUidById.get(String(node.id)) : null);
-      if (uid) {
-        liveSerializedByUid.set(uid, node);
-      }
-    }
-    const serializedGraphFallback = !deltaDerivedEdited && liveSerializedGraph
-      ? computeSerializedGraphPreviewDiff({
-          liveGraph: liveSerializedGraph,
-          candidateGraph: previewCandidateGraph,
-        })
-      : null;
-
     // ── Edited: from delta ops or live-vs-candidate graph diff ──────────
     const edited = deltaDerivedEdited
       ? deltaDerivedEdited
-      : serializedGraphFallback
-        ? serializedGraphFallback.edited
+      : ownedGraphDiff
+        ? ownedGraphDiff.edited
       : (() => {
           const result = [];
           for (const [uid, liveNode] of liveByUid) {
@@ -7506,8 +7254,8 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     // ── Added: from delta ops or live-vs-candidate graph diff ──────────
     const added = deltaDerivedAdded
       ? deltaDerivedAdded
-      : serializedGraphFallback
-        ? serializedGraphFallback.added
+      : ownedGraphDiff
+        ? ownedGraphDiff.added
       : (() => {
           const result = [];
           for (const [uid, candidateNode] of candidateByUid) {
@@ -7528,8 +7276,8 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     // ── Removed: from delta ops or live-vs-candidate graph diff ──────────
     const removed = deltaDerivedRemoved
       ? deltaDerivedRemoved
-      : serializedGraphFallback
-        ? serializedGraphFallback.removed
+      : ownedGraphDiff
+        ? ownedGraphDiff.removed
       : (() => {
           const result = [];
           for (const [uid, liveNode] of liveByUid) {
@@ -7649,143 +7397,20 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       }
     }
 
-    // ── Link diff: normalize by endpoint UID + port name ──────────────────
-    // Build supplementary maps for link endpoint resolution.
-    const candidateNodesById = new Map();
-    for (const node of candidateNodes) {
-      if (node.id != null) {
-        candidateNodesById.set(String(node.id), node);
-      }
-    }
-    const liveNodesById = new Map();
-    for (const node of liveNodes) {
-      if (node.id != null) {
-        liveNodesById.set(String(node.id), node);
-      }
-    }
-    const liveUidById = new Map();
-    for (const node of liveNodes) {
-      const uid = getUid(node)
-        || (node.id != null ? candidateUidById.get(String(node.id)) : null);
-      if (uid && node.id != null) {
-        liveUidById.set(String(node.id), uid);
-      }
-    }
-    for (const [id, uid] of candidateUidById) {
-      if (!liveUidById.has(id) && liveNodesById.has(id)) {
-        liveUidById.set(id, uid);
-      }
-    }
-
-    let _unresolvableLinkWarnCount = 0;
-    const _MAX_UNRESOLVABLE_LINK_WARNS = 5;
-
-    function _resolvePortName(node, slotIndex, portsKey) {
-      const ports = Array.isArray(node?.[portsKey]) ? node[portsKey] : [];
-      const port = ports[slotIndex];
-      if (port && typeof port.name === "string" && port.name) {
-        return port.name;
-      }
-      return String(slotIndex);
-    }
-
-    function _normalizeLinkEndpoint(link, uidById, nodesById) {
-      // link may be an array [origin_id, origin_slot, target_id, target_slot, …],
-      // a LiteGraph array [link_id, origin_id, origin_slot, target_id, target_slot, …],
-      // or an object { origin_id, origin_slot, target_id, target_slot, … }
-      const hasLeadingLinkId = Array.isArray(link) && link.length >= 6;
-      const originId = Array.isArray(link) ? link[hasLeadingLinkId ? 1 : 0] : link?.origin_id;
-      const originSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 2 : 1] : link?.origin_slot;
-      const targetId = Array.isArray(link) ? link[hasLeadingLinkId ? 3 : 2] : link?.target_id;
-      const targetSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 4 : 3] : link?.target_slot;
-
-      const fromUid = uidById.get(String(originId));
-      const toUid = uidById.get(String(targetId));
-
-      if (!fromUid || !toUid) {
-        return null;
-      }
-
-      const fromNode = nodesById.get(String(originId));
-      const toNode = nodesById.get(String(targetId));
-
-      const fromPortName = _resolvePortName(fromNode, originSlot, "outputs");
-      const toPortName = _resolvePortName(toNode, targetSlot, "inputs");
-
-      return `${fromUid}::${fromPortName}->${toUid}::${toPortName}`;
-    }
-
-    function _physicalLinkEndpointKey(link, uidById) {
-      const hasLeadingLinkId = Array.isArray(link) && link.length >= 6;
-      const originId = Array.isArray(link) ? link[hasLeadingLinkId ? 1 : 0] : link?.origin_id;
-      const originSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 2 : 1] : link?.origin_slot;
-      const targetId = Array.isArray(link) ? link[hasLeadingLinkId ? 3 : 2] : link?.target_id;
-      const targetSlot = Array.isArray(link) ? link[hasLeadingLinkId ? 4 : 3] : link?.target_slot;
-      const fromUid = uidById.get(String(originId));
-      const toUid = uidById.get(String(targetId));
-      if (!fromUid || !toUid || originSlot == null || targetSlot == null) return null;
-      return `${fromUid}::#${String(originSlot)}->${toUid}::#${String(targetSlot)}`;
-    }
-
-    function _collectNormalizedLinks(linkEntries, uidById, nodesById) {
-      const linksByPhysicalEndpoint = new Map();
-      for (const link of linkEntries) {
-        if (!link) continue;
-        const physicalKey = _physicalLinkEndpointKey(link, uidById);
-        const displayKey = _normalizeLinkEndpoint(link, uidById, nodesById);
-        if (physicalKey && displayKey) {
-          linksByPhysicalEndpoint.set(physicalKey, displayKey);
-        } else if (_unresolvableLinkWarnCount < _MAX_UNRESOLVABLE_LINK_WARNS) {
-          _unresolvableLinkWarnCount += 1;
-          console.warn("[vibecomfy] computePreviewDiff — unresolvable link endpoint:", safePreviewLogDetail(link));
-        }
-      }
-      return linksByPhysicalEndpoint;
-    }
-
-    // Live links: LiteGraph stores links as an object map keyed by link id.
-    const liveLinkEntries = (() => {
-      const liveGraph = getLiveGraph();
-      const raw = liveGraph?.links;
-      if (!raw || typeof raw !== "object") return [];
-      return Array.isArray(raw) ? raw : Object.values(raw);
-    })();
-    const candidateLinkEntries = Array.isArray(previewCandidateGraph?.links) ? previewCandidateGraph.links : [];
-
-    const liveLinksByPhysicalEndpoint = _collectNormalizedLinks(
-      liveLinkEntries,
-      liveUidById,
-      liveNodesById,
+    const liveLinksByPhysicalEndpoint = stablePreviewLinkMapV1(
+      livePreviewGraph,
+      identityIndex.candidateUidByNativeId,
     );
-    const candidateLinksByPhysicalEndpoint = _collectNormalizedLinks(
-      candidateLinkEntries,
-      candidateUidById,
-      candidateNodesById,
+    const candidateLinksByPhysicalEndpoint = stablePreviewLinkMapV1(
+      previewCandidateGraph,
+      identityIndex.candidateUidByNativeId,
     );
-
-    // ── Link diff: from delta ops or live-vs-candidate comparison ──────
-    const added_links = deltaDerivedAddedLinks
-      ? deltaDerivedAddedLinks
-      : serializedGraphFallback
-        ? serializedGraphFallback.added_links
-      : (() => {
-          const result = [];
-          for (const [physicalKey, displayKey] of candidateLinksByPhysicalEndpoint) {
-            if (!liveLinksByPhysicalEndpoint.has(physicalKey)) result.push(displayKey);
-          }
-          return result;
-        })();
-    const removed_links = deltaDerivedRemovedLinks
-      ? deltaDerivedRemovedLinks
-      : serializedGraphFallback
-        ? serializedGraphFallback.removed_links
-      : (() => {
-          const result = [];
-          for (const [physicalKey, displayKey] of liveLinksByPhysicalEndpoint) {
-            if (!candidateLinksByPhysicalEndpoint.has(physicalKey)) result.push(displayKey);
-          }
-          return result;
-        })();
+    const added_links = [...candidateLinksByPhysicalEndpoint]
+      .filter(([physicalKey]) => !liveLinksByPhysicalEndpoint.has(physicalKey))
+      .map(([, displayKey]) => displayKey);
+    const removed_links = [...liveLinksByPhysicalEndpoint]
+      .filter(([physicalKey]) => !candidateLinksByPhysicalEndpoint.has(physicalKey))
+      .map(([, displayKey]) => displayKey);
 
     // ── Link-edited uids: only derived from graph diff; delta ops already ──
     // capture every node change explicitly in the plan.
@@ -7862,11 +7487,8 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
       }
     }
 
-    const baselineGraph = isReorganiseReport(candidateReport)
-      ? panel?.state?._layoutPreviewBaseline?.graph
-      : null;
-    const layoutMoved = collectLayoutMovesFromBaseline(baselineGraph, previewCandidateGraph);
-    const layoutGroups = collectLayoutGroupsFromCandidate(baselineGraph, previewCandidateGraph);
+    const layoutMoved = ownedGraphDiff.layout_moved;
+    const layoutGroups = ownedGraphDiff.layout_groups;
 
     const legacyIntentDiff = !deltaDerivedEdited
       ? constrainPreviewDiffToLegacyIntent({
@@ -7885,7 +7507,7 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
         fieldsByUid.get(uid).push(String(fieldPath));
       }
       for (const entry of legacyIntentDiff.edited) {
-        const liveNode = liveByUid.get(entry.uid);
+        const liveNode = runtimeIdentityIndex.liveByUid.get(entry.uid);
         const widgets = Array.isArray(liveNode?.widgets) ? liveNode.widgets : [];
         for (const fieldPath of fieldsByUid.get(entry.uid) || []) {
           const widgetIndex = widgets.findIndex((widget) => widget?.name === fieldPath);
@@ -9123,6 +8745,7 @@ function buildSubmitBody(snapshot, task, panel, options = {}) {
         : "default";
   return {
     graph: snapshot.graph,
+    workflow_id: snapshot.workflowId,
     task,
     route: snapshot.route,
     profile,
@@ -10593,6 +10216,38 @@ async function applyAgentCandidate(panel) {
         return;
       }
 
+      let typedPreconditionEvidence;
+      try {
+        const candidateAuthority = candidateTransaction.candidate_authority;
+        typedPreconditionEvidence = projectionReferenceV1(
+          beforeApply.graph,
+          candidateAuthority.precondition.projection,
+        );
+        if (typedPreconditionEvidence.digest !== candidateAuthority.precondition.digest) {
+          throw new Error("The live canvas does not match the typed v2 precondition witness.");
+        }
+        if (candidateAuthority.operation_family === "layout") {
+          const structuralPrecondition = projectionReferenceV1(beforeApply.graph, "structural_v1");
+          if (structuralPrecondition.digest !== candidateAuthority.structural_witness?.precondition_digest) {
+            throw new Error("The live canvas does not match the layout transaction's structural precondition witness.");
+          }
+        }
+      } catch (error) {
+        const failure = agentPanelFailure("StaleStateMismatch", String(error?.message || error), {
+          retryable: true,
+          graph_unchanged: true,
+          next_action: "Submit a new edit from the current workflow baseline.",
+        });
+        const obligations = transition(panel, "APPLY_ELIGIBILITY_BLOCKED", {
+          failure,
+          debugPayload: { typed_v2_precondition_failure: failure },
+          clearCandidatePreview: true,
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+
       const eligibility = applyEligibility(panel, beforeApply);
       if (!eligibility.applyable) {
         const failure = agentPanelFailure("StaleStateMismatch", eligibility.message || "Apply is blocked for this candidate.", {
@@ -10618,6 +10273,7 @@ async function applyAgentCandidate(panel) {
         candidate_graph_hash: candidateTransaction.hashes.candidate_graph_hash,
         client_graph_hash: beforeApply.graphHash,
         client_structural_graph_hash: beforeApply.structuralHash,
+        precondition_projection: clonePlainData(typedPreconditionEvidence),
         client_live_canvas_token: beforeApply.liveCanvasToken,
         apply_eligibility: clonePlainData(panel.state.applyEligibility || eligibility),
         candidate: {
@@ -10985,6 +10641,54 @@ async function applyAgentCandidate(panel) {
       });
       fulfillLifecycleTransitionObligations(panel, verifyStarted);
 
+      const preparedAggregate = normalizeCandidateTransaction(prepared.candidateTransaction);
+      const preparedAuthority = preparedAggregate?.prepared_authority;
+      let typedPostconditionEvidence;
+      try {
+        if (!preparedAuthority) throw new Error("Prepare did not return explicit prepared_authority_v1.");
+        typedPostconditionEvidence = projectionReferenceV1(
+          afterApply.graph,
+          preparedAuthority.postcondition.projection,
+        );
+        if (typedPostconditionEvidence.digest !== preparedAuthority.postcondition.digest) {
+          throw new Error("The applied canvas does not match the typed v2 postcondition witness.");
+        }
+        if (preparedAuthority.operation_family === "layout") {
+          const structuralPostcondition = projectionReferenceV1(afterApply.graph, "structural_v1");
+          if (structuralPostcondition.digest !== preparedAuthority.structural_witness?.postcondition_digest) {
+            throw new Error("Layout Apply changed the structural projection.");
+          }
+        }
+      } catch (error) {
+        const transactionRollback = await rollbackPreparedAgentCandidate(panel, beforeApply, {
+          restoreCanvas: true,
+          silent: true,
+          triggerStage: "typed_postcondition_verification",
+          triggerFailure: error,
+          canvasWasMutated: true,
+        });
+        const failure = agentPanelFailure("StaleStateMismatch", String(error?.message || error), {
+          retryable: true,
+          graph_unchanged: transactionRollback.canvas_restore?.restored === true,
+          next_action: "Retry Apply or rebaseline from the restored workflow.",
+          transaction_rollback: transactionRollback,
+        });
+        const obligations = commitVerifyCanvasFailure(panel, {
+          ...compensatedFailurePayload(panel, failure, {
+            transactionRollback,
+            actionBody: prepareBody,
+            fallbackStage: "typed_postcondition_verification",
+          }),
+          debugPayload: {
+            typed_v2_postcondition_failure: failure,
+            typed_v2_precondition: typedPreconditionEvidence,
+          },
+        });
+        fulfillLifecycleTransitionObligations(panel, obligations);
+        renderLifecycleTransition(panel, obligations);
+        return;
+      }
+
       // Whole-graph equality is meaningful only for an authority mode that
       // explicitly requires it.  delta_replay deliberately authorizes a
       // scoped mutation: unrelated live state and deterministic browser node
@@ -11121,6 +10825,7 @@ async function applyAgentCandidate(panel) {
         lease_nonce: panel.state.leaseNonce,
         post_apply_hash: afterApply.structuralHash,
         post_apply_graph: afterApply.graph,
+        postcondition_projection: clonePlainData(typedPostconditionEvidence),
         applied_delta_hash: preparedMutationPlan.deltaHash,
         post_apply_hash_verified: true,
         browser_verified: true,
@@ -11157,13 +10862,11 @@ async function applyAgentCandidate(panel) {
         undoEntry.accepted_baseline_turn_id = finalized.baselineTurnId
           || panel.state.turnId
           || null;
-        // A compensation snapshot is not user-visible Undo history. Publish it
-        // only after the server has durably finalized the Apply; otherwise an
-        // interrupted prepare appears as an Apply that can be undone even
-        // though no accepted baseline exists yet.
-        panel.state.undoStack.push(undoEntry);
-        panel.state.undoStack = panel.state.undoStack.slice(-16);
+        // journal_durable_v1 on the finalized server record is the sole v2
+        // Undo authority. The browser undoStack remains a legacy,
+        // non-authoritative cache and must never receive a v2 transaction.
         pendingTransactionSnapshotByPanel.delete(panel);
+        recordRoundtripResponseCompartments(panel, finalized);
         markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
         const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
         pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
@@ -11320,620 +11023,17 @@ async function applyAgentCandidate(panel) {
   fulfillLifecycleTransitionObligations(panel, legacyObligations);
   renderLifecycleTransition(panel, legacyObligations);
   return;
-
-  const applyPromise = (async () => {
-    let beforeApply;
-    try {
-      beforeApply = await buildCanvasSnapshot();
-    } catch (e) {
-      const failure = agentPanelFailure("SerializeError", `Could not serialize the current canvas before Apply: ${String(e)}`, {
-        retryable: true,
-        graph_unchanged: true,
-      });
-      const obligations = transition(panel, "APPLY_SERIALIZE_ERROR", {
-        failure,
-        debugPayload: failure,
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      renderLifecycleTransition(panel, obligations);
-      return;
-    }
-
-    const expectedHash = panel.state.lastSubmit?.client_graph_hash;
-    const eligibility = applyEligibility(panel, beforeApply);
-    if (!eligibility.applyable) {
-      const failure = agentPanelFailure(
-        eligibility.reason === APPLY_ELIGIBILITY_REASON.STALE_CANVAS
-          ? "StaleStateMismatch"
-          : "ApplyBlocked",
-        eligibility.reason === APPLY_ELIGIBILITY_REASON.STALE_CANVAS
-          ? "The canvas changed after this candidate was generated. Apply is blocked."
-          : (eligibility.message || "Apply is blocked for this candidate."),
-        {
-          retryable: eligibility.reason !== APPLY_ELIGIBILITY_REASON.NO_CANDIDATE,
-          graph_unchanged: true,
-          next_action:
-            eligibility.reason === APPLY_ELIGIBILITY_REASON.STALE_CANVAS
-              ? "Submit a new edit from the current canvas."
-              : "Submit a new edit or resolve the server-side blockers before retrying Apply.",
-          client_graph_hash: beforeApply.graphHash,
-          client_structural_graph_hash: beforeApply.structuralHash,
-          expected_graph_hash: expectedHash,
-          expected_structural_graph_hash: panel.state.lastSubmit?.client_structural_graph_hash,
-          apply_eligibility: eligibility,
-        },
-      );
-      const obligations = transition(panel, "APPLY_ELIGIBILITY_BLOCKED", {
-        failure,
-        debugPayload: failure,
-        clearCandidatePreview: true,
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      renderLifecycleTransition(panel, obligations);
-      return;
-    }
-
-    const stateCheckGraphHash = expectedHash || beforeApply.graphHash;
-    const acceptKey = buildActionIdempotencyKey({
-      action: "accept",
-      sessionId: panel.state.sessionId,
-      turnId: panel.state.turnId,
-      graphHash: stateCheckGraphHash,
-    });
-    const acceptBody = {
-      session_id: panel.state.sessionId,
-      turn_id: panel.state.turnId,
-      client_graph_hash: stateCheckGraphHash,
-      live_graph: beforeApply.graph,
-      client_live_canvas_token: beforeApply.liveCanvasToken,
-      submit_graph_hash: panel.state.serverSubmitGraphHash || undefined,
-      candidate_graph_hash: panel.state.candidateGraphHash || undefined,
-      idempotency_key: acceptKey,
-    };
-
-    const startedObligations = transition(panel, "APPLY_STARTED", {
-      acceptBody,
-      debugPayload: {
-        applying_turn_id: panel.state.turnId,
-        accept_request: acceptBody,
-      },
-    });
-    fulfillLifecycleTransitionObligations(panel, startedObligations);
-    renderLifecycleTransition(panel, startedObligations);
-
-    let accepted;
-    try {
-      const res = await fetch("/vibecomfy/agent-edit/accept", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(acceptBody),
-      });
-      const rawAccepted = await res.json();
-      accepted = normalizeAuxiliaryAgentPayload(rawAccepted, "accept");
-      if (!res.ok || accepted?.ok === false || accepted.raw?.error) {
-        throw accepted.raw || { kind: "AcceptError", message: res.statusText };
-      }
-      if (
-        !accepted
-        || typeof accepted !== "object"
-        || (accepted.raw?.action && accepted.raw.action !== "accept")
-        || !accepted.sessionId
-        || !accepted.turnId
-      ) {
-        throw agentPanelFailure("MalformedResponse", "The backend returned an incomplete accept envelope.", {
-          stage: accepted.raw?.stage || "accept",
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Retry Apply or inspect the raw response in the debug panel.",
-          raw_response: accepted.raw,
-        });
-      }
-    } catch (e) {
-      const failure = e?.ok === false
-        ? e
-        : agentPanelFailure("AcceptError", String(e), {
-            retryable: true,
-            graph_unchanged: true,
-            next_action: "Retry Apply after the backend accepts the turn.",
-          });
-      const authoritativeBackendReject =
-        e?.ok === false
-        && !["MalformedResponse", "AcceptError", "NetworkError"].includes(String(e?.kind || ""));
-      const recovery = accepted?.rebaselineRecovery || recoveryForFailure(failure, panel, acceptBody);
-      const obligations = transition(panel, "ACCEPT_REJECTED", {
-        failure,
-        acceptBody,
-        authoritativeBackendReject,
-        ...(recovery ? { rebaselineRecovery: recovery } : {}),
-        syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "accept"),
-        disabledApplyEligibility: authoritativeBackendReject
-          ? disabledApplyEligibility(
-              APPLY_ELIGIBILITY_REASON.SUPERSEDED,
-              failure.user_facing_message || failure.message || "The backend rejected this candidate.",
-              ["backend_rejected"],
-            )
-          : null,
-        debugPayload: {
-          ...failure,
-          accept_request: acceptBody,
-          ...(authoritativeBackendReject ? { debug_branch: "backend_cas_mismatch" } : {}),
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      restoreLayoutPreviewBaseline(panel);
-      pushHistory(panel, "failure", failure.kind || "AcceptError");
-      pushTurnStatus(panel, "failed", {
-        session_id: failure.session_id || panel.state.sessionId,
-        turn_id: failure.turn_id || panel.state.turnId,
-        baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-        failure_kind: failure.kind || "AcceptError",
-        failure_stage: failure.stage || "accept",
-        message: failure.user_facing_message || failure.message || failure.error,
-        audit_ref: failure.audit_ref,
-        raw_payload: failure,
-      });
-      rememberTurnDetailSnapshot(panel, {
-        turn_id: failure.turn_id || panel.state.turnId,
-        session_id: failure.session_id || panel.state.sessionId,
-        failure,
-        message: failure.user_facing_message || failure.message || failure.error,
-      });
-      renderLifecycleTransition(panel, obligations);
-      return;
-    }
-
-    const { deltaOps: scopedDeltaOps, source: scopedDeltaOpsSource } = resolveScopedDeltaOps(panel, accepted);
-    const scopedVerification = normalizeScopedAcceptVerification(accepted);
-    const useScopedApply = Array.isArray(scopedDeltaOps);
-    const currentBeforeLoad = await buildCanvasSnapshot();
-    let localScopedPrecheck = null;
-    let canvasApplyMeta = {
-      mode: useScopedApply ? "scoped_delta" : "whole_graph",
-      delta_ops_source: scopedDeltaOpsSource,
-      accept_live_canvas_token: beforeApply.liveCanvasToken,
-      current_live_canvas_token: currentBeforeLoad.liveCanvasToken,
-      accept_structural_hash: beforeApply.structuralHash,
-      current_structural_hash: currentBeforeLoad.structuralHash,
-      token_drift_detected: currentBeforeLoad.liveCanvasToken !== beforeApply.liveCanvasToken,
-      structural_hash_drift_detected: currentBeforeLoad.structuralHash !== beforeApply.structuralHash,
-    };
-
-    if (useScopedApply) {
-      if (!scopedVerification || !Array.isArray(scopedVerification.entries)) {
-        const failure = agentPanelFailure("CanvasApplyError", "Scoped Apply could not verify the touched region because accept verification evidence is missing.", {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Submit the edit again so the backend returns scoped accept verification.",
-          accept_response: accepted.raw || accepted,
-          canvas_apply: canvasApplyMeta,
-        });
-        const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
-          failure,
-          accepted: accepted.raw || accepted,
-          syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "canvas_apply"),
-          undoStackDepth: panel.state.undoStack.length,
-          debugPayload: {
-            ...failure,
-            accepted: accepted.raw || accepted,
-            canvas_apply: canvasApplyMeta,
-            canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
-            undo_stack_depth: panel.state.undoStack.length,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        restoreLayoutPreviewBaseline(panel);
-        pushHistory(panel, "failure", failure.kind || "CanvasApplyError");
-        pushTurnStatus(panel, "failed", {
-          session_id: failure.session_id || panel.state.sessionId,
-          turn_id: failure.turn_id || panel.state.turnId,
-          baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-          failure_kind: failure.kind || "CanvasApplyError",
-          failure_stage: failure.stage || "canvas_apply",
-          message: failure.user_facing_message || failure.message || failure.error,
-          audit_ref: failure.audit_ref,
-          raw_payload: failure,
-        });
-        rememberTurnDetailSnapshot(panel, {
-          turn_id: failure.turn_id || panel.state.turnId,
-          session_id: failure.session_id || panel.state.sessionId,
-          failure,
-          message: failure.user_facing_message || failure.message || failure.error,
-        });
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-
-      localScopedPrecheck = validateScopedCanvasPreconditions(
-        currentBeforeLoad.graph,
-        scopedDeltaOps,
-        scopedVerification,
-      );
-      canvasApplyMeta = {
-        ...canvasApplyMeta,
-        scoped_accept_verification: clonePlainData(scopedVerification),
-        local_precheck: clonePlainData(localScopedPrecheck),
-      };
-      if (!localScopedPrecheck.ok) {
-        const failure = agentPanelFailure("StaleStateMismatch", "The touched region changed after backend acceptance. Scoped Apply is blocked.", {
-          retryable: true,
-          graph_unchanged: true,
-          next_action: "Rebaseline and retry from the current canvas.",
-          client_graph_hash: currentBeforeLoad.graphHash,
-          client_structural_graph_hash: currentBeforeLoad.structuralHash,
-          expected_graph_hash: stateCheckGraphHash,
-          client_live_canvas_token: currentBeforeLoad.liveCanvasToken,
-          expected_live_canvas_token: beforeApply.liveCanvasToken,
-          accept_response: accepted.raw || accepted,
-          canvas_apply: canvasApplyMeta,
-          debug_branch: "scoped_touched_region_mismatch",
-          agent_failure_context: {
-            issues: localScopedPrecheck.entries.filter((entry) => entry.status === "conflict"),
-          },
-        });
-        const obligations = transition(panel, "STALE_CANVAS_APPLY", {
-          failure,
-          rebaselineRecovery: recoveryForFailure(failure, panel, acceptBody),
-          syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
-          debugPayload: {
-            ...failure,
-            canvas_apply: canvasApplyMeta,
-            canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        restoreLayoutPreviewBaseline(panel);
-        pushHistory(panel, "failure", failure.kind || "StaleStateMismatch");
-        pushTurnStatus(panel, "failed", {
-          session_id: failure.session_id || panel.state.sessionId,
-          turn_id: failure.turn_id || panel.state.turnId,
-          baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-          failure_kind: failure.kind || "StaleStateMismatch",
-          failure_stage: failure.stage || "frontend",
-          message: failure.user_facing_message || failure.message || failure.error,
-          audit_ref: failure.audit_ref,
-          raw_payload: failure,
-        });
-        rememberTurnDetailSnapshot(panel, {
-          turn_id: failure.turn_id || panel.state.turnId,
-          session_id: failure.session_id || panel.state.sessionId,
-          failure,
-          message: failure.user_facing_message || failure.message || failure.error,
-        });
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-    } else if (currentBeforeLoad.structuralHash !== beforeApply.structuralHash) {
-      const failure = agentPanelFailure("StaleStateMismatch", "The canvas structural graph changed while Apply was waiting for backend acceptance. Candidate loading is blocked.", {
-        retryable: true,
-        graph_unchanged: true,
-        next_action: "Rebaseline and retry from the current canvas.",
-        client_graph_hash: currentBeforeLoad.graphHash,
-        client_structural_graph_hash: currentBeforeLoad.structuralHash,
-        expected_graph_hash: stateCheckGraphHash,
-        expected_structural_graph_hash: beforeApply.structuralHash,
-        client_live_canvas_token: currentBeforeLoad.liveCanvasToken,
-        expected_live_canvas_token: beforeApply.liveCanvasToken,
-        accept_response: accepted.raw || accepted,
-        canvas_apply: canvasApplyMeta,
-        debug_branch: "structural_hash_drift",
-      });
-      const obligations = transition(panel, "STALE_CANVAS_APPLY", {
-        failure,
-        rebaselineRecovery: recoveryForFailure(failure, panel, acceptBody),
-        syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
-        debugPayload: {
-          ...failure,
-          canvas_apply: canvasApplyMeta,
-          canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      restoreLayoutPreviewBaseline(panel);
-      pushHistory(panel, "failure", failure.kind || "StaleStateMismatch");
-      pushTurnStatus(panel, "failed", {
-        session_id: failure.session_id || panel.state.sessionId,
-        turn_id: failure.turn_id || panel.state.turnId,
-        baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-        failure_kind: failure.kind || "StaleStateMismatch",
-        failure_stage: failure.stage || "frontend",
-        message: failure.user_facing_message || failure.message || failure.error,
-        audit_ref: failure.audit_ref,
-        raw_payload: failure,
-      });
-      rememberTurnDetailSnapshot(panel, {
-        turn_id: failure.turn_id || panel.state.turnId,
-        session_id: failure.session_id || panel.state.sessionId,
-        failure,
-        message: failure.user_facing_message || failure.message || failure.error,
-      });
-      renderLifecycleTransition(panel, obligations);
-      return;
-    } else if (currentBeforeLoad.liveCanvasToken !== beforeApply.liveCanvasToken) {
-      const failure = agentPanelFailure("StaleStateMismatch", "The canvas changed while Apply was waiting for backend acceptance. Candidate loading is blocked.", {
-        retryable: true,
-        graph_unchanged: true,
-        next_action: "Rebaseline and retry from the current canvas.",
-        client_graph_hash: currentBeforeLoad.graphHash,
-        client_structural_graph_hash: currentBeforeLoad.structuralHash,
-        expected_graph_hash: stateCheckGraphHash,
-        client_live_canvas_token: currentBeforeLoad.liveCanvasToken,
-        expected_live_canvas_token: beforeApply.liveCanvasToken,
-        accept_response: accepted.raw || accepted,
-        canvas_apply: canvasApplyMeta,
-        debug_branch: "live_canvas_token_drift",
-      });
-      const obligations = transition(panel, "STALE_CANVAS_APPLY", {
-        failure,
-        rebaselineRecovery: recoveryForFailure(failure, panel, acceptBody),
-        syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "frontend"),
-        debugPayload: {
-          ...failure,
-          canvas_apply: canvasApplyMeta,
-          canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      restoreLayoutPreviewBaseline(panel);
-      pushHistory(panel, "failure", failure.kind || "StaleStateMismatch");
-      pushTurnStatus(panel, "failed", {
-        session_id: failure.session_id || panel.state.sessionId,
-        turn_id: failure.turn_id || panel.state.turnId,
-        baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-        failure_kind: failure.kind || "StaleStateMismatch",
-        failure_stage: failure.stage || "frontend",
-        message: failure.user_facing_message || failure.message || failure.error,
-        audit_ref: failure.audit_ref,
-        raw_payload: failure,
-      });
-      rememberTurnDetailSnapshot(panel, {
-        turn_id: failure.turn_id || panel.state.turnId,
-        session_id: failure.session_id || panel.state.sessionId,
-        failure,
-        message: failure.user_facing_message || failure.message || failure.error,
-      });
-      renderLifecycleTransition(panel, obligations);
-      return;
-    }
-
-    const undoSnapshot = layoutPreviewBaselineSnapshot(panel, currentBeforeLoad);
-    panel.state.undoStack.push({
-      session_id: panel.state.sessionId,
-      turn_id: panel.state.turnId,
-      graph: clonePlainData(undoSnapshot.graph),
-      client_graph_hash: undoSnapshot.graphHash,
-      accepted_baseline_graph_hash: accepted.baselineGraphHash || panel.state.baselineGraphHash || null,
-      captured_at: new Date().toISOString(),
-      // ── T7: Stamp undo entries with scope metadata ────────────────────
-      // Each undo entry is stamped with the workflow scope it belongs to.
-      // This allows downstream tools (diagnostics, the undo menu, canvas
-      // reconciliation) to validate that undo entries are applied within
-      // the correct workflow context.  Undo history is canvas-affine (SD3);
-      // scope stamps provide traceability without coupling undo to scopes.
-      chat_scope_id: panel.state.chatScopeId || null,
-      chat_scope_fingerprint: panel.state.chatScopeFingerprint || null,
-      canvas_structural_hash: undoSnapshot.structuralHash || null,
-    });
-    panel.state.undoStack = panel.state.undoStack.slice(-16);
-    markAgentPanelDirty(panel, [RENDER_SECTIONS.META]);
-
-    let canvasApplyResult = null;
-    try {
-      if (useScopedApply) {
-        canvasApplyResult = applyGraphDeltaInPlace(app, {
-          deltaOps: scopedDeltaOps,
-          candidateGraph: panel.state.candidateGraph,
-        }, {
-          decorateCandidateNodePayload(nodePayload) {
-            decorateIntentNode(nodePayload);
-          },
-          decorateLiveNode(liveNode) {
-            decorateIntentNode(liveNode);
-          },
-        });
-      } else {
-        applyGraphInPlaceWithIntentDecoration(panel.state.candidateGraph);
-      }
-    } catch (e) {
-      const failure = e?.ok === false
-        ? e
-        : agentPanelFailure("CanvasApplyError", String(e), {
-            retryable: true,
-            graph_unchanged: false,
-            next_action: "Retry Apply or inspect the raw response in the debug panel.",
-            accept_response: accepted.raw || accepted,
-            canvas_apply: {
-              ...canvasApplyMeta,
-              capability: clonePlainData(canvasApplyResult?.capability || null),
-            },
-          });
-      const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
-        failure,
-        accepted: accepted.raw || accepted,
-        syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "canvas_apply"),
-        undoStackDepth: panel.state.undoStack.length,
-        debugPayload: {
-          ...failure,
-          accepted: accepted.raw || accepted,
-          canvas_apply: {
-            ...canvasApplyMeta,
-            capability: clonePlainData(canvasApplyResult?.capability || null),
-          },
-          canvas_apply_verification: buildCanvasApplyVerificationDebug({
-            ...canvasApplyMeta,
-            capability: clonePlainData(canvasApplyResult?.capability || null),
-          }),
-          undo_stack_depth: panel.state.undoStack.length,
-        },
-      });
-      fulfillLifecycleTransitionObligations(panel, obligations);
-      pushHistory(panel, "failure", failure.kind || "CanvasApplyError");
-      pushTurnStatus(panel, "failed", {
-        session_id: failure.session_id || panel.state.sessionId,
-        turn_id: failure.turn_id || panel.state.turnId,
-        baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-        failure_kind: failure.kind || "CanvasApplyError",
-        failure_stage: failure.stage || "canvas_apply",
-        message: failure.user_facing_message || failure.message || failure.error,
-        audit_ref: failure.audit_ref,
-        raw_payload: failure,
-      });
-      rememberTurnDetailSnapshot(panel, {
-        turn_id: failure.turn_id || panel.state.turnId,
-        session_id: failure.session_id || panel.state.sessionId,
-        failure,
-        message: failure.user_facing_message || failure.message || failure.error,
-      });
-      renderLifecycleTransition(panel, obligations);
-      return;
-    }
-    let localScopedPostcheck = null;
-    if (useScopedApply) {
-      const currentAfterApply = await buildCanvasSnapshot();
-      localScopedPostcheck = verifyScopedCanvasResults(
-        currentAfterApply.graph,
-        scopedDeltaOps,
-        scopedVerification,
-      );
-      canvasApplyMeta = {
-        ...canvasApplyMeta,
-        capability: clonePlainData(canvasApplyResult?.capability || null),
-        applied_plan: clonePlainData(canvasApplyResult?.plan || null),
-        local_postcheck: clonePlainData(localScopedPostcheck),
-      };
-      if (!localScopedPostcheck.ok) {
-        const rollback = await attemptScopedCanvasRollback(
-          currentBeforeLoad.graph,
-          scopedDeltaOps,
-          scopedVerification,
-        );
-        canvasApplyMeta = {
-          ...canvasApplyMeta,
-          rollback: clonePlainData(rollback),
-        };
-        const rollbackRestored = rollback.restored === true;
-        const failure = agentPanelFailure(
-          "CanvasApplyError",
-          rollbackRestored
-            ? "Scoped Apply verification failed after mutation. The canvas was restored to the pre-apply snapshot."
-            : "Scoped Apply verification failed after mutation and automatic rollback did not fully restore the pre-apply snapshot.",
-          {
-          retryable: true,
-          graph_unchanged: rollbackRestored,
-          next_action: rollbackRestored
-            ? "Review the rollback diagnostics, then retry Apply or Rebaseline from the restored canvas. Undo Last Apply remains available."
-            : "Use Undo Last Apply or Rebaseline before retrying. Automatic rollback diagnostics are attached and the undo snapshot remains available.",
-          accept_response: accepted.raw || accepted,
-          canvas_apply: canvasApplyMeta,
-          agent_failure_context: {
-            issues: localScopedPostcheck.entries.filter((entry) => entry.ok === false),
-            rollback,
-          },
-        });
-        const obligations = transition(panel, "CANVAS_APPLY_FAILURE", {
-          failure,
-          accepted: accepted.raw || accepted,
-          syntheticAgentMessage: syntheticFailureAgentMessage(panel, failure, "canvas_apply"),
-          undoStackDepth: panel.state.undoStack.length,
-          debugPayload: {
-            ...failure,
-            accepted: accepted.raw || accepted,
-            canvas_apply: canvasApplyMeta,
-            canvas_apply_verification: buildCanvasApplyVerificationDebug(canvasApplyMeta),
-            undo_stack_depth: panel.state.undoStack.length,
-          },
-        });
-        fulfillLifecycleTransitionObligations(panel, obligations);
-        pushHistory(panel, "failure", failure.kind || "CanvasApplyError");
-        pushTurnStatus(panel, "failed", {
-          session_id: failure.session_id || panel.state.sessionId,
-          turn_id: failure.turn_id || panel.state.turnId,
-          baseline_turn_id: failure.baseline_turn_id || panel.state.baselineTurnId,
-          failure_kind: failure.kind || "CanvasApplyError",
-          failure_stage: failure.stage || "canvas_apply",
-          message: failure.user_facing_message || failure.message || failure.error,
-          audit_ref: failure.audit_ref,
-          raw_payload: failure,
-        });
-        rememberTurnDetailSnapshot(panel, {
-          turn_id: failure.turn_id || panel.state.turnId,
-          session_id: failure.session_id || panel.state.sessionId,
-          failure,
-          message: failure.user_facing_message || failure.message || failure.error,
-        });
-        renderLifecycleTransition(panel, obligations);
-        return;
-      }
-    }
-    const lastAppliedChanges = announceChangedNodes(panel, extractChangedNodeFeedback(panel.state.candidateReport));
-    pushHistory(panel, "applied", panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate");
-    pushTurnStatus(panel, "applied", {
-      turn_id: panel.state.turnId,
-      baseline_turn_id: accepted.baselineTurnId || panel.state.turnId,
-      message: panel.state.turnId ? `turn ${panel.state.turnId}` : "candidate",
-      audit_ref: accepted.auditRef || panel.state.auditRef,
-      raw_payload: accepted.raw || accepted,
-    });
-    const successObligations = commitApplyResolved(panel, {
-      accepted: accepted.raw || accepted,
-      lastAppliedChanges,
-      undoStackDepth: panel.state.undoStack.length,
-      toast: "Agent candidate applied",
-      debugPayload: {
-        accepted,
-        canvas_apply: {
-          ...canvasApplyMeta,
-          capability: clonePlainData(canvasApplyResult?.capability || null),
-          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
-        },
-        canvas_apply_verification: buildCanvasApplyVerificationDebug({
-          ...canvasApplyMeta,
-          capability: clonePlainData(canvasApplyResult?.capability || null),
-          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
-        }),
-        undo_stack_depth: panel.state.undoStack.length,
-      },
-    });
-    fulfillLifecycleTransitionObligations(panel, successObligations);
-    clearLayoutPreviewState(panel);
-    const appliedTurnId = accepted.turnId || panel.state.turnId;
-    const appliedSessionId = accepted.sessionId || panel.state.sessionId;
-    rememberTurnDetailSnapshot(panel, {
-      turn_id: appliedTurnId,
-      session_id: appliedSessionId,
-      auditRef: accepted.auditRef || panel.state.auditRef,
-      debugPayload: {
-        accepted: accepted.raw || accepted,
-        canvas_apply: {
-          ...canvasApplyMeta,
-          capability: clonePlainData(canvasApplyResult?.capability || null),
-          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
-        },
-        canvas_apply_verification: buildCanvasApplyVerificationDebug({
-          ...canvasApplyMeta,
-          capability: clonePlainData(canvasApplyResult?.capability || null),
-          applied_plan: clonePlainData(canvasApplyResult?.plan || null),
-        }),
-        undo_stack_depth: panel.state.undoStack.length,
-      },
-      lastAppliedChanges,
-      message: panel.state.message,
-    });
-    renderLifecycleTransition(panel, successObligations);
-  })();
-
-  transition(panel, "APPLY_IN_FLIGHT", { promise: applyPromise });
-  try {
-    return await panel.state.inFlightApply;
-  } finally {
-    transition(panel, "APPLY_FINALLY", { clearInFlightApply: true });
-  }
 }
 
 function isV2ApplyCandidate(panel) {
+  const transaction = normalizeCandidateTransaction(panel?.state?.candidateTransaction);
+  const activeWorkflowId = resolveActiveWorkflowUuid();
   return Boolean(
     panel?.state?.candidateGraph
     && panel.state.agentEditProtocol === "v2_delta"
-    && normalizeCandidateTransaction(panel.state.candidateTransaction),
+    && transaction
+    && activeWorkflowId
+    && transaction.candidate_authority?.workflow_id === activeWorkflowId,
   );
 }
 
@@ -12104,13 +11204,24 @@ async function rollbackPreparedAgentCandidate(
           { resumeState: "prepared" },
         );
       }
-      let restoredSnapshot = await buildCanvasSnapshot();
-      canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
-      canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
-      canvasRestore.actual_layout_hash = restoredSnapshot.layoutHash || null;
-      canvasRestore.restored = layoutTransaction
-        ? Boolean(expectedLayoutHash && restoredSnapshot.layoutHash === expectedLayoutHash)
-        : Boolean(snapshot.structuralHash && restoredSnapshot.structuralHash === snapshot.structuralHash);
+      let restoredSnapshot = null;
+      try {
+        restoredSnapshot = await buildCanvasSnapshot();
+        canvasRestore.actual_structural_hash = restoredSnapshot.structuralHash || null;
+        canvasRestore.actual_graph_hash = restoredSnapshot.graphHash || null;
+        canvasRestore.actual_layout_hash = restoredSnapshot.layoutHash || null;
+        canvasRestore.restored = layoutTransaction
+          ? Boolean(expectedLayoutHash && restoredSnapshot.layoutHash === expectedLayoutHash)
+          : Boolean(snapshot.structuralHash && restoredSnapshot.structuralHash === snapshot.structuralHash);
+      } catch (verificationError) {
+        canvasRestore.scoped_inverse.error = canvasRestore.scoped_inverse.error
+          || boundedBrowserTransactionError(
+            verificationError,
+            "scoped_inverse_verification",
+            { resumeState: "prepared" },
+          );
+        canvasRestore.restored = false;
+      }
       canvasRestore.scoped_inverse.restored = canvasRestore.restored;
       if (!canvasRestore.restored && !layoutTransaction) {
         canvasRestore.whole_graph_last_resort = { attempted: true };
@@ -12278,6 +11389,25 @@ async function rejectAgentCandidate(panel) {
     return;
   }
   if (panel.state.chatRehydratePending === true) {
+    return;
+  }
+  const rejectTransaction = normalizeCandidateTransaction(panel.state.candidateTransaction);
+  const legacyCancelAllowed = Array.isArray(panel.state.legacyMigration?.actions)
+    && panel.state.legacyMigration.actions.includes("cancel");
+  if (!transactionAllows(rejectTransaction, "reject") && !legacyCancelAllowed) {
+    const failure = agentPanelFailure(
+      "TransactionNotActionable",
+      "This transaction is read-only and cannot be rejected or resumed.",
+      {
+        retryable: false,
+        graph_unchanged: true,
+        next_action: "Keep it for audit or submit a new edit against the current workflow.",
+        legacy_migration: clonePlainData(panel.state.legacyMigration || null),
+      },
+    );
+    const obligations = transition(panel, "REJECT_FAILURE", { failure, debugPayload: failure });
+    fulfillLifecycleTransitionObligations(panel, obligations);
+    renderLifecycleTransition(panel, obligations);
     return;
   }
 
@@ -12682,7 +11812,7 @@ async function rebaselineCurrentCanvas(panel) {
 async function undoLastApply(panel) {
   const undoStack = panel?.state?.undoStack;
   const previous = Array.isArray(undoStack) ? undoStack[undoStack.length - 1] : null;
-  if (!previous?.graph) {
+  if (!isLegacyUndoCacheEntryV1(previous)) {
     renderAgentPanel(panel);
     return null;
   }

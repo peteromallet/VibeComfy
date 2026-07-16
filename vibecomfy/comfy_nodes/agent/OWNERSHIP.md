@@ -16,6 +16,7 @@ which module is allowed to import it, and which modules are consumers only.
 | Field-change repair | `contracts.py` | `repair_field_changes` | `edit.py` |
 | Diagnostics contract | `contracts.py` | `DiagnosticRecord` | `audit.py` (writer), `session.py:iter_turn_records` (reader/adapter) |
 | Diagnostics persistence | `audit.py` | `write_audit` | `edit.py`, `routes.py` |
+| Typed transaction projections | `projection_registry_v1.py` | field rules, canonical-UI normalization, stable identity, UTF-16-compatible ordering, projection hashing, typed references, and v2 authority stages | `session.py` compatibility facades and lifecycle code |
 
 ## 2. Principles
 
@@ -47,6 +48,13 @@ which module is allowed to import it, and which modules are consumers only.
    must delegate directly to the `session.py` implementations.  It must not
    define independent idempotency, state mutation, or turn-state persistence
    logic.
+
+6. **The projection registry is the semantic authority.**
+   `session.py` may retain only compatibility facades for old hash call sites;
+   it must not introduce independent field selection, ordering, or identity
+   rules for new transaction authority. Native node IDs may be used only as
+   registry-local locators while converting native links to stable UID/port
+   endpoint tuples; they are never emitted as typed authority identity.
 
 ## 3. Exceptions / compatibility notes
 

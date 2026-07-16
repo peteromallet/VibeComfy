@@ -16,16 +16,16 @@ tasks, but they may not weaken these requirements.
 
 ## M1 — Contracts
 
-- [ ] Add a single projection registry with typed/versioned names.
-- [ ] Version `structural_v1`, `layout_v1`, and explicit `workflow_v1` policy.
-- [ ] Bind every operation to forward and rollback projections.
-- [ ] Make delta version, scope, precondition, postcondition, inverse strategy,
+- [x] Add a single projection registry with typed/versioned names.
+- [x] Version `structural_v1`, `layout_v1`, and explicit `workflow_v1` policy.
+- [x] Bind every operation to forward and rollback projections.
+- [x] Make delta version, scope, precondition, postcondition, inverse strategy,
       and projection version mandatory in prepared authority.
-- [ ] Ratify Undo durability semantics.
-- [ ] Ratify legacy transaction migration/version behavior.
-- [ ] Encode stable identity rules for every entity class.
-- [ ] Add browser/Python golden fixture equivalence.
-- [ ] Reject unknown versions and unsupported root/nested scope combinations.
+- [x] Ratify Undo durability semantics.
+- [x] Ratify legacy transaction migration/version behavior.
+- [x] Encode stable identity rules for every entity class.
+- [x] Add browser/Python golden fixture equivalence.
+- [x] Reject unknown versions and unsupported root/nested scope combinations.
 
 ## M2 — Native adapter
 

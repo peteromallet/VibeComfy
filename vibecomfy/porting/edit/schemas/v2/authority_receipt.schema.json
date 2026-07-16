@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.vibecomfy.local/porting/edit/v2/authority_receipt.schema.json",
-  "title": "VibeComfy Authority Receipt V1",
+  "title": "VibeComfy Authority Receipt V2",
   "description": "Schema for the immutable authority receipt persisted under the per-turn authority/ namespace. Records submit graph bytes, cumulative delta envelope, candidate hash, schema version, replay verification result, and response metadata hashes.",
   "type": "object",
   "additionalProperties": false,
@@ -10,17 +10,24 @@
     "schema_version",
     "session_id",
     "turn_id",
+    "submit_graph_hash",
+    "submit_graph_bytes_sha256",
+    "cumulative_delta_envelope",
+    "cumulative_delta_hash",
+    "candidate_hash",
+    "schema_witness",
+    "schema_witness_hash",
     "replay",
     "response_metadata",
     "created_at"
   ],
   "properties": {
     "contract_version": {
-      "const": "authority_receipt_v1",
+      "const": "authority_receipt_v2",
       "description": "Authority receipt contract version identifier."
     },
     "schema_version": {
-      "type": "string",
+      "const": "2.0.0",
       "description": "V2 delta schema version at receipt time (e.g. 2.0.0)."
     },
     "session_id": {
@@ -43,7 +50,7 @@
       "type": ["object", "null"],
       "description": "The normalized cumulative V2 delta envelope ({schema_version, ops}).",
       "properties": {
-        "schema_version": { "type": "string" },
+        "schema_version": { "const": "2.0.0" },
         "ops": { "type": "array" }
       }
     },
@@ -54,6 +61,15 @@
     "candidate_hash": {
       "type": ["string", "null"],
       "description": "Canonical JSON hash of the persisted candidate graph."
+    },
+    "schema_witness": {
+      "type": ["object", "null"],
+      "description": "Frozen schema evidence used for deterministic replay."
+    },
+    "schema_witness_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Digest binding the frozen schema witness."
     },
     "replay": {
       "$ref": "#/$defs/ReplayReceipt",
@@ -72,7 +88,7 @@
     "ReplayReceipt": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["replay_ok", "candidate_matches"],
+      "required": ["replay_ok", "candidate_matches", "recomputed_candidate_hash", "persisted_candidate_hash", "error", "op_count", "verification_kind"],
       "properties": {
         "replay_ok": {
           "type": "boolean",
@@ -98,12 +114,18 @@
           "type": "integer",
           "minimum": 0,
           "description": "Number of delta operations replayed."
+        },
+        "verification_kind": {
+          "type": ["string", "null"],
+          "enum": ["delta_replay", "layout_structural_noop", null],
+          "description": "Explicit replay policy used to qualify this receipt."
         }
       }
     },
     "ResponseMetadataHashes": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["response_hash", "eligibility_hash", "outcome_hash"],
       "properties": {
         "response_hash": {
           "type": ["string", "null"],

@@ -26,7 +26,10 @@ frontend helper.
 | `agent_edit_response_contract.js` | `vibecomfy/comfy_nodes/web/agent_edit_response_contract.js` | Response normalizers, field readers, turn identity readers, stage snapshot readers, and route-apply affordance checks. |
 | `agent_edit_response_contract_generated.js` | `vibecomfy/comfy_nodes/web/agent_edit_response_contract_generated.js` | Auto-generated contract shapes. Do not hand-edit. |
 | `canonical_hash.js` | `vibecomfy/comfy_nodes/web/canonical_hash.js` | Sole owner of canonical JSON serialization and browser/session SHA-256 comparison profiles. |
-| `graph_projection.js` | `vibecomfy/comfy_nodes/web/graph_projection.js` | Sole owner of structural and layout graph projections, including root-scope validation and stable group-ID requirements. |
+| `projection_registry_v1.js` | `vibecomfy/comfy_nodes/web/projection_registry_v1.js` | Sole semantic owner of structural/layout field rules, native-to-stable normalization, identity, ordering, projection hashing, and typed projection references. |
+| `graph_projection.js` | `vibecomfy/comfy_nodes/web/graph_projection.js` | Compatibility facade only; delegates projection requests to `projection_registry_v1.js` and owns no semantic selection or identity rules. |
+| `field_registry_v1.js`, `identity_contract_v1.js` | `vibecomfy/comfy_nodes/web/field_registry_v1.js`, `vibecomfy/comfy_nodes/web/identity_contract_v1.js` | Compatibility re-export facades only; graph field and identity semantics live in `projection_registry_v1.js`. |
+| `preview_diff_core.js` | `vibecomfy/comfy_nodes/web/preview_diff_core.js` | Preview comparison consumer. It re-exports the registry-owned M0 plan/canvas hash facade and consumes registry identity; it owns no projection or identity fallback. |
 | `layout_verification_contract.js` | `vibecomfy/comfy_nodes/web/layout_verification_contract.js` | Versioned layout-verification authority normalization. Unknown versions fail closed. |
 | `comfy_adapter.js` | `vibecomfy/comfy_nodes/web/comfy_adapter.js` | Graph apply/delta in-place, queue guard installation, preview foreground overlay installation, typed socket labels, and exec-node normalization. |
 | `agent_turn_feed.js` | `vibecomfy/comfy_nodes/web/agent_turn_feed.js` | Turn payload normalization, activity state derivation, activity feed reduction, progress labels, and statement formatting. |
@@ -148,6 +151,16 @@ owner functions.
   reintroduced.
 - Owns draw-model cache keys, overlay text normalization, ghost dimensions, and
   port/node fallback logic for preview wires.
+- Node matching consumes `projection_registry_v1.js`; native node IDs and group
+  titles/list indices are not stable preview identities.
+
+### Legacy Undo boundary
+
+- `journal_durable_v1` is the sole authoritative finalized-v2 Undo policy
+  record. M5 will implement its compensating transaction.
+- The browser `undoStack` is presentation cache only. Its handler, lifecycle
+  pop, and composer affordance accept only explicit
+  `legacy_undo_cache_entry_v1` entries; v2 finalize never pushes one.
 
 ### `agent_edit_lifecycle.js`
 
@@ -191,7 +204,7 @@ owner functions.
 | Diagnostics mirrors | Runtime diagnostics use `_lastThreadRender` and `_lastNoticeRender` as canonical fields. Duplicate `last*Render` mirrors should not be reintroduced. |
 | Demo preview picker | `preview_picker.js` owns demo UI only. Lifecycle state projection goes through commit helpers, and preview cleanup goes through returned obligations. |
 | Canonical hashing | `canonical_hash.js` is the only canonical JSON/hash owner. The removed `session_hash.js` owner must not be recreated. |
-| Graph projections | `graph_projection.js` owns structural/layout projections and the root-scope gate. |
+| Graph projections | `projection_registry_v1.js` is the sole semantic owner; `graph_projection.js`, `field_registry_v1.js`, and `identity_contract_v1.js` are compatibility facades. Native node IDs may be registry-local lookup keys while normalizing a live graph, but never authority identity. |
 | Layout authority | `layout_verification_contract.js` owns `layout_verification_v1` / `browser_layout_v1` normalization. |
 | Native groups | `comfy_adapter.js` applies groups by stable serialized `id` only. Title or array-index identity fallback is forbidden. |
 
@@ -209,5 +222,5 @@ owner functions.
 5. Static ownership tests should guard against reintroducing local shell copies
    of status-poller, composer/developer/settings, scheduler status-section,
    preview overlay, thread-detail, and candidate-action owner symbols.
-6. Canonical hashing, graph projection, and layout contract versioning each
+6. Canonical hashing, registry-owned graph projection, and layout contract versioning each
    have one explicit owner; orchestration modules must import rather than copy.

@@ -216,6 +216,7 @@ PUBLIC_LATEST_CANDIDATE_FIELDS: tuple[str, ...] = (
     "baseline_graph_hash_version",
     "prepared_baseline",
     "rebaseline_recovery",
+    "legacy_migration",
 )
 
 PUBLIC_LATEST_TURN_LIFECYCLE_FIELDS: tuple[str, ...] = (
@@ -226,6 +227,7 @@ PUBLIC_LATEST_TURN_LIFECYCLE_FIELDS: tuple[str, ...] = (
     "candidate_graph_hash",
     "disposition",
     "candidate_transaction",
+    "legacy_migration",
 )
 
 PUBLIC_TRANSACTION_EVENT_FIELDS: tuple[str, ...] = (

@@ -47,6 +47,7 @@ _LEGACY_DELTA_WRAPPER_KEYS = frozenset(
 _SCHEMA_DIR = Path(__file__).with_name("schemas") / "v2"
 
 DELTA_SCHEMA_VERSION = "2.0.0"
+DELTA_CONTRACT_V1 = "delta_v1"
 DELTA_DIAGNOSTIC_MALFORMED = "malformed_delta"
 DELTA_DIAGNOSTIC_LEGACY_SHAPE = "legacy_delta_shape"
 DELTA_DIAGNOSTIC_UNSUPPORTED_SCOPED_APPLY = "unsupported_scoped_apply"
@@ -718,6 +719,16 @@ def normalize_delta_ops(
     return normalize_delta_envelope(payload, allow_legacy_list=allow_legacy_list).ops
 
 
+def normalize_delta_v1(payload: Any) -> CanonicalDeltaEnvelope:
+    """Strict M1 authority entrypoint; legacy bridges are diagnostics only."""
+    if not isinstance(payload, Mapping) or payload.get("delta_contract") != DELTA_CONTRACT_V1 or payload.get("wire_version") != DELTA_SCHEMA_VERSION or not isinstance(payload.get("ops"), list):
+        raise EditOpParseError("delta_v1 requires explicit wire_version 2.0.0 and ops.")
+    envelope = ensure_root_scoped_delta_envelope({"schema_version": payload["wire_version"], "ops": payload["ops"]}, strict=True)
+    if envelope.legacy_bridge is not None:
+        raise EditOpParseError("Legacy delta bridges are not authority.", code=DELTA_DIAGNOSTIC_LEGACY_SHAPE)
+    return envelope
+
+
 def ensure_root_scoped_delta_envelope(
     payload: Any,
     *,
@@ -1088,6 +1099,7 @@ __all__ = [
     "CANONICAL_DELTA_OP_NAMES",
     "CanonicalDeltaEnvelope",
     "DELTA_DIAGNOSTIC_ABSENT",
+    "DELTA_CONTRACT_V1",
     "DELTA_DIAGNOSTIC_CORRUPTED",
     "DELTA_DIAGNOSTIC_LEGACY_SHAPE",
     "DELTA_DIAGNOSTIC_MALFORMED",
@@ -1113,6 +1125,7 @@ __all__ = [
     "ensure_root_scoped_delta_envelope",
     "normalize_delta_agent_response",
     "normalize_delta_envelope",
+    "normalize_delta_v1",
     "normalize_delta_ops",
     "normalize_delta_test_client_response",
     "op_to_dict",

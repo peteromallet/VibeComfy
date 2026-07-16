@@ -14,11 +14,26 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from vibecomfy.schema import InputSpec, NodeSchema, OutputSpec, schema_for
+from .projection_registry_v1 import (
+    CANDIDATE_TRANSACTION_V2,
+    CANDIDATE_AUTHORITY_V1,
+    PREPARED_AUTHORITY_V1,
+    canonical_json_bytes_v1 as _registry_canonical_json_bytes,
+    classify_legacy_migration_v1,
+    projection_reference_v1,
+    validate_candidate_transaction_v2,
+    validate_prepared_authority_v1,
+    workflow_identity_v1,
+)
 
-CANDIDATE_TRANSACTION_CONTRACT_VERSION = "candidate_transaction_v1"
+# New production records are v2.  v1 is handled only by the explicit
+# historical migration classifier in session/browser rehydration.
+CANDIDATE_TRANSACTION_CONTRACT_VERSION = CANDIDATE_TRANSACTION_V2
 LAYOUT_VERIFICATION_CONTRACT_VERSION = "layout_verification_v1"
 LAYOUT_VERIFICATION_PROJECTION = "browser_layout_v1"
 SCHEMA_WITNESS_CONTRACT_VERSION = "candidate_schema_witness_v1"
+AUTHORITY_RECEIPT_CONTRACT_VERSION = "authority_receipt_v2"
+AUTHORITY_RECEIPT_DELTA_SCHEMA = "2.0.0"
 CANDIDATE_TRANSACTION_FILENAME = "candidate_transaction.json"
 
 CandidateTransactionState = Literal[
@@ -65,12 +80,8 @@ _LEGACY_STATE_ADAPTER: Mapping[str, str] = {
 
 
 def canonical_json_bytes(value: Any) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
+    """Compatibility facade over the sole Python canonical-JSON owner."""
+    return _registry_canonical_json_bytes(value, ensure_ascii=False)
 
 
 def content_hash(value: Any) -> str:
@@ -352,9 +363,12 @@ def schema_provenance_summary(witness: Mapping[str, Any]) -> dict[str, Any]:
 
 def build_candidate_transaction(
     *,
+    workflow_id: str,
     session_id: str,
     turn_id: str,
     plan_hash: str,
+    submit_graph: Mapping[str, Any],
+    candidate_graph: Mapping[str, Any],
     delta_ops_envelope: Mapping[str, Any],
     delta_hash: str,
     submit_graph_hash: str | None,
@@ -371,12 +385,67 @@ def build_candidate_transaction(
     verification_kind: str = "delta_replay",
     state: str = "candidate_ready",
 ) -> dict[str, Any]:
-    canonical_state = canonical_transaction_state(state)
-    if canonical_state is None:
+    if state not in CANONICAL_TRANSACTION_STATES:
         raise ValueError(f"Unknown candidate transaction state {state!r}.")
+    canonical_state = state
     actions = available_actions_for_state(canonical_state) if applyable else ()
+    workflow_identity_v1(workflow_id)
+    if delta_ops_envelope.get("schema_version") != AUTHORITY_RECEIPT_DELTA_SCHEMA:
+        raise ValueError("New candidate authority requires delta wire schema 2.0.0.")
+    if (
+        not isinstance(authority_receipt_hash, str)
+        or len(authority_receipt_hash) != 64
+        or any(character not in "0123456789abcdef" for character in authority_receipt_hash)
+    ):
+        raise ValueError("Candidate authority requires an exact lowercase 64-hex receipt digest.")
+    transaction_id = hashlib.sha256(f"{session_id}:{turn_id}:{plan_hash}:transaction".encode()).hexdigest()
+    candidate_id = hashlib.sha256(f"{session_id}:{turn_id}:{plan_hash}:candidate".encode()).hexdigest()
+    family = "layout" if verification_kind == "layout_structural_noop" else "structural"
+    projection = "layout_v1" if family == "layout" else "structural_v1"
+    precondition = projection_reference_v1(submit_graph, projection)
+    postcondition = projection_reference_v1(candidate_graph, projection)
+    restoration_digest = content_hash(submit_graph)
+    candidate_authority = {
+        "contract_version": CANDIDATE_AUTHORITY_V1,
+        "transaction_id": transaction_id,
+        "candidate_id": candidate_id,
+        "workflow_id": workflow_id,
+        "scope": {"kind": "root", "path": ""},
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "plan_hash": plan_hash,
+        "operation": {
+            "delta_contract": "delta_v1",
+            "wire_version": "2.0.0",
+            "ops": list(delta_ops_envelope.get("ops", [])),
+        },
+        "operation_family": family,
+        "precondition": precondition,
+        "postcondition": postcondition,
+        "rollback_projection": projection,
+        "restoration_strategy": {
+            "contract_version": "baseline_snapshot_v1",
+            "digest": restoration_digest,
+            "ref": "original.ui.json",
+        },
+        "authority_receipt_contract_version": AUTHORITY_RECEIPT_CONTRACT_VERSION,
+        "authority_receipt_delta_schema": AUTHORITY_RECEIPT_DELTA_SCHEMA,
+        "authority_receipt_digest": authority_receipt_hash,
+    }
+    if family == "layout":
+        structural_pre = projection_reference_v1(submit_graph, "structural_v1")
+        structural_post = projection_reference_v1(candidate_graph, "structural_v1")
+        if structural_pre["digest"] != structural_post["digest"]:
+            raise ValueError("Layout authority requires a genuine structural pre==post witness.")
+        candidate_authority["structural_witness"] = {
+            **structural_pre,
+            "precondition_digest": structural_pre["digest"],
+            "postcondition_digest": structural_post["digest"],
+        }
     return {
         "contract_version": CANDIDATE_TRANSACTION_CONTRACT_VERSION,
+        "candidate_authority": candidate_authority,
+        "prepared_authority": None,
         "state": canonical_state,
         "resume_state": None,
         "session_id": session_id,
@@ -428,14 +497,27 @@ def project_transaction_state(
     resume_state: str | None = None,
 ) -> dict[str, Any]:
     projected = json.loads(json.dumps(candidate))
-    canonical_state = canonical_transaction_state(state)
-    if canonical_state is None:
+    if state not in CANONICAL_TRANSACTION_STATES:
         raise ValueError(f"Unknown candidate transaction state {state!r}.")
+    canonical_state = state
+    if resume_state is not None and resume_state not in CANONICAL_TRANSACTION_STATES:
+        raise ValueError(f"Unknown candidate transaction resume state {resume_state!r}.")
     projected["state"] = canonical_state
-    projected["resume_state"] = canonical_transaction_state(resume_state)
+    projected["resume_state"] = resume_state
     projected["generation"] = generation
     projected["lease_nonce"] = lease_nonce
     projected["last_error"] = dict(last_error) if isinstance(last_error, Mapping) else None
+    candidate_authority = projected.get("candidate_authority")
+    if canonical_state in {"prepared", "canvas_verified", "finalized", "rollback_complete", "superseded"}:
+        if not isinstance(candidate_authority, Mapping) or not isinstance(generation, int) or generation <= 0 or not isinstance(lease_nonce, str) or not lease_nonce:
+            raise ValueError("Prepared v2 transition requires explicit generation and lease nonce.")
+        prepared = dict(candidate_authority)
+        prepared["contract_version"] = PREPARED_AUTHORITY_V1
+        prepared["generation"] = generation
+        prepared["lease_nonce"] = lease_nonce
+        projected["prepared_authority"] = prepared
+    else:
+        projected["prepared_authority"] = None
     projected["available_actions"] = list(
         available_actions_for_state(canonical_state, resume_state=resume_state)
     )
@@ -451,6 +533,10 @@ def validate_candidate_transaction(value: Any) -> tuple[bool, str | None]:
     state = canonical_transaction_state(value.get("state"))
     if state is None:
         return False, "invalid_candidate_transaction_state"
+    try:
+        validate_candidate_transaction_v2(value)
+    except Exception as exc:
+        return False, getattr(exc, "code", "invalid_candidate_authority")
     plan = value.get("plan")
     hashes = value.get("hashes")
     authority = value.get("authority")
@@ -521,6 +607,7 @@ def bounded_error_diagnostic(
 __all__ = [
     "CANONICAL_TRANSACTION_STATES",
     "CANDIDATE_TRANSACTION_CONTRACT_VERSION",
+    "CANDIDATE_TRANSACTION_V2",
     "CANDIDATE_TRANSACTION_FILENAME",
     "CandidateTransactionState",
     "FrozenSchemaProvider",
@@ -537,5 +624,8 @@ __all__ = [
     "schema_provenance_summary",
     "schema_provider_from_witness",
     "validate_candidate_transaction",
+    "validate_candidate_transaction_v2",
+    "validate_prepared_authority_v1",
+    "classify_legacy_migration_v1",
     "validate_schema_witness",
 ]

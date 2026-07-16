@@ -15,6 +15,8 @@
 
 // ── Canonical delta constants (aligned with canonical_delta.js) ─────────────
 
+import { decodeNodeFieldPathV1 } from "./canonical_delta.js";
+
 /** Canonical V2 delta schema version. */
 const DELTA_SCHEMA_VERSION = "2.0.0";
 
@@ -1095,8 +1097,8 @@ export function preflightDeltaPlan(liveGraphSnapshot, candidateGraph, deltaOps, 
       if (!node) {
         throw new Error(`Could not resolve node ${String(parsed.uidOrId)} for set_node_field.`);
       }
-      const desiredValue = getNodeFieldValue(resolveNodeFromGraph(candidateGraph, parsed.uidOrId) || node, parsed.rest);
-      const fieldPath = parsed.rest.slice();
+      const fieldPath = decodeNodeFieldPathV1(parsed.rest);
+      const desiredValue = getNodeFieldValue(resolveNodeFromGraph(candidateGraph, parsed.uidOrId) || node, fieldPath);
       setNodeFieldValue(node, fieldPath, desiredValue);
       plan.push({ op: opKind, uidOrId: parsed.uidOrId, fieldPath, value: cloneJson(desiredValue), ...authority });
       continue;

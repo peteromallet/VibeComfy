@@ -179,9 +179,10 @@ test("OK_CANDIDATE_RESPONSE without turn_id still stores candidate but with null
   assert.equal(panel.state.sessionId, "sess-noturn");
   // turnId defaults to null when absent from result
   assert.equal(panel.state.turnId, null);
-  // Candidate is still stored (apply eligibility gates on candidateGraph presence)
+  // Candidate evidence remains visible for diagnosis, but missing durable turn
+  // identity must fail closed and cannot authorize Apply.
   assert.deepEqual(panel.state.candidateGraph, { nodes: [{ id: 2 }] });
-  assert.equal(panel.state.applyAllowed, true);
+  assert.equal(panel.state.applyAllowed, false);
 });
 
 test("MALFORMED_CANDIDATE_RESPONSE records phase=ERROR and does not treat as stale/rebaseline", () => {

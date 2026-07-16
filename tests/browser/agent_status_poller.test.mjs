@@ -1235,7 +1235,7 @@ test("syncChooseEngineGate — closes overlay when ready provider found via stat
       routeStatus: { kind: ROUTE_STATUS_KIND.READY },
       statusSnapshot: {
         ok: true, route: "openrouter", provider_available: true,
-        credential_presence: { deepseek_api_key: true },
+        credential_presence: { openrouter_api_key: true },
         route_options: { openrouter: { normalized_route: "openrouter" } },
       },
     },

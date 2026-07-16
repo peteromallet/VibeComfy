@@ -105,9 +105,10 @@ def test_layout_only_candidate_uses_structural_noop_authority() -> None:
         session_id="layout-session",
         turn_id="0001",
         submit_graph=submit_graph,
-        cumulative_delta_envelope=None,
+        cumulative_delta_envelope={"schema_version": "2.0.0", "ops": []},
         candidate=candidate,
         response=response,
+        schema_version="2.0.0",
     )
 
     assert receipt.is_applyable is True
@@ -138,15 +139,47 @@ def test_layout_authority_rejects_semantic_change_despite_forged_layout_evidence
         session_id="layout-session",
         turn_id="0001",
         submit_graph=submit_graph,
-        cumulative_delta_envelope=None,
+        cumulative_delta_envelope={"schema_version": "2.0.0", "ops": []},
         candidate=candidate,
         response=response,
+        schema_version="2.0.0",
     )
 
     assert receipt.is_applyable is False
     assert receipt.replay.replay_ok is False
     assert receipt.replay.candidate_matches is False
     assert receipt.replay.error == "layout_authority_mismatch"
+
+
+def test_authority_receipt_schema_covers_every_serialized_v2_field() -> None:
+    submit_graph = _submit_graph()
+    receipt = build_authority_receipt(
+        session_id="schema-session",
+        turn_id="0001",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope={"schema_version": "2.0.0", "ops": []},
+        candidate=submit_graph,
+        response={"outcome": {"kind": "candidate"}},
+        schema_version="2.0.0",
+    )
+    schema_path = (
+        Path(__file__).parents[1]
+        / "vibecomfy"
+        / "porting"
+        / "edit"
+        / "schemas"
+        / "v2"
+        / "authority_receipt.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    serialized = receipt.to_dict()
+    assert set(serialized) <= set(schema["properties"])
+    assert set(schema["required"]) == set(serialized)
+    assert set(serialized["replay"]) <= set(schema["$defs"]["ReplayReceipt"]["properties"])
+    assert set(schema["$defs"]["ReplayReceipt"]["required"]) == set(serialized["replay"])
+    assert set(schema["$defs"]["ResponseMetadataHashes"]["required"]) == set(serialized["response_metadata"])
+    assert schema["properties"]["contract_version"]["const"] == "authority_receipt_v2"
+    assert schema["properties"]["schema_version"]["const"] == "2.0.0"
 
 
 def test_authority_receipt_persists_exact_operational_delta_evidence(
@@ -187,6 +220,43 @@ def test_authority_receipt_persists_exact_operational_delta_evidence(
     with pytest.raises(ValueError, match="collision"):
         write_authority_receipt(turn_dir, replace(receipt, created_at="different"))
     assert load_authority_receipt(turn_dir) == receipt
+
+
+def test_missing_or_unknown_receipt_contract_and_delta_schema_fail_closed(
+    tmp_path: Path,
+) -> None:
+    submit_graph = _submit_graph()
+    envelope = {"schema_version": "2.0.0", "ops": []}
+    receipt = build_authority_receipt(
+        session_id="strict-receipt",
+        turn_id="0001",
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=envelope,
+        candidate=submit_graph,
+        response={"outcome": {"kind": "candidate"}},
+        schema_version="2.0.0",
+    )
+    raw = receipt.to_dict()
+    assert receipt.is_applyable is True
+
+    turn_dir = tmp_path / "turns" / "0001"
+    path = turn_dir / "authority" / "receipt.json"
+    path.parent.mkdir(parents=True)
+    for contract_version, schema_version in (
+        (None, "2.0.0"),
+        ("authority_receipt_v999", "2.0.0"),
+        ("authority_receipt_v2", "9.0.0"),
+    ):
+        mutated = dict(raw)
+        if contract_version is None:
+            mutated.pop("contract_version", None)
+        else:
+            mutated["contract_version"] = contract_version
+        mutated["schema_version"] = schema_version
+        path.write_text(json.dumps(mutated), encoding="utf-8")
+        loaded = load_authority_receipt(turn_dir)
+        assert loaded is not None
+        assert loaded.is_applyable is False
 
 
 class _Provider:

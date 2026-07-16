@@ -1460,6 +1460,7 @@ const CURATED_PROJECTION_FIELDS = [
   "clientStructuralGraphHash",
   "latestCandidate",
   "candidateTransaction",
+  "legacyMigration",
   "messages",
   "sessionPath",
   "sessionPathResolved",

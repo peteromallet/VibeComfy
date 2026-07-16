@@ -394,6 +394,15 @@ def handle_agent_edit(
     response = _validated_agent_edit_response(response, stage="submit")
     if context.idempotency_key is not None:
         response["idempotency_key"] = context.idempotency_key
+    eligibility = response.get("eligibility")
+    if not isinstance(eligibility, dict):
+        eligibility = response.get("apply_eligibility")
+    if not isinstance(eligibility, dict) or eligibility.get("applyable") is not True:
+        # Answer-only/no-candidate turns are audit history, not transaction
+        # authority. Do not persist or return a graph-shaped object that a
+        # rehydrate consumer could mistake for an applyable candidate.
+        response.pop("graph", None)
+        response.pop("candidate", None)
     _write_turn_chat_artifact(state, context, response, contract)
     record_idempotent_response(
         session_root=root,

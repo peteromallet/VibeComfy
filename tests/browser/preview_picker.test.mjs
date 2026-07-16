@@ -294,8 +294,8 @@ test("Load & Play stages demo replay from before-send to review", async () => {
     assert.equal(panel.state.sessionId, "demo-sess-a", "session id populated");
     assert.equal(panel.state.turnId, "demo-turn-a", "turn id populated");
     assert.ok(panel.state.candidateGraph, "candidate graph populated");
-    assert.equal(panel.state.applyAllowed, true, "apply allowed when eligible");
-    assert.equal(panel.state.canvasApplyAllowed, true, "canvas apply allowed when eligible");
+    assert.equal(panel.state.applyAllowed, false, "demo eligibility cannot replace transaction authority");
+    assert.equal(panel.state.canvasApplyAllowed, false, "demo candidate cannot authorize production canvas Apply");
     assert.equal(panel.state.queueAllowed, false, "queue stays disabled for demo");
     assert.equal(panel.state.applyEligibility?.reason, "applyable", "eligibility reason stored");
     assert.ok(

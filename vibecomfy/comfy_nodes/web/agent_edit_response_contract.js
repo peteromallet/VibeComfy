@@ -1,4 +1,7 @@
-import { readCandidateTransaction as readCanonicalCandidateTransaction } from "./agent_edit_transaction.js";
+import {
+  classifyCandidateTransactionBoundary,
+  readCandidateTransaction as readCanonicalCandidateTransaction,
+} from "./agent_edit_transaction.js";
 
 const PUBLIC_OUTCOME_KINDS = Object.freeze([
   "candidate",
@@ -932,6 +935,7 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
       })();
 
   const candidateGraph = normalizeCandidateGraph(raw, outcome);
+  const transactionBoundary = classifyCandidateTransactionBoundary(raw);
   const eligibility = normalizeEligibility(raw, candidateGraph);
   const rawRebaselineRecovery = extractRebaselineRecovery(raw);
 
@@ -970,6 +974,9 @@ export function normalizeAgentEditResponse(raw, { endpoint = null, allowLegacy =
     candidateGraph,
     candidate: normalizeCandidateEnvelope(raw, candidateGraph),
     candidateTransaction: readCanonicalCandidateTransaction(raw),
+    legacyMigration: !transactionBoundary || transactionBoundary.classification === "v2_authority"
+      ? null
+      : transactionBoundary,
     candidateGraphHash:
       asString(raw.candidateGraphHash) || asString(raw.candidate_graph_hash),
     eligibility,
@@ -1079,6 +1086,10 @@ export function readCandidateTransaction(value) {
   // auxiliary payloads (for example rebaseline responses) through the edit
   // outcome normalizer merely because they do not carry a transaction.
   return readCanonicalCandidateTransaction(value);
+}
+
+export function readLegacyMigration(value, options) {
+  return normalizeIfNeeded(value, options).legacyMigration;
 }
 
 export function readEligibility(value, options) {

@@ -8,7 +8,7 @@ dependency-ordered milestones.
 
 - Easy: DeepSeek Pro
 - Medium: GPT 5.6 Luna
-- Hard: GPT 5.6 Terra
+- Hard: Claude Code routed through GLM 5.2 (`claude:glm-5.2`)
 - Impossible/escalation only: GPT 5.6 Sol
 
 The executable profile mapping is recorded in `chain.yaml`. If those names are

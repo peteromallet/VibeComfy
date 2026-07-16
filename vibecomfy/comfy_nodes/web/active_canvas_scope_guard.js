@@ -16,7 +16,15 @@ import {
   resolveScopeSessionId,
 } from "./scoped_session_storage.js";
 
-function activeWorkflowWindowId() {
+const WORKFLOW_UUID_V1 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function stableWorkflowUuid(value) {
+  return typeof value === "string" && WORKFLOW_UUID_V1.test(value.trim())
+    ? value.trim()
+    : null;
+}
+
+function activeWorkflowWindowUuid() {
   const workflow = typeof app !== "undefined"
     ? app?.extensionManager?.workflow?.activeWorkflow
     : null;
@@ -30,36 +38,42 @@ function activeWorkflowWindowId() {
     workflow.uuid,
   ];
   for (const candidate of directCandidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
-    }
+    const workflowUuid = stableWorkflowUuid(candidate);
+    if (workflowUuid) return workflowUuid;
   }
   if (typeof workflow.content === "string" && workflow.content.trim()) {
     try {
       const parsed = JSON.parse(workflow.content);
-      if (typeof parsed?.id === "string" && parsed.id.trim()) {
-        return parsed.id.trim();
+      for (const candidate of [parsed?.id, parsed?.workflow_id, parsed?.uuid]) {
+        const workflowUuid = stableWorkflowUuid(candidate);
+        if (workflowUuid) return workflowUuid;
       }
     } catch (_e) {
-      // Fall through to path/name fallbacks.
+      return null;
     }
   }
-  const fallbackCandidates = [
-    workflow.path,
-    workflow.fullFilename,
-    workflow.filename,
+  return null;
+}
+
+/**
+ * Return the only workflow identity that may authorize new v2 issuance.
+ * Persisted scope metadata is accepted for harnesses/refresh recovery where
+ * ComfyUI has not yet reattached the active workflow object. Human labels,
+ * paths, filenames and open-tab indexes are deliberately never consulted.
+ */
+export function resolveActiveWorkflowUuid() {
+  const active = activeWorkflowWindowUuid();
+  if (active) return active;
+  const workflowManager = typeof app !== "undefined"
+    ? app?.extensionManager?.workflow
+    : null;
+  const persistedCandidates = [
+    workflowManager?.activeWorkflow?.vibecomfyScopeMetadata?.workflow_id,
+    workflowManager?.vibecomfyScopeMetadata?.workflow_id,
   ];
-  for (const candidate of fallbackCandidates) {
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-  const openWorkflows = app?.extensionManager?.workflow?.openWorkflows;
-  if (Array.isArray(openWorkflows)) {
-    const index = openWorkflows.indexOf(workflow);
-    if (index >= 0) {
-      return `open-workflow-${index}`;
-    }
+  for (const candidate of persistedCandidates) {
+    const workflowUuid = stableWorkflowUuid(candidate);
+    if (workflowUuid) return workflowUuid;
   }
   return null;
 }
@@ -83,7 +97,7 @@ export function resolveActiveCanvasScope() {
     if (!graph || typeof graph !== "object") {
       return null;
     }
-    const workflowId = activeWorkflowWindowId();
+    const workflowId = activeWorkflowWindowUuid();
     const scopeId = computeScopeId(graph, { workflowId });
     if (!scopeId) {
       return null;

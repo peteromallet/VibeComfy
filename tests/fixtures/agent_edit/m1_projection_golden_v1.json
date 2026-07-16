@@ -1,0 +1,76 @@
+{
+  "contract_version": "m1_projection_golden_v1",
+  "projection_cases": [
+    {
+      "id": "missing-default-null",
+      "projection": "structural_v1",
+      "graph": {"nodes": [{"vibecomfy_uid": "node-a", "type": "Sampler", "mode": null, "fields": null, "widgets_values": null, "boxcolor": "#112233"}], "links": [], "groups": []},
+      "expected": {"projection": "structural_v1", "nodes": [{"uid": "node-a", "type": "Sampler", "mode": 0, "fields": {}, "widgets_values": {}}], "links": []},
+      "digest": "68764fe506f73dbb98e83b04f743958131c7280ad90d254df8bb5942ac76546a"
+    },
+    {
+      "id": "ordering-unicode",
+      "projection": "structural_v1",
+      "graph": {"nodes": [{"vibecomfy_uid": "z-node", "type": "ÅType", "fields": {"prompt": "café"}}, {"vibecomfy_uid": "a-node", "type": "Type", "fields": {"prompt": "猫"}}], "links": [{"from": {"node_uid": "z-node", "port": "out"}, "to": {"node_uid": "a-node", "port": "in"}}], "groups": []},
+      "expected": {"projection": "structural_v1", "nodes": [{"uid": "a-node", "type": "Type", "mode": 0, "fields": {"prompt": "猫"}, "widgets_values": {}}, {"uid": "z-node", "type": "ÅType", "mode": 0, "fields": {"prompt": "café"}, "widgets_values": {}}], "links": [{"from": {"node_uid": "z-node", "port": "out"}, "to": {"node_uid": "a-node", "port": "in"}}]},
+      "digest": "1e13202db9fa9001667c471cb0331864d36f3952197b7bdba8849e16a028369c"
+    },
+    {
+      "id": "unicode-utf16-object-key-order",
+      "projection": "structural_v1",
+      "graph": {"nodes": [{"vibecomfy_uid": "unicode-node", "type": "Node", "fields": {"😀": "astral", "": "bmp"}}], "links": [], "groups": []},
+      "expected": {"projection": "structural_v1", "nodes": [{"uid": "unicode-node", "type": "Node", "mode": 0, "fields": {"😀": "astral", "": "bmp"}, "widgets_values": {}}], "links": []},
+      "canonical": "{\"links\":[],\"nodes\":[{\"fields\":{\"\\ud83d\\ude00\":\"astral\",\"\\ue000\":\"bmp\"},\"mode\":0,\"type\":\"Node\",\"uid\":\"unicode-node\",\"widgets_values\":{}}],\"projection\":\"structural_v1\"}",
+      "digest": "20e23143663c5b01c8728dd59fefcfe1ae4d1051a7b132a1a4f06e4c318e0aa7"
+    },
+    {
+      "id": "dynamic-exec-io-excluded",
+      "projection": "structural_v1",
+      "graph": {"nodes": [{"vibecomfy_uid": "exec", "type": "vibecomfy.exec", "widgets_values": {"code": "x=1", "io": {"rebuilt": true}}, "fields": {"converted_widget": {"value": 7}}}], "links": [], "groups": []},
+      "expected": {"projection": "structural_v1", "nodes": [{"uid": "exec", "type": "vibecomfy.exec", "mode": 0, "fields": {"converted_widget": {"value": 7}}, "widgets_values": {"code": "x=1"}}], "links": []},
+      "digest": "d566c52a62bfd9d743cdad9e94aec671c460b3b56880d1ba652d249c54c64b1b"
+    },
+    {
+      "id": "canonical-ui-stable-endpoint-links",
+      "projection": "structural_v1",
+      "graph": {"nodes": [{"id": 10, "type": "Source", "properties": {"vibecomfy_uid": "source"}, "inputs": [], "outputs": [{"name": "IMAGE", "links": [7]}], "widgets_values": ["x"]}, {"id": 20, "type": "Sink", "properties": {"vibecomfy_uid": "sink"}, "mode": null, "inputs": [{"name": "images", "link": 7}], "outputs": [], "widgets_values": null}], "links": [[7, 10, 0, 20, 0, "IMAGE"]], "groups": []},
+      "expected": {"projection": "structural_v1", "nodes": [{"uid": "sink", "type": "Sink", "mode": 0, "fields": {}, "widgets_values": {}}, {"uid": "source", "type": "Source", "mode": 0, "fields": {}, "widgets_values": ["x"]}], "links": [{"from": {"node_uid": "source", "port": "IMAGE"}, "to": {"node_uid": "sink", "port": "images"}}]},
+      "digest": "0b3d1484a95a902e05f4ea2394d886ef8f629d708db5333e25a4964ad059d7ed"
+    },
+    {
+      "id": "opaque-extension",
+      "projection": "structural_v1",
+      "graph": {"nodes": [{"vibecomfy_uid": "opaque", "type": "Node", "extensions": {"vendor.example": {"round_trip": true}}}], "links": [], "groups": []},
+      "expected": {"projection": "structural_v1", "nodes": [{"uid": "opaque", "type": "Node", "mode": 0, "fields": {}, "widgets_values": {}, "extensions": {"vendor.example": {"round_trip": true}}}], "links": []},
+      "digest": "77b964aeb658930fa559248f746773f3c30d0dbac13f39e3d96f662736240c78"
+    },
+    {
+      "id": "root-layout-duplicate-titles",
+      "projection": "layout_v1",
+      "graph": {"nodes": [{"vibecomfy_uid": "n2", "type": "Node", "pos": [9, 8], "size": [1, 2]}, {"vibecomfy_uid": "n1", "type": "Node", "pos": [1, 2], "size": [3, 4]}], "links": [], "groups": [{"id": "group-b", "scope_path": "", "title": "Labels", "bounding": [5, 6, 7, 8], "color": "red"}, {"vibecomfy_group_id": "group-a", "scope_path": "", "title": "Labels", "bounding": [1, 2, 3, 4], "color": "blue"}]},
+      "expected": {"projection": "layout_v1", "nodes": [{"uid": "n1", "pos": [1, 2], "size": [3, 4]}, {"uid": "n2", "pos": [9, 8], "size": [1, 2]}], "groups": [{"id": "group-a", "bounding": [1, 2, 3, 4], "color": "blue", "title": "Labels"}, {"id": "group-b", "bounding": [5, 6, 7, 8], "color": "red", "title": "Labels"}]},
+      "digest": "12a12ae96be9f6ea779bf6f5a4bfa156249721497ccbc24ab862fa2c6a86bcb5"
+    },
+    {"id": "missing-group-id", "projection": "layout_v1", "graph": {"nodes": [], "links": [], "groups": [{"title": "Labels"}]}, "error": "missing_identity"},
+    {"id": "native-node-id-is-not-authority", "projection": "structural_v1", "graph": {"nodes": [{"id": 17, "type": "Node", "inputs": [], "outputs": []}], "links": [], "groups": []}, "error": "missing_identity"},
+    {"id": "nested-definitions", "projection": "structural_v1", "graph": {"nodes": [], "links": [], "groups": [], "definitions": {"nested": {"nodes": []}}}, "error": "unsupported_scope"},
+    {"id": "unknown-field", "projection": "structural_v1", "graph": {"nodes": [{"vibecomfy_uid": "bad", "type": "Node", "mystery": 1}], "links": [], "groups": []}, "error": "unsupported_field"}
+  ],
+  "delta_ops": [
+    {"op": "set_node_field", "target": ["", "seed-node", "inputs.seed"], "value": 7},
+    {"op": "set_mode", "target": ["", "mute-node"], "mode": 4},
+    {"op": "add_node", "scope_path": "", "uid": "new-uid", "node_id": "9001", "class_type": "PreviewImage", "fields": {"filename_prefix": "after"}, "inputs": {"images": ["", "seed-node", "IMAGE"]}},
+    {"op": "upsert_link", "from": ["", "seed-node", "IMAGE"], "to": ["", "preview-node", "images"]},
+    {"op": "remove_node", "target": ["", "old-node"]},
+    {"op": "remove_link", "to": ["", "preview-node", "images"]}
+  ],
+  "malformed_delta_ops": [
+    {"id": "set-field-short", "op": {"op": "set_node_field", "target": ["", "node"], "value": 1}, "code": "malformed_delta"},
+    {"id": "set-field-long", "op": {"op": "set_node_field", "target": ["", "node", "fields.x", "extra"], "value": 1}, "code": "malformed_delta"},
+    {"id": "set-mode-long", "op": {"op": "set_mode", "target": ["", "node", "extra"], "mode": 0}, "code": "malformed_delta"},
+    {"id": "link-from-long", "op": {"op": "upsert_link", "from": ["", "a", "out", "extra"], "to": ["", "b", "in"]}, "code": "malformed_delta"},
+    {"id": "link-to-short", "op": {"op": "upsert_link", "from": ["", "a", "out"], "to": ["", "b"]}, "code": "malformed_delta"},
+    {"id": "remove-link-long", "op": {"op": "remove_link", "to": ["", "b", "in", "extra"]}, "code": "malformed_delta"}
+  ],
+  "error_versions": {"projection": "structural_v9", "delta_wire": "9.0.0", "authority": "prepared_authority_v9", "forbidden_projection": "workflow_v1"}
+}

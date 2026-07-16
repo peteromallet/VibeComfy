@@ -451,7 +451,7 @@ def test_supersession_cancel_then_prepare_new(tmp_path):
     assert turn_id not in state["prepared_transactions"]
     rec1 = S.lookup_apply_idempotency_record(state, plan_hash="h" * 64, generation=gen1)
     assert rec1 is not None
-    assert rec1["phase"] == "cancelled"
+    assert rec1["phase"] == "superseded"
 
     # Second prepare (superseding)
     e2 = S.record_prepared_transaction(
@@ -466,7 +466,7 @@ def test_supersession_cancel_then_prepare_new(tmp_path):
     # Recovery sees the latest prepared only; cancelled is in idempotency.
     recovered = S.recover_transaction_index(session_dir)
     assert recovered["prepared_transactions"][turn_id]["generation"] == gen2
-    assert recovered["apply_idempotency_records"][f"h{'h'*63}:{gen1}"]["phase"] == "cancelled"
+    assert recovered["apply_idempotency_records"][f"h{'h'*63}:{gen1}"]["phase"] == "superseded"
 
     # The superseding prepare has NO idempotency record yet.
     assert S.lookup_apply_idempotency_record(state, plan_hash="i" * 64, generation=gen2) is None
@@ -527,14 +527,14 @@ def test_cancellation_clears_pointer_and_is_recoverable(tmp_path):
 
     assert turn_id not in state["prepared_transactions"]
     rec = S.lookup_apply_idempotency_record(state, plan_hash=plan_hash, generation=gen)
-    assert rec["phase"] == "cancelled"
+    assert rec["phase"] == "superseded"
     assert rec["turn_id"] == turn_id
 
     # Recovery from artifacts matches.
     recovered = S.recover_transaction_index(session_dir)
     assert recovered["prepared_transactions"] == {}
     recovered_rec = recovered["apply_idempotency_records"][f"{plan_hash}:{gen}"]
-    assert recovered_rec["phase"] == "cancelled"
+    assert recovered_rec["phase"] == "superseded"
 
 
 def test_cancellation_reason_preserved_in_lifecycle_log(tmp_path):
@@ -850,6 +850,13 @@ def test_recovery_handles_transaction_dir_with_no_log_file(tmp_path):
 
 def _fresh_v2_apply_turn(tmp_path: Path):
     from vibecomfy.comfy_nodes.agent import session as S
+    from vibecomfy.comfy_nodes.agent.authority_receipts import (
+        build_authority_receipt,
+        write_authority_receipt,
+    )
+    from vibecomfy.comfy_nodes.agent.candidate_transaction import (
+        build_candidate_transaction,
+    )
 
     root = tmp_path
     session_id = "txn-session"
@@ -857,73 +864,157 @@ def _fresh_v2_apply_turn(tmp_path: Path):
     session_dir = S.session_dir_for(root, session_id)
     turn_dir = S.turn_dir_for(root, session_id, turn_id)
     turn_dir.mkdir(parents=True)
+    workflow_id = "123e4567-e89b-12d3-a456-426614174000"
+    plan_hash = "a" * 64
+    submit_graph = {
+        "last_node_id": 1,
+        "last_link_id": 0,
+        "nodes": [
+            {
+                "id": 1,
+                "type": "KSampler",
+                "mode": 0,
+                "pos": [10, 20],
+                "size": [320, 240],
+                "properties": {"vibecomfy_uid": "sampler-1"},
+                "widgets_values": [],
+                "inputs": [],
+                "outputs": [],
+            }
+        ],
+        "links": [],
+        "groups": [],
+        "config": {},
+        "extra": {},
+        "version": 0.4,
+    }
+    candidate_graph = json.loads(json.dumps(submit_graph))
+    candidate_graph["nodes"][0]["mode"] = 4
+    delta_envelope = {
+        "schema_version": "2.0.0",
+        "ops": [
+            {"op": "set_mode", "target": ["", "sampler-1"], "mode": 4}
+        ],
+    }
+    response = {
+        "agent_edit_protocol": "v2_delta",
+        "graph": candidate_graph,
+        "delta_ops_envelope": delta_envelope,
+        "eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
+    }
+    receipt = build_authority_receipt(
+        session_id=session_id,
+        turn_id=turn_id,
+        submit_graph=submit_graph,
+        cumulative_delta_envelope=delta_envelope,
+        candidate=candidate_graph,
+        response=response,
+        schema_version="2.0.0",
+    )
+    assert receipt.is_applyable
+    write_authority_receipt(turn_dir, receipt)
+    transaction = build_candidate_transaction(
+        workflow_id=workflow_id,
+        session_id=session_id,
+        turn_id=turn_id,
+        plan_hash=plan_hash,
+        submit_graph=submit_graph,
+        candidate_graph=candidate_graph,
+        delta_ops_envelope=delta_envelope,
+        delta_hash=receipt.cumulative_delta_hash,
+        submit_graph_hash=receipt.submit_graph_hash,
+        submit_structural_graph_hash=S.structural_graph_hash(submit_graph),
+        candidate_graph_hash=S.payload_hash(candidate_graph),
+        candidate_structural_graph_hash=S.structural_graph_hash(candidate_graph),
+        authority_receipt_hash=S.payload_hash(receipt.to_dict()),
+        schema_witness=receipt.schema_witness,
+        replay_ok=True,
+        candidate_matches=True,
+        applyable=True,
+    )
+    S.write_candidate_transaction(turn_dir, transaction)
+    response["candidate_transaction"] = transaction
+    assert S._write_response_immutable(turn_dir / "response.json", response)
+    assert S._write_response_immutable(turn_dir / "original.ui.json", submit_graph)
     state = S.default_state()
     state.update(
         {
-            "baseline_graph_hash": "base-hash",
+            "baseline_graph_hash": S.structural_graph_hash(submit_graph),
             "baseline_graph_hash_kind": "structural",
             "baseline_graph_hash_version": S.STRUCTURAL_PROJECTION_VERSION,
             "baseline_source": "legacy",
         }
     )
     state["turns"][turn_id] = {
-        "state": "review_bound",
-        "candidate_graph_hash": "candidate-hash",
-        "candidate_structural_graph_hash": "after-hash",
+        "state": "candidate_ready",
+        "candidate_graph_hash": S.payload_hash(candidate_graph),
+        "candidate_structural_graph_hash": S.structural_graph_hash(candidate_graph),
         "candidate_structural_graph_hash_version": S.STRUCTURAL_PROJECTION_VERSION,
-        "submitted_baseline_graph_hash": "base-hash",
+        "submitted_baseline_graph_hash": S.structural_graph_hash(submit_graph),
         "submitted_baseline_graph_hash_kind": "structural",
+        "candidate_plan_hash": plan_hash,
         "agent_edit_protocol": "v2_delta",
     }
     S.write_state_atomic(session_dir, state)
-    return S, root, session_id, turn_id, session_dir
+    evidence = {
+        "plan_hash": plan_hash,
+        "submit_graph": submit_graph,
+        "candidate_graph": candidate_graph,
+        "submit_structural_hash": S.structural_graph_hash(submit_graph),
+        "candidate_structural_hash": S.structural_graph_hash(candidate_graph),
+        "candidate_graph_hash": S.payload_hash(candidate_graph),
+        "delta_hash": receipt.cumulative_delta_hash,
+        "precondition_projection": transaction["candidate_authority"]["precondition"],
+        "postcondition_projection": transaction["candidate_authority"]["postcondition"],
+    }
+    return S, root, session_id, turn_id, session_dir, evidence
 
 
-def _prepare_payload(*, plan_hash: str = "a" * 64, generation: int = 1) -> dict:
+def _prepare_payload(evidence: dict, *, plan_hash: str | None = None, generation: int = 1) -> dict:
     return {
         "turn_id": "0001",
-        "candidate_graph_hash": "candidate-hash",
-        "plan_hash": plan_hash,
-        "structural_hash_before": "base-hash",
-        "structural_hash_after": "after-hash",
+        "candidate_graph_hash": evidence["candidate_graph_hash"],
+        "plan_hash": plan_hash if plan_hash is not None else evidence["plan_hash"],
+        "structural_hash_before": evidence["submit_structural_hash"],
+        "structural_hash_after": evidence["candidate_structural_hash"],
         "generation": generation,
+        "precondition_projection": evidence["precondition_projection"],
         "apply_eligibility": {"applyable": True, "reason": "applyable", "message": "ok"},
     }
 
 
 def test_prepare_cas_records_receipt_without_advancing_baseline(tmp_path):
-    S, root, session_id, turn_id, session_dir = _fresh_v2_apply_turn(tmp_path)
+    S, root, session_id, turn_id, session_dir, evidence = _fresh_v2_apply_turn(tmp_path)
 
     result = S.prepare_turn_transaction(
         session_root=root,
         session_id=session_id,
         turn_id=turn_id,
-        request_payload=_prepare_payload(),
+        request_payload=_prepare_payload(evidence),
     )
 
     assert result["ok"] is True
     assert result["phase"] == "prepared"
     assert result["baseline_advanced"] is False
     state = S.read_state(session_dir)
-    assert state["baseline_graph_hash"] == "base-hash"
+    assert state["baseline_graph_hash"] == evidence["submit_structural_hash"]
     assert state["baseline_turn_id"] is None
-    assert state["turns"][turn_id]["state"] == "apply_prepared"
+    assert state["turns"][turn_id]["state"] == "prepared"
     prepared = state["prepared_transactions"][turn_id]
     assert prepared["plan_hash"] == "a" * 64
     assert prepared["generation"] == 1
     receipt = result["receipt"]["receipt"]
-    assert receipt["baseline_snapshot"]["baseline_graph_hash"] == "base-hash"
+    assert receipt["baseline_snapshot"]["baseline_graph_hash"] == evidence["submit_structural_hash"]
 
 
-def test_prepare_rejects_stale_baseline_candidate_plan_generation_and_eligibility(tmp_path):
-    S, root, session_id, turn_id, session_dir = _fresh_v2_apply_turn(tmp_path)
+def test_prepare_rejects_stale_typed_evidence_candidate_plan_and_generation(tmp_path):
+    S, root, session_id, turn_id, session_dir, evidence = _fresh_v2_apply_turn(tmp_path)
 
     cases = [
-        {**_prepare_payload(), "structural_hash_before": "stale"},
-        {**_prepare_payload(), "candidate_graph_hash": "wrong"},
-        {**_prepare_payload(), "plan_hash": ""},
-        {**_prepare_payload(generation=2)},
-        {**_prepare_payload(), "apply_eligibility": {"applyable": False}},
+        {**_prepare_payload(evidence), "precondition_projection": {**evidence["precondition_projection"], "digest": "0" * 64}},
+        {**_prepare_payload(evidence), "candidate_graph_hash": "wrong"},
+        {**_prepare_payload(evidence), "plan_hash": ""},
+        {**_prepare_payload(evidence, generation=2)},
     ]
     for payload in cases:
         result = S.prepare_turn_transaction(
@@ -933,16 +1024,16 @@ def test_prepare_rejects_stale_baseline_candidate_plan_generation_and_eligibilit
             request_payload=payload,
         )
         assert result.ok is False
-        assert S.read_state(session_dir)["baseline_graph_hash"] == "base-hash"
+        assert S.read_state(session_dir)["baseline_graph_hash"] == evidence["submit_structural_hash"]
 
 
 def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_baseline_advance(tmp_path):
-    S, root, session_id, turn_id, session_dir = _fresh_v2_apply_turn(tmp_path)
+    S, root, session_id, turn_id, session_dir, evidence = _fresh_v2_apply_turn(tmp_path)
     prepared = S.prepare_turn_transaction(
         session_root=root,
         session_id=session_id,
         turn_id=turn_id,
-        request_payload=_prepare_payload(),
+        request_payload=_prepare_payload(evidence),
     )
 
     bad_nonce = S.finalize_turn_transaction(
@@ -953,12 +1044,15 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
             "plan_hash": "a" * 64,
             "generation": prepared["generation"],
             "lease_nonce": "wrong",
-            "post_apply_hash": "after-hash",
+            "post_apply_hash": evidence["candidate_structural_hash"],
+            "post_apply_graph": evidence["candidate_graph"],
+            "postcondition_projection": evidence["postcondition_projection"],
+            "applied_delta_hash": evidence["delta_hash"],
             "post_apply_hash_verified": True,
         },
     )
     assert bad_nonce.ok is False
-    assert S.read_state(session_dir)["baseline_graph_hash"] == "base-hash"
+    assert S.read_state(session_dir)["baseline_graph_hash"] == evidence["submit_structural_hash"]
 
     bad_hash = S.finalize_turn_transaction(
         session_root=root,
@@ -969,11 +1063,14 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
             "generation": prepared["generation"],
             "lease_nonce": prepared["lease_nonce"],
             "post_apply_hash": "wrong-after",
+            "post_apply_graph": evidence["candidate_graph"],
+            "postcondition_projection": evidence["postcondition_projection"],
+            "applied_delta_hash": evidence["delta_hash"],
             "post_apply_hash_verified": True,
         },
     )
     assert bad_hash.ok is False
-    assert S.read_state(session_dir)["baseline_graph_hash"] == "base-hash"
+    assert S.read_state(session_dir)["baseline_graph_hash"] == evidence["submit_structural_hash"]
 
     result = S.finalize_turn_transaction(
         session_root=root,
@@ -983,29 +1080,29 @@ def test_finalize_requires_matching_nonce_and_verified_post_apply_hash_before_ba
             "plan_hash": "a" * 64,
             "generation": prepared["generation"],
             "lease_nonce": prepared["lease_nonce"],
-            "post_apply_hash": "after-hash",
+            "post_apply_hash": evidence["candidate_structural_hash"],
+            "post_apply_graph": evidence["candidate_graph"],
+            "postcondition_projection": evidence["postcondition_projection"],
+            "applied_delta_hash": evidence["delta_hash"],
             "post_apply_hash_verified": True,
         },
     )
     assert result["ok"] is True
     assert result["phase"] == "finalized"
     state = S.read_state(session_dir)
-    assert state["baseline_graph_hash"] == "after-hash"
+    assert state["baseline_graph_hash"] == evidence["candidate_structural_hash"]
     assert state["baseline_turn_id"] == turn_id
     assert state["turns"][turn_id]["state"] == "finalized"
 
 
 def test_rollback_restores_prepare_time_baseline_from_nonterminal_state(tmp_path):
-    S, root, session_id, turn_id, session_dir = _fresh_v2_apply_turn(tmp_path)
+    S, root, session_id, turn_id, session_dir, evidence = _fresh_v2_apply_turn(tmp_path)
     prepared = S.prepare_turn_transaction(
         session_root=root,
         session_id=session_id,
         turn_id=turn_id,
-        request_payload=_prepare_payload(),
+        request_payload=_prepare_payload(evidence),
     )
-    state = S.read_state(session_dir)
-    state["baseline_graph_hash"] = "drifted-before-finalize"
-    S.write_state_atomic(session_dir, state)
 
     result = S.rollback_turn_transaction(
         session_root=root,
@@ -1014,24 +1111,25 @@ def test_rollback_restores_prepare_time_baseline_from_nonterminal_state(tmp_path
         request_payload={
             "plan_hash": "a" * 64,
             "generation": prepared["generation"],
+            "lease_nonce": prepared["lease_nonce"],
         },
     )
 
     assert result["ok"] is True
-    assert result["phase"] == "rolled_back"
+    assert result["phase"] == "rollback_complete"
     state = S.read_state(session_dir)
-    assert state["baseline_graph_hash"] == "base-hash"
+    assert state["baseline_graph_hash"] == evidence["submit_structural_hash"]
     assert state["baseline_source"] == "legacy"
     assert state["turns"][turn_id]["state"] == "rollback_complete"
 
 
 def test_reconcile_returns_durable_receipts_and_repairs_index(tmp_path):
-    S, root, session_id, turn_id, session_dir = _fresh_v2_apply_turn(tmp_path)
+    S, root, session_id, turn_id, session_dir, evidence = _fresh_v2_apply_turn(tmp_path)
     prepared = S.prepare_turn_transaction(
         session_root=root,
         session_id=session_id,
         turn_id=turn_id,
-        request_payload=_prepare_payload(),
+        request_payload=_prepare_payload(evidence),
     )
     state = S.read_state(session_dir)
     state["prepared_transactions"] = {}

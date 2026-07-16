@@ -16,13 +16,25 @@ from typing import Any, Callable, Iterator, Literal
 
 from .contracts import DiagnosticRecord, FailureEnvelope, FailureKind, TurnContext, failure_envelope
 from .candidate_transaction import (
+    CANDIDATE_TRANSACTION_V2,
     CANDIDATE_TRANSACTION_FILENAME,
     LAYOUT_VERIFICATION_CONTRACT_VERSION,
     LAYOUT_VERIFICATION_PROJECTION,
     build_candidate_transaction,
     canonical_transaction_state,
+    classify_legacy_migration_v1,
     project_transaction_state,
     validate_candidate_transaction,
+)
+from .projection_registry_v1 import (
+    browser_layout_scope_issues_v1 as _registry_browser_layout_scope_issues,
+    build_layout_graph_projection as _registry_layout_graph_projection,
+    build_structural_graph_projection as _registry_structural_graph_projection,
+    canonical_json_bytes_v1 as _registry_canonical_json_bytes,
+    layout_graph_hash_compat as _registry_layout_graph_hash,
+    projection_reference_v1,
+    structural_graph_hash_compat as _registry_structural_graph_hash,
+    workflow_identity_v1,
 )
 from vibecomfy.porting.edit.ops import parse_edit_delta
 
@@ -353,9 +365,7 @@ def turn_dir_for(root: Path, session_id: str, turn_id: str) -> Path:
 
 
 def canonical_json_bytes(value: Any) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    return _registry_canonical_json_bytes(value, ensure_ascii=False)
 
 
 def payload_hash(value: Any) -> str:
@@ -1002,258 +1012,29 @@ def iter_turn_records(
         )
 
 
-def _natural_id_key(value: Any) -> tuple[int, int | str]:
-    text = str(value if value is not None else "")
-    if re_match := re.fullmatch(r"-?\d+", text):
-        return (0, int(re_match.group(0)))
-    return (1, text)
-
-
-def _is_preview_like_key(key: Any) -> bool:
-    return re.search(r"(?:^|_)(?:video)?preview(?:_|$)", str(key or ""), re.I) is not None
-
-
-def _normalize_structural_widget_value(value: Any) -> Any:
-    if isinstance(value, list):
-        return [_normalize_structural_widget_value(entry) for entry in value]
-    if isinstance(value, dict):
-        return {
-            key: _normalize_structural_widget_value(entry)
-            for key, entry in sorted(value.items(), key=lambda item: str(item[0]))
-            if not _is_preview_like_key(key)
-        }
-    # Canonicalise integral floats to ints so the hash matches what the browser
-    # round-trips. JS `JSON.stringify(2.0)` emits `2`, so the backend's float
-    # widget value (e.g. scale_by=2.0) and the canvas's resubmitted `2` are the
-    # same graph and must hash identically. (bool is an int subclass — leave it.)
-    if isinstance(value, float) and not isinstance(value, bool):
-        if value == value and value not in (float("inf"), float("-inf")):
-            if value.is_integer():
-                return int(value)
-    return value
-
-
-def _normalize_node_structural_widget_values(node: Mapping[str, Any]) -> Any:
-    values = node.get("widgets_values", [])
-    if node.get("type") != "vibecomfy.exec":
-        return _normalize_structural_widget_value(values)
-    if isinstance(values, Mapping):
-        return {
-            key: _normalize_structural_widget_value(entry)
-            for key, entry in sorted(values.items(), key=lambda item: str(item[0]))
-            if key != "io" and not _is_preview_like_key(key)
-        }
-    if isinstance(values, list):
-        # ComfyUI does not reliably preserve the `io` widget for dynamic-IO
-        # exec nodes after configure/decorate. Socket topology and labels carry
-        # the actual graph shape; keeping this duplicate widget in the baseline
-        # hash turns a representation round-trip into a false stale-state edit.
-        return [
-            _normalize_structural_widget_value(entry)
-            for index, entry in enumerate(values)
-            if index != 1
-        ]
-    return _normalize_structural_widget_value(values)
-
-
-def _normalize_structural_link(value: Any) -> Any:
-    if isinstance(value, list):
-        return [_normalize_structural_link(entry) for entry in value]
-    if isinstance(value, dict):
-        return {
-            key: _normalize_structural_link(entry)
-            for key, entry in sorted(value.items(), key=lambda item: str(item[0]))
-        }
-    return value
-
-
 def structural_graph_projection(graph: Any) -> dict[str, Any]:
-    if not isinstance(graph, Mapping):
-        return {"nodes": [], "links": []}
-    raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
-    # Per-node slot-index -> name maps, so links can be projected by NAME. This
-    # makes the hash invariant to ComfyUI materialising declared-but-unwired input
-    # slots on apply (which shifts later inputs' slot indices and would otherwise
-    # change the hash for a graph whose actual wiring is unchanged).
-    input_names: dict[Any, list[Any]] = {}
-    output_names: dict[Any, list[Any]] = {}
-    for node in raw_nodes:
-        if not isinstance(node, Mapping):
-            continue
-        nid = node.get("id")
-        input_names[nid] = [
-            (i.get("name") if isinstance(i, Mapping) else None)
-            for i in (node.get("inputs") if isinstance(node.get("inputs"), list) else [])
-        ]
-        output_names[nid] = [
-            (o.get("name") if isinstance(o, Mapping) else None)
-            for o in (node.get("outputs") if isinstance(node.get("outputs"), list) else [])
-        ]
-    nodes: list[dict[str, Any]] = []
-    for node in raw_nodes:
-        if not isinstance(node, Mapping):
-            node = {}
-        # Only WIRED input names — an unwired slot ComfyUI adds on apply is not
-        # meaningful graph state and must not change the hash.
-        wired_inputs = sorted(
-            str(i.get("name"))
-            for i in (node.get("inputs") if isinstance(node.get("inputs"), list) else [])
-            if isinstance(i, Mapping)
-            and i.get("link") is not None
-            and i.get("name") is not None
-        )
-        live_outputs = sorted(
-            str(o.get("name"))
-            for o in (node.get("outputs") if isinstance(node.get("outputs"), list) else [])
-            if isinstance(o, Mapping) and o.get("links") and o.get("name") is not None
-        )
-        nodes.append(
-            {
-                "id": node.get("id"),
-                "type": node.get("type"),
-                # LiteGraph materializes its default mode as integer zero when
-                # a graph is loaded/configured. Missing/null and zero are the
-                # same executable state and must not make a layout-only round
-                # trip look like a semantic mutation.
-                "mode": 0 if node.get("mode") is None else node.get("mode"),
-                "inputs": wired_inputs,
-                "outputs": live_outputs,
-                "widgets_values": _normalize_node_structural_widget_values(node),
-            }
-        )
-    nodes.sort(
-        key=lambda node: (_natural_id_key(node.get("id")), str(node.get("type") or ""))
-    )
-
-    def _slot_name(names: list[Any], slot: Any) -> Any:
-        if isinstance(slot, int) and 0 <= slot < len(names):
-            return names[slot]
-        return slot
-
-    # Project links by endpoint NAME (not slot index or link id) so they survive
-    # slot reordering and link renumbering across the apply round-trip.
-    links: list[dict[str, Any]] = []
-    for link in (graph.get("links") if isinstance(graph.get("links"), list) else []):
-        if isinstance(link, list) and len(link) >= 6:
-            o_id, o_slot, t_id, t_slot, l_type = (
-                link[1], link[2], link[3], link[4], link[5],
-            )
-        elif isinstance(link, Mapping):
-            o_id, o_slot = link.get("origin_id"), link.get("origin_slot")
-            t_id, t_slot = link.get("target_id"), link.get("target_slot")
-            l_type = link.get("type")
-        else:
-            continue
-        links.append(
-            {
-                "from": o_id,
-                "out": _slot_name(output_names.get(o_id, []), o_slot),
-                "to": t_id,
-                "in": _slot_name(input_names.get(t_id, []), t_slot),
-                "type": l_type,
-            }
-        )
-    links.sort(
-        key=lambda link: json.dumps(
-            link, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        )
-    )
-    return {"nodes": nodes, "links": links}
+    """Compatibility facade for the registry-owned M0 projection profile."""
+    return _registry_structural_graph_projection(graph)
 
 
 def structural_graph_hash(graph: Any) -> str | None:
-    if not isinstance(graph, Mapping):
-        return None
-    return payload_hash(structural_graph_projection(graph))
-
-
-def _normalize_layout_number(value: Any) -> Any:
-    if isinstance(value, float) and not isinstance(value, bool):
-        if value == value and value not in (float("inf"), float("-inf")):
-            if value.is_integer():
-                return int(value)
-    return value
-
-
-def _layout_vector(value: Any, length: int) -> list[Any] | None:
-    if not isinstance(value, (list, tuple)) or len(value) < length:
-        return None
-    return [_normalize_layout_number(entry) for entry in value[:length]]
+    """Compatibility facade for the registry-owned M0 projection digest."""
+    return _registry_structural_graph_hash(graph)
 
 
 def browser_layout_scope_issues(graph: Any) -> list[dict[str, str]]:
-    if not isinstance(graph, Mapping):
-        return []
-    issues: list[dict[str, str]] = []
-    definitions = graph.get("definitions")
-    if isinstance(definitions, Mapping) and definitions:
-        issues.append({"scope_path": "definitions", "reason": "nested_definitions"})
-    groups = graph.get("groups")
-    if isinstance(groups, list):
-        for group in groups:
-            if not isinstance(group, Mapping):
-                continue
-            scope_path = str(group.get("scope_path") or "")
-            if scope_path:
-                issues.append({"scope_path": scope_path, "reason": "nested_group"})
-    return issues
+    """Compatibility facade for registry-owned root-scope diagnostics."""
+    return _registry_browser_layout_scope_issues(graph)
 
 
 def layout_graph_projection(graph: Any) -> dict[str, Any]:
-    """Project browser-realizable node and native group geometry."""
-    if not isinstance(graph, Mapping):
-        return {
-            "contract_version": LAYOUT_VERIFICATION_PROJECTION,
-            "nodes": [],
-            "groups": [],
-        }
-    issues = browser_layout_scope_issues(graph)
-    if issues:
-        raise ValueError(f"unsupported_nested_layout_scope:{issues!r}")
-    raw_nodes = graph.get("nodes") if isinstance(graph.get("nodes"), list) else []
-    nodes = [
-        {
-            "id": node.get("id"),
-            "pos": _layout_vector(node.get("pos"), 2),
-            "size": _layout_vector(node.get("size"), 2),
-        }
-        for node in raw_nodes
-        if isinstance(node, Mapping)
-    ]
-    nodes.sort(key=lambda node: _natural_id_key(node.get("id")))
-    groups = [
-        {
-            "id": group.get("id"),
-            "scope_path": str(group.get("scope_path") or ""),
-            "title": group.get("title"),
-            "bounding": _layout_vector(group.get("bounding"), 4),
-            "color": group.get("color"),
-        }
-        for group in (
-            graph.get("groups") if isinstance(graph.get("groups"), list) else []
-        )
-        if isinstance(group, Mapping)
-    ]
-    groups.sort(
-        key=lambda group: json.dumps(
-            group.get("id"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        )
-    )
-    return {
-        "contract_version": LAYOUT_VERIFICATION_PROJECTION,
-        "nodes": nodes,
-        "groups": groups,
-    }
+    """Compatibility facade for the registry-owned M0 layout profile."""
+    return _registry_layout_graph_projection(graph)
 
 
 def layout_graph_hash(graph: Any) -> str | None:
-    if not isinstance(graph, Mapping):
-        return None
-    try:
-        projection = layout_graph_projection(graph)
-    except ValueError:
-        return None
-    return payload_hash(projection)
+    """Compatibility facade for the registry-owned M0 layout digest."""
+    return _registry_layout_graph_hash(graph)
 
 
 def _candidate_structural_hash_from_turn_dir(
@@ -1436,6 +1217,38 @@ def load_candidate_transaction(
     return dict(payload) if ok and isinstance(payload, Mapping) else None
 
 
+def load_candidate_transaction_with_migration(
+    turn_dir: Path,
+    plan_hash: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Load validated v2 authority or explicitly classify the persisted legacy record."""
+    payload = _load_json(candidate_transaction_path(turn_dir, plan_hash))
+    ok, _ = validate_candidate_transaction(payload)
+    if ok and isinstance(payload, Mapping):
+        return dict(payload), None
+    if not isinstance(payload, Mapping):
+        return None, None
+    contract_version = payload.get("contract_version")
+    if contract_version == "candidate_transaction_v1":
+        migration = classify_legacy_migration_v1(payload)
+    else:
+        migration = {
+            "classification": (
+                "invalid_v2_authority_fail_closed"
+                if contract_version == CANDIDATE_TRANSACTION_V2
+                else "unsupported_authority_version_fail_closed"
+            ),
+            "actions": ["rebaseline", "cancel"],
+            "rollback_allowed": False,
+        }
+    return None, {
+        **migration,
+        "contract_version": payload.get("contract_version"),
+        "state": payload.get("state"),
+        "plan_hash": plan_hash,
+    }
+
+
 def _transaction_log_path(transaction_dir: Path) -> Path:
     return transaction_dir / TRANSACTION_LIFECYCLE_LOG_NAME
 
@@ -1510,16 +1323,28 @@ def read_transaction_lifecycle(transaction_dir: Path) -> list[dict[str, Any]]:
     ):
         return []
     terminal_seen = False
+    active_generation = expected_generation
     for expected_seq, event in enumerate(events, start=1):
+        generation = event.get("generation")
+        # A retry may mint a newer prepared lease for the same immutable plan.
+        # Only a new `prepared` event may advance the generation; every later
+        # receipt must remain bound to that exact lease.
+        advances_generation = (
+            event.get("event_type") == "prepared"
+            and isinstance(generation, int)
+            and generation > active_generation
+        )
         if (
             event.get("seq") != expected_seq
             or event.get("turn_id") != expected_turn
             or event.get("plan_hash") != expected_plan
-            or event.get("generation") != expected_generation
+            or (generation != active_generation and not advances_generation)
             or event.get("event_type") not in _TRANSACTION_VALID_EVENT_TYPES
             or terminal_seen
         ):
             return []
+        if advances_generation:
+            active_generation = generation
         terminal_seen = event.get("event_type") in {
             "finalized",
             "rollback_complete",
@@ -1692,6 +1517,21 @@ def record_prepared_transaction(
     """
     generation = allocate_generation(state)
     transaction_dir = transaction_dir_for(turn_dir, plan_hash)
+    prepared_candidate: dict[str, Any] = {}
+    if candidate_payload and candidate_payload.get("contract_version") == CANDIDATE_TRANSACTION_V2:
+        prepared_candidate = project_transaction_state(
+            candidate_payload,
+            state="prepared",
+            generation=generation,
+            lease_nonce=lease_nonce,
+        )
+        ok, error = validate_candidate_transaction(prepared_candidate)
+        if not ok:
+            raise ValueError(error or "invalid_prepared_candidate_transaction")
+    elif candidate_payload:
+        # Storage primitive compatibility for historical test/audit fixtures.
+        # Production callers are v2-only and take the validated branch above.
+        prepared_candidate = dict(candidate_payload)
     receipt: dict[str, Any] = {
         "turn_id": turn_id,
         "plan_hash": plan_hash,
@@ -1699,10 +1539,8 @@ def record_prepared_transaction(
         "lease_nonce": lease_nonce,
         "structural_hash_before": structural_hash_before,
         "baseline_snapshot": dict(baseline_snapshot) if baseline_snapshot else {},
-        "candidate": dict(candidate_payload) if candidate_payload else {},
-        "candidate_transaction": (
-            dict(candidate_payload) if candidate_payload else {}
-        ),
+        "candidate": prepared_candidate,
+        "candidate_transaction": prepared_candidate,
         "phase": "prepared",
     }
     event = _append_transaction_lifecycle_event(
@@ -1781,6 +1619,7 @@ def record_finalized_transaction(
     generation: int,
     structural_hash_after: str | None,
     applied_payload: Mapping[str, Any] | None = None,
+    journal_durable: Mapping[str, Any] | None = None,
     now_fn: Callable[[], str] | None = None,
 ) -> dict[str, Any]:
     """Persist the authoritative ``finalized`` artifact and update the index.
@@ -1796,6 +1635,18 @@ def record_finalized_transaction(
         "applied": dict(applied_payload) if applied_payload else {},
         "phase": "finalized",
     }
+    if journal_durable is not None:
+        from .projection_registry_v1 import validate_journal_durable_v1
+        validated_journal = validate_journal_durable_v1(journal_durable)
+
+        def _plain_json(value: Any) -> Any:
+            if isinstance(value, Mapping):
+                return {str(key): _plain_json(entry) for key, entry in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [_plain_json(entry) for entry in value]
+            return value
+
+        receipt["journal_durable"] = _plain_json(validated_journal)
     return _record_resolved_transaction(
         state=state,
         turn_dir=turn_dir,
@@ -2239,8 +2090,14 @@ def _load_authoritative_candidate_transaction(
     plan_hash: str,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Load and cross-check the immutable aggregate and replay receipt."""
-    transaction = load_candidate_transaction(turn_dir, plan_hash)
+    transaction, legacy_migration = load_candidate_transaction_with_migration(
+        turn_dir, plan_hash
+    )
     if transaction is None:
+        if isinstance(legacy_migration, Mapping):
+            return None, str(
+                legacy_migration.get("classification") or "legacy_non_resumable"
+            )
         return None, "missing_candidate_transaction"
     if (
         transaction.get("session_id") != session_id
@@ -2256,11 +2113,23 @@ def _load_authoritative_candidate_transaction(
         return None, "missing_authority_receipt"
     if not authority.is_applyable:
         return None, "authority_receipt_not_applyable"
+    candidate_authority = transaction.get("candidate_authority")
+    receipt_digest = payload_hash(authority.to_dict())
+    if not isinstance(candidate_authority, Mapping):
+        return None, "missing_candidate_authority"
+    if (
+        candidate_authority.get("authority_receipt_contract_version")
+        != authority.contract_version
+        or candidate_authority.get("authority_receipt_delta_schema")
+        != authority.schema_version
+        or candidate_authority.get("authority_receipt_digest") != receipt_digest
+    ):
+        return None, "candidate_authority_receipt_binding_mismatch"
     hashes = transaction.get("hashes")
     plan = transaction.get("plan")
     if not isinstance(hashes, Mapping) or not isinstance(plan, Mapping):
         return None, "malformed_candidate_transaction"
-    if hashes.get("authority_receipt_hash") != payload_hash(authority.to_dict()):
+    if hashes.get("authority_receipt_hash") != receipt_digest:
         return None, "authority_receipt_hash_mismatch"
     envelope = plan.get("delta_ops_envelope")
     if not isinstance(envelope, Mapping):
@@ -2518,6 +2387,50 @@ def prepare_turn_transaction(
                 explanation="Persisted candidate transaction does not authorize Apply.",
                 evidence={"transaction_state": transaction.get("state")},
             )
+        candidate_authority = transaction.get("candidate_authority")
+        expected_precondition = (
+            candidate_authority.get("precondition")
+            if isinstance(candidate_authority, Mapping)
+            else None
+        )
+        claimed_precondition = payload.get("precondition_projection")
+        typed_precondition_matches = (
+            isinstance(expected_precondition, Mapping)
+            and isinstance(claimed_precondition, Mapping)
+            and claimed_precondition.get("kind") == "projection_ref_v1"
+            and claimed_precondition.get("projection")
+            == expected_precondition.get("projection")
+            and claimed_precondition.get("digest")
+            == expected_precondition.get("digest")
+        )
+        if (
+            typed_precondition_matches
+            and "canonical" in claimed_precondition
+            and claimed_precondition.get("canonical")
+            != expected_precondition.get("canonical")
+        ):
+            typed_precondition_matches = False
+        if not typed_precondition_matches:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="prepare",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Browser typed precondition evidence did not match candidate v2 authority.",
+                evidence={
+                    "claimed_precondition_projection": (
+                        dict(claimed_precondition)
+                        if isinstance(claimed_precondition, Mapping)
+                        else None
+                    ),
+                    "expected_precondition_projection": (
+                        dict(expected_precondition)
+                        if isinstance(expected_precondition, Mapping)
+                        else None
+                    ),
+                },
+            )
         hashes = _payload_mapping(transaction.get("hashes"))
         stored_candidate_hash = hashes.get("candidate_graph_hash")
         candidate_hash = _candidate_hash_from_request(payload)
@@ -2690,6 +2603,37 @@ def finalize_turn_transaction(
             )
         prepared_event = _latest_prepared_event(turn_dir, str(prepared_plan), int(prepared_generation))
         prepared_receipt = _prepared_receipt_from_event(prepared_event)
+        prepared_transaction = prepared_receipt.get("candidate_transaction")
+        legacy_migration = (
+            classify_legacy_migration_v1(prepared_transaction)
+            if isinstance(prepared_transaction, Mapping)
+            and prepared_transaction.get("contract_version") != CANDIDATE_TRANSACTION_V2
+            else None
+        )
+        prepared_ok, prepared_error = validate_candidate_transaction(prepared_transaction)
+        prepared_authority = (
+            prepared_transaction.get("prepared_authority")
+            if isinstance(prepared_transaction, Mapping) else None
+        )
+        if (
+            not prepared_ok
+            or not isinstance(prepared_authority, Mapping)
+            or prepared_authority.get("plan_hash") != prepared_plan
+            or prepared_authority.get("generation") != prepared_generation
+            or prepared_authority.get("lease_nonce") != prepared_nonce
+        ):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Finalize could not validate the prepared v2 authority.",
+                evidence={
+                    "prepared_authority_error": prepared_error,
+                    "legacy_migration": legacy_migration,
+                },
+            )
         prepared_before = prepared_receipt.get("structural_hash_before")
         current_baseline = _current_structural_baseline_hash(state)
         if prepared_before != current_baseline:
@@ -2741,6 +2685,83 @@ def finalize_turn_transaction(
                 turn_id=turn_id,
                 state=state,
                 explanation="Finalize could not compute the post-apply structural hash.",
+            )
+        expected_postcondition = prepared_authority.get("postcondition")
+        claimed_postcondition = payload.get("postcondition_projection")
+        if not isinstance(expected_postcondition, Mapping):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Prepared v2 authority is missing its typed postcondition projection.",
+            )
+        expected_projection = expected_postcondition.get("projection")
+        if not isinstance(expected_projection, str):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Prepared v2 authority has an invalid postcondition projection family.",
+            )
+        try:
+            actual_postcondition = projection_reference_v1(
+                post_apply_graph, expected_projection
+            )
+        except Exception as exc:
+            return _transaction_failure(
+                kind=FailureKind.VALIDATION_ERROR,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Finalize could not project the serialized post-apply graph.",
+                evidence={"projection_error": str(exc)[:512]},
+            )
+        typed_claim_matches = (
+            isinstance(claimed_postcondition, Mapping)
+            and claimed_postcondition.get("kind") == "projection_ref_v1"
+            and claimed_postcondition.get("projection") == expected_projection
+            and claimed_postcondition.get("digest")
+            == expected_postcondition.get("digest")
+        )
+        if (
+            typed_claim_matches
+            and "canonical" in claimed_postcondition
+            and claimed_postcondition.get("canonical")
+            != expected_postcondition.get("canonical")
+        ):
+            typed_claim_matches = False
+        actual_matches = (
+            actual_postcondition.get("projection") == expected_projection
+            and actual_postcondition.get("digest")
+            == expected_postcondition.get("digest")
+            and (
+                "canonical" not in expected_postcondition
+                or actual_postcondition.get("canonical")
+                == expected_postcondition.get("canonical")
+            )
+        )
+        if not typed_claim_matches or not actual_matches:
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="finalize",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Browser typed postcondition evidence did not match prepared v2 authority.",
+                evidence={
+                    "claimed_postcondition_projection": (
+                        dict(claimed_postcondition)
+                        if isinstance(claimed_postcondition, Mapping)
+                        else None
+                    ),
+                    "expected_postcondition_projection": dict(expected_postcondition),
+                    "computed_postcondition_projection": actual_postcondition,
+                },
             )
         hashes = _payload_mapping(transaction.get("hashes"))
         expected_post_hash = hashes.get("candidate_structural_graph_hash")
@@ -2867,6 +2888,26 @@ def finalize_turn_transaction(
             source_path=_source_path_for_turn_baseline(session_dir, turn_id),
             projection_version=STRUCTURAL_PROJECTION_VERSION,
         )
+        durable_precondition = prepared_authority.get("precondition")
+        durable_postcondition = prepared_authority.get("postcondition")
+        if prepared_authority.get("operation_family") == "layout":
+            structural_witness = prepared_authority.get("structural_witness")
+            if isinstance(structural_witness, Mapping):
+                durable_before = structural_witness.get("precondition_digest")
+                durable_after = structural_witness.get("postcondition_digest")
+            else:
+                durable_before = durable_after = None
+        else:
+            durable_before = (
+                durable_precondition.get("digest")
+                if isinstance(durable_precondition, Mapping)
+                else None
+            )
+            durable_after = (
+                durable_postcondition.get("digest")
+                if isinstance(durable_postcondition, Mapping)
+                else None
+            )
         event = record_finalized_transaction(
             state=state,
             turn_dir=turn_dir,
@@ -2881,6 +2922,23 @@ def finalize_turn_transaction(
                 "expected_post_apply_hash": expected_post_hash,
                 "applied_delta_hash": applied_delta_hash,
                 "canvas_verified_event_seq": verified_event.get("seq"),
+            },
+            journal_durable={
+                "contract_version": "journal_durable_v1",
+                "state": "finalized",
+                "workflow_id": prepared_authority["workflow_id"],
+                "baseline": {
+                    "structural_hash_before": durable_before,
+                    "structural_hash_after": durable_after,
+                },
+                "identity_fence": {
+                    "transaction_id": prepared_authority["transaction_id"],
+                    "candidate_id": prepared_authority["candidate_id"],
+                    "plan_hash": prepared_plan,
+                    "generation": prepared_generation,
+                    "lease_nonce": prepared_nonce,
+                },
+                "inverse_or_restore": dict(prepared_authority["restoration_strategy"]),
             },
         )
         for other_turn_id, other_record in state["turns"].items():
@@ -3031,6 +3089,37 @@ def rollback_turn_transaction(
             )
         prepared_event = _latest_prepared_event(turn_dir, str(prepared_plan), int(prepared_generation))
         prepared_receipt = _prepared_receipt_from_event(prepared_event)
+        prepared_transaction = prepared_receipt.get("candidate_transaction")
+        legacy_migration = (
+            classify_legacy_migration_v1(prepared_transaction)
+            if isinstance(prepared_transaction, Mapping)
+            and prepared_transaction.get("contract_version") != CANDIDATE_TRANSACTION_V2
+            else None
+        )
+        prepared_ok, prepared_error = validate_candidate_transaction(prepared_transaction)
+        prepared_authority = (
+            prepared_transaction.get("prepared_authority")
+            if isinstance(prepared_transaction, Mapping) else None
+        )
+        if (
+            not prepared_ok
+            or not isinstance(prepared_authority, Mapping)
+            or prepared_authority.get("plan_hash") != prepared_plan
+            or prepared_authority.get("generation") != prepared_generation
+            or prepared_authority.get("lease_nonce") != prepared_nonce
+        ):
+            return _transaction_failure(
+                kind=FailureKind.STALE_STATE_MISMATCH,
+                stage="rollback",
+                session_id=session_id,
+                turn_id=turn_id,
+                state=state,
+                explanation="Rollback could not validate the prepared v2 authority.",
+                evidence={
+                    "prepared_authority_error": prepared_error,
+                    "legacy_migration": legacy_migration,
+                },
+            )
         if (
             isinstance(compensation, Mapping)
             and compensation.get("canvas_was_mutated") is True
@@ -3159,15 +3248,30 @@ def candidate_transaction_for_turn(
         latest = events[-1]
         receipt = _safe_receipt(latest)
         generation = latest.get("generation")
+        lease_nonce = (
+            receipt.get("lease_nonce")
+            if isinstance(receipt.get("lease_nonce"), str)
+            else None
+        )
+        if lease_nonce is None:
+            # Terminal receipts deliberately avoid duplicating the prepared
+            # lease. Rehydrate the immutable prepared authority from the same
+            # append-only lifecycle rather than inventing a new nonce.
+            for earlier in reversed(events[:-1]):
+                earlier_receipt = _safe_receipt(earlier)
+                earlier_nonce = earlier_receipt.get("lease_nonce")
+                if (
+                    earlier.get("generation") == generation
+                    and isinstance(earlier_nonce, str)
+                    and earlier_nonce
+                ):
+                    lease_nonce = earlier_nonce
+                    break
         projected = project_transaction_state(
             candidate,
             state=str(latest.get("event_type") or candidate.get("state")),
             generation=generation if isinstance(generation, int) else None,
-            lease_nonce=(
-                receipt.get("lease_nonce")
-                if isinstance(receipt.get("lease_nonce"), str)
-                else None
-            ),
+            lease_nonce=lease_nonce,
         )
         candidates.append((generation if isinstance(generation, int) else 0, projected))
     return max(candidates, key=lambda item: item[0])[1] if candidates else None
@@ -3210,6 +3314,30 @@ def reconcile_turn_transactions(
             )
             for tid in turn_ids
         }
+        legacy_migrations_by_turn: dict[str, Any] = {}
+        for tid in turn_ids:
+            turn_record = state.get("turns", {}).get(tid)
+            if not isinstance(turn_record, Mapping):
+                continue
+            plan_hash = turn_record.get("candidate_plan_hash")
+            migration = None
+            if isinstance(plan_hash, str):
+                _transaction, migration = load_candidate_transaction_with_migration(
+                    turn_dir_for(session_root, session_id, tid), plan_hash
+                )
+            if (
+                migration is None
+                and turn_record.get("agent_edit_protocol") != "v2_delta"
+                and isinstance(turn_record.get("state"), str)
+            ):
+                migration = classify_legacy_migration_v1(
+                    {
+                        "contract_version": "candidate_transaction_v1",
+                        "state": turn_record.get("state"),
+                    }
+                )
+            if isinstance(migration, Mapping):
+                legacy_migrations_by_turn[tid] = dict(migration)
         recovery_graphs_by_turn: dict[str, Any] = {}
         for tid in turn_ids:
             original_graph = _load_json(
@@ -3232,6 +3360,7 @@ def reconcile_turn_transactions(
             "apply_idempotency_records": dict(state.get("apply_idempotency_records", {})),
             "receipts_by_turn": receipts_by_turn,
             "transactions_by_turn": transactions_by_turn,
+            "legacy_migrations_by_turn": legacy_migrations_by_turn,
             "recovery_graphs_by_turn": recovery_graphs_by_turn,
             "baseline_turn_id": state.get("baseline_turn_id"),
             "baseline_graph_hash": state.get("baseline_graph_hash"),
@@ -3559,9 +3688,9 @@ def v2_mutation_plan_hash(
 def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
     """Resolve the durable protocol, validating explicit V2 evidence.
 
-    Legacy responses may still be inferred for compatibility.  New responses
-    that declare ``v2_delta`` must carry one canonical delta envelope and, when
-    applyable, a server-authored mutation-plan binding in the candidate.
+    Answer-only legacy responses may still be inferred for audit compatibility.
+    Any newly recorded candidate authority must be explicit ``v2_delta`` with
+    one canonical delta envelope and a server-authored mutation-plan binding.
     """
     explicit = response.get("agent_edit_protocol")
     if explicit is not None and explicit not in {"v1", "v2_delta"}:
@@ -3581,6 +3710,8 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
     if explicit == "v1":
         if canonical_ops is not None or isinstance(flat_delta_ops, list):
             raise ValueError("agent_edit_protocol 'v1' cannot carry V2 delta evidence.")
+        if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
+            raise ValueError("agent_edit_protocol 'v1' candidate authority is historical and read-only.")
         return "v1"
 
     if explicit == "v2_delta":
@@ -3646,12 +3777,12 @@ def _validated_agent_edit_protocol(response: Mapping[str, Any]) -> str:
                 )
         return "v2_delta"
 
-    # Compatibility inference for artifacts written before protocol stamping.
-    return (
-        "v2_delta"
-        if canonical_ops is not None or isinstance(flat_delta_ops, list)
-        else "v1"
-    )
+    if isinstance(response.get("graph"), Mapping) or isinstance(response.get("candidate"), Mapping):
+        raise ValueError("New candidate authority requires explicit v2_delta evidence.")
+    if canonical_ops is not None or isinstance(flat_delta_ops, list):
+        return "v2_delta"
+    # Answer-only/no-candidate records remain readable audit artifacts.
+    return "v1"
 
 
 def _stamp_recorded_candidate(
@@ -3997,9 +4128,19 @@ def allocate_turn(
         for other_turn_id, other_record in state["turns"].items():
             if other_turn_id == turn_id or not isinstance(other_record, dict):
                 continue
-            if other_record.get("state") != "candidate":
+            other_state = other_record.get("state")
+            if other_state == "candidate":
+                superseded_state = "unknown"
+            elif other_state in {
+                "submitted",
+                "candidate_ready",
+                "review_bound",
+                "recoverable_error",
+            }:
+                superseded_state = "superseded"
+            else:
                 continue
-            other_record["state"] = "unknown"
+            other_record["state"] = superseded_state
             other_record["unknown_at"] = other_record.get("unknown_at") or _now()
             other_record["unknown_reason"] = "superseded_by_new_submit"
             other_record["superseded_by_turn_id"] = turn_id
@@ -4008,8 +4149,8 @@ def allocate_turn(
                 {
                     "session_id": session_id,
                     "turn_id": other_turn_id,
-                    "from_state": "candidate",
-                    "to_state": "unknown",
+                    "from_state": other_state,
+                    "to_state": superseded_state,
                     "reason": "superseded_by_new_submit",
                     "superseded_by_turn_id": turn_id,
                     "transitioned_at": transitioned_at,
@@ -4052,31 +4193,41 @@ def record_idempotent_response(
     key = _record_key(scope, idempotency_key)
     stamped_response = response
     authority_receipt: Any = None
+    request_payload: Mapping[str, Any] | None = None
     requested_v2 = response.get("agent_edit_protocol") == "v2_delta" or isinstance(
         response.get("delta_ops_envelope"), Mapping
     )
     if scope == "edit" and turn_id is not None:
         try:
             turn_dir = response_path.parent
-            request_payload = _load_json(turn_dir / "request.json")
-            if isinstance(request_payload, Mapping):
-                from .authority_receipts import build_and_persist_authority_receipt
+            loaded_request_payload = _load_json(turn_dir / "request.json")
+            if isinstance(loaded_request_payload, Mapping):
+                request_payload = loaded_request_payload
+                if requested_v2:
+                    scope_metadata = request_payload.get("scope_metadata")
+                    workflow_id = request_payload.get("workflow_id")
+                    if not isinstance(workflow_id, str) and isinstance(scope_metadata, Mapping):
+                        workflow_id = scope_metadata.get("workflow_id")
+                    workflow_identity_v1(workflow_id)
+                    if not isinstance(request_payload.get("graph"), Mapping):
+                        raise ValueError("V2 candidate issuance requires the persisted submit graph.")
+                    from .authority_receipts import build_and_persist_authority_receipt
 
-                schema_version = ""
-                delta_envelope = response.get("delta_ops_envelope")
-                if isinstance(delta_envelope, Mapping):
-                    raw_schema_version = delta_envelope.get("schema_version")
-                    if isinstance(raw_schema_version, str):
-                        schema_version = raw_schema_version
-                authority_receipt, stamped_response = build_and_persist_authority_receipt(
-                    turn_dir=turn_dir,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    request_payload=request_payload,
-                    response=response,
-                    schema_version=schema_version,
-                    schema_provider=schema_provider,
-                )
+                    schema_version = ""
+                    delta_envelope = response.get("delta_ops_envelope")
+                    if isinstance(delta_envelope, Mapping):
+                        raw_schema_version = delta_envelope.get("schema_version")
+                        if isinstance(raw_schema_version, str):
+                            schema_version = raw_schema_version
+                    authority_receipt, stamped_response = build_and_persist_authority_receipt(
+                        turn_dir=turn_dir,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        request_payload=request_payload,
+                        response=response,
+                        schema_version=schema_version,
+                        schema_provider=schema_provider,
+                    )
         except Exception:
             if requested_v2:
                 # An applyable V2 candidate must never be published without
@@ -4111,17 +4262,32 @@ def record_idempotent_response(
         if isinstance(candidate_payload.get("structural_hash_after"), str)
         else None
     )
-    if (
-        requested_v2
-        and turn_id is not None
-        and authority_receipt is not None
-        and isinstance(candidate_plan_hash, str)
-        and isinstance(candidate_graph_hash, str)
-        and isinstance(candidate_structural_graph_hash, str)
-        and isinstance(authority_receipt.cumulative_delta_envelope, Mapping)
-        and isinstance(authority_receipt.cumulative_delta_hash, str)
-        and isinstance(authority_receipt.schema_witness, Mapping)
-    ):
+    if requested_v2 and isinstance(candidate_graph_hash, str):
+        complete_authority = (
+            turn_id is not None
+            and authority_receipt is not None
+            and isinstance(candidate_plan_hash, str)
+            and isinstance(candidate_structural_graph_hash, str)
+            and isinstance(authority_receipt.cumulative_delta_envelope, Mapping)
+            and isinstance(authority_receipt.cumulative_delta_hash, str)
+            and isinstance(authority_receipt.schema_witness, Mapping)
+        )
+        if not complete_authority:
+            raise ValueError("V2 candidate publication requires complete durable replay authority.")
+        assert authority_receipt is not None
+        assert turn_id is not None
+        if not isinstance(request_payload, Mapping):
+            raise ValueError("V2 candidate issuance requires the persisted submit request.")
+        submit_graph = request_payload.get("graph")
+        candidate_graph = stamped_response.get("graph")
+        if not isinstance(submit_graph, Mapping) or not isinstance(candidate_graph, Mapping):
+            raise ValueError("V2 candidate issuance requires genuine submit and candidate graphs.")
+        scope_metadata = request_payload.get("scope_metadata")
+        workflow_id = request_payload.get("workflow_id")
+        if not isinstance(workflow_id, str) and isinstance(scope_metadata, Mapping):
+            workflow_id = scope_metadata.get("workflow_id")
+        if not isinstance(workflow_id, str):
+            raise ValueError("V2 candidate issuance requires an explicit stable workflow_id UUID.")
         eligibility = stamped_response.get("eligibility")
         if not isinstance(eligibility, Mapping):
             eligibility = stamped_response.get("apply_eligibility")
@@ -4143,9 +4309,12 @@ def record_idempotent_response(
             )
             applyable = applyable and layout_verification is not None
         transaction = build_candidate_transaction(
+            workflow_id=workflow_id,
             session_id=session_id,
             turn_id=turn_id,
             plan_hash=candidate_plan_hash,
+            submit_graph=submit_graph,
+            candidate_graph=candidate_graph,
             delta_ops_envelope=authority_receipt.cumulative_delta_envelope,
             delta_hash=authority_receipt.cumulative_delta_hash,
             submit_graph_hash=authority_receipt.submit_graph_hash,
@@ -4199,6 +4368,12 @@ def record_idempotent_response(
                     write_state_atomic(session_dir, state)
         # Atomically publish response.json after durable state completes.
         _write_response_atomic(response_path, stamped_response)
+        # The HTTP caller must observe the same validated v2 aggregate that was
+        # durably published; returning the pre-stamp object would strand the
+        # first browser review until a rehydrate.
+        published_response = json.loads(json.dumps(stamped_response))
+        response.clear()
+        response.update(published_response)
         return None
     record = {
         "request_hash": request_hash,
@@ -4230,6 +4405,9 @@ def record_idempotent_response(
     # Atomically publish response.json after durable state + idempotency
     # record completes.
     _write_response_atomic(response_path, stamped_response)
+    published_response = json.loads(json.dumps(stamped_response))
+    response.clear()
+    response.update(published_response)
     return record
 
 
@@ -5631,8 +5809,24 @@ def _mutate_turn_state(
             )
         agent_edit_protocol = turn_record.get("agent_edit_protocol")
         if scope == "accept" and agent_edit_protocol != "v2_delta":
-            if _load_turn_delta_ops(session_dir=session_dir, turn_id=turn_id) is not None:
-                agent_edit_protocol = "v2_delta"
+            legacy_migration = classify_legacy_migration_v1(
+                {
+                    "contract_version": "candidate_transaction_v1",
+                    "state": current_state,
+                }
+            )
+            return failure_envelope(
+                FailureKind.EDITOR_AHEAD_CONFLICT,
+                scope,
+                context,
+                agent_failure_context={
+                    "explanation": (
+                        "Legacy nonterminal authority is nonresumable and cannot be "
+                        "promoted to v2 from delta fixture evidence. Rebaseline or cancel it."
+                    ),
+                    "legacy_migration": legacy_migration,
+                },
+            )
         expected_baseline: ExpectedBaseline | None = None
         v2_whole_graph_hash_diagnostic: dict[str, Any] | None = None
         if scope == "accept":
@@ -6025,12 +6219,49 @@ def accept_turn(
     # and idempotency replay.
     session_dir = session_dir_for(session_root, session_id)
     bridge_count: int | None = None
+    blocked_state: str | None = None
+    legacy_migration: dict[str, Any] | None = None
     try:
         with SessionStateLock(session_dir, timeout_seconds=DEFAULT_LOCK_TIMEOUT_SECONDS):
             state = read_state(session_dir)
             turn_record = state["turns"].get(turn_id)
             if isinstance(turn_record, dict):
                 current_state = turn_record.get("state")
+                blocked_state = current_state if isinstance(current_state, str) else None
+                plan_hash = turn_record.get("candidate_plan_hash")
+                if isinstance(plan_hash, str):
+                    _transaction, legacy_migration = load_candidate_transaction_with_migration(
+                        turn_dir_for(session_root, session_id, turn_id), plan_hash
+                    )
+                if (
+                    legacy_migration is None
+                    and turn_record.get("agent_edit_protocol") != "v2_delta"
+                    and isinstance(current_state, str)
+                ):
+                    legacy_migration = classify_legacy_migration_v1(
+                        {
+                            "contract_version": "candidate_transaction_v1",
+                            "state": current_state,
+                        }
+                    )
+                if legacy_migration is not None:
+                    return failure_envelope(
+                        FailureKind.EDITOR_AHEAD_CONFLICT,
+                        "accept",
+                        TurnContext(
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            baseline_turn_id=state.get("baseline_turn_id"),
+                            idempotency_key=idempotency_key,
+                        ),
+                        agent_failure_context={
+                            "explanation": (
+                                "Legacy candidate authority is nonresumable and cannot enter "
+                                "the v2 accept-to-finalize bridge. Rebaseline or cancel it."
+                            ),
+                            "legacy_migration": dict(legacy_migration),
+                        },
+                    )
                 # Record bridge use under the session lock, then release it
                 # before finalize acquires the same non-reentrant lock.
                 if current_state in ("prepared", "canvas_verified"):
@@ -6093,16 +6324,25 @@ def accept_turn(
             )
         return result
 
-    # ── Standard V1 accept path (also catches any unhandled edge cases) ──
-    return _mutate_turn_state(
-        session_root=session_root,
-        session_id=session_id,
-        turn_id=turn_id,
-        scope="accept",
-        client_graph_hash=client_graph_hash,
-        request_payload=request_payload,
-        idempotency_key=idempotency_key,
-        response_writer=response_writer,
+    # Legacy accept is never transaction authority. Terminal records are audit
+    # only; nonterminal records must be rebaselined/cancelled rather than
+    # silently resumed through the historical state mutator.
+    return failure_envelope(
+        FailureKind.EDITOR_AHEAD_CONFLICT,
+        "accept",
+        TurnContext(
+            session_id=session_id,
+            turn_id=turn_id,
+            idempotency_key=idempotency_key,
+        ),
+        agent_failure_context={
+            "explanation": (
+                "Accept cannot authorize legacy or unprepared transaction state; "
+                "use the validated v2 prepare/finalize lifecycle."
+            ),
+            "current_state": blocked_state,
+            "legacy_migration": legacy_migration,
+        },
     )
 
 
@@ -6305,7 +6545,39 @@ def reject_turn(
     )
     if discarded is not None:
         return discarded
-    return _mutate_turn_state(
+    legacy_migration: dict[str, Any] | None = None
+    try:
+        state = read_state(session_dir_for(session_root, session_id))
+        turn_record = state.get("turns", {}).get(turn_id)
+        if isinstance(turn_record, Mapping):
+            plan_hash = turn_record.get("candidate_plan_hash")
+            if isinstance(plan_hash, str):
+                _transaction, legacy_migration = load_candidate_transaction_with_migration(
+                    turn_dir_for(session_root, session_id, turn_id), plan_hash
+                )
+            if (
+                legacy_migration is None
+                and turn_record.get("agent_edit_protocol") != "v2_delta"
+            ):
+                legacy_migration = classify_legacy_migration_v1(
+                    {
+                        "contract_version": "candidate_transaction_v1",
+                        "state": turn_record.get("state"),
+                    }
+                )
+    except (OSError, TypeError, ValueError):
+        legacy_migration = None
+    if legacy_migration and legacy_migration.get("classification") == "legacy_terminal_read_only":
+        return failure_envelope(
+            FailureKind.EDITOR_AHEAD_CONFLICT,
+            "reject",
+            TurnContext(session_id=session_id, turn_id=turn_id),
+            agent_failure_context={
+                "explanation": "Terminal legacy transaction records are read-only audit history.",
+                "legacy_migration": legacy_migration,
+            },
+        )
+    result = _mutate_turn_state(
         session_root=session_root,
         session_id=session_id,
         turn_id=turn_id,
@@ -6315,6 +6587,10 @@ def reject_turn(
         idempotency_key=idempotency_key,
         response_writer=response_writer,
     )
+    if isinstance(result, dict) and legacy_migration is not None:
+        result = dict(result)
+        result["legacy_migration"] = legacy_migration
+    return result
 
 
 def _rebaseline_expected_matches(

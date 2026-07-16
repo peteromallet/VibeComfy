@@ -37,6 +37,7 @@ import {
 // ── T11: Active-canvas scope guards ─────────────────────────────────────
 import {
   resolveActiveCanvasScope,
+  resolveActiveWorkflowUuid,
   assertPanelScopeMatchesActiveCanvas,
   assertApplyScopeConsistency,
 } from "../../vibecomfy/comfy_nodes/web/active_canvas_scope_guard.js";
@@ -50,9 +51,44 @@ function makePanel(overrides = {}) {
 }
 
 function canonicalTransaction(deltaOps = [], overrides = {}) {
+  const workflowId = "123e4567-e89b-12d3-a456-426614174000";
+  const projectionRef = {
+    kind: "projection_ref_v1",
+    projection: "structural_v1",
+    digest: "a".repeat(64),
+  };
+  const candidateAuthority = {
+    contract_version: "candidate_authority_v1",
+    transaction_id: "tx-canonical",
+    candidate_id: "candidate-canonical",
+    workflow_id: workflowId,
+    scope: { kind: "root", path: "" },
+    session_id: "sess-canonical",
+    turn_id: "turn-canonical",
+    operation: {
+      delta_contract: "delta_v1",
+      wire_version: "2.0.0",
+      ops: deltaOps,
+    },
+    operation_family: "structural",
+    precondition: projectionRef,
+    postcondition: projectionRef,
+    rollback_projection: "structural_v1",
+    restoration_strategy: {
+      contract_version: "inverse_delta_v1",
+      digest: "b".repeat(64),
+      payload: [],
+    },
+    plan_hash: "plan-canonical",
+    authority_receipt_contract_version: "authority_receipt_v2",
+    authority_receipt_delta_schema: "2.0.0",
+    authority_receipt_digest: "c".repeat(64),
+  };
   return {
-    contract_version: "candidate_transaction_v1",
+    contract_version: "candidate_transaction_v2",
     state: "candidate_ready",
+    candidate_authority: candidateAuthority,
+    prepared_authority: null,
     resume_state: null,
     session_id: "sess-canonical",
     turn_id: "turn-canonical",
@@ -69,7 +105,7 @@ function canonicalTransaction(deltaOps = [], overrides = {}) {
     hashes: {
       candidate_graph_hash: "candidate-hash-canonical",
       candidate_structural_graph_hash: "candidate-structural-canonical",
-      authority_receipt_hash: "authority-canonical",
+      authority_receipt_hash: "c".repeat(64),
     },
     authority: { replay_ok: true, candidate_matches: true },
     available_actions: ["apply", "reject"],
@@ -281,9 +317,9 @@ test("composer apply display state projects canonical candidate, stage, and rout
 
 // ── LIFECYCLE_STATE_FIELDS ──────────────────────────────────────────────────
 
-test("LIFECYCLE_STATE_FIELDS exports frozen array with 67 field names", () => {
+test("LIFECYCLE_STATE_FIELDS exports frozen array with 68 field names", () => {
   assert.ok(Object.isFrozen(LIFECYCLE_STATE_FIELDS));
-  assert.equal(LIFECYCLE_STATE_FIELDS.length, 67);
+  assert.equal(LIFECYCLE_STATE_FIELDS.length, 68);
 
   // Spot-check key categories
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("phase"));
@@ -333,6 +369,7 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 67 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("deltaOps"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("agentEditProtocol"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("candidateTransaction"));
+  assert.ok(LIFECYCLE_STATE_FIELDS.includes("legacyMigration"));
   // ── T24: Transaction lifecycle fields ─────────────────────────────────────
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("mutationPlanHash"));
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("generation"));
@@ -343,12 +380,12 @@ test("LIFECYCLE_STATE_FIELDS exports frozen array with 67 field names", () => {
   assert.ok(LIFECYCLE_STATE_FIELDS.includes("lifecycleEvents"));
 
   // No duplicates
-  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 67);
+  assert.equal(new Set(LIFECYCLE_STATE_FIELDS).size, 68);
 });
 
 // ── createAgentEditState ────────────────────────────────────────────────────
 
-test("createAgentEditState initializes all 67 lifecycle fields to defaults", () => {
+test("createAgentEditState initializes all 68 lifecycle fields to defaults", () => {
   const state = createAgentEditState();
 
   // Every field from LIFECYCLE_STATE_FIELDS must exist on the returned object
@@ -361,7 +398,7 @@ test("createAgentEditState initializes all 67 lifecycle fields to defaults", () 
 
   // No extra own keys beyond the lifecycle fields
   const ownKeys = Object.keys(state);
-  assert.equal(ownKeys.length, 67);
+  assert.equal(ownKeys.length, 68);
 
   // Phase default
   assert.equal(state.phase, PANEL_STATE.IDLE);
@@ -4884,7 +4921,7 @@ test("UNDO_LOCAL_RESTORE clears local apply feedback and queue guard state befor
     phase: PANEL_STATE.APPLYING,
     failure: { kind: "OldFailure" },
     lastAppliedChanges: { items: [{ uid: "uid-1" }] },
-    undoStack: [{ graph: { nodes: [{ id: 1 }] }, turn_id: "0009", client_graph_hash: "graph-before" }],
+    undoStack: [{ contract_version: "legacy_undo_cache_entry_v1", graph: { nodes: [{ id: 1 }] }, turn_id: "0009", client_graph_hash: "graph-before" }],
   });
 
   const obligations = transition(panel, "UNDO_LOCAL_RESTORE", {
@@ -4913,6 +4950,7 @@ test("UNDO_LOCAL_RESTORE clears local apply feedback and queue guard state befor
 
 test("UNDO_REBASELINE_SUCCESS pops the undo stack and syncs authoritative baseline state", () => {
   const previous = {
+    contract_version: "legacy_undo_cache_entry_v1",
     graph: { nodes: [{ id: 1 }] },
     turn_id: "0010",
     client_graph_hash: "graph-before",
@@ -4967,6 +5005,7 @@ test("UNDO_REBASELINE_SUCCESS pops the undo stack and syncs authoritative baseli
 
 test("UNDO_REBASELINE_FAILURE preserves the undo stack and records retry evidence", () => {
   const previous = {
+    contract_version: "legacy_undo_cache_entry_v1",
     graph: { nodes: [{ id: 1 }] },
     turn_id: "0011",
     client_graph_hash: "graph-before",
@@ -6316,11 +6355,50 @@ test("resolveActiveCanvasScope: returns null in Node.js (no app canvas)", () => 
   assert.equal(result, null);
 });
 
+test("resolveActiveWorkflowUuid fails closed without active or persisted UUID", () => {
+  const previousApp = globalThis.app;
+  globalThis.app = {
+    extensionManager: {
+      workflow: {
+        activeWorkflow: { id: "session-shaped-but-not-a-uuid", filename: "demo.json" },
+      },
+    },
+  };
+  try {
+    assert.equal(resolveActiveWorkflowUuid(), null);
+  } finally {
+    if (previousApp === undefined) delete globalThis.app;
+    else globalThis.app = previousApp;
+  }
+});
+
+test("resolveActiveWorkflowUuid accepts persisted workflow scope metadata", () => {
+  const previousApp = globalThis.app;
+  const workflowId = "123e4567-e89b-12d3-a456-426614174002";
+  globalThis.app = {
+    extensionManager: {
+      workflow: {
+        activeWorkflow: {
+          id: "non-authoritative-tab-label",
+          vibecomfyScopeMetadata: { workflow_id: workflowId },
+        },
+      },
+    },
+  };
+  try {
+    assert.equal(resolveActiveWorkflowUuid(), workflowId);
+  } finally {
+    if (previousApp === undefined) delete globalThis.app;
+    else globalThis.app = previousApp;
+  }
+});
+
 test("resolveActiveCanvasScope: uses Comfy active workflow id for empty workflow tabs", () => {
   const previousApp = globalThis.app;
+  const workflowId = "123e4567-e89b-12d3-a456-426614174001";
   const workflow = {
     content: JSON.stringify({
-      id: "workflow-empty-tab-a",
+      id: workflowId,
       nodes: [],
       links: [],
     }),
@@ -6344,8 +6422,8 @@ test("resolveActiveCanvasScope: uses Comfy active workflow id for empty workflow
   try {
     const result = resolveActiveCanvasScope();
     assert.ok(result);
-    assert.equal(result.workflowId, "workflow-empty-tab-a");
-    assert.match(result.scopeId, /^[a-z0-9]+-[a-z0-9]+:workflow-empty-tab-a:[0-9a-f]{16}$/);
+    assert.equal(result.workflowId, workflowId);
+    assert.match(result.scopeId, /^[a-z0-9]+-[a-z0-9]+:123e4567-e89b-12d3-a456-426614174001:[0-9a-f]{16}$/);
   } finally {
     if (previousApp === undefined) {
       delete globalThis.app;

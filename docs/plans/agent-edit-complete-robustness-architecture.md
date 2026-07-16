@@ -1,5 +1,15 @@
 # Agent Edit: Complete Robustness Architecture
 
+## Execution model routing
+
+- Easy delegated work: DeepSeek Pro.
+- Medium delegated work: GPT-5.6 Luna.
+- Hard delegated work: Claude Code routed through GLM 5.2 (`claude:glm-5.2`).
+- Exceptional escalation only: GPT-5.6 Sol.
+
+This routing applies to execution of the plan; it does not change the product
+architecture or acceptance criteria below.
+
 ## Purpose
 
 This document defines the work required to make VibeComfy Agent Edit robust
