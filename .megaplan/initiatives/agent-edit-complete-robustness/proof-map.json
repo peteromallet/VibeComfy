@@ -1,0 +1,9 @@
+{
+  "m0-foundation": [],
+  "m1-contracts": [],
+  "m2-native-adapter": [],
+  "m3-verifier": [],
+  "m4-controller-api": [],
+  "m5-recovery-migration": [],
+  "m6-real-comfy-ci": []
+}

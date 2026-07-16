@@ -1,0 +1,118 @@
+base_branch: fix/reorganise-cross-band-collisions
+
+anchors:
+  north_star: NORTHSTAR.md
+
+milestones:
+  - label: m0-foundation
+    idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m0-foundation.md
+    branch: megaplan/agent-edit-complete-robustness/m0-foundation
+    profile: agent-edit-medium
+    robustness: full
+    depth: medium
+    notes: >-
+      Difficulty 4/10. Freeze and prove the current incident repairs before any
+      authority extraction. Exclude scorecard.png and restore skipped coverage.
+
+  - label: m1-contracts
+    idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m1-contracts.md
+    branch: megaplan/agent-edit-complete-robustness/m1-contracts
+    profile: agent-edit-hard
+    robustness: thorough
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Inventory every current structural/layout/full hash, delta version,
+      entity identity fallback, Undo behavior, and persisted legacy transaction
+      shape before freezing the contracts.
+    notes: >-
+      Difficulty 9/10. Contract mistakes can pass local tests and corrupt every
+      later owner, so use Terra planning and Sol only for tier-10 escalation.
+
+  - label: m2-native-adapter
+    idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-native-adapter.md
+    branch: megaplan/agent-edit-complete-robustness/m2-native-adapter
+    profile: agent-edit-hard
+    robustness: thorough
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Trace all live LiteGraph capture, configure/load, serialize, mutation,
+      rollback, preview, replay, and extension-normalization paths before moving
+      ownership.
+    notes: >-
+      Difficulty 9/10. Preserve behavior while collapsing native graph
+      authority and canonicalizing every forward mutation.
+
+  - label: m3-verifier
+    idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m3-verifier.md
+    branch: megaplan/agent-edit-complete-robustness/m3-verifier
+    profile: agent-edit-hard
+    robustness: full
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Enumerate every precondition, postcondition, finalize, rollback, and
+      mismatch comparison path, including exception and partial-mutation exits.
+    notes: >-
+      Difficulty 8/10. Stabilize verification independently before moving
+      lifecycle coordination.
+
+  - label: m4-controller-api
+    idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m4-controller-api.md
+    branch: megaplan/agent-edit-complete-robustness/m4-controller-api
+    profile: agent-edit-hard
+    robustness: thorough
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Trace every transport call, async callback, reducer dispatch, workflow
+      activation, session/turn/candidate identity, and commit fence in the
+      shipped panel.
+    notes: >-
+      Difficulty 9/10. Extract orchestration without creating controller/reducer
+      split-brain or weakening activation fencing.
+
+  - label: m5-recovery-migration
+    idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m5-recovery-migration.md
+    branch: megaplan/agent-edit-complete-robustness/m5-recovery-migration
+    profile: agent-edit-hard
+    robustness: thorough
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Enumerate durable transaction states and receipts, refresh/rehydrate
+      behavior, Undo storage, legacy versions, and every ambiguous failure exit.
+    notes: >-
+      Difficulty 8/10. Close every nonterminal state with idempotent,
+      identity-fenced recovery.
+
+  - label: m6-real-comfy-ci
+    idea: .megaplan/initiatives/agent-edit-complete-robustness/briefs/m6-real-comfy-ci.md
+    branch: megaplan/agent-edit-complete-robustness/m6-real-comfy-ci
+    profile: agent-edit-hard
+    robustness: thorough
+    depth: high
+    with_prep: true
+    prep_direction: >-
+      Inventory current ComfyUI launchers, frontend versions, extension noise,
+      Playwright coverage, CI jobs, incident fixtures, and reproducibility gaps.
+    notes: >-
+      Difficulty 8/10. Prove the composed product in a minimal pinned
+      environment and enforce all ownership boundaries in CI.
+
+on_failure:
+  abort: stop_chain
+
+on_escalate:
+  abort: stop_chain
+
+merge_policy: auto
+
+driver:
+  robustness: thorough
+  phase_timeout: 14400
+  auto_approve: true
+  on_escalate: abort
+  max_iterations: 200
+  poll_sleep: 8.0

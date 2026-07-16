@@ -1,0 +1,94 @@
+# Execution Task and Proof Ledger
+
+This is the operator-facing ledger. Milestone plans may add finer-grained
+tasks, but they may not weaken these requirements.
+
+## M0 — Incident foundation
+
+- [ ] Classify every dirty file as intended baseline or unrelated.
+- [ ] Keep `scorecard.png` out of all epic commits.
+- [ ] Restore or replace the two skipped rollback-diagnostic assertions.
+- [ ] Run and record focused browser, Python, and ownership suites.
+- [ ] Prove each exact incident fixture fails before its fix and passes now.
+- [ ] Record clean-environment versus ambient-extension browser results.
+- [ ] Add a machine-readable baseline gate manifest.
+- [ ] Commit the baseline independently before architecture extraction.
+
+## M1 — Contracts
+
+- [ ] Add a single projection registry with typed/versioned names.
+- [ ] Version `structural_v1`, `layout_v1`, and explicit `workflow_v1` policy.
+- [ ] Bind every operation to forward and rollback projections.
+- [ ] Make delta version, scope, precondition, postcondition, inverse strategy,
+      and projection version mandatory in prepared authority.
+- [ ] Ratify Undo durability semantics.
+- [ ] Ratify legacy transaction migration/version behavior.
+- [ ] Encode stable identity rules for every entity class.
+- [ ] Add browser/Python golden fixture equivalence.
+- [ ] Reject unknown versions and unsupported root/nested scope combinations.
+
+## M2 — Native adapter
+
+- [ ] Create `intent_graph_adapter.js`.
+- [ ] Move live graph capture, native normalization, stable-ID handling,
+      mutation, restoration planning, and serialization behind the adapter.
+- [ ] Route preview, Apply, rollback, Undo, and recovery through canonical ops.
+- [ ] Eliminate forward whole-graph replacement.
+- [ ] Inventory native normalization behavior and field semantics.
+- [ ] Add adapter ownership guardrails immediately.
+- [ ] Prove all supported delta operations through real LiteGraph.
+
+## M3 — Verifier
+
+- [ ] Create `graph_apply_verifier.js`.
+- [ ] Centralize precondition, landed-operation, postcondition, finalize,
+      rollback, and mismatch comparison.
+- [ ] Emit structured bounded projection diffs.
+- [ ] Remove all duplicate inline verification decisions.
+- [ ] Add partial-mutation, serialization, inverse, and restore fault injection.
+- [ ] Pass every incident fixture through the same public verifier API.
+
+## M4 — Workflow controller and API
+
+- [ ] Create `agent_edit_api.js` as sole transport owner.
+- [ ] Create `agent_edit_controller.js` as sole transaction coordinator.
+- [ ] Maintain one complete `WorkflowEditContext` per workflow.
+- [ ] Fence every async commit by workflow, activation, operation, submit/apply,
+      session, turn, candidate, and transaction identity.
+- [ ] Preserve lifecycle reducer as transition authority.
+- [ ] Reduce `vibecomfy_roundtrip.js` to bootstrap/events/view composition.
+- [ ] Prove workflow switching during every phase and late-result rejection.
+
+## M5 — Recovery, Undo, and migration
+
+- [ ] Encode an executable recovery action for every durable nonterminal state.
+- [ ] Implement the ratified Undo semantics.
+- [ ] Reconcile ambiguous prepare/finalize responses from durable receipts.
+- [ ] Preserve recovery authority across refresh and workflow switching.
+- [ ] Show exact unresolved projection differences after rollback failure.
+- [ ] Enforce legacy version policy without silent reinterpretation.
+- [ ] Prove recovery actions are fenced and idempotent.
+
+## M6 — Real ComfyUI and CI
+
+- [ ] Build a pinned minimal ComfyUI correctness environment.
+- [ ] Build a separate representative custom-node compatibility environment.
+- [ ] Cover every supported transaction family end to end.
+- [ ] Cover failure, refresh, switching, rollback, and persistence.
+- [ ] Cover all named incident and adversarial fixtures.
+- [ ] Attribute failures separately to VibeComfy, ComfyUI core, or extensions.
+- [ ] Add static ownership and title-identity regression gates.
+- [ ] Wire the full browser suite and composition matrix into CI.
+
+## Final nine-point audit
+
+- [ ] Every identity and projection has one authoritative owner.
+- [ ] Every graph mutation uses a declared canonical operation.
+- [ ] Native ComfyUI normalization cannot cause false verification failures.
+- [ ] Every workflow has isolated state and asynchronous authority.
+- [ ] Every post-prepare failure has deterministic recovery.
+- [ ] Stable IDs always outrank presentation heuristics.
+- [ ] Browser and backend projections are proven equivalent.
+- [ ] Real ComfyUI covers success, failure, refresh, switching, rollback, and
+      persistence.
+- [ ] Static guardrails prevent duplicate ownership from returning.
