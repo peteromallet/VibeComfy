@@ -21,8 +21,9 @@ Codex model effort values needed by this initiative.
 
 1. Preserve the complete tier-selected model and effort through both execution
    call paths in `execute/batch.py`.
-2. A hard-tier entry such as `claude:glm-5.2` must invoke Claude Code
-   with that concrete model rather than silently routing back to Codex.
+2. A hard-tier entry such as `claude:high` must invoke Claude Code rather than
+   silently routing back to Codex; the active Claude Code provider is
+   configured for GLM 5.2 outside the Megaplan model token.
 3. Accept at least `xhigh` and `max` for Codex. Do not add `ultra` unless the
    parser and worker contract are deliberately extended and tested.
 4. Preserve phase fallback effort when a selected tier spec omits effort.

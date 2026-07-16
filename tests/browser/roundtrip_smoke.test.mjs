@@ -16062,7 +16062,8 @@ test("VibeComfy comfy_adapter detects all capabilities on a supported 1.39.x har
     // All three capabilities should be available.
     assert.equal(caps.graphApply.available, true);
     assert.match(caps.graphApply.detail, /clear/);
-    assert.equal(caps.graphApply.path, "app.canvas.graph");
+    assert.equal(caps.graphApply.path, "intent_graph_adapter.graph_apply");
+    assert.equal(caps.graph.graph_apply.available, true);
 
     assert.equal(caps.previewForeground.available, true);
     assert.match(caps.previewForeground.detail, /Instance-level/);
@@ -16240,12 +16241,14 @@ test("VibeComfy comfy_adapter hydrates add-node candidate links after native nod
   }
 });
 
-test("VibeComfy comfy_adapter reports harness-only delta apply fallback when real LiteGraph mutation hooks are absent", async () => {
+test("VibeComfy intent_graph_adapter reports harness-only delta apply fallback when real LiteGraph mutation hooks are absent", async () => {
   const harness = await createBrowserHarness();
 
   try {
-    const adapter = await harness.loadAdapter();
-    const capability = adapter.detectGraphDeltaApply(harness.app);
+    const adapterModule = await harness.loadIntentGraphAdapter();
+    const result = adapterModule.createIntentGraphAdapter(harness.app).capabilities();
+    assert.equal(result.ok, true);
+    const capability = result.data.delta_apply;
 
     assert.equal(capability.available, true);
     assert.equal(capability.strategy, "harness-serialize-configure");

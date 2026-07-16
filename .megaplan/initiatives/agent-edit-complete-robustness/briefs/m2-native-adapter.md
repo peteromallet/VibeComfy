@@ -67,6 +67,18 @@ must fail before mutation.
 
 ## Ordered execution plan
 
+### Current substate — 2026-07-17
+
+Slices 1–2 are implemented and independently accepted. Evidence: 77/77
+focused adapter/ownership/projection/M1 tests, 519/519 browser contracts, 238
+roundtrip passes with 2 intentional legacy skips, and a schema-validated sole
+machine ledger with 78 unique stable rows and 120 unique file/region/kind
+mappings. Both Arnold profiles and all 68 agent specs parse through the
+production parser; `git diff --check` is clean.
+
+This is a bounded acceptance only. Slices 3–6 below remain pending, and the M2
+done criteria are not yet satisfied.
+
 ### Slice 1 — Inventory and freeze every native graph access
 
 Produce a checked-in inventory before moving behavior.

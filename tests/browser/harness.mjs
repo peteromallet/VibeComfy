@@ -15,6 +15,7 @@ const LIFECYCLE_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web",
 const LIFECYCLE_COMMIT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_lifecycle_commit.js");
 const NODE_PACK_INSTALLER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_node_pack_installer.js");
 const ADAPTER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "comfy_adapter.js");
+const INTENT_GRAPH_ADAPTER_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "intent_graph_adapter.js");
 const RESPONSE_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_response_contract.js");
 const TRANSACTION_CONTRACT_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "agent_edit_transaction.js");
 const DIAGNOSTICS_REPORTING_SOURCE = path.join(REPO_ROOT, "vibecomfy", "comfy_nodes", "web", "diagnostics_reporting.js");
@@ -971,6 +972,7 @@ export async function createBrowserHarness({
   await writeFile(path.join(webRoot, "agent_lifecycle_commit.js"), await readFile(LIFECYCLE_COMMIT_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agent_edit_node_pack_installer.js"), await readFile(NODE_PACK_INSTALLER_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "comfy_adapter.js"), await readFile(ADAPTER_SOURCE, "utf8"));
+  await writeFile(path.join(webRoot, "intent_graph_adapter.js"), await readFile(INTENT_GRAPH_ADAPTER_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agent_edit_response_contract.js"), await readFile(RESPONSE_CONTRACT_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "agent_edit_transaction.js"), await readFile(TRANSACTION_CONTRACT_SOURCE, "utf8"));
   await writeFile(path.join(webRoot, "diagnostics_reporting.js"), await readFile(DIAGNOSTICS_REPORTING_SOURCE, "utf8"));
@@ -1207,6 +1209,10 @@ export async function createBrowserHarness({
     },
     async loadAdapter() {
       const target = pathToFileURL(path.join(webRoot, "comfy_adapter.js")).href;
+      return import(`${target}?t=${Date.now()}`);
+    },
+    async loadIntentGraphAdapter() {
+      const target = pathToFileURL(path.join(webRoot, "intent_graph_adapter.js")).href;
       return import(`${target}?t=${Date.now()}`);
     },
     async loadPreviewPicker() {

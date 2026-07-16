@@ -29,14 +29,24 @@ tasks, but they may not weaken these requirements.
 
 ## M2 — Native adapter
 
-- [ ] Create `intent_graph_adapter.js`.
+- [x] Slice 1: inventory and freeze native graph access in the versioned
+      machine ledger, with source-derived ownership/schema guardrails.
+- [x] Slice 2: create the dependency-injected typed public boundary in
+      `intent_graph_adapter.js` and route the bounded capture/projection/
+      revision/repaint responsibilities through it.
 - [ ] Move live graph capture, native normalization, stable-ID handling,
       mutation, restoration planning, and serialization behind the adapter.
 - [ ] Route preview, Apply, rollback, Undo, and recovery through canonical ops.
 - [ ] Eliminate forward whole-graph replacement.
-- [ ] Inventory native normalization behavior and field semantics.
-- [ ] Add adapter ownership guardrails immediately.
+- [x] Inventory native normalization behavior and field semantics for the S1
+      authority freeze; later migration dispositions remain S3–S6 work.
+- [x] Add bounded S1/S2 adapter ownership guardrails; the final sole-owner gate
+      remains Slice 6 work.
 - [ ] Prove all supported delta operations through real LiteGraph.
+
+Slices 1–2 are accepted with 77/77 focused tests, 519/519 browser contracts,
+238 roundtrip passes plus 2 intentional legacy skips, and a 78-row/120-mapping
+machine ledger. M2 remains open for Slices 3–6.
 
 ## M3 — Verifier
 

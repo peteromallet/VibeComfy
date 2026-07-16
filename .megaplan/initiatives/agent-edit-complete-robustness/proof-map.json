@@ -34,7 +34,33 @@
       "excluded_artifact": "scorecard.png"
     }
   ],
-  "m2-native-adapter": [],
+  "m2-native-adapter": [
+    {
+      "status": "slices_1_2_accepted_slices_3_6_pending",
+      "verified": {
+        "focused_adapter_ownership_projection_m1": "77/77",
+        "browser_contracts": "519/519",
+        "roundtrip": "238 passed, 0 failed, 2 intentional legacy skips",
+        "native_authority_ledger": "78 unique stable rows, 120 unique file/region/kind mappings",
+        "ledger_schema_and_bypass_sentinels": "passed",
+        "arnold_profile_parse": "2 profiles, 68 agent specs",
+        "diff_check": "passed",
+        "independent_acceptance": "DeepSeek Pro; no blocker"
+      },
+      "artifacts": {
+        "machine_ledger": "tests/fixtures/agent_edit/native_authority_ledger_v1.json",
+        "derived_ledger_view": "vibecomfy/comfy_nodes/web/native_normalization_ledger.md",
+        "bounded_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-slices-1-2-acceptance.md",
+        "full_acceptance": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-full-acceptance.md",
+        "authority_review": ".megaplan/initiatives/agent-edit-complete-robustness/briefs/m2-adapter-authority-review.md"
+      },
+      "remaining_slices": [3, 4, 5, 6],
+      "excluded_artifacts": [
+        "scorecard.png",
+        "docs/plans/vibecomfy-screen-share-recording-brief.md"
+      ]
+    }
+  ],
   "m3-verifier": [],
   "m4-controller-api": [],
   "m5-recovery-migration": [],

@@ -15,6 +15,7 @@ import {
 import {
   resolveScopeSessionId,
 } from "./scoped_session_storage.js";
+import { createIntentGraphAdapter } from "./intent_graph_adapter.js";
 
 const WORKFLOW_UUID_V1 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,18 +83,20 @@ export function resolveActiveWorkflowUuid() {
  * resolveActiveCanvasScope()
  *
  * Computes the per-workflow-window chat scope identity from the current
- * ComfyUI canvas graph.  Because this depends on app.canvas.graph.serialize(),
- * it MUST only be called in a browser environment where app is available.
+ * ComfyUI canvas graph through the canonical intent-graph adapter.
  *
  * Returns { scopeId, fingerprint } or null when the canvas is empty.
  */
 export function resolveActiveCanvasScope() {
-  // Must be in a browser environment with app.canvas available.
-  if (typeof app === "undefined" || !app?.canvas?.graph) {
+  if (typeof app === "undefined") {
     return null;
   }
   try {
-    const graph = app.canvas.graph.serialize();
+    const capture = createIntentGraphAdapter(app).capture();
+    if (!capture.ok) {
+      return null;
+    }
+    const graph = capture.data.graph;
     if (!graph || typeof graph !== "object") {
       return null;
     }

@@ -7,13 +7,15 @@ dependency-ordered milestones.
 ## Model routing requested by the operator
 
 - Easy: DeepSeek Pro
-- Medium: GPT 5.6 Luna
-- Hard: Claude Code routed through GLM 5.2 (`claude:glm-5.2`)
-- Impossible/escalation only: GPT 5.6 Sol
+- Medium: Claude Code routed through GLM 5.2
+- Hard: Claude Code routed through GLM 5.2 with higher reasoning
+- Exceptional escalation only: GPT 5.6 Sol
 
 The executable profile mapping is recorded in `chain.yaml`. If those names are
 not native runtime identifiers, the mapping must use the local aliases that
 resolve to them and must be proven before the first milestone starts.
+Megaplan profiles use parser-valid effort-only `claude:*` specs; the active
+Claude Code provider must be configured for GLM 5.2 before medium or hard work.
 
 Historical context for why the regression cluster appeared after the prior
 transaction-spine epic is recorded in
@@ -24,8 +26,8 @@ transaction-spine epic is recorded in
 | Label | Deliverable | Difficulty | Status |
 | --- | --- | --- | --- |
 | M0 | Ratify and freeze the incident foundation | Medium | Complete |
-| M1 | Versioned operation, projection, identity, Undo, and migration contracts | Hard | In progress |
-| M2 | Native graph adapter and canonical mutation path | Hard | Pending |
+| M1 | Versioned operation, projection, identity, Undo, and migration contracts | Hard | Complete |
+| M2 | Native graph adapter and canonical mutation path | Hard | In progress — S1/S2 accepted; S3–S6 pending |
 | M3 | Single Apply/rollback verifier | Hard | Pending |
 | M4 | Workflow-scoped controller and transport boundary | Hard | Pending |
 | M5 | Exhaustive recovery, Undo, and legacy closure | Hard | Pending |

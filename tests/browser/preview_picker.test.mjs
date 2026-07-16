@@ -213,14 +213,16 @@ test("Load & Play stages demo replay from before-send to review", async () => {
       shell,
       state: makePanelState(),
     };
+    const repaintGraph = {
+      ...(harness.app.graph || {}),
+      setDirtyCanvas: (...args) => canvasDraws.push({ method: "setDirtyCanvas", args }),
+    };
     const appWithCanvasRepaintProbe = {
       ...harness.app,
-      graph: {
-        ...(harness.app.graph || {}),
-        setDirtyCanvas: (...args) => canvasDraws.push({ method: "setDirtyCanvas", args }),
-      },
+      graph: repaintGraph,
       canvas: {
         ...(harness.app.canvas || {}),
+        graph: repaintGraph,
         setDirty: (...args) => canvasDraws.push({ method: "setDirty", args }),
         draw: (...args) => canvasDraws.push({ method: "draw", args }),
       },

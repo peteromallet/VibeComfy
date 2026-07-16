@@ -45,6 +45,8 @@ BROWSER_CONTRACT_TESTS := \
 	tests/browser/agent_edit_response_contract.test.mjs \
 	tests/browser/canonical_delta.test.mjs \
 	tests/browser/m1_contracts.test.mjs \
+	tests/browser/intent_graph_adapter.test.mjs \
+	tests/browser/intent_graph_adapter_ownership_static.test.mjs \
 	tests/browser/agent_lifecycle_commit.test.mjs \
 	tests/browser/agent_lifecycle_parity.test.mjs \
 	tests/browser/frontend_browser_boundary.test.mjs \

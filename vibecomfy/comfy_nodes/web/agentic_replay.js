@@ -21,6 +21,7 @@
 
 import { app } from "../../scripts/app.js";
 import { applyGraphCandidateInPlace } from "./comfy_adapter.js";
+import { createIntentGraphAdapter } from "./intent_graph_adapter.js";
 import { scheduleRenderAgentPanel } from "./panel_scheduler.js";
 import { currentAgentPanel } from "./panel_runtime.js";
 import { PANEL_STATE, RENDER_SECTIONS } from "./agent_edit_lifecycle.js";
@@ -462,10 +463,8 @@ export function installAgenticReplay(panel, options = {}) {
    */
   function captureOriginalGraph() {
     try {
-      const graph = helpers.app?.graph;
-      if (graph && typeof graph.serialize === "function") {
-        originalGraphSnapshot = graph.serialize();
-      }
+      const capture = createIntentGraphAdapter(helpers.app).capture();
+      originalGraphSnapshot = capture.ok ? capture.data.graph : null;
     } catch (_e) {
       originalGraphSnapshot = null;
     }

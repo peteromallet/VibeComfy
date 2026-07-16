@@ -16,6 +16,10 @@
 // ── Canonical delta constants (aligned with canonical_delta.js) ─────────────
 
 import { decodeNodeFieldPathV1 } from "./canonical_delta.js";
+import {
+  createIntentGraphAdapter,
+  HARNESS_DELTA_APPLY_FALLBACK_MARKER,
+} from "./intent_graph_adapter.js";
 
 /** Canonical V2 delta schema version. */
 const DELTA_SCHEMA_VERSION = "2.0.0";
@@ -113,31 +117,21 @@ function safeAdapterLogDetail(value) {
  * @param {object} app — the ComfyUI app global (or mock)
  * @returns {Capability}
  */
-export function detectGraphApply(app) {
-  const graph = app?.canvas?.graph;
-  if (!graph) {
-    return {
-      available: false,
-      detail: "No live LiteGraph instance on app.canvas.graph.",
-      path: "app.canvas.graph",
-    };
-  }
-  const hasClear = typeof graph.clear === "function";
-  const hasConfigure = typeof graph.configure === "function";
-  if (!hasClear || !hasConfigure) {
-    const missing = [];
-    if (!hasClear) missing.push("graph.clear");
-    if (!hasConfigure) missing.push("graph.configure");
-    return {
-      available: false,
-      detail: `Missing: ${missing.join(", ")}.`,
-      path: "app.canvas.graph",
-    };
+function detectGraphApply(app) {
+  return graphCapability(app, "graph_apply");
+}
+
+function graphCapability(app, name) {
+  const result = createIntentGraphAdapter(app).capabilities();
+  if (result.ok && result.data?.[name]) {
+    return result.data[name];
   }
   return {
-    available: true,
-    detail: "Live graph supports in-place clear + configure.",
-    path: "app.canvas.graph",
+    available: false,
+    detail: result.diagnostic?.message || `Graph capability ${name} is unavailable.`,
+    path: `intent_graph_adapter.${name}`,
+    strategy: null,
+    fallback: false,
   };
 }
 
@@ -147,7 +141,7 @@ export function detectGraphApply(app) {
  * @param {object} app — the ComfyUI app global (or mock)
  * @returns {object|null}
  */
-export function getLiveGraph(app) {
+function getLiveGraph(app) {
   return app?.canvas?.graph || null;
 }
 
@@ -158,7 +152,7 @@ export function getLiveGraph(app) {
  * @param {object} app — the ComfyUI app global (or mock)
  * @param {object} [graph] — optional live graph reference
  */
-export function repaintGraph(app, graph = getLiveGraph(app)) {
+function repaintGraph(app, graph = getLiveGraph(app)) {
   if (typeof graph?.change === "function") graph.change();
   if (typeof graph?.setDirtyCanvas === "function") {
     graph.setDirtyCanvas(true, true);
@@ -210,8 +204,7 @@ export function applyGraphCandidateInPlace(app, candidate, options = {}) {
   return { graph, capability };
 }
 
-export const HARNESS_DELTA_APPLY_FALLBACK_MARKER =
-  "__vibecomfyAllowDeltaSerializeConfigureFallback";
+export { HARNESS_DELTA_APPLY_FALLBACK_MARKER };
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -1272,57 +1265,8 @@ function applyPreflightPlanLive(app, capability, plan, options = {}) {
   return graph;
 }
 
-export function detectGraphDeltaApply(app) {
-  const graph = getLiveGraph(app);
-  if (!graph) {
-    return {
-      available: false,
-      detail: "No live LiteGraph instance on app.canvas.graph.",
-      path: "app.canvas.graph",
-      strategy: null,
-    };
-  }
-
-  const createNode = resolveFactory(app);
-  const hasLiveMutationCore =
-    typeof graph.serialize === "function"
-    && Array.isArray(graph._nodes)
-    && typeof graph.add === "function"
-    && typeof graph.remove === "function"
-    && typeof createNode === "function";
-  if (hasLiveMutationCore) {
-    return {
-      available: true,
-      detail: "Live graph supports serialized preflight plus LiteGraph add/remove mutation.",
-      path: "app.canvas.graph",
-      strategy: "live-litegraph-mutate",
-      fallback: false,
-    };
-  }
-
-  const hasExplicitHarnessFallback = app?.[HARNESS_DELTA_APPLY_FALLBACK_MARKER] === true;
-  const hasSerializeConfigure =
-    typeof graph.serialize === "function"
-    && typeof graph.clear === "function"
-    && typeof graph.configure === "function";
-  if (hasExplicitHarnessFallback && hasSerializeConfigure) {
-    return {
-      available: true,
-      detail: "Harness-only serialize/mutate/configure fallback enabled by explicit marker.",
-      path: "app.canvas.graph",
-      strategy: "harness-serialize-configure",
-      fallback: true,
-    };
-  }
-
-  return {
-    available: false,
-    detail: hasSerializeConfigure
-      ? "Whole-graph clear/configure is present, but delta apply requires real LiteGraph mutation hooks or the explicit harness fallback marker."
-      : "Missing LiteGraph mutation hooks for delta apply.",
-    path: "app.canvas.graph",
-    strategy: null,
-  };
+function detectGraphDeltaApply(app) {
+  return graphCapability(app, "delta_apply");
 }
 
 export function applyGraphDeltaInPlace(app, { deltaOps, candidateGraph }, options = {}) {
@@ -1448,25 +1392,8 @@ function setLiveNodeGeometry(liveNode, candidateNode) {
   }
 }
 
-export function detectGraphLayoutApply(app) {
-  const graph = getLiveGraph(app);
-  const available = Boolean(
-    graph
-    && typeof graph.serialize === "function"
-    && Array.isArray(graph._nodes)
-    && Array.isArray(graph._groups)
-    && typeof graph.add === "function"
-    && typeof graph.remove === "function",
-  );
-  return {
-    available,
-    detail: available
-      ? "Live graph supports geometry/group-only in-place mutation."
-      : "Layout apply requires serialized live nodes, native groups, and graph add/remove hooks.",
-    path: "app.canvas.graph",
-    strategy: available ? "live-layout-mutate" : null,
-    fallback: false,
-  };
+function detectGraphLayoutApply(app) {
+  return graphCapability(app, "layout_apply");
 }
 
 /**
@@ -2031,7 +1958,9 @@ export function installQueueGuard(app, options = {}) {
  * @returns {AdapterCapabilities}
  */
 export function detectCapabilities(app, windowObj, frontendVersion) {
-  const graphApply = detectGraphApply(app);
+  const graphResult = createIntentGraphAdapter(app).capabilities();
+  const graph = graphResult.ok ? graphResult.data : null;
+  const graphApply = graph?.graph_apply || detectGraphApply(app);
   const previewForeground = detectPreviewForeground(app, windowObj);
   const queueGuard = detectQueueGuard(app);
 
@@ -2039,6 +1968,8 @@ export function detectCapabilities(app, windowObj, frontendVersion) {
   const major = SUPPORTED_FRONTEND.split(".").slice(0, 2).join(".");
 
   return {
+    graph,
+    graphDiagnostic: graphResult.ok ? null : graphResult.diagnostic,
     graphApply,
     previewForeground,
     queueGuard,

@@ -3,12 +3,14 @@
 ## Execution model routing
 
 - Easy delegated work: DeepSeek Pro.
-- Medium delegated work: GPT-5.6 Luna.
-- Hard delegated work: Claude Code routed through GLM 5.2 (`claude:glm-5.2`).
+- Medium delegated work: Claude Code routed through GLM 5.2.
+- Hard delegated work: Claude Code routed through GLM 5.2 with higher reasoning.
 - Exceptional escalation only: GPT-5.6 Sol.
 
 This routing applies to execution of the plan; it does not change the product
 architecture or acceptance criteria below.
+Megaplan profiles use parser-valid effort-only `claude:*` specs, so the active
+Claude Code provider must be configured for GLM 5.2 before those phases run.
 
 ## Purpose
 

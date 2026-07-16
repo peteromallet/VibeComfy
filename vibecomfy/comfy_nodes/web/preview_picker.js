@@ -17,6 +17,7 @@
 
 import { app } from "../../scripts/app.js";
 import { applyGraphCandidateInPlace } from "./comfy_adapter.js";
+import { createIntentGraphAdapter } from "./intent_graph_adapter.js";
 import { scheduleRenderAgentPanel } from "./panel_scheduler.js";
 import { currentAgentPanel } from "./panel_runtime.js";
 import { PANEL_STATE, RENDER_SECTIONS } from "./agent_edit_lifecycle.js";
@@ -368,15 +369,9 @@ export function installPreviewPicker(panel, options = {}) {
   function requestPreviewOverlayRepaint() {
     const repaint = () => {
       try {
-        const graph = helpers.app?.graph;
-        if (typeof graph?.setDirtyCanvas === "function") {
-          graph.setDirtyCanvas(true, true);
-        }
-        if (typeof helpers.app?.canvas?.setDirty === "function") {
-          helpers.app.canvas.setDirty(true, true);
-        }
-        if (typeof helpers.app?.canvas?.draw === "function") {
-          helpers.app.canvas.draw(true, true);
+        const result = createIntentGraphAdapter(helpers.app).repaint();
+        if (!result.ok) {
+          console.warn("[vibecomfy] demo preview repaint unavailable:", result.diagnostic);
         }
       } catch (error) {
         console.warn("[vibecomfy] demo preview repaint failed:", error);

@@ -67,13 +67,11 @@ import {
   applyGraphCandidateInPlace,
   applyGraphDeltaInPlace,
   applyGraphLayoutInPlace,
-  detectGraphDeltaApply,
-  detectGraphLayoutApply,
   installQueueGuard as installQueueGuardAdapter,
   preflightDeltaPlan,
   projectCandidateGraphToRuntimeLayout,
-  repaintGraph,
 } from "./comfy_adapter.js";
+import { createIntentGraphAdapter } from "./intent_graph_adapter.js";
 import {
   createAgentEditState,
   createAgentStateCompartments,
@@ -993,7 +991,14 @@ function normalizeLiveExecNodesForSerialization() {
 
 function captureSerializedGraphForAgent() {
   normalizeForSerialize(null, { live: true });
-  const graph = app.canvas.graph.serialize();
+  const capture = createIntentGraphAdapter(app).capture();
+  if (!capture.ok) {
+    const error = new Error(capture.diagnostic?.message || "Unable to capture the active graph.");
+    error.code = capture.diagnostic?.code || "serialization_failed";
+    error.diagnostic = capture.diagnostic || null;
+    throw error;
+  }
+  const graph = clonePlainData(capture.data.graph);
   normalizeForSerialize(graph);
   return graph;
 }
@@ -2971,7 +2976,9 @@ function applyGraphForLayoutPreview(graphPayload, { repaint = true, fitViewport 
   if (fitViewport) {
     fitCanvasViewportToGraphPayload(graphPayload);
     if (repaint) {
-      repaintGraph(app, result.graph);
+      const adapter = createIntentGraphAdapter(app);
+      adapter.notifyRevision();
+      adapter.repaint();
     }
   }
   return result;
@@ -3063,15 +3070,8 @@ async function sha256HexUtf8(text) {
 }
 
 function captureLiveCanvasRevision() {
-  const graph = app?.canvas?.graph;
-  const revision = graph?.getRevision?.()
-    ?? graph?.revision
-    ?? graph?._vibecomfyLiveCanvasToken
-    ?? graph?._vibecomfy_live_canvas_token
-    ?? graph?._version
-    ?? graph?._revision
-    ?? null;
-  return revision == null ? null : String(revision);
+  const result = createIntentGraphAdapter(app).captureRevision();
+  return result.ok ? result.data.revision : null;
 }
 
 async function structuralGraphHash(graph) {
@@ -6986,12 +6986,7 @@ function clearCandidatePreviewState(panel) {
   invalidateOverlayDrawModelCache();
   clearPreviewDomOverlay(app?.canvas?.canvas?.ownerDocument);
   try {
-    const graph = getLiveGraph();
-    if (graph) {
-      if (typeof graph.setDirtyCanvas === "function") {
-        graph.setDirtyCanvas(true, true);
-      }
-    }
+    createIntentGraphAdapter(app).repaint();
   } catch (e) {
     // Best-effort: a failed dirty-canvas call should not block cleanup.
     console.warn("[vibecomfy] clearCandidatePreviewState canvas dirty failed:", safePreviewLogDetail(e));
@@ -7017,12 +7012,7 @@ function clearCandidateInvalidationSideEffects(repaint = true) {
   // redundant repaint of the same frame.
   if (repaint) {
     try {
-      const graph = getLiveGraph();
-      if (graph) {
-        if (typeof graph.setDirtyCanvas === "function") {
-          graph.setDirtyCanvas(true, true);
-        }
-      }
+      createIntentGraphAdapter(app).repaint();
     } catch (e) {
       // Best-effort
     }
@@ -7095,13 +7085,13 @@ export function computePreviewDiff(candidateGraph, candidateReport, deltaOps = n
     // those controls are canvas UI, not persisted workflow widgets. The
     // candidate is serialized UI JSON, so the live side must use the same
     // representation boundary or unchanged nodes acquire phantom edits.
-    let liveSerializedGraph = null;
-    try {
-      liveSerializedGraph = liveGraph && typeof liveGraph.serialize === "function"
-        ? liveGraph.serialize()
-        : null;
-    } catch (serializeErr) {
-      console.warn("[vibecomfy] computePreviewDiff — live graph serialization failed; using runtime widgets:", safePreviewLogDetail(serializeErr));
+    const liveCapture = createIntentGraphAdapter(app).capture();
+    const liveSerializedGraph = liveCapture.ok ? liveCapture.data.graph : null;
+    if (!liveCapture.ok) {
+      console.warn(
+        "[vibecomfy] computePreviewDiff — live graph serialization failed; using runtime widgets:",
+        liveCapture.diagnostic,
+      );
     }
     const livePreviewGraph = liveSerializedGraph || {
       nodes: liveNodes,
@@ -8276,12 +8266,15 @@ function renderDebug(panel) {
 // ── Adapter capability snapshot for developer section ──────────────────────
 function adapterCapabilitySnapshot() {
   const runtime = getAgentPanelRuntime();
+  const graphCapabilities = createIntentGraphAdapter(app).capabilities();
+  const canReplaceWholeGraph = graphCapabilities.ok
+    && graphCapabilities.data.legacy_whole_graph_replace === true;
   const graphApply = {
-    available: typeof app?.canvas?.graph?.clear === "function" && typeof app?.canvas?.graph?.configure === "function",
-    detail: typeof app?.canvas?.graph?.clear === "function" && typeof app?.canvas?.graph?.configure === "function"
+    available: canReplaceWholeGraph,
+    detail: canReplaceWholeGraph
       ? "Live graph supports in-place clear + configure."
-      : "No live graph instance with clear + configure found.",
-    path: "app.canvas.graph",
+      : (graphCapabilities.diagnostic?.message || "No live graph instance with clear + configure found."),
+    path: "intent_graph_adapter.capabilities",
   };
   const previewForeground = runtime._previewForegroundInstallReport?.capability || {
     available: false,
@@ -10036,12 +10029,7 @@ async function submitAgentEdit(panel, { taskOverride } = {}) {
     renderLifecycleTransition(panel, candidateObligations);
 
     if (panel.state.previewEnabled) {
-      if (app?.canvas?.setDirty) {
-        app.canvas.setDirty(true, true);
-      }
-      if (app?.canvas?.draw) {
-        app.canvas.draw(true, true);
-      }
+      createIntentGraphAdapter(app).repaint();
     }
   })();
 
@@ -10164,9 +10152,14 @@ async function applyAgentCandidate(panel) {
     const v2DeltaOps = candidateTransaction
       ? clonePlainData(candidateTransaction.plan.delta_ops_envelope.ops)
       : null;
-    const v2DeltaCapability = detectGraphDeltaApply(app);
+    const graphCapabilities = createIntentGraphAdapter(app).capabilities();
+    const v2DeltaCapability = graphCapabilities.ok
+      ? graphCapabilities.data.delta_apply
+      : { available: false, strategy: null };
     const layoutTransaction = isLayoutAuthorityTransaction(candidateTransaction);
-    const layoutCapability = detectGraphLayoutApply(app);
+    const layoutCapability = graphCapabilities.ok
+      ? graphCapabilities.data.layout_apply
+      : { available: false, strategy: null };
     const missingTransactionFields = [];
     if (!candidateTransaction) missingTransactionFields.push("candidate_transaction");
     if (!transactionAllows(candidateTransaction, "apply")) missingTransactionFields.push("apply_authorization");
